@@ -1,0 +1,18 @@
+#' Configure service: {{ method_name }}
+#'
+#' @description
+#' {{ description }}
+#'
+#' @param x An S3 object of class '{{ class_name }}'
+{% for param_doc in param_docs -%}
+{{ param_doc }}
+{% endfor -%}
+#' @return Updated S3 object (invisibly)
+#' @export
+{{ method_name }}.{{ class_name }} <- function(x{{ params_suffix }}) {
+{% for state_assignment in state_assignments -%}
+{{ state_assignment }}
+{% endfor -%}
+  invisible(x)
+}
+

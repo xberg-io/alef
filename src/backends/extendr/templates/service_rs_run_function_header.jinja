@@ -1,0 +1,15 @@
+/// Drive `{{ owner_path }}::{{ ep_method }}` from R.
+///
+/// Each entry in `registrations` is a `list(method_name, metadata_list, closure)` triple.
+#[extendr]
+pub fn {{ fn_name }}(registrations: Robj{% for ep_param_decl in ep_param_decls %}{{ ep_param_decl }}{% endfor %}) -> Result<Robj> {
+    let mut owner = {{ ctor_call }};
+
+    // Process each registration
+    if let Some(list) = registrations.as_list() {
+        for entry in list.values() {
+            if let Some(triple) = entry.as_list() {
+                if let Some(method_name) = triple.iter().next().and_then(|x| x.as_str()) {
+                    let closure = triple.iter().nth(2).ok_or("missing closure")?;
+
+                    match method_name {

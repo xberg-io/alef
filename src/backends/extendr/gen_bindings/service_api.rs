@@ -25,12 +25,16 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{
-    ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariant, ServiceDef, TypeRef,
+    ApiSurface, EntrypointKind, HandlerContractDef, ParamDef, RegistrationDef, RegistrationVariant, ServiceDef, TypeRef,
 };
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
+
+fn render(template_name: &str, ctx: minijinja::Value) -> String {
+    crate::backends::extendr::template_env::render(template_name, ctx)
+}
 
 /// Convert a `TypeRef` to a simple R type annotation string.
 fn r_type_annotation(ty: &TypeRef) -> String {
@@ -90,93 +94,73 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
 
     // Service constructor function
     {
-        out.push_str(&format!("#' Create a new {class_name} instance\n"));
-        out.push_str(&format!(
-            "#'\n#' @description\n#' {}",
-            if !service.doc.is_empty() {
-                service.doc.trim().to_owned()
-            } else {
-                "Initialize a service instance.".to_owned()
-            }
-        ));
-        out.push('\n');
-        out.push_str("#'\n");
-
-        // Emit parameter documentation
-        for param in &constructor.params {
-            let ty_str = r_type_annotation(&param.ty);
-            out.push_str(&format!("#' @param {} {} Parameter\n", param.name, ty_str));
-        }
-
-        out.push_str("#' @return An S3 object of class 'ServiceDef'\n");
-        out.push_str("#' @export\n");
-
         let param_names: Vec<&str> = constructor.params.iter().map(|p| p.name.as_str()).collect();
         let params_str = if param_names.is_empty() {
             String::new()
         } else {
             param_names.join(" = , ").to_owned()
         };
+        let param_docs: Vec<String> = constructor
+            .params
+            .iter()
+            .map(|param| format!("#' @param {} {} Parameter", param.name, r_type_annotation(&param.ty)))
+            .collect();
+        let state_entries: Vec<String> = constructor
+            .params
+            .iter()
+            .map(|param| format!("    .{} = {},", param.name, param.name))
+            .collect();
 
-        out.push_str(&format!("{class_name} <- function({params_str}) {{\n"));
-        out.push_str("  obj <- list(\n");
-        out.push_str("    .registrations = list(),\n");
-
-        // Store constructor parameters as instance state
-        for param in &constructor.params {
-            out.push_str(&format!("    .{} = {},\n", param.name, param.name));
-        }
-
-        out.push_str("    .class = \"");
-        out.push_str(class_name);
-        out.push_str("\"\n");
-        out.push_str("  )\n");
-        out.push_str("  class(obj) <- c(\"");
-        out.push_str(class_name);
-        out.push_str("\", \"list\")\n");
-        out.push_str("  obj\n");
-        out.push_str("}\n\n");
+        out.push_str(&render(
+            "service_r_constructor.jinja",
+            minijinja::context! {
+                class_name => class_name,
+                description => if !service.doc.is_empty() {
+                    service.doc.trim().to_owned()
+                } else {
+                    "Initialize a service instance.".to_owned()
+                },
+                param_docs => param_docs,
+                params_str => params_str,
+                state_entries => state_entries,
+            },
+        ));
     }
 
     // Configurator methods
     for method in &service.configurators {
         let method_name = &method.name;
-        out.push_str(&format!("#' Configure service: {method_name}\n"));
-        out.push_str(&format!(
-            "#'\n#' @description\n#' {}",
-            if !method.doc.is_empty() {
-                method.doc.trim().to_owned()
-            } else {
-                "Apply a configuration.".to_owned()
-            }
+        let params_suffix = method
+            .params
+            .iter()
+            .map(|param| format!(", {}", param.name))
+            .collect::<String>();
+        let param_docs: Vec<String> = method
+            .params
+            .iter()
+            .map(|param| format!("#' @param {} {} Parameter", param.name, r_type_annotation(&param.ty)))
+            .collect();
+        let state_assignments: Vec<String> = method
+            .params
+            .iter()
+            .map(|param| format!("  x$.{} <- {}", param.name, param.name))
+            .collect();
+
+        out.push_str(&render(
+            "service_r_configurator.jinja",
+            minijinja::context! {
+                method_name => method_name,
+                class_name => class_name,
+                description => if !method.doc.is_empty() {
+                    method.doc.trim().to_owned()
+                } else {
+                    "Apply a configuration.".to_owned()
+                },
+                param_docs => param_docs,
+                params_suffix => params_suffix,
+                state_assignments => state_assignments,
+            },
         ));
-        out.push('\n');
-        out.push_str("#'\n");
-        out.push_str("#' @param x An S3 object of class '");
-        out.push_str(class_name);
-        out.push_str("'\n");
-
-        for param in &method.params {
-            let ty_str = r_type_annotation(&param.ty);
-            out.push_str(&format!("#' @param {} {} Parameter\n", param.name, ty_str));
-        }
-
-        out.push_str("#' @return Updated S3 object (invisibly)\n");
-        out.push_str("#' @export\n");
-        out.push_str(&format!("{method_name}.{class_name} <- function(x"));
-        for param in &method.params {
-            out.push_str(", ");
-            out.push_str(&param.name);
-        }
-        out.push_str(") {\n");
-
-        // Store each parameter as instance state
-        for param in &method.params {
-            out.push_str(&format!("  x$.{} <- {}\n", param.name, param.name));
-        }
-
-        out.push_str("  invisible(x)\n");
-        out.push_str("}\n\n");
     }
 
     // Registration methods
@@ -190,88 +174,85 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
 
         match ep.kind {
             EntrypointKind::Run => {
-                out.push_str("#' Run the service\n");
-                out.push_str(&format!(
-                    "#'\n#' @description\n#' {}",
-                    if !ep.doc.is_empty() {
+                let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
+                gen_service_entrypoint_r(
+                    out,
+                    class_name,
+                    ep_name,
+                    &if !ep.doc.is_empty() {
                         ep.doc.trim().to_owned()
                     } else {
                         "Execute the service.".to_owned()
-                    }
-                ));
-                out.push('\n');
-                out.push_str("#'\n");
-                out.push_str("#' @param x An S3 object of class '");
-                out.push_str(class_name);
-                out.push_str("'\n");
-
-                for param in &ep.params {
-                    let ty_str = r_type_annotation(&param.ty);
-                    out.push_str(&format!("#' @param {} {} Parameter\n", param.name, ty_str));
-                }
-
-                out.push_str("#' @return Invisibly NULL\n");
-                out.push_str("#' @export\n");
-                out.push_str(&format!("{ep_name}.{class_name} <- function(x"));
-                for param in &ep.params {
-                    out.push_str(", ");
-                    out.push_str(&param.name);
-                }
-                out.push_str(") {\n");
-
-                // Delegate to native function
-                // Convention: native fn is `{snake_service_name}_{entrypoint_name}`
-                let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
-                out.push_str(&format!("  .Call(`{native_fn}`, x$.registrations"));
-                for param in &ep.params {
-                    out.push_str(", ");
-                    out.push_str(&param.name);
-                }
-                out.push_str(")\n");
-                out.push_str("  invisible(NULL)\n");
-                out.push_str("}\n\n");
+                    },
+                    &ep.params,
+                    "Run the service",
+                    "Invisibly NULL",
+                    &native_fn,
+                    true,
+                );
             }
             EntrypointKind::Finalize => {
-                out.push_str("#' Finalize the service\n");
-                out.push_str(&format!(
-                    "#'\n#' @description\n#' {}",
-                    if !ep.doc.is_empty() {
+                let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
+                gen_service_entrypoint_r(
+                    out,
+                    class_name,
+                    ep_name,
+                    &if !ep.doc.is_empty() {
                         ep.doc.trim().to_owned()
                     } else {
                         "Finalize and return result.".to_owned()
-                    }
-                ));
-                out.push('\n');
-                out.push_str("#'\n");
-                out.push_str("#' @param x An S3 object of class '");
-                out.push_str(class_name);
-                out.push_str("'\n");
-
-                for param in &ep.params {
-                    let ty_str = r_type_annotation(&param.ty);
-                    out.push_str(&format!("#' @param {} {} Parameter\n", param.name, ty_str));
-                }
-
-                out.push_str("#' @return Result from finalization\n");
-                out.push_str("#' @export\n");
-                out.push_str(&format!("{ep_name}.{class_name} <- function(x"));
-                for param in &ep.params {
-                    out.push_str(", ");
-                    out.push_str(&param.name);
-                }
-                out.push_str(") {\n");
-
-                let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
-                out.push_str(&format!("  .Call(`{native_fn}`, x$.registrations"));
-                for param in &ep.params {
-                    out.push_str(", ");
-                    out.push_str(&param.name);
-                }
-                out.push_str(")\n");
-                out.push_str("}\n\n");
+                    },
+                    &ep.params,
+                    "Finalize the service",
+                    "Result from finalization",
+                    &native_fn,
+                    false,
+                );
             }
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gen_service_entrypoint_r(
+    out: &mut String,
+    class_name: &str,
+    ep_name: &str,
+    description: &str,
+    params: &[ParamDef],
+    title: &str,
+    return_doc: &str,
+    native_fn: &str,
+    invisible_null: bool,
+) {
+    let params_suffix = params
+        .iter()
+        .map(|param| format!(", {}", param.name))
+        .collect::<String>();
+    let param_docs: Vec<String> = params
+        .iter()
+        .map(|param| format!("#' @param {} {} Parameter", param.name, r_type_annotation(&param.ty)))
+        .collect();
+    let native_args_suffix = params
+        .iter()
+        .map(|param| format!(", {}", param.name))
+        .collect::<String>();
+
+    out.push_str(&render(
+        "service_r_entrypoint.jinja",
+        minijinja::context! {
+            title => title,
+            description => description,
+            class_name => class_name,
+            param_docs => param_docs,
+            return_doc => return_doc,
+            ep_name => ep_name,
+            params_suffix => params_suffix,
+            native_fn => native_fn,
+            native_args_suffix => native_args_suffix,
+            invisible_null => invisible_null,
+        },
+    ));
 }
 
 fn gen_registration_method(out: &mut String, reg: &RegistrationDef, service: &ServiceDef, _api: &ApiSurface) {
@@ -279,55 +260,45 @@ fn gen_registration_method(out: &mut String, reg: &RegistrationDef, service: &Se
     let class_name = &service.name;
     let callback_param = &reg.callback_param;
 
-    // Roxygen documentation
-    out.push_str("#' Register a callback\n");
-    out.push_str(&format!(
-        "#'\n#' @description\n#' {}",
-        if !reg.doc.is_empty() {
-            reg.doc.trim().to_owned()
-        } else {
-            "Register a callback handler.".to_owned()
-        }
-    ));
-    out.push('\n');
-    out.push_str("#'\n");
-    out.push_str("#' @param x An S3 object of class '");
-    out.push_str(class_name);
-    out.push_str("'\n");
-
-    for param in &reg.metadata_params {
-        let ty_str = r_type_annotation(&param.ty);
-        out.push_str(&format!("#' @param {} {} Metadata parameter\n", param.name, ty_str));
-    }
-
-    out.push_str(&format!("#' @param {} Callback function (closure)\n", callback_param));
-
-    out.push_str("#' @return Updated S3 object (invisibly)\n");
-    out.push_str("#' @export\n");
-
-    out.push_str(&format!("{method_name}.{class_name} <- function(x"));
-    for param in &reg.metadata_params {
-        out.push_str(", ");
-        out.push_str(&param.name);
-    }
-    out.push_str(&format!(", {callback_param}"));
-    out.push_str(") {\n");
-
-    // Collect metadata args into a tuple
     let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
-    if meta_names.is_empty() {
-        out.push_str(&format!(
-            "  x$.registrations[[length(x$.registrations) + 1]] <- list(\"{method_name}\", list(), {callback_param})\n"
-        ));
+    let metadata_expr = if meta_names.is_empty() {
+        "list()".to_owned()
     } else {
-        out.push_str(&format!(
-            "  x$.registrations[[length(x$.registrations) + 1]] <- list(\"{method_name}\", list({}), {callback_param})\n",
-            meta_names.join(", ")
-        ));
-    }
+        format!("list({})", meta_names.join(", "))
+    };
+    let metadata_params_suffix = reg
+        .metadata_params
+        .iter()
+        .map(|param| format!(", {}", param.name))
+        .collect::<String>();
+    let metadata_docs: Vec<String> = reg
+        .metadata_params
+        .iter()
+        .map(|param| {
+            format!(
+                "#' @param {} {} Metadata parameter",
+                param.name,
+                r_type_annotation(&param.ty)
+            )
+        })
+        .collect();
 
-    out.push_str("  invisible(x)\n");
-    out.push_str("}\n\n");
+    out.push_str(&render(
+        "service_r_registration.jinja",
+        minijinja::context! {
+            method_name => method_name,
+            class_name => class_name,
+            callback_param => callback_param,
+            description => if !reg.doc.is_empty() {
+                reg.doc.trim().to_owned()
+            } else {
+                "Register a callback handler.".to_owned()
+            },
+            metadata_docs => metadata_docs,
+            metadata_params_suffix => metadata_params_suffix,
+            metadata_expr => metadata_expr,
+        },
+    ));
 
     // Emit registration variants (shortcuts for common patterns)
     for variant in &reg.variants {
@@ -484,34 +455,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .collect();
     let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
-    out.push_str(&format!(
-        "/// Generated extendr bridge for the `{trait_name}` contract.\n\
-         ///\n\
-         /// Wraps an R closure so it can be used as `Arc<dyn {trait_name}>` from Rust.\n\
-         /// Because R is single-threaded, this bridge runs calls synchronously,\n\
-         /// blocking the current thread within an async wrapper. The Tokio runtime\n\
-         /// (if active) is blocked; otherwise a local runtime is created per call.\n\
-         pub struct {bridge_name} {{\n    \
-             closure: Robj,\n\
-         }}\n\n"
-    ));
-
-    out.push_str(&format!(
-        "impl {bridge_name} {{\n    \
-             /// Create a bridge from an R closure.\n    \
-             pub fn new(closure: Robj) -> Self {{\n        \
-                 Self {{ closure }}\n    \
-             }}\n\
-         }}\n\n"
-    ));
-
-    // Safety: Robj is Send+Sync under extendr; the closure is protected by R's GC.
-    out.push_str(&format!(
-        "// SAFETY: Robj is Send+Sync in extendr. R's GC protects the underlying closure.\n\
-         unsafe impl Send for {bridge_name} {{}}\n\
-         unsafe impl Sync for {bridge_name} {{}}\n\n"
-    ));
-
     // The future's `Output` is the contract dispatch's real return type when the library
     // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
     // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
@@ -528,60 +471,22 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         None => "outcome".to_string(),
     };
 
-    // Trait impl: returns a pinned boxed future directly without async_trait
-    out.push_str(&format!(
-        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             fn {dispatch_name}(\n        \
-                 &self{extra_param},\n        \
-                 {wire_name}: {req_path},\n    \
-             ) -> Pin<Box<dyn Future<Output = {output_type}> + Send + '_>> {{\n        \
-                 // Create a clone of the closure for the async block (owned move).\n        \
-                 let closure = self.closure.clone();\n\n        \
-                 Box::pin(async move {{\n            \
-                     let outcome: {wire_output} = async move {{\n                \
-                         // Serialize the request to JSON\n                \
-                         let req_json = serde_json::to_string(&{wire_name})\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                         // Call the R closure synchronously (R is single-threaded).\n                \
-                         // If a Tokio runtime is active, block on it; otherwise create a local runtime.\n                \
-                         let raw_result = if let Ok(handle) = tokio::runtime::Handle::try_current() {{\n                    \
-                             // We are already in an async context; use block_in_place to free the executor.\n                    \
-                             tokio::task::block_in_place(|| {{\n                        \
-                                 Self::call_r_closure_blocking_static(&closure, &req_json)\n                    \
-                             }})\n                \
-                         }} else {{\n                    \
-                             // No runtime: call directly.\n                    \
-                             Self::call_r_closure_blocking_static(&closure, &req_json)\n                \
-                         }}?;\n\n                \
-                         // Deserialize the JSON result back into the wire response DTO.\n                \
-                         let response: {resp_path} = serde_json::from_str(&raw_result)\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                         Ok(response)\n            \
-                     }}\n            \
-                     .await;\n\n            \
-                     {tail}\n        \
-                 }})\n    \
-             }}\n\
-         }}\n\n"
-    ));
-
-    // Helper method for the actual R closure invocation
-    out.push_str(&format!(
-        "impl {bridge_name} {{\n    \
-             /// Call the R closure and return JSON-serialized result (static so it can be called from the async block).\n    \
-             fn call_r_closure_blocking_static(closure: &Robj, req_json: &str) -> Result<String, {box_err}> {{\n        \
-                 // Parse JSON string into R object via extendr\n        \
-                 let req_obj = extendr_api::call!(Robj::from(req_json))?\n            \
-                     .ok_or(\"failed to parse request JSON\")?;\n\n        \
-                 // Call the closure: closure(request_obj)\n        \
-                 let result = closure.call((req_obj,))\n            \
-                     .map_err(|e| Box::new(e) as {box_err})?;\n\n        \
-                 // Serialize result to JSON\n        \
-                 let result_json = serde_json::to_string(&result)\n            \
-                     .map_err(|e| Box::new(e) as {box_err})?;\n\n        \
-                 Ok(result_json)\n    \
-             }}\n\
-         }}\n\n"
+    out.push_str(&render(
+        "service_rs_handler_bridge.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+            bridge_name => bridge_name,
+            core_import => core_import,
+            dispatch_name => dispatch_name,
+            extra_param => extra_param,
+            wire_name => wire_name,
+            req_path => req_path,
+            resp_path => resp_path,
+            output_type => output_type,
+            wire_output => wire_output,
+            box_err => box_err,
+            tail => tail,
+        },
     ));
 }
 
@@ -598,86 +503,73 @@ fn gen_run_extendr_function(
     let owner_path = &service.rust_path;
     let ep_method = &ep.method;
 
-    out.push_str(&format!(
-        "/// Drive `{owner_path}::{ep_method}` from R.\n\
-         ///\n\
-         /// Each entry in `registrations` is a `list(method_name, metadata_list, closure)` triple.\n\
-         #[extendr]\n\
-         pub fn {fn_name}(registrations: Robj"
-    ));
+    let mut ep_param_decls = Vec::new();
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
-        out.push_str(&format!(", {}: {}", p.name, rust_ty));
+        ep_param_decls.push(format!(", {}: {}", p.name, rust_ty));
     }
-    out.push_str(") -> Result<Robj> {\n");
 
     // Build the owner instance via its constructor
     let ctor_call = build_ctor_call(service, owner_path, core_import);
-    out.push_str(&format!("    let mut owner = {ctor_call};\n\n"));
+    out.push_str(&render(
+        "service_rs_run_function_header.jinja",
+        minijinja::context! {
+            owner_path => owner_path,
+            ep_method => ep_method,
+            fn_name => fn_name,
+            ep_param_decls => ep_param_decls,
+            ctor_call => ctor_call,
+        },
+    ));
 
-    // Iterate registrations and dispatch
-    out.push_str("    // Process each registration\n");
-    out.push_str("    if let Some(list) = registrations.as_list() {\n");
-    out.push_str("        for entry in list.values() {\n");
-    out.push_str("            if let Some(triple) = entry.as_list() {\n");
-    out.push_str("                if let Some(method_name) = triple.iter().next().and_then(|x| x.as_str()) {\n");
-    out.push_str("                    let closure = triple.iter().nth(2).ok_or(\"missing closure\")?;\n\n");
-
-    // Dispatch on method name
-    out.push_str("                    match method_name {\n");
     for reg in &service.registrations {
         let reg_method = &reg.method;
         let contract_name = &reg.callback_contract;
 
         if let Some(contract) = find_contract(api, contract_name) {
             let bridge_name = format!("Extendr{}Bridge", contract.trait_name.to_upper_camel_case());
-
-            out.push_str(&format!("                        \"{reg_method}\" => {{\n"));
-            out.push_str(&format!(
-                "                            let bridge = {bridge_name}::new(closure.clone());\n"
-            ));
-            out.push_str(&format!(
-                "                            let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
-            ));
-
-            if !reg.metadata_params.is_empty() {
-                out.push_str("                            if let Some(meta_list) = triple.iter().nth(1).and_then(|x| x.as_list()) {\n");
-                for (i, meta_param) in reg.metadata_params.iter().enumerate() {
+            let metadata_bindings: Vec<String> = reg
+                .metadata_params
+                .iter()
+                .enumerate()
+                .map(|(i, meta_param)| {
                     let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
-                    // Simple conversion: cast or extract from R object
-                    out.push_str(&format!(
-                        "                                let {}: {} = meta_list.iter().nth({i}).ok_or(\"missing metadata\")?.clone().try_into()?;\n",
+                    format!(
+                        "                                let {}: {} = meta_list.iter().nth({i}).ok_or(\"missing metadata\")?.clone().try_into()?;",
                         meta_param.name, rust_ty,
-                    ));
-                }
-                let meta_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
-                out.push_str(&format!(
-                    "                                owner.{reg_method}({}, handler);\n",
-                    meta_args.join(", ")
-                ));
-                out.push_str("                            }\n");
+                    )
+                })
+                .collect();
+            let meta_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
+            let owner_call = if meta_args.is_empty() {
+                format!("owner.{reg_method}(handler);")
             } else {
-                out.push_str(&format!("                            owner.{reg_method}(handler);\n"));
-            }
+                format!("owner.{reg_method}({}, handler);", meta_args.join(", "))
+            };
 
-            out.push_str("                        }\n");
+            out.push_str(&render(
+                "service_rs_registration_match_arm.jinja",
+                minijinja::context! {
+                    reg_method => reg_method,
+                    bridge_name => bridge_name,
+                    core_import => core_import,
+                    contract_name => contract_name,
+                    has_metadata => !reg.metadata_params.is_empty(),
+                    metadata_bindings => metadata_bindings,
+                    owner_call => owner_call,
+                },
+            ));
         }
     }
-    out.push_str(
-        "                        _ => return Err(Error::other(format!(\"unknown registration: {}\", method_name))),\n",
-    );
-    out.push_str("                    }\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
 
     // Call the entrypoint
     let ep_call = build_ep_call(ep, service, core_import);
-    out.push_str(&ep_call);
-
-    out.push_str("    Ok(Robj::from(NULL))\n");
-    out.push_str("}\n\n");
+    out.push_str(&render(
+        "service_rs_run_function_footer.jinja",
+        minijinja::context! {
+            ep_call => ep_call,
+        },
+    ));
 }
 
 /// Build the Rust constructor call for the service owner.

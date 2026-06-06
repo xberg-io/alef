@@ -1,0 +1,2 @@
+let {{ mut_kw }}{{ name }}_core: Option<{{ ty }}> = {{ name }}.as_deref()
+        .map(|s| serde_json::from_str(s){{ err }}).transpose()?;

@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **backends**: migrated more generated-source emission in C#, Dart trait bridge helpers, FFI, Go, Java, JNI service/shim, Magnus/Ruby, NAPI, PyO3/Python, Rustler/Elixir, Swift module/trait bridge, and Zig backends from Rust string assembly to backend Jinja templates. This keeps host-language code blocks in templates while leaving identifier, type, argument, and expression construction in Rust. (`src/backends/csharp`, `src/backends/dart`, `src/backends/ffi`, `src/backends/go`, `src/backends/java`, `src/backends/jni`, `src/backends/magnus`, `src/backends/napi`, `src/backends/pyo3`, `src/backends/rustler`, `src/backends/swift`, `src/backends/zig`)
+- **backends**: migrated more generated-source emission in C#, Dart trait bridge helpers, Extendr/R, FFI, Go, Java, JNI service/shim, Magnus/Ruby, NAPI, PyO3/Python, Rustler/Elixir, Swift module/trait bridge, WASM service wrappers, and Zig backends from Rust string assembly to backend Jinja templates. This keeps host-language code blocks in templates while leaving identifier, type, argument, and expression construction in Rust. (`src/backends/csharp`, `src/backends/dart`, `src/backends/extendr`, `src/backends/ffi`, `src/backends/go`, `src/backends/java`, `src/backends/jni`, `src/backends/magnus`, `src/backends/napi`, `src/backends/pyo3`, `src/backends/rustler`, `src/backends/swift`, `src/backends/wasm`, `src/backends/zig`)
 
 ### Fixed
 

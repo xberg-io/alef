@@ -1697,40 +1697,6 @@ fn gen_extendr_bridge_field_function(
     // Return type
     let return_type = "Result<Robj>";
 
-    let mut body = String::with_capacity(1024);
-
-    // Extract the bridge field from the options Robj (which is a list)
-    body.push_str("    use std::sync::Arc;\n");
-    body.push_str("    use std::sync::Mutex;\n");
-    body.push_str(&format!(
-        "    let {field_name}_robj: Option<Robj> = {options_param}.clone().as_list().and_then(|list| {{\n"
-    ));
-    body.push_str(&format!(
-        "        list.iter().find(|(k, _)| *k == \"{field_name}\").map(|(_, v)| v)\n"
-    ));
-    body.push_str("    }).filter(|v| !v.is_null() && !v.is_na());\n");
-
-    // Create the bridge handle from the R object
-    body.push_str(&format!(
-        "    let {field_name}_handle: Option<{handle_path}> = {field_name}_robj\n"
-    ));
-    body.push_str(&format!(
-        "        .map(|v| Arc::new(Mutex::new({struct_name}::new(v))) as {handle_path});\n"
-    ));
-
-    // Decode options into the R-local options type, convert to the core type via the
-    // generated `From` impl, then inject the bridge handle. The bridge field exists only on
-    // the core options type, so we convert first and assign after.
-    body.push_str(&format!(
-        "    let opts_local = crate::options::decode_options({options_param})\n"
-    ));
-    body.push_str("        .map_err(|e| extendr_api::Error::Other(e))?;\n");
-    body.push_str(&format!(
-        "    let mut opts: {core_import}::{options_type} = opts_local.into();\n",
-        options_type = bridge_match.options_type
-    ));
-    body.push_str(&format!("    opts.{field_name} = {field_name}_handle;\n"));
-
     // Build the core function call. For `String` params we pass `&name` (deref-coerces to `&str`);
     // for `Robj` fall back to passing by reference as before. `opts` is already the core type.
     let mut call_args = Vec::new();
@@ -1741,11 +1707,22 @@ fn gen_extendr_bridge_field_function(
             call_args.push(format!("&{}", param.name));
         }
     }
-    body.push_str(&format!("    {core_import}::{func_name}({})\n", call_args.join(", ")));
-    body.push_str("        .map(crate::types::conversion_result_to_robj)\n");
-    body.push_str("        .map_err(|e| extendr_api::Error::Other(e.to_string()))\n");
 
-    format!("#[extendr]\npub fn {func_name}({params_str}) -> {return_type} {{\n{body}}}\n")
+    crate::backends::extendr::template_env::render(
+        "bridge_field_function.jinja",
+        minijinja::context! {
+            func_name => func_name,
+            params_str => params_str,
+            return_type => return_type,
+            field_name => field_name,
+            options_param => options_param,
+            handle_path => handle_path,
+            struct_name => struct_name,
+            core_import => core_import,
+            options_type => &bridge_match.options_type,
+            call_args_str => call_args.join(", "),
+        },
+    )
 }
 
 /// Generate a flat Rust struct for a data enum with all-tuple variants.
@@ -2095,22 +2072,28 @@ fn gen_extendr_json_bridged_function(
             let mut_kw = if param.is_mut { "mut " } else { "" };
             if param.optional {
                 sig_params.push(format!("{}: Option<String>", param.name));
-                body_preamble.push_str(&format!(
-                    "let {mut_kw}{name}_core: Option<{ty}> = {name}.as_deref()\n        .map(|s| serde_json::from_str(s){err}).transpose()?;\n    ",
-                    mut_kw = mut_kw,
-                    name = &param.name,
-                    ty = &core_ty_path,
-                    err = &err_map,
+                body_preamble.push_str(&crate::backends::extendr::template_env::render(
+                    "json_struct_optional_preamble.jinja",
+                    minijinja::context! {
+                        mut_kw => mut_kw,
+                        name => &param.name,
+                        ty => &core_ty_path,
+                        err => &err_map,
+                    },
                 ));
+                body_preamble.push_str("    ");
             } else {
                 sig_params.push(format!("{}: String", param.name));
-                body_preamble.push_str(&format!(
-                    "let {mut_kw}{name}_core: {ty} = serde_json::from_str(&{name}){err}?;\n    ",
-                    mut_kw = mut_kw,
-                    name = &param.name,
-                    ty = &core_ty_path,
-                    err = &err_map,
+                body_preamble.push_str(&crate::backends::extendr::template_env::render(
+                    "json_struct_required_preamble.jinja",
+                    minijinja::context! {
+                        mut_kw => mut_kw,
+                        name => &param.name,
+                        ty => &core_ty_path,
+                        err => &err_map,
+                    },
                 ));
+                body_preamble.push_str("    ");
             }
         } else {
             // Use the standard binding type. Named opaque structs have `#[extendr]` impls and
@@ -3027,26 +3010,22 @@ fn gen_extendr_wrappers_r(
 
         // Hand-crafted roxygen block — we cannot reuse `r_roxygen_block` because
         // trait-bridge functions are not represented as `FunctionDef` in the IR.
-        let mut roxygen_block = String::with_capacity(256);
-        roxygen_block.push_str(&format!("#' {}\n", bridge_fn.name));
-        roxygen_block.push_str("#'\n");
-        if bridge_fn.name.starts_with("register_") {
-            roxygen_block.push_str("#' Register an R-side plugin implementation. Pass a named list whose entries\n");
-            roxygen_block
-                .push_str("#' implement the trait's required methods (e.g. `list(name = function() \"my\", ...)`).\n");
-            roxygen_block.push_str("#'\n");
-            roxygen_block.push_str("#' @param r_backend Named list of R closures implementing the trait surface.\n");
+        let kind = if bridge_fn.name.starts_with("register_") {
+            "register"
         } else if bridge_fn.name.starts_with("unregister_") {
-            roxygen_block.push_str("#' Unregister a previously registered plugin by name.\n");
-            roxygen_block.push_str("#'\n");
-            roxygen_block.push_str("#' @param name Plugin name string as returned by the backend's `name()` method.\n");
+            "unregister"
         } else if bridge_fn.name.starts_with("clear_") {
-            roxygen_block
-                .push_str("#' Remove every registered plugin of this type. Typically used in test teardown.\n");
-        }
-        roxygen_block.push_str("#'\n");
-        roxygen_block.push_str("#' @return Invisible NULL on success; raises an R error on failure.\n");
-        roxygen_block.push_str("#' @export\n");
+            "clear"
+        } else {
+            ""
+        };
+        let roxygen_block = crate::backends::extendr::template_env::render(
+            "r_trait_bridge_roxygen.jinja",
+            minijinja::context! {
+                name => &bridge_fn.name,
+                kind => kind,
+            },
+        );
 
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_free_function_wrapper.jinja",
@@ -3205,17 +3184,11 @@ fn gen_extendr_wrappers_r(
 
         let enum_name = &e.name;
 
-        let roxygen_block = format!(
-            "#' Create a {} enum value\n#'\n#' Returns the default {} variant.\n#'\n#' @return A {} enum value\n#' @export\n",
-            enum_name, enum_name, enum_name
-        );
-
         // Emit a simple wrapper function that returns the default variant as a list with class attribute.
         // This mirrors how structs are constructed via `TypeName$default()` in R.
-        out.push_str(&roxygen_block);
-        out.push_str(&format!(
-            "{}  <- function() list() |> structure(class = \"{}\")\n\n",
-            enum_name, enum_name
+        out.push_str(&crate::backends::extendr::template_env::render(
+            "r_unit_enum_wrapper.jinja",
+            minijinja::context! { enum_name => enum_name },
         ));
     }
 

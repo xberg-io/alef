@@ -1,0 +1,78 @@
+/// Generated extendr bridge for the `{{ trait_name }}` contract.
+///
+/// Wraps an R closure so it can be used as `Arc<dyn {{ trait_name }}>` from Rust.
+/// Because R is single-threaded, this bridge runs calls synchronously,
+/// blocking the current thread within an async wrapper. The Tokio runtime
+/// (if active) is blocked; otherwise a local runtime is created per call.
+pub struct {{ bridge_name }} {
+    closure: Robj,
+}
+
+impl {{ bridge_name }} {
+    /// Create a bridge from an R closure.
+    pub fn new(closure: Robj) -> Self {
+        Self { closure }
+    }
+}
+
+// SAFETY: Robj is Send+Sync in extendr. R's GC protects the underlying closure.
+unsafe impl Send for {{ bridge_name }} {}
+unsafe impl Sync for {{ bridge_name }} {}
+
+impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
+    fn {{ dispatch_name }}(
+        &self{{ extra_param }},
+        {{ wire_name }}: {{ req_path }},
+    ) -> Pin<Box<dyn Future<Output = {{ output_type }}> + Send + '_>> {
+        // Create a clone of the closure for the async block (owned move).
+        let closure = self.closure.clone();
+
+        Box::pin(async move {
+            let outcome: {{ wire_output }} = async move {
+                // Serialize the request to JSON
+                let req_json = serde_json::to_string(&{{ wire_name }})
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+
+                // Call the R closure synchronously (R is single-threaded).
+                // If a Tokio runtime is active, block on it; otherwise create a local runtime.
+                let raw_result = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    // We are already in an async context; use block_in_place to free the executor.
+                    tokio::task::block_in_place(|| {
+                        Self::call_r_closure_blocking_static(&closure, &req_json)
+                    })
+                } else {
+                    // No runtime: call directly.
+                    Self::call_r_closure_blocking_static(&closure, &req_json)
+                }?;
+
+                // Deserialize the JSON result back into the wire response DTO.
+                let response: {{ resp_path }} = serde_json::from_str(&raw_result)
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+                Ok(response)
+            }
+            .await;
+
+            {{ tail }}
+        })
+    }
+}
+
+impl {{ bridge_name }} {
+    /// Call the R closure and return JSON-serialized result (static so it can be called from the async block).
+    fn call_r_closure_blocking_static(closure: &Robj, req_json: &str) -> Result<String, {{ box_err }}> {
+        // Parse JSON string into R object via extendr
+        let req_obj = extendr_api::call!(Robj::from(req_json))?
+            .ok_or("failed to parse request JSON")?;
+
+        // Call the closure: closure(request_obj)
+        let result = closure.call((req_obj,))
+            .map_err(|e| Box::new(e) as {{ box_err }})?;
+
+        // Serialize result to JSON
+        let result_json = serde_json::to_string(&result)
+            .map_err(|e| Box::new(e) as {{ box_err }})?;
+
+        Ok(result_json)
+    }
+}
+

@@ -1,0 +1,18 @@
+#' {{ title }}
+#'
+#' @description
+#' {{ description }}
+#'
+#' @param x An S3 object of class '{{ class_name }}'
+{% for param_doc in param_docs -%}
+{{ param_doc }}
+{% endfor -%}
+#' @return {{ return_doc }}
+#' @export
+{{ ep_name }}.{{ class_name }} <- function(x{{ params_suffix }}) {
+  .Call(`{{ native_fn }}`, x$.registrations{{ native_args_suffix }})
+{% if invisible_null -%}
+  invisible(NULL)
+{% endif -%}
+}
+

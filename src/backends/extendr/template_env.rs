@@ -193,6 +193,58 @@ static TEMPLATES: &[(&str, &str)] = &[
         "registration_variant.rs.jinja",
         include_str!("templates/registration_variant.rs.jinja"),
     ),
+    (
+        "service_r_constructor.jinja",
+        include_str!("templates/service_r_constructor.jinja"),
+    ),
+    (
+        "service_r_configurator.jinja",
+        include_str!("templates/service_r_configurator.jinja"),
+    ),
+    (
+        "service_r_entrypoint.jinja",
+        include_str!("templates/service_r_entrypoint.jinja"),
+    ),
+    (
+        "service_r_registration.jinja",
+        include_str!("templates/service_r_registration.jinja"),
+    ),
+    (
+        "service_rs_handler_bridge.jinja",
+        include_str!("templates/service_rs_handler_bridge.jinja"),
+    ),
+    (
+        "service_rs_run_function_header.jinja",
+        include_str!("templates/service_rs_run_function_header.jinja"),
+    ),
+    (
+        "service_rs_registration_match_arm.jinja",
+        include_str!("templates/service_rs_registration_match_arm.jinja"),
+    ),
+    (
+        "service_rs_run_function_footer.jinja",
+        include_str!("templates/service_rs_run_function_footer.jinja"),
+    ),
+    (
+        "bridge_field_function.jinja",
+        include_str!("templates/bridge_field_function.jinja"),
+    ),
+    (
+        "json_struct_optional_preamble.jinja",
+        include_str!("templates/json_struct_optional_preamble.jinja"),
+    ),
+    (
+        "json_struct_required_preamble.jinja",
+        include_str!("templates/json_struct_required_preamble.jinja"),
+    ),
+    (
+        "r_unit_enum_wrapper.jinja",
+        include_str!("templates/r_unit_enum_wrapper.jinja"),
+    ),
+    (
+        "r_trait_bridge_roxygen.jinja",
+        include_str!("templates/r_trait_bridge_roxygen.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

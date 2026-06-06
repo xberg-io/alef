@@ -1,0 +1,10 @@
+                        _ => return Err(Error::other(format!("unknown registration: {}", method_name))),
+                    }
+                }
+            }
+        }
+    }
+
+{{ ep_call }}    Ok(Robj::from(NULL))
+}
+

@@ -1,0 +1,17 @@
+#' {{ name }}
+#'
+{% if kind == "register" -%}
+#' Register an R-side plugin implementation. Pass a named list whose entries
+#' implement the trait's required methods (e.g. `list(name = function() "my", ...)`).
+#'
+#' @param r_backend Named list of R closures implementing the trait surface.
+{% elif kind == "unregister" -%}
+#' Unregister a previously registered plugin by name.
+#'
+#' @param name Plugin name string as returned by the backend's `name()` method.
+{% elif kind == "clear" -%}
+#' Remove every registered plugin of this type. Typically used in test teardown.
+{% endif -%}
+#'
+#' @return Invisible NULL on success; raises an R error on failure.
+#' @export

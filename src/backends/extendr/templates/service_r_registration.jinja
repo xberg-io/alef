@@ -1,0 +1,17 @@
+#' Register a callback
+#'
+#' @description
+#' {{ description }}
+#'
+#' @param x An S3 object of class '{{ class_name }}'
+{% for metadata_doc in metadata_docs -%}
+{{ metadata_doc }}
+{% endfor -%}
+#' @param {{ callback_param }} Callback function (closure)
+#' @return Updated S3 object (invisibly)
+#' @export
+{{ method_name }}.{{ class_name }} <- function(x{{ metadata_params_suffix }}, {{ callback_param }}) {
+  x$.registrations[[length(x$.registrations) + 1]] <- list("{{ method_name }}", {{ metadata_expr }}, {{ callback_param }})
+  invisible(x)
+}
+

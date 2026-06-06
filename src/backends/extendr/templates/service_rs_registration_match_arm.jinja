@@ -1,0 +1,14 @@
+                        "{{ reg_method }}" => {
+                            let bridge = {{ bridge_name }}::new(closure.clone());
+                            let handler: Arc<dyn {{ core_import }}::{{ contract_name }}> = Arc::new(bridge);
+{% if has_metadata %}
+                            if let Some(meta_list) = triple.iter().nth(1).and_then(|x| x.as_list()) {
+{% for metadata_binding in metadata_bindings -%}
+{{ metadata_binding }}
+{% endfor -%}
+                                {{ owner_call }}
+                            }
+{% else %}
+                            {{ owner_call }}
+{% endif %}
+                        }

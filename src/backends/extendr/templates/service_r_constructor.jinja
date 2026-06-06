@@ -1,0 +1,22 @@
+#' Create a new {{ class_name }} instance
+#'
+#' @description
+#' {{ description }}
+#'
+{% for param_doc in param_docs -%}
+{{ param_doc }}
+{% endfor -%}
+#' @return An S3 object of class 'ServiceDef'
+#' @export
+{{ class_name }} <- function({{ params_str }}) {
+  obj <- list(
+    .registrations = list(),
+{% for state_entry in state_entries -%}
+{{ state_entry }}
+{% endfor -%}
+    .class = "{{ class_name }}"
+  )
+  class(obj) <- c("{{ class_name }}", "list")
+  obj
+}
+
