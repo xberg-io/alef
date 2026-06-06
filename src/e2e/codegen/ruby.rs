@@ -516,68 +516,11 @@ end
         );
         out.push_str(&harness_setup);
     } else if has_mock_server_fixtures {
-        out.push_str(
-            r#"
-require 'json'
-require 'open3'
-
-# Spawn the mock-server binary and set MOCK_SERVER_URL for all tests.
-#
-# Two execution modes:
-# 1. External mode (`alef test-apps run` parent): MOCK_SERVER_URL is already set.
-#    Use it as-is together with any MOCK_SERVERS / MOCK_SERVER_<FIXTURE_ID> vars
-#    that the parent exported. Do NOT spawn our own server.
-# 2. Standalone mode (direct `bundle exec rspec` / `task ruby:smoke`): Build the
-#    mock-server binary if it is missing, then spawn it, capture its URL, and
-#    tear it down on exit.
-RSpec.configure do |config|
-  config.before(:suite) do
-    next if ENV['MOCK_SERVER_URL'] && !ENV['MOCK_SERVER_URL'].empty?
-    bin = File.expand_path('../../rust/target/release/mock-server', __dir__)
-    fixtures_dir = File.expand_path('../../../fixtures', __dir__)
-    unless File.exist?(bin)
-      # Build the mock-server from the e2e/rust/ crate that alef generated.
-      manifest = File.expand_path('../../rust/Cargo.toml', __dir__)
-      raise "mock-server Cargo.toml not found at #{manifest}" unless File.exist?(manifest)
-      system(
-        'cargo', 'build', '--release',
-        '--manifest-path', manifest,
-        '--bin', 'mock-server',
-        exception: true
-      )
-      raise "mock-server binary still missing after build: #{bin}" unless File.exist?(bin)
-    end
-    stdin, stdout, _stderr, _wait = Open3.popen3(bin, fixtures_dir)
-    # Read startup lines: MOCK_SERVER_URL= then optional MOCK_SERVERS=.
-    url = nil
-    8.times do
-      line = stdout.readline.strip rescue break
-      if line.start_with?('MOCK_SERVER_URL=')
-        url = line.split('=', 2).last
-        ENV['MOCK_SERVER_URL'] = url
-      elsif line.start_with?('MOCK_SERVERS=')
-        json_val = line.split('=', 2).last
-        ENV['MOCK_SERVERS'] = json_val
-        JSON.parse(json_val).each do |fid, furl|
-          ENV["MOCK_SERVER_#{fid.upcase}"] = furl
-        end
-        break
-      elsif url
-        break
-      end
-    end
-    # Drain stdout in background.
-    Thread.new { stdout.read }
-    # Store stdin so we can close it on teardown.
-    @_mock_server_stdin = stdin
-  end
-
-  config.after(:suite) do
-    @_mock_server_stdin&.close
-  end
-end
-"#,
+        let mock_server_block = crate::e2e::template_env::render(
+            "ruby/spec_helper_mock_server.rb.jinja",
+            minijinja::context! {},
         );
+        out.push_str(&mock_server_block);
     }
 
     out
