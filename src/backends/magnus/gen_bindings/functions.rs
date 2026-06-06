@@ -400,7 +400,7 @@ pub(super) fn gen_function(
     // If `can_delegate` is true but Vec<Named> bindings are needed, emit them now.
     // This handles the case where delegatable functions with Vec<Named> params still
     // need `{name}_core` conversion for gen_call_args_with_let_bindings.
-    if can_delegate && needs_vec_named_let_binding && serde_recoverable == false {
+    if can_delegate && needs_vec_named_let_binding && !serde_recoverable {
         for p in &func.params {
             if let TypeRef::Vec(inner) = &p.ty {
                 if let TypeRef::Named(name) = inner.as_ref() {
@@ -847,7 +847,7 @@ pub(super) fn gen_async_function(
     // If `can_delegate` is true but Vec<Named> bindings are needed, emit them now.
     // This handles the case where delegatable functions with Vec<Named> params still
     // need `{name}_core` conversion for gen_call_args_with_let_bindings.
-    if can_delegate && needs_vec_named_let_binding && serde_recoverable == false {
+    if can_delegate && needs_vec_named_let_binding && !serde_recoverable {
         for p in &func.params {
             if let TypeRef::Vec(inner) = &p.ty {
                 if let TypeRef::Named(name) = inner.as_ref() {

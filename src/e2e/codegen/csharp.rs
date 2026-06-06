@@ -334,7 +334,7 @@ fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str, namespac
         out.push('\n');
         let mock_server_code = crate::e2e::template_env::render(
             "csharp/test_setup_mock_server.cs.jinja",
-            minijinja::Value::from(minijinja::context! {}),
+            minijinja::context! {},
         );
         out.push_str(&mock_server_code);
     }
