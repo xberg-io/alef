@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **ffi**: emit cbindgen top-level `style = "type"` so C function signatures use typedef names instead of `struct` prefixes — fixes cgo `*_Ctype_struct_X` vs `*_Ctype_X` type mismatch on Go bridge trait registrations. (`style` is a top-level cbindgen config key, not an `[export]` field — placing it under `[export]` causes cbindgen to reject the config with "unknown field `style`".)
+- **ffi**: emit cbindgen top-level `style = "both"` so C headers define `typedef struct X X;` (named struct + typedef) and use the typedef name in function signatures — fixes cgo `*_Ctype_struct_X` vs `*_Ctype_X` type mismatch on Go bridge trait registrations. (`style = "type"` instead produces anonymous `typedef struct { ... } X;` which loses the C tag and breaks cgo with `_Ctype_struct___N` anonymous-struct errors. `style` is a top-level cbindgen config key, not an `[export]` field.)
 
 - **ffi**: added regression coverage for the generated cbindgen export style setting.
 
