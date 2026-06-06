@@ -1212,20 +1212,26 @@ mod tests {
     fn resolve_field_enum_type_detects_enum_field() {
         use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
 
-        let mut enum_def = EnumDef::default();
-        enum_def.name = "TierStrategy".to_string();
-        enum_def.rust_path = "module::TierStrategy".to_string();
-        let mut variant = EnumVariant::default();
-        variant.name = "Auto".to_string();
-        enum_def.variants = vec![variant];
+        let enum_def = EnumDef {
+            name: "TierStrategy".to_string(),
+            rust_path: "module::TierStrategy".to_string(),
+            variants: vec![EnumVariant {
+                name: "Auto".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
 
-        let mut type_def = TypeDef::default();
-        type_def.name = "ConversionOptions".to_string();
-        type_def.rust_path = "module::ConversionOptions".to_string();
-        let mut field = FieldDef::default();
-        field.name = "tier_strategy".to_string();
-        field.ty = TypeRef::Named("TierStrategy".to_string());
-        type_def.fields = vec![field];
+        let type_def = TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "module::ConversionOptions".to_string(),
+            fields: vec![FieldDef {
+                name: "tier_strategy".to_string(),
+                ty: TypeRef::Named("TierStrategy".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
 
         let enums = vec![enum_def];
         let type_defs = vec![type_def];
@@ -1238,13 +1244,16 @@ mod tests {
     fn resolve_field_enum_type_returns_none_for_non_enum_field() {
         use crate::core::ir::{FieldDef, TypeDef, TypeRef};
 
-        let mut type_def = TypeDef::default();
-        type_def.name = "ConversionOptions".to_string();
-        type_def.rust_path = "module::ConversionOptions".to_string();
-        let mut field = FieldDef::default();
-        field.name = "timeout".to_string();
-        field.ty = TypeRef::Named("u64".to_string());
-        type_def.fields = vec![field];
+        let type_def = TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "module::ConversionOptions".to_string(),
+            fields: vec![FieldDef {
+                name: "timeout".to_string(),
+                ty: TypeRef::Named("u64".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
 
         let enums: Vec<crate::core::ir::EnumDef> = vec![];
         let type_defs = vec![type_def];
