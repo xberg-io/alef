@@ -1904,14 +1904,18 @@ fn extendr_underscore_prefix_stripped_from_r_params() {
 
     // Verify: param name in signature should be `flag` not `_flag`
     assert!(
-        r_wrapper_file.content.contains("compute <- function(value, flag = NULL)"),
+        r_wrapper_file
+            .content
+            .contains("compute <- function(value, flag = NULL)"),
         "R wrapper should have sanitized param name in signature (no leading underscore)\nContent:\n{}",
         r_wrapper_file.content
     );
 
     // Verify: param name in .Call() args should also be `flag` not `_flag`
     assert!(
-        r_wrapper_file.content.contains(r#".Call("wrap__compute", value, flag, PACKAGE = "testlib")"#),
+        r_wrapper_file
+            .content
+            .contains(r#".Call("wrap__compute", value, flag, PACKAGE = "testlib")"#),
         "R wrapper should have sanitized param name in .Call() args (no leading underscore)\nContent:\n{}",
         r_wrapper_file.content
     );
@@ -1922,7 +1926,9 @@ fn extendr_underscore_prefix_stripped_from_r_params() {
         "R wrapper should not emit leading underscore in function signature"
     );
     assert!(
-        !r_wrapper_file.content.contains(r#".Call("wrap__compute", value, _flag"#),
+        !r_wrapper_file
+            .content
+            .contains(r#".Call("wrap__compute", value, _flag"#),
         "R wrapper should not emit leading underscore in .Call() args"
     );
 }

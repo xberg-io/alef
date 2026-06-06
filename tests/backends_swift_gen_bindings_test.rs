@@ -2920,7 +2920,13 @@ fn swift_string_param_not_wrapped() {
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(!content.contains("RustString(mimeType)"), "plain String param must not wrap in async call");
+    assert!(
+        !content.contains("RustString(mimeType)"),
+        "plain String param must not wrap in async call"
+    );
     // Async function calls bridge with bare parameter name, not wrapped
-    assert!(content.contains("RustBridge.doThing(mimeType"), "async call should pass String directly to bridge");
+    assert!(
+        content.contains("RustBridge.doThing(mimeType"),
+        "async call should pass String directly to bridge"
+    );
 }

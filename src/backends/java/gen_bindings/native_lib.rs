@@ -353,9 +353,7 @@ pub(crate) fn gen_native_lib(
                 // Emit _from_json/_free for all other Named parameter types, regardless of whether they appear
                 // in from_json_type_names. If the wrapper code references a type parameter, the FFI backend has
                 // exported _from_json and _free for it.
-                if !opaque_type_names.contains(name.as_str())
-                    && !bridge_type_aliases.contains(name.as_str())
-                {
+                if !opaque_type_names.contains(name.as_str()) && !bridge_type_aliases.contains(name.as_str()) {
                     let type_snake = name.to_snake_case();
                     let type_upper = type_snake.to_uppercase();
 

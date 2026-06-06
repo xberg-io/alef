@@ -10,7 +10,7 @@
 use alef::backends::java::JavaBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
-use alef::core::ir::{ApiSurface, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef, CoreWrapper};
+use alef::core::ir::{ApiSurface, CoreWrapper, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
