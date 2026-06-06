@@ -86,21 +86,25 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     // swift-bridge can expose it as a `toString() -> RustString` Swift method.
     // This lets e2e tests do `linkType().toString().toString()` to get "anchor" etc.
     // instead of relying on `String(describing:)` which yields the opaque class description.
-    out.push_str(&format!("impl {} {{\n", en.name));
-    out.push_str("    pub fn to_string(&self) -> String {\n");
-    out.push_str("        match self {\n");
-
+    let mut variants = String::new();
     for variant in &en.variants {
         let serde_name = serde_variant_wire_name(variant, en.serde_rename_all.as_deref());
-        out.push_str(&format!(
-            "            Self::{} => \"{}\".to_string(),\n",
-            variant.name, serde_name
+        variants.push_str(&crate::backends::swift::template_env::render(
+            "rust_enum_to_string_variant.rs.jinja",
+            minijinja::context! {
+                variant_name => &variant.name,
+                serde_name => &serde_name,
+            },
         ));
     }
 
-    out.push_str("        }\n");
-    out.push_str("    }\n");
-    out.push_str("}\n");
+    out.push_str(&crate::backends::swift::template_env::render(
+        "rust_enum_to_string_impl.rs.jinja",
+        minijinja::context! {
+            enum_name => &en.name,
+            variants => variants,
+        },
+    ));
 
     out
 }

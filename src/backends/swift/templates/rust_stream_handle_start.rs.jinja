@@ -1,0 +1,24 @@
+/// Start a streaming `{{ owner_type }}::{{ adapter_name }}` request.
+///
+/// Returns a fresh `{{ handle_name }}` whose ownership transfers to the
+/// Swift caller (swift-bridge boxes the handle internally).
+pub fn {{ fn_start }}({{ start_params }}) -> Result<{{ handle_name }}, String> {
+    use ::futures_util::StreamExt;
+    let rt = crate::__alef_tokio_runtime();
+    let raw = rt.block_on(async {
+        {{ core_call }}
+            .await
+            .map_err(|e| e.to_string())
+    })?;
+    let erased: ::futures_util::stream::BoxStream<
+        'static,
+        Result<{{ core_item }}, Box<dyn ::std::error::Error + Send + Sync + 'static>>,
+    > = Box::pin(
+        raw.map(|r| r.map_err(|e| Box::new(e) as Box<dyn ::std::error::Error + Send + Sync + 'static>)),
+    );
+    Ok({{ handle_name }} {
+        _rt: rt.handle().clone(),
+        stream: ::std::sync::Mutex::new(Some(erased)),
+    })
+}
+

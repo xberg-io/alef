@@ -437,16 +437,22 @@ pub(crate) fn emit_extern_block_for_vec_accessors(visible_types: &[&TypeDef], vi
 
     for ty in visible_types {
         let type_snake = ty.name.to_snake_case();
-        block.push_str(&format!(
-            "        fn __alef_phantom_vec_{}() -> Vec<{}>;\n",
-            type_snake, ty.name
+        block.push_str(&crate::backends::swift::template_env::render(
+            "rust_phantom_vec_decl.rs.jinja",
+            minijinja::context! {
+                type_snake => &type_snake,
+                type_name => &ty.name,
+            },
         ));
     }
     for en in visible_enums {
         let enum_snake = en.name.to_snake_case();
-        block.push_str(&format!(
-            "        fn __alef_phantom_vec_{}() -> Vec<{}>;\n",
-            enum_snake, en.name
+        block.push_str(&crate::backends::swift::template_env::render(
+            "rust_phantom_vec_decl.rs.jinja",
+            minijinja::context! {
+                type_snake => &enum_snake,
+                type_name => &en.name,
+            },
         ));
     }
 
@@ -467,16 +473,22 @@ pub(crate) fn emit_phantom_vec_impl(visible_types: &[&TypeDef], visible_enums: &
     let mut out = String::new();
     for ty in visible_types {
         let type_snake = ty.name.to_snake_case();
-        out.push_str(&format!(
-            "#[doc(hidden)]\npub fn __alef_phantom_vec_{}() -> Vec<{}> {{ Vec::new() }}\n\n",
-            type_snake, ty.name
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_phantom_vec_impl.rs.jinja",
+            minijinja::context! {
+                type_snake => &type_snake,
+                type_name => &ty.name,
+            },
         ));
     }
     for en in visible_enums {
         let enum_snake = en.name.to_snake_case();
-        out.push_str(&format!(
-            "#[doc(hidden)]\npub fn __alef_phantom_vec_{}() -> Vec<{}> {{ Vec::new() }}\n\n",
-            enum_snake, en.name
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_phantom_vec_impl.rs.jinja",
+            minijinja::context! {
+                type_snake => &enum_snake,
+                type_name => &en.name,
+            },
         ));
     }
     out
@@ -522,7 +534,12 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
         let owner_pascal = owner_type.to_pascal_case();
         let adapter_pascal = adapter.name.to_pascal_case();
         let handle_name = format!("{owner_pascal}{adapter_pascal}StreamHandle");
-        block.push_str(&format!("        type {handle_name};\n"));
+        block.push_str(&crate::backends::swift::template_env::render(
+            "extern_type_decl.jinja",
+            minijinja::context! {
+                name => &handle_name,
+            },
+        ));
     }
     block.push('\n');
 

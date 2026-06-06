@@ -271,12 +271,20 @@ pub(crate) fn emit_default_construction_body(
                     minijinja::context! { name => &name },
                 ));
             } else if f.optional {
-                out.push_str(&format!(
-                    "        __target.{name} = {param}.as_ref().and_then(|s| s.chars().next());\n"
+                out.push_str(&crate::backends::swift::template_env::render(
+                    "default_field_optional_char_assign.jinja",
+                    minijinja::context! {
+                        name => &name,
+                        param => &param,
+                    },
                 ));
             } else {
-                out.push_str(&format!(
-                    "        __target.{name} = {param}.chars().next().unwrap_or('\\0');\n"
+                out.push_str(&crate::backends::swift::template_env::render(
+                    "default_field_char_assign.jinja",
+                    minijinja::context! {
+                        name => &name,
+                        param => &param,
+                    },
                 ));
             }
         } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json) {

@@ -400,8 +400,12 @@ fn emit_enum_string_getter(
         } else {
             format!("self.0.{name}.clone().map(|w| {wrapper}::from(w).to_string())")
         };
-        out.push_str(&format!(
-            "    pub fn {getter_name}(&self) -> Option<String> {{\n        {map_expr}\n    }}\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "getter_enum_string_optional.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                map_expr => map_expr,
+            },
         ));
     } else {
         // EnumType → String
@@ -412,8 +416,12 @@ fn emit_enum_string_getter(
         } else {
             format!("{wrapper}::from(self.0.{name}.clone()).to_string()")
         };
-        out.push_str(&format!(
-            "    pub fn {getter_name}(&self) -> String {{\n        {expr}\n    }}\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "getter_enum_string.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                expr => expr,
+            },
         ));
     }
 }
@@ -446,15 +454,22 @@ fn emit_vec_enum_string_getter(
     };
 
     if field.optional {
-        out.push_str(&format!(
-            "    pub fn {getter_name}(&self) -> String {{\n        \
-             serde_json::to_string(&self.0.{name}.as_ref().map(|v| \
-             v.iter().map(|elem| {elem_expr}).collect::<Vec<_>>())).expect(\"serializable enum vec\")\n    }}\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "getter_vec_enum_string_optional.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                name => name,
+                elem_expr => elem_expr,
+            },
         ));
     } else {
-        out.push_str(&format!(
-            "    pub fn {getter_name}(&self) -> Vec<String> {{\n        \
-             self.0.{name}.iter().map(|elem| {elem_expr}).collect()\n    }}\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "getter_vec_enum_string.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                name => name,
+                elem_expr => elem_expr,
+            },
         ));
     }
 }
@@ -646,14 +661,22 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
     // which would add JSON quotes around the single character).
     if matches!(field.ty, TypeRef::Char) {
         if field.optional {
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{\n        \
-                 self.0.{name}.map(|c| c.to_string())\n    }}\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "getter_char_optional.jinja",
+                minijinja::context! {
+                    getter_name => getter_name,
+                    return_type => bridge_ty_owned,
+                    name => name,
+                },
             ));
         } else {
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{\n        \
-                 self.0.{name}.to_string()\n    }}\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "getter_char.jinja",
+                minijinja::context! {
+                    getter_name => getter_name,
+                    return_type => bridge_ty_owned,
+                    name => name,
+                },
             ));
         }
         return;
@@ -818,7 +841,12 @@ pub(crate) fn emit_type_method_shims(
         }
     }
     for path in &trait_uses {
-        out.push_str(&format!("#[allow(unused_imports)]\nuse {path};\n"));
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_trait_use.rs.jinja",
+            minijinja::context! {
+                path => path,
+            },
+        ));
     }
     if !trait_uses.is_empty() {
         out.push('\n');
@@ -1206,41 +1234,14 @@ pub(crate) fn emit_streaming_adapter_shims(
             format!("client.0.{}({call_args_str})", adapter.core_path)
         };
 
-        // Emit the handle struct. It holds a handle to the process-wide runtime context
-        // and a Mutex<Option<BoxStream>> so `next()` can drive polling.
-        //
-        // Error type erased to `Box<dyn Error + Send + Sync>` so the struct type
-        // is stable across core error-type changes.
-        //
-        // SAFETY: the handle is single-owner — swift-bridge generates a Swift
-        // `class` shadow with `deinit { *_free(ptr) }` that runs Drop on this
-        // struct exactly once when the Swift handle goes out of scope. The Mutex
-        // guards `next()` so calls serialise even when Swift accidentally fans
-        // out across tasks.
-        out.push_str(&format!(
-            "/// Opaque handle holding a reference to the process-wide tokio runtime\n\
-             /// and a boxed `{item_type}` stream.\n\
-             ///\n\
-             /// Created by `{fn_start}`, advanced via `next()`. Drop runs when the\n\
-             /// Swift handle goes out of scope (swift-bridge generates the matching\n\
-             /// `deinit`), so explicit cleanup from Swift is unnecessary.\n\
-             ///\n\
-             /// Items are JSON-encoded at the bridge boundary because swift-bridge's\n\
-             /// `Option<OpaqueRust>` support varies across versions, while `Result<String,\n\
-             /// String>` is well-tested. An empty string `\"\"` is the EOF sentinel —\n\
-             /// no valid JSON value is the empty string.\n\
-             #[allow(clippy::type_complexity)]\n\
-             pub struct {handle_name} {{\n\
-             \x20   _rt: ::tokio::runtime::Handle,\n\
-             \x20   stream: ::std::sync::Mutex<\n\
-             \x20       Option<\n\
-             \x20           ::futures_util::stream::BoxStream<\n\
-             \x20               'static,\n\
-             \x20               Result<{core_item}, Box<dyn ::std::error::Error + Send + Sync + 'static>>,\n\
-             \x20           >,\n\
-             \x20       >,\n\
-             \x20   >,\n\
-             }}\n\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_stream_handle_struct.rs.jinja",
+            minijinja::context! {
+                item_type => &item_type,
+                fn_start => &fn_start,
+                handle_name => &handle_name,
+                core_item => &core_item,
+            },
         ));
 
         // _start: open the stream. HTTP-level errors (e.g. 401) surface as
@@ -1250,31 +1251,17 @@ pub(crate) fn emit_streaming_adapter_shims(
         // work on tokio::spawn, which registers on the current task's runtime.
         // We must use the same runtime context — the process-wide __alef_tokio_runtime() —
         // so that spawned tasks and block_on calls operate on the same executor.
-        out.push_str(&format!(
-            "/// Start a streaming `{owner_type}::{adapter_name}` request.\n\
-             ///\n\
-             /// Returns a fresh `{handle_name}` whose ownership transfers to the\n\
-             /// Swift caller (swift-bridge boxes the handle internally).\n\
-             pub fn {fn_start}({start_params_str}) -> Result<{handle_name}, String> {{\n\
-             \x20   use ::futures_util::StreamExt;\n\
-             \x20   let rt = crate::__alef_tokio_runtime();\n\
-             \x20   let raw = rt.block_on(async {{\n\
-             \x20       {core_call}\n\
-             \x20           .await\n\
-             \x20           .map_err(|e| e.to_string())\n\
-             \x20   }})?;\n\
-             \x20   let erased: ::futures_util::stream::BoxStream<\n\
-             \x20       'static,\n\
-             \x20       Result<{core_item}, Box<dyn ::std::error::Error + Send + Sync + 'static>>,\n\
-             \x20   > = Box::pin(\n\
-             \x20       raw.map(|r| r.map_err(|e| Box::new(e) as Box<dyn ::std::error::Error + Send + Sync + 'static>)),\n\
-             \x20   );\n\
-             \x20   Ok({handle_name} {{\n\
-             \x20       _rt: rt.handle().clone(),\n\
-             \x20       stream: ::std::sync::Mutex::new(Some(erased)),\n\
-             \x20   }})\n\
-             }}\n\n",
-            adapter_name = adapter.name,
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_stream_handle_start.rs.jinja",
+            minijinja::context! {
+                owner_type => owner_type,
+                adapter_name => &adapter.name,
+                handle_name => &handle_name,
+                fn_start => &fn_start,
+                start_params => &start_params_str,
+                core_call => &core_call,
+                core_item => &core_item,
+            },
         ));
 
         // The `next` method on the handle drives the stream forward.
@@ -1285,34 +1272,11 @@ pub(crate) fn emit_streaming_adapter_shims(
         // Uses the process-wide __alef_tokio_runtime() to block on the stream. This ensures
         // the stream consumer is on the same runtime as the populator tasks spawned by the
         // core Rust API.
-        out.push_str(&format!(
-            "#[allow(clippy::should_implement_trait)]\n\
-             impl {handle_name} {{\n\
-             \x20   /// Advance the stream and return the next chunk JSON, or `\"\"` on clean\n\
-             \x20   /// end-of-stream. Returns `Err(message)` on a stream-level error.\n\
-             \x20   pub fn next(&mut self) -> Result<String, String> {{\n\
-             \x20       let mut guard = self\n\
-             \x20           .stream\n\
-             \x20           .lock()\n\
-             \x20           .map_err(|_| \"{handle_name}::next: stream mutex poisoned\".to_string())?;\n\
-             \x20       let stream = match guard.as_mut() {{\n\
-             \x20           Some(s) => s,\n\
-             \x20           None => return Ok(String::new()),\n\
-             \x20       }};\n\
-             \x20       use ::futures_util::StreamExt;\n\
-             \x20       match crate::__alef_tokio_runtime().block_on(stream.next()) {{\n\
-             \x20           Some(Ok(item)) => ::serde_json::to_string(&item).map_err(|e| e.to_string()),\n\
-             \x20           Some(Err(e)) => {{\n\
-             \x20               *guard = None;\n\
-             \x20               Err(e.to_string())\n\
-             \x20           }}\n\
-             \x20           None => {{\n\
-             \x20               *guard = None;\n\
-             \x20               Ok(String::new())\n\
-             \x20           }}\n\
-             \x20       }}\n\
-             \x20   }}\n\
-             }}\n\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_stream_handle_next.rs.jinja",
+            minijinja::context! {
+                handle_name => &handle_name,
+            },
         ));
     }
 

@@ -1,0 +1,24 @@
+/// Opaque handle holding a reference to the process-wide tokio runtime
+/// and a boxed `{{ item_type }}` stream.
+///
+/// Created by `{{ fn_start }}`, advanced via `next()`. Drop runs when the
+/// Swift handle goes out of scope (swift-bridge generates the matching
+/// `deinit`), so explicit cleanup from Swift is unnecessary.
+///
+/// Items are JSON-encoded at the bridge boundary because swift-bridge's
+/// `Option<OpaqueRust>` support varies across versions, while `Result<String,
+/// String>` is well-tested. An empty string `""` is the EOF sentinel -
+/// no valid JSON value is the empty string.
+#[allow(clippy::type_complexity)]
+pub struct {{ handle_name }} {
+    _rt: ::tokio::runtime::Handle,
+    stream: ::std::sync::Mutex<
+        Option<
+            ::futures_util::stream::BoxStream<
+                'static,
+                Result<{{ core_item }}, Box<dyn ::std::error::Error + Send + Sync + 'static>>,
+            >,
+        >,
+    >,
+}
+

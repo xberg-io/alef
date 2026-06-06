@@ -1128,9 +1128,12 @@ fn emit_into_rust_direct_call(
     // convenience init takes positional `_` parameters in field-declaration order.
     let mut body = String::new();
     body.push_str(&prelude);
-    body.push_str(&format!(
-        "        return RustBridge.{type_name}({args})\n",
-        args = args.join(", ")
+    body.push_str(&crate::backends::swift::template_env::render(
+        "swift_bridge_constructor_return.swift.jinja",
+        minijinja::context! {
+            type_name => type_name,
+            args => args.join(", "),
+        },
     ));
     Some(body)
 }
@@ -2776,21 +2779,27 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         }
         let call_args_str = call_args.join(", ");
 
-        // Emit the overload function (both async and sync variants).
-        out.push_str(&format!(
-            "public func {swift_func_name}({params_sig}){async_clause}{throws_clause} -> {return_ty} {{\n"
-        ));
-        // Emit decoding for all JSON config parameters, each with its own decoder and local variable.
+        let mut decode_lines = String::new();
         for (json_fn_name, type_var_name) in json_local_names.values() {
-            out.push_str(&format!(
+            decode_lines.push_str(&format!(
                 "    let {type_var_name} = try {json_fn_name}({type_var_name}Json)\n"
             ));
         }
         let await_kw = if func.is_async { "await " } else { "" };
-        out.push_str(&format!(
-            "    return try {await_kw}{swift_func_name}({call_args_str}){return_suffix}\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_json_string_overload.swift.jinja",
+            minijinja::context! {
+                function_name => &swift_func_name,
+                params => &params_sig,
+                async_clause => async_clause,
+                throws_clause => throws_clause,
+                return_type => &return_ty,
+                decode_lines => decode_lines,
+                await_kw => await_kw,
+                call_args => &call_args_str,
+                return_suffix => &return_suffix,
+            },
         ));
-        out.push_str("}\n\n");
     }
 }
 
@@ -2904,12 +2913,20 @@ fn emit_from_json_forwarders(
         let type_snake = AsSnakeCase(type_name).to_string();
         let swift_name = format!("{type_snake}_from_json").to_lower_camel_case();
         if first_class_set.contains(type_name) {
-            out.push_str(&format!(
-                "public func {swift_name}(_ json: String) throws -> {type_name} {{\n    let data = json.data(using: .utf8) ?? Data()\n    return try JSONDecoder().decode({type_name}.self, from: data)\n}}\n\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_from_json_decode.swift.jinja",
+                minijinja::context! {
+                    function_name => &swift_name,
+                    type_name => type_name,
+                },
             ));
         } else {
-            out.push_str(&format!(
-                "public func {swift_name}(_ json: String) throws -> {type_name} {{\n    return try RustBridge.{swift_name}(json)\n}}\n\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_from_json_bridge.swift.jinja",
+                minijinja::context! {
+                    function_name => &swift_name,
+                    type_name => type_name,
+                },
             ));
         }
     }
@@ -2933,12 +2950,20 @@ fn emit_from_json_forwarders(
         let enum_snake = AsSnakeCase(enum_name).to_string();
         let swift_name = format!("{enum_snake}_from_json").to_lower_camel_case();
         if codable_enum_set.contains(enum_name) {
-            out.push_str(&format!(
-                "public func {swift_name}(_ json: String) throws -> {enum_name} {{\n    let data = json.data(using: .utf8) ?? Data()\n    return try JSONDecoder().decode({enum_name}.self, from: data)\n}}\n\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_from_json_decode.swift.jinja",
+                minijinja::context! {
+                    function_name => &swift_name,
+                    type_name => enum_name,
+                },
             ));
         } else {
-            out.push_str(&format!(
-                "public func {swift_name}(_ json: String) throws -> {enum_name} {{\n    return try RustBridge.{swift_name}(json)\n}}\n\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_from_json_bridge.swift.jinja",
+                minijinja::context! {
+                    function_name => &swift_name,
+                    type_name => enum_name,
+                },
             ));
         }
     }

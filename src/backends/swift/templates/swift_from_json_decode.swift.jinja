@@ -1,0 +1,5 @@
+public func {{ function_name }}(_ json: String) throws -> {{ type_name }} {
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode({{ type_name }}.self, from: data)
+}
+

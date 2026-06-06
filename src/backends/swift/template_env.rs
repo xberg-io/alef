@@ -81,6 +81,27 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/getter_vec_primitive_clone.jinja"),
     ),
     (
+        "getter_enum_string_optional.jinja",
+        include_str!("templates/getter_enum_string_optional.jinja"),
+    ),
+    (
+        "getter_enum_string.jinja",
+        include_str!("templates/getter_enum_string.jinja"),
+    ),
+    (
+        "getter_vec_enum_string_optional.jinja",
+        include_str!("templates/getter_vec_enum_string_optional.jinja"),
+    ),
+    (
+        "getter_vec_enum_string.jinja",
+        include_str!("templates/getter_vec_enum_string.jinja"),
+    ),
+    (
+        "getter_char_optional.jinja",
+        include_str!("templates/getter_char_optional.jinja"),
+    ),
+    ("getter_char.jinja", include_str!("templates/getter_char.jinja")),
+    (
         "getter_string_like_debug_optional.jinja",
         include_str!("templates/getter_string_like_debug_optional.jinja"),
     ),
@@ -301,6 +322,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_into_rust_json_return.swift.jinja"),
     ),
     (
+        "swift_bridge_constructor_return.swift.jinja",
+        include_str!("templates/swift_bridge_constructor_return.swift.jinja"),
+    ),
+    (
         "swift_enum_decl.swift.jinja",
         include_str!("templates/swift_enum_decl.swift.jinja"),
     ),
@@ -339,6 +364,18 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "swift_async_forwarder.swift.jinja",
         include_str!("templates/swift_async_forwarder.swift.jinja"),
+    ),
+    (
+        "swift_from_json_decode.swift.jinja",
+        include_str!("templates/swift_from_json_decode.swift.jinja"),
+    ),
+    (
+        "swift_from_json_bridge.swift.jinja",
+        include_str!("templates/swift_from_json_bridge.swift.jinja"),
+    ),
+    (
+        "swift_json_string_overload.swift.jinja",
+        include_str!("templates/swift_json_string_overload.swift.jinja"),
     ),
     ("enum_case_unit.jinja", include_str!("templates/enum_case_unit.jinja")),
     (
@@ -400,6 +437,14 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "default_field_optional_plain_assign.jinja",
         include_str!("templates/default_field_optional_plain_assign.jinja"),
+    ),
+    (
+        "default_field_optional_char_assign.jinja",
+        include_str!("templates/default_field_optional_char_assign.jinja"),
+    ),
+    (
+        "default_field_char_assign.jinja",
+        include_str!("templates/default_field_char_assign.jinja"),
     ),
     (
         "default_field_plain_assign.jinja",
@@ -588,6 +633,38 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "rust_wrapper_free_fn.rs.jinja",
         include_str!("templates/rust_wrapper_free_fn.rs.jinja"),
+    ),
+    (
+        "rust_enum_to_string_impl.rs.jinja",
+        include_str!("templates/rust_enum_to_string_impl.rs.jinja"),
+    ),
+    (
+        "rust_enum_to_string_variant.rs.jinja",
+        include_str!("templates/rust_enum_to_string_variant.rs.jinja"),
+    ),
+    (
+        "rust_phantom_vec_decl.rs.jinja",
+        include_str!("templates/rust_phantom_vec_decl.rs.jinja"),
+    ),
+    (
+        "rust_phantom_vec_impl.rs.jinja",
+        include_str!("templates/rust_phantom_vec_impl.rs.jinja"),
+    ),
+    (
+        "rust_trait_use.rs.jinja",
+        include_str!("templates/rust_trait_use.rs.jinja"),
+    ),
+    (
+        "rust_stream_handle_struct.rs.jinja",
+        include_str!("templates/rust_stream_handle_struct.rs.jinja"),
+    ),
+    (
+        "rust_stream_handle_start.rs.jinja",
+        include_str!("templates/rust_stream_handle_start.rs.jinja"),
+    ),
+    (
+        "rust_stream_handle_next.rs.jinja",
+        include_str!("templates/rust_stream_handle_next.rs.jinja"),
     ),
     (
         "swift_file_header.swift.jinja",
