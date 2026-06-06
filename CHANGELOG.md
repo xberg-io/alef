@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **backends**: migrated more generated-source emission in C# opaque/record/trait callbacks, Dart FFI/Rust-crate/trait helpers, Extendr/R, FFI, Go service/type/trait helpers, Java, JNI shim marshalling, Kotlin/Kotlin Android wrappers, Magnus/Ruby service/tagged enum helpers, NAPI, PHP service/trait helpers, PyO3/Python, Rustler/Elixir wrapper helpers, Swift struct/Rust-wrapper helpers, WASM service wrappers, and Zig service/trait helpers from Rust string assembly to backend Jinja templates. This keeps host-language code blocks in templates while leaving identifier, type, argument, and expression construction in Rust. (`src/backends/csharp`, `src/backends/dart`, `src/backends/extendr`, `src/backends/ffi`, `src/backends/go`, `src/backends/java`, `src/backends/jni`, `src/backends/kotlin`, `src/backends/kotlin_android`, `src/backends/magnus`, `src/backends/napi`, `src/backends/php`, `src/backends/pyo3`, `src/backends/rustler`, `src/backends/swift`, `src/backends/wasm`, `src/backends/zig`)
 
+- **napi**: migrated remaining parameterized capsule type-tag constants and struct static-method/wither generated Rust blocks to NAPI Jinja templates. (`src/backends/napi`)
+
+- **zig**: moved the remaining generated Zig trait-alias, bytes-free, result-length, and owned-slice unwrap
+  snippets into backend templates. (`src/backends/zig`)
+
 ### Fixed
 
 - **magnus/Ruby**: delegatable free functions with `Vec<Named>` parameters now use the generated core

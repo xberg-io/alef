@@ -218,6 +218,18 @@ static TEMPLATES: &[(&str, &str)] = &[
         "service_rs_entrypoint_call.jinja",
         include_str!("templates/service_rs_entrypoint_call.jinja"),
     ),
+    (
+        "capsule_type_tag_constant.jinja",
+        include_str!("templates/capsule_type_tag_constant.jinja"),
+    ),
+    (
+        "struct_static_method_wrapper.jinja",
+        include_str!("templates/struct_static_method_wrapper.jinja"),
+    ),
+    (
+        "struct_wither_serde_body.jinja",
+        include_str!("templates/struct_wither_serde_body.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

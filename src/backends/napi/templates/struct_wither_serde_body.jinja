@@ -1,0 +1,5 @@
+    let _json = serde_json::to_string(&cfg){{ err_conv }}?;
+    let _core: {{ core_type_path }} = serde_json::from_str(&_json){{ err_conv }}?;
+    let _result = _core.{{ method_name }}({{ call_args }});
+    let _out_json = serde_json::to_string(&_result){{ err_conv }}?;
+    serde_json::from_str(&_out_json){{ err_conv }}

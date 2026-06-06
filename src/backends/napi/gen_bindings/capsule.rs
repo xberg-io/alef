@@ -245,11 +245,13 @@ pub(super) fn gen_type_tag_constants(capsule_types: &HashMap<String, NodeCapsule
         if let Some(tag) = &cfg.type_tag {
             let lower = tag.lower.trim_start_matches("0x");
             let upper = tag.upper.trim_start_matches("0x");
-            out.push_str(&format!(
-                "const __ALEF_CAPSULE_TAG_{}: NapiTypeTag = NapiTypeTag {{\n    lower: 0x{},\n    upper: 0x{},\n}};\n",
-                name.to_ascii_uppercase(),
-                lower,
-                upper,
+            out.push_str(&crate::backends::napi::template_env::render(
+                "capsule_type_tag_constant.jinja",
+                minijinja::context! {
+                    name => name.to_ascii_uppercase(),
+                    lower => lower,
+                    upper => upper,
+                },
             ));
         }
     }

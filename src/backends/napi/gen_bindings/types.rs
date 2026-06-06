@@ -800,24 +800,15 @@ pub(super) fn gen_dto_method_fns(
             let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
             if cfg.has_serde {
                 // Round-trip through serde JSON: binding → JSON → core, call method, core → binding
-                let indent = "    ";
-                let core_ty = &core_type_path;
-                let mut body_parts = String::new();
-                body_parts.push_str(&format!(
-                    "{indent}let _json = serde_json::to_string(&cfg){err_conv}?;\n"
-                ));
-                body_parts.push_str(&format!(
-                    "{indent}let _core: {core_ty} = serde_json::from_str(&_json){err_conv}?;\n"
-                ));
-                body_parts.push_str(&format!(
-                    "{indent}let _result = _core.{}({call_args_str});\n",
-                    method.name
-                ));
-                body_parts.push_str(&format!(
-                    "{indent}let _out_json = serde_json::to_string(&_result){err_conv}?;\n"
-                ));
-                body_parts.push_str(&format!("{indent}serde_json::from_str(&_out_json){err_conv}"));
-                body_parts
+                crate::backends::napi::template_env::render(
+                    "struct_wither_serde_body.jinja",
+                    minijinja::context! {
+                        err_conv => err_conv,
+                        core_type_path => core_type_path,
+                        method_name => method.name,
+                        call_args => call_args_str,
+                    },
+                )
             } else {
                 format!(
                     "    Err(napi::Error::new(napi::Status::GenericFailure, \
@@ -844,8 +835,16 @@ pub(super) fn gen_dto_method_fns(
             return_annotation.clone()
         };
 
-        out.push_str(&format!(
-            "{attrs}#[napi(js_name = \"{full_js_name}\")]\npub fn {full_rust_name}({params_str}) -> {final_return_ann} {{\n{body}\n}}\n\n",
+        out.push_str(&crate::backends::napi::template_env::render(
+            "struct_static_method_wrapper.jinja",
+            minijinja::context! {
+                attrs => attrs,
+                js_name => full_js_name,
+                rust_name => full_rust_name,
+                params => params_str,
+                return_annotation => final_return_ann,
+                body => body,
+            },
         ));
     }
 
