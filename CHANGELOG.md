@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.19] - 2026-06-06
+
 ### Fixed
 
 - **ffi**: emit cbindgen top-level `style = "type"` so C function signatures use typedef names instead of `struct` prefixes — fixes cgo `*_Ctype_struct_X` vs `*_Ctype_X` type mismatch on Go bridge trait registrations. (`style` is a top-level cbindgen config key, not an `[export]` field — placing it under `[export]` causes cbindgen to reject the config with "unknown field `style`".)
