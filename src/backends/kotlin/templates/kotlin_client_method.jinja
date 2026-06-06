@@ -1,0 +1,10 @@
+    {{ async_kw }}fun {{ method_name }}({{ params }}): {{ return_type }} {
+{% if async %}
+        return withContext(Dispatchers.IO) { inner.{{ method_name }}({{ call_args }}){{ optional_suffix }} }
+{% elif unit_return %}
+        inner.{{ method_name }}({{ call_args }})
+{% else %}
+        return inner.{{ method_name }}({{ call_args }}){{ optional_suffix }}
+{% endif %}
+    }
+

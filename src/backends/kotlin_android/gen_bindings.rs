@@ -26,6 +26,7 @@ use crate::core::ir::{ApiSurface, TypeDef};
 use crate::core::jni::bridge_class_name;
 
 use crate::backends::kotlin_android::naming::kotlin_package;
+use crate::backends::kotlin_android::template_env;
 use crate::backends::kotlin_android::trait_bridge;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::TypeRef;
@@ -640,11 +641,13 @@ fn emit_module_kt(
         if !type_def.doc.is_empty() {
             emit_kdoc_pub(&mut body, &type_def.doc, "");
         }
-        body.push_str(&format!(
-            "class {class_name} internal constructor(internal val handle: Long) : AutoCloseable {{\n"
-        ));
-        body.push_str(&format!(
-            "    override fun close() {{ {bridge_name}.{free_name}(handle) }}\n"
+        body.push_str(&template_env::render(
+            "handle_wrapper_header.jinja",
+            minijinja::context! {
+                class_name => class_name,
+                bridge_name => bridge_name,
+                free_name => free_name,
+            },
         ));
 
         // Collect streaming adapters owned by this opaque type.
@@ -715,39 +718,19 @@ fn emit_module_kt(
                 // we emit the natural `fun ... = callbackFlow {` shape and rely on ktfmt for
                 // formatting. The ktlint multiline-expression-wrapping rule is disabled in
                 // the generated `.editorconfig` because it conflicts with ktfmt here.
-                body.push_str("    @Suppress(\"TooGenericExceptionCaught\")\n");
-                body.push_str(&format!(
-                    "    fun {method_name}({}): Flow<{item_type}> = callbackFlow {{\n",
-                    if params.is_empty() {
-                        "".to_string()
-                    } else {
-                        params.join(", ")
-                    }
+                body.push_str(&template_env::render(
+                    "android_streaming_method.jinja",
+                    minijinja::context! {
+                        method_name => method_name,
+                        params => params.join(", "),
+                        item_type => item_type,
+                        bridge_name => bridge_name,
+                        jni_start => jni_start,
+                        jni_next => jni_next,
+                        jni_free => jni_free,
+                        first_param_name => first_param_name,
+                    },
                 ));
-                body.push_str("        val streamHandle: Long = withContext(Dispatchers.IO) {\n");
-                body.push_str(&format!(
-                    "            {bridge_name}.{jni_start}(handle, mapper.writeValueAsString({first_param_name}))\n"
-                ));
-                body.push_str("        }\n");
-                body.push_str("        try {\n");
-                body.push_str("            while (true) {\n");
-                body.push_str("                val chunkJson: String? = withContext(Dispatchers.IO) {\n");
-                body.push_str(&format!("                    {bridge_name}.{jni_next}(streamHandle)\n"));
-                body.push_str("                }\n");
-                body.push_str("                if (chunkJson == null) break\n");
-                body.push_str(&format!(
-                    "                val chunk = mapper.readValue(chunkJson, {item_type}::class.java)\n"
-                ));
-                body.push_str("                send(chunk)\n");
-                body.push_str("            }\n");
-                body.push_str("            close()\n");
-                body.push_str("        } catch (e: Throwable) {\n");
-                body.push_str("            close(e)\n");
-                body.push_str("        }\n");
-                body.push_str("        awaitClose {\n");
-                body.push_str(&format!("            {bridge_name}.{jni_free}(streamHandle)\n"));
-                body.push_str("        }\n");
-                body.push_str("    }\n\n");
             }
         }
 
@@ -879,7 +862,12 @@ fn emit_module_kt(
 
     let mut body = String::new();
 
-    body.push_str(&format!("object {module_name} {{\n"));
+    body.push_str(&template_env::render(
+        "module_object_header.jinja",
+        minijinja::context! {
+            module_name => module_name,
+        },
+    ));
     if needs_jackson {
         // Rust serde defaults to snake_case wire keys; Kotlin properties are
         // camelCase. Configure the property naming strategy on the module
@@ -1036,6 +1024,13 @@ fn emit_module_kt(
             .collect();
 
         let bridge_call = format!("{bridge_name}.{native_name}({})", bridge_args.join(", "));
+        let call_args = f
+            .params
+            .iter()
+            .map(|p| to_lower_camel(&p.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let params_str = params.join(", ");
 
         // Determine body expression: deserialize from JSON when the return type
         // is a DTO or Vec<DTO>, wrap in opaque class when it is a handle, pass through
@@ -1054,30 +1049,27 @@ fn emit_module_kt(
                     crate::core::ir::TypeRef::Named(n) => n.clone(),
                     _ => unreachable!(),
                 };
-                body.push_str(&format!(
-                    "    fun {method_name}({}): {return_ty} {{\n",
-                    params.join(", ")
+                body.push_str(&template_env::render(
+                    "android_facade_dto_method.jinja",
+                    minijinja::context! {
+                        method_name => method_name,
+                        params => params_str,
+                        return_type => return_ty,
+                        bridge_call => bridge_call,
+                        return_class => return_class,
+                    },
                 ));
-                body.push_str(&format!("        val resultJson = {bridge_call}\n"));
-                body.push_str(&format!(
-                    "        return mapper.readValue(resultJson, {return_class}::class.java)\n"
-                ));
-                body.push_str("    }\n\n");
                 // Emit the suspend companion variant.
                 emit_kdoc_pub(&mut body, &f.doc, "    ");
-                body.push_str(&format!(
-                    "    suspend fun {method_name}Async({}): {return_ty} =\n",
-                    params.join(", ")
+                body.push_str(&template_env::render(
+                    "android_facade_async_method.jinja",
+                    minijinja::context! {
+                        method_name => method_name,
+                        params => params_str,
+                        return_type => return_ty,
+                        args => call_args,
+                    },
                 ));
-                body.push_str(&format!(
-                    "        withContext(Dispatchers.IO) {{ {method_name}({}) }}\n",
-                    f.params
-                        .iter()
-                        .map(|p| to_lower_camel(&p.name))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-                body.push('\n');
             } else if returns_generic_container {
                 // Generic container return: Kotlin disallows generic type
                 // arguments on `::class.java`, so we route through Jackson's
@@ -1086,49 +1078,61 @@ fn emit_module_kt(
                 // `List<MyDto>?` — `render_kotlin_type` handles every Vec /
                 // Map / Option permutation recursively).
                 let type_ref_body = render_kotlin_type(&f.return_type, &opaque_type_names);
-                body.push_str(&format!(
-                    "    fun {method_name}({}): {return_ty} {{\n",
-                    params.join(", ")
+                body.push_str(&template_env::render(
+                    "android_facade_generic_method.jinja",
+                    minijinja::context! {
+                        method_name => method_name,
+                        params => params_str,
+                        return_type => return_ty,
+                        bridge_call => bridge_call,
+                        type_ref_body => type_ref_body,
+                    },
                 ));
-                body.push_str(&format!("        val resultJson = {bridge_call}\n"));
-                body.push_str(&format!(
-                    "        return mapper.readValue(resultJson, object : TypeReference<{type_ref_body}>() {{}})\n"
-                ));
-                body.push_str("    }\n\n");
                 // Emit the suspend companion variant.
                 emit_kdoc_pub(&mut body, &f.doc, "    ");
-                body.push_str(&format!(
-                    "    suspend fun {method_name}Async({}): {return_ty} =\n",
-                    params.join(", ")
+                body.push_str(&template_env::render(
+                    "android_facade_async_method.jinja",
+                    minijinja::context! {
+                        method_name => method_name,
+                        params => params_str,
+                        return_type => return_ty,
+                        args => call_args,
+                    },
                 ));
-                body.push_str(&format!(
-                    "        withContext(Dispatchers.IO) {{ {method_name}({}) }}\n",
-                    f.params
-                        .iter()
-                        .map(|p| to_lower_camel(&p.name))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-                body.push('\n');
             } else if returns_opaque {
                 let opaque_class = match &f.return_type {
                     crate::core::ir::TypeRef::Named(n) => n.clone(),
                     _ => unreachable!(),
                 };
-                body.push_str(&format!(
-                    "    fun {method_name}({}): {return_ty} = {opaque_class}({bridge_call})\n",
-                    params.join(", ")
+                body.push_str(&template_env::render(
+                    "android_facade_expr_method.jinja",
+                    minijinja::context! {
+                        method_name => method_name,
+                        params => params_str,
+                        return_type => return_ty,
+                        expression => format!("{opaque_class}({bridge_call})"),
+                    },
                 ));
             } else {
-                body.push_str(&format!(
-                    "    fun {method_name}({}): {return_ty} = {bridge_call}\n",
-                    params.join(", ")
+                body.push_str(&template_env::render(
+                    "android_facade_expr_method.jinja",
+                    minijinja::context! {
+                        method_name => method_name,
+                        params => params_str,
+                        return_type => return_ty,
+                        expression => bridge_call,
+                    },
                 ));
             }
         } else {
-            body.push_str(&format!(
-                "    fun {method_name}({}): {return_ty} = {bridge_call}\n",
-                params.join(", "),
+            body.push_str(&template_env::render(
+                "android_facade_expr_method.jinja",
+                minijinja::context! {
+                    method_name => method_name,
+                    params => params_str,
+                    return_type => return_ty,
+                    expression => bridge_call,
+                },
             ));
         }
     }
@@ -1152,45 +1156,41 @@ fn unwrap_optional(ty: &crate::core::ir::TypeRef) -> &crate::core::ir::TypeRef {
 
 /// Assemble a complete `.kt` file from package, imports, and body.
 fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) -> String {
-    let mut content = String::new();
-    content.push_str("// Generated by alef. Do not edit by hand.\n");
     // File-level suppression annotations silence ktlint / detekt rules that are
     // inherently violated by generated code (trailing commas, annotation spacing,
     // when-entry bracing, etc.) and cannot be trivially fixed without a full
     // reformatter post-processing step.
-    content.push_str(
-        "@file:Suppress(\n    \
-         \"ktlint:standard:trailing-comma-on-call-site\",\n    \
-         \"ktlint:standard:trailing-comma-on-declaration-site\",\n    \
-         \"ktlint:standard:spacing-between-declarations-with-comments\",\n    \
-         \"ktlint:standard:spacing-between-declarations-with-annotations\",\n    \
-         \"ktlint:standard:when-entry-bracing\",\n    \
-         \"ktlint:standard:blank-line-between-when-conditions\",\n    \
-         \"ktlint:standard:blank-line-before-declaration\",\n    \
-         \"ktlint:standard:chain-method-continuation\",\n    \
-         \"ktlint:standard:annotation\",\n    \
-         \"ktlint:standard:max-line-length\",\n    \
-         \"ktlint:standard:no-semi\",\n    \
-         \"ktlint:standard:statement-wrapping\",\n    \
-         \"MaxLineLength\",\n    \
-         \"TooManyFunctions\",\n    \
-         \"FunctionParameterNaming\",\n    \
-         \"LongParameterList\",\n    \
-         \"CyclomaticComplexMethod\",\n    \
-         \"LongMethod\",\n    \
-         \"MagicNumber\",\n\
-         )\n\n",
-    );
-    content.push_str(&format!("package {package}\n\n"));
-    for import in imports {
-        content.push_str(import);
-        content.push('\n');
-    }
-    if !imports.is_empty() {
-        content.push('\n');
-    }
-    content.push_str(body);
-    content
+    let suppressions = vec![
+        "ktlint:standard:trailing-comma-on-call-site",
+        "ktlint:standard:trailing-comma-on-declaration-site",
+        "ktlint:standard:spacing-between-declarations-with-comments",
+        "ktlint:standard:spacing-between-declarations-with-annotations",
+        "ktlint:standard:when-entry-bracing",
+        "ktlint:standard:blank-line-between-when-conditions",
+        "ktlint:standard:blank-line-before-declaration",
+        "ktlint:standard:chain-method-continuation",
+        "ktlint:standard:annotation",
+        "ktlint:standard:max-line-length",
+        "ktlint:standard:no-semi",
+        "ktlint:standard:statement-wrapping",
+        "MaxLineLength",
+        "TooManyFunctions",
+        "FunctionParameterNaming",
+        "LongParameterList",
+        "CyclomaticComplexMethod",
+        "LongMethod",
+        "MagicNumber",
+    ];
+    let imports = imports.iter().cloned().collect::<Vec<_>>();
+    template_env::render(
+        "kt_file.jinja",
+        minijinja::context! {
+            package => package,
+            imports => imports,
+            suppressions => suppressions,
+            body => body,
+        },
+    )
 }
 
 /// Return a nullable Kotlin type string for an optional facade parameter.

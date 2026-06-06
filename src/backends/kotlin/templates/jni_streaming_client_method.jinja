@@ -1,0 +1,27 @@
+    @Suppress("TooGenericExceptionCaught")
+    fun {{ method_name }}({{ params }}): kotlinx.coroutines.flow.Flow<{{ item_type }}> = kotlinx.coroutines.flow.callbackFlow {
+        val mapper = com.fasterxml.jackson.databind.ObjectMapper()
+            .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
+            .findAndRegisterModules()
+            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
+        val streamHandle: Long = withContext(Dispatchers.IO) {
+            {{ bridge_name }}.{{ jni_start }}(handle, mapper.writeValueAsString({{ first_param_name }}))
+        }
+        try {
+            while (true) {
+                val chunkJson: String? = withContext(Dispatchers.IO) {
+                    {{ bridge_name }}.{{ jni_next }}(streamHandle)
+                }
+                if (chunkJson == null) break
+                val chunk = mapper.readValue(chunkJson, {{ item_type }}::class.java)
+                send(chunk)
+            }
+            close()
+        } catch (e: Throwable) {
+            close(e)
+        }
+        awaitClose {
+            {{ bridge_name }}.{{ jni_free }}(streamHandle)
+        }
+    }
+

@@ -1,0 +1,6 @@
+{% if unit_return %}
+    fun {{ method_name }}({{ params }}) { inner.{{ method_name }}({{ args }}) }
+{% else %}
+    fun {{ method_name }}({{ params }}): {{ return_type }} = inner.{{ method_name }}({{ args }})
+{% endif %}
+

@@ -210,17 +210,13 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
 
     let mut body = String::new();
 
-    body.push_str(&format!(
-        "/** Coroutine-friendly wrapper around the Java `{java_fqn}` service facade. */\n"
+    body.push_str(&template_env::render(
+        "service_class_header.jinja",
+        minijinja::context! {
+            java_fqn => java_fqn,
+            class_name => class_name,
+        },
     ));
-    // Verb-method service wrappers legitimately expose one method per HTTP verb plus
-    // route / config / run / close; that easily exceeds detekt's default 11-function
-    // ceiling. Suppress the lint at the class level rather than fragmenting the API.
-    body.push_str("@Suppress(\"TooManyFunctions\")\n");
-    body.push_str(&format!(
-        "class {class_name} internal constructor(internal val inner: {java_fqn}) : AutoCloseable {{\n"
-    ));
-    body.push_str(&format!("    constructor() : this({java_fqn}())\n\n"));
 
     // Registrations.
     for reg in &service.registrations {
@@ -254,10 +250,14 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
                 body.push_str(&format!("    // {line}\n"));
             }
         }
-        body.push_str(&format!(
-            "    fun {reg_method_kt}({}): Int = inner.{java_method}({})\n\n",
-            params.join(", "),
-            args.join(", ")
+        body.push_str(&template_env::render(
+            "service_registration_method.jinja",
+            minijinja::context! {
+                method_name => reg_method_kt,
+                params => params.join(", "),
+                java_method => java_method,
+                args => args.join(", "),
+            },
         ));
 
         // Emit registration variants (shortcuts for common patterns)
@@ -306,27 +306,27 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
         match ep.kind {
             EntrypointKind::Run => {
                 // Always suspend + hop to Dispatchers.IO — the Java call is blocking.
-                body.push_str(&format!(
-                    "    suspend fun {ep_method_kt}({}) = withContext(Dispatchers.IO) {{ inner.{ep_method_kt}({}) }}\n\n",
-                    params.join(", "),
-                    args.join(", ")
+                body.push_str(&template_env::render(
+                    "service_run_method.jinja",
+                    minijinja::context! {
+                        method_name => ep_method_kt,
+                        params => params.join(", "),
+                        args => args.join(", "),
+                    },
                 ));
             }
             EntrypointKind::Finalize => {
                 let ret = kotlin_return_type(&ep.return_type, api);
-                if ret == "Unit" {
-                    body.push_str(&format!(
-                        "    fun {ep_method_kt}({}) {{ inner.{ep_method_kt}({}) }}\n\n",
-                        params.join(", "),
-                        args.join(", ")
-                    ));
-                } else {
-                    body.push_str(&format!(
-                        "    fun {ep_method_kt}({}): {ret} = inner.{ep_method_kt}({})\n\n",
-                        params.join(", "),
-                        args.join(", ")
-                    ));
-                }
+                body.push_str(&template_env::render(
+                    "service_finalize_method.jinja",
+                    minijinja::context! {
+                        method_name => ep_method_kt,
+                        params => params.join(", "),
+                        args => args.join(", "),
+                        return_type => ret,
+                        unit_return => ret == "Unit",
+                    },
+                ));
             }
         }
     }

@@ -33,6 +33,7 @@ pub mod gen_manifest;
 pub mod gen_proguard;
 pub mod gen_settings_gradle;
 pub mod naming;
+pub mod template_env;
 pub mod trait_bridge;
 
 use std::collections::HashSet;

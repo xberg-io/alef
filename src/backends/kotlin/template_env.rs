@@ -118,6 +118,51 @@ static TEMPLATES: &[(&str, &str)] = &[
         "registration_variant.kt.jinja",
         include_str!("templates/registration_variant.kt.jinja"),
     ),
+    (
+        "jni_bridge_object_header.jinja",
+        include_str!("templates/jni_bridge_object_header.jinja"),
+    ),
+    (
+        "jni_external_fun.jinja",
+        include_str!("templates/jni_external_fun.jinja"),
+    ),
+    ("jni_bridge_file.jinja", include_str!("templates/jni_bridge_file.jinja")),
+    (
+        "jni_client_class_header.jinja",
+        include_str!("templates/jni_client_class_header.jinja"),
+    ),
+    (
+        "jni_client_method_header.jinja",
+        include_str!("templates/jni_client_method_header.jinja"),
+    ),
+    (
+        "jni_streaming_client_method.jinja",
+        include_str!("templates/jni_streaming_client_method.jinja"),
+    ),
+    (
+        "kotlin_client_method.jinja",
+        include_str!("templates/kotlin_client_method.jinja"),
+    ),
+    (
+        "service_class_header.jinja",
+        include_str!("templates/service_class_header.jinja"),
+    ),
+    (
+        "service_registration_method.jinja",
+        include_str!("templates/service_registration_method.jinja"),
+    ),
+    (
+        "service_run_method.jinja",
+        include_str!("templates/service_run_method.jinja"),
+    ),
+    (
+        "service_finalize_method.jinja",
+        include_str!("templates/service_finalize_method.jinja"),
+    ),
+    (
+        "kotlin_streaming_client_method.jinja",
+        include_str!("templates/kotlin_streaming_client_method.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

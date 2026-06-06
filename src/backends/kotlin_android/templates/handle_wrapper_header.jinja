@@ -1,0 +1,2 @@
+class {{ class_name }} internal constructor(internal val handle: Long) : AutoCloseable {
+    override fun close() { {{ bridge_name }}.{{ free_name }}(handle) }

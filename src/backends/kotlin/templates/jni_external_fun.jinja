@@ -1,0 +1,4 @@
+{% if throws_class %}
+    @Throws({{ throws_class }}::class)
+{% endif %}
+    external fun {{ native_name }}({{ params }}){% if return_type %}: {{ return_type }}{% endif %}

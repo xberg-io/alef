@@ -1,0 +1,5 @@
+    fun {{ method_name }}({{ params }}): {{ return_type }} {
+        val resultJson = {{ bridge_call }}
+        return mapper.readValue(resultJson, {{ return_class }}::class.java)
+    }
+

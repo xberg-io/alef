@@ -1,0 +1,27 @@
+    fun {{ method_name }}({{ params }}): kotlinx.coroutines.flow.Flow<{{ item_type }}> = kotlinx.coroutines.flow.callbackFlow {
+        val inner: {{ java_fqn_inner }} = this@{{ class_name }}.inner
+        val mapper = com.fasterxml.jackson.databind.ObjectMapper()
+            .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
+            .findAndRegisterModules()
+            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
+        val streamHandle: Long = withContext(Dispatchers.IO) {
+            Bridge.{{ jni_start }}(inner, mapper.writeValueAsString({{ first_param_name }}))
+        }
+        try {
+            while (true) {
+                val chunkJson: String? = withContext(Dispatchers.IO) {
+                    Bridge.{{ jni_next }}(streamHandle)
+                }
+                if (chunkJson == null) break
+                val chunk = mapper.readValue(chunkJson, {{ item_type }}::class.java)
+                send(chunk)
+            }
+            close()
+        } catch (e: Throwable) {
+            close(e)
+        }
+        awaitClose {
+            Bridge.{{ jni_free }}(streamHandle)
+        }
+    }
+

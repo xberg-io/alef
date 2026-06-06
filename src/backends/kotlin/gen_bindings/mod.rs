@@ -14,6 +14,7 @@ mod traits;
 mod typealiases;
 
 use crate::backends::kotlin::naming::kotlin_target;
+use crate::backends::kotlin::template_env;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{AdapterPattern, KotlinFfiStyle, KotlinTarget, Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
@@ -499,27 +500,24 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
         .collect::<Vec<_>>()
         .join(", ");
 
-    out.push_str(&format!(
-        "    {async_kw}fun {method_name}({}): {return_ty} {{\n",
-        params_with_types.join(", ")
-    ));
     let optional_suffix = if matches!(m.return_type, TypeRef::Optional(_)) {
         ".orElse(null)"
     } else {
         ""
     };
-    if m.is_async {
-        out.push_str(&format!(
-            "        return withContext(Dispatchers.IO) {{ inner.{method_name}({call_args}){optional_suffix} }}\n"
-        ));
-    } else if matches!(m.return_type, TypeRef::Unit) {
-        out.push_str(&format!("        inner.{method_name}({call_args})\n"));
-    } else {
-        out.push_str(&format!(
-            "        return inner.{method_name}({call_args}){optional_suffix}\n"
-        ));
-    }
-    out.push_str("    }\n\n");
+    out.push_str(&template_env::render(
+        "kotlin_client_method.jinja",
+        minijinja::context! {
+            async_kw => async_kw,
+            method_name => method_name,
+            params => params_with_types.join(", "),
+            return_type => return_ty,
+            call_args => call_args,
+            optional_suffix => optional_suffix,
+            async => m.is_async,
+            unit_return => matches!(m.return_type, TypeRef::Unit),
+        },
+    ));
 }
 
 /// Emit a `Flow<ChunkType>` wrapper for a streaming adapter method using
@@ -617,47 +615,24 @@ fn emit_streaming_client_method(
 
     let java_fqn_inner = format!("{java_package}.{class_name}");
 
-    out.push_str(&format!(
-        "    fun {method_name}({}): kotlinx.coroutines.flow.Flow<{item_type}> = kotlinx.coroutines.flow.callbackFlow {{\n",
-        params.join(", ")
-    ));
     // Capture inner locally so the lambda can reference it without capturing `this`.
-    out.push_str(&format!(
-        "        val inner: {java_fqn_inner} = this@{class_name}.inner\n"
-    ));
     // Start the native stream on the IO dispatcher. The ObjectMapper is
     // allocated per-call here; a shared instance is not accessible from
     // the Java facade because the generated MAPPER field is private.
-    out.push_str("        val mapper = com.fasterxml.jackson.databind.ObjectMapper()\n");
-    out.push_str("            .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())\n");
-    out.push_str("            .findAndRegisterModules()\n");
-    out.push_str(
-        "            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)\n",
-    );
-    out.push_str("        val streamHandle: Long = withContext(Dispatchers.IO) {\n");
-    out.push_str(&format!(
-        "            Bridge.{jni_start}(inner, mapper.writeValueAsString({first_param_name}))\n"
+    out.push_str(&template_env::render(
+        "kotlin_streaming_client_method.jinja",
+        minijinja::context! {
+            method_name => method_name,
+            params => params.join(", "),
+            item_type => item_type,
+            java_fqn_inner => java_fqn_inner,
+            class_name => class_name,
+            jni_start => jni_start,
+            jni_next => jni_next,
+            jni_free => jni_free,
+            first_param_name => first_param_name,
+        },
     ));
-    out.push_str("        }\n");
-    out.push_str("        try {\n");
-    out.push_str("            while (true) {\n");
-    out.push_str("                val chunkJson: String? = withContext(Dispatchers.IO) {\n");
-    out.push_str(&format!("                    Bridge.{jni_next}(streamHandle)\n"));
-    out.push_str("                }\n");
-    out.push_str("                if (chunkJson == null) break\n");
-    out.push_str(&format!(
-        "                val chunk = mapper.readValue(chunkJson, {item_type}::class.java)\n"
-    ));
-    out.push_str("                send(chunk)\n");
-    out.push_str("            }\n");
-    out.push_str("            close()\n");
-    out.push_str("        } catch (e: Throwable) {\n");
-    out.push_str("            close(e)\n");
-    out.push_str("        }\n");
-    out.push_str("        awaitClose {\n");
-    out.push_str(&format!("            Bridge.{jni_free}(streamHandle)\n"));
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
 }
 
 // ---------------------------------------------------------------------------
