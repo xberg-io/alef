@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java/e2e**: expand `MOCK_SERVERS` into per-fixture system properties in MockServerListener. When a parent process (e.g., `alef test-apps run`) presets `MOCK_SERVER_URL` and `MOCK_SERVERS`, the MockServerListener now parses the JSON map and sets `mockServer.<fixture_id>` system properties so per-fixture tests resolve their asset URLs correctly instead of falling back to the shared namespace URL. Migrated the inline MockServerListener block to a jinja template (`src/e2e/templates/java/MockServerListener.java.jinja`) to improve maintainability. (`src/e2e/codegen/java.rs`, `src/e2e/template_env.rs`)
 - **swift**: result-type enums (trait bridge result types, e.g. `VisitResult`) were included in phantom `Vec<T>` declarations but never declared as opaque `type` entries in the extern "Rust" block, causing swift-bridge-build to emit a parse error: `Type must be declared with 'type Name'`. The fix filters result-type enums (identified via `trait_bridges[].result_type` in `alef.toml`) from the list of enum types passed to phantom Vec accessor generation. Result-type enums are JSON-decoded locally in Swift (first-class Swift enums) and never appear in extern blocks; they cannot be referenced in phantom Vec declarations without triggering this parser error. (`src/backends/swift/gen_rust_crate/mod.rs`)
 
 <!-- N+14-configurator-extract -->
