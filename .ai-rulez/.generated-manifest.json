@@ -37,6 +37,7 @@
     ".cursor/rules/binding-audit-pattern.mdc",
     ".cursor/rules/branch-hygiene.mdc",
     ".cursor/rules/centralized-naming.mdc",
+    ".cursor/rules/codegen-structure.mdc",
     ".cursor/rules/commit-messages.mdc",
     ".cursor/rules/communication-style.mdc",
     ".cursor/rules/complexity-limits.mdc",
