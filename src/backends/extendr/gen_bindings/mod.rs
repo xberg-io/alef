@@ -2043,15 +2043,17 @@ fn gen_extendr_json_bridged_function(
         // `extendr_incompatible_types`) OR non-opaque non-enum structs that still can't be
         // auto-converted from Robj by extendr. Both must cross the boundary as JSON strings.
         // Note: enum check must come first since enums are also Named types.
-        let needs_json_struct = !needs_json_enum && (matches!(&param.ty, TypeRef::Named(n)
+        let needs_json_struct = !needs_json_enum
+            && (matches!(&param.ty, TypeRef::Named(n)
             if extendr_incompatible_types.contains(n.as_str())
                 || (!opaque_types.contains(n.as_str())
                     && !enum_names.contains(n.as_str())
                     && !extendr_incompatible_types.contains(n.as_str())))
-            || matches!(&param.ty, TypeRef::Optional(inner)
+                || matches!(&param.ty, TypeRef::Optional(inner)
                 if matches!(inner.as_ref(), TypeRef::Named(n)
                     if !opaque_types.contains(n.as_str())
-                        && !enum_names.contains(n.as_str()))));
+                        && !enum_names.contains(n.as_str())
+                        && !extendr_incompatible_types.contains(n.as_str()))));
         if needs_json_vec {
             // Take JSON string, deserialize to core Vec<T> or Option<Vec<T>>.
             let (core_ty_path, is_optional) = match &param.ty {
@@ -2284,12 +2286,21 @@ fn gen_extendr_json_bridged_function(
                 },
                 _ => false,
             };
-            let needs_json_struct = matches!(&param.ty, TypeRef::Named(n)
-                if extendr_incompatible_types.contains(n.as_str()));
             let needs_json_enum = matches!(&param.ty, TypeRef::Named(n)
                 if enum_names.contains(n.as_str()))
                 || matches!(&param.ty, TypeRef::Optional(inner)
                     if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())));
+            let needs_json_struct = !needs_json_enum
+                && (matches!(&param.ty, TypeRef::Named(n)
+                if extendr_incompatible_types.contains(n.as_str())
+                    || (!opaque_types.contains(n.as_str())
+                        && !enum_names.contains(n.as_str())
+                        && !extendr_incompatible_types.contains(n.as_str())))
+                    || matches!(&param.ty, TypeRef::Optional(inner)
+                    if matches!(inner.as_ref(), TypeRef::Named(n)
+                        if !opaque_types.contains(n.as_str())
+                            && !enum_names.contains(n.as_str())
+                            && !extendr_incompatible_types.contains(n.as_str()))));
             if needs_json {
                 if param.optional {
                     format!("{}_core.as_deref().unwrap_or_default()", param.name)

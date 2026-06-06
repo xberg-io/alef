@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **extendr/R**: bare enum and non-opaque struct parameters now route through JSON bridging for generated R wrappers, including optional forms, avoiding `Robj` conversion paths that extendr cannot derive for those named types. (`src/backends/extendr/gen_bindings/mod.rs`)
+
 - **release tooling**: `task set-version` now avoids waiting on the shared Cargo build lock when regenerating `schemas/alef.schema.json`, using an existing Alef binary when possible and an isolated Cargo target directory otherwise.
 
 - **swift**: async free-function forwarders now JSON-encode enum-typed parameters to String at the bridge boundary, matching the bridge's expectation that enum parameters are passed as JSON-serialized strings. Previously, enums were routed through `.intoRust()` which returns an opaque type incompatible with the String-expecting bridge signature. Also fixed void-returning async functions emitting spurious `let result = ...` bindings that shadow parameters and trigger compiler warnings. (`src/backends/swift/gen_bindings/mod.rs`, `src/backends/swift/tests/async_enum_param_void_return_regression.rs`)
