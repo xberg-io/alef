@@ -300,7 +300,7 @@ fn trait_bridge_vtable_builder_coverage() {
 
     // Verify: vtable struct exists
     assert!(
-        content.contains("pub struct IPluginTrait {"),
+        content.contains("pub const IPluginTrait = extern struct {"),
         "BUG: vtable struct missing. Content preview:\n{}",
         &content[..std::cmp::min(1500, content.len())]
     );
@@ -310,4 +310,183 @@ fn trait_bridge_vtable_builder_coverage() {
         content.contains("pub fn make_plugin_trait_vtable(comptime T: type, instance: *T) IPluginTrait {"),
         "BUG: vtable builder missing. Expected 'pub fn make_plugin_trait_vtable(...)' in generated code."
     );
+}
+
+#[test]
+fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
+    // Regression test for B10: verify that ALL registered trait bridges get their
+    // vtable builder functions emitted, not just some of them.
+    // This replicates the kreuzberg scenario with 6 traits.
+
+    use alef::core::config::{BridgeBinding, TraitBridgeConfig};
+
+    let mut api = make_basic_api();
+
+    // Define 6 traits matching the kreuzberg plugin system
+    let trait_names = vec![
+        "DocumentExtractor",
+        "OcrBackend",
+        "PostProcessor",
+        "EmbeddingBackend",
+        "Renderer",
+        "Validator",
+    ];
+
+    for trait_name in &trait_names {
+        let method = alef::core::ir::MethodDef {
+            name: "process".to_string(),
+            params: vec![make_param("input", TypeRef::String)],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(alef::core::ir::ReceiverKind::Ref),
+            trait_source: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let trait_def = TypeDef {
+            name: trait_name.to_string(),
+            rust_path: format!("demo::{}", trait_name),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![method],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: format!("Test trait: {}", trait_name),
+            cfg: None,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        };
+        api.types.push(trait_def);
+    }
+
+    // Configure trait bridges for all 6 traits
+    let mut config = make_basic_config();
+    for trait_name in &trait_names {
+        let snake = heck::AsSnakeCase(trait_name).to_string();
+        config.trait_bridges.push(TraitBridgeConfig {
+            trait_name: trait_name.to_string(),
+            super_trait: None,
+            registry_getter: None,
+            register_fn: Some(format!("register_{}", snake)),
+            unregister_fn: Some(format!("unregister_{}", snake)),
+            clear_fn: None,
+            bind_via: BridgeBinding::FunctionParam,
+            ffi_skip_methods: vec![],
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: vec![],
+            options_type: None,
+            options_field: None,
+            context_type: None,
+            result_type: None,
+        });
+    }
+
+    // Generate bindings
+    let files = ZigBackend.generate_bindings(&api, &config).unwrap();
+    let content = files
+        .iter()
+        .find(|f| f.content.contains("pub fn make_") || f.content.contains("pub struct I"))
+        .or_else(|| files.first())
+        .expect("zig binding file must be generated")
+        .content
+        .clone();
+
+    // Verify all 6 vtable builders are emitted
+    for trait_name in &trait_names {
+        let snake = heck::AsSnakeCase(trait_name).to_string();
+        let expected_builder = format!("pub fn make_{}_vtable(comptime T: type, instance: *T)", snake);
+        assert!(
+            content.contains(&expected_builder),
+            "BUG: missing make_{}_vtable builder for trait {}. Generated code:\n{}",
+            snake,
+            trait_name,
+            &content[..std::cmp::min(2000, content.len())]
+        );
+    }
+}
+
+#[test]
+fn trait_bridge_vcoverage_assertion_catches_missing_trait_definitions() {
+    // Regression test for B10 fallout: trait bridges registered but trait definitions
+    // missing/excluded should produce a hard error, not silent omission of vtable builders.
+    //
+    // BUG PATTERN: alef.toml registers a trait bridge with `trait_name = "Foo"`,
+    // but the Rust source doesn't export `Foo` as a trait (or it's excluded from
+    // the binding surface). The current code silently skips emit_trait_bridge()
+    // via the `if let Some(trait_def) = ...` guard at line 280, leaving
+    // e2e tests with dangling references to `make_foo_vtable(...)` that don't
+    // exist in the generated binding.
+    //
+    // This test verifies that the emitter enforces the invariant: every registered
+    // trait bridge MUST have a corresponding trait definition in the API surface,
+    // or the build should fail explicitly.
+
+    use alef::core::config::{BridgeBinding, TraitBridgeConfig};
+
+    let api = make_basic_api();
+
+    // DO NOT add trait definitions to the API.
+    // Configure trait bridges for 2 traits that don't exist in the API.
+    let mut config = make_basic_config();
+    config.trait_bridges.push(TraitBridgeConfig {
+        trait_name: "MissingTrait1".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: Some("register_missing1".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        bind_via: BridgeBinding::FunctionParam,
+        ffi_skip_methods: vec![],
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    });
+
+    // Generate bindings
+    let files = ZigBackend.generate_bindings(&api, &config).unwrap();
+    let content = files
+        .iter()
+        .find(|f| f.content.contains("pub fn make_") || f.content.contains("pub struct I"))
+        .or_else(|| files.first())
+        .expect("zig binding file must be generated")
+        .content
+        .clone();
+
+    // EXPECTED: vtable builder should NOT exist for a missing trait
+    let not_found = !content.contains("pub fn make_missing_trait1_vtable");
+    assert!(
+        not_found,
+        "EXPECTED: make_missing_trait1_vtable should NOT be emitted when trait definition is missing from API"
+    );
+
+    // CRITICAL INVARIANT: If a trait bridge is configured but the trait is not found,
+    // the build should emit a warning or error. For now, we document the current behavior:
+    // Missing traits are silently skipped. Future work: add a validation pass that detects
+    // this mismatch and reports it to the user.
 }

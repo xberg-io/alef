@@ -278,8 +278,20 @@ impl Backend for ZigBackend {
                 continue;
             }
             if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name && t.is_trait) {
+                // CRITICAL INVARIANT: emit_trait_bridge must be called unconditionally for every
+                // discovered trait. This ensures that `make_{trait_snake}_vtable` comptime builders
+                // are emitted, which e2e test fixtures depend on. See trait_bridge.rs line 663.
                 emit_trait_bridge(&prefix, error_type, bridge_cfg, trait_def, &exclude_types, &mut content);
                 content.push('\n');
+            } else {
+                // NOTE: If a trait bridge is registered but the trait definition is not found
+                // (e.g., excluded or missing from the IR), the vtable builder is silently omitted.
+                // This could cause e2e test fixtures to reference undefined `make_*_vtable` functions.
+                // Future work: Add a validation pass to detect this mismatch and report it.
+                eprintln!(
+                    "warning: trait bridge for '{}' has no corresponding trait definition in Zig binding surface",
+                    bridge_cfg.trait_name
+                );
             }
         }
 

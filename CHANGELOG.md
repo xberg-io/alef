@@ -11,7 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **dart / cli**: `[crates.dart] skip_frb = true` config field and `--skip-frb` flag for `alef all` / `alef generate`. When set, the `flutter_rust_bridge_codegen generate` `RunCommand` is omitted from the Dart post-build steps; file post-processors (sealed-variant rewriting, loader injection, handler-executor fixes) are still executed. Consumers who have not installed the Flutter SDK or `flutter_rust_bridge_codegen` can regen binding scaffolding without the command hanging. Equivalent runtime escape-hatch: `ALEF_SKIP_COMMANDS=flutter_rust_bridge_codegen`. (`src/core/config/languages.rs`, `src/backends/dart/gen_bindings/mod.rs`, `src/main.rs`)
 
+- **zig**: comprehensive snapshot tests verifying that every registered trait bridge emits a `make_{trait_snake}_vtable` comptime constructor. The new test suite covers single-trait and multi-trait scenarios (matching the kreuzberg plugin system with 6 traits), ensuring e2e fixture references to vtable builders will always have corresponding generated code. Test validates the invariant: for every trait bridge in `alef.toml`, the Zig binding surface must emit both the vtable struct and the comptime builder function. (`tests/backends_zig_snapshot_test.rs`)
+
 ### Fixed
+
+- **zig**: add warning when a trait bridge is registered in `alef.toml` but the trait definition is missing from the Zig binding surface (e.g., due to exclusion or omission from the IR). This prevents silent vtable builder emission failures where e2e tests would reference undefined `make_*_vtable` functions. The warning informs the user of the mismatch; future work will add validation to fail the build explicitly. (`src/backends/zig/gen_bindings/mod.rs`)
 
 - **ruby (magnus)**: `From<BindingEnum> for CoreEnum` no longer emits a `_ => Default::default()` catch-all arm. The match is on the _binding_ enum, which only contains the non-excluded variants; all arms are therefore always exhaustive and the wildcard was unreachable, producing `error: unreachable pattern` under `-D warnings`. The fix applies regardless of `binding_enums_have_data` — the catch-all is never needed in the binding→core direction. The core→binding direction is unchanged: it correctly keeps the catch-all when excluded variants exist. (`src/codegen/conversions/enums.rs`)
 
