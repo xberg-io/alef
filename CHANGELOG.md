@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **cli**: `ALEF_SKIP_COMMANDS` env var accepting a comma-separated list of post-build `RunCommand` `cmd` names to skip. Each skipped command logs a `warn!`. Useful for CI environments where a tool (e.g. `flutter_rust_bridge_codegen`) is unavailable, hangs trying to install transitive runtimes, or simply isn't desired this run. Falls through to the normal spawn path when unset or when `cmd` isn't in the list. (`src/cli/pipeline/commands.rs`)
+
+### Fixed
+
+- **go**: emit `copyLibraryToBindingPackage` function in download_ffi tool. When a consumer imports a Go binding from module cache and runs `go generate`, the tool downloads FFI libraries to `.lib/` and now also copies them to the binding package directory, ensuring cgo LDFLAGS `${SRCDIR}/.lib/...` resolves correctly whether in module cache, vendored, or local. Adds `copyLibraryToBindingPackage()` to duplicate libraries after extraction. (`src/backends/go/templates/cmd_download_ffi_main.go.jinja`)
+
+- **zig**: emit FFI C headers (`include/`) during Zig package generation. Previously, `packages/zig/` lacked C header files at tarball creation time, causing downstream consumers (`zig fetch` + `zig build`) to fail with link errors for missing headers. The Zig backend now reads `crates/*-ffi/include/*.h` and writes to `packages/zig/include/`, ensuring headers are bundled in the published tarball and available at build time. Prebuilt FFI libs per platform (x86_64/aarch64 on linux/macos/windows) are now also expected in `packages/zig/lib/{rid}/` — these must be copied by the release workflow from the C FFI artifact job. (`src/backends/zig/gen_bindings/mod.rs`, `src/backends/zig/templates/build_zig.jinja`)
+
+- **java**: macOS aarch64 JDK 25 native library symbol lookup failure. NativeLib static initializer was using `SymbolLookup.libraryLookup(String, Arena)` with an absolute file path, but the String variant expects a library name only and silently fails on absolute paths. `defaultLookup()` fallback cannot access symbols from libraries loaded via `System.load()`. Changed to use `SymbolLookup.libraryLookup(Path, Arena)` (the Path-accepting variant) with the absolute path from JAR-extracted or system-located dylibs. This allows JDK 21+ Panama FFM to correctly resolve bundled FFI symbols on all platforms. (`src/backends/java/templates/native_lib.jinja`, `src/backends/java/gen_bindings/native_lib.rs`)
+
 ## [0.23.23] - 2026-06-06
 
 ### Fixed

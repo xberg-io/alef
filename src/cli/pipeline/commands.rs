@@ -1382,7 +1382,19 @@ const RUN_COMMAND_POLL_INTERVAL: std::time::Duration = std::time::Duration::from
 /// alef's own stdio so interactive subprocess progress is visible. Enforces a
 /// `RUN_COMMAND_TIMEOUT` ceiling; on timeout the child is SIGKILL'd and the
 /// call returns an error. Returns an error on non-zero exit status.
+///
+/// Escape hatch: the env var `ALEF_SKIP_COMMANDS` accepts a comma-separated
+/// list of `cmd` names to skip without running. Useful in environments where
+/// a post-build tool is unavailable, hangs (e.g. `flutter_rust_bridge_codegen`
+/// installing Flutter via FVM under CI), or simply isn't desired this run.
+/// Each skipped command logs a `warn!` so the omission is visible.
 fn run_run_command(cmd: &str, args: &[&str], base_dir: &Path) -> anyhow::Result<()> {
+    if let Ok(skip_list) = std::env::var("ALEF_SKIP_COMMANDS") {
+        if skip_list.split(',').any(|s| s.trim() == cmd) {
+            warn!("[{cmd}] skipped via ALEF_SKIP_COMMANDS env var");
+            return Ok(());
+        }
+    }
     let mut child = match std::process::Command::new(cmd)
         .args(args)
         .current_dir(base_dir)
@@ -1720,6 +1732,39 @@ mod run_command_tests {
         assert!(
             msg.contains("exited with status"),
             "error should mention exit status: {msg}"
+        );
+    }
+
+    #[test]
+    fn run_run_command_honors_skip_env_var() {
+        // Single test rather than two parallel tests, because cargo runs tests
+        // concurrently by default and ALEF_SKIP_COMMANDS is a process-global
+        // env var: separate tests would race each other on set/unset.
+        let dir = std::env::temp_dir();
+        // Phase 1: env var set, cmd in list → must skip (returns Ok despite
+        // `false` exiting non-zero).
+        // Safety: required by std's set_var contract on recent toolchains.
+        unsafe {
+            std::env::set_var("ALEF_SKIP_COMMANDS", "noop,false , another");
+        }
+        let skipped = run_run_command("false", &[], &dir);
+        assert!(
+            skipped.is_ok(),
+            "listed command must return Ok without spawning: {skipped:?}"
+        );
+
+        // Phase 2: env var set, cmd NOT in list → must spawn and surface
+        // failure (so we know the env var isn't a blanket skip).
+        unsafe {
+            std::env::set_var("ALEF_SKIP_COMMANDS", "something-else");
+        }
+        let honored = run_run_command("false", &[], &dir);
+        unsafe {
+            std::env::remove_var("ALEF_SKIP_COMMANDS");
+        }
+        assert!(
+            honored.is_err(),
+            "unlisted command must still spawn and surface failure"
         );
     }
 }
