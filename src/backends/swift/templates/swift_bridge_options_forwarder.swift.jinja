@@ -1,5 +1,5 @@
 /// Decode `{{ options_type }}` JSON and attach a `{{ type_alias }}` visitor handle.
-/// Forwards to the swift-bridge shim emitted in the `RustBridge` module -
+/// Forwards to the swift-bridge shim emitted in the `RustBridge` module —
 /// re-exposed here so callers do not need `import RustBridge`.
 public func {{ options_fn }}(_ json: String, _ {{ field }}: {{ type_alias }}?) throws -> {{ options_type }} {
     return try RustBridge.{{ options_fn }}(json, {{ field }})

@@ -1637,7 +1637,13 @@ fn emit_enum(
                 ));
             } else {
                 // Explicit raw-value annotation required (e.g. `case toolCalls = "tool_calls"`).
-                cases.push_str(&format!("    case {case_name} = \"{raw_value}\"\n"));
+                cases.push_str(&crate::backends::swift::template_env::render(
+                    "enum_case_raw_value.swift.jinja",
+                    minijinja::context! {
+                        case_name => &case_name,
+                        raw_value => &raw_value,
+                    },
+                ));
             }
         }
         out.push_str(&crate::backends::swift::template_env::render(
@@ -1798,7 +1804,13 @@ fn emit_enum_without_into_rust(
                     },
                 ));
             } else {
-                cases.push_str(&format!("    case {case_name} = \"{raw_value}\"\n"));
+                cases.push_str(&crate::backends::swift::template_env::render(
+                    "enum_case_raw_value.swift.jinja",
+                    minijinja::context! {
+                        case_name => &case_name,
+                        raw_value => &raw_value,
+                    },
+                ));
             }
         }
         out.push_str(&crate::backends::swift::template_env::render(
@@ -2759,8 +2771,8 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         let swift_func_name = swift_ident(&func.name.to_lower_camel_case());
 
         // Build positional parameters for the overload signature.
-        // For each config parameter, derive a unique variable name using the Rust parameter name
-        // as the primary disambiguator (ensures uniqueness even if two params share the same type).
+        // For each config parameter, use the Rust parameter name as the local
+        // name. Parameter names are already unique within a Swift signature.
         let mut param_strs: Vec<String> = Vec::new();
         let mut json_local_names: std::collections::HashMap<usize, (String, String)> = std::collections::HashMap::new(); // idx -> (json_fn_name, type_var_name)
 
@@ -2773,14 +2785,10 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
             });
 
             if let Some(json_fn_name) = config_json_name.clone() {
-                // Config param becomes a String. Derive a unique parameter label and local variable
-                // name using the Rust param name to disambiguate (e.g., "aExtractionResultJson" for param "a").
-                if let Some((_, ty_name)) = config_params.iter().find(|(idx, _)| *idx == i) {
-                    let type_var_name = format!(
-                        "{}{}",
-                        param_name,
-                        AsSnakeCase(*ty_name).to_string().to_lower_camel_case()
-                    );
+                // Config param becomes a positional JSON String, decoded back
+                // into the typed local before calling the public wrapper.
+                if config_params.iter().any(|(idx, _)| *idx == i) {
+                    let type_var_name = param_name.clone();
                     param_strs.push(format!("_ {type_var_name}Json: String"));
                     json_local_names.insert(i, (json_fn_name, type_var_name));
                 }
@@ -2809,7 +2817,7 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
             if let Some((_, type_var_name)) = json_local_names.get(&i) {
-                // Pass the decoded config with the type-derived local variable name.
+                // Pass the decoded config with the parameter-derived local variable name.
                 call_args.push(format!("{param_name}: {type_var_name}"));
             } else {
                 call_args.push(format!("{param_name}: {param_name}"));
@@ -2819,8 +2827,12 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
 
         let mut decode_lines = String::new();
         for (json_fn_name, type_var_name) in json_local_names.values() {
-            decode_lines.push_str(&format!(
-                "    let {type_var_name} = try {json_fn_name}({type_var_name}Json)\n"
+            decode_lines.push_str(&crate::backends::swift::template_env::render(
+                "swift_json_decode_line.swift.jinja",
+                minijinja::context! {
+                    json_fn_name => json_fn_name,
+                    type_var_name => type_var_name,
+                },
             ));
         }
         let await_kw = if func.is_async { "await " } else { "" };
@@ -3569,17 +3581,23 @@ fn emit_inbound_protocols(
         );
 
         // --- 1. Protocol definition (user-facing, String params, configured return) ---
-        out.push_str(&format!(
-            "/// Swift protocol that Swift classes implement to provide visitor callbacks.\n\
-             /// Conform to this protocol to intercept configured Rust trait bridge events.\n\
-             public protocol {protocol_name}: AnyObject {{\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_bridge_protocol_open.swift.jinja",
+            minijinja::context! {
+                protocol_name => &protocol_name,
+            },
         ));
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
             let params = swift_protocol_params(method, exclude_types);
-            out.push_str(&format!(
-                "    func {method_camel}({params}) -> {protocol_return_type}\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_bridge_protocol_method.swift.jinja",
+                minijinja::context! {
+                    method_name => &method_camel,
+                    params => &params,
+                    return_type => protocol_return_type,
+                },
             ));
         }
         out.push_str("}\n\n");
@@ -3592,43 +3610,45 @@ fn emit_inbound_protocols(
         let default_case = result_enum
             .and_then(|en| en.variants.iter().find(|v| v.fields.is_empty()))
             .map(|v| swift_case_ident(&v.name.to_lower_camel_case()));
-        if let Some(default_case) = &default_case {
-            out.push_str(&format!(
-                "/// Default implementation: every method returns `.{default_case}` so conforming\n\
-                 /// types only need to implement the callbacks they care about.\n\
-                 public extension {protocol_name} {{\n"
-            ));
-        } else {
-            out.push_str(&format!(
-                "/// Default implementation: conforming types only need to implement\n\
-                 /// the callbacks they care about.\n\
-                 public extension {protocol_name} {{\n"
-            ));
-        }
+        let default_case_doc = default_case.as_ref().map(|case| format!(".{case}"));
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_bridge_protocol_default_open.swift.jinja",
+            minijinja::context! {
+                protocol_name => &protocol_name,
+                default_case => default_case_doc.as_deref(),
+            },
+        ));
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
             let underscore_params = swift_protocol_underscore_params(method, exclude_types);
-            if let Some(default_case) = &default_case {
-                out.push_str(&format!(
-                    "    func {method_camel}({underscore_params}) -> {protocol_return_type} {{ return .{default_case} }}\n"
-                ));
+            let (return_type, body) = if let Some(default_case) = &default_case {
+                (Some(protocol_return_type), format!("return .{default_case}"))
             } else {
-                out.push_str(&format!("    func {method_camel}({underscore_params}) {{}}\n"));
-            }
+                (None, String::new())
+            };
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_bridge_protocol_default_method.swift.jinja",
+                minijinja::context! {
+                    method_name => &method_camel,
+                    params => &underscore_params,
+                    return_type => return_type,
+                    body => &body,
+                },
+            ));
         }
         out.push_str("}\n\n");
 
         // --- 3. Adapter class (private, lives in the host module) ---
         // Implements Swift{Trait}BoxDelegate (from RustBridge), wrapping any {Trait}Protocol.
         // Converts RustString → String, passes to user protocol, serializes result to JSON.
-        out.push_str(&format!(
-            "/// Internal adapter: wraps a `{protocol_name}` conformer as a `{delegate_protocol_name}`.\n\
-             /// Converts swift-bridge raw types (RustString, UInt, etc.) to user-friendly Swift\n\
-             /// types before dispatching, then serialises configured return values to JSON.\n\
-             private final class {adapter_name}: {delegate_protocol_name} {{\n\
-             \x20   private let inner: any {protocol_name}\n\
-             \x20   init(_ inner: any {protocol_name}) {{ self.inner = inner }}\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_bridge_adapter_open.swift.jinja",
+            minijinja::context! {
+                adapter_name => &adapter_name,
+                delegate_protocol_name => &delegate_protocol_name,
+                protocol_name => &protocol_name,
+            },
         ));
         // Emit one delegate method per trait method.
         for method in &trait_def.methods {
@@ -3639,7 +3659,13 @@ fn emit_inbound_protocols(
             let (conversion_lines, call_args) = swift_adapter_conversions(method, exclude_types);
             // Adapter implements the delegate protocol: method name must match the
             // protocol's lowerCamelCase declaration emitted in `emit_inbound_box_files`.
-            out.push_str(&format!("    func {delegate_method}({delegate_params}) -> String {{\n"));
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_bridge_adapter_method_open.swift.jinja",
+                minijinja::context! {
+                    method_name => &delegate_method,
+                    params => &delegate_params,
+                },
+            ));
             for line in &conversion_lines {
                 out.push_str(&format!("        {line}\n"));
             }
@@ -3654,8 +3680,12 @@ fn emit_inbound_protocols(
                 } else {
                     format!("inner.{method_camel}({call_args})")
                 };
-                out.push_str(&format!("        {call}\n"));
-                "        return \"{}\"\n".to_string()
+                crate::backends::swift::template_env::render(
+                    "swift_bridge_adapter_void_return.swift.jinja",
+                    minijinja::context! {
+                        call => &call,
+                    },
+                )
             };
             out.push_str(&result_json);
             out.push_str("    }\n");
@@ -3666,10 +3696,12 @@ fn emit_inbound_protocols(
         if let Some(en) = result_enum {
             let result_type_name = en.name.as_str();
             let fn_name = format!("{}_toJson", result_type_name.to_snake_case());
-            out.push_str(&format!(
-                "/// Serialise a `{result_type_name}` to a JSON string matching Rust serde defaults.\n\
-                 private func {fn_name}(_ result: {result_type_name}) -> String {{\n\
-                 \x20   switch result {{\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_bridge_result_helper_open.swift.jinja",
+                minijinja::context! {
+                    result_type_name => result_type_name,
+                    function_name => &fn_name,
+                },
             ));
             for variant in &en.variants {
                 let variant_name = &variant.name;
@@ -3681,7 +3713,13 @@ fn emit_inbound_protocols(
                 let swift_case = swift_case_ident(&variant_name.to_lower_camel_case());
                 if variant.fields.is_empty() {
                     // Unit variant: serialises to `"VariantName"` (a JSON string).
-                    out.push_str(&format!("    case .{swift_case}: return \"\\\"{}\\\"\"", variant_name));
+                    out.push_str(&crate::backends::swift::template_env::render(
+                        "swift_bridge_result_unit_case.swift.jinja",
+                        minijinja::context! {
+                            swift_case => &swift_case,
+                            variant_name => variant_name,
+                        },
+                    ));
                 } else if variant.is_tuple && variant.fields.len() == 1 {
                     // Newtype variant: serialises to `{\"VariantName\":\"value\"}`.
                     let _field_swift = if variant.fields[0].name.starts_with("field") {
@@ -3690,37 +3728,39 @@ fn emit_inbound_protocols(
                         variant.fields[0].name.to_lower_camel_case()
                     };
                     // The associated value label in Swift for a tuple variant is `field0:`.
-                    out.push_str(&format!(
-                        "    case .{swift_case}(let v): return \"{{\\\"{}\\\":\\\"\\(jsonEscapeStr(v))\\\"}}\"",
-                        variant_name
+                    out.push_str(&crate::backends::swift::template_env::render(
+                        "swift_bridge_result_newtype_case.swift.jinja",
+                        minijinja::context! {
+                            swift_case => &swift_case,
+                            variant_name => variant_name,
+                        },
                     ));
                 }
-                out.push('\n');
             }
             out.push_str("    }\n}\n\n");
             // Emit jsonEscapeStr helper once (idempotent — only once per bridge).
-            out.push_str(
-                "/// Escape a Swift String for embedding in a JSON string literal.\n\
-                 private func jsonEscapeStr(_ s: String) -> String {\n\
-                 \x20   s.replacingOccurrences(of: \"\\\\\", with: \"\\\\\\\\\")\n\
-                 \x20    .replacingOccurrences(of: \"\\\"\", with: \"\\\\\\\"\")\n\
-                 \x20    .replacingOccurrences(of: \"\\n\", with: \"\\\\n\")\n\
-                 \x20    .replacingOccurrences(of: \"\\r\", with: \"\\\\r\")\n\
-                 \x20    .replacingOccurrences(of: \"\\t\", with: \"\\\\t\")\n\
-                 }\n\n",
-            );
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_bridge_json_escape_helper.swift.jinja",
+                minijinja::context! {},
+            ));
+            out.push('\n');
         }
 
         // --- 5. Factory function ---
         let opts_snake = options_type.to_snake_case();
         let options_fn = format!("{opts_snake}FromJsonWith{}", field.to_upper_camel_case()).to_lower_camel_case();
-        out.push_str(&format!(
-            "/// Wrap a `{protocol_name}` conformer in an opaque `{type_alias}` handle\n\
-             /// that can be passed to `{options_fn}(...)` on the Rust side.\n\
-             public func {factory_fn}(_ visitor: any {protocol_name}) -> {type_alias} {{\n\
-             \x20   return RustBridge.{factory_fn}({box_name}({adapter_name}(visitor)))\n\
-             }}\n\n",
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_bridge_factory.swift.jinja",
+            minijinja::context! {
+                protocol_name => &protocol_name,
+                type_alias => type_alias,
+                options_fn => &options_fn,
+                factory_fn => &factory_fn,
+                box_name => &box_name,
+                adapter_name => &adapter_name,
+            },
         ));
+        out.push('\n');
 
         // --- 6. Top-level forwarder for `{options_type}FromJsonWith{Field}` ---
         // The Rust bridge emits this as a free function in the RustBridge module
@@ -3731,14 +3771,16 @@ fn emit_inbound_protocols(
         // is unidiomatic and (b) drags in `import RustBridge` which collides
         // with first-class Swift types when a bridge helper and public enum
         // share a name across modules.
-        out.push_str(&format!(
-            "/// Decode `{options_type}` JSON and attach a `{type_alias}` visitor handle.\n\
-             /// Forwards to the swift-bridge shim emitted in the `RustBridge` module —\n\
-             /// re-exposed here so callers do not need `import RustBridge`.\n\
-             public func {options_fn}(_ json: String, _ {field}: {type_alias}?) throws -> {options_type} {{\n\
-             \x20   return try RustBridge.{options_fn}(json, {field})\n\
-             }}\n\n",
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_bridge_options_forwarder.swift.jinja",
+            minijinja::context! {
+                options_type => options_type,
+                type_alias => type_alias,
+                options_fn => &options_fn,
+                field => &field,
+            },
         ));
+        out.push('\n');
         let _ = api;
     }
 }
@@ -5669,7 +5711,12 @@ fn emit_ref_property_extensions(api: &ApiSurface) -> Option<(String, String)> {
 
             if !type_has_extensions {
                 type_content.push('\n');
-                type_content.push_str(&format!("extension RustBridge.{}Ref {{\n", ty.name));
+                type_content.push_str(&crate::backends::swift::template_env::render(
+                    "swift_ref_extension_open.swift.jinja",
+                    minijinja::context! {
+                        type_name => &ty.name,
+                    },
+                ));
                 type_has_extensions = true;
             } else {
                 // Add blank line between properties
@@ -5680,19 +5727,22 @@ fn emit_ref_property_extensions(api: &ApiSurface) -> Option<(String, String)> {
             // method invocation, matching the swift-bridge naming convention. This
             // avoids name collisions when the Rust method name is snake_case.
             let camel = method.name.to_lower_camel_case();
-            type_content.push_str(&format!("    /// Computed-property alias for `{}()` method.\n", camel));
-            type_content.push_str(&format!("    public var {}: String {{\n", camel));
-            // TypeRef::String maps to native Swift String, which swift-bridge returns directly.
-            // No .toString() conversion needed.
-            type_content.push_str(&format!("        self.{}()\n", camel));
-            type_content.push_str("    }\n");
+            type_content.push_str(&crate::backends::swift::template_env::render(
+                "swift_ref_string_alias_property.swift.jinja",
+                minijinja::context! {
+                    method_name => &camel,
+                    property_name => &camel,
+                },
+            ));
         }
 
         if type_has_extensions {
             type_content.push_str("}\n");
-            type_content.push_str(&format!(
-                "\n// {}RefMut and {} inherit the extensions automatically\n",
-                ty.name, ty.name
+            type_content.push_str(&crate::backends::swift::template_env::render(
+                "swift_ref_extension_inheritance_comment.swift.jinja",
+                minijinja::context! {
+                    type_name => &ty.name,
+                },
             ));
             content.push_str(&type_content);
             has_any_extensions = true;

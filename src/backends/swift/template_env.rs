@@ -771,6 +771,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_bridge_protocol_open.swift.jinja"),
     ),
     (
+        "swift_bridge_protocol_method.swift.jinja",
+        include_str!("templates/swift_bridge_protocol_method.swift.jinja"),
+    ),
+    (
         "swift_bridge_protocol_default_open.swift.jinja",
         include_str!("templates/swift_bridge_protocol_default_open.swift.jinja"),
     ),
