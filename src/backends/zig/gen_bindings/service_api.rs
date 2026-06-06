@@ -72,6 +72,21 @@ fn typeref_to_zig_type(ty: &TypeRef) -> String {
     }
 }
 
+fn service_param_decl(name: &str, zig_type: &str, multiline: bool) -> String {
+    if multiline {
+        format!(",\n        {name}: {zig_type}")
+    } else {
+        format!(", {name}: {zig_type}")
+    }
+}
+
+fn service_arg(name: &str, ty: &TypeRef, api: &ApiSurface) -> String {
+    match ty {
+        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!(",\n            {name}._handle"),
+        _ => format!(",\n            {name}"),
+    }
+}
+
 // ──────────────────────────────────────────────── Zig service struct ──
 
 /// Generate the Zig service wrapper module (`service.zig`).
@@ -110,35 +125,29 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     // Service struct wrapping the C opaque pointer. The owner is stored as an optional `*anyopaque`
     // (mirroring how this backend wraps every other opaque handle); the concrete C opaque type is
     // reached only through `@ptrCast` at each `c.<symbol>` call, so its cbindgen name is never named.
-    out.push_str(&format!(
-        "/// Zig wrapper for the {0} service.\n\
-         /// Owns an opaque C pointer to the service instance.\n\
-         pub const {0} = struct {{\n    \
-             owner: ?*anyopaque,\n\n",
-        service_name
+    out.push_str(&crate::backends::zig::template_env::render(
+        "service_struct_open.jinja",
+        minijinja::context! {
+            service_name => service_name,
+        },
     ));
 
     // Constructor
-    out.push_str(&format!(
-        "    /// Create a new {0} instance.\n    \
-         pub fn init() {0} {{\n        \
-             return .{{\n            \
-                 .owner = @ptrCast(c.{1}_{2}_new()),\n        \
-             }};\n    \
-         }}\n\n",
-        service_name, prefix_lower, service_snake
+    out.push_str(&crate::backends::zig::template_env::render(
+        "service_init.jinja",
+        minijinja::context! {
+            service_name => service_name,
+            new_fn => format!("{prefix_lower}_{service_snake}_new"),
+        },
     ));
 
     // Destructor
-    out.push_str(&format!(
-        "    /// Free the {0} instance.\n    \
-         pub fn deinit(self: *{0}) void {{\n        \
-             if (self.owner) |owner_ptr| {{\n            \
-                 c.{1}_{2}_free(@ptrCast(owner_ptr));\n            \
-                 self.owner = null;\n        \
-             }}\n    \
-         }}\n\n",
-        service_name, prefix_lower, service_snake
+    out.push_str(&crate::backends::zig::template_env::render(
+        "service_deinit.jinja",
+        minijinja::context! {
+            service_name => service_name,
+            free_fn => format!("{prefix_lower}_{service_snake}_free"),
+        },
     ));
 
     // Registration methods
@@ -169,49 +178,32 @@ fn gen_registration_method(
     // Find the contract
     let _contract = find_contract(api, &reg.callback_contract).expect("contract not found");
 
-    out.push_str(&format!(
-        "    /// Register a handler for method '{0}'.\n    \
-         pub fn {1}(\n        \
-             self: *{2},\n        \
-             callback: *const fn (*anyopaque, [*:0]const u8) callconv(.C) [*:0]u8,\n        \
-             context: *anyopaque",
-        reg.method, reg_method_snake, service_name
-    ));
-
     // Metadata parameters (name-first Zig style)
+    let mut params_decl = String::new();
     for meta_param in &reg.metadata_params {
         let zig_type = match &meta_param.ty {
             TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!("*{}", n),
             ty => typeref_to_zig_type(ty),
         };
-        out.push_str(&format!(",\n        {}: {}", meta_param.name, zig_type));
+        params_decl.push_str(&service_param_decl(&meta_param.name, &zig_type, true));
     }
-
-    out.push_str(") c_int {\n");
-    out.push_str("        const owner_ptr = self.owner orelse return 1;\n\n");
-
-    out.push_str(&format!(
-        "        return c.{}_{}_register_{}(\n            \
-             @ptrCast(owner_ptr),\n            \
-             @ptrCast(callback),\n            \
-             context",
-        prefix_lower, service_snake, reg_method_snake
-    ));
 
     // Metadata arguments: extract _handle from opaque Named params
+    let mut args = String::new();
     for meta_param in &reg.metadata_params {
-        match &meta_param.ty {
-            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
-                out.push_str(&format!(",\n            {0}._handle", meta_param.name));
-            }
-            _ => {
-                out.push_str(&format!(",\n            {}", meta_param.name));
-            }
-        }
+        args.push_str(&service_arg(&meta_param.name, &meta_param.ty, api));
     }
-
-    out.push_str("\n        );\n");
-    out.push_str("    }\n\n");
+    out.push_str(&crate::backends::zig::template_env::render(
+        "service_registration_method.jinja",
+        minijinja::context! {
+            doc => format!("Register a handler for method '{}'", reg.method),
+            method_name => reg_method_snake,
+            service_name => service_name,
+            params_decl,
+            c_fn => format!("{prefix_lower}_{service_snake}_register_{reg_method_snake}"),
+            args,
+        },
+    ));
 
     // Emit registration variants (shortcut methods)
     for variant in &reg.variants {
@@ -232,56 +224,33 @@ fn gen_registration_variant_method(
     let service_snake = service.name.to_snake_case();
     let variant_name = &variant.name;
 
-    out.push_str(&format!(
-        "    /// {}.\n",
-        variant
-            .doc
-            .as_ref()
-            .unwrap_or(&format!("Register a handler for {}", variant_name))
-    ));
-
-    out.push_str(&format!(
-        "    pub fn {0}(\n        \
-             self: *{1},\n        \
-             callback: *const fn (*anyopaque, [*:0]const u8) callconv(.C) [*:0]u8,\n        \
-             context: *anyopaque",
-        variant_name, service_name
-    ));
-
     // Variant signature parameters
+    let mut params_decl = String::new();
     for param in &variant.signature_params {
         let zig_type = match &param.ty {
             TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => format!("*{}", n),
             ty => typeref_to_zig_type(ty),
         };
-        out.push_str(&format!(",\n        {}: {}", param.name, zig_type));
+        params_decl.push_str(&service_param_decl(&param.name, &zig_type, true));
     }
-
-    out.push_str(") c_int {\n");
-    out.push_str("        const owner_ptr = self.owner orelse return 1;\n\n");
-
-    out.push_str(&format!(
-        "        return c.{}_{}_{}(\n            \
-             @ptrCast(owner_ptr),\n            \
-             @ptrCast(callback),\n            \
-             context",
-        prefix_lower, service_snake, variant_name
-    ));
 
     // Variant arguments: extract _handle from opaque Named params
+    let mut args = String::new();
     for param in &variant.signature_params {
-        match &param.ty {
-            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
-                out.push_str(&format!(",\n            {0}._handle", param.name));
-            }
-            _ => {
-                out.push_str(&format!(",\n            {}", param.name));
-            }
-        }
+        args.push_str(&service_arg(&param.name, &param.ty, api));
     }
-
-    out.push_str("\n        );\n");
-    out.push_str("    }\n\n");
+    let default_doc = format!("Register a handler for {variant_name}");
+    out.push_str(&crate::backends::zig::template_env::render(
+        "service_registration_method.jinja",
+        minijinja::context! {
+            doc => variant.doc.as_deref().unwrap_or(&default_doc),
+            method_name => variant_name,
+            service_name => service_name,
+            params_decl,
+            c_fn => format!("{prefix_lower}_{service_snake}_{variant_name}"),
+            args,
+        },
+    ));
 }
 
 /// Emit a Zig entrypoint method wrapper.
@@ -308,61 +277,35 @@ fn gen_entrypoint_method(
     let returns_opaque = matches!(&ep.return_type, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n));
     let return_type = if returns_opaque { "?*anyopaque" } else { "c_int" };
 
-    out.push_str(&format!(
-        "    /// Run the service entrypoint '{0}'.\n    \
-         pub fn {1}(self: *{2}",
-        ep_method, ep_name_snake, service_name
-    ));
-
     // Entrypoint parameters: opaque Named types are accepted as `*anyopaque` handles.
+    let mut params_decl = String::new();
     for ep_param in &ep.params {
         let zig_type = match &ep_param.ty {
             TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => "*anyopaque".to_owned(),
             ty => typeref_to_zig_type(ty),
         };
-        out.push_str(&format!(", {}: {}", ep_param.name, zig_type));
-    }
-
-    out.push_str(&format!(") {return_type} {{\n"));
-
-    if returns_opaque {
-        out.push_str("        const owner_ptr = self.owner orelse return null;\n");
-    } else {
-        out.push_str("        const owner_ptr = self.owner orelse return 1;\n");
-    }
-
-    if returns_opaque {
-        out.push_str(&format!(
-            "        return @ptrCast(c.{}_{}_ep_{}(\n            \
-                 @ptrCast(owner_ptr)",
-            prefix_lower, service_snake, ep_name_snake
-        ));
-    } else {
-        out.push_str(&format!(
-            "        return c.{}_{}_ep_{}(\n            \
-                 @ptrCast(owner_ptr)",
-            prefix_lower, service_snake, ep_name_snake
-        ));
+        params_decl.push_str(&service_param_decl(&ep_param.name, &zig_type, false));
     }
 
     // Entrypoint arguments: extract _handle from opaque Named params
+    let mut args = String::new();
     for ep_param in &ep.params {
-        match &ep_param.ty {
-            TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
-                out.push_str(&format!(",\n            {0}._handle", ep_param.name));
-            }
-            _ => {
-                out.push_str(&format!(",\n            {}", ep_param.name));
-            }
-        }
+        args.push_str(&service_arg(&ep_param.name, &ep_param.ty, api));
     }
-
-    if returns_opaque {
-        out.push_str("\n        ));\n");
-    } else {
-        out.push_str("\n        );\n");
-    }
-    out.push_str("    }\n\n");
+    out.push_str(&crate::backends::zig::template_env::render(
+        "service_entrypoint_method.jinja",
+        minijinja::context! {
+            ep_method => ep_method,
+            method_name => ep_name_snake,
+            service_name => service_name,
+            params_decl,
+            return_type,
+            null_return => if returns_opaque { "null" } else { "1" },
+            returns_opaque,
+            c_fn => format!("{prefix_lower}_{service_snake}_ep_{ep_name_snake}"),
+            args,
+        },
+    ));
 }
 
 // ──────────────────────────────────────────────────── public entry point ──

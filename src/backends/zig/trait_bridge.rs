@@ -24,7 +24,6 @@ use crate::core::config::{BridgeBinding, TraitBridgeConfig};
 use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::collections::HashSet;
-use std::fmt::Write as _;
 
 /// Zig type string to use for a vtable slot parameter or return type.
 ///
@@ -635,28 +634,17 @@ pub fn emit_trait_bridge(
                 prefix.to_uppercase(),
                 prefix.to_upper_camel_case()
             );
-            let _ = writeln!(
-                out,
-                "/// Wrap a `I{trait_name}` vtable into a `{handle_type}` suitable for the"
-            );
-            let _ = writeln!(out, "/// generated options-field setter.");
-            let _ = writeln!(
-                out,
-                "/// The returned handle owns the vtable's function pointers and must be"
-            );
-            let _ = writeln!(
-                out,
-                "/// released with the matching `{prefix}_visitor_handle_free` once the"
-            );
-            let _ = writeln!(out, "/// containing options object is no longer needed.");
-            let _ = writeln!(
-                out,
-                "pub fn {snake}_handle_from_vtable(callbacks: {callbacks_type}) ?{handle_type} {{"
-            );
-            let _ = writeln!(out, "    var _cb = callbacks;");
-            let _ = writeln!(out, "    return @ptrCast({ctor_fn}(&_cb));");
-            let _ = writeln!(out, "}}");
-            let _ = writeln!(out);
+            out.push_str(&crate::backends::zig::template_env::render(
+                "trait_options_handle_from_vtable.jinja",
+                minijinja::context! {
+                    trait_name => trait_name,
+                    handle_type => handle_type,
+                    prefix => prefix,
+                    snake => snake,
+                    callbacks_type => callbacks_type,
+                    ctor_fn => ctor_fn,
+                },
+            ));
         }
     }
 

@@ -1,0 +1,7 @@
+    /// Create a new {{ service_name }} instance.
+    pub fn init() {{ service_name }} {
+        return .{
+            .owner = @ptrCast(c.{{ new_fn }}()),
+        };
+    }
+

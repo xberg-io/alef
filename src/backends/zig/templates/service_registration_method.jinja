@@ -1,0 +1,15 @@
+    /// {{ doc }}.
+    pub fn {{ method_name }}(
+        self: *{{ service_name }},
+        callback: *const fn (*anyopaque, [*:0]const u8) callconv(.C) [*:0]u8,
+        context: *anyopaque{{ params_decl }}
+    ) c_int {
+        const owner_ptr = self.owner orelse return 1;
+
+        return c.{{ c_fn }}(
+            @ptrCast(owner_ptr),
+            @ptrCast(callback),
+            context{{ args }}
+        );
+    }
+

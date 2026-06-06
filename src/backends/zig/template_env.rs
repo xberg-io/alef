@@ -376,6 +376,24 @@ static TEMPLATES: &[(&str, &str)] = &[
         "opaque_method_unit_call.jinja",
         include_str!("templates/opaque_method_unit_call.jinja"),
     ),
+    (
+        "service_struct_open.jinja",
+        include_str!("templates/service_struct_open.jinja"),
+    ),
+    ("service_init.jinja", include_str!("templates/service_init.jinja")),
+    ("service_deinit.jinja", include_str!("templates/service_deinit.jinja")),
+    (
+        "service_registration_method.jinja",
+        include_str!("templates/service_registration_method.jinja"),
+    ),
+    (
+        "service_entrypoint_method.jinja",
+        include_str!("templates/service_entrypoint_method.jinja"),
+    ),
+    (
+        "trait_options_handle_from_vtable.jinja",
+        include_str!("templates/trait_options_handle_from_vtable.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
