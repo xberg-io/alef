@@ -795,6 +795,50 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_trait_unregister_overload.swift.jinja"),
     ),
     (
+        "swift_trait_forwarder_clear.swift.jinja",
+        include_str!("templates/swift_trait_forwarder_clear.swift.jinja"),
+    ),
+    (
+        "swift_trait_forwarder_register.swift.jinja",
+        include_str!("templates/swift_trait_forwarder_register.swift.jinja"),
+    ),
+    (
+        "swift_trait_forwarder_unregister.swift.jinja",
+        include_str!("templates/swift_trait_forwarder_unregister.swift.jinja"),
+    ),
+    (
+        "swift_inbound_box_class_open.swift.jinja",
+        include_str!("templates/swift_inbound_box_class_open.swift.jinja"),
+    ),
+    (
+        "swift_inbound_box_delegate_method.swift.jinja",
+        include_str!("templates/swift_inbound_box_delegate_method.swift.jinja"),
+    ),
+    (
+        "swift_inbound_box_delegate_protocol_open.swift.jinja",
+        include_str!("templates/swift_inbound_box_delegate_protocol_open.swift.jinja"),
+    ),
+    (
+        "swift_inbound_box_method.swift.jinja",
+        include_str!("templates/swift_inbound_box_method.swift.jinja"),
+    ),
+    (
+        "swift_inbound_box_preamble.swift.jinja",
+        include_str!("templates/swift_inbound_box_preamble.swift.jinja"),
+    ),
+    (
+        "swift_function_param_box_class_open.swift.jinja",
+        include_str!("templates/swift_function_param_box_class_open.swift.jinja"),
+    ),
+    (
+        "swift_function_param_box_plugin_shims.swift.jinja",
+        include_str!("templates/swift_function_param_box_plugin_shims.swift.jinja"),
+    ),
+    (
+        "swift_function_param_box_method_open.swift.jinja",
+        include_str!("templates/swift_function_param_box_method_open.swift.jinja"),
+    ),
+    (
         "swift_class_header.swift.jinja",
         include_str!("templates/swift_class_header.swift.jinja"),
     ),

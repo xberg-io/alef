@@ -1,0 +1,7 @@
+/// Opaque box class retained by Rust via `Unmanaged<{{ box_name }}>.passRetained`.
+/// Each `alef_*` method corresponds to an `extern "Swift"` declaration in the
+/// Rust bridge crate; swift-bridge generates @_cdecl shims that call these.
+/// Delegates to a `{{ delegate_protocol_name }}` (implemented in the main module).
+public final class {{ box_name }} {
+    private let delegate: any {{ delegate_protocol_name }}
+    public init(_ delegate: any {{ delegate_protocol_name }}) { self.delegate = delegate }

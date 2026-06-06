@@ -1,0 +1,25 @@
+    // MARK: Plugin super-trait shims
+
+    public func alef_name() -> RustString {
+        return RustString(bridge.name)
+    }
+
+    public func alef_version() -> RustString {
+        return RustString(bridge.version())
+    }
+
+    public func alef_initialize() -> RustString {
+        do {
+            try bridge.initialize()
+            return encodeOkVoidEnvelope()
+        } catch { return encodeErrEnvelope("\(error)") }
+    }
+
+    public func alef_shutdown() -> RustString {
+        do {
+            try bridge.shutdown()
+            return encodeOkVoidEnvelope()
+        } catch { return encodeErrEnvelope("\(error)") }
+    }
+
+    // MARK: Trait-specific shims

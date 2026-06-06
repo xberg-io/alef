@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **swift**: migrated additional Rust-crate and Swift binding helper emission to Jinja templates, including enum string helpers, phantom Vec accessors, streaming handle shims, JSON forwarders, and direct constructor returns. (`src/backends/swift`)
 
+- **swift**: migrated additional Swift binding generated-code blocks to Jinja templates, including nested enum Codable cases, error property extensions, async forwarder bodies, trait bridge adapters, registration forwarders, and plugin box scaffolding. (`src/backends/swift`)
+
 - **ffi**: migrated additional service API, trait bridge, visitor callback, enum helper, and constructor generated-source blocks to FFI Jinja templates, leaving only expression/name/list assembly in Rust where appropriate. (`src/backends/ffi`)
 
 - **pyo3/Python**: migrated remaining generated Python/Rust emission in service APIs, wrapper functions, capsule method rewriting, imports, and stubs from raw `format!`-backed string pushes to PyO3 backend Jinja templates. (`src/backends/pyo3`)

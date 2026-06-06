@@ -1,0 +1,6 @@
+/// Opaque box class retained by Rust via `Unmanaged<{{ box_name }}>.passRetained`.
+/// Wraps `any {{ bridge_protocol_name }}` and exposes `alef_*` FFI shim methods.
+/// swift-bridge @_cdecl shims call these methods directly.
+public final class {{ box_name }} {
+    private let bridge: any {{ bridge_protocol_name }}
+    public init(_ bridge: any {{ bridge_protocol_name }}) { self.bridge = bridge }

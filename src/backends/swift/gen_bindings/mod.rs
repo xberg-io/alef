@@ -1412,11 +1412,14 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
 
     let mut coding_key_cases = String::new();
     for (swift_name, rust_name) in field_keys {
-        if swift_name == rust_name {
-            coding_key_cases.push_str(&format!("        case {}\n", swift_name));
-        } else {
-            coding_key_cases.push_str(&format!("        case {} = \"{}\"\n", swift_name, rust_name));
-        }
+        coding_key_cases.push_str(&crate::backends::swift::template_env::render(
+            "swift_tagged_coding_key_case.swift.jinja",
+            minijinja::context! {
+                swift_name => &swift_name,
+                rust_name => &rust_name,
+                has_custom_wire_name => swift_name != rust_name,
+            },
+        ));
     }
 
     let mut decode_cases = String::new();
@@ -1428,35 +1431,37 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
         );
 
         let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
-        decode_cases.push_str(&format!("        case \"{}\":\n", variant_tag));
 
         if variant.fields.is_empty() {
-            decode_cases.push_str(&format!("            self = .{}\n", case_name));
+            decode_cases.push_str(&crate::backends::swift::template_env::render(
+                "swift_tagged_decode_unit_case.swift.jinja",
+                minijinja::context! {
+                    variant_tag => &variant_tag,
+                    case_name => &case_name,
+                },
+            ));
         } else {
-            decode_cases.push_str(&format!("            self = .{}(", case_name));
+            let mut field_decoders = Vec::with_capacity(variant.fields.len());
             for (i, field) in variant.fields.iter().enumerate() {
                 let label = swift_associated_label(&field.name, i);
                 let already_optional = matches!(&field.ty, TypeRef::Optional(_));
                 let is_optional = field.optional || already_optional;
                 let ty = mapper.map_type(&field.ty);
 
-                if is_optional {
-                    // For Optional types, use decodeIfPresent with the type as-is
-                    decode_cases.push_str(&format!(
-                        "{}: try container.decodeIfPresent({}.self, forKey: .{})",
-                        label, ty, label
-                    ));
-                } else {
-                    decode_cases.push_str(&format!(
-                        "{}: try container.decode({}.self, forKey: .{})",
-                        label, ty, label
-                    ));
-                }
-                if i < variant.fields.len() - 1 {
-                    decode_cases.push_str(", ");
-                }
+                // For Optional types, use decodeIfPresent with the type as-is.
+                let decode_method = if is_optional { "decodeIfPresent" } else { "decode" };
+                field_decoders.push(format!(
+                    "{label}: try container.{decode_method}({ty}.self, forKey: .{label})"
+                ));
             }
-            decode_cases.push_str(")\n");
+            decode_cases.push_str(&crate::backends::swift::template_env::render(
+                "swift_tagged_decode_payload_case.swift.jinja",
+                minijinja::context! {
+                    variant_tag => &variant_tag,
+                    case_name => &case_name,
+                    field_decoders => field_decoders.join(", "),
+                },
+            ));
         }
     }
 
@@ -1471,10 +1476,13 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
         let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
 
         if variant.fields.is_empty() {
-            encode_cases.push_str(&format!("        case .{}:\n", case_name));
-            encode_cases.push_str(&format!(
-                "            try container.encode(\"{}\", forKey: .{})\n",
-                variant_tag, tag_key
+            encode_cases.push_str(&crate::backends::swift::template_env::render(
+                "swift_tagged_encode_unit_case.swift.jinja",
+                minijinja::context! {
+                    variant_tag => &variant_tag,
+                    tag_key => tag_key,
+                    case_name => &case_name,
+                },
             ));
         } else {
             let mut bindings = Vec::new();
@@ -1482,29 +1490,32 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
                 let label = swift_associated_label(&field.name, i);
                 bindings.push(format!("let {}", label));
             }
-            encode_cases.push_str(&format!("        case .{}({}):\n", case_name, bindings.join(", ")));
-            encode_cases.push_str(&format!(
-                "            try container.encode(\"{}\", forKey: .{})\n",
-                variant_tag, tag_key
-            ));
 
+            let mut field_encoders = String::new();
             for (i, field) in variant.fields.iter().enumerate() {
                 let label = swift_associated_label(&field.name, i);
                 let already_optional = matches!(&field.ty, TypeRef::Optional(_));
                 let is_optional = field.optional || already_optional;
+                let encode_method = if is_optional { "encodeIfPresent" } else { "encode" };
 
-                if is_optional {
-                    encode_cases.push_str(&format!(
-                        "            try container.encodeIfPresent({}, forKey: .{})\n",
-                        label, label
-                    ));
-                } else {
-                    encode_cases.push_str(&format!(
-                        "            try container.encode({}, forKey: .{})\n",
-                        label, label
-                    ));
-                }
+                field_encoders.push_str(&crate::backends::swift::template_env::render(
+                    "swift_tagged_encode_field.swift.jinja",
+                    minijinja::context! {
+                        encode_method => encode_method,
+                        label => &label,
+                    },
+                ));
             }
+            encode_cases.push_str(&crate::backends::swift::template_env::render(
+                "swift_tagged_encode_payload_case.swift.jinja",
+                minijinja::context! {
+                    variant_tag => &variant_tag,
+                    tag_key => tag_key,
+                    case_name => &case_name,
+                    bindings => bindings.join(", "),
+                    field_encoders => field_encoders,
+                },
+            ));
         }
     }
 
@@ -1541,8 +1552,13 @@ fn emit_serde_untagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMap
         let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
         let payload_ty = mapper.map_type(&variant.fields[0].ty);
         let label = swift_associated_label(&variant.fields[0].name, 0);
-        decode_attempts.push_str(&format!(
-            "        if let value = try? container.decode({payload_ty}.self) {{\n            self = .{case_name}({label}: value)\n            return\n        }}\n"
+        decode_attempts.push_str(&crate::backends::swift::template_env::render(
+            "swift_untagged_decode_attempt.swift.jinja",
+            minijinja::context! {
+                payload_type => &payload_ty,
+                case_name => &case_name,
+                label => &label,
+            },
         ));
     }
 
@@ -1553,8 +1569,12 @@ fn emit_serde_untagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMap
         }
         let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
         let label = swift_associated_label(&variant.fields[0].name, 0);
-        encode_cases.push_str(&format!(
-            "        case .{case_name}(let {label}):\n            try container.encode({label})\n"
+        encode_cases.push_str(&crate::backends::swift::template_env::render(
+            "swift_untagged_encode_case.swift.jinja",
+            minijinja::context! {
+                case_name => &case_name,
+                label => &label,
+            },
         ));
     }
     out.push_str(&crate::backends::swift::template_env::render(
@@ -1989,13 +2009,12 @@ fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &Sw
     // replace these stubs in a subsequent code-generation pass.
     if !error.methods.is_empty() {
         out.push('\n');
-        out.push_str(&format!("extension {name} {{\n"));
+        let mut properties = String::new();
         for method in &error.methods {
             let prop_name = swift_case_ident(&method.name.to_lower_camel_case());
             let return_ty = swift_type_name(&method.return_type);
             let default_val = swift_default_for_type(&method.return_type);
-            out.push_str(&format!("    public var {prop_name}: {return_ty} {{\n"));
-            out.push_str("        switch self {\n");
+            let mut cases = String::new();
             for variant in &error.variants {
                 let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
                 // Check whether this variant carries an associated value whose
@@ -2041,12 +2060,31 @@ fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &Sw
                 } else {
                     default_val.clone()
                 };
-                out.push_str(&format!("        case .{case_name}{wildcard}: return {ret_expr}\n"));
+                cases.push_str(&crate::backends::swift::template_env::render(
+                    "swift_error_property_case.swift.jinja",
+                    minijinja::context! {
+                        case_name => &case_name,
+                        wildcard => &wildcard,
+                        return_expression => &ret_expr,
+                    },
+                ));
             }
-            out.push_str("        }\n");
-            out.push_str("    }\n");
+            properties.push_str(&crate::backends::swift::template_env::render(
+                "swift_error_property.swift.jinja",
+                minijinja::context! {
+                    property_name => &prop_name,
+                    return_type => &return_ty,
+                    cases => cases,
+                },
+            ));
         }
-        out.push_str("}\n");
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_error_extension.swift.jinja",
+            minijinja::context! {
+                name => &name,
+                properties => properties,
+            },
+        ));
     }
 }
 
@@ -4082,20 +4120,41 @@ fn emit_async_free_function_forwarder(
     let mut conversion_body = String::new();
     // Emit conversion lines inside the closure to avoid capturing non-Sendable RustVec objects
     for line in &conversion_lines {
-        conversion_body.push_str(&format!("        {line}\n"));
+        conversion_body.push_str(&crate::backends::swift::template_env::render(
+            "swift_forwarder_conversion_line.swift.jinja",
+            minijinja::context! {
+                line => line,
+            },
+        ));
     }
 
     let mut body = String::new();
     if matches!(&func.return_type, TypeRef::Named(name) if known_dto_names.contains(name)) {
-        body.push_str(&format!("        let _rb_obj = {bridge_call}\n"));
-        body.push_str(&format!("{return_stmt}\n"));
+        body.push_str(&crate::backends::swift::template_env::render(
+            "swift_forwarder_dto_return_body.swift.jinja",
+            minijinja::context! {
+                bridge_call => &bridge_call,
+                return_statement => &return_stmt,
+            },
+        ));
     } else if return_uses_json_bridge(&func.return_type) && func.error_type.is_some() {
-        body.push_str(&format!("        let _rb_result = {bridge_call}\n"));
-        body.push_str(&format!("{return_stmt}\n"));
+        let decode_ty = forwarder_return_type(&func.return_type);
+        body.push_str(&crate::backends::swift::template_env::render(
+            "swift_forwarder_decode_json_body.swift.jinja",
+            minijinja::context! {
+                bridge_call => &bridge_call,
+                decode_type => &decode_ty,
+            },
+        ));
     } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_))) {
         // Vec<Named> return: when the function is throwing, we can't use .map with a throwing closure.
         // Instead, use a for loop that collects into an array, which allows try expressions.
-        body.push_str(&format!("        let result = {bridge_call}\n"));
+        body.push_str(&crate::backends::swift::template_env::render(
+            "swift_forwarder_conversion_line.swift.jinja",
+            minijinja::context! {
+                line => format!("let result = {bridge_call}"),
+            },
+        ));
         if func.error_type.is_some() {
             // Throwing path: use for loop to handle try expressions
             if let TypeRef::Vec(inner) = &func.return_type {
@@ -4107,12 +4166,14 @@ fn emit_async_free_function_forwarder(
                     body.push_str("        for ref in result {\n");
                     if known_dto_names.contains(name) {
                         // Codable value struct: just convert, no isOwned field
-                        body.push_str(&format!("            let item = try {struct_name}(ref)\n"));
+                        body.push_str("            let item = try ");
+                        body.push_str(&struct_name);
+                        body.push_str("(ref)\n");
                     } else {
                         // Opaque class: convert and mark as borrowed
-                        body.push_str(&format!(
-                            "            var item = try RustBridge.{struct_name}(ptr: ref.ptr)\n"
-                        ));
+                        body.push_str("            var item = try RustBridge.");
+                        body.push_str(&struct_name);
+                        body.push_str("(ptr: ref.ptr)\n");
                         body.push_str("            item.isOwned = false\n");
                     }
                     body.push_str("            items.append(item)\n");
@@ -4122,22 +4183,42 @@ fn emit_async_free_function_forwarder(
                     // Fallback: use the suffix (shouldn't reach here)
                     let suffix =
                         forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, true);
-                    body.push_str(&format!("        return result{suffix}\n"));
+                    body.push_str(&crate::backends::swift::template_env::render(
+                        "swift_forwarder_result_return_body.swift.jinja",
+                        minijinja::context! {
+                            suffix => &suffix,
+                        },
+                    ));
                 }
             }
         } else {
             // Non-throwing path: use .map suffix
             let suffix = forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, false);
-            body.push_str(&format!("        return result{suffix}\n"));
+            body.push_str(&crate::backends::swift::template_env::render(
+                "swift_forwarder_result_return_body.swift.jinja",
+                minijinja::context! {
+                    suffix => &suffix,
+                },
+            ));
         }
     } else if matches!(&func.return_type, TypeRef::Unit) {
         // Unit return: just call the bridge function, no binding needed
         // Note: bridge_call already includes "try" if the function has error handling,
         // so we don't add effective_try here
-        body.push_str(&format!("        {bridge_call}\n"));
+        body.push_str(&crate::backends::swift::template_env::render(
+            "swift_forwarder_unit_body.swift.jinja",
+            minijinja::context! {
+                bridge_call => &bridge_call,
+            },
+        ));
     } else {
-        body.push_str(&format!("        let result = {bridge_call}\n"));
-        body.push_str(&format!("{return_stmt}\n"));
+        body.push_str(&crate::backends::swift::template_env::render(
+            "swift_forwarder_let_return_body.swift.jinja",
+            minijinja::context! {
+                bridge_call => &bridge_call,
+                return_statement => &return_stmt,
+            },
+        ));
     }
 
     out.push_str(&crate::backends::swift::template_env::render(
@@ -4606,32 +4687,33 @@ fn emit_trait_bridge_forwarders(config: &ResolvedCrateConfig, out: &mut String) 
 
         if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
             let camel = register_fn.to_lower_camel_case();
-            out.push_str(&format!(
-                "/// Register an inbound `{trait_name}` plugin implementation. The Swift\n\
-                 /// host wraps a `{trait_name}` conformer in a `{box_type}` adapter\n\
-                 /// (see `Sources/RustBridge/Plugins.swift`); pass the wrapped instance to\n\
-                 /// register the plugin in the global registry.\n\
-                 public func {camel}(_ swiftBox: {box_type}) throws {{\n\
-                 \x20   try RustBridge.{camel}(swiftBox)\n\
-                 }}\n\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_trait_forwarder_register.swift.jinja",
+                minijinja::context! {
+                    trait_name => trait_name,
+                    box_type => &box_type,
+                    function_name => &camel,
+                },
             ));
         }
         if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
             let camel = unregister_fn.to_lower_camel_case();
-            out.push_str(&format!(
-                "/// Unregister a previously-registered `{trait_name}` plugin by name.\n\
-                 public func {camel}(_ name: String) throws {{\n\
-                 \x20   try RustBridge.{camel}(name)\n\
-                 }}\n\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_trait_forwarder_unregister.swift.jinja",
+                minijinja::context! {
+                    trait_name => trait_name,
+                    function_name => &camel,
+                },
             ));
         }
         if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
             let camel = clear_fn.to_lower_camel_case();
-            out.push_str(&format!(
-                "/// Remove every registered `{trait_name}` plugin. Typically used in test teardown.\n\
-                 public func {camel}() throws {{\n\
-                 \x20   try RustBridge.{camel}()\n\
-                 }}\n\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_trait_forwarder_clear.swift.jinja",
+                minijinja::context! {
+                    trait_name => trait_name,
+                    function_name => &camel,
+                },
             ));
         }
     }
@@ -4678,33 +4760,25 @@ fn emit_inbound_box_files(
         let delegate_protocol_name = format!("_Swift{trait_name}BoxDelegate");
 
         let mut content = String::new();
-        content.push_str("// Generated by alef. Do not edit by hand.\n");
-        // swift-format-ignore-file: this file contains generated FFI glue that
-        // violates swift-format's defaults (long lines, specific naming patterns).
-        // Marking it here prevents the pre-commit swift-format hook from rewriting
-        // the file on every regen and creating spurious diffs.
-        content.push_str("// swift-format-ignore-file\n");
-        content.push_str("// This file is in Sources/RustBridge/ because the swift-bridge @_cdecl\n");
-        content.push_str("// shims reference Swift");
-        content.push_str(trait_name);
-        content.push_str("Box by name and must see it in the same module.\n\n");
-        content.push_str("import RustBridgeC\n\n");
+        content.push_str(&crate::backends::swift::template_env::render(
+            "swift_inbound_box_preamble.swift.jinja",
+            minijinja::context! {
+                trait_name => trait_name,
+            },
+        ));
 
         // --- Delegate protocol (also in RustBridge so the host module can conform to it) ---
         // The leading underscore is a Swift convention signalling "internal binding
         // surface, not part of the user-facing API". Marking it `internal` is not an
         // option: implementers (the private adapter class) live in a different module
         // and Swift access-control requires `public` for cross-module protocol conformance.
-        content.push_str(&format!(
-            "/// Delegate protocol for `{box_name}`.\n\
-             /// Conforming types convert raw FFI params (RustString etc.) to user-friendly\n\
-             /// Swift types and return a JSON-encoded result string.\n\
-             /// Implemented by the private adapter class in the `{trait_name}` module.\n\
-             ///\n\
-             /// Leading `_` flags this as an internal binding surface — not part of the\n\
-             /// user-facing API. Must remain `public` because Swift requires public visibility\n\
-             /// for cross-module protocol conformance (implementer lives in the main target).\n\
-             public protocol {delegate_protocol_name}: AnyObject {{\n"
+        content.push_str(&crate::backends::swift::template_env::render(
+            "swift_inbound_box_delegate_protocol_open.swift.jinja",
+            minijinja::context! {
+                box_name => &box_name,
+                trait_name => trait_name,
+                delegate_protocol_name => &delegate_protocol_name,
+            },
         ));
         for method in &trait_def.methods {
             // Delegate protocol methods are part of the user-facing public Swift API
@@ -4715,19 +4789,23 @@ fn emit_inbound_box_files(
             // delegate-side method name is camelCased.
             let method_camel = swift_ident(&method.name.to_lower_camel_case());
             let delegate_params = swift_box_params(method);
-            content.push_str(&format!("    func {method_camel}({delegate_params}) -> String\n"));
+            content.push_str(&crate::backends::swift::template_env::render(
+                "swift_inbound_box_delegate_method.swift.jinja",
+                minijinja::context! {
+                    method_name => &method_camel,
+                    params => &delegate_params,
+                },
+            ));
         }
         content.push_str("}\n\n");
 
         // --- Box class ---
-        content.push_str(&format!(
-            "/// Opaque box class retained by Rust via `Unmanaged<{box_name}>.passRetained`.\n\
-             /// Each `alef_*` method corresponds to an `extern \"Swift\"` declaration in the\n\
-             /// Rust bridge crate; swift-bridge generates @_cdecl shims that call these.\n\
-             /// Delegates to a `{delegate_protocol_name}` (implemented in the main module).\n\
-             public final class {box_name} {{\n\
-             \x20   private let delegate: any {delegate_protocol_name}\n\
-             \x20   public init(_ delegate: any {delegate_protocol_name}) {{ self.delegate = delegate }}\n"
+        content.push_str(&crate::backends::swift::template_env::render(
+            "swift_inbound_box_class_open.swift.jinja",
+            minijinja::context! {
+                box_name => &box_name,
+                delegate_protocol_name => &delegate_protocol_name,
+            },
         ));
 
         for method in &trait_def.methods {
@@ -4741,10 +4819,14 @@ fn emit_inbound_box_files(
             let delegate_call_args = swift_box_delegate_call_args(method);
             // Delegate call uses the camelCase protocol method (see protocol emission above).
             let method_camel = swift_ident(&method.name.to_lower_camel_case());
-            content.push_str(&format!(
-                "    public func {shim_name}({box_params}) -> String {{\n\
-                 \x20       return delegate.{method_camel}({delegate_call_args})\n\
-                 \x20   }}\n"
+            content.push_str(&crate::backends::swift::template_env::render(
+                "swift_inbound_box_method.swift.jinja",
+                minijinja::context! {
+                    shim_name => &shim_name,
+                    params => &box_params,
+                    method_name => &method_camel,
+                    args => &delegate_call_args,
+                },
             ));
         }
         content.push_str("}\n");
@@ -4874,43 +4956,20 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
         content.push_str("import RustBridge\n\n");
 
         // Box class declaration
-        content.push_str(&format!(
-            "/// Opaque box class retained by Rust via `Unmanaged<{box_name}>.passRetained`.\n\
-             /// Wraps `any {bridge_protocol_name}` and exposes `alef_*` FFI shim methods.\n\
-             /// swift-bridge @_cdecl shims call these methods directly.\n\
-             public final class {box_name} {{\n\
-             \x20   private let bridge: any {bridge_protocol_name}\n\
-             \x20   public init(_ bridge: any {bridge_protocol_name}) {{ self.bridge = bridge }}\n\n"
+        content.push_str(&crate::backends::swift::template_env::render(
+            "swift_function_param_box_class_open.swift.jinja",
+            minijinja::context! {
+                box_name => &box_name,
+                bridge_protocol_name => &bridge_protocol_name,
+            },
         ));
 
         // Plugin super-trait shim methods (name, version, initialize, shutdown)
         // These are non-throwing, return RustString
-        content.push_str("    // MARK: Plugin super-trait shims\n\n");
-
-        content.push_str("    public func alef_name() -> RustString {\n");
-        content.push_str("        return RustString(bridge.name)\n");
-        content.push_str("    }\n\n");
-
-        content.push_str("    public func alef_version() -> RustString {\n");
-        content.push_str("        return RustString(bridge.version())\n");
-        content.push_str("    }\n\n");
-
-        content.push_str("    public func alef_initialize() -> RustString {\n");
-        content.push_str("        do {\n");
-        content.push_str("            try bridge.initialize()\n");
-        content.push_str("            return encodeOkVoidEnvelope()\n");
-        content.push_str("        } catch { return encodeErrEnvelope(\"\\(error)\") }\n");
-        content.push_str("    }\n\n");
-
-        content.push_str("    public func alef_shutdown() -> RustString {\n");
-        content.push_str("        do {\n");
-        content.push_str("            try bridge.shutdown()\n");
-        content.push_str("            return encodeOkVoidEnvelope()\n");
-        content.push_str("        } catch { return encodeErrEnvelope(\"\\(error)\") }\n");
-        content.push_str("    }\n\n");
-
-        // Trait-specific shim methods
-        content.push_str("    // MARK: Trait-specific shims\n\n");
+        content.push_str(&crate::backends::swift::template_env::render(
+            "swift_function_param_box_plugin_shims.swift.jinja",
+            minijinja::context! {},
+        ));
 
         let bridge_exclude_types = trait_bridge::excluded_named_type_bridge_policy(trait_def, excluded_types);
 
@@ -4937,8 +4996,13 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
 
             let return_ffi_type = swift_shim_return_ffi_type(method);
 
-            content.push_str(&format!(
-                "    public func {shim_name}({param_sig}) -> {return_ffi_type} {{\n"
+            content.push_str(&crate::backends::swift::template_env::render(
+                "swift_function_param_box_method_open.swift.jinja",
+                minijinja::context! {
+                    shim_name => &shim_name,
+                    params => &param_sig,
+                    return_type => &return_ffi_type,
+                },
             ));
 
             // Build setup and parameter decodes using Phase B helpers

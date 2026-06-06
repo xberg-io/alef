@@ -204,82 +204,29 @@ fn gen_single_trait_bridge_file(
         // Generate method body: construct call arguments and handle return value.
         let call_args = build_adapter_call_args(method);
         let call_args_str = call_args.join(", ");
-        let mut method_body = String::new();
-
-        if method.error_type.is_some() {
+        let method_body = if method.error_type.is_some() {
             // Error-returning method: wrap result in try-catch and return JSON envelope
             // NOTE: async is removed, so only 'try' is used (not 'try await')
-            method_body.push_str(&format!(
-                "        do {{\n\
-                 \x20\x20\x20\x20let result = try self.bridge.{method_camel}({call_args_str})\n"
-            ));
-            // Special case: if return type is Void, don't try to marshal it
-            if matches!(method.return_type, TypeRef::Unit) {
-                method_body.push_str(
-                    "            return marshal_ok_result(Empty())\n\
-                     \x20\x20\x20\x20} catch {\n\
-                     \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                     \x20\x20\x20\x20}\n",
-                );
-            } else {
-                // For error-returning methods, JSON-encode the result
-                match &method.return_type {
-                    TypeRef::String => {
-                        method_body.push_str(
-                            "            return marshal_ok_result(result)\n\
-                             \x20\x20\x20\x20} catch {\n\
-                             \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                             \x20\x20\x20\x20}\n",
-                        );
-                    }
-                    TypeRef::Unit => {
-                        method_body.push_str(
-                            "            return marshal_ok_result(Empty())\n\
-                             \x20\x20\x20\x20} catch {\n\
-                             \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                             \x20\x20\x20\x20}\n",
-                        );
-                    }
-                    TypeRef::Primitive(_) | TypeRef::Bytes | TypeRef::Char => {
-                        method_body.push_str(
-                            "            return marshal_ok_result(result)\n\
-                             \x20\x20\x20\x20} catch {\n\
-                             \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                             \x20\x20\x20\x20}\n",
-                        );
-                    }
-                    TypeRef::Named(name) if bridge_exclude_types.contains(name) => {
-                        // Excluded type: result is the native Swift struct (not Encodable).
-                        // Encode directly and wrap in JSON string manually.
-                        method_body.push_str(
-                            "            let encodedData = try marshal_encode_excluded(result)\n\
-                             \x20\x20\x20\x20if let jsonString = String(data: encodedData, encoding: .utf8) {\n\
-                             \x20\x20\x20\x20\x20\x20\x20\x20return \"{\\\"ok\\\": \\(jsonString)}\"\n\
-                             \x20\x20\x20\x20}\n\
-                             \x20\x20\x20\x20return \"{\\\"ok\\\": null}\"\n\
-                             \x20\x20\x20\x20} catch {\n\
-                             \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                             \x20\x20\x20\x20}\n",
-                        );
-                    }
-                    _ => {
-                        method_body.push_str(
-                            "            return marshal_ok_result(try JSONEncoder().encode(result))\n\
-                             \x20\x20\x20\x20} catch {\n\
-                             \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
-                             \x20\x20\x20\x20}\n",
-                        );
-                    }
-                }
-            }
+            let success_body = trait_adapter_success_body(&method.return_type, &bridge_exclude_types);
+            crate::backends::swift::template_env::render(
+                "swift_trait_adapter_error_body.swift.jinja",
+                minijinja::context! {
+                    method_name => &method_camel,
+                    call_args => &call_args_str,
+                    success_body => success_body,
+                },
+            )
         } else {
             // Sync method without error: return the result directly, no encoding
             // NOTE: async is removed, all methods are now sync
-            method_body.push_str(&format!(
-                "        let result = self.bridge.{method_camel}({call_args_str})\n"
-            ));
-            method_body.push_str("        return result\n");
-        }
+            crate::backends::swift::template_env::render(
+                "swift_trait_adapter_direct_body.swift.jinja",
+                minijinja::context! {
+                    method_name => &method_camel,
+                    call_args => &call_args_str,
+                },
+            )
+        };
 
         adapter_methods.push_str(&crate::backends::swift::template_env::render(
             "swift_trait_adapter_method.swift.jinja",
@@ -310,6 +257,31 @@ fn gen_single_trait_bridge_file(
             adapter_methods => adapter_methods,
         },
     )
+}
+
+fn trait_adapter_success_body(return_type: &TypeRef, bridge_exclude_types: &HashSet<String>) -> String {
+    let expression = match return_type {
+        TypeRef::Unit => Some("marshal_ok_result(Empty())"),
+        TypeRef::String | TypeRef::Primitive(_) | TypeRef::Bytes | TypeRef::Char => Some("marshal_ok_result(result)"),
+        TypeRef::Named(name) if bridge_exclude_types.contains(name) => None,
+        _ => Some("marshal_ok_result(try JSONEncoder().encode(result))"),
+    };
+
+    if let Some(expression) = expression {
+        crate::backends::swift::template_env::render(
+            "swift_trait_adapter_success.swift.jinja",
+            minijinja::context! {
+                expression => expression,
+            },
+        )
+    } else {
+        // Excluded type: result is the native Swift struct (not Encodable).
+        // Encode directly and wrap in JSON string manually.
+        crate::backends::swift::template_env::render(
+            "swift_trait_adapter_excluded_success.swift.jinja",
+            minijinja::context! {},
+        )
+    }
 }
 
 /// Emit Swift method parameter signature from MethodDef params.
@@ -490,20 +462,22 @@ pub fn gen_bridge_registration_overloads_file(
     let mut unregister_overloads = String::new();
     for (trait_name, _, _) in &trait_bridges {
         let pascal_name = trait_bridge_pascal_name(trait_name);
-        unregister_overloads.push_str(&format!(
-            "public func unregister{pascal_name}(name: String) throws {{\n\
-             \x20   try RustBridge.unregister{pascal_name}(name)\n\
-             }}\n\n"
+        unregister_overloads.push_str(&crate::backends::swift::template_env::render(
+            "swift_trait_unregister_overload.swift.jinja",
+            minijinja::context! {
+                pascal_name => &pascal_name,
+            },
         ));
     }
 
     let mut register_overloads = String::new();
     for (trait_name, _, _) in &trait_bridges {
         let pascal_name = trait_bridge_pascal_name(trait_name);
-        register_overloads.push_str(&format!(
-            "public func register{pascal_name}(_ bridge: any Swift{pascal_name}Bridge) throws {{\n\
-             \x20   try register{pascal_name}(Swift{pascal_name}Box(bridge))\n\
-             }}\n\n"
+        register_overloads.push_str(&crate::backends::swift::template_env::render(
+            "swift_trait_register_overload.swift.jinja",
+            minijinja::context! {
+                pascal_name => &pascal_name,
+            },
         ));
     }
 

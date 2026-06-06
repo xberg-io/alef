@@ -1,0 +1,7 @@
+/// Register an inbound `{{ trait_name }}` plugin implementation. The Swift
+/// host wraps a `{{ trait_name }}` conformer in a `{{ box_type }}` adapter
+/// (see `Sources/RustBridge/Plugins.swift`); pass the wrapped instance to
+/// register the plugin in the global registry.
+public func {{ function_name }}(_ swiftBox: {{ box_type }}) throws {
+    try RustBridge.{{ function_name }}(swiftBox)
+}
