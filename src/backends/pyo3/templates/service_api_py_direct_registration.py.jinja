@@ -1,0 +1,5 @@
+    def {{ direct_name }}({{ meta_sig }}, {{ callback_param }}: Callable[..., Any]) -> {{ class_name }}:
+        """Register a {{ method_name }} callback directly."""
+        self._registrations.append(("{{ method_name }}", {{ meta_tuple }}, {{ callback_param }}))
+        return self
+

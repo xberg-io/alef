@@ -1,0 +1,28 @@
+/// Generated pyo3 bridge for the `{{ trait_name }}` contract.
+///
+/// Wraps a Python callable (sync or async) so it can be used
+/// as `Arc<dyn {{ trait_name }}>` from Rust async code.
+pub struct {{ bridge_name }} {
+    callable: Py<PyAny>,
+    is_async: bool,
+}
+
+impl {{ bridge_name }} {
+    /// Create a bridge from a Python callable.
+    pub fn new(py: Python<'_>, callable: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let is_async = py
+            .import("inspect")?
+            .call_method1("iscoroutinefunction", (callable,))?
+            .is_truthy()
+            .unwrap_or(false);
+        Ok(Self {
+            callable: callable.clone().unbind(),
+            is_async,
+        })
+    }
+}
+
+// SAFETY: Py<PyAny> is Send+Sync when we never alias it without the GIL.
+unsafe impl Send for {{ bridge_name }} {}
+unsafe impl Sync for {{ bridge_name }} {}
+

@@ -1,0 +1,6 @@
+/// Drive `{{ owner_path }}::{{ ep_method }}` from Python.
+///
+/// Each entry in `registrations` is a `(method_name, metadata_tuple, callable)` triple
+/// produced by the Python service class.
+#[pyfunction]
+pub fn {{ fn_name }}({{ param_sig }}) -> PyResult<()> {

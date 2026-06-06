@@ -1,0 +1,66 @@
+impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
+    fn {{ dispatch_name }}(
+        &self{{ extra_param }},
+        {{ wire_name }}: {{ req_path }},
+    ) -> Pin<Box<dyn Future<Output = {{ output_type }}> + Send + '_>> {
+        // Acquire Python GIL in a thread-safe context before entering the async block.
+        // Py<PyAny> holds a GIL-independent reference that can be used outside the GIL.
+        let callable = pyo3::Python::attach(|py| self.callable.clone_ref(py));
+        let is_async = self.is_async;
+
+        Box::pin(async move {
+            let outcome: {{ wire_output }} = async move {
+                // Serialize the request to a Python-friendly dict via serde_json
+                let req_json = serde_json::to_string(&{{ wire_name }})
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+
+                let raw_result = if is_async {
+                    // Async callable: hand off to pyo3_async_runtimes so it drives
+                    // the Python event loop without blocking the Tokio executor.
+                    let future = pyo3::Python::attach(|py| -> PyResult<_> {
+                        let req_obj = py.import("json")?.call_method1("loads", (&req_json,))?;
+                        let coro = callable.call1(py, (req_obj,))?;
+                        pyo3_async_runtimes::tokio::into_future(coro.into_bound(py))
+                    })
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+                    let py_result = future.await
+                        .map_err(|e| Box::new(e) as {{ box_err }})?;
+                    pyo3::Python::attach(|py| {
+                        let json_mod = py.import("json")?;
+                        let json_str: String = json_mod
+                            .call_method1("dumps", (py_result.bind(py),))?
+                            .extract()?;
+                        Ok::<String, PyErr>(json_str)
+                    })
+                    .map_err(|e| Box::new(e) as {{ box_err }})?
+                } else {
+                    // Sync callable: run in a blocking thread so we never hold the GIL
+                    // on the async executor.
+                    tokio::task::spawn_blocking(move || {
+                        pyo3::Python::attach(|py| {
+                            let req_obj = py.import("json")?.call_method1("loads", (&req_json,))?;
+                            let result = callable.call1(py, (req_obj,))?;
+                            let json_mod = py.import("json")?;
+                            let json_str: String = json_mod
+                                .call_method1("dumps", (result.bind(py),))?
+                                .extract()?;
+                            Ok::<String, PyErr>(json_str)
+                        })
+                    })
+                    .await
+                    .map_err(|e| Box::new(e) as {{ box_err }})?
+                    .map_err(|e| Box::new(e) as {{ box_err }})?
+                };
+
+                // Deserialize the JSON result back into the wire response DTO.
+                let response: {{ resp_path }} = serde_json::from_str(&raw_result)
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+                Ok(response)
+            }
+            .await;
+
+            {{ tail }}
+        })
+    }
+}
+

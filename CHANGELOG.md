@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **backends**: migrated more generated-source emission in C#, FFI, Go, Java, JNI, Magnus/Ruby, NAPI, Rustler/Elixir, Swift, and Zig backends from Rust string assembly to backend Jinja templates. This keeps host-language code blocks in templates while leaving identifier, type, argument, and expression construction in Rust. (`src/backends/csharp`, `src/backends/ffi`, `src/backends/go`, `src/backends/java`, `src/backends/jni`, `src/backends/magnus`, `src/backends/napi`, `src/backends/rustler`, `src/backends/swift`, `src/backends/zig`)
+- **backends**: migrated more generated-source emission in C#, FFI, Go, Java, JNI, Magnus/Ruby, NAPI, PyO3/Python, Rustler/Elixir, Swift, and Zig backends from Rust string assembly to backend Jinja templates. This keeps host-language code blocks in templates while leaving identifier, type, argument, and expression construction in Rust. (`src/backends/csharp`, `src/backends/ffi`, `src/backends/go`, `src/backends/java`, `src/backends/jni`, `src/backends/magnus`, `src/backends/napi`, `src/backends/pyo3`, `src/backends/rustler`, `src/backends/swift`, `src/backends/zig`)
 
 ### Fixed
 

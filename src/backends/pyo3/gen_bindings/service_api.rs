@@ -21,6 +21,7 @@ use crate::core::ir::{
     ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef,
 };
 use heck::{ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
+use minijinja::context;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -173,18 +174,21 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
     }
     let any_registrations = api.services.iter().any(|s| !s.registrations.is_empty());
 
-    out.push_str("\"\"\"Idiomatic service API: builders, decorators, and the App wrapper.\"\"\"\n\n");
-    out.push_str("from __future__ import annotations\n\n");
-    out.push_str("from typing import TYPE_CHECKING, Any\n\n");
     // The native extension is a submodule of the package (e.g. `pkg._pkg`), so import it
     // relatively — a bare `import _pkg` would not resolve at runtime.
-    out.push_str(&format!("from . import {module_name}\n"));
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_header.py.jinja",
+        context! { module_name => module_name },
+    ));
 
     // Variant constructors reference runtime types (e.g. RouteBuilder, Method),
     // so emit those as a normal import — TYPE_CHECKING is not enough.
     if !runtime_types.is_empty() {
         let joined = runtime_types.iter().cloned().collect::<Vec<_>>().join(", ");
-        out.push_str(&format!("from .{module_name} import {joined}\n"));
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_runtime_import.py.jinja",
+            context! { module_name => module_name, imports => joined },
+        ));
     }
 
     // Emit a TYPE_CHECKING block for annotation-only imports so the file
@@ -203,7 +207,10 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
         }
         if !named_types.is_empty() {
             let joined = named_types.iter().cloned().collect::<Vec<_>>().join(", ");
-            out.push_str(&format!("    from .{module_name} import {joined}\n"));
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "service_api_py_type_checking_import.py.jinja",
+                context! { module_name => module_name, imports => joined },
+            ));
         }
     }
     // Two blank lines before the first class (PEP8 / ruff-format).
@@ -219,7 +226,10 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
 fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, module_name: &str) {
     let class_name = &service.name;
 
-    out.push_str(&format!("class {class_name}:\n"));
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_class_header.py.jinja",
+        context! { class_name => class_name },
+    ));
     if !service.doc.is_empty() {
         out.push_str(&format_docstring(&service.doc, 4));
         out.push('\n');
@@ -241,15 +251,24 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         }
 
         let param_sig = init_params.join(", ");
-        out.push_str(&format!("    def __init__({param_sig}) -> None:\n"));
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_init_header.py.jinja",
+            context! { param_sig => param_sig },
+        ));
         if !ctor.doc.is_empty() {
             out.push_str(&format_docstring(&ctor.doc, 8));
         }
         // Stored state for registrations — also serves as a non-empty body so
         // we never need a stray `pass` statement (ruff `PIE790`).
-        out.push_str("        self._registrations: list[tuple[Any, ...]] = []\n");
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_registration_state.py.jinja",
+            context! {},
+        ));
         for arg in &init_args {
-            out.push_str(&format!("        self._{arg} = {arg}\n"));
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "service_api_py_init_assignment.py.jinja",
+                context! { arg => arg },
+            ));
         }
         out.push('\n');
     }
@@ -270,14 +289,27 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         // With `from __future__ import annotations` the return type is a
         // string at runtime, so we don't need to quote the self-class name
         // (ruff `UP037`).
-        out.push_str(&format!("    def {method_name}({param_sig}) -> {class_name}:\n"));
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_configurator_header.py.jinja",
+            context! {
+                method_name => method_name,
+                param_sig => param_sig,
+                class_name => class_name,
+            },
+        ));
         if !method.doc.is_empty() {
             out.push_str(&format_docstring(&method.doc, 8));
         }
         for p in &method.params {
-            out.push_str(&format!("        self._{} = {}\n", p.name, p.name));
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "service_api_py_configurator_assignment.py.jinja",
+                context! { name => p.name.as_str() },
+            ));
         }
-        out.push_str("        return self\n\n");
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_return_self.py.jinja",
+            context! {},
+        ));
     }
 
     // Registration methods as decorator-style helpers
@@ -301,7 +333,10 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
 
         match ep.kind {
             EntrypointKind::Run => {
-                out.push_str(&format!("    def {ep_name}({param_sig}) -> None:\n"));
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "service_api_py_entrypoint_header.py.jinja",
+                    context! { ep_name => ep_name, param_sig => param_sig, return_type => "None" },
+                ));
                 if !ep.doc.is_empty() {
                     out.push_str(&format_docstring(&ep.doc, 8));
                 }
@@ -313,7 +348,10 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
                 out.push_str(")\n\n");
             }
             EntrypointKind::Finalize => {
-                out.push_str(&format!("    def {ep_name}({param_sig}) -> Any:\n"));
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "service_api_py_entrypoint_header.py.jinja",
+                    context! { ep_name => ep_name, param_sig => param_sig, return_type => "Any" },
+                ));
                 if !ep.doc.is_empty() {
                     out.push_str(&format_docstring(&ep.doc, 8));
                 }
@@ -442,24 +480,35 @@ fn emit_direct_method(
         format!("self, {}, handler: Callable[..., Any]", free_params_sig.join(", "))
     };
 
-    out.push_str(&format!("    def {variant_name}({params_sig}) -> {class_name}:\n"));
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_direct_variant_header.py.jinja",
+        context! { variant_name => variant_name, params_sig => params_sig, class_name => class_name },
+    ));
 
     if let Some(doc) = &variant.doc {
         out.push_str(&format_docstring(doc, 8));
     } else {
-        out.push_str(&format!(
-            "        \"\"\"Register a handler for the {variant_name} variant.\"\"\"\n"
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_direct_variant_doc.py.jinja",
+            context! { variant_name => variant_name },
         ));
     }
 
     if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
-        out.push_str(&format!("        {}\n", wrapper_expr));
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_statement.py.jinja",
+            context! { statement => wrapper_expr },
+        ));
     }
 
-    out.push_str(&format!(
-        "        self._registrations.append((\"{base_method}\", {meta_tuple}, handler))\n"
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_append_registration.py.jinja",
+        context! { base_method => base_method, meta_tuple => meta_tuple, callback => "handler" },
     ));
-    out.push_str("        return self\n\n");
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_return_self.py.jinja",
+        context! {},
+    ));
 }
 
 /// Emit the builder/decorator-factory form: `def get_decorator(self, path) -> Callable`.
@@ -482,30 +531,31 @@ fn emit_decorator_factory(
         format!("self, {}", free_params_sig.join(", "))
     };
 
-    out.push_str(&format!(
-        "    def {decorator_name}({params_sig_no_handler}) -> Callable[[Callable[..., Any]], Callable[..., Any]]:\n"
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_decorator_factory_header.py.jinja",
+        context! { decorator_name => decorator_name, params_sig => params_sig_no_handler },
     ));
     if let Some(doc) = &variant.doc {
         let decorator_doc = format!("Decorator form for {}", doc.trim_start());
         out.push_str(&format_docstring(&decorator_doc, 8));
     } else {
-        out.push_str(&format!(
-            "        \"\"\"Decorator form for the {variant_name} variant.\"\"\"\n"
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_decorator_variant_doc.py.jinja",
+            context! { variant_name => variant_name },
         ));
     }
 
     if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
-        out.push_str(&format!("        {}\n", wrapper_expr));
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_statement.py.jinja",
+            context! { statement => wrapper_expr },
+        ));
     }
 
-    out.push('\n');
-    out.push_str("        def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:\n");
-    out.push_str(&format!(
-        "            self._registrations.append((\"{base_method}\", {meta_tuple}, fn))\n"
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_decorator_body.py.jinja",
+        context! { base_method => base_method, meta_tuple => meta_tuple },
     ));
-    out.push_str("            return fn\n");
-    out.push('\n');
-    out.push_str("        return _decorator\n\n");
 }
 
 /// Emit a registration variant (shortcut method) for the given variant definition.
@@ -584,8 +634,9 @@ fn gen_registration_method(
     //   async def handler(request): ...
     let meta_sig = meta_params.join(", ");
 
-    out.push_str(&format!(
-        "    def {method_name}({meta_sig}) -> Callable[[Callable[..., Any]], Callable[..., Any]]:\n"
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_registration_method_header.py.jinja",
+        context! { method_name => method_name, meta_sig => meta_sig },
     ));
     if !reg.doc.is_empty() {
         out.push_str(&format_docstring(&reg.doc, 8));
@@ -603,32 +654,27 @@ fn gen_registration_method(
 
     // PEP8 / ruff-format: nested function definitions inside a method body
     // get a leading and trailing blank line so they read as a logical block.
-    out.push('\n');
-    out.push_str("        def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:\n");
-    out.push_str(&format!(
-        "            self._registrations.append((\"{method_name}\", {meta_tuple}, fn))\n"
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_decorator_body.py.jinja",
+        context! { base_method => method_name, meta_tuple => meta_tuple },
     ));
-    out.push_str("            return fn\n");
-    out.push('\n');
-    out.push_str("        return _decorator\n\n");
 
     // Also expose a plain (non-decorator) register variant for direct use:
     // `app.register_handler(meta1, meta2, handler=fn)`
     let direct_name = format!("register_{method_name}");
     if direct_name != *method_name {
         // Only add when the name differs (avoid collision if method is already named "register_*")
-        out.push_str(&format!(
-            "    def {direct_name}({meta_sig}, {}: Callable[..., Any]) -> {class_name}:\n",
-            reg.callback_param,
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_direct_registration.py.jinja",
+            context! {
+                direct_name => direct_name,
+                meta_sig => meta_sig,
+                callback_param => reg.callback_param.as_str(),
+                class_name => class_name,
+                method_name => method_name,
+                meta_tuple => meta_tuple,
+            },
         ));
-        out.push_str(&format!(
-            "        \"\"\"Register a {method_name} callback directly.\"\"\"\n"
-        ));
-        out.push_str(&format!(
-            "        self._registrations.append((\"{method_name}\", {meta_tuple}, {}))\n",
-            reg.callback_param,
-        ));
-        out.push_str("        return self\n\n");
     }
 
     // Emit registration variants (shortcuts for common patterns)
@@ -652,16 +698,11 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let core_import = config.core_import_name();
     let mut out = String::new();
 
-    // File-level allow attributes to keep clippy happy in generated code
-    out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
-    out.push_str("use pyo3::prelude::*;\n");
-    out.push_str("use pyo3::types::{PyList, PyTuple, PyString};\n");
-    out.push_str("use std::sync::Arc;\n");
-    out.push_str("use serde_json;\n");
-    out.push_str("use std::future::Future;\n");
-    out.push_str("use std::pin::Pin;\n");
-    out.push_str("use axum::http::Request;\n");
-    out.push_str("use axum::body::Body;\n\n");
+    // File-level allow attributes and imports for generated service glue.
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_rs_header.rs.jinja",
+        context! {},
+    ));
 
     // Emit one handler bridge per unique handler contract referenced by any registration.
     // Skip non-object-safe traits (WebSocketHandler, SseEventProducer) which use RPITIT.
@@ -737,40 +778,9 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .collect();
     let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
-    out.push_str(&format!(
-        "/// Generated pyo3 bridge for the `{trait_name}` contract.\n\
-         ///\n\
-         /// Wraps a Python callable (sync or async) so it can be used\n\
-         /// as `Arc<dyn {trait_name}>` from Rust async code.\n\
-         pub struct {bridge_name} {{\n    \
-             callable: Py<PyAny>,\n    \
-             is_async: bool,\n\
-         }}\n\n"
-    ));
-
-    out.push_str(&format!(
-        "impl {bridge_name} {{\n    \
-             /// Create a bridge from a Python callable.\n    \
-             pub fn new(py: Python<'_>, callable: &Bound<'_, PyAny>) -> PyResult<Self> {{\n        \
-                 let is_async = py\n            \
-                     .import(\"inspect\")?\n            \
-                     .call_method1(\"iscoroutinefunction\", (callable,))?\n            \
-                     .is_truthy()\n            \
-                     .unwrap_or(false);\n        \
-                 Ok(Self {{\n            \
-                     callable: callable.clone().unbind(),\n            \
-                     is_async,\n        \
-                 }})\n    \
-             }}\n\
-         }}\n\n"
-    ));
-
-    // Safety: The bridge holds a Py<PyAny> (GIL-independent handle) and a bool.
-    // Both are Send + Sync once the GIL is not held.
-    out.push_str(&format!(
-        "// SAFETY: Py<PyAny> is Send+Sync when we never alias it without the GIL.\n\
-         unsafe impl Send for {bridge_name} {{}}\n\
-         unsafe impl Sync for {bridge_name} {{}}\n\n"
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_handler_bridge_struct.rs.jinja",
+        context! { trait_name => trait_name, bridge_name => bridge_name.as_str() },
     ));
 
     // Trait impl — returns a boxed future directly without async_trait
@@ -802,68 +812,22 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         None => "outcome".to_string(),
     };
 
-    out.push_str(&format!(
-        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             fn {dispatch_name}(\n        \
-                 &self{extra_param},\n        \
-                 {wire_name}: {req_path},\n    \
-             ) -> Pin<Box<dyn Future<Output = {output_type}> + Send + '_>> {{\n        \
-                 // Acquire Python GIL in a thread-safe context before entering the async block.\n        \
-                 // Py<PyAny> holds a GIL-independent reference that can be used outside the GIL.\n        \
-                 let callable = pyo3::Python::attach(|py| self.callable.clone_ref(py));\n        \
-                 let is_async = self.is_async;\n\n        \
-                 Box::pin(async move {{\n            \
-                     let outcome: {wire_output} = async move {{\n                \
-                         // Serialize the request to a Python-friendly dict via serde_json\n                \
-                         let req_json = serde_json::to_string(&{wire_name})\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                         let raw_result = if is_async {{\n                    \
-                             // Async callable: hand off to pyo3_async_runtimes so it drives\n                    \
-                             // the Python event loop without blocking the Tokio executor.\n                    \
-                             let future = pyo3::Python::attach(|py| -> PyResult<_> {{\n                        \
-                                 let req_obj = py.import(\"json\")?.call_method1(\"loads\", (&req_json,))?;\n                        \
-                                 let coro = callable.call1(py, (req_obj,))?;\n                        \
-                                 pyo3_async_runtimes::tokio::into_future(coro.into_bound(py))\n                    \
-                             }})\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n                    \
-                             let py_result = future.await\n                        \
-                                 .map_err(|e| Box::new(e) as {box_err})?;\n                    \
-                             pyo3::Python::attach(|py| {{\n                        \
-                                 let json_mod = py.import(\"json\")?;\n                        \
-                                 let json_str: String = json_mod\n                            \
-                                     .call_method1(\"dumps\", (py_result.bind(py),))?\n                            \
-                                     .extract()?;\n                        \
-                                 Ok::<String, PyErr>(json_str)\n                    \
-                             }})\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?\n                \
-                         }} else {{\n                    \
-                             // Sync callable: run in a blocking thread so we never hold the GIL\n                    \
-                             // on the async executor.\n                    \
-                             tokio::task::spawn_blocking(move || {{\n                        \
-                                 pyo3::Python::attach(|py| {{\n                            \
-                                     let req_obj = py.import(\"json\")?.call_method1(\"loads\", (&req_json,))?;\n                            \
-                                     let result = callable.call1(py, (req_obj,))?;\n                            \
-                                     let json_mod = py.import(\"json\")?;\n                            \
-                                     let json_str: String = json_mod\n                                \
-                                         .call_method1(\"dumps\", (result.bind(py),))?\n                                \
-                                         .extract()?;\n                            \
-                                     Ok::<String, PyErr>(json_str)\n                        \
-                                 }})\n                    \
-                             }})\n                    \
-                             .await\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?\n                \
-                         }};\n\n                \
-                         // Deserialize the JSON result back into the wire response DTO.\n                \
-                         let response: {resp_path} = serde_json::from_str(&raw_result)\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                         Ok(response)\n            \
-                     }}\n            \
-                     .await;\n\n            \
-                     {tail}\n        \
-                 }})\n    \
-             }}\n\
-         }}\n\n"
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_handler_bridge_impl.rs.jinja",
+        context! {
+            core_import => core_import,
+            trait_name => trait_name,
+            bridge_name => bridge_name,
+            dispatch_name => dispatch_name,
+            extra_param => extra_param,
+            wire_name => wire_name,
+            req_path => req_path,
+            output_type => output_type,
+            wire_output => wire_output,
+            box_err => box_err,
+            resp_path => resp_path,
+            tail => tail,
+        },
     ));
 }
 
@@ -900,13 +864,14 @@ fn gen_run_pyfunction(
     }
     let param_sig = rust_params.join(", ");
 
-    out.push_str(&format!(
-        "/// Drive `{owner_path}::{ep_method}` from Python.\n\
-         ///\n\
-         /// Each entry in `registrations` is a `(method_name, metadata_tuple, callable)` triple\n\
-         /// produced by the Python service class.\n\
-         #[pyfunction]\n\
-         pub fn {fn_name}({param_sig}) -> PyResult<()> {{\n"
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_pyfunction_header.rs.jinja",
+        context! {
+            owner_path => owner_path,
+            ep_method => ep_method,
+            fn_name => fn_name,
+            param_sig => param_sig,
+        },
     ));
 
     // Build the owner instance via its constructor
@@ -994,12 +959,10 @@ fn gen_run_pyfunction(
             out.push_str("            }\n");
         }
     }
-    out.push_str("            _ => {\n");
-    out.push_str(
-        "                return Err(pyo3::exceptions::PyValueError::new_err(\n                    \
-         format!(\"unknown registration method: {method_name}\"),\n                ));\n",
-    );
-    out.push_str("            }\n");
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_unknown_registration_arm.rs.jinja",
+        context! {},
+    ));
     out.push_str("        }\n");
     out.push_str("    }\n\n");
 
@@ -1007,7 +970,10 @@ fn gen_run_pyfunction(
     let ep_call = build_ep_call(ep, service, core_import);
     out.push_str(&ep_call);
 
-    out.push_str("    Ok(())\n}\n\n");
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_pyfunction_footer.rs.jinja",
+        context! {},
+    ));
 }
 
 /// Build the Rust constructor call for the service owner.

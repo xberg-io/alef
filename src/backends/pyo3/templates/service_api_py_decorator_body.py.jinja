@@ -1,0 +1,7 @@
+
+        def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+            self._registrations.append(("{{ base_method }}", {{ meta_tuple }}, fn))
+            return fn
+
+        return _decorator
+
