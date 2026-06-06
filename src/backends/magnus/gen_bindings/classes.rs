@@ -137,6 +137,32 @@ fn build_method_preamble(
                     out.push_str("        ");
                 }
             }
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) && p.is_ref => {
+                // Vec<Named>: convert each element via Into trait
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    let core_inner_ty = format!("{core_import}::{name}");
+                    let vec_ty = format!("Vec<{core_inner_ty}>");
+                    if p.optional {
+                        out.push_str(&crate::backends::magnus::template_env::render(
+                            "method_optional_named_vec_binding.rs.jinja",
+                            minijinja::context! {
+                                param_name => &p.name,
+                                vec_ty => &vec_ty,
+                            },
+                        ));
+                        out.push_str("        ");
+                    } else {
+                        out.push_str(&crate::backends::magnus::template_env::render(
+                            "method_named_vec_binding.rs.jinja",
+                            minijinja::context! {
+                                param_name => &p.name,
+                                vec_ty => &vec_ty,
+                            },
+                        ));
+                        out.push_str("        ");
+                    }
+                }
+            }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
                 if p.optional {
                     out.push_str(&crate::backends::magnus::template_env::render(

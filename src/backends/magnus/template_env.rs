@@ -273,6 +273,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "method_optional_string_vec_ref_preamble.rs.jinja",
         include_str!("templates/method_optional_string_vec_ref_preamble.rs.jinja"),
     ),
+    (
+        "method_named_vec_binding.rs.jinja",
+        include_str!("templates/method_named_vec_binding.rs.jinja"),
+    ),
+    (
+        "method_optional_named_vec_binding.rs.jinja",
+        include_str!("templates/method_optional_named_vec_binding.rs.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

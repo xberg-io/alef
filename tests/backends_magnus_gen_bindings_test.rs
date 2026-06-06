@@ -3748,3 +3748,193 @@ fn test_async_function_with_vec_named_params() {
         "categories_core must be bound before use"
     );
 }
+
+#[test]
+fn test_opaque_async_method_with_vec_named_ref_param() {
+    let backend = MagnusBackend;
+
+    // Create API with an enum and an opaque struct with async method taking Vec<EnumType>&.
+    // This regression test covers the case where delegatable async methods on opaque structs
+    // need to emit let-bindings for Vec<Named> params that are passed by reference.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Analyzer".to_string(),
+            rust_path: "test_lib::Analyzer".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "detect".to_string(),
+                params: vec![
+                    ParamDef {
+                        name: "text".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                        map_is_ahash: false,
+                        map_key_is_cow: false,
+                        vec_inner_is_ref: false,
+                        map_is_btree: false,
+                        core_wrapper: alef::core::ir::CoreWrapper::None,
+                    },
+                    ParamDef {
+                        name: "labels".to_string(),
+                        ty: TypeRef::Vec(Box::new(TypeRef::Named("Label".to_string()))),
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: true, // Core function takes &[Label]
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                        map_is_ahash: false,
+                        map_key_is_cow: false,
+                        vec_inner_is_ref: false,
+                        map_is_btree: false,
+                        core_wrapper: alef::core::ir::CoreWrapper::None,
+                    },
+                ],
+                receiver: Some(ReceiverKind::Ref),
+                return_type: TypeRef::String,
+                is_async: true,
+                is_static: false,
+                error_type: Some("Error".to_string()),
+                doc: "Detect with labels".to_string(),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: true,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Text analyzer".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
+        enums: vec![EnumDef {
+            name: "Label".to_string(),
+            rust_path: "test_lib::Label".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Foo".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                },
+                EnumVariant {
+                    name: "Bar".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                },
+            ],
+            doc: "Label enumeration".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+        }],
+        functions: vec![],
+        errors: vec![ErrorDef {
+            name: "Error".to_string(),
+            rust_path: "test_lib::Error".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            methods: vec![],
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok());
+
+    let files = result.unwrap();
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_file.content;
+
+    // Must contain the async method
+    assert!(
+        content.contains("detect_async"),
+        "Should contain detect_async method"
+    );
+
+    // The method body must emit `let labels_core:` to convert Vec<Label> → Vec<core::Label>
+    // and must use `&labels_core` (not `&labels`) when calling the core function
+    let detect_async_fn = content
+        .find("fn detect_async(&self")
+        .expect("Should find detect_async method");
+    let next_fn = content[detect_async_fn..]
+        .find("\n    fn ")
+        .unwrap_or(content.len() - detect_async_fn);
+    let method_body = &content[detect_async_fn..detect_async_fn + next_fn];
+
+    assert!(
+        method_body.contains("let labels_core:"),
+        "Method body should emit let labels_core binding"
+    );
+
+    assert!(
+        method_body.contains("&labels_core"),
+        "Method body should use &labels_core (not &labels) in core call"
+    );
+
+    // Verify the let binding comes before its use
+    let binding_pos = method_body.find("let labels_core:").unwrap_or(0);
+    let usage_pos = method_body.find("&labels_core").unwrap_or(0);
+
+    assert!(
+        binding_pos > 0 && usage_pos > 0 && binding_pos < usage_pos,
+        "labels_core must be bound before use"
+    );
+}

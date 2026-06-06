@@ -29,10 +29,15 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
         })
         .collect();
 
-    // When the core enum has cfg-gated variants (excluded from the IR's `variants` list),
-    // the Rust compiler sees those variants at compile time but the generated match arms
-    // don't cover them, making the match non-exhaustive. Emit a wildcard arm in that case.
+    // Emit a wildcard arm when:
+    // 1. The core enum has cfg-gated variants (excluded from the IR's `variants` list), OR
+    // 2. The binding enum is unit-only but the core enum has struct-variants with data
+    //    (e.g., JSON-passthrough wrapper struct binding matching a struct-variant core enum).
+    //    The compiler sees all core variants at compile time, so we must cover unrepresented ones.
     let has_excluded_variants = !enum_def.excluded_variants.is_empty();
+    let binding_is_unit_only = !config.binding_enums_have_data;
+    let core_has_struct_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty() && !v.is_tuple);
+    let needs_catch_all = has_excluded_variants || (binding_is_unit_only && core_has_struct_variants);
 
     crate::codegen::template_env::render(
         "conversions/enum_from_binding_to_core",
@@ -40,7 +45,7 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
             binding_name => binding_name,
             core_path => core_path,
             arms => arms,
-            has_excluded_variants => has_excluded_variants,
+            has_excluded_variants => needs_catch_all,
         },
     )
 }
@@ -71,10 +76,15 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
         })
         .collect();
 
-    // When the core enum has cfg-gated variants (excluded from the IR's `variants` list),
-    // the Rust compiler sees those variants at compile time but the generated match arms
-    // don't cover them, making the match non-exhaustive. Emit a wildcard arm in that case.
+    // Emit a wildcard arm when:
+    // 1. The core enum has cfg-gated variants (excluded from the IR's `variants` list), OR
+    // 2. The binding enum is unit-only but the core enum has struct-variants with data
+    //    (e.g., JSON-passthrough wrapper struct binding matching a struct-variant core enum).
+    //    The compiler sees all core variants at compile time, so we must cover unrepresented ones.
     let has_excluded_variants = !enum_def.excluded_variants.is_empty();
+    let binding_is_unit_only = !config.binding_enums_have_data;
+    let core_has_struct_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty() && !v.is_tuple);
+    let needs_catch_all = has_excluded_variants || (binding_is_unit_only && core_has_struct_variants);
 
     crate::codegen::template_env::render(
         "conversions/enum_from_core_to_binding",
@@ -82,7 +92,7 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
             binding_name => binding_name,
             core_path => core_path,
             arms => arms,
-            has_excluded_variants => has_excluded_variants,
+            has_excluded_variants => needs_catch_all,
         },
     )
 }

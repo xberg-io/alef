@@ -27,8 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **dart**: annotated the `fix_handler_executor_calls` build-script helper with `#[allow(clippy::collapsible_if)]` so consumer crates with `-D warnings` (e.g. h2m's `cargo clippy --workspace --all-features`) don't break on the deliberately-flat early-warn-then-write pattern. The structure stays readable and a future log-on-success branch would slot in without refactor. (`src/backends/dart/templates/rust_loader_patch_fn.rs.jinja`)
 
-- **magnus/Ruby**: avoid duplicate `Vec<Named>` core let-bindings in generated function
-  wrappers, which could move the Ruby wrapper vector before the call site used it.
+- **magnus/Ruby**: fixed delegatable async methods on opaque structs with `Vec<Named>` parameters where the inner Rust function takes `&[T]` slice. Method preambles now emit `{name}_core` let-bindings to convert wrapper Vec to core types, and call-arg generation uses `&{name}_core` (not `&{name}`) at the call site. This fixes E0308 (type mismatch `&Vec<T>` vs `&[T]`) and E0425 (undefined `categories_core`) in generated Ruby bindings for async methods like `detect_async` and `detect_with_custom_async`. Added `build_method_preamble` case for `Vec<Named>` with `is_ref=true` and regression test `test_opaque_async_method_with_vec_named_ref_param`. (`src/backends/magnus/gen_bindings/classes.rs`, `tests/backends_magnus_gen_bindings_test.rs`)
 
 ## [0.23.18] - 2026-06-06
 
