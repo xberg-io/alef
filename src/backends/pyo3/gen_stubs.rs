@@ -410,7 +410,10 @@ fn gen_opaque_type_stub(
         } else {
             let mut wrapped = String::from("    def __init__(\n        self,\n");
             for param in &mut params {
-                wrapped.push_str(&format!("        {},\n", param));
+                wrapped.push_str(&crate::backends::pyo3::template_env::render(
+                    "stub_wrapped_param_line.jinja",
+                    minijinja::context! { param => param },
+                ));
             }
             wrapped.push_str("    ) -> None: ...");
             lines.push(wrapped);

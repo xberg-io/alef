@@ -1,0 +1,3 @@
+        let {{ param_name }}_ptr = pyo3::ffi::PyCapsule_GetPointer({{ param_name }}.as_ptr(), None);
+        if {{ param_name }}_ptr.is_null() { return Err(pyo3::exceptions::PyTypeError::new_err("Expected a valid capsule for {{ capsule_name }}")) }
+        let {{ param_name }} = unsafe { {{ capsule_name }}::from_raw({{ param_name }}_ptr as *mut _) };

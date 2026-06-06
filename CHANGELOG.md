@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **backends**: migrated more generated-source emission in C# opaque/record/trait callbacks, Dart FFI/Rust-crate/trait helpers, Extendr/R, FFI, Go service/type/trait helpers, Java, JNI shim marshalling, Kotlin/Kotlin Android wrappers, Magnus/Ruby service/tagged enum helpers, NAPI, PHP service/trait helpers, PyO3/Python, Rustler/Elixir wrapper helpers, Swift struct/Rust-wrapper helpers, WASM service wrappers, and Zig service/trait helpers from Rust string assembly to backend Jinja templates. This keeps host-language code blocks in templates while leaving identifier, type, argument, and expression construction in Rust. (`src/backends/csharp`, `src/backends/dart`, `src/backends/extendr`, `src/backends/ffi`, `src/backends/go`, `src/backends/java`, `src/backends/jni`, `src/backends/kotlin`, `src/backends/kotlin_android`, `src/backends/magnus`, `src/backends/napi`, `src/backends/php`, `src/backends/pyo3`, `src/backends/rustler`, `src/backends/swift`, `src/backends/wasm`, `src/backends/zig`)
 
+- **kotlin**: migrated remaining Kotlin and Kotlin Android generated-code `push_str(&format!(...))` emission in wrapper, JNI client, service, and trait-interface paths to backend Jinja templates, leaving expression/name assembly in Rust. (`src/backends/kotlin`, `src/backends/kotlin_android`)
+
+- **swift**: migrated additional Rust-crate and Swift binding helper emission to Jinja templates, including enum string helpers, phantom Vec accessors, streaming handle shims, JSON forwarders, and direct constructor returns. (`src/backends/swift`)
+
+- **ffi**: migrated additional service API, trait bridge, visitor callback, enum helper, and constructor generated-source blocks to FFI Jinja templates, leaving only expression/name/list assembly in Rust where appropriate. (`src/backends/ffi`)
+
+- **pyo3/Python**: migrated remaining generated Python/Rust emission in service APIs, wrapper functions, capsule method rewriting, imports, and stubs from raw `format!`-backed string pushes to PyO3 backend Jinja templates. (`src/backends/pyo3`)
+
 - **napi**: migrated remaining parameterized capsule type-tag constants and struct static-method/wither generated Rust blocks to NAPI Jinja templates. (`src/backends/napi`)
 
 - **zig**: moved the remaining generated Zig trait-alias, bytes-free, result-length, and owned-slice unwrap

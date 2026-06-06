@@ -341,11 +341,22 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
                     out.push_str(&format_docstring(&ep.doc, 8));
                 }
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
-                out.push_str(&format!("        {module_name}.{native_fn}(self._registrations"));
-                for p in &ep.params {
-                    out.push_str(&format!(", {}", p.name));
-                }
-                out.push_str(")\n\n");
+                let args = ep
+                    .params
+                    .iter()
+                    .map(|p| format!(", {}", p.name))
+                    .collect::<Vec<_>>()
+                    .join("");
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "service_api_py_entrypoint_call.py.jinja",
+                    context! {
+                        return_prefix => "",
+                        module_name => module_name,
+                        native_fn => native_fn,
+                        args => args,
+                    },
+                ));
+                out.push('\n');
             }
             EntrypointKind::Finalize => {
                 out.push_str(&crate::backends::pyo3::template_env::render(
@@ -356,11 +367,22 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
                     out.push_str(&format_docstring(&ep.doc, 8));
                 }
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
-                out.push_str(&format!("        return {module_name}.{native_fn}(self._registrations"));
-                for p in &ep.params {
-                    out.push_str(&format!(", {}", p.name));
-                }
-                out.push_str(")\n\n");
+                let args = ep
+                    .params
+                    .iter()
+                    .map(|p| format!(", {}", p.name))
+                    .collect::<Vec<_>>()
+                    .join("");
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "service_api_py_entrypoint_call.py.jinja",
+                    context! {
+                        return_prefix => "return ",
+                        module_name => module_name,
+                        native_fn => native_fn,
+                        args => args,
+                    },
+                ));
+                out.push('\n');
             }
         }
     }
@@ -876,7 +898,11 @@ fn gen_run_pyfunction(
 
     // Build the owner instance via its constructor
     let ctor_call = build_ctor_call(service, owner_path, core_import);
-    out.push_str(&format!("    let mut owner = {ctor_call};\n\n"));
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_rs_owner_ctor.rs.jinja",
+        context! { ctor_call => ctor_call },
+    ));
+    out.push('\n');
 
     // Iterate registrations and dispatch
     out.push_str("    for entry in registrations.iter() {\n");
@@ -895,12 +921,14 @@ fn gen_run_pyfunction(
             // Extract metadata params from the tuple (index 1 is the metadata sub-tuple)
             let meta_count = reg.metadata_params.len();
 
-            out.push_str(&format!("            \"{reg_method}\" => {{\n"));
-            out.push_str(&format!(
-                "                let bridge = {bridge_name}::new(_py, &callable)?;\n"
-            ));
-            out.push_str(&format!(
-                "                let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "service_api_registration_arm.rs.jinja",
+                context! {
+                    reg_method => reg_method,
+                    bridge_name => bridge_name,
+                    core_import => core_import,
+                    contract_name => contract_name,
+                },
             ));
 
             if meta_count > 0 {
@@ -923,29 +951,48 @@ fn gen_run_pyfunction(
                         _ => None,
                     };
                     if let Some(name) = opaque_named {
-                        out.push_str(&format!(
-                            "                let {pname}_binding: crate::{name} = meta.get_item({i})?.extract()?;\n",
-                            pname = meta_param.name,
-                        ));
-                        out.push_str(&format!(
-                            "                let {pname}: {core_import}::{name} = (*{pname}_binding.inner).clone();\n",
-                            pname = meta_param.name,
+                        out.push_str(&crate::backends::pyo3::template_env::render(
+                            "service_api_registration_meta_opaque.rs.jinja",
+                            context! {
+                                param_name => meta_param.name.as_str(),
+                                type_name => name,
+                                core_import => core_import,
+                                index => i,
+                            },
                         ));
                     } else {
                         let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
-                        out.push_str(&format!(
-                            "                let {}: {} = meta.get_item({i})?.extract()?;\n",
-                            meta_param.name, rust_ty,
+                        out.push_str(&crate::backends::pyo3::template_env::render(
+                            "service_api_registration_meta_value.rs.jinja",
+                            context! {
+                                param_name => meta_param.name.as_str(),
+                                rust_type => rust_ty,
+                                index => i,
+                            },
                         ));
                     }
                 }
                 let meta_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
-                out.push_str(&format!(
-                    "                owner.{reg_method}({}, handler)\n",
-                    meta_args.join(", ")
+                let args = if meta_args.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}, ", meta_args.join(", "))
+                };
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "service_api_registration_owner_call.rs.jinja",
+                    context! {
+                        reg_method => reg_method,
+                        args => args,
+                    },
                 ));
             } else {
-                out.push_str(&format!("                owner.{reg_method}(handler)\n"));
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "service_api_registration_owner_call.rs.jinja",
+                    context! {
+                        reg_method => reg_method,
+                        args => "",
+                    },
+                ));
             }
 
             // Handle error if the registration is fallible

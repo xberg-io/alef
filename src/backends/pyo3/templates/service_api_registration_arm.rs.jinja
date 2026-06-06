@@ -1,0 +1,3 @@
+            "{{ reg_method }}" => {
+                let bridge = {{ bridge_name }}::new(_py, &callable)?;
+                let handler: Arc<dyn {{ core_import }}::{{ contract_name }}> = Arc::new(bridge);

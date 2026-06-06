@@ -1,0 +1,2 @@
+        if "{{ serde_name }}" in value and "{{ field_name }}" not in value:
+            value["{{ field_name }}"] = value.pop("{{ serde_name }}")

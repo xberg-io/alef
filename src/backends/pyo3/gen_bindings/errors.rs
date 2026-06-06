@@ -305,7 +305,10 @@ pub(super) fn gen_init_py(
             // Use push_str directly to avoid the double-newline produced by routing through
             // single_line.jinja when the text already ends with `\n` (the template itself
             // appends another newline, yielding `(\n\n` which ruff then flags as E303).
-            out.push_str(&format!("from .{module_name} import (\n"));
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "import_from_relative_module_header.jinja",
+                minijinja::context! { module_name => module_name },
+            ));
             for name in &imports_from_native {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "trait_bridge/indented_import_item.jinja",
@@ -408,7 +411,10 @@ pub(super) fn gen_init_py(
         }
         let import_line = format!("from {module} import {}", symbols.join(", "));
         if import_line.len() > 88 {
-            out.push_str(&format!("from {module} import (\n"));
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "import_from_module_header.jinja",
+                minijinja::context! { module_name => module },
+            ));
             for name in symbols {
                 out.push_str(&crate::backends::pyo3::template_env::render(
                     "trait_bridge/indented_import_item.jinja",

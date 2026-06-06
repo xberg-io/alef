@@ -1645,17 +1645,12 @@ fn rewrite_capsule_methods(
             if param_is_capsule {
                 if let TypeRef::Named(capsule_name) = &p.ty {
                     // Generate extraction code for this capsule parameter
-                    capsule_param_extract.push_str(&format!(
-                        "        let {}_ptr = pyo3::ffi::PyCapsule_GetPointer({}.as_ptr(), None);\n",
-                        p.name, p.name
-                    ));
-                    capsule_param_extract.push_str(&format!(
-                        "        if {}_ptr.is_null() {{ return Err(pyo3::exceptions::PyTypeError::new_err(\"Expected a valid capsule for {}\")) }}\n",
-                        p.name, capsule_name
-                    ));
-                    capsule_param_extract.push_str(&format!(
-                        "        let {} = unsafe {{ {}::from_raw({}_ptr as *mut _) }};\n",
-                        p.name, capsule_name, p.name
+                    capsule_param_extract.push_str(&crate::backends::pyo3::template_env::render(
+                        "pyo3_capsule_param_extract.jinja",
+                        minijinja::context! {
+                            param_name => p.name.as_str(),
+                            capsule_name => capsule_name,
+                        },
                     ));
                     call_args_parts.push(p.name.clone());
                 } else {

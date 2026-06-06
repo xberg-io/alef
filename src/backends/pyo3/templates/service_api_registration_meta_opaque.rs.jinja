@@ -1,0 +1,2 @@
+                let {{ param_name }}_binding: crate::{{ type_name }} = meta.get_item({{ index }})?.extract()?;
+                let {{ param_name }}: {{ core_import }}::{{ type_name }} = (*{{ param_name }}_binding.inner).clone();

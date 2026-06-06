@@ -135,6 +135,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/import_from_module.jinja"),
     ),
     (
+        "import_from_absolute_module.jinja",
+        include_str!("templates/import_from_absolute_module.jinja"),
+    ),
+    (
         "import_from_options.jinja",
         include_str!("templates/import_from_options.jinja"),
     ),
@@ -211,6 +215,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/converters/overload_some.jinja"),
     ),
     (
+        "converters/cast_value.jinja",
+        include_str!("templates/converters/cast_value.jinja"),
+    ),
+    (
+        "converters/serde_alias.jinja",
+        include_str!("templates/converters/serde_alias.jinja"),
+    ),
+    (
         "data_enum_vec_coerce.jinja",
         include_str!("templates/data_enum_vec_coerce.jinja"),
     ),
@@ -222,6 +234,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "import_from_module_header.jinja",
         include_str!("templates/import_from_module_header.jinja"),
+    ),
+    (
+        "import_from_relative_module_header.jinja",
+        include_str!("templates/import_from_relative_module_header.jinja"),
     ),
     ("import_item.jinja", include_str!("templates/import_item.jinja")),
     (
@@ -325,6 +341,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/pyo3_capsule_call_no_capsule_return.jinja"),
     ),
     (
+        "pyo3_capsule_param_extract.jinja",
+        include_str!("templates/pyo3_capsule_param_extract.jinja"),
+    ),
+    (
         "typeddict_header.jinja",
         include_str!("templates/typeddict_header.jinja"),
     ),
@@ -352,6 +372,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "stub_method_signature_end.jinja",
         include_str!("templates/stub_method_signature_end.jinja"),
+    ),
+    (
+        "stub_wrapped_param_line.jinja",
+        include_str!("templates/stub_wrapped_param_line.jinja"),
     ),
     (
         "param_conversion_optional.jinja",
@@ -383,8 +407,24 @@ static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("function_call.jinja", include_str!("templates/function_call.jinja")),
     (
+        "function_call_statement.jinja",
+        include_str!("templates/function_call_statement.jinja"),
+    ),
+    (
+        "function_cast_return.jinja",
+        include_str!("templates/function_cast_return.jinja"),
+    ),
+    (
         "function_docstring.jinja",
         include_str!("templates/function_docstring.jinja"),
+    ),
+    (
+        "adapter_streaming_wrapper.jinja",
+        include_str!("templates/adapter_streaming_wrapper.jinja"),
+    ),
+    (
+        "adapter_async_wrapper.jinja",
+        include_str!("templates/adapter_async_wrapper.jinja"),
     ),
     ("field_kwarg.jinja", include_str!("templates/field_kwarg.jinja")),
     (
@@ -481,6 +521,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_api_py_entrypoint_header.py.jinja"),
     ),
     (
+        "service_api_py_entrypoint_call.py.jinja",
+        include_str!("templates/service_api_py_entrypoint_call.py.jinja"),
+    ),
+    (
         "service_api_py_direct_variant_header.py.jinja",
         include_str!("templates/service_api_py_direct_variant_header.py.jinja"),
     ),
@@ -531,6 +575,26 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "service_api_pyfunction_header.rs.jinja",
         include_str!("templates/service_api_pyfunction_header.rs.jinja"),
+    ),
+    (
+        "service_api_rs_owner_ctor.rs.jinja",
+        include_str!("templates/service_api_rs_owner_ctor.rs.jinja"),
+    ),
+    (
+        "service_api_registration_arm.rs.jinja",
+        include_str!("templates/service_api_registration_arm.rs.jinja"),
+    ),
+    (
+        "service_api_registration_meta_opaque.rs.jinja",
+        include_str!("templates/service_api_registration_meta_opaque.rs.jinja"),
+    ),
+    (
+        "service_api_registration_meta_value.rs.jinja",
+        include_str!("templates/service_api_registration_meta_value.rs.jinja"),
+    ),
+    (
+        "service_api_registration_owner_call.rs.jinja",
+        include_str!("templates/service_api_registration_owner_call.rs.jinja"),
     ),
     (
         "service_api_unknown_registration_arm.rs.jinja",

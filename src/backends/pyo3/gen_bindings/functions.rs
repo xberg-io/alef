@@ -211,7 +211,11 @@ pub(super) fn gen_api_py(
     if !needed_converters.is_empty() {
         out.push_str("import json\n");
     }
-    out.push_str(&format!("from typing import {}\n\n", typing_parts.join(", ")));
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "typing_import.jinja",
+        minijinja::context! { names => typing_parts },
+    ));
+    out.push('\n');
     // third-party / package self-import (isort section 3)
     out.push_str(&crate::backends::pyo3::template_env::render(
         "import_as_module.jinja",
@@ -356,7 +360,13 @@ pub(super) fn gen_api_py(
         if !capsule_imports.is_empty() {
             for (module_path, mut names) in capsule_imports {
                 names.sort_unstable();
-                out.push_str(&format!("from {} import {}\n", module_path, names.join(", ")));
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "import_from_absolute_module.jinja",
+                    minijinja::context! {
+                        module_name => module_path,
+                        imports => names.join(", "),
+                    },
+                ));
             }
         }
     }
@@ -619,11 +629,12 @@ pub(super) fn gen_api_py(
         if !serde_renamed_fields.is_empty() {
             out.push_str("        # Alias serde-renamed keys back to Rust field names\n");
             for (field_name, serde_name) in &serde_renamed_fields {
-                out.push_str(&format!(
-                    "        if \"{serde_name}\" in value and \"{field_name}\" not in value:\n"
-                ));
-                out.push_str(&format!(
-                    "            value[\"{field_name}\"] = value.pop(\"{serde_name}\")\n"
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "converters/serde_alias.jinja",
+                    minijinja::context! {
+                        field_name => field_name,
+                        serde_name => serde_name,
+                    },
                 ));
             }
         }
@@ -710,7 +721,12 @@ pub(super) fn gen_api_py(
         // access below as `Item "str" of "<TypeName> | str" has no attribute …`.
         // Using `cast` instead of `assert isinstance` avoids ruff S101 in
         // generated code while still narrowing for mypy at no runtime cost.
-        out.push_str(&format!("    value = cast({type_name}, value)\n"));
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "converters/cast_value.jinja",
+            minijinja::context! {
+                type_name => type_name,
+            },
+        ));
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/return_constructed.jinja",
             minijinja::context! {
@@ -1307,10 +1323,13 @@ pub(super) fn gen_api_py(
 
         if is_void_return {
             // Emit bare call without return statement for void-returning functions
-            out.push_str(&format!(
-                "    {return_prefix}_rust.{}({})\n",
-                &func.name,
-                kwargs.join(", ")
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "function_call_statement.jinja",
+                minijinja::context! {
+                    return_prefix => return_prefix,
+                    name => &func.name,
+                    kwargs => kwargs.join(", "),
+                },
             ));
         }
         // When the return type is a capsule type, the _native stub returns Any (the actual
@@ -1333,10 +1352,14 @@ pub(super) fn gen_api_py(
                 },
                 _ => crate::backends::pyo3::type_map::python_type(&func.return_type),
             };
-            out.push_str(&format!(
-                "    return cast(\"{cast_target}\", {return_prefix}_rust.{name}({kwargs}))\n",
-                name = &func.name,
-                kwargs = kwargs.join(", ")
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "function_cast_return.jinja",
+                minijinja::context! {
+                    cast_target => cast_target,
+                    return_prefix => return_prefix,
+                    name => &func.name,
+                    kwargs => kwargs.join(", "),
+                },
             ));
         } else {
             out.push_str(&crate::backends::pyo3::template_env::render(
@@ -1548,45 +1571,34 @@ fn emit_adapter_wrapper(
             // Streaming: the engine method returns an async iterator; re-yield each item.
             let item_type = adapter.item_type.as_deref().unwrap_or("()");
             let return_type = format!("AsyncIterator[{item_type}]");
-            out.push_str(&format!(
-                "async def {}({}) -> {}:\n",
-                adapter_name,
-                param_parts.join(", "),
-                return_type,
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "adapter_streaming_wrapper.jinja",
+                minijinja::context! {
+                    adapter_name => adapter_name,
+                    params => param_parts.join(", "),
+                    return_type => return_type,
+                    doc_content => doc_content,
+                    request_construction => request_construction.unwrap_or_default(),
+                    params_list => params_list,
+                },
             ));
-            out.push_str(&format!("    \"\"\"{doc_content}\"\"\"\n"));
-            if let Some(construction) = request_construction {
-                out.push_str(&construction);
-            }
-            let method_call = if params_list.is_empty() {
-                format!("    async for item in engine.{adapter_name}():\n")
-            } else {
-                format!("    async for item in engine.{adapter_name}({params_list}):\n")
-            };
-            out.push_str(&method_call);
-            out.push_str("        yield item\n");
         }
         AdapterPattern::AsyncMethod => {
             // Non-streaming: the engine method is a coroutine returning a single value.
             // Emit a plain async def that awaits and returns the result.
             let raw_return = adapter.returns.as_deref().unwrap_or("None");
             let return_type = adapter_param_python_type(raw_return);
-            out.push_str(&format!(
-                "async def {}({}) -> {}:\n",
-                adapter_name,
-                param_parts.join(", "),
-                return_type,
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "adapter_async_wrapper.jinja",
+                minijinja::context! {
+                    adapter_name => adapter_name,
+                    params => param_parts.join(", "),
+                    return_type => return_type,
+                    doc_content => doc_content,
+                    request_construction => request_construction.unwrap_or_default(),
+                    params_list => params_list,
+                },
             ));
-            out.push_str(&format!("    \"\"\"{doc_content}\"\"\"\n"));
-            if let Some(construction) = request_construction {
-                out.push_str(&construction);
-            }
-            let method_call = if params_list.is_empty() {
-                format!("    return await engine.{adapter_name}()\n")
-            } else {
-                format!("    return await engine.{adapter_name}({params_list})\n")
-            };
-            out.push_str(&method_call);
         }
         // Other patterns (SyncFunction, CallbackBridge) are not applicable
         // to the Python api.py wrapper layer — skip them silently.

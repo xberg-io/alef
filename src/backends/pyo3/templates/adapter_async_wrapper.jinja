@@ -1,0 +1,5 @@
+async def {{ adapter_name }}({{ params }}) -> {{ return_type }}:
+    """{{ doc_content }}"""
+{% if request_construction %}
+{{ request_construction }}{% endif %}
+    return await engine.{{ adapter_name }}({{ params_list }})
