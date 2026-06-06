@@ -2,6 +2,8 @@ use crate::e2e::config::{ArgMapping, CallConfig, E2eConfig, SelectWhen};
 use crate::e2e::fixture::Fixture;
 use std::collections::HashMap;
 
+use super::stubs::emit_test_backend_with_class_name;
+
 fn make_fixture_with_input(id: &str, input: serde_json::Value) -> Fixture {
     Fixture {
         id: id.to_string(),
@@ -184,7 +186,7 @@ fn test_emit_test_backend_is_generic_no_domain_names() {
     };
 
     let methods = vec![&method];
-    let emission = super::emit_test_backend_with_class_name(
+    let emission = emit_test_backend_with_class_name(
         &bridge,
         &methods,
         &fixture,

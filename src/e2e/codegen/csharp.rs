@@ -5,10 +5,11 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
+use crate::core::hash::{self, CommentStyle};
 use crate::e2e::config::E2eConfig;
-use crate::e2e::escape::{escape_csharp, sanitize_filename, sanitize_ident};
+use crate::e2e::escape::{escape_csharp, sanitize_filename};
 use crate::e2e::field_access::FieldResolver;
-use crate::e2e::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::e2e::fixture::{Fixture, FixtureGroup};
 use anyhow::Result;
 use heck::ToUpperCamelCase;
 use std::collections::HashMap;
@@ -949,7 +950,6 @@ pub(super) fn classify_bytes_value_csharp(s: &str) -> String {
 mod stubs;
 
 pub use stubs::emit_test_backend;
-pub(super) use stubs::emit_test_backend_with_class_name;
 
 #[cfg(test)]
 mod tests;

@@ -1,9 +1,8 @@
 //! C# HTTP e2e test rendering.
 
-use crate::e2e::escape::escape_csharp;
+use crate::e2e::escape::{escape_csharp, sanitize_ident};
 use crate::e2e::fixture::{Fixture, HttpFixture, ValidationErrorExpectation};
 use heck::ToUpperCamelCase;
-use std::fmt::Write as FmtWrite;
 
 use crate::e2e::codegen::client;
 

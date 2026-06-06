@@ -2,7 +2,6 @@
 
 use crate::core::hash::{self, CommentStyle};
 use crate::e2e::escape::escape_csharp;
-use std::fmt::Write as FmtWrite;
 
 /// Render a C# sealed-union display helper for assert_enum_fields.
 /// Pattern-matches on variants from the IR and returns a displayable string.
