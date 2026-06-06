@@ -415,6 +415,63 @@ static TEMPLATES: &[(&str, &str)] = &[
         "registration_variant.java.jinja",
         include_str!("templates/registration_variant.java.jinja"),
     ),
+    (
+        "service_class_header.jinja",
+        include_str!("templates/service_class_header.jinja"),
+    ),
+    (
+        "service_constructor.jinja",
+        include_str!("templates/service_constructor.jinja"),
+    ),
+    (
+        "service_registration_method.jinja",
+        include_str!("templates/service_registration_method.jinja"),
+    ),
+    (
+        "service_entrypoint_method.jinja",
+        include_str!("templates/service_entrypoint_method.jinja"),
+    ),
+    ("service_close.jinja", include_str!("templates/service_close.jinja")),
+    (
+        "service_callable_interface.jinja",
+        include_str!("templates/service_callable_interface.jinja"),
+    ),
+    (
+        "record_declaration.jinja",
+        include_str!("templates/record_declaration.jinja"),
+    ),
+    (
+        "record_builder_factory.jinja",
+        include_str!("templates/record_builder_factory.jinja"),
+    ),
+    (
+        "record_compact_constructor.jinja",
+        include_str!("templates/record_compact_constructor.jinja"),
+    ),
+    (
+        "record_unsupported_method.jinja",
+        include_str!("templates/record_unsupported_method.jinja"),
+    ),
+    (
+        "simple_enum_class.jinja",
+        include_str!("templates/simple_enum_class.jinja"),
+    ),
+    (
+        "opaque_handle_header.jinja",
+        include_str!("templates/opaque_handle_header.jinja"),
+    ),
+    (
+        "opaque_handle_close.jinja",
+        include_str!("templates/opaque_handle_close.jinja"),
+    ),
+    (
+        "static_factory_return_handle.jinja",
+        include_str!("templates/static_factory_return_handle.jinja"),
+    ),
+    (
+        "byte_array_serializer.jinja",
+        include_str!("templates/byte_array_serializer.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

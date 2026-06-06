@@ -1,0 +1,20 @@
+    /**
+     * {{ ep_method }}.
+     * Invokes C FFI: {{ ffi_prefix }}_{{ service_snake }}_ep_{{ ep_method_snake }}
+     */
+    public {{ return_type }} {{ ep_method }}({{ params_signature }}) {
+        try {
+            MemorySegment epAddr = LOOKUP.find("{{ ffi_prefix }}_{{ service_snake }}_ep_{{ ep_method_snake }}")
+                .or(() -> LOOKUP.find("_{{ ffi_prefix }}_{{ service_snake }}_ep_{{ ep_method_snake }}"))
+                .orElseThrow();
+            FunctionDescriptor epDesc = FunctionDescriptor.of(
+{{ return_layout }}                ValueLayout.ADDRESS       // owner: *mut opaque
+{% if descriptor_layouts -%}
+{{ descriptor_layouts }}{% endif -%}
+            );
+            MethodHandle epHandle = LINKER.downcallHandle(epAddr, epDesc);
+            {{ invoke_expr }};
+        } catch (Throwable e) {
+            throw new RuntimeException("Failed to invoke entrypoint", e);
+        }
+    }

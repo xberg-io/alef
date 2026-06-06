@@ -311,9 +311,7 @@ pub(crate) fn gen_record_type(
     // NOTE: The ObjectMapper also has Include.ALWAYS set for compatibility with both
     // options and response serialization, but this class-level annotation takes precedence
     // for types with serde-aware fields, ensuring defaults are omitted as needed.
-    if typ.has_serde {
-        record_block.push_str("@JsonInclude(JsonInclude.Include.NON_ABSENT)\n");
-    }
+    let will_emit_builder = should_emit_builder(typ, builder_mode);
     // When a builder is emitted, configure Jackson to use it during deserialization.
     // This ensures that fields with serde defaults (e.g., `enabled = true`) use the
     // builder's defaults instead of Java primitive defaults (false for bool).
@@ -321,46 +319,57 @@ pub(crate) fn gen_record_type(
     // so the reference is `<TypeName>.Builder.class`. Gate on `should_emit_builder`
     // — without the nested Builder, `@JsonDeserialize(builder = ...)` references a
     // non-existent class.
-    if should_emit_builder(typ, builder_mode) {
-        record_block.push_str("@JsonDeserialize(builder = ");
-        record_block.push_str(&typ.name);
-        record_block.push_str(".Builder.class)\n");
-    }
+    let builder_type = will_emit_builder.then_some(typ.name.as_str());
     if single_line_len > RECORD_LINE_WRAP_THRESHOLD && visible_fields.len() > 1 {
-        record_block.push_str("public record ");
-        record_block.push_str(&typ.name);
-        record_block.push_str("(\n");
+        let mut multiline_fields = String::new();
         for (i, decl) in field_decls.iter().enumerate() {
             let comma = if i < field_decls.len() - 1 { "," } else { "" };
             // Field Javadoc lives above the component when present, indented to
             // match the component declaration (4 spaces). Empty docs no-op via
             // emit_javadoc's early return.
             if let Some(doc) = field_docs.get(i) {
-                record_block.push_str(doc);
+                multiline_fields.push_str(doc);
             }
-            record_block.push_str("    ");
-            record_block.push_str(decl);
-            record_block.push_str(comma);
-            record_block.push('\n');
+            multiline_fields.push_str("    ");
+            multiline_fields.push_str(decl);
+            multiline_fields.push_str(comma);
+            multiline_fields.push('\n');
         }
-        record_block.push_str(") {\n");
+        record_block.push_str(&crate::backends::java::template_env::render(
+            "record_declaration.jinja",
+            minijinja::context! {
+                has_serde => typ.has_serde,
+                builder_type => builder_type,
+                multiline => true,
+                type_name => &typ.name,
+                multiline_fields => multiline_fields,
+                fields_joined => "",
+            },
+        ));
     } else {
         // Reuse fields_joined — no second allocation.
-        record_block.push_str("public record ");
-        record_block.push_str(&typ.name);
-        record_block.push('(');
-        record_block.push_str(&fields_joined);
-        record_block.push_str(") {\n");
+        record_block.push_str(&crate::backends::java::template_env::render(
+            "record_declaration.jinja",
+            minijinja::context! {
+                has_serde => typ.has_serde,
+                builder_type => builder_type,
+                multiline => false,
+                type_name => &typ.name,
+                multiline_fields => "",
+                fields_joined => &fields_joined,
+            },
+        ));
     }
 
     // Add builder() factory method only when the nested Builder class is also
     // emitted (mirrors `should_emit_builder` at the nested-class emission site
     // below). Records that fall below the auto-emit threshold should not
     // expose a factory whose return type doesn't exist.
-    if should_emit_builder(typ, builder_mode) {
-        record_block.push_str("    public static Builder builder() {\n");
-        record_block.push_str("        return new Builder();\n");
-        record_block.push_str("    }\n");
+    if will_emit_builder {
+        record_block.push_str(&crate::backends::java::template_env::render(
+            "record_builder_factory.jinja",
+            minijinja::context! {},
+        ));
     }
 
     // FromJson factory methods are now centralized in JsonUtil.
@@ -419,14 +428,18 @@ pub(crate) fn gen_record_type(
         .collect();
 
     if !compact_ctor_lines.is_empty() {
-        record_block.push_str("    public ");
-        record_block.push_str(&typ.name);
-        record_block.push_str("{\n");
+        let mut lines = String::new();
         for line in &compact_ctor_lines {
-            record_block.push_str(line);
-            record_block.push('\n');
+            lines.push_str(line);
+            lines.push('\n');
         }
-        record_block.push_str("    }\n");
+        record_block.push_str(&crate::backends::java::template_env::render(
+            "record_compact_constructor.jinja",
+            minijinja::context! {
+                type_name => &typ.name,
+                lines => lines,
+            },
+        ));
     }
 
     // Note: do NOT emit Optional<String>-returning shadow accessors for nullable
@@ -439,7 +452,7 @@ pub(crate) fn gen_record_type(
     // When the type meets builder criteria, inline the Jackson POJO builder as a nested
     // static class instead of emitting a sibling top-level `FooBuilder.java`.
     // Idiomatic Java pattern: `Foo.Builder`, mirroring `ImmutableList.Builder`.
-    if should_emit_builder(typ, builder_mode) {
+    if will_emit_builder {
         record_block.push('\n');
         // CPD-OFF: generated builder pattern produces identical token sequences across
         // DTO classes that share common fields (e.g. CrawlPageResult / ScrapeResult).
@@ -490,10 +503,6 @@ pub(crate) fn gen_record_type(
         // Javadoc from the IR method doc.
         emit_javadoc(&mut record_block, &method.doc, "    ");
         if is_static_method {
-            record_block.push_str(&format!(
-                "    public static {type_name} {java_method_name}({params_str}) {{\n",
-                type_name = typ.name,
-            ));
             // Body: delegate via the Jackson ObjectMapper round-trip so the native static
             // method on the core type is invoked.  Use fromJson(toJson(core_result)) to stay
             // consistent with the rest of the Java binding's serde-based FFI pattern.
@@ -502,20 +511,28 @@ pub(crate) fn gen_record_type(
             // expressible as combinations of the Builder and known field values.
             // Emit `throw new UnsupportedOperationException` as a honest placeholder rather
             // than silently omitting the method.
-            record_block.push_str(&format!(
-                "        throw new UnsupportedOperationException(\"{java_method_name} is not yet bridged via JNI; use the Builder instead.\");\n",
+            record_block.push_str(&crate::backends::java::template_env::render(
+                "record_unsupported_method.jinja",
+                minijinja::context! {
+                    is_static => true,
+                    type_name => &typ.name,
+                    method_name => java_method_name,
+                    params_str => params_str,
+                    guidance => "use the Builder instead",
+                },
             ));
-            record_block.push_str("    }\n");
         } else {
             // Instance wither: reconstruct via builder with updated field.
-            record_block.push_str(&format!(
-                "    public {type_name} {java_method_name}({params_str}) {{\n",
-                type_name = typ.name,
+            record_block.push_str(&crate::backends::java::template_env::render(
+                "record_unsupported_method.jinja",
+                minijinja::context! {
+                    is_static => false,
+                    type_name => &typ.name,
+                    method_name => java_method_name,
+                    params_str => params_str,
+                    guidance => "reconstruct via Builder",
+                },
             ));
-            record_block.push_str(&format!(
-                "        throw new UnsupportedOperationException(\"{java_method_name} is not yet bridged via JNI; reconstruct via Builder.\");\n",
-            ));
-            record_block.push_str("    }\n");
         }
     }
 
@@ -531,7 +548,6 @@ pub(crate) fn gen_record_type(
     let needs_json_serialize = fields_joined.contains("@JsonSerialize(");
     let needs_json_ignore = fields_joined.contains("@JsonIgnore");
     // @Nullable may appear in record fields OR in builder method signatures.
-    let will_emit_builder = should_emit_builder(typ, builder_mode);
     let needs_nullable =
         fields_joined.contains("@Nullable") || (will_emit_builder && record_block.contains("@Nullable"));
     // Note: @Transient is not used in record classes — records have no bean-style getters,
@@ -628,11 +644,9 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
     );
     out.push('\n');
 
-    emit_javadoc(&mut out, &enum_def.doc, "");
-    out.push_str("public enum ");
-    out.push_str(&enum_def.name);
-    out.push_str(" {\n");
-
+    let mut enum_javadocs = String::new();
+    emit_javadoc(&mut enum_javadocs, &enum_def.doc, "");
+    let mut variants_block = String::new();
     for (i, variant) in enum_def.variants.iter().enumerate() {
         let comma = if i < enum_def.variants.len() - 1 { "," } else { ";" };
         // Use serde_rename if available, otherwise apply rename_all strategy.
@@ -647,54 +661,25 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
                 Some(rename_all) => java_apply_rename_all(&variant.name, Some(rename_all)),
                 None => variant.name.to_lowercase(),
             });
-        emit_javadoc(&mut out, &variant.doc, "    ");
-        out.push_str("    ");
-        out.push_str(&variant.name);
-        out.push_str("(\"");
-        out.push_str(&json_name);
-        out.push_str("\")");
-        out.push_str(comma);
-        out.push('\n');
+        emit_javadoc(&mut variants_block, &variant.doc, "    ");
+        variants_block.push_str("    ");
+        variants_block.push_str(&variant.name);
+        variants_block.push_str("(\"");
+        variants_block.push_str(&json_name);
+        variants_block.push_str("\")");
+        variants_block.push_str(comma);
+        variants_block.push('\n');
     }
+    variants_block.push('\n');
 
-    out.push('\n');
-    out.push_str("    /** The string value. */\n");
-    out.push_str("    private final String value;\n");
-    out.push('\n');
-    out.push_str("    ");
-    out.push_str(&enum_def.name);
-    out.push_str("(final String value) {\n");
-    out.push_str("        this.value = value;\n");
-    out.push_str("    }\n");
-    out.push('\n');
-    out.push_str("    /** Returns the string value. */\n");
-    out.push_str("    @JsonValue\n");
-    out.push_str("    public String getValue() {\n");
-    out.push_str("        return value;\n");
-    out.push_str("    }\n");
-    out.push('\n');
-    out.push_str("    /** Creates an instance from a string value. */\n");
-    out.push_str("    @JsonCreator\n");
-    out.push_str("    public static ");
-    out.push_str(&enum_def.name);
-    out.push_str(" fromValue(final String value) {\n");
-    out.push_str("        for (");
-    out.push_str(&enum_def.name);
-    out.push_str(" e : values()) {\n");
-    out.push_str("            if (e.value.equalsIgnoreCase(value)) {\n");
-    out.push_str("                return e;\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("        throw new IllegalArgumentException(\"Unknown value: \" + value);\n");
-    out.push_str("    }\n");
-    out.push('\n');
-    out.push_str("    /** Returns the wire-format string value (matches JSON serialization). */\n");
-    out.push_str("    @Override\n");
-    out.push_str("    public String toString() {\n");
-    out.push_str("        return value;\n");
-    out.push_str("    }\n");
-
-    out.push_str("}\n");
+    out.push_str(&crate::backends::java::template_env::render(
+        "simple_enum_class.jinja",
+        minijinja::context! {
+            javadocs => enum_javadocs,
+            enum_name => &enum_def.name,
+            variants_block => variants_block,
+        },
+    ));
 
     out
 }
@@ -1065,22 +1050,10 @@ pub(crate) fn gen_opaque_handle_class(
     let mut body = String::new();
 
     emit_javadoc(&mut body, &typ.doc, "");
-
-    body.push_str("public class ");
-    body.push_str(class_name);
-    body.push_str(" implements AutoCloseable {\n");
-    body.push_str("    private final MemorySegment handle;\n");
-    body.push('\n');
-    body.push_str("    ");
-    body.push_str(class_name);
-    body.push_str("(MemorySegment handle) {\n");
-    body.push_str("        this.handle = handle;\n");
-    body.push_str("    }\n");
-    body.push('\n');
-    body.push_str("    MemorySegment handle() {\n");
-    body.push_str("        return this.handle;\n");
-    body.push_str("    }\n");
-    body.push('\n');
+    body.push_str(&crate::backends::java::template_env::render(
+        "opaque_handle_header.jinja",
+        minijinja::context! { class_name => class_name },
+    ));
 
     // Emit streaming iterator methods (e.g. chatStream(req) -> Iterator<ChatCompletionChunk>).
     for adapter in &streaming_adapters {
@@ -1117,22 +1090,14 @@ pub(crate) fn gen_opaque_handle_class(
         }
     }
 
-    body.push_str("    @Override\n");
-    body.push_str("    public void close() {\n");
-    body.push_str("        if (handle != null && !handle.equals(MemorySegment.NULL)) {\n");
-    body.push_str("            try {\n");
-    body.push_str("                NativeLib.");
-    body.push_str(&prefix.to_uppercase());
-    body.push('_');
-    body.push_str(&type_snake.to_uppercase());
-    body.push_str("_FREE.invoke(handle);\n");
-    body.push_str("            } catch (Throwable e) {\n");
-    body.push_str("                throw new RuntimeException(\"Failed to free ");
-    body.push_str(class_name);
-    body.push_str(": \" + e.getMessage(), e);\n");
-    body.push_str("            }\n");
-    body.push_str("        }\n");
-    body.push_str("    }\n");
+    let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
+    body.push_str(&crate::backends::java::template_env::render(
+        "opaque_handle_close.jinja",
+        minijinja::context! {
+            free_handle => free_handle,
+            class_name => class_name,
+        },
+    ));
 
     if needs_helpers {
         gen_streaming_helpers(&mut body, prefix, main_class);
@@ -1782,30 +1747,18 @@ fn gen_static_factory_method(
 
     // The return type for a static factory is always Self (the class being constructed).
     // Emit: call FFI → check non-null → wrap in new ClassName(handle).
-    out.push_str(&format!(
-        "            var handle = (MemorySegment) {ffi_handle}.invoke({args_joined});\n"
-    ));
     let named_frees_str = render_named_frees("            ");
-    if !named_frees_str.is_empty() {
-        out.push_str(&named_frees_str);
-    }
-    out.push_str(&format!(
-        "            if (handle == null || handle.equals(MemorySegment.NULL)) {{\n\
-                 throw new {exception_class}(\"{method_name} returned null\", (Throwable) null);\n            }}\n"
+    out.push_str(&crate::backends::java::template_env::render(
+        "static_factory_return_handle.jinja",
+        minijinja::context! {
+            ffi_handle => ffi_handle,
+            args_joined => args_joined,
+            named_frees => named_frees_str,
+            exception_class => exception_class,
+            method_name => method_name,
+            class_name => class_name,
+        },
     ));
-    out.push_str(&format!("            return new {class_name}(handle);\n"));
-    out.push_str("        }\n");
-    out.push_str("        catch (Throwable e) {\n");
-    out.push_str("            if (e instanceof ");
-    out.push_str(&exception_class);
-    out.push_str(") throw (");
-    out.push_str(&exception_class);
-    out.push_str(") e;\n");
-    out.push_str("            throw new RuntimeException(\"");
-    out.push_str(&method_name);
-    out.push_str(" failed: \" + e.getMessage(), e);\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
 }
 
 /// True when the given `TypeRef` is a reference type whose Java representation may
@@ -2457,29 +2410,10 @@ pub(crate) fn gen_byte_array_serializer(package: &str) -> String {
         minijinja::context! { header => header, package => package, imports => &imports },
     );
     out.push('\n');
-    out.push_str("/**\n");
-    out.push_str(" * Serialises {@code byte[]} as a JSON array of integers.\n");
-    out.push_str(" *\n");
-    out.push_str(" * <p>Jackson's default serialiser encodes {@code byte[]} as a base64 string, but\n");
-    out.push_str(" * Rust's {@code serde} for {@code Vec<u8>} expects {@code [72, 101, 108, ...]}.\n");
-    out.push_str(" * Annotate any {@code byte[]} field sent to the FFI layer with\n");
-    out.push_str(" * {@code @JsonSerialize(using = ByteArrayToIntArraySerializer.class)}.\n");
-    out.push_str(" */\n");
-    out.push_str("public class ByteArrayToIntArraySerializer extends StdSerializer<byte[]> {\n");
-    out.push_str("    /** Default constructor required by Jackson. */\n");
-    out.push_str("    public ByteArrayToIntArraySerializer() {\n");
-    out.push_str("        super(byte[].class);\n");
-    out.push_str("    }\n\n");
-    out.push_str("    @Override\n");
-    out.push_str("    public void serialize(final byte[] value, final JsonGenerator gen,\n");
-    out.push_str("            final SerializerProvider provider) throws java.io.IOException {\n");
-    out.push_str("        gen.writeStartArray();\n");
-    out.push_str("        for (byte b : value) {\n");
-    out.push_str("            gen.writeNumber(b & 0xFF);\n");
-    out.push_str("        }\n");
-    out.push_str("        gen.writeEndArray();\n");
-    out.push_str("    }\n");
-    out.push_str("}\n");
+    out.push_str(&crate::backends::java::template_env::render(
+        "byte_array_serializer.jinja",
+        minijinja::context! {},
+    ));
     out
 }
 

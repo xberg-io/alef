@@ -1,0 +1,12 @@
+{% if has_serde -%}
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+{% endif -%}
+{% if builder_type -%}
+@JsonDeserialize(builder = {{ builder_type }}.Builder.class)
+{% endif -%}
+{% if multiline -%}
+public record {{ type_name }}(
+{{ multiline_fields }}) {
+{% else -%}
+public record {{ type_name }}({{ fields_joined }}) {
+{% endif -%}

@@ -1,0 +1,32 @@
+{{ javadocs }}public enum {{ enum_name }} {
+{{ variants_block }}
+    /** The string value. */
+    private final String value;
+
+    {{ enum_name }}(final String value) {
+        this.value = value;
+    }
+
+    /** Returns the string value. */
+    @JsonValue
+    public String getValue() {
+        return value;
+    }
+
+    /** Creates an instance from a string value. */
+    @JsonCreator
+    public static {{ enum_name }} fromValue(final String value) {
+        for ({{ enum_name }} e : values()) {
+            if (e.value.equalsIgnoreCase(value)) {
+                return e;
+            }
+        }
+        throw new IllegalArgumentException("Unknown value: " + value);
+    }
+
+    /** Returns the wire-format string value (matches JSON serialization). */
+    @Override
+    public String toString() {
+        return value;
+    }
+}

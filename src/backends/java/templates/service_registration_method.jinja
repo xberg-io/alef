@@ -1,0 +1,54 @@
+    /**
+     * Register a handler for {{ reg_method }}.
+     * Invokes C FFI: {{ ffi_prefix }}_{{ service_snake }}_register_{{ reg_method_snake }}
+     *
+     * @param handler functional interface receiving JSON request, returning JSON response
+{{ metadata_docs }}     * @return 0 on success, non-zero error code on failure
+     */
+    public int {{ method_name }}(Callable handler{{ metadata_signature }}) {
+        try {
+            // Wrap Java handler in an upcall stub for C to invoke
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            MethodHandle mh = lookup.findVirtual(Callable.class, "handle",
+                MethodType.methodType(String.class, String.class));
+            MethodHandle boundMh = mh.bindTo(handler);
+
+            // Build C FFI signature: (context: ADDRESS, request: ADDRESS) -> ADDRESS
+            FunctionDescriptor upcallDesc = FunctionDescriptor.of(
+                ValueLayout.ADDRESS,  // return: *mut c_char
+                ValueLayout.ADDRESS,  // param 0: *mut c_void (context)
+                ValueLayout.ADDRESS   // param 1: *const c_char (request JSON)
+            );
+
+            // Create adapter: (context_ptr: ADDRESS, request_ptr: ADDRESS) -> response_ptr: ADDRESS
+            // Marshals C pointers <-> Java strings via Arena
+            MethodHandle baseMh = lookup.findStatic({{ class_name }}.class, "invokeHandlerWithMarshal",
+                MethodType.methodType(MemorySegment.class, MemorySegment.class, MemorySegment.class, Callable.class, Arena.class)
+            );
+            MethodHandle adapter = MethodHandles.insertArguments(baseMh, 2, handler, arena);
+
+            MemorySegment upcallStub = LINKER.upcallStub(adapter, upcallDesc, arena);
+
+            // Get register downcall handle
+            MemorySegment regAddr = LOOKUP.find("{{ ffi_prefix }}_{{ service_snake }}_register_{{ reg_method_snake }}")
+                .or(() -> LOOKUP.find("_{{ ffi_prefix }}_{{ service_snake }}_register_{{ reg_method_snake }}"))
+                .orElseThrow();
+            FunctionDescriptor regDesc = FunctionDescriptor.of(
+                ValueLayout.JAVA_INT,  // return: int
+                ValueLayout.ADDRESS,   // owner: *mut opaque
+                ValueLayout.ADDRESS    // callback: upcall stub
+{% if descriptor_layouts -%}
+{{ descriptor_layouts }}{% endif -%}
+            );
+            MethodHandle regHandle = LINKER.downcallHandle(regAddr, regDesc);
+
+            return (int) regHandle.invokeExact(
+                ownerHandle,     // owner
+                upcallStub       // callback
+{% if invoke_args -%}
+{{ invoke_args }}{% endif -%}
+            );
+        } catch (Throwable e) {
+            throw new RuntimeException("Failed to register handler", e);
+        }
+    }

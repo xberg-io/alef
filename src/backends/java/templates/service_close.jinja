@@ -1,0 +1,18 @@
+    @Override
+    public void close() {
+        try {
+            MemorySegment freeAddr = LOOKUP.find("{{ ffi_prefix }}_{{ service_snake }}_free")
+                .or(() -> LOOKUP.find("_{{ ffi_prefix }}_{{ service_snake }}_free"))
+                .orElseThrow();
+            FunctionDescriptor freeDesc = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS);
+            MethodHandle freeHandle = LINKER.downcallHandle(freeAddr, freeDesc);
+            if (ownerHandle != null) {
+                freeHandle.invoke(ownerHandle);
+                ownerHandle = null;
+            }
+            arena.close();
+        } catch (Throwable e) {
+            throw new RuntimeException("Failed to close service", e);
+        }
+    }
+}

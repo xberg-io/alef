@@ -1,0 +1,20 @@
+    /**
+     * Create a new {{ service_name }}.
+     * Invokes C FFI: {{ ffi_prefix }}_{{ service_snake }}_new()
+     */
+    public {{ class_name }}() {
+        try {
+            MemorySegment addr = LOOKUP.find("{{ ffi_prefix }}_{{ service_snake }}_new")
+                .or(() -> LOOKUP.find("_{{ ffi_prefix }}_{{ service_snake }}_new"))
+                .orElseThrow();
+            FunctionDescriptor desc = FunctionDescriptor.of(ValueLayout.ADDRESS);
+            MethodHandle handle = LINKER.downcallHandle(addr, desc);
+            this.ownerHandle = (MemorySegment) handle.invoke();
+            if (this.ownerHandle == null) {
+                throw new RuntimeException("Failed to allocate service instance");
+            }
+        } catch (Throwable e) {
+            throw new RuntimeException("Failed to invoke constructor", e);
+        }
+    }
+

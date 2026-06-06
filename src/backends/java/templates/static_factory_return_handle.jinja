@@ -1,0 +1,12 @@
+            var handle = (MemorySegment) {{ ffi_handle }}.invoke({{ args_joined }});
+{{ named_frees }}            if (handle == null || handle.equals(MemorySegment.NULL)) {
+                throw new {{ exception_class }}("{{ method_name }} returned null", (Throwable) null);
+            }
+            return new {{ class_name }}(handle);
+        }
+        catch (Throwable e) {
+            if (e instanceof {{ exception_class }}) throw ({{ exception_class }}) e;
+            throw new RuntimeException("{{ method_name }} failed: " + e.getMessage(), e);
+        }
+    }
+

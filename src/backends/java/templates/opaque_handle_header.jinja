@@ -1,0 +1,11 @@
+public class {{ class_name }} implements AutoCloseable {
+    private final MemorySegment handle;
+
+    {{ class_name }}(MemorySegment handle) {
+        this.handle = handle;
+    }
+
+    MemorySegment handle() {
+        return this.handle;
+    }
+
