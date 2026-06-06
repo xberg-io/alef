@@ -1208,18 +1208,18 @@ impl Backend for PhpBackend {
                 .enumerate()
                 .map(|(idx, p)| {
                     let ptype = php_type(&p.ty);
-                    // Check if the parameter is optional: either marked as p.optional, or the type
-                    // itself is nullable (like Option<T> which php_type renders as ?T), or it's a
-                    // default-constructible type that can use a null default.
+                    // Check if the parameter is optional: either the type itself is nullable
+                    // (like Option<T> which php_type renders as ?T), or it's a default-constructible
+                    // type that can use a null default. DO NOT use p.optional flag here — that field
+                    // is IR metadata and does not represent optionality for PHP purposes.
                     let type_is_nullable = ptype.starts_with('?');
-                    let can_be_optional = p.optional || type_is_nullable || is_optional_default_constructible_param(p);
+                    let can_be_optional = type_is_nullable || is_optional_default_constructible_param(p);
 
-                    // For optional parameters (whether via p.optional flag or via TypeRef::Optional),
-                    // we can emit `= null` default because the Rust core function accepts Option<T>.
-                    // Even if tail_optional[idx] is false (due to a required parameter after this one),
-                    // optional parameters can safely have null defaults at the wrapper level, and the
-                    // native function handles null.
-                    let can_emit_default = tail_optional[idx] || p.optional || type_is_nullable;
+                    // Only emit `= null` default for parameters that are truly nullable (Option<T>)
+                    // or default-constructible. The tail_optional check ensures PHP 8.1 compliance
+                    // (required params before optional ones).
+                    let can_emit_default =
+                        tail_optional[idx] && (type_is_nullable || is_optional_default_constructible_param(p));
 
                     if can_be_optional && can_emit_default {
                         // ptype may already be nullable (e.g., "?string" from php_type handling

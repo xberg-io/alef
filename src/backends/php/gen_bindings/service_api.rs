@@ -1761,6 +1761,93 @@ mod tests {
         assert!(files.is_empty(), "expected no files for surface without services");
     }
 
+    /// Verify that required &str/String parameters emit non-nullable PHP signatures,
+    /// while Option<T> parameters emit nullable signatures with = null defaults.
+    /// This is a regression test for the over-propagation of nullable params.
+    #[test]
+    fn php_output_required_params_not_nullable() {
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let service = ServiceDef {
+            name: "TestService".to_owned(),
+            rust_path: "my_crate::TestService".to_owned(),
+            constructor,
+            configurators: vec![],
+            registrations: vec![],
+            entrypoints: vec![EntrypointDef {
+                method: "extract".to_owned(),
+                kind: EntrypointKind::Run,
+                is_async: false,
+                params: vec![
+                    ParamDef {
+                        name: "path".to_owned(),
+                        ty: TypeRef::String, // required &str/String
+                        optional: false,
+                        default: None,
+                        ..ParamDef::default()
+                    },
+                    ParamDef {
+                        name: "mime_type".to_owned(),
+                        ty: TypeRef::Optional(Box::new(TypeRef::String)), // Option<&str>
+                        optional: true,
+                        default: None,
+                        ..ParamDef::default()
+                    },
+                ],
+                return_type: TypeRef::Unit,
+                error_type: None,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+            cfg: None,
+        };
+
+        let api = ApiSurface {
+            crate_name: "my_crate".to_owned(),
+            version: "0.1.0".to_owned(),
+            services: vec![service],
+            handler_contracts: vec![],
+            ..ApiSurface::default()
+        };
+
+        let output = gen_service_php(&api, "my_crate");
+
+        // Required string param must NOT be nullable (no ? prefix, no = null)
+        assert!(
+            output.contains("string $path,"),
+            "required path param must be non-nullable: {output}"
+        );
+
+        // Option<T> param must be nullable with = null default
+        assert!(
+            output.contains("?string $mime_type = null"),
+            "Option<T> mime_type param must be nullable with = null: {output}"
+        );
+
+        // Ensure the bad pattern does NOT appear
+        assert!(
+            !output.contains("?string $path"),
+            "required path must not be nullable: {output}"
+        );
+    }
+
     /// `gen_registration_variant` with a `wrapper_call` emits wrapper construction
     /// and delegates to the base method instead of pushing to `$this->registrations[]`.
     #[test]
