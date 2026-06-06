@@ -224,7 +224,12 @@ pub fn emit_make_vtable(
         let mut call_args: Vec<String> = Vec::new();
         for p in &method.params {
             if matches!(p.ty, TypeRef::Bytes) {
-                out.push_str(&format!("                _ = {}_len;\n", p.name));
+                out.push_str(&crate::backends::zig::template_env::render(
+                    "thunk_discard_bytes_len.jinja",
+                    minijinja::context! {
+                        param_name => &p.name,
+                    },
+                ));
                 call_args.push(format!("{}_ptr", p.name));
             } else {
                 call_args.push(p.name.clone());

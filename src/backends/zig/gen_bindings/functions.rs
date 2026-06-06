@@ -236,7 +236,12 @@ pub(crate) fn emit_function(
         ));
         out.push_str("    }\n");
         if let Some(len_call) = &c_len_call {
-            out.push_str(&format!("    const _result_len = {len_call};\n"));
+            out.push_str(&crate::backends::zig::template_env::render(
+                "function_result_len.jinja",
+                minijinja::context! {
+                    len_call => len_call,
+                },
+            ));
         }
 
         // Free owned C strings after the error check.
@@ -247,7 +252,12 @@ pub(crate) fn emit_function(
         // Produce the Zig return value.
         if returns_bytes {
             out.push_str("    const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);\n");
-            out.push_str(&format!("    c.{prefix}_free_bytes(_out_ptr, _out_len, _out_cap);\n"));
+            out.push_str(&crate::backends::zig::template_env::render(
+                "function_free_bytes.jinja",
+                minijinja::context! {
+                    prefix => prefix,
+                },
+            ));
             out.push_str("    return _owned;\n");
         } else if matches!(f.return_type, TypeRef::Unit) {
             out.push_str("    return;\n");
@@ -279,7 +289,12 @@ pub(crate) fn emit_function(
                 },
             ));
             out.push_str("    const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);\n");
-            out.push_str(&format!("    c.{prefix}_free_bytes(_out_ptr, _out_len, _out_cap);\n"));
+            out.push_str(&crate::backends::zig::template_env::render(
+                "function_free_bytes.jinja",
+                minijinja::context! {
+                    prefix => prefix,
+                },
+            ));
             out.push_str("    return _owned;\n");
         } else if matches!(f.return_type, TypeRef::Unit) {
             out.push_str(&crate::backends::zig::template_env::render(
@@ -296,7 +311,12 @@ pub(crate) fn emit_function(
                 },
             ));
             if let Some(len_call) = &c_len_call {
-                out.push_str(&format!("    const _result_len = {len_call};\n"));
+                out.push_str(&crate::backends::zig::template_env::render(
+                    "function_result_len.jinja",
+                    minijinja::context! {
+                        len_call => len_call,
+                    },
+                ));
             }
             let ret_expr = unwrap_return_expr("_result", &f.return_type, prefix, struct_names, None);
             out.push_str(&crate::backends::zig::template_env::render(
@@ -675,22 +695,13 @@ fn unwrap_return_expr(
             // check passes through and we hit a null slice. Returning the first
             // declared error variant matches the behaviour for the case where
             // the error code IS propagated correctly.
-            let mut s = String::new();
-            s.push_str("blk: {\n");
-            if let Some(err_ty) = error_type {
-                s.push_str(&format!("        if ({raw} == null) return _first_error({err_ty});\n"));
-            }
-            s.push_str(&format!("        const slice = {raw}[0.._result_len];\n"));
-            s.push_str("        const owned = try std.heap.c_allocator.dupe(u8, slice);\n");
-            s.push_str(&crate::backends::zig::template_env::render(
-                "return_unwrap_free.jinja",
+            crate::backends::zig::template_env::render(
+                "return_owned_bytes_block.jinja",
                 minijinja::context! {
                     raw => raw,
+                    error_type => error_type,
                 },
-            ));
-            s.push_str("        break :blk owned;\n");
-            s.push_str("    }");
-            s
+            )
         }
         TypeRef::Named(name) if struct_names.contains(name) => {
             // The C function returned an opaque handle (*SAMPLE_CRATEFoo). Serialize
@@ -720,18 +731,12 @@ fn unwrap_return_expr(
             // underlying value is None — but we gate on `raw != null` first to
             // keep the null-branch zero-cost.
             TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                let mut s = String::new();
-                s.push_str("blk: {\n");
-                s.push_str(&format!("        if ({raw} == null) break :blk null;\n"));
-                s.push_str(&format!("        const slice = {raw}[0.._result_len];\n"));
-                s.push_str("        const owned = try std.heap.c_allocator.dupe(u8, slice);\n");
-                s.push_str(&crate::backends::zig::template_env::render(
-                    "return_unwrap_free.jinja",
-                    minijinja::context! { raw => raw },
-                ));
-                s.push_str("        break :blk owned;\n");
-                s.push_str("    }");
-                s
+                crate::backends::zig::template_env::render(
+                    "return_optional_owned_bytes_block.jinja",
+                    minijinja::context! {
+                        raw => raw,
+                    },
+                )
             }
             // `?[]u8` over an opaque struct: serialise the handle to JSON via the
             // FFI `<prefix>_<snake>_to_json` helper, copy the JSON into a Zig-owned

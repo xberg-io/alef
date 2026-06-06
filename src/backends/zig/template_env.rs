@@ -61,6 +61,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "function_error_return.jinja",
         include_str!("templates/function_error_return.jinja"),
     ),
+    (
+        "function_free_bytes.jinja",
+        include_str!("templates/function_free_bytes.jinja"),
+    ),
+    (
+        "function_result_len.jinja",
+        include_str!("templates/function_result_len.jinja"),
+    ),
     ("function_return.jinja", include_str!("templates/function_return.jinja")),
     (
         "param_string_alloc.jinja",
@@ -110,6 +118,14 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "return_named_json_block.jinja",
         include_str!("templates/return_named_json_block.jinja"),
+    ),
+    (
+        "return_optional_owned_bytes_block.jinja",
+        include_str!("templates/return_optional_owned_bytes_block.jinja"),
+    ),
+    (
+        "return_owned_bytes_block.jinja",
+        include_str!("templates/return_owned_bytes_block.jinja"),
     ),
     ("c_import.jinja", include_str!("templates/c_import.jinja")),
     ("build_zig.jinja", include_str!("templates/build_zig.jinja")),
@@ -188,6 +204,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "thunk_bytes_slice.jinja",
         include_str!("templates/thunk_bytes_slice.jinja"),
+    ),
+    (
+        "thunk_discard_bytes_len.jinja",
+        include_str!("templates/thunk_discard_bytes_len.jinja"),
     ),
     (
         "thunk_result_assign.jinja",
@@ -393,6 +413,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "trait_options_handle_from_vtable.jinja",
         include_str!("templates/trait_options_handle_from_vtable.jinja"),
+    ),
+    (
+        "trait_bridge_alias.jinja",
+        include_str!("templates/trait_bridge_alias.jinja"),
     ),
 ];
 

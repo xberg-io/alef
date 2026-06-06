@@ -1,7 +1,6 @@
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use crate::core::ir::{ApiSurface, TypeRef};
-use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use crate::backends::zig::trait_bridge::emit_trait_bridge;
@@ -149,8 +148,12 @@ impl Backend for ZigBackend {
                 continue;
             }
             if let Some(alias) = &bridge.type_alias {
-                let _ = writeln!(content, "/// Opaque handle for a `{alias}` trait-bridge instance.",);
-                let _ = writeln!(content, "pub const {alias} = *anyopaque;");
+                content.push_str(&crate::backends::zig::template_env::render(
+                    "trait_bridge_alias.jinja",
+                    minijinja::context! {
+                        alias => alias,
+                    },
+                ));
                 content.push('\n');
             }
         }

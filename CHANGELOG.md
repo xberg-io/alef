@@ -25,8 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **napi**: migrated remaining parameterized capsule type-tag constants and struct static-method/wither generated Rust blocks to NAPI Jinja templates. (`src/backends/napi`)
 
-- **zig**: moved the remaining generated Zig trait-alias, bytes-free, result-length, and owned-slice unwrap
-  snippets into backend templates. (`src/backends/zig`)
+- **zig**: moved the remaining generated Zig trait-alias, bytes-free, result-length, thunk length-discard,
+  and owned-slice unwrap snippets into backend templates. (`src/backends/zig`)
 
 ### Fixed
 

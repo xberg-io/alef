@@ -1,0 +1,7 @@
+blk: {
+        if ({{ raw }} == null) break :blk null;
+        const slice = {{ raw }}[0.._result_len];
+        const owned = try std.heap.c_allocator.dupe(u8, slice);
+        _free_string({{ raw }});
+        break :blk owned;
+    }
