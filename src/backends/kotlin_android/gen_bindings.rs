@@ -610,7 +610,7 @@ fn emit_module_kt(
     // as a return or parameter on the free-function surface. That misses
     // opaque types whose only public entrypoint is a static factory method
     // (e.g. `TokenCounter::new() -> Self`, lifted by the FFI layer as
-    // `kreuzberg_token_counter_new` but kept as a `@staticmethod` on the
+    // `{prefix}_token_counter_new` but kept as a `@staticmethod` on the
     // class in alef's IR rather than a top-level function) and whose `&mut
     // self` consumers have been excluded via `[crates.exclude].functions`
     // (e.g. `apply_strategy`). Such types still need a Kotlin wrapper to give

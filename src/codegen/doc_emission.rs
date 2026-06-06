@@ -2682,10 +2682,7 @@ mod tests {
             !out.contains("/*\""),
             "must not emit raw `/*` inside KDoc — would open nested block comment: {out}",
         );
-        assert!(
-            out.contains("/ *"),
-            "must escape `/*` to `/ *`: {out}",
-        );
+        assert!(out.contains("/ *"), "must escape `/*` to `/ *`: {out}",);
     }
 
     #[test]

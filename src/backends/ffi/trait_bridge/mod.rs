@@ -817,7 +817,7 @@ mod tests {
 
         // Required method fn pointer must be validated; optional one need not be
         assert!(
-            code.contains("vtable.transform.is_none()"),
+            code.contains("vtable_ref.transform.is_none()"),
             "required fn ptr must be validated non-null"
         );
     }
@@ -1641,6 +1641,72 @@ mod tests {
         assert!(
             !code.contains("context: &my_lib::NodeContext,") && !code.contains("context: &my_lib::NodeContext\n"),
             "bare &NodeContext without lifetime placeholder must NOT appear in trait impl;\n\
+             actual code:\n{code}"
+        );
+    }
+
+    #[test]
+    fn vtable_registration_signature_takes_const_pointer() {
+        // Regression test for C9: Go cgo vtable cimport unification.
+        // FFI registration function must take `vtable: *const VTableName` (pointer),
+        // not `vtable: VTableName` (value), so that Go can consistently pass `&vtable`
+        // without cgo type unification issues.
+
+        let trait_def = make_trait_def(
+            "TestBackend",
+            vec![make_method("process", TypeRef::String, true, false)],
+        );
+
+        let bridge_cfg = crate::core::config::TraitBridgeConfig {
+            trait_name: "TestBackend".to_string(),
+            register_fn: Some("register_backend".to_string()),
+            registry_getter: Some("get_registry".to_string()),
+            ..Default::default()
+        };
+
+        let api = ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![trait_def.clone()],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+            unsupported_public_items: Vec::new(),
+        };
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "test",
+            "test_lib",
+            "TestError",
+            "TestError::from({msg})",
+            None,
+            &api,
+        );
+
+        // The registration function signature must use `*const` for the vtable parameter.
+        assert!(
+            code.contains("vtable: *const TestTestBackendVTable"),
+            "FFI registration function must take vtable as `*const VTableName` pointer;\n\
+             actual code:\n{code}"
+        );
+
+        // Should not use value-type vtable parameter.
+        assert!(
+            !code.contains("    vtable: TestTestBackendVTable,\n    user_data"),
+            "FFI registration function must NOT take vtable as value type (bare struct);\n\
+             actual code:\n{code}"
+        );
+
+        // Should dereference the pointer in the function body.
+        assert!(
+            code.contains("let vtable_ref = &*vtable;"),
+            "FFI registration function body must dereference vtable pointer;\n\
              actual code:\n{code}"
         );
     }

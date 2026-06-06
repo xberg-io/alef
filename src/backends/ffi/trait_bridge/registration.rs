@@ -606,7 +606,10 @@ mod tests {
         let spec = make_spec(&trait_def, &bridge_cfg);
 
         let out = generator.gen_registration_fn(&spec);
-        assert!(out.contains("vtable.run.is_none()"), "must validate required fn ptr");
+        assert!(
+            out.contains("vtable_ref.run.is_none()"),
+            "must validate required fn ptr"
+        );
     }
 
     #[test]

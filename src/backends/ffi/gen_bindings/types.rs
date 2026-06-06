@@ -57,6 +57,13 @@ pub(super) fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str)
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
+    // Types with lifetime parameters need an explicit `'static` in the return position because
+    // `from_json` heap-allocates fully-owned values: `Box::into_raw(Box::new(val))`.
+    let return_qualified = if typ.has_lifetime_params {
+        format!("{qualified}<'static>")
+    } else {
+        qualified.clone()
+    };
 
     crate::backends::ffi::template_env::render(
         "type_from_json.jinja",
@@ -64,7 +71,7 @@ pub(super) fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str)
             type_name => type_name,
             type_snake => type_snake,
             prefix => prefix,
-            qualified => qualified,
+            qualified => return_qualified,
         },
     )
 }
@@ -73,6 +80,13 @@ pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
+    // Pointer parameters for lifetime-parameterized types also need `'static` because all FFI
+    // handles are heap-allocated with fully-owned (static-lifetime) data.
+    let ptr_qualified = if typ.has_lifetime_params {
+        format!("{qualified}<'static>")
+    } else {
+        qualified.clone()
+    };
 
     crate::backends::ffi::template_env::render(
         "type_to_json.jinja",
@@ -80,7 +94,7 @@ pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -
             type_name => type_name,
             type_snake => type_snake,
             prefix => prefix,
-            qualified => qualified,
+            qualified => ptr_qualified,
         },
     )
 }
@@ -89,6 +103,12 @@ pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> S
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
+    // `free` takes `*mut T` — for lifetime-parameterized types the heap value is `'static`.
+    let ptr_qualified = if typ.has_lifetime_params {
+        format!("{qualified}<'static>")
+    } else {
+        qualified.clone()
+    };
 
     crate::backends::ffi::template_env::render(
         "type_free.jinja",
@@ -96,7 +116,7 @@ pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> S
             type_name => type_name,
             type_snake => type_snake,
             prefix => prefix,
-            qualified => qualified,
+            qualified => ptr_qualified,
         },
     )
 }
@@ -118,7 +138,14 @@ pub(super) fn gen_field_accessor(
 ) -> String {
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
-    let qualified = core_type_path(typ, core_import);
+    let qualified_base = core_type_path(typ, core_import);
+    // Pointer parameters for lifetime-parameterized types need `<'static>` because all FFI
+    // handles are heap-allocated with fully-owned (static-lifetime) data.
+    let qualified = if typ.has_lifetime_params {
+        format!("{qualified_base}<'static>")
+    } else {
+        qualified_base
+    };
     let field_name = &field.name;
 
     let effective_ty = if field.optional {

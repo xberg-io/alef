@@ -1643,37 +1643,39 @@ mod trait_bridge {
 // Category 4 test: binding_excluded fields should not appear in kwargs constructors
 #[test]
 fn extendr_binding_excluded_config_fields_skipped_in_kwargs_constructor() {
-        // Category 4: binding_excluded fields must not be set in constructor
-        let mut field_concurrency = make_field("concurrency", TypeRef::Named("ConcurrencyConfig".to_string()), true);
-        field_concurrency.binding_excluded = true;
-        field_concurrency.binding_exclusion_reason = Some("alef(skip)".to_string());
+    // Category 4: binding_excluded fields must not be set in constructor
+    let mut field_concurrency = make_field("concurrency", TypeRef::Named("ConcurrencyConfig".to_string()), true);
+    field_concurrency.binding_excluded = true;
+    field_concurrency.binding_exclusion_reason = Some("alef(skip)".to_string());
 
-        let config = make_type("ExtractionConfig", vec![
+    let config = make_type(
+        "ExtractionConfig",
+        vec![
             make_field("use_cache", TypeRef::Primitive(PrimitiveType::Bool), false),
             field_concurrency,
-        ], true);
+        ],
+        true,
+    );
 
-        let gen_code = alef::codegen::config_gen::gen_extendr_kwargs_constructor(
-            &config,
-            &|ty: &TypeRef| {
-                match ty {
-                    TypeRef::Primitive(PrimitiveType::Bool) => "bool".to_string(),
-                    TypeRef::Named(n) => n.clone(),
-                    _ => "String".to_string(),
-                }
-            },
-            &ahash::AHashSet::new(),
-        );
+    let gen_code = alef::codegen::config_gen::gen_extendr_kwargs_constructor(
+        &config,
+        &|ty: &TypeRef| match ty {
+            TypeRef::Primitive(PrimitiveType::Bool) => "bool".to_string(),
+            TypeRef::Named(n) => n.clone(),
+            _ => "String".to_string(),
+        },
+        &ahash::AHashSet::new(),
+    );
 
-        // Constructor should NOT include concurrency parameter or assignment
-        assert!(
-            !gen_code.contains("concurrency"),
-            "binding_excluded field 'concurrency' should not appear in constructor\n{gen_code}"
-        );
-        assert!(
-            gen_code.contains("use_cache"),
-            "non-excluded field 'use_cache' should appear in constructor"
-        );
+    // Constructor should NOT include concurrency parameter or assignment
+    assert!(
+        !gen_code.contains("concurrency"),
+        "binding_excluded field 'concurrency' should not appear in constructor\n{gen_code}"
+    );
+    assert!(
+        gen_code.contains("use_cache"),
+        "non-excluded field 'use_cache' should appear in constructor"
+    );
 }
 
 #[test]
@@ -1700,10 +1702,7 @@ fn extendr_return_type_needs_json_for_vec_enum() {
         _ => false,
     };
 
-    assert!(
-        needs_json,
-        "Vec<Enum> should require JSON bridging"
-    );
+    assert!(needs_json, "Vec<Enum> should require JSON bridging");
 }
 
 #[test]
@@ -1728,10 +1727,7 @@ fn extendr_return_type_needs_json_for_vec_opaque() {
         _ => false,
     };
 
-    assert!(
-        needs_json,
-        "Vec<OpaqueDTO> should require JSON bridging"
-    );
+    assert!(needs_json, "Vec<OpaqueDTO> should require JSON bridging");
 }
 
 #[test]

@@ -25,27 +25,35 @@ pub fn is_promoted_optional(params: &[ParamDef], idx: usize) -> bool {
 /// Check if a free function can be auto-delegated to the core crate.
 /// Opaque Named params are allowed (unwrapped via Arc). Non-opaque Named params are not
 /// (require From impls that may not exist for types with sanitized fields).
+///
+/// For extendr R backend: slice params `&[T]` (represented as `Vec<T>` with `is_ref=true`)
+/// are delegatable because extendr can convert them to `Vec<T>` at the boundary.
 pub fn can_auto_delegate_function(func: &crate::core::ir::FunctionDef, opaque_types: &AHashSet<String>) -> bool {
     !func.sanitized
-        && func
-            .params
-            .iter()
-            .all(|p| !p.sanitized && is_delegatable_param(&p.ty, opaque_types) && !is_named_ref_param(p, opaque_types))
+        && func.params.iter().all(|p| {
+            !p.sanitized
+                && is_delegatable_param_with_slices(&p.ty, opaque_types)
+                && !is_named_ref_param(p, opaque_types)
+        })
         && is_delegatable_return(&func.return_type)
 }
 
 /// Check if all params and return type are delegatable.
 /// For opaque types, skip methods with RefMut receiver (cannot borrow Arc mutably).
+///
+/// For extendr R backend: slice params `&[T]` (represented as `Vec<T>` with `is_ref=true`)
+/// are delegatable because extendr can convert them to `Vec<T>` at the boundary.
 pub fn can_auto_delegate(method: &MethodDef, opaque_types: &AHashSet<String>) -> bool {
     // Skip RefMut methods on opaque types (Arc doesn't allow mutable access)
     if matches!(method.receiver, Some(ReceiverKind::RefMut)) && method.trait_source.is_none() {
         return false;
     }
     !method.sanitized
-        && method
-            .params
-            .iter()
-            .all(|p| !p.sanitized && is_delegatable_param(&p.ty, opaque_types) && !is_named_ref_param(p, opaque_types))
+        && method.params.iter().all(|p| {
+            !p.sanitized
+                && is_delegatable_param_with_slices(&p.ty, opaque_types)
+                && !is_named_ref_param(p, opaque_types)
+        })
         && is_delegatable_return(&method.return_type)
 }
 
@@ -79,6 +87,12 @@ fn is_named_ref_param(p: &crate::core::ir::ParamDef, opaque_types: &AHashSet<Str
 /// `serde_json::from_str(...)` to bridge it into the core `serde_json::Value` parameter.
 /// All Rust-based bindings already depend on serde_json (Json field round-tripping uses it).
 pub fn is_delegatable_param(ty: &TypeRef, _opaque_types: &AHashSet<String>) -> bool {
+    is_delegatable_param_with_slices(ty, _opaque_types)
+}
+
+/// Like `is_delegatable_param` but aware of slice parameters `&[T]` (represented as `Vec<T>` with `is_ref=true`).
+/// Extendr R backend can auto-delegate slices by converting them to owned `Vec<T>` at the boundary.
+fn is_delegatable_param_with_slices(ty: &TypeRef, _opaque_types: &AHashSet<String>) -> bool {
     match ty {
         TypeRef::Primitive(_)
         | TypeRef::String
@@ -89,8 +103,13 @@ pub fn is_delegatable_param(ty: &TypeRef, _opaque_types: &AHashSet<String>) -> b
         | TypeRef::Duration
         | TypeRef::Json => true,
         TypeRef::Named(_) => true, // Opaque: &*param.inner; non-opaque: .into()
-        TypeRef::Optional(inner) | TypeRef::Vec(inner) => is_delegatable_param(inner, _opaque_types),
-        TypeRef::Map(k, v) => is_delegatable_param(k, _opaque_types) && is_delegatable_param(v, _opaque_types),
+        TypeRef::Optional(inner) => is_delegatable_param_with_slices(inner, _opaque_types),
+        // Vec<T> with is_ref=true is a slice &[T], which extendr can convert to Vec<T>
+        // Vec<T> without is_ref is an owned vector, also delegatable
+        TypeRef::Vec(inner) => is_delegatable_param_with_slices(inner, _opaque_types),
+        TypeRef::Map(k, v) => {
+            is_delegatable_param_with_slices(k, _opaque_types) && is_delegatable_param_with_slices(v, _opaque_types)
+        }
     }
 }
 

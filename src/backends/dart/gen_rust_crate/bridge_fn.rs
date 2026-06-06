@@ -868,13 +868,13 @@ mod tests {
             }
             other => panic!("expected Suffix, got {other:?}"),
         }
-        let body = build_body("kreuzberg::detect(&x)", "", &transform, false, false);
+        let body = build_body("sample_crate::detect(&x)", "", &transform, false, false);
         assert!(
             !body.contains("|v: Vec<_>|"),
             "body must not emit closure-literal wrap: {body}"
         );
         assert!(
-            body.contains("kreuzberg::detect(&x).into_iter().map(QrCode::from).collect::<Vec<_>>()"),
+            body.contains("sample_crate::detect(&x).into_iter().map(QrCode::from).collect::<Vec<_>>()"),
             "body must apply suffix directly to call: {body}"
         );
     }
@@ -912,13 +912,13 @@ mod tests {
             }
             other => panic!("expected Suffix, got {other:?}"),
         }
-        let body = build_body("kreuzberg::get(&n)", "", &transform, false, false);
+        let body = build_body("sample_crate::get(&n)", "", &transform, false, false);
         assert!(
             !body.contains("|v: Option<_>|"),
             "body must not emit closure-literal wrap: {body}"
         );
         assert!(
-            body.contains("kreuzberg::get(&n).map(EmbeddingPreset::from)"),
+            body.contains("sample_crate::get(&n).map(EmbeddingPreset::from)"),
             "body must apply suffix directly to call: {body}"
         );
     }
@@ -932,9 +932,9 @@ mod tests {
 
         // From-conversion path.
         let t = return_transform(&ty_named, "mylib", &std::collections::HashMap::new(), &opaque, false);
-        let body = build_body("kreuzberg::foo()", "", &t, false, false);
+        let body = build_body("sample_crate::foo()", "", &t, false, false);
         assert!(
-            body.contains("Foo::from(kreuzberg::foo())"),
+            body.contains("Foo::from(sample_crate::foo())"),
             "sync scalar Named must emit direct call, got: {body}"
         );
         assert!(!body.contains("(Foo::from)("), "must not use (path)(expr) wrap: {body}");
@@ -942,9 +942,9 @@ mod tests {
         // Opaque-wrap path.
         opaque.insert("Foo".to_string());
         let t = return_transform(&ty_named, "mylib", &std::collections::HashMap::new(), &opaque, false);
-        let body = build_body("kreuzberg::foo()", "", &t, false, false);
+        let body = build_body("sample_crate::foo()", "", &t, false, false);
         assert!(
-            body.contains("Foo { inner: kreuzberg::foo() }"),
+            body.contains("Foo { inner: sample_crate::foo() }"),
             "sync scalar opaque Named must emit struct literal, got: {body}"
         );
         assert!(!body.contains("|inner|"), "must not emit closure: {body}");
@@ -969,7 +969,7 @@ mod tests {
     #[test]
     fn vec_string_returns_ref_result_cast_uses_iter_not_into_iter() {
         // Regression (clippy 1.95 into_iter_on_ref): when the core fn returns
-        // `&'static [&'static str]` (e.g. `kreuzberg::text::ner::known_models`),
+        // `&'static [&'static str]` returned by a generated bridge function,
         // the result cast must use `.iter()` not `.into_iter()`. This is the
         // suffix path (no mirror transform), so `build_primitive_result_cast`
         // is responsible.

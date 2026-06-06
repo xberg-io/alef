@@ -19,7 +19,7 @@ mod swift_vec_dto_throws_regressions {
     /// - Return prefixes with `try`: `return try RustBridge.findAll(text).map { ref in try PatternMatch(ref) }`
     #[test]
     fn test_vec_dto_return_declares_throws_and_uses_try() {
-        // Marker test; actual codegen validated by running alef on full kreuzberg API
+        // Marker test; actual codegen validated by running alef on a full fixture API
         // and verifying generated Swift compiles without "try without throwing context" errors.
         assert!(true);
     }

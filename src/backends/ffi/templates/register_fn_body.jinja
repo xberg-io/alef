@@ -8,8 +8,8 @@
         }
     };
 
-    // SAFETY: vtable and user_data validity is the caller's responsibility.
-    let bridge = unsafe { {{ bridge_name }}::new(plugin_name, vtable, user_data) };
+    // SAFETY: vtable pointer and user_data validity is the caller's responsibility.
+    let bridge = unsafe { {{ bridge_name }}::new(plugin_name, *vtable_ref, user_data) };
     let arc: Arc<dyn {{ trait_path }}> = Arc::new(bridge);
 
     let registry = {{ registry_getter }}();

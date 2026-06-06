@@ -1966,6 +1966,15 @@ fn return_type_needs_json(
             // Option<non-opaque struct>: Option<ExternalPtr<T>> doesn't implement
             // ToVectorValue — bridge via JSON so R receives NULL or a JSON string.
             TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !enum_names.contains(n.as_str()) => true,
+            // Option<Vec<Enum>>: Vec doesn't impl From<...> for Robj, and Enum doesn't impl ToVectorValue
+            TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
+                TypeRef::Named(n) => {
+                    enum_names.contains(n.as_str())
+                        || opaque_types.contains(n.as_str())
+                        || extendr_incompatible_types.contains(n.as_str())
+                }
+                _ => false,
+            },
             _ => false,
         },
         _ => false,
@@ -2000,7 +2009,7 @@ fn gen_extendr_json_bridged_function(
     let mut body_preamble = String::new();
 
     for param in &func.params {
-        // Vec<T> needs JSON bridging if T is:
+        // Vec<T> or Option<Vec<T>> needs JSON bridging if T is:
         // - An enum (Vec<Enum>): extendr enums don't auto-convert
         // - An opaque type (Vec<OpaqueDTO>): no TryFrom<&Robj> impl
         // - A non-opaque struct (Vec<Struct>): in extendr_incompatible_types
@@ -2013,6 +2022,17 @@ fn gen_extendr_json_bridged_function(
                 }
                 _ => false,
             },
+            TypeRef::Optional(opt_inner) => match opt_inner.as_ref() {
+                TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
+                    TypeRef::Named(n) => {
+                        enum_names.contains(n.as_str())
+                            || opaque_types.contains(n.as_str())
+                            || extendr_incompatible_types.contains(n.as_str())
+                    }
+                    _ => false,
+                },
+                _ => false,
+            },
             _ => false,
         };
         // Bare Named struct params for types that lack a `#[extendr]` impl (they live in
@@ -2021,16 +2041,26 @@ fn gen_extendr_json_bridged_function(
         let needs_json_struct = matches!(&param.ty, TypeRef::Named(n)
             if extendr_incompatible_types.contains(n.as_str()));
         if needs_json_vec {
-            // Take JSON string, deserialize to core Vec<T>.
-            let core_ty_path = match &param.ty {
+            // Take JSON string, deserialize to core Vec<T> or Option<Vec<T>>.
+            let (core_ty_path, is_optional) = match &param.ty {
                 TypeRef::Vec(inner) => match inner.as_ref() {
-                    TypeRef::Named(n) => format!("{core_import}::{n}"),
+                    TypeRef::Named(n) => (format!("{core_import}::{n}"), false),
+                    _ => unreachable!(),
+                },
+                TypeRef::Optional(opt_inner) => match opt_inner.as_ref() {
+                    TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
+                        TypeRef::Named(n) => (format!("{core_import}::{n}"), true),
+                        _ => unreachable!(),
+                    },
                     _ => unreachable!(),
                 },
                 _ => unreachable!(),
             };
             let mut_kw = if param.is_mut { "mut " } else { "" };
-            if param.optional {
+            // If param.ty is Option<Vec<T>>, the function signature always takes Option<String>
+            // because it's already optional in the param type.
+            let param_is_optional = param.optional || is_optional;
+            if param_is_optional {
                 sig_params.push(format!("{}: Option<String>", param.name));
                 body_preamble.push_str(&crate::backends::extendr::template_env::render(
                     "json_vec_optional_preamble.jinja",
@@ -2228,19 +2258,17 @@ fn gen_extendr_json_bridged_function(
 
     // When the preamble emits `?` for JSON deserialization, the wrapping function must
     // return a `Result` even if the core function itself is infallible.
-    let params_need_json_deserialize = func.params.iter().any(|p| {
-        match &p.ty {
-            TypeRef::Vec(inner) => match inner.as_ref() {
-                TypeRef::Named(n) => {
-                    enum_names.contains(n.as_str())
-                        || opaque_types.contains(n.as_str())
-                        || extendr_incompatible_types.contains(n.as_str())
-                }
-                _ => false,
-            },
-            TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()),
+    let params_need_json_deserialize = func.params.iter().any(|p| match &p.ty {
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => {
+                enum_names.contains(n.as_str())
+                    || opaque_types.contains(n.as_str())
+                    || extendr_incompatible_types.contains(n.as_str())
+            }
             _ => false,
-        }
+        },
+        TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()),
+        _ => false,
     });
     let effectively_fallible = func.error_type.is_some() || params_need_json_deserialize;
 

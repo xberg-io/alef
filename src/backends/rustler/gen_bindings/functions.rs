@@ -218,8 +218,7 @@ pub(super) fn gen_rustler_method_call_args(
                 if p.is_ref {
                     // Pre-bound let binding emitted by the caller body would be needed for
                     // borrows; we emit the inline collect for the owned case below. For the
-                    // method-receiver path, refs to maps are rare and not used by the
-                    // h2m NodeContext API; fall through to owned-collect.
+                    // method-receiver path, refs to maps are rare; fall through to owned-collect.
                     format!("{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()", p.name)
                 } else {
                     format!("{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()", p.name)

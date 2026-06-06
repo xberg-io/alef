@@ -527,10 +527,10 @@ pub fn emit_trait_bridge(
         // prepends its configured uppercase `prefix`. Zig cimport surfaces
         // `typedef struct X` as `c.struct_X`.
         //
-        // Concrete example for kreuzberg + trait `OcrBackend`:
-        //   Rust source:   `pub struct KreuzbergOcrBackendVTable { … }`
-        //   cbindgen out:  `typedef struct KREUZBERGKreuzbergOcrBackendVTable { … }`
-        //   Zig cimport:   `c.struct_KREUZBERGKreuzbergOcrBackendVTable`
+        // Concrete example for prefix `sample` + trait `Backend`:
+        //   Rust source:   `pub struct SampleBackendVTable { … }`
+        //   cbindgen out:  `typedef struct SAMPLESampleBackendVTable { … }`
+        //   Zig cimport:   `c.struct_SAMPLESampleBackendVTable`
         let c_vtable_type = format!(
             "c.struct_{prefix_upper}{prefix_pascal}{trait_name}VTable",
             prefix_upper = prefix.to_uppercase(),

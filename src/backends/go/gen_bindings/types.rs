@@ -1760,15 +1760,16 @@ fn go_return_expr_inner(
         }
         TypeRef::Map(k, v) => {
             // Map types are returned as JSON strings from FFI. Deserialize inline.
+            // Return map[K]V (not *map[K]V) — maps are already reference types in Go.
             let go_k = go_type(k);
             let go_v = go_type(v);
             format!(
-                "func() *map[{go_k}]{go_v} {{\n\
+                "func() map[{go_k}]{go_v} {{\n\
                  \tif {var_name} == nil {{ return nil }}\n\
                  \tdefer C.{ffi_prefix}_free_string({var_name})\n\
                  \tvar result map[{go_k}]{go_v}\n\
                  \tif err := json.Unmarshal([]byte(C.GoString({var_name})), &result); err != nil {{ return nil }}\n\
-                 \treturn &result\n\
+                 \treturn result\n\
                  }}()",
                 go_k = go_k,
                 go_v = go_v,

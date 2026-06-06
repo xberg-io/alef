@@ -3827,3 +3827,105 @@ fn test_asref_with_extra_bound_still_unsupported() {
     assert_eq!(surface.functions.len(), 0);
     assert_eq!(surface.unsupported_public_items.len(), 1);
 }
+
+#[test]
+fn test_has_serde_via_derive_still_detected() {
+    // Regression: types using #[derive(Serialize, Deserialize)] must still get has_serde=true.
+    let source = r#"
+        #[derive(Clone, serde::Serialize, serde::Deserialize)]
+        pub struct Config {
+            pub name: String,
+            pub timeout: u64,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 1);
+    assert!(surface.types[0].has_serde, "derive-based serde must still be detected");
+}
+
+#[test]
+fn test_has_serde_via_manual_impls_detected() {
+    // Types with manual impl Serialize + impl Deserialize blocks must get has_serde=true.
+    // This mirrors borrowed context structs that use asymmetric lifetime impls.
+    let source = r#"
+        #[derive(Clone, Debug)]
+        pub struct NodeContext {
+            pub tag_name: String,
+            pub depth: usize,
+        }
+
+        impl serde::Serialize for NodeContext {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                todo!()
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for NodeContext {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                todo!()
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 1);
+    assert!(
+        surface.types[0].has_serde,
+        "manual impl Serialize + impl Deserialize must set has_serde=true"
+    );
+}
+
+#[test]
+fn test_has_serde_with_lifetime_parameterised_manual_impls() {
+    // Mirrors the exact NodeContext pattern: Serialize on Foo<'_>, Deserialize on Foo<'static>.
+    let source = r#"
+        #[derive(Clone, Debug)]
+        pub struct Foo {
+            pub value: String,
+        }
+
+        impl serde::Serialize for Foo {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                todo!()
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for Foo {
+            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+                todo!()
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 1);
+    assert!(
+        surface.types[0].has_serde,
+        "lifetime-parameterised manual serde impls must set has_serde=true"
+    );
+}
+
+#[test]
+fn test_has_serde_only_serialize_not_set() {
+    // Only Serialize without Deserialize must NOT set has_serde=true.
+    let source = r#"
+        #[derive(Clone, Debug)]
+        pub struct Foo {
+            pub value: String,
+        }
+
+        impl serde::Serialize for Foo {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                todo!()
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 1);
+    assert!(
+        !surface.types[0].has_serde,
+        "only Serialize without Deserialize must not set has_serde"
+    );
+}

@@ -14,7 +14,10 @@ use anyhow::{Context, Result};
 
 use crate::extract::type_resolver;
 
-use self::functions::{detect_receiver, extract_function, extract_impl_block, extract_params, resolve_return_type};
+use self::functions::{
+    collect_manual_serde_type_names, detect_receiver, extract_function, extract_impl_block, extract_params,
+    resolve_return_type,
+};
 use self::helpers::{
     build_rust_path, collect_reexport_map, extract_binding_exclusion_reason, extract_doc_comments, is_pub,
     is_thiserror_enum,
@@ -930,6 +933,26 @@ fn extract_items(
             );
         }
     }
+
+    // Third pass: detect manual serde impls and update has_serde on matching types.
+    // The struct/enum extractor only sets has_serde=true when #[derive(Serialize, Deserialize)]
+    // is present. Types that implement serde manually (e.g. NodeContext<'_>, which uses
+    // asymmetric impls for lifetime reasons) are missed. Scan for impl serde::Serialize and
+    // impl serde::Deserialize blocks and back-patch has_serde on any type that has both.
+    let manual_serde_names = collect_manual_serde_type_names(items);
+    if !manual_serde_names.is_empty() {
+        for typ in &mut surface.types {
+            if !typ.has_serde && manual_serde_names.contains(&typ.name) {
+                typ.has_serde = true;
+            }
+        }
+        for enum_def in &mut surface.enums {
+            if !enum_def.has_serde && manual_serde_names.contains(&enum_def.name) {
+                enum_def.has_serde = true;
+            }
+        }
+    }
+
     Ok(())
 }
 

@@ -15,7 +15,7 @@
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {{ full_register_name }}(
     name: *const std::ffi::c_char,
-    vtable: {{ vtable_name }},
+    vtable: *const {{ vtable_name }},
     user_data: *const std::ffi::c_void,
     out_error: *mut *mut std::ffi::c_char,
 ) -> i32 {
@@ -23,7 +23,12 @@ pub unsafe extern "C" fn {{ full_register_name }}(
         ffi_set_out_error(out_error, "name must not be null");
         return 1;
     }
-    if vtable.free_string.is_none() {
+    if vtable.is_null() {
+        ffi_set_out_error(out_error, "vtable must not be null");
+        return 1;
+    }
+    let vtable_ref = &*vtable;
+    if vtable_ref.free_string.is_none() {
         ffi_set_out_error(out_error, "vtable.free_string must not be null");
         return 1;
     }
