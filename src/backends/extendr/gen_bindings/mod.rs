@@ -716,6 +716,19 @@ impl Backend for ExtendrBackend {
                         || matches!(&p.ty, crate::core::ir::TypeRef::Optional(inner)
                             if matches!(inner.as_ref(), crate::core::ir::TypeRef::Named(n)
                                 if enum_names.contains(n.as_str())))
+                        // Bare non-opaque structs (not enums, not extendr_incompatible, but still not opaque)
+                        // need JSON bridging because extendr can't auto-convert them from Robj
+                        || matches!(&p.ty, crate::core::ir::TypeRef::Named(n)
+                            if !opaque_types.contains(n.as_str())
+                                && !enum_names.contains(n.as_str())
+                                && !extendr_incompatible_types.contains(n.as_str())
+                                && api.types.iter().any(|t| !t.is_opaque && !t.is_trait && t.name == *n))
+                        || matches!(&p.ty, crate::core::ir::TypeRef::Optional(inner)
+                            if matches!(inner.as_ref(), crate::core::ir::TypeRef::Named(n)
+                                if !opaque_types.contains(n.as_str())
+                                    && !enum_names.contains(n.as_str())
+                                    && !extendr_incompatible_types.contains(n.as_str())
+                                    && api.types.iter().any(|t| !t.is_opaque && !t.is_trait && t.name == *n)))
                 });
                 if func_return_needs_json || func_params_need_json {
                     builder.add_item(&gen_extendr_json_bridged_function(
@@ -2021,16 +2034,24 @@ fn gen_extendr_json_bridged_function(
             },
             _ => false,
         };
-        // Bare Named struct params for types that lack a `#[extendr]` impl (they live in
-        // `extendr_incompatible_types`) have no `TryFrom<&Robj>` generated, so they must
-        // also cross the boundary as JSON strings — same as Vec<Struct>.
-        let needs_json_struct = matches!(&param.ty, TypeRef::Named(n)
-            if extendr_incompatible_types.contains(n.as_str()));
         // Bare Named enum params: extendr enums don't have TryFrom<&Robj> impl, must use JSON.
         let needs_json_enum = matches!(&param.ty, TypeRef::Named(n)
             if enum_names.contains(n.as_str()))
             || matches!(&param.ty, TypeRef::Optional(inner)
                 if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())));
+        // Bare Named struct params: types that lack a `#[extendr]` impl (they live in
+        // `extendr_incompatible_types`) OR non-opaque non-enum structs that still can't be
+        // auto-converted from Robj by extendr. Both must cross the boundary as JSON strings.
+        // Note: enum check must come first since enums are also Named types.
+        let needs_json_struct = !needs_json_enum && (matches!(&param.ty, TypeRef::Named(n)
+            if extendr_incompatible_types.contains(n.as_str())
+                || (!opaque_types.contains(n.as_str())
+                    && !enum_names.contains(n.as_str())
+                    && !extendr_incompatible_types.contains(n.as_str())))
+            || matches!(&param.ty, TypeRef::Optional(inner)
+                if matches!(inner.as_ref(), TypeRef::Named(n)
+                    if !opaque_types.contains(n.as_str())
+                        && !enum_names.contains(n.as_str()))));
         if needs_json_vec {
             // Take JSON string, deserialize to core Vec<T> or Option<Vec<T>>.
             let (core_ty_path, is_optional) = match &param.ty {
@@ -2078,13 +2099,18 @@ fn gen_extendr_json_bridged_function(
             }
         } else if needs_json_struct {
             // Take JSON string, deserialize to core type directly.
-            let n = match &param.ty {
-                TypeRef::Named(n) => n,
+            // May be TypeRef::Named(n) or TypeRef::Optional(Named(n))
+            let (core_ty_path, is_optional) = match &param.ty {
+                TypeRef::Named(n) => (format!("{core_import}::{n}"), false),
+                TypeRef::Optional(opt_inner) => match opt_inner.as_ref() {
+                    TypeRef::Named(n) => (format!("{core_import}::{n}"), true),
+                    _ => unreachable!(),
+                },
                 _ => unreachable!(),
             };
-            let core_ty_path = format!("{core_import}::{n}");
             let mut_kw = if param.is_mut { "mut " } else { "" };
-            if param.optional {
+            let param_is_optional = param.optional || is_optional;
+            if param_is_optional {
                 sig_params.push(format!("{}: Option<String>", param.name));
                 body_preamble.push_str(&crate::backends::extendr::template_env::render(
                     "json_struct_optional_preamble.jinja",

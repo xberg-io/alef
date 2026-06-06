@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **ruby e2e**: shared mock-server fixtures now expand `MOCK_SERVERS` into per-fixture `MOCK_SERVER_<FIXTURE_ID>` environment variables so tests resolve fixture-specific asset URLs instead of falling back to the shared namespaced URL. (`src/e2e/codegen/ruby.rs`, `src/e2e/templates/ruby/spec_helper_mock_server.rb.jinja`)
 
+- **go**: removed duplicate `var raw struct` emission in UnmarshalJSON wrapper code generation for structs with typed-erased fields, which caused Go syntax errors (`var raw struct` appearing twice consecutively). The template already emitted the line; the code path was redundantly emitting it again. (`src/backends/go/gen_bindings/types.rs`, `tests/backends_go_gen_bindings_test.rs`)
+
 - **elixir e2e**: shared mock-server fixtures now expand `MOCK_SERVERS` into per-fixture `MOCK_SERVER_<FIXTURE>` environment variables so tests resolve fixture-specific asset URLs instead of falling back to the shared namespaced URL. (`src/e2e/templates/elixir/test_helper_mock_server.exs.jinja`, `src/e2e/codegen/elixir.rs`)
 
 - **java e2e**: shared mock-server fixtures now expand `MOCK_SERVERS` into per-fixture `mockServer.<fixture_id>` system properties so tests resolve fixture-specific asset URLs instead of falling back to the shared namespaced URL. (`src/e2e/codegen/java.rs`, `src/e2e/templates/java/MockServerListener.java.jinja`)

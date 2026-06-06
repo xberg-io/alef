@@ -3576,3 +3576,139 @@ fn test_registration_variant_styles_emit_unified_block_form() {
         );
     }
 }
+
+#[test]
+fn test_async_function_with_vec_named_params() {
+    let backend = MagnusBackend;
+
+    // Create API with an enum (non-opaque) and async function taking Vec<EnumType>
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        enums: vec![EnumDef {
+            name: "Category".to_string(),
+            rust_path: "test_lib::Category".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "TypeA".to_string(),
+                    value: None,
+                    doc: String::new(),
+                },
+                EnumVariant {
+                    name: "TypeB".to_string(),
+                    value: None,
+                    doc: String::new(),
+                },
+            ],
+            doc: "Category enumeration".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "detect_async".to_string(),
+            rust_path: "test_lib::detect_async".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "text".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
+                },
+                ParamDef {
+                    name: "categories".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::Named("Category".to_string()))),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
+                },
+            ],
+            return_type: TypeRef::String,
+            is_async: true,
+            error_type: None,
+            doc: "Detect with async".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok());
+
+    let files = result.unwrap();
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_file.content;
+
+    // Must contain the async function
+    assert!(
+        content.contains("detect_async"),
+        "Should contain detect_async function"
+    );
+
+    // Must emit the `{name}_core` let binding for Vec<Named> params
+    assert!(
+        content.contains("let categories_core:"),
+        "Should emit categories_core let binding for Vec<Category> parameter"
+    );
+
+    // Must use `categories_core` in the core function call
+    assert!(
+        content.contains("&categories_core"),
+        "Should pass &categories_core to inner function (not &categories)"
+    );
+
+    // Must not reference undefined `categories_core` before binding
+    let detect_async_start = content.find("fn detect_async").unwrap();
+    let next_fn = content[detect_async_start..].find("\n    fn ").unwrap_or(content.len() - detect_async_start);
+    let detect_async_body = &content[detect_async_start..detect_async_start + next_fn];
+
+    // Find the let binding and the call site
+    let categories_core_binding_pos = detect_async_body.find("let categories_core:").unwrap_or(0);
+    let categories_core_usage_pos = detect_async_body.find("&categories_core").unwrap_or(0);
+
+    assert!(
+        categories_core_binding_pos > 0 && categories_core_usage_pos > 0 && categories_core_binding_pos < categories_core_usage_pos,
+        "categories_core must be bound before use"
+    );
+}

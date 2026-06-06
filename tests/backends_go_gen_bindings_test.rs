@@ -2847,3 +2847,74 @@ module = "github.com/example/mylib"
         "binding.go must not contain monorepo-relative paths like ../crates/ in CFLAGS"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Regression: no duplicate "var raw struct" in UnmarshalJSON wrappers
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_no_duplicate_var_raw_struct_in_unmarshal_json() {
+    // Regression: the struct_unmarshal_json_header template outputs "var raw struct {"
+    // and the gen_bindings code was also manually emitting it, causing duplicates.
+    let config = make_config();
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), true),
+                make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: "Configuration struct".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let backend = GoBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let binding_go = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
+
+    // Count consecutive "var raw struct {" lines — should be exactly 0 duplicates
+    let mut found_consecutive = false;
+    let lines: Vec<&str> = binding_go.content.lines().collect();
+    for i in 0..lines.len().saturating_sub(1) {
+        let current = lines[i].trim();
+        let next = lines[i + 1].trim();
+        if current == "var raw struct {" && next == "var raw struct {" {
+            found_consecutive = true;
+            eprintln!("Found duplicate at lines {}-{}: {}", i + 1, i + 2, current);
+        }
+    }
+
+    assert!(
+        !found_consecutive,
+        "binding.go must not contain duplicate 'var raw struct {{' lines in UnmarshalJSON"
+    );
+}

@@ -317,6 +317,12 @@ pub(super) fn gen_function(
     let can_delegate = crate::codegen::shared::can_auto_delegate_function(func, opaque_types);
     let serde_recoverable = !can_delegate && magnus_serde_recoverable(func, opaque_types);
 
+    // Check if any param is a Vec<Named> that will need `{name}_core` rebinding.
+    let needs_vec_named_let_binding = func.params.iter().any(|p| match &p.ty {
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(name) if !opaque_types.contains(name.as_str())),
+        _ => false,
+    });
+
     // Generate serde_magnus deserialization preamble for non-opaque Named params.
     // Two emission modes:
     //   - delegate path: rebind {name} to the binding type so the existing call_args gen works.
@@ -390,6 +396,30 @@ pub(super) fn gen_function(
             }
         }
     }
+
+    // If `can_delegate` is true but Vec<Named> bindings are needed, emit them now.
+    // This handles the case where delegatable functions with Vec<Named> params still
+    // need `{name}_core` conversion for gen_call_args_with_let_bindings.
+    if can_delegate && needs_vec_named_let_binding && serde_recoverable == false {
+        for p in &func.params {
+            if let TypeRef::Vec(inner) = &p.ty {
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    if !opaque_types.contains(name.as_str()) {
+                        let core_inner_ty = format!("{core_import}::{name}");
+                        let vec_ty = format!("Vec<{core_inner_ty}>");
+                        deser_lines.push(crate::backends::magnus::template_env::render(
+                            "function_named_vec_binding.rs.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                vec_ty => &vec_ty,
+                                optional => p.optional,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+    }
     // AHashMap<Cow<'static, str>, Value> params: Ruby receives these as
     // HashMap<String, String>. Emit pre-call `let __<name>_ahash` bindings so the
     // call site can borrow a properly-typed AHashMap.
@@ -411,15 +441,6 @@ pub(super) fn gen_function(
     } else {
         format!("{}\n    ", deser_lines.join("\n    "))
     };
-
-    // If any param is a Vec<Named> needing the `_core` rebinding (emitted via
-    // `function_named_vec_binding.rs.jinja`), the call must reference `{name}_core`
-    // rather than the raw wrapper Vec — switch to the let-binding-aware call_args
-    // generator even when the function is not serde-recoverable.
-    let needs_vec_named_let_binding = func.params.iter().any(|p| match &p.ty {
-        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(name) if !opaque_types.contains(name.as_str())),
-        _ => false,
-    });
 
     let body = if can_delegate || serde_recoverable {
         let base_call_args = if serde_recoverable || needs_vec_named_let_binding {
@@ -748,6 +769,12 @@ pub(super) fn gen_async_function(
     let can_delegate = crate::codegen::shared::can_auto_delegate_function(func, opaque_types);
     let serde_recoverable = !can_delegate && magnus_serde_recoverable(func, opaque_types);
 
+    // Check if any param is a Vec<Named> that will need `{name}_core` rebinding.
+    let needs_vec_named_let_binding = func.params.iter().any(|p| match &p.ty {
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(name) if !opaque_types.contains(name.as_str())),
+        _ => false,
+    });
+
     let mut deser_lines = Vec::new();
     if serde_recoverable {
         deser_lines.extend(magnus_serde_let_bindings(
@@ -816,6 +843,30 @@ pub(super) fn gen_async_function(
             }
         }
     }
+
+    // If `can_delegate` is true but Vec<Named> bindings are needed, emit them now.
+    // This handles the case where delegatable functions with Vec<Named> params still
+    // need `{name}_core` conversion for gen_call_args_with_let_bindings.
+    if can_delegate && needs_vec_named_let_binding && serde_recoverable == false {
+        for p in &func.params {
+            if let TypeRef::Vec(inner) = &p.ty {
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    if !opaque_types.contains(name.as_str()) {
+                        let core_inner_ty = format!("{core_import}::{name}");
+                        let vec_ty = format!("Vec<{core_inner_ty}>");
+                        deser_lines.push(crate::backends::magnus::template_env::render(
+                            "function_named_vec_binding.rs.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                vec_ty => &vec_ty,
+                                optional => p.optional,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+    }
     // AHashMap<Cow<'static, str>, Value> params: Ruby receives these as
     // HashMap<String, String>. Emit pre-call `let __<name>_ahash` bindings so the
     // call site can borrow a properly-typed AHashMap.
@@ -836,14 +887,6 @@ pub(super) fn gen_async_function(
     } else {
         format!("{}\n    ", deser_lines.join("\n    "))
     };
-
-    // If any param is a Vec<Named> needing the `_core` rebinding, force the
-    // let-binding-aware call_args generator even when the function is not
-    // serde-recoverable.
-    let needs_vec_named_let_binding = func.params.iter().any(|p| match &p.ty {
-        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(name) if !opaque_types.contains(name.as_str())),
-        _ => false,
-    });
 
     let body = if can_delegate || serde_recoverable {
         let base_call_args = if serde_recoverable || needs_vec_named_let_binding {
