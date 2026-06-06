@@ -1984,6 +1984,7 @@ sources = ["src/lib.rs"]
         let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
         assert!(cbindgen.content.contains("MY_LIB_H"));
         assert!(cbindgen.content.contains("language = \"C\""));
+        assert!(cbindgen.content.contains("style = \"type\""));
     }
 
     // -----------------------------------------------------------------------
