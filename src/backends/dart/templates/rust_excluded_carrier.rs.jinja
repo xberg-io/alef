@@ -1,0 +1,7 @@
+
+/// Opaque JSON carrier for Rust's excluded `{{ type_name }}` trait-bridge contract.
+/// Dart code should pass this value back to Alef-generated bridge APIs.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct {{ carrier_name }} {
+    pub json: String,
+}

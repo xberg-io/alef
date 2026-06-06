@@ -1,0 +1,14 @@
+/// Re-exported so FRB's generated `frb_generated.rs` (which strips `dyn` and the
+/// qualified path when copying the wrapper's inner type) can resolve `{{ trait_name }}`
+/// as a bare ident via its `use crate::*;` preamble.
+pub use {{ trait_path }};
+
+/// Public opaque handle returned by `create_{{ trait_snake }}_dart_impl(...)`.
+/// Wraps an `Arc<dyn {{ trait_name }} + Send + Sync>` whose backing object carries the
+/// Dart-side callbacks (private to this crate). The wrapper has no closure
+/// fields itself, so FRB can bridge it as an opaque type without seeing the
+/// callbacks.
+#[frb(opaque)]
+pub struct {{ struct_name }} {
+    pub field0: std::sync::Arc<dyn {{ trait_name }} + Send + Sync>,
+}

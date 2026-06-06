@@ -10,7 +10,7 @@ pub(crate) fn emit_bridge_fn(
     type_paths: &std::collections::HashMap<String, String>,
     types_needing_from_conversion: &std::collections::HashSet<String>,
     opaque_type_names: &std::collections::HashSet<String>,
-    _stub_methods: &[String],
+    stub_methods: &[String],
 ) {
     emit_cleaned_dartdoc(out, &f.doc, "");
 
@@ -58,6 +58,16 @@ pub(crate) fn emit_bridge_fn(
             return_ty => return_ty.as_str(),
         },
     ));
+
+    if stub_methods.contains(fn_name) {
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_bridge_stub_body.rs.jinja",
+            minijinja::context! {
+                fn_name => fn_name.as_str(),
+            },
+        ));
+        return;
+    }
 
     // Resolve the call target.
     let resolved_path = if f.rust_path.is_empty() {

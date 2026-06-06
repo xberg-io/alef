@@ -239,7 +239,12 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
             },
         ));
     } else {
-        out.push_str(&format!("/// FRB-opaque service owner: {}.\n", service_name));
+        out.push_str(&crate::backends::dart::template_env::render(
+            "service_api/default_service_owner_doc.rs.jinja",
+            minijinja::context! {
+                service_name => service_name.as_str(),
+            },
+        ));
     }
 
     // Emit service owner struct
@@ -521,7 +526,13 @@ fn format_method_params(method: &crate::core::ir::MethodDef) -> String {
     let mut out = String::new();
     for param in &method.params {
         let ty = typeref_to_rust_type(&param.ty);
-        out.push_str(&format!(", {}: {}", param.name, ty));
+        out.push_str(&crate::backends::dart::template_env::render(
+            "service_api/method_param.rs.jinja",
+            minijinja::context! {
+                name => param.name.as_str(),
+                ty => ty.as_str(),
+            },
+        ));
     }
     out
 }

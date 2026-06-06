@@ -186,8 +186,13 @@ fn emit_lib_rs(
                 if path.is_empty() || emitted.contains(path) {
                     continue;
                 }
-                content.push_str("#[allow(unused_imports)]\n");
-                content.push_str(&format!("pub use {};\n", path.replace('-', "_")));
+                let rendered_path = path.replace('-', "_");
+                content.push_str(&crate::backends::dart::template_env::render(
+                    "rust_pub_use.rs.jinja",
+                    minijinja::context! {
+                        path => rendered_path.as_str(),
+                    },
+                ));
                 emitted.insert(path.clone());
             }
         }
@@ -332,7 +337,13 @@ fn emit_lib_rs(
             let ctor_body =
                 crate::codegen::generators::gen_opaque_constructor(ctor, &ty.name, source_crate_name, "#[frb]");
             content.push('\n');
-            content.push_str(&format!("impl {} {{\n{}}}", ty.name, ctor_body));
+            content.push_str(&crate::backends::dart::template_env::render(
+                "rust_client_constructor_impl.rs.jinja",
+                minijinja::context! {
+                    type_name => ty.name.as_str(),
+                    ctor_body => ctor_body.as_str(),
+                },
+            ));
             content.push('\n');
         }
     }
@@ -489,7 +500,6 @@ fn emit_lib_rs(
         .functions
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
-        .filter(|f| !stub_methods.contains(&f.name))
         .filter(|f| !has_unbridgeable_param(f))
         // Skip functions whose name matches a trait_bridge.clear_fn — the trait-bridge
         // emission path emits its own forwarder; a duplicate `pub fn clear_*` here
@@ -2062,10 +2072,20 @@ fn emit_opaque_impl_block(
         }
     }
     for path in &trait_uses {
-        out.push_str(&format!("#[allow(unused_imports)]\nuse {path};\n"));
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_use.rs.jinja",
+            minijinja::context! {
+                path => path.as_str(),
+            },
+        ));
     }
 
-    out.push_str(&format!("impl {type_name} {{\n"));
+    out.push_str(&crate::backends::dart::template_env::render(
+        "rust_impl_open.rs.jinja",
+        minijinja::context! {
+            type_name => type_name,
+        },
+    ));
 
     for method in &ty.methods {
         let method_name = &method.name;
@@ -2080,8 +2100,11 @@ fn emit_opaque_impl_block(
             if let Some(adapter) = streaming_adapters.get(&adapter_key) {
                 emit_streaming_sink_method(out, method_name, adapter, types_needing_from_conversion, config);
             } else {
-                out.push_str(&format!(
-                    "    // Method `{method_name}` has a sanitized return type that cannot be bridged through FRB — skipped.\n"
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_skipped_sanitized_method_comment.rs.jinja",
+                    minijinja::context! {
+                        method_name => method_name,
+                    },
                 ));
             }
             continue;
@@ -2157,8 +2180,14 @@ fn emit_streaming_sink_method(
                 )
             });
 
-    out.push_str(&format!(
-        "    #[frb]\n    pub fn {method_name}(&self{params_str}, sink: crate::frb_generated::StreamSink<{item_type}>) {{\n        {body}\n    }}\n"
+    out.push_str(&crate::backends::dart::template_env::render(
+        "rust_streaming_sink_method.rs.jinja",
+        minijinja::context! {
+            method_name => method_name,
+            params_str => params_str.as_str(),
+            item_type => item_type,
+            body => body.as_str(),
+        },
     ));
 }
 
@@ -2207,13 +2236,16 @@ fn emit_opaque_method(
         frb_rust_type_mirror(&method.return_type, false)
     };
 
-    // Emit `#[frb]` so FRB generates the Dart-side method wrapper.
-    out.push_str("    #[frb]\n");
-
-    // Signature.
     let params_str = params.join(", ");
-    out.push_str(&format!(
-        "    pub {async_kw}fn {method_name}({self_param}, {params_str}) -> {ret_ty} {{\n"
+    out.push_str(&crate::backends::dart::template_env::render(
+        "rust_opaque_method_open.rs.jinja",
+        minijinja::context! {
+            async_kw => async_kw,
+            method_name => method_name,
+            self_param => self_param,
+            params_str => params_str.as_str(),
+            ret_ty => ret_ty.as_str(),
+        },
     ));
 
     emit_opaque_method_body(
@@ -2265,13 +2297,15 @@ fn emit_static_opaque_method(
         frb_rust_type_mirror(&method.return_type, false)
     };
 
-    // Emit `#[frb]` so FRB generates the Dart-side static method wrapper.
-    out.push_str("    #[frb]\n");
-
-    // Signature: no receiver for static methods.
     let params_str = params.join(", ");
-    out.push_str(&format!(
-        "    pub {async_kw}fn {method_name}({params_str}) -> {ret_ty} {{\n"
+    out.push_str(&crate::backends::dart::template_env::render(
+        "rust_static_opaque_method_open.rs.jinja",
+        minijinja::context! {
+            async_kw => async_kw,
+            method_name => method_name,
+            params_str => params_str.as_str(),
+            ret_ty => ret_ty.as_str(),
+        },
     ));
 
     emit_static_opaque_method_body(
@@ -2405,34 +2439,27 @@ fn emit_static_opaque_method_body(
     let wrap_return = build_opaque_return_wrap(&method.return_type, method.returns_ref);
     let has_error = method.error_type.is_some();
 
-    // Emit the call with appropriate return wrapping.
-    if method.is_async {
-        if has_error {
-            if wrap_return.is_empty() {
-                out.push_str(&format!("        {call}.await.map_err(|e| e.to_string())\n"));
-            } else {
-                out.push_str(&format!(
-                    "        {call}.await.map({wrap_return}).map_err(|e| e.to_string())\n"
-                ));
-            }
-        } else if wrap_return.is_empty() {
-            out.push_str(&format!("        {call}.await\n"));
-        } else {
-            out.push_str(&format!("        ({wrap_return})({call}.await)\n"));
-        }
-    } else if has_error {
-        if wrap_return.is_empty() {
-            out.push_str(&format!("        {call}.map_err(|e| e.to_string())\n"));
-        } else {
-            out.push_str(&format!(
-                "        {call}.map({wrap_return}).map_err(|e| e.to_string())\n"
-            ));
-        }
-    } else if wrap_return.is_empty() {
-        out.push_str(&format!("        {call}\n"));
-    } else {
-        out.push_str(&format!("        ({wrap_return})({call})\n"));
-    }
+    emit_opaque_call_return(out, &call, &wrap_return, method.is_async, has_error);
+}
+
+fn emit_opaque_call_return(out: &mut String, call: &str, wrap_return: &str, is_async: bool, has_error: bool) {
+    let template = match (is_async, has_error, wrap_return.is_empty()) {
+        (true, true, true) => "rust_opaque_call_await_error.rs.jinja",
+        (true, true, false) => "rust_opaque_call_await_map_error.rs.jinja",
+        (true, false, true) => "rust_opaque_call_await.rs.jinja",
+        (true, false, false) => "rust_opaque_call_wrap_await.rs.jinja",
+        (false, true, true) => "rust_opaque_call_error.rs.jinja",
+        (false, true, false) => "rust_opaque_call_map_error.rs.jinja",
+        (false, false, true) => "rust_opaque_call.rs.jinja",
+        (false, false, false) => "rust_opaque_call_wrap.rs.jinja",
+    };
+    out.push_str(&crate::backends::dart::template_env::render(
+        template,
+        minijinja::context! {
+            call => call,
+            wrap_return => wrap_return,
+        },
+    ));
 }
 
 /// Emit the body of a method inside an opaque-type `impl` block.
@@ -2618,33 +2645,7 @@ fn emit_opaque_method_body(
     // by-ref returns (`&str`, `&Path`, `&[&str]`) need explicit conversion too.
     let wrap_return = build_opaque_return_wrap(&method.return_type, method.returns_ref);
 
-    if method.is_async {
-        if has_error {
-            if wrap_return.is_empty() {
-                out.push_str(&format!("        {call}.await.map_err(|e| e.to_string())\n"));
-            } else {
-                out.push_str(&format!(
-                    "        {call}.await.map({wrap_return}).map_err(|e| e.to_string())\n"
-                ));
-            }
-        } else if wrap_return.is_empty() {
-            out.push_str(&format!("        {call}.await\n"));
-        } else {
-            out.push_str(&format!("        ({wrap_return})({call}.await)\n"));
-        }
-    } else if has_error {
-        if wrap_return.is_empty() {
-            out.push_str(&format!("        {call}.map_err(|e| e.to_string())\n"));
-        } else {
-            out.push_str(&format!(
-                "        {call}.map({wrap_return}).map_err(|e| e.to_string())\n"
-            ));
-        }
-    } else if wrap_return.is_empty() {
-        out.push_str(&format!("        {call}\n"));
-    } else {
-        out.push_str(&format!("        ({wrap_return})({call})\n"));
-    }
+    emit_opaque_call_return(out, &call, &wrap_return, method.is_async, has_error);
 }
 
 /// Build the return-value wrapping closure for an opaque method return type.
@@ -2735,14 +2736,14 @@ fn emit_from_json_fn(out: &mut String, ty: &TypeDef, source_crate_name: &str) {
         core_ty_base
     };
 
-    out.push_str("#[frb]\n");
-    out.push_str(&format!(
-        "pub fn {fn_name}(json: String) -> Result<{type_name}, String> {{\n"
+    out.push_str(&crate::backends::dart::template_env::render(
+        "rust_from_json_bridge_fn.rs.jinja",
+        minijinja::context! {
+            fn_name => fn_name.as_str(),
+            type_name => type_name,
+            core_ty => core_ty.as_str(),
+        },
     ));
-    out.push_str(&format!("    serde_json::from_str::<{core_ty}>(&json)\n"));
-    out.push_str(&format!("        .map({type_name}::from)\n"));
-    out.push_str("        .map_err(|e| e.to_string())\n");
-    out.push_str("}\n");
 }
 
 /// Convert a PascalCase type name to snake_case for use in function names.

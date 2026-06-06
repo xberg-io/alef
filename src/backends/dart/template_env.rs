@@ -106,6 +106,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/ffi_return_unwrapped.jinja"),
     ),
     (
+        "dart_ffi_file_header.jinja",
+        include_str!("templates/dart_ffi_file_header.jinja"),
+    ),
+    (
+        "dart_ffi_wrapper_file.jinja",
+        include_str!("templates/dart_ffi_wrapper_file.jinja"),
+    ),
+    (
         "ffi_lib_path_macos.jinja",
         include_str!("templates/ffi_lib_path_macos.jinja"),
     ),
@@ -293,6 +301,84 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/rust_bridge_fn_open.jinja"),
     ),
     (
+        "rust_bridge_stub_body.rs.jinja",
+        include_str!("templates/rust_bridge_stub_body.rs.jinja"),
+    ),
+    ("rust_pub_use.rs.jinja", include_str!("templates/rust_pub_use.rs.jinja")),
+    ("rust_use.rs.jinja", include_str!("templates/rust_use.rs.jinja")),
+    (
+        "rust_impl_open.rs.jinja",
+        include_str!("templates/rust_impl_open.rs.jinja"),
+    ),
+    (
+        "rust_client_constructor_impl.rs.jinja",
+        include_str!("templates/rust_client_constructor_impl.rs.jinja"),
+    ),
+    (
+        "rust_streaming_sink_method.rs.jinja",
+        include_str!("templates/rust_streaming_sink_method.rs.jinja"),
+    ),
+    (
+        "rust_opaque_method_open.rs.jinja",
+        include_str!("templates/rust_opaque_method_open.rs.jinja"),
+    ),
+    (
+        "rust_static_opaque_method_open.rs.jinja",
+        include_str!("templates/rust_static_opaque_method_open.rs.jinja"),
+    ),
+    (
+        "rust_opaque_call_await_error.rs.jinja",
+        include_str!("templates/rust_opaque_call_await_error.rs.jinja"),
+    ),
+    (
+        "rust_opaque_call_await_map_error.rs.jinja",
+        include_str!("templates/rust_opaque_call_await_map_error.rs.jinja"),
+    ),
+    (
+        "rust_opaque_call_await.rs.jinja",
+        include_str!("templates/rust_opaque_call_await.rs.jinja"),
+    ),
+    (
+        "rust_opaque_call_wrap_await.rs.jinja",
+        include_str!("templates/rust_opaque_call_wrap_await.rs.jinja"),
+    ),
+    (
+        "rust_opaque_call_error.rs.jinja",
+        include_str!("templates/rust_opaque_call_error.rs.jinja"),
+    ),
+    (
+        "rust_opaque_call_map_error.rs.jinja",
+        include_str!("templates/rust_opaque_call_map_error.rs.jinja"),
+    ),
+    (
+        "rust_opaque_call.rs.jinja",
+        include_str!("templates/rust_opaque_call.rs.jinja"),
+    ),
+    (
+        "rust_opaque_call_wrap.rs.jinja",
+        include_str!("templates/rust_opaque_call_wrap.rs.jinja"),
+    ),
+    (
+        "rust_from_json_bridge_fn.rs.jinja",
+        include_str!("templates/rust_from_json_bridge_fn.rs.jinja"),
+    ),
+    (
+        "rust_skipped_sanitized_method_comment.rs.jinja",
+        include_str!("templates/rust_skipped_sanitized_method_comment.rs.jinja"),
+    ),
+    (
+        "rust_error_impl_open.rs.jinja",
+        include_str!("templates/rust_error_impl_open.rs.jinja"),
+    ),
+    (
+        "rust_error_method_open.rs.jinja",
+        include_str!("templates/rust_error_method_open.rs.jinja"),
+    ),
+    (
+        "rust_error_method_body.rs.jinja",
+        include_str!("templates/rust_error_method_body.rs.jinja"),
+    ),
+    (
         "rust_mirror_struct_open.jinja",
         include_str!("templates/rust_mirror_struct_open.jinja"),
     ),
@@ -457,6 +543,30 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "rust_trait_struct_field.jinja",
         include_str!("templates/rust_trait_struct_field.jinja"),
+    ),
+    (
+        "rust_callbacks_debug_impl.rs.jinja",
+        include_str!("templates/rust_callbacks_debug_impl.rs.jinja"),
+    ),
+    (
+        "rust_trait_reexport_opaque_wrapper.rs.jinja",
+        include_str!("templates/rust_trait_reexport_opaque_wrapper.rs.jinja"),
+    ),
+    (
+        "rust_trait_plugin_factory_open.rs.jinja",
+        include_str!("templates/rust_trait_plugin_factory_open.rs.jinja"),
+    ),
+    (
+        "rust_trait_plugin_factory_doc.rs.jinja",
+        include_str!("templates/rust_trait_plugin_factory_doc.rs.jinja"),
+    ),
+    (
+        "rust_trait_plugin_factory_body.rs.jinja",
+        include_str!("templates/rust_trait_plugin_factory_body.rs.jinja"),
+    ),
+    (
+        "rust_excluded_carrier.rs.jinja",
+        include_str!("templates/rust_excluded_carrier.rs.jinja"),
     ),
     (
         "rust_trait_impl_open.jinja",
@@ -661,6 +771,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_api/service_owner_doc.rs.jinja"),
     ),
     (
+        "service_api/default_service_owner_doc.rs.jinja",
+        include_str!("templates/service_api/default_service_owner_doc.rs.jinja"),
+    ),
+    (
         "service_api/service_owner_struct.rs.jinja",
         include_str!("templates/service_api/service_owner_struct.rs.jinja"),
     ),
@@ -671,6 +785,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "service_api/configurator_method.rs.jinja",
         include_str!("templates/service_api/configurator_method.rs.jinja"),
+    ),
+    (
+        "service_api/method_param.rs.jinja",
+        include_str!("templates/service_api/method_param.rs.jinja"),
     ),
     (
         "service_api/registration_method.rs.jinja",

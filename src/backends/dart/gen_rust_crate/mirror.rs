@@ -506,12 +506,22 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
     // primitive widths. This replaces the former unsound raw-pointer transmute.
     emit_from_impl(out, error, &core_path);
 
-    out.push_str(&format!("\nimpl {} {{\n", error.name));
+    out.push_str(&crate::backends::dart::template_env::render(
+        "rust_error_impl_open.rs.jinja",
+        minijinja::context! {
+            error_name => error.name.as_str(),
+        },
+    ));
     for method in bridge_methods {
         emit_rust_doc(&method.doc, "    ", out);
         let ret_ty = frb_rust_type_inner(&method.return_type);
-        out.push_str("    #[frb]\n");
-        out.push_str(&format!("    pub fn {}(&self) -> {ret_ty} {{\n", method.name));
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_error_method_open.rs.jinja",
+            minijinja::context! {
+                method_name => method.name.as_str(),
+                ret_ty => ret_ty.as_str(),
+            },
+        ));
         // Build any coercion suffix needed to reconcile the core return type with the
         // FRB bridge return type declared above:
         //   - `&str` (returns_ref=true + String TypeRef) → `.to_string()`
@@ -531,9 +541,13 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
             } else {
                 String::new()
             };
-        out.push_str(&format!(
-            "        let real: {core_path} = self.into();\n        real.{}(){call_suffix}\n",
-            method.name
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_error_method_body.rs.jinja",
+            minijinja::context! {
+                core_path => core_path.as_str(),
+                method_name => method.name.as_str(),
+                call_suffix => call_suffix.as_str(),
+            },
         ));
         out.push_str("    }\n");
     }

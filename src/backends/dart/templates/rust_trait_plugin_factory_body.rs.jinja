@@ -1,0 +1,5 @@
+) -> {{ struct_name }} {
+    let __impl = {{ callbacks_struct_name }} {
+{{ plugin_fields }}{{ method_fields }}    };
+    {{ struct_name }} { field0: std::sync::Arc::new(__impl) }
+}

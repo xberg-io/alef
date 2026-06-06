@@ -1,0 +1,6 @@
+#[frb]
+pub fn {{ fn_name }}(json: String) -> Result<{{ type_name }}, String> {
+    serde_json::from_str::<{{ core_ty }}>(&json)
+        .map({{ type_name }}::from)
+        .map_err(|e| e.to_string())
+}

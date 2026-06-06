@@ -115,7 +115,12 @@ pub(crate) fn emit_trait_bridge(
         out.push_str("/// dropping the factory (FRB v2 cannot generate callable Dart classes for\n");
         out.push_str("/// `Box<dyn Fn(...)>` opaque-struct fields).\n");
     }
-    out.push_str(&format!("struct {callbacks_struct_name} {{\n"));
+    out.push_str(&crate::backends::dart::template_env::render(
+        "rust_mirror_struct_open.jinja",
+        minijinja::context! {
+            name => callbacks_struct_name.as_str(),
+        },
+    ));
     // Plugin fields for name/version (required by Plugin super-trait).
     if has_plugin_super {
         out.push_str("    /// Plugin name used by the Plugin super-trait impl.\n");
@@ -141,8 +146,11 @@ pub(crate) fn emit_trait_bridge(
     // D4: emit a manual Debug impl so the struct satisfies `Debug` supertrait bounds
     // (e.g. `pub trait HtmlVisitor: Debug + Send`). Closure fields are not Debug;
     // we use `finish_non_exhaustive()` to produce a valid but opaque representation.
-    out.push_str(&format!(
-        "impl ::std::fmt::Debug for {callbacks_struct_name} {{\n    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{\n        f.debug_struct(\"{callbacks_struct_name}\").finish_non_exhaustive()\n    }}\n}}\n"
+    out.push_str(&crate::backends::dart::template_env::render(
+        "rust_callbacks_debug_impl.rs.jinja",
+        minijinja::context! {
+            callbacks_struct_name => callbacks_struct_name.as_str(),
+        },
     ));
     out.push('\n');
 
@@ -232,27 +240,17 @@ pub(crate) fn emit_trait_bridge(
     // imports `use crate::*;` at its top, so a sibling `pub use {trait_path};`
     // at this site makes the bare trait ident resolvable from inside FRB's code.
     if !uses_type_alias {
-        out.push_str("/// Re-exported so FRB's generated `frb_generated.rs` (which strips `dyn` and the\n");
-        out.push_str(&format!(
-            "/// qualified path when copying the wrapper's inner type) can resolve `{trait_name}`\n"
-        ));
-        out.push_str("/// as a bare ident via its `use crate::*;` preamble.\n");
-        out.push_str(&format!("pub use {trait_path};\n\n"));
-        out.push_str(&format!(
-            "/// Public opaque handle returned by `create_{trait_snake}_dart_impl(...)`.\n"
-        ));
-        out.push_str(&format!(
-            "/// Wraps an `Arc<dyn {trait_name} + Send + Sync>` whose backing object carries the\n"
-        ));
-        out.push_str("/// Dart-side callbacks (private to this crate). The wrapper has no closure\n");
-        out.push_str("/// fields itself, so FRB can bridge it as an opaque type without seeing the\n");
-        out.push_str("/// callbacks.\n");
         // Named field literally `field0` to match FRB v2's auto-opaque accessor
         // codegen, which references `api_that_guard.field0` regardless of whether
         // the source was a tuple struct (`.0`) or a single-field named struct.
-        out.push_str("#[frb(opaque)]\n");
-        out.push_str(&format!(
-            "pub struct {struct_name} {{\n    pub field0: std::sync::Arc<dyn {trait_name} + Send + Sync>,\n}}\n"
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_trait_reexport_opaque_wrapper.rs.jinja",
+            minijinja::context! {
+                trait_name => trait_name.as_str(),
+                trait_path => trait_path.as_str(),
+                trait_snake => trait_snake.as_str(),
+                struct_name => struct_name.as_str(),
+            },
         ));
         out.push('\n');
     }
@@ -376,19 +374,21 @@ pub(crate) fn emit_trait_bridge(
         // type-alias path so FRB can synthesise Dart-callable function types for
         // each closure parameter. Returns the `pub struct {Trait}DartImpl(Arc<dyn …>)`
         // wrapper emitted in section 3b.
-        out.push_str(&format!(
-            "/// Construct a `{struct_name}` from Dart callback closures.\n"
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_trait_plugin_factory_doc.rs.jinja",
+            minijinja::context! {
+                struct_name => struct_name.as_str(),
+            },
         ));
-        out.push_str("/// FRB synthesises a Dart-callable function type for each closure parameter,\n");
-        out.push_str("/// which is the whole point of taking them as `impl Fn(...) -> DartFnFuture<R>`\n");
-        out.push_str("/// parameters rather than storing them as `Box<dyn Fn(...)>` fields on an opaque\n");
-        out.push_str("/// struct (FRB v2 silently drops factories that return opaque structs whose fields\n");
-        out.push_str("/// it cannot bridge). The returned wrapper holds an `Arc<dyn Trait + Send + Sync>`\n");
-        out.push_str("/// whose backing object carries the supplied callbacks privately.\n");
         if has_plugin_super {
             out.push_str("/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.\n");
         }
-        out.push_str(&format!("pub fn create_{trait_snake}_dart_impl(\n"));
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_trait_plugin_factory_open.rs.jinja",
+            minijinja::context! {
+                trait_snake => trait_snake.as_str(),
+            },
+        ));
         if has_plugin_super {
             out.push_str("    plugin_name: String,\n");
             out.push_str("    plugin_version: String,\n");
@@ -401,22 +401,32 @@ pub(crate) fn emit_trait_bridge(
             // including excluded-type carrier substitution applied to trait signatures.
             let callback_ty =
                 dart_fn_future_factory_param_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
-            out.push_str(&format!("    {param_name}: {callback_ty},\n"));
+            out.push_str(&crate::backends::dart::template_env::render(
+                "rust_trait_factory_param.jinja",
+                minijinja::context! {
+                    param_name => param_name.as_str(),
+                    callback_ty => callback_ty.as_str(),
+                },
+            ));
         }
-        out.push_str(&format!(") -> {struct_name} {{\n"));
-        out.push_str(&format!("    let __impl = {callbacks_struct_name} {{\n"));
-        if has_plugin_super {
-            out.push_str("        plugin_name,\n");
-            out.push_str("        plugin_version,\n");
-        }
-        for method in &own_methods {
-            out.push_str(&format!("        {name}: Box::new({name}),\n", name = method.name));
-        }
-        out.push_str("    };\n");
-        out.push_str(&format!(
-            "    {struct_name} {{ field0: std::sync::Arc::new(__impl) }}\n"
+        let plugin_fields = if has_plugin_super {
+            "        plugin_name,\n        plugin_version,\n".to_string()
+        } else {
+            String::new()
+        };
+        let method_fields = own_methods
+            .iter()
+            .map(|method| format!("        {name}: Box::new({name}),\n", name = method.name))
+            .collect::<String>();
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_trait_plugin_factory_body.rs.jinja",
+            minijinja::context! {
+                struct_name => struct_name.as_str(),
+                callbacks_struct_name => callbacks_struct_name.as_str(),
+                plugin_fields => plugin_fields.as_str(),
+                method_fields => method_fields.as_str(),
+            },
         ));
-        out.push_str("}\n");
     }
 
     // --- 5. register_*/unregister_*/clear_* forwarder functions ---
@@ -1011,13 +1021,12 @@ pub(crate) fn emit_excluded_bridge_types(out: &mut String, api: &ApiSurface) {
         }
     }
     for (type_name, carrier_name) in carriers {
-        out.push_str(&format!(
-            "\n/// Opaque JSON carrier for Rust's excluded `{type_name}` trait-bridge contract.\n\
-             /// Dart code should pass this value back to Alef-generated bridge APIs.\n\
-             #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]\n\
-             pub struct {carrier_name} {{\n\
-             \x20   pub json: String,\n\
-             }}\n"
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_excluded_carrier.rs.jinja",
+            minijinja::context! {
+                type_name => type_name.as_str(),
+                carrier_name => carrier_name.as_str(),
+            },
         ));
     }
 }

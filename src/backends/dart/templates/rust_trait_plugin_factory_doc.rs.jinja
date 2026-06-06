@@ -1,0 +1,7 @@
+/// Construct a `{{ struct_name }}` from Dart callback closures.
+/// FRB synthesises a Dart-callable function type for each closure parameter,
+/// which is the whole point of taking them as `impl Fn(...) -> DartFnFuture<R>`
+/// parameters rather than storing them as `Box<dyn Fn(...)>` fields on an opaque
+/// struct (FRB v2 silently drops factories that return opaque structs whose fields
+/// it cannot bridge). The returned wrapper holds an `Arc<dyn Trait + Send + Sync>`
+/// whose backing object carries the supplied callbacks privately.
