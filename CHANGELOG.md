@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **magnus tests**: updated the async `Vec<Named>` regression fixture to the current enum IR shape so the Magnus backend test target compiles. (`tests/backends_magnus_gen_bindings_test.rs`)
+
 - **extendr/R**: bare enum and non-opaque struct parameters now route through JSON bridging for generated R wrappers, including optional forms, avoiding `Robj` conversion paths that extendr cannot derive for those named types. (`src/backends/extendr/gen_bindings/mod.rs`)
 
 - **release tooling**: `task set-version` now avoids waiting on the shared Cargo build lock when regenerating `schemas/alef.schema.json`, using an existing Alef binary when possible and an isolated Cargo target directory otherwise.

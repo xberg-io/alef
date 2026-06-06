@@ -3593,19 +3593,37 @@ fn test_async_function_with_vec_named_params() {
             variants: vec![
                 EnumVariant {
                     name: "TypeA".to_string(),
-                    value: None,
+                    fields: vec![],
                     doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
                 },
                 EnumVariant {
                     name: "TypeB".to_string(),
-                    value: None,
+                    fields: vec![],
                     doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
                 },
             ],
             doc: "Category enumeration".to_string(),
             cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         functions: vec![FunctionDef {
             name: "detect_async".to_string(),
@@ -3636,7 +3654,7 @@ fn test_async_function_with_vec_named_params() {
                     default: None,
                     sanitized: false,
                     typed_default: None,
-                    is_ref: false,
+                    is_ref: true,  // Core function takes &[T], so is_ref=true
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
@@ -3681,10 +3699,7 @@ fn test_async_function_with_vec_named_params() {
     let content = &lib_file.content;
 
     // Must contain the async function
-    assert!(
-        content.contains("detect_async"),
-        "Should contain detect_async function"
-    );
+    assert!(content.contains("detect_async"), "Should contain detect_async function");
 
     // Must emit the `{name}_core` let binding for Vec<Named> params
     assert!(
@@ -3700,7 +3715,9 @@ fn test_async_function_with_vec_named_params() {
 
     // Must not reference undefined `categories_core` before binding
     let detect_async_start = content.find("fn detect_async").unwrap();
-    let next_fn = content[detect_async_start..].find("\n    fn ").unwrap_or(content.len() - detect_async_start);
+    let next_fn = content[detect_async_start..]
+        .find("\n    fn ")
+        .unwrap_or(content.len() - detect_async_start);
     let detect_async_body = &content[detect_async_start..detect_async_start + next_fn];
 
     // Find the let binding and the call site
@@ -3708,7 +3725,9 @@ fn test_async_function_with_vec_named_params() {
     let categories_core_usage_pos = detect_async_body.find("&categories_core").unwrap_or(0);
 
     assert!(
-        categories_core_binding_pos > 0 && categories_core_usage_pos > 0 && categories_core_binding_pos < categories_core_usage_pos,
+        categories_core_binding_pos > 0
+            && categories_core_usage_pos > 0
+            && categories_core_binding_pos < categories_core_usage_pos,
         "categories_core must be bound before use"
     );
 }
