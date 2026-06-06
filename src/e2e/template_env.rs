@@ -207,6 +207,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/java/harness_main.jinja"),
     ),
     (
+        "java/MockServerListener.java.jinja",
+        include_str!("templates/java/MockServerListener.java.jinja"),
+    ),
+    (
         "typescript/package.json.jinja",
         include_str!("templates/typescript/package.json.jinja"),
     ),

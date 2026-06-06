@@ -13,7 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-<<<<<<< HEAD
 - **release tooling**: `task set-version` now avoids waiting on the shared Cargo build lock when regenerating `schemas/alef.schema.json`, using an existing Alef binary when possible and an isolated Cargo target directory otherwise.
 
 - **swift**: JSON-string overloads no longer apply `.toString()` suffix to String return types, preventing double-conversion when the inner typed wrapper already converts `RustString → String`. Also skips sync-only JSON overloads when an async variant exists (async is the canonical implementation, and the sync typed wrapper would not be emitted). (`src/backends/swift/gen_bindings/mod.rs`, `src/backends/swift/tests/json_string_overloads_regression.rs`)
@@ -24,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ruby e2e**: shared mock-server fixtures now expand `MOCK_SERVERS` into per-fixture `MOCK_SERVER_<FIXTURE_ID>` environment variables so tests resolve fixture-specific asset URLs instead of falling back to the shared namespaced URL. (`src/e2e/codegen/ruby.rs`, `src/e2e/templates/ruby/spec_helper_mock_server.rb.jinja`)
 
 - **elixir e2e**: shared mock-server fixtures now expand `MOCK_SERVERS` into per-fixture `MOCK_SERVER_<FIXTURE>` environment variables so tests resolve fixture-specific asset URLs instead of falling back to the shared namespaced URL. (`src/e2e/templates/elixir/test_helper_mock_server.exs.jinja`, `src/e2e/codegen/elixir.rs`)
+
+- **java e2e**: shared mock-server fixtures now expand `MOCK_SERVERS` into per-fixture `mockServer.<fixture_id>` system properties so tests resolve fixture-specific asset URLs instead of falling back to the shared namespaced URL. (`src/e2e/codegen/java.rs`, `src/e2e/templates/java/MockServerListener.java.jinja`)
 
 - **swift**: result-type enums (trait bridge result types, e.g. `VisitResult`) were included in phantom `Vec<T>` declarations but never declared as opaque `type` entries in the extern "Rust" block, causing swift-bridge-build to emit a parse error: `Type must be declared with 'type Name'`. The fix filters result-type enums (identified via `trait_bridges[].result_type` in `alef.toml`) from the list of enum types passed to phantom Vec accessor generation. Result-type enums are JSON-decoded locally in Swift (first-class Swift enums) and never appear in extern blocks; they cannot be referenced in phantom Vec declarations without triggering this parser error. (`src/backends/swift/gen_rust_crate/mod.rs`)
 
