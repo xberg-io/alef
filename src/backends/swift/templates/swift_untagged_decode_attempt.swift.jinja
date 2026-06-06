@@ -1,0 +1,4 @@
+        if let value = try? container.decode({{ payload_type }}.self) {
+            self = .{{ case_name }}({{ label }}: value)
+            return
+        }

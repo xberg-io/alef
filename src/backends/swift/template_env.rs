@@ -346,6 +346,50 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_untagged_codable.swift.jinja"),
     ),
     (
+        "swift_tagged_coding_key_case.swift.jinja",
+        include_str!("templates/swift_tagged_coding_key_case.swift.jinja"),
+    ),
+    (
+        "swift_tagged_decode_payload_case.swift.jinja",
+        include_str!("templates/swift_tagged_decode_payload_case.swift.jinja"),
+    ),
+    (
+        "swift_tagged_decode_unit_case.swift.jinja",
+        include_str!("templates/swift_tagged_decode_unit_case.swift.jinja"),
+    ),
+    (
+        "swift_tagged_encode_field.swift.jinja",
+        include_str!("templates/swift_tagged_encode_field.swift.jinja"),
+    ),
+    (
+        "swift_tagged_encode_payload_case.swift.jinja",
+        include_str!("templates/swift_tagged_encode_payload_case.swift.jinja"),
+    ),
+    (
+        "swift_tagged_encode_unit_case.swift.jinja",
+        include_str!("templates/swift_tagged_encode_unit_case.swift.jinja"),
+    ),
+    (
+        "swift_untagged_decode_attempt.swift.jinja",
+        include_str!("templates/swift_untagged_decode_attempt.swift.jinja"),
+    ),
+    (
+        "swift_untagged_encode_case.swift.jinja",
+        include_str!("templates/swift_untagged_encode_case.swift.jinja"),
+    ),
+    (
+        "swift_error_extension.swift.jinja",
+        include_str!("templates/swift_error_extension.swift.jinja"),
+    ),
+    (
+        "swift_error_property.swift.jinja",
+        include_str!("templates/swift_error_property.swift.jinja"),
+    ),
+    (
+        "swift_error_property_case.swift.jinja",
+        include_str!("templates/swift_error_property_case.swift.jinja"),
+    ),
+    (
         "swift_client_class.swift.jinja",
         include_str!("templates/swift_client_class.swift.jinja"),
     ),
@@ -364,6 +408,30 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "swift_async_forwarder.swift.jinja",
         include_str!("templates/swift_async_forwarder.swift.jinja"),
+    ),
+    (
+        "swift_forwarder_conversion_line.swift.jinja",
+        include_str!("templates/swift_forwarder_conversion_line.swift.jinja"),
+    ),
+    (
+        "swift_forwarder_decode_json_body.swift.jinja",
+        include_str!("templates/swift_forwarder_decode_json_body.swift.jinja"),
+    ),
+    (
+        "swift_forwarder_dto_return_body.swift.jinja",
+        include_str!("templates/swift_forwarder_dto_return_body.swift.jinja"),
+    ),
+    (
+        "swift_forwarder_let_return_body.swift.jinja",
+        include_str!("templates/swift_forwarder_let_return_body.swift.jinja"),
+    ),
+    (
+        "swift_forwarder_result_return_body.swift.jinja",
+        include_str!("templates/swift_forwarder_result_return_body.swift.jinja"),
+    ),
+    (
+        "swift_forwarder_unit_body.swift.jinja",
+        include_str!("templates/swift_forwarder_unit_body.swift.jinja"),
     ),
     (
         "swift_from_json_decode.swift.jinja",
@@ -699,8 +767,32 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_trait_adapter_method.swift.jinja"),
     ),
     (
+        "swift_trait_adapter_direct_body.swift.jinja",
+        include_str!("templates/swift_trait_adapter_direct_body.swift.jinja"),
+    ),
+    (
+        "swift_trait_adapter_error_body.swift.jinja",
+        include_str!("templates/swift_trait_adapter_error_body.swift.jinja"),
+    ),
+    (
+        "swift_trait_adapter_excluded_success.swift.jinja",
+        include_str!("templates/swift_trait_adapter_excluded_success.swift.jinja"),
+    ),
+    (
+        "swift_trait_adapter_success.swift.jinja",
+        include_str!("templates/swift_trait_adapter_success.swift.jinja"),
+    ),
+    (
         "swift_trait_bridge_overloads.swift.jinja",
         include_str!("templates/swift_trait_bridge_overloads.swift.jinja"),
+    ),
+    (
+        "swift_trait_register_overload.swift.jinja",
+        include_str!("templates/swift_trait_register_overload.swift.jinja"),
+    ),
+    (
+        "swift_trait_unregister_overload.swift.jinja",
+        include_str!("templates/swift_trait_unregister_overload.swift.jinja"),
     ),
     (
         "swift_class_header.swift.jinja",

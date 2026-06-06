@@ -263,6 +263,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/php_flat_enum_variant_match_into_empty.jinja"),
     ),
     (
+        "php_flat_enum_default_fallback_match_arm.jinja",
+        include_str!("templates/php_flat_enum_default_fallback_match_arm.jinja"),
+    ),
+    (
         "php_flat_enum_variant_field.jinja",
         include_str!("templates/php_flat_enum_variant_field.jinja"),
     ),

@@ -119,19 +119,23 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 
     let mut bindings_doc = String::new();
     for reg in &service.registrations {
-        bindings_doc.push_str(&format!(
-            " * - {}_{}_register_{} (handler registration)\n",
-            ffi_prefix,
-            service_snake,
-            reg.method.to_snake_case()
+        bindings_doc.push_str(&template_env::render(
+            "service_binding_doc_registration.jinja",
+            context! {
+                ffi_prefix => &ffi_prefix,
+                service_snake => &service_snake,
+                method_snake => reg.method.to_snake_case(),
+            },
         ));
     }
     for ep in &service.entrypoints {
-        bindings_doc.push_str(&format!(
-            " * - {}_{}_ep_{} (entrypoint)\n",
-            ffi_prefix,
-            service_snake,
-            ep.method.to_snake_case()
+        bindings_doc.push_str(&template_env::render(
+            "service_binding_doc_entrypoint.jinja",
+            context! {
+                ffi_prefix => &ffi_prefix,
+                service_snake => &service_snake,
+                method_snake => ep.method.to_snake_case(),
+            },
         ));
     }
 
@@ -167,14 +171,22 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         let mut metadata_docs = String::new();
         let mut metadata_signature = String::new();
         for meta_param in &reg.metadata_params {
-            metadata_docs.push_str(&format!(
-                "     * @param {} {}\n",
-                meta_param.name.to_lower_camel_case(),
-                java_type_for_metadata(&meta_param.ty, api)
-            ));
             let java_type = java_type_for_metadata(&meta_param.ty, api);
             let param_name = meta_param.name.to_lower_camel_case();
-            metadata_signature.push_str(&format!(", {java_type} {param_name}"));
+            metadata_docs.push_str(&template_env::render(
+                "service_metadata_param_doc.jinja",
+                context! {
+                    param_name => &param_name,
+                    java_type => &java_type,
+                },
+            ));
+            metadata_signature.push_str(&template_env::render(
+                "service_metadata_signature_param.jinja",
+                context! {
+                    java_type => &java_type,
+                    param_name => &param_name,
+                },
+            ));
         }
 
         let descriptor_layouts = descriptor_layouts(&reg.metadata_params);

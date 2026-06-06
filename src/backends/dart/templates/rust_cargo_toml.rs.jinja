@@ -1,0 +1,21 @@
+[package]
+name = "{{ crate_name }}-dart"
+version = "{{ version }}"
+edition = "2024"
+license = "{{ license }}"
+
+[package.metadata.cargo-machete]
+# Umbrella + sibling crates are pulled in so flutter_rust_bridge can resolve
+# every referenced type, but the generated Rust wrapper only `use`s a subset.
+ignored = [{{ machete_ignored_list }}]
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+{{ core_dep_line }}flutter_rust_bridge = "={{ frb_version }}"
+{{ extra_deps }}
+{{ target_override_blocks }}[lints.rust]
+# flutter_rust_bridge uses #[cfg(frb_expand)] internally during macro expansion.
+# Declare it as a known cfg so rustc does not emit unexpected_cfgs warnings.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

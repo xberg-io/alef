@@ -1349,7 +1349,12 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
     // The prior path constructed the `#[default]`-marked or first variant with field-level
     // `Default::default()` defaults, which produced invalid sentinel values like
     // `Preset { name: "" }` for enums whose `Default` is custom rather than derived.
-    out.push_str(&format!("            _ => {core_path}::default(),\n"));
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_flat_enum_default_fallback_match_arm.jinja",
+        minijinja::context! {
+            core_path => &core_path,
+        },
+    ));
     out.push_str(&crate::backends::php::template_env::render(
         "php_flat_enum_impl_match_end.jinja",
         minijinja::Value::default(),

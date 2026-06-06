@@ -960,6 +960,22 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         "service_api_registration_variant_nif_footer.rs.jinja",
         include_str!("templates/service_api_registration_variant_nif_footer.rs.jinja"),
     ),
+    (
+        "service_api_registration_dispatch.rs.jinja",
+        include_str!("templates/service_api_registration_dispatch.rs.jinja"),
+    ),
+    (
+        "service_api_registration_variant_dispatch.rs.jinja",
+        include_str!("templates/service_api_registration_variant_dispatch.rs.jinja"),
+    ),
+    (
+        "service_api_opaque_metadata_binding.rs.jinja",
+        include_str!("templates/service_api_opaque_metadata_binding.rs.jinja"),
+    ),
+    (
+        "service_api_entrypoint_call.rs.jinja",
+        include_str!("templates/service_api_entrypoint_call.rs.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

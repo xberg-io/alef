@@ -1,0 +1,4 @@
+public func register{{ pascal_name }}(_ bridge: any Swift{{ pascal_name }}Bridge) throws {
+    try register{{ pascal_name }}(Swift{{ pascal_name }}Box(bridge))
+}
+

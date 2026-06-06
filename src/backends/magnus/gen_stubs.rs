@@ -279,14 +279,13 @@ fn gen_method_stub(
         return sig_line;
     }
     let mut out = String::new();
-    for line in method.doc.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            out.push_str("    #\n");
-        } else {
-            out.push_str(&format!("    # {line}\n"));
-        }
-    }
+    let doc_lines = method.doc.lines().map(str::trim).collect::<Vec<_>>();
+    out.push_str(&crate::backends::magnus::template_env::render(
+        "rbs_doc_block.jinja",
+        minijinja::context! {
+            doc_lines => doc_lines,
+        },
+    ));
     out.push_str(&sig_line);
     out
 }

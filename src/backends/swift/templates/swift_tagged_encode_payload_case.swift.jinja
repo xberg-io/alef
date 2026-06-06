@@ -1,0 +1,3 @@
+        case .{{ case_name }}({{ bindings }}):
+            try container.encode("{{ variant_tag }}", forKey: .{{ tag_key }})
+{{ field_encoders }}

@@ -203,8 +203,9 @@ fn gen_php_serde_let_bindings(
                         // For optional+is_mut params: unwrap into a mutable binding so
                         // &mut {name}_unwrapped can be passed to functions taking &mut T.
                         if p.is_mut {
-                            out.push_str(&format!(
-                                "    let mut {php_param_name}_unwrapped = {php_param_name}_core.unwrap_or_default();\n"
+                            out.push_str(&crate::backends::php::template_env::render(
+                                "php_optional_mut_unwrap_binding.jinja",
+                                context! { php_name => &php_param_name },
                             ));
                         }
                     } else {

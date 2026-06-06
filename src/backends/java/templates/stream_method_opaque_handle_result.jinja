@@ -1,0 +1,12 @@
+            // CPD-OFF — FFI opaque-handle return, no JSON deserialization needed.
+            MemorySegment resultPtr = (MemorySegment) {{ ffi_handle }}.invoke({{ args_joined }});
+{{ named_frees }}            if (resultPtr.equals(MemorySegment.NULL)) {
+                checkLastFfiError();
+                return {{ empty_return }};
+            }
+            try {
+                return {{ success_return }};
+            } finally {
+                {{ ret_free }}.invoke(resultPtr);
+            }
+            // CPD-ON

@@ -1,0 +1,13 @@
+{{ prefix }}if method_name == "{{ reg_method }}" {
+{% if has_metadata %}
+                if let Ok(({{ metadata_names }}{{ trailing }})) = metadata.decode::<({{ tuple_types }})>()
+                {
+{{ opaque_bindings }}                    let bridge = {{ bridge_wrapper }}::new(handler_pid);
+                    let handler: Arc<dyn {{ core_import }}::{{ trait_name }}> = Arc::new(bridge);
+                    let _ = owner.{{ reg_method }}({{ args_list }}handler);
+                }
+{% else %}
+                let bridge = {{ bridge_wrapper }}::new(handler_pid);
+                let handler: Arc<dyn {{ core_import }}::{{ trait_name }}> = Arc::new(bridge);
+                let _ = owner.{{ reg_method }}(handler);
+{% endif %}

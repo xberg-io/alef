@@ -1,0 +1,3 @@
+        let _rb_result = {{ bridge_call }}
+        let _rb_data = _rb_result.data(using: .utf8) ?? Data()
+        return try JSONDecoder().decode({{ decode_type }}.self, from: _rb_data)

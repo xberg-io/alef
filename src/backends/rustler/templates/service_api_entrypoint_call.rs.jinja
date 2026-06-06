@@ -1,0 +1,16 @@
+{% if is_run %}
+    let rt = tokio::runtime::Runtime::new().map_err(|_e| {
+        NifError::Atom("runtime_error")
+    })?;
+
+    let result = rt.block_on(owner.{{ ep_method }}({{ ep_params }}));
+    match result {
+        Ok(_) => Ok(atoms::ok()),
+        Err(_e) => Err(NifError::Atom("error")),
+    }
+{% else %}
+    match owner.{{ ep_method }}({{ ep_params }}) {
+        Ok(_) => Ok(atoms::ok()),
+        Err(_e) => Err(NifError::Atom("error")),
+    }
+{% endif %}

@@ -3654,7 +3654,7 @@ fn test_async_function_with_vec_named_params() {
                     default: None,
                     sanitized: false,
                     typed_default: None,
-                    is_ref: true,  // Core function takes &[T], so is_ref=true
+                    is_ref: true, // Core function takes &[T], so is_ref=true
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,

@@ -328,6 +328,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/ffi_primitive_result_call.jinja"),
     ),
     (
+        "ffi_return_primitive_result.jinja",
+        include_str!("templates/ffi_return_primitive_result.jinja"),
+    ),
+    (
         "stream_method_null_check.jinja",
         include_str!("templates/stream_method_null_check.jinja"),
     ),
@@ -352,6 +356,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/stream_method_optional_named_param.jinja"),
     ),
     (
+        "stream_method_enum_param.jinja",
+        include_str!("templates/stream_method_enum_param.jinja"),
+    ),
+    (
         "stream_method_named_param.jinja",
         include_str!("templates/stream_method_named_param.jinja"),
     ),
@@ -370,6 +378,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "stream_method_named_result.jinja",
         include_str!("templates/stream_method_named_result.jinja"),
+    ),
+    (
+        "stream_method_opaque_handle_result.jinja",
+        include_str!("templates/stream_method_opaque_handle_result.jinja"),
     ),
     (
         "stream_method_string_result.jinja",
@@ -416,6 +428,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/registration_variant.java.jinja"),
     ),
     (
+        "service_binding_doc_entrypoint.jinja",
+        include_str!("templates/service_binding_doc_entrypoint.jinja"),
+    ),
+    (
+        "service_binding_doc_registration.jinja",
+        include_str!("templates/service_binding_doc_registration.jinja"),
+    ),
+    (
         "service_class_header.jinja",
         include_str!("templates/service_class_header.jinja"),
     ),
@@ -435,6 +455,14 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "service_callable_interface.jinja",
         include_str!("templates/service_callable_interface.jinja"),
+    ),
+    (
+        "service_metadata_param_doc.jinja",
+        include_str!("templates/service_metadata_param_doc.jinja"),
+    ),
+    (
+        "service_metadata_signature_param.jinja",
+        include_str!("templates/service_metadata_signature_param.jinja"),
     ),
     (
         "record_declaration.jinja",

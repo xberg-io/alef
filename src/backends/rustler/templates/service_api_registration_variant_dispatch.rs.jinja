@@ -1,0 +1,11 @@
+{% if has_metadata %}
+            if let Ok(({{ metadata_names }}{{ trailing }})) = _metadata.decode::<({{ tuple_types }})>()
+            {
+{{ opaque_bindings }}                let bridge = {{ bridge_wrapper }}::new(handler_pid);
+                let handler: Arc<dyn {{ core_import }}::{{ contract_name }}> = Arc::new(bridge);
+                let _ = owner.{{ base_method }}({{ metadata_args }}, handler);
+            }
+{% else %}
+            let bridge = {{ bridge_wrapper }}::new(handler_pid);
+            let _ = owner.{{ base_method }}(std::sync::Arc::new(bridge));
+{% endif %}

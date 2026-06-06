@@ -1275,11 +1275,11 @@ fn gen_instance_method(
                 call_args.push(pname);
             }
             TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
-                // Optional Path also needs `.toString()` — reuse marshal_optional_path
-                // (declared below in the marshal module). Inline the conversion to avoid
-                // adding another template.
-                out.push_str(&format!(
-                    "            var {cname} = {pname} != null ? arena.allocateFrom({pname}.toString()) : MemorySegment.NULL;\n"
+                // Optional Path also needs `.toString()` because SegmentAllocator.allocateFrom
+                // accepts String, not java.nio.file.Path.
+                out.push_str(&crate::backends::java::template_env::render(
+                    "marshal_optional_path.jinja",
+                    minijinja::context! { cname => &cname, name => pname },
                 ));
                 call_args.push(cname);
             }
@@ -1413,42 +1413,30 @@ fn gen_instance_method(
             // For value types without _to_json (shouldn't happen but be defensive), stub the method.
             if opaque_type_names.contains(&return_type_name) {
                 // Wrap pointer in new instance: `return new TypeName(resultPtr);`
-                // Emit code inline to avoid template issues with empty to_json handle
-                out.push_str("            // CPD-OFF — FFI opaque-handle return, no JSON deserialization needed.\n");
-                out.push_str(&format!(
-                    "            MemorySegment resultPtr = (MemorySegment) {}.invoke({});\n",
-                    ffi_handle, args_joined
-                ));
-                out.push_str(&render_named_frees("            "));
-                out.push_str("            if (resultPtr.equals(MemorySegment.NULL)) {\n");
-                out.push_str("                checkLastFfiError();\n");
-                if is_optional_return {
-                    out.push_str("                return java.util.Optional.empty();\n");
-                } else {
-                    out.push_str("                return null;\n");
-                }
-                out.push_str("            }\n");
-                out.push_str("            try {\n");
-                if is_optional_return {
-                    out.push_str(&format!(
-                        "                return java.util.Optional.of(new {}(resultPtr));\n",
-                        return_type_name
-                    ));
-                } else {
-                    out.push_str(&format!(
-                        "                return new {}(resultPtr);\n",
-                        return_type_name
-                    ));
-                }
-                out.push_str("            } finally {\n");
                 let ret_type_snake = return_type_name.to_snake_case();
                 let ret_type_upper = ret_type_snake.to_uppercase();
-                out.push_str(&format!(
-                    "                NativeLib.{}_{}_FREE.invoke(resultPtr);\n",
-                    prefix_upper, ret_type_upper
+                let empty_return = if is_optional_return {
+                    "java.util.Optional.empty()".to_string()
+                } else {
+                    "null".to_string()
+                };
+                let success_return = if is_optional_return {
+                    format!("java.util.Optional.of(new {return_type_name}(resultPtr))")
+                } else {
+                    format!("new {return_type_name}(resultPtr)")
+                };
+                let ret_free = format!("NativeLib.{prefix_upper}_{ret_type_upper}_FREE");
+                out.push_str(&crate::backends::java::template_env::render(
+                    "stream_method_opaque_handle_result.jinja",
+                    minijinja::context! {
+                        ffi_handle => ffi_handle,
+                        args_joined => args_joined,
+                        named_frees => render_named_frees("            "),
+                        empty_return => empty_return,
+                        success_return => success_return,
+                        ret_free => ret_free,
+                    },
                 ));
-                out.push_str("            }\n");
-                out.push_str("            // CPD-ON\n");
             } else {
                 // Value type without _to_json (defensive stub)
                 out.push_str(&crate::backends::java::template_env::render(
@@ -1669,13 +1657,18 @@ fn gen_static_factory_method(
                 if enum_names.contains(type_name.as_str()) {
                     // Enum parameter: convert to ordinal/discriminant value
                     // For Method enum: method.ordinal() gives the i32 discriminant
-                    if p.optional {
-                        out.push_str(&format!(
-                            "            var {cname} = {pname} != null ? {pname}.ordinal() : -1;\n"
-                        ));
+                    let enum_expr = if p.optional {
+                        format!("{pname} != null ? {pname}.ordinal() : -1")
                     } else {
-                        out.push_str(&format!("            var {cname} = {pname}.ordinal();\n"));
-                    }
+                        format!("{pname}.ordinal()")
+                    };
+                    out.push_str(&crate::backends::java::template_env::render(
+                        "stream_method_enum_param.jinja",
+                        minijinja::context! {
+                            c_name => cname,
+                            enum_expr => enum_expr,
+                        },
+                    ));
                     call_args.push(cname);
                 } else {
                     // Struct/record parameter: JSON-serialize via _from_json

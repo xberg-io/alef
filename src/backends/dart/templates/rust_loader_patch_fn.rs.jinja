@@ -1,0 +1,63 @@
+const FRB_GENERATED_DART: &str = "../lib/src/{{ module_name }}_bridge_generated/frb_generated.dart";
+const LOADER_MARKER: &str = "_alefResolveExternalLibrary";
+const FRB_INIT_PROLOGUE: &str = "  /// Initialize flutter_rust_bridge\n  static Future<void> init({\n    RustLibApi? api,\n    BaseHandler? handler,\n    ExternalLibrary? externalLibrary,\n    bool forceSameCodegenVersion = true,\n  }) async {\n";
+const FRB_INIT_REPLACEMENT: &str = r#"{{ dart_replacement }}"#;
+
+/// Inject the published-package native-library loader into `frb_generated.dart`.
+/// Idempotent: a no-op when the marker is already present or the FRB entrypoint
+/// signature is absent.
+fn patch_published_loader() {
+    let path = Path::new(FRB_GENERATED_DART);
+    let Ok(source) = std::fs::read_to_string(path) else {
+        println!("cargo:warning=published-loader patch skipped: {} not found", FRB_GENERATED_DART);
+        return;
+    };
+    if source.contains(LOADER_MARKER) {
+        return;
+    }
+    if !source.contains(FRB_INIT_PROLOGUE) {
+        println!("cargo:warning=published-loader patch skipped: FRB init prologue not found");
+        return;
+    }
+
+    let mut patched = source.replacen(FRB_INIT_PROLOGUE, FRB_INIT_REPLACEMENT, 1);
+
+    // Ensure the helper's `File`/`Isolate`/`Abi` dependencies are imported.
+    for (probe, line) in [
+        ("import 'dart:io';", "import 'dart:io';\n"),
+        ("import 'dart:isolate';", "import 'dart:isolate';\n"),
+        ("import 'dart:ffi';", "import 'dart:ffi';\n"),
+    ] {
+        if patched.contains(probe) {
+            continue;
+        }
+        if let Some(pos) = patched.find("\nimport ") {
+            patched.insert_str(pos + 1, line);
+        } else {
+            patched.insert_str(0, line);
+        }
+    }
+
+    if patched != source {
+        if let Err(err) = std::fs::write(path, &patched) {
+            println!("cargo:warning=failed to write published-loader patch: {err}");
+            return;
+        }
+        match std::process::Command::new("dart")
+            .args(["format", FRB_GENERATED_DART])
+            .status()
+        {
+            Ok(s) if s.success() => {}
+            Ok(s) => println!(
+                "cargo:warning=dart format on {} exited {}",
+                FRB_GENERATED_DART, s
+            ),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                println!(
+                    "cargo:warning=dart not on PATH — skipping post-patch format. Install Dart SDK to keep generated FRB Dart sources fmt-clean."
+                );
+            }
+            Err(err) => println!("cargo:warning=failed to spawn dart format: {err}"),
+        }
+    }
+}

@@ -1,0 +1,5 @@
+        do {
+            let result = try self.bridge.{{ method_name }}({{ call_args }})
+{{ success_body }}        } catch {
+            return marshal_error_result(error)
+        }

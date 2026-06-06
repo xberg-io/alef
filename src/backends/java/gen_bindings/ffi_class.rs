@@ -673,10 +673,20 @@ fn gen_sync_function_method_with_visitor(
         }
         if is_optional_return {
             let return_expr = java_ffi_return_expr(&dispatch_return_type, "primitiveResult");
-            out.push_str(&format!("            return Optional.of({return_expr});\n"));
+            out.push_str(&crate::backends::java::template_env::render(
+                "ffi_return_primitive_result.jinja",
+                minijinja::context! {
+                    return_expr => format!("Optional.of({return_expr})"),
+                },
+            ));
         } else {
             let return_expr = java_ffi_return_expr(&dispatch_return_type, "primitiveResult");
-            out.push_str(&format!("            return {return_expr};\n"));
+            out.push_str(&crate::backends::java::template_env::render(
+                "ffi_return_primitive_result.jinja",
+                minijinja::context! {
+                    return_expr => return_expr,
+                },
+            ));
         }
         out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::backends::java::template_env::render(

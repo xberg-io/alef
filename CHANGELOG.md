@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **kotlin**: migrated remaining Kotlin and Kotlin Android generated-code `push_str(&format!(...))` emission in wrapper, JNI client, service, and trait-interface paths to backend Jinja templates, leaving expression/name assembly in Rust. (`src/backends/kotlin`, `src/backends/kotlin_android`)
 
+- **java**: migrated additional service API, stream-method, enum parameter, and primitive-return generated Java emission to backend Jinja templates, leaving expression/name/list assembly in Rust. (`src/backends/java`)
+
 - **swift**: migrated additional Rust-crate and Swift binding helper emission to Jinja templates, including enum string helpers, phantom Vec accessors, streaming handle shims, JSON forwarders, and direct constructor returns. (`src/backends/swift`)
 
 - **ffi**: migrated additional service API, trait bridge, visitor callback, enum helper, and constructor generated-source blocks to FFI Jinja templates, leaving only expression/name/list assembly in Rust where appropriate. (`src/backends/ffi`)
@@ -27,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **zig**: moved the remaining generated Zig trait-alias, bytes-free, result-length, thunk length-discard,
   and owned-slice unwrap snippets into backend templates. (`src/backends/zig`)
+
+- **php/magnus**: migrated the remaining small PHP generated Rust blocks and Magnus RBS method doc block
+  emission in the owned audit scope to backend Jinja templates.
+  (`src/backends/php`, `src/backends/magnus/gen_stubs.rs`)
 
 ### Fixed
 

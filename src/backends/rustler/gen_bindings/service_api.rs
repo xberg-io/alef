@@ -699,17 +699,10 @@ fn gen_run_nif(
         let reg_method = &reg.method;
         let metadata_param_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
         let bridge_wrapper = format!("Elixir{contract_name}Bridge");
-
-        if i == 0 {
-            out.push_str("            ");
-        } else {
-            out.push_str("            } else ");
-        }
-
-        out.push_str(&format!("if method_name == \"{}\" {{\n", reg_method));
+        let prefix = if i == 0 { "            " } else { "            } else " };
 
         // Decode metadata if present
-        if !metadata_param_names.is_empty() {
+        let (has_metadata, trailing, tuple_types, opaque_bindings, args_list) = if !metadata_param_names.is_empty() {
             // The Elixir registration method always wraps metadata in a tuple `{...}`
             // (see gen_registration_method), so a single param `path` arrives as the
             // 1-element Elixir tuple `{path}`. A 1-element Elixir tuple decodes to a Rust
@@ -732,16 +725,10 @@ fn gen_run_nif(
                 .collect::<Vec<_>>()
                 .join(", ");
             let tuple_types_with_trailing = format!("{}{}", tuple_types, trailing);
-            out.push_str(&format!(
-                "                if let Ok(({names}{trailing})) = metadata.decode::<({types})>()\n",
-                names = metadata_param_names.join(", "),
-                trailing = trailing,
-                types = tuple_types_with_trailing
-            ));
-            out.push_str("                {\n");
             // Decode and bind opaque metadata params to locals for later use.
             // ResourceArc<super::T> derefs to super::T (the local wrapper); wrapper.inner is
             // Arc<CoreType>. Call as_ref() on the Arc to get &CoreType, then clone to own it.
+            let mut opaque_bindings = String::new();
             for meta_param in reg.metadata_params.iter() {
                 let is_opaque = if let TypeRef::Named(n) = &meta_param.ty {
                     api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque)
@@ -750,81 +737,57 @@ fn gen_run_nif(
                 };
                 if is_opaque {
                     if let TypeRef::Named(n) = &meta_param.ty {
-                        out.push_str(&format!(
-                            "                    let {pname}: {core_import}::{name} = (*{pname}).inner.as_ref().clone();\n",
-                            pname = meta_param.name,
-                            core_import = core_import,
-                            name = n,
+                        opaque_bindings.push_str(&render(
+                            "service_api_opaque_metadata_binding.rs.jinja",
+                            context! {
+                                indent => "                    ",
+                                param_name => meta_param.name,
+                                core_import => core_import,
+                                type_name => n,
+                            },
                         ));
                     }
                 }
             }
-            out.push_str(&format!(
-                "                    let bridge = {bridge_wrapper}::new(handler_pid);\n"
-            ));
-            // GAP 3: Cast bridge to Arc<dyn HandlerContract> via upcast
-            out.push_str(&format!(
-                "                    let handler: Arc<dyn {core_import}::{trait_name}> = Arc::new(bridge);\n",
-                trait_name = &reg.callback_contract
-            ));
             let args_list = metadata_param_names
                 .iter()
                 .map(|name| format!("{}, ", name))
                 .collect::<String>();
-            // GAP 4: Call with 2 args (metadata + handler), not 3 (metadata + wrapper + handler)
-            out.push_str(&format!(
-                "                    let _ = owner.{reg_method}({}handler);\n",
-                args_list
-            ));
-            out.push_str("                }\n");
+            (true, trailing, tuple_types_with_trailing, opaque_bindings, args_list)
         } else {
-            out.push_str(&format!(
-                "                let bridge = {bridge_wrapper}::new(handler_pid);\n"
-            ));
-            // GAP 3: Cast bridge to Arc<dyn HandlerContract>
-            out.push_str(&format!(
-                "                let handler: Arc<dyn {core_import}::{trait_name}> = Arc::new(bridge);\n",
-                trait_name = &reg.callback_contract
-            ));
-            // GAP 4: Call with handler directly
-            out.push_str(&format!("                let _ = owner.{reg_method}(handler);\n"));
-        }
+            (false, "", String::new(), String::new(), String::new())
+        };
+
+        out.push_str(&render(
+            "service_api_registration_dispatch.rs.jinja",
+            context! {
+                prefix => prefix,
+                reg_method => reg_method,
+                has_metadata => has_metadata,
+                metadata_names => metadata_param_names.join(", "),
+                trailing => trailing,
+                tuple_types => tuple_types,
+                opaque_bindings => opaque_bindings,
+                bridge_wrapper => bridge_wrapper,
+                core_import => core_import,
+                trait_name => reg.callback_contract,
+                args_list => args_list,
+            },
+        ));
     }
 
     if !service.registrations.is_empty() {
         out.push_str("            }\n");
     }
-    let mut entrypoint_call = String::new();
-    match ep.kind {
-        EntrypointKind::Run => {
-            // For async run, we need to block on the future
-            let ep_params = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
-            entrypoint_call.push_str("    let rt = tokio::runtime::Runtime::new().map_err(|_e| {\n");
-            entrypoint_call.push_str("        NifError::Atom(\"runtime_error\")\n");
-            entrypoint_call.push_str("    })?;\n\n");
-            if ep.params.is_empty() {
-                entrypoint_call.push_str("    let result = rt.block_on(owner.run());\n");
-            } else {
-                entrypoint_call.push_str(&format!("    let result = rt.block_on(owner.run({}));\n", ep_params));
-            }
-            entrypoint_call.push_str("    match result {\n");
-            entrypoint_call.push_str("        Ok(_) => Ok(atoms::ok()),\n");
-            entrypoint_call.push_str("        Err(_e) => Err(NifError::Atom(\"error\")),\n");
-            entrypoint_call.push_str("    }\n");
-        }
-        EntrypointKind::Finalize => {
-            // For finalize, call the method by its actual name (e.g. `into_router`).
-            let ep_params = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
-            if ep.params.is_empty() {
-                entrypoint_call.push_str(&format!("    match owner.{}() {{\n", ep_method));
-            } else {
-                entrypoint_call.push_str(&format!("    match owner.{}({}) {{\n", ep_method, ep_params));
-            }
-            entrypoint_call.push_str("        Ok(_) => Ok(atoms::ok()),\n");
-            entrypoint_call.push_str("        Err(_e) => Err(NifError::Atom(\"error\")),\n");
-            entrypoint_call.push_str("    }\n");
-        }
-    }
+    let ep_params = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
+    let entrypoint_call = render(
+        "service_api_entrypoint_call.rs.jinja",
+        context! {
+            is_run => matches!(ep.kind, EntrypointKind::Run),
+            ep_method => ep_method,
+            ep_params => ep_params,
+        },
+    );
 
     out.push_str(&render(
         "service_api_run_nif_footer.rs.jinja",
@@ -905,7 +868,7 @@ fn gen_registration_variant_nif(
 
     let metadata_param_names: Vec<&str> = base_reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
 
-    if !metadata_param_names.is_empty() {
+    let (has_metadata, trailing, tuple_types, opaque_bindings, metadata_args) = if !metadata_param_names.is_empty() {
         let trailing = if metadata_param_names.len() == 1 { "," } else { "" };
         let tuple_types = base_reg
             .metadata_params
@@ -924,14 +887,7 @@ fn gen_registration_variant_nif(
             .join(", ");
         let tuple_types_with_trailing = format!("{}{}", tuple_types, trailing);
 
-        out.push_str(&format!(
-            "            if let Ok(({names}{trailing})) = _metadata.decode::<({types})>()\n",
-            names = metadata_param_names.join(", "),
-            trailing = trailing,
-            types = tuple_types_with_trailing
-        ));
-        out.push_str("            {\n");
-
+        let mut opaque_bindings = String::new();
         for meta_param in base_reg.metadata_params.iter() {
             let is_opaque = if let TypeRef::Named(n) = &meta_param.ty {
                 api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque)
@@ -942,52 +898,45 @@ fn gen_registration_variant_nif(
                 if let TypeRef::Named(n) = &meta_param.ty {
                     // ResourceArc<super::T> derefs to the local wrapper super::T; wrapper.inner
                     // is Arc<CoreType>. Use as_ref() then clone() to obtain an owned CoreType.
-                    out.push_str(&format!(
-                        "                let {pname}: {core_import}::{name} = (*{pname}).inner.as_ref().clone();\n",
-                        pname = meta_param.name,
-                        core_import = core_import,
-                        name = n,
+                    opaque_bindings.push_str(&render(
+                        "service_api_opaque_metadata_binding.rs.jinja",
+                        context! {
+                            indent => "                ",
+                            param_name => meta_param.name,
+                            core_import => core_import,
+                            type_name => n,
+                        },
                     ));
                 }
             }
         }
 
-        out.push_str(&format!(
-            "                let bridge = {bridge_wrapper}::new(handler_pid);\n"
-        ));
-        // GAP 3 (variant): Cast bridge to Arc<dyn HandlerContract>
-        out.push_str(&format!(
-            "                let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n",
-            contract_name = base_reg.callback_contract
-        ));
-
-        // Call base registration with metadata + handler (not wrapper)
-        // GAP 4 (variant): 2-arg call, not 3-arg
-        if let Some(wrapper_call) = &variant.wrapper_call {
-            let _metadata_param = &wrapper_call.metadata_param;
-            out.push_str(&format!(
-                "                let _ = owner.{}({}, handler);\n",
-                base_method,
-                metadata_param_names.join(", ")
-            ));
-        } else {
-            out.push_str(&format!(
-                "                let _ = owner.{}({}, handler);\n",
-                base_method,
-                metadata_param_names.join(", ")
-            ));
-        }
-
-        out.push_str("            }\n");
+        (
+            true,
+            trailing,
+            tuple_types_with_trailing,
+            opaque_bindings,
+            metadata_param_names.join(", "),
+        )
     } else {
-        out.push_str(&format!(
-            "            let bridge = {bridge_wrapper}::new(handler_pid);\n"
-        ));
-        out.push_str(&format!(
-            "            let _ = owner.{}(std::sync::Arc::new(bridge));\n",
-            base_method
-        ));
-    }
+        (false, "", String::new(), String::new(), String::new())
+    };
+
+    out.push_str(&render(
+        "service_api_registration_variant_dispatch.rs.jinja",
+        context! {
+            has_metadata => has_metadata,
+            metadata_names => metadata_param_names.join(", "),
+            trailing => trailing,
+            tuple_types => tuple_types,
+            opaque_bindings => opaque_bindings,
+            bridge_wrapper => bridge_wrapper,
+            core_import => core_import,
+            contract_name => base_reg.callback_contract,
+            base_method => base_method,
+            metadata_args => metadata_args,
+        },
+    ));
 
     out.push_str(&render(
         "service_api_registration_variant_nif_footer.rs.jinja",
