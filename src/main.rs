@@ -1550,6 +1550,7 @@ fn main() -> Result<()> {
 
                     // Check e2e stage cache: skip regeneration if fixtures + IR + config
                     // are all unchanged (unless --clean forces a full regeneration).
+                    let mut e2e_count = 0;
                     let fixtures_dir = std::path::Path::new(&e2e_config.fixtures);
                     let fixture_hash = cache::hash_directory(fixtures_dir).unwrap_or_default();
                     let ir_json = serde_json::to_string(&api)?;

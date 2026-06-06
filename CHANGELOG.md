@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **e2e**: fixed silent counting regression in `alef all` command where e2e test file count was unreported (e.g. "2 e2e files" instead of actual 140+) when one or both of local e2e and registry-mode test-apps stages were cached. Root cause: `e2e_count` variable was not reset per-crate, so when both stages were up-to-date the counter remained uninitialized. Files were written correctly; only the summary line was wrong.
+
 ## [0.23.18] - 2026-06-06
 
 ### Added
