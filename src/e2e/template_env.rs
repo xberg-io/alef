@@ -163,6 +163,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "csharp/app_harness.cs.jinja",
         include_str!("templates/csharp/app_harness.cs.jinja"),
     ),
+    (
+        "csharp/test_setup_mock_server.cs.jinja",
+        include_str!("templates/csharp/test_setup_mock_server.cs.jinja"),
+    ),
     ("java/pom.xml.jinja", include_str!("templates/java/pom.xml.jinja")),
     ("java/test_file.jinja", include_str!("templates/java/test_file.jinja")),
     (
