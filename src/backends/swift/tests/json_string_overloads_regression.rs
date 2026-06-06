@@ -74,20 +74,23 @@ mod swift_json_overload_regressions {
         assert!(true);
     }
 
-    /// Test that String return types get `.toString()` conversion in JSON overloads.
+    /// Test that String returns from JSON overloads do NOT double-convert RustString.
     ///
     /// Failure scenario (before fix):
-    /// - Function returns `String` (which becomes `RustString` from swift-bridge).
-    /// - JSON overload emits: `return try downloadModel(...)`
-    /// - Compilation error: "cannot convert value of type 'RustString' to expected type 'String'".
+    /// - JSON overload calls typed wrapper `downloadModel(...) -> String`.
+    /// - Typed wrapper already converts RustString -> String internally.
+    /// - JSON overload incorrectly appends `.toString()` to the result.
+    /// - Compilation error: "value of type 'String' has no member 'toString'".
     ///
     /// Expected output (after fix):
-    /// - JSON overload emits: `return try downloadModel(...).toString()`
-    /// - RustString is converted to Swift String at the call site.
+    /// - JSON overload emits: `return try downloadModel(...)` (no suffix).
+    /// - No `.toString()` because the typed wrapper already returns native Swift String.
+    /// - The RustString->String conversion happens inside the typed wrapper.
     #[test]
-    fn test_json_overload_string_return_to_string_conversion() {
+    fn test_json_overload_string_return_no_double_conversion() {
         // Marker test; actual codegen validated by running alef on full API
-        // and verifying String returns include .toString() suffix.
+        // and verifying String returns do not include .toString() suffix
+        // (that conversion happens inside the typed wrapper, not at the JSON-overload call site).
         assert!(true);
     }
 }

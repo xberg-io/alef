@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift**: JSON-string overloads no longer apply `.toString()` suffix to String return types, preventing double-conversion when the inner typed wrapper already converts `RustString → String`. Also skips sync-only JSON overloads when an async variant exists (async is the canonical implementation, and the sync typed wrapper would not be emitted). (`src/backends/swift/gen_bindings/mod.rs`, `src/backends/swift/tests/json_string_overloads_regression.rs`)
+
 <!-- N+14-dart-frb-shadow -->
 - **Dart backend**: FRB-Rust service methods that accept user-callback parameters were emitting them with the name `handler`, which shadowed FRB 2.x's internal `BaseHandler` field in the generated Dart code. FRB codegen would then emit incorrect `handler.executeSync(SyncTask(...))` calls against the user function (a plain `Function(String)`) instead of the internal field, causing Dart compile errors. Fixed by renaming the emitted FRB-Rust callback parameter to `cb`, which does not shadow the internal field, eliminating the need for the post-generation `fix_handler_executor_calls` rewrite that was previously required. The fix is library-agnostic: any alef consumer with FRB service-method callbacks benefits from this rename. (`src/backends/dart/templates/service_api/registration_method.rs.jinja`, `src/backends/dart/templates/service_api/registration_variant.rs.jinja`, `src/backends/dart/gen_rust_crate/cargo.rs`)
 

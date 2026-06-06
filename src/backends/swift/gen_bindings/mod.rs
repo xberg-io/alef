@@ -2651,6 +2651,19 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
             continue; // Already emitted an overload for this function
         }
 
+        // Skip sync functions when only async exists: the typed sync wrapper won't be emitted,
+        // so the JSON overload would fail to find a call target. Async is the canonical impl.
+        if !func.is_async {
+            let sync_name = func.name.clone();
+            let has_async = api
+                .functions
+                .iter()
+                .any(|f| f.is_async && f.name == format!("{}_async", sync_name));
+            if has_async {
+                continue;
+            }
+        }
+
         // Get all config param indices for this function, sorted by position.
         let mut config_params = func_to_configs.get(&func.name).cloned().unwrap_or_default();
         config_params.sort_by_key(|(idx, _)| *idx);
@@ -2700,7 +2713,9 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         // function itself is infallible.
         let async_clause = if func.is_async { " async" } else { "" };
         let throws_clause = " throws";
-        let return_suffix = swift_return_conversion_suffix(&func.return_type);
+        // JSON-overload delegates to the typed public wrapper, which already returns native Swift types.
+        // The typed wrapper converts RustString→String internally, so we do NOT apply return_suffix again.
+        let return_suffix = "";
 
         // Build the call to the base function with labeled arguments.
         let mut call_args: Vec<String> = Vec::new();
