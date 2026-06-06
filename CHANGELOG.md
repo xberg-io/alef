@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **napi**: visitor result-enum string matching no longer lowercases the input before matching against capitalized variant wire names, which made every match arm unreachable and clippy's `match_str_case_mismatch` lint promote to an error under `-D warnings`. The lowering of `cv.coerce_to_string()` already returns the JS-side value verbatim (e.g. `"Continue"`); the comparison must use the same case as the wire name. Removed the `.to_lowercase()` call so the match arms — generated as `"{{ variant.wire_name }}"` — are actually reachable. (`src/backends/napi/templates/visitor_method.jinja`)
 
+- **pyo3 / extendr / wasm / magnus**: applied the same fix as napi — the visitor result-enum match dropped `.to_lowercase()` before comparing the host-side string against the capitalized variant wire names. Every backend that materializes a Rust `match s.to_lowercase().as_str() { "Continue" => ... }` runs into the same `match_str_case_mismatch` clippy promotion under `-D warnings`. (`src/backends/{pyo3,extendr,wasm,magnus}/templates/.../visitor_method*.jinja`)
+
+- **dart**: annotated the `fix_handler_executor_calls` build-script helper with `#[allow(clippy::collapsible_if)]` so consumer crates with `-D warnings` (e.g. h2m's `cargo clippy --workspace --all-features`) don't break on the deliberately-flat early-warn-then-write pattern. The structure stays readable and a future log-on-success branch would slot in without refactor. (`src/backends/dart/templates/rust_loader_patch_fn.rs.jinja`)
+
 ## [0.23.18] - 2026-06-06
 
 ### Added

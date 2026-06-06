@@ -64,6 +64,7 @@ fn patch_published_loader() {
 /// erroneous method calls, calling the handler directly as a function.
 ///
 /// Idempotent: when the broken pattern is absent the function is a no-op.
+#[allow(clippy::collapsible_if)]
 fn fix_handler_executor_calls() {
     let path = Path::new(FRB_GENERATED_DART);
     let Ok(source) = std::fs::read_to_string(path) else {
