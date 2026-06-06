@@ -11,7 +11,7 @@ use super::render_type::{format_param, render_type};
 ///
 /// Parameters named `config` whose named type has a Rust `Default` implementation AND
 /// for which alef can synthesize a complete Dart constructor expression are made
-/// optional in the Dart wrapper. Both conditions are required: FRB-generated DTOs use
+/// optional (named) in the Dart wrapper. Both conditions are required: FRB-generated DTOs use
 /// `required` named parameters for every field, so a bare `Type()` constructor only
 /// compiles when alef can emit a value for every field. When alef cannot synthesize a
 /// default (e.g. a field whose type lacks a known zero value), the config param stays
@@ -68,7 +68,7 @@ pub(super) fn emit_function(
     });
 
     // Build the dart wrapper parameter list. If the function has a config param
-    // with a synthesizable default, include it as an optional positional parameter.
+    // with a synthesizable default, include it as an optional named parameter.
     //
     // For all other functions, emit required (non-optional) params as positional and
     // optional params inside a `{...}` named-parameter block. This matches the natural
@@ -81,7 +81,7 @@ pub(super) fn emit_function(
             .filter(|p| !is_optional_config_param(p, type_defs, enums))
             .map(|p| format_param(p, imports))
             .collect();
-        let config_sig = format!("[{cfg_type}? config]");
+        let config_sig = format!("{{{cfg_type}? config}}");
         if required_params.is_empty() {
             config_sig
         } else {
