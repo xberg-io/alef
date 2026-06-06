@@ -3,4 +3,3 @@ func (s *{{ service_name }}) {{ method_name }}({{ params }}){{ return_sig }} {
 	defer s.mu.Unlock()
 	if s.owner == nil {
 {{ closed_return }}	}
-

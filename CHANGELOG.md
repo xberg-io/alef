@@ -11,7 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **extendr/R**: ordinary enum core/binding `From` impls now render through Extendr-local Jinja templates, keeping generated output behavior unchanged while aligning enum conversion codegen with backend template governance. (`src/backends/extendr/gen_bindings/enum_conversions.rs`, `src/backends/extendr/templates/enum_from_*`)
 
+- **cli**: `alef all` now prints `[{lang}] running post-build...` before invoking each language's post-build step so silent backends (no post-build) and long-running RunCommand steps (`flutter_rust_bridge_codegen`) are visible to the user; previously the loop traversed up to nine silent backends between the last printed completion and the next active step, giving the impression of a hang. (`src/main.rs`)
+
 ### Fixed
+
+- **cli**: post-build `RunCommand` invocations (e.g. `flutter_rust_bridge_codegen generate`) now stream stdout/stderr through alef's own stdio instead of buffering with `Command::output()`. Subprocess progress is visible in real time, and a 10-minute timeout kills runaway children with a clear error. Previously, FRB or other interactive generators that wrote progress lines were invisible until exit, and a hung child would block `alef all` indefinitely. (`src/cli/pipeline/commands.rs`)
+
 
 - **swift**: fixed CodingKeys enum code generation where multiple `case` statements were concatenated onto a single line, causing Swift compiler error "consecutive declarations on a line must be separated by newline or ';'". Root cause: minijinja's `trim_blocks=true` consumed the newline after `{% endif %}` template tags in `swift_tagged_coding_key_case.swift.jinja`. The fix repositions the newline to be static text BEFORE the case statement (not after a template tag), ensuring `trim_blocks` cannot strip it. Added regression test verifying template structure. (`src/backends/swift/templates/swift_tagged_coding_key_case.swift.jinja`, `src/backends/swift/gen_bindings/mod.rs`, `tests/swift_coding_keys_formatting_regression.rs`)
 

@@ -59,4 +59,3 @@ func service_handler_callback(ctx unsafe.Pointer, reqCStr *C.char) *C.char {
 	cResp := C.CString(string(respJSON))
 	return cResp
 }
-

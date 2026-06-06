@@ -25,4 +25,3 @@ impl {{ bridge_name }} {
 // SAFETY: Py<PyAny> is Send+Sync when we never alias it without the GIL.
 unsafe impl Send for {{ bridge_name }} {}
 unsafe impl Sync for {{ bridge_name }} {}
-

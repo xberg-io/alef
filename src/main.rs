@@ -1377,23 +1377,30 @@ fn main() -> Result<()> {
                     let _ = cache::write_generation_hashes(&cache_key, &hashes);
                 }
 
-                // Run post-build processing (e.g., FRB codegen, post-processing rewrites)
+                // Run post-build processing (e.g., FRB codegen, post-processing rewrites).
+                // Emit a "starting" line BEFORE each step so silent backends (post_build
+                // empty) and long-running subprocess steps (FRB codegen) are visible to
+                // the user; otherwise the loop appears to hang between the last printed
+                // backend and the next one with actual work.
                 eprintln!("Running post-build processing...");
                 for &lang in &languages {
                     let Some(backend) = registry::try_get_backend(lang) else {
                         continue;
                     };
-                    if let Some(bc) = backend.build_config_with_config(resolved_cfg) {
-                        if !bc.post_build.is_empty() {
-                            match pipeline::run_post_build(lang, &bc, resolved_cfg, &base_dir) {
-                                Ok(()) => {
-                                    eprintln!("  [{lang}] post-build processing complete");
-                                }
-                                Err(e) => {
-                                    eprintln!("  [{lang}] post-build processing failed: {e}");
-                                    return Err(e);
-                                }
-                            }
+                    let Some(bc) = backend.build_config_with_config(resolved_cfg) else {
+                        continue;
+                    };
+                    if bc.post_build.is_empty() {
+                        continue;
+                    }
+                    eprintln!("  [{lang}] running post-build...");
+                    match pipeline::run_post_build(lang, &bc, resolved_cfg, &base_dir) {
+                        Ok(()) => {
+                            eprintln!("  [{lang}] post-build processing complete");
+                        }
+                        Err(e) => {
+                            eprintln!("  [{lang}] post-build processing failed: {e}");
+                            return Err(e);
                         }
                     }
                 }

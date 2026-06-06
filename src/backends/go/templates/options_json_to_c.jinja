@@ -17,4 +17,3 @@
 		C.free(unsafe.Pointer(tmpStr))
 		defer C.{{ free_fn }}(cOptions)
 	}
-

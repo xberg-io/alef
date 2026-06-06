@@ -9,4 +9,3 @@ pub unsafe extern "system" fn {{ symbol }}(
     // ownership is transferred back here for drop via Box::from_raw.
     unsafe { let _ = Box::from_raw(handle as *mut core_crate::{{ type_name }}); }
 }
-

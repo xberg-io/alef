@@ -1,3 +1,2 @@
     suspend fun {{ method_name }}Async({{ params }}): {{ return_type }} =
         withContext(Dispatchers.IO) { {{ method_name }}({{ args }}) }
-

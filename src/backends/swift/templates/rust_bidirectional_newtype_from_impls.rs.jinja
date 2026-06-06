@@ -4,4 +4,3 @@ impl From<{{ inner_type }}> for {{ wrapper_type }} {
 impl From<{{ wrapper_type }}> for {{ inner_type }} {
     fn from(v: {{ wrapper_type }}) -> Self { v.0 }
 }
-

@@ -11,4 +11,3 @@ pub fn create_{{ options_snake }}_from_json_with_{{ field }}(
     __core.{{ field }} = {{ field }}.map(<{{ inner_path }}>::from);
     Ok({{ options_type }}::from(__core))
 }
-

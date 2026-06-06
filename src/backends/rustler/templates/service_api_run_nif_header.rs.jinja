@@ -26,4 +26,3 @@ pub fn {{ fn_name }}({{ param_sig }}) -> NifResult<Atom> {
     for reg_entry in registration_list {
         if let Ok((method_name, metadata, handler_pid)) = reg_entry.decode::<(String, rustler::Term<'_>, rustler::LocalPid)>()
         {
-

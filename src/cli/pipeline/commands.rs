@@ -1364,17 +1364,32 @@ pub fn run_post_build(
     Ok(())
 }
 
+/// Hard upper bound on how long a post-build `RunCommand` may run before alef
+/// considers it hung and kills it. Long-running subprocess generators like
+/// `flutter_rust_bridge_codegen` typically finish in under a minute on a warm
+/// cache; 10 minutes is a generous ceiling that catches genuine hangs without
+/// false-positiving slow first-runs on cold CI caches.
+const RUN_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Interval between `try_wait()` polls. Short enough to react promptly to a
+/// finished child, long enough not to burn CPU in a tight loop.
+const RUN_COMMAND_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
+
 /// Execute a `RunCommand` post-build step.
 ///
-/// Spawns `cmd` with `args` in `base_dir`, captures stdout/stderr, and
-/// returns an error if the process exits with a non-zero status.
+/// Spawns `cmd` with `args` in `base_dir`, streaming stdout/stderr through
+/// alef's own stdio so interactive subprocess progress is visible. Enforces a
+/// `RUN_COMMAND_TIMEOUT` ceiling; on timeout the child is SIGKILL'd and the
+/// call returns an error. Returns an error on non-zero exit status.
 fn run_run_command(cmd: &str, args: &[&str], base_dir: &Path) -> anyhow::Result<()> {
-    let output = match std::process::Command::new(cmd)
+    let mut child = match std::process::Command::new(cmd)
         .args(args)
         .current_dir(base_dir)
-        .output()
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
     {
-        Ok(output) => output,
+        Ok(child) => child,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             warn!(
                 "[{cmd}] not on PATH — skipping post-build step. Install '{cmd}' to regenerate at build time; falling back to committed generated files."
@@ -1384,24 +1399,26 @@ fn run_run_command(cmd: &str, args: &[&str], base_dir: &Path) -> anyhow::Result<
         Err(err) => return Err(anyhow::Error::new(err).context(format!("failed to spawn '{cmd}'"))),
     };
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let started_at = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if started_at.elapsed() > RUN_COMMAND_TIMEOUT {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    anyhow::bail!("'{cmd}' exceeded {}s timeout; killed", RUN_COMMAND_TIMEOUT.as_secs());
+                }
+                std::thread::sleep(RUN_COMMAND_POLL_INTERVAL);
+            }
+            Err(err) => {
+                return Err(anyhow::Error::new(err).context(format!("failed to wait for '{cmd}'")));
+            }
+        }
+    };
 
-    if output.status.success() {
-        if !stdout.trim().is_empty() {
-            info!("[{cmd}] {}", stdout.trim());
-        }
-        if !stderr.trim().is_empty() {
-            info!("[{cmd} stderr] {}", stderr.trim());
-        }
-    } else {
-        let code = output.status.code().unwrap_or(-1);
-        if !stdout.trim().is_empty() {
-            info!("[{cmd}] {}", stdout.trim());
-        }
-        if !stderr.trim().is_empty() {
-            info!("[{cmd} stderr] {}", stderr.trim());
-        }
+    if !status.success() {
+        let code = status.code().unwrap_or(-1);
         anyhow::bail!("'{cmd}' exited with status {code}");
     }
 

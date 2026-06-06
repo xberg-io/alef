@@ -15,4 +15,3 @@ pub fn {{ func_name }}({{ params_str }}) -> {{ return_type }} {
         .map(crate::types::conversion_result_to_robj)
         .map_err(|e| extendr_api::Error::Other(e.to_string()))
 }
-
