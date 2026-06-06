@@ -381,7 +381,7 @@ fn render_build_gradle_kotlin_android(
     let tasks_block = if dep_mode == crate::e2e::config::DependencyMode::Registry {
         format!(
             r#"tasks.register("verifyAarPublished") {{
-    description = "Verify the published Android AAR contains jniLibs and classes.jar"
+    description = "Verify the published Android AAR contains jni and classes.jar"
     doLast {{
         val aarCoord = "{maven_coordinate}"
         val (groupId, artifactId, version) = run {{
@@ -412,23 +412,23 @@ fn render_build_gradle_kotlin_android(
         println("Verifying AAR contents...")
         ZipFile(aarFile).use {{ zip ->
             val entries = zip.entries().toList()
-            val hasJniLibs = entries.any {{ it.name.startsWith("jniLibs/") }}
+            val hasJni = entries.any {{ it.name.startsWith("jni/") }}
             val hasClasses = entries.any {{ it.name == "classes.jar" }}
 
-            if (!hasJniLibs) {{
-                throw GradleException("AAR missing jniLibs directory")
+            if (!hasJni) {{
+                throw GradleException("AAR missing jni directory")
             }}
             if (!hasClasses) {{
                 throw GradleException("AAR missing classes.jar")
             }}
 
             val abiDirs = entries
-                .filter {{ it.name.startsWith("jniLibs/") }}
-                .map {{ it.name.substringAfter("jniLibs/").substringBefore("/") }}
+                .filter {{ it.name.startsWith("jni/") }}
+                .map {{ it.name.substringAfter("jni/").substringBefore("/") }}
                 .filter {{ it.isNotEmpty() }}
                 .distinct()
 
-            println("  + jniLibs: YES")
+            println("  + jni: YES")
             println("  + classes.jar: YES")
             println("  + Android ABIs: " + abiDirs.sorted().joinToString(", "))
             println("\nAAR verification PASSED!")
@@ -1048,7 +1048,7 @@ mod tests {
 
     /// Regression: registry-mode build.gradle.kts must emit a `verifyAarPublished`
     /// task that downloads the published AAR from Maven Central and verifies it
-    /// contains jniLibs/ and classes.jar. This task serves as a smoke test for
+    /// contains jni/ and classes.jar. This task serves as a smoke test for
     /// AAR content correctness without requiring JNI loading on the host JVM.
     #[test]
     fn build_gradle_kotlin_android_registry_mode_includes_aar_verification_task() {
@@ -1065,8 +1065,8 @@ mod tests {
             "registry-mode build.gradle.kts must include verifyAarPublished task, got:\n{output}"
         );
         assert!(
-            output.contains("jniLibs"),
-            "verifyAarPublished task must check for jniLibs directory, got:\n{output}"
+            output.contains("startsWith(\"jni/\")"),
+            "verifyAarPublished task must check for jni/ directory, got:\n{output}"
         );
         assert!(
             output.contains("classes.jar"),
