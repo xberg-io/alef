@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e/java**: import `LauncherSessionListener` from `org.junit.platform.launcher` so generated
+  mock-server listener code matches the JUnit Platform launcher API package.
+
 - **e2e**: fixed silent counting regression in `alef all` command where e2e test file count was unreported (e.g. "2 e2e files" instead of actual 140+) when one or both of local e2e and registry-mode test-apps stages were cached. Root cause: `e2e_count` variable was not reset per-crate, so when both stages were up-to-date the counter remained uninitialized. Files were written correctly; only the summary line was wrong.
 
 - **napi**: visitor result-enum string matching no longer lowercases the input before matching against capitalized variant wire names, which made every match arm unreachable and clippy's `match_str_case_mismatch` lint promote to an error under `-D warnings`. The lowering of `cv.coerce_to_string()` already returns the JS-side value verbatim (e.g. `"Continue"`); the comparison must use the same case as the wire name. Removed the `.to_lowercase()` call so the match arms — generated as `"{{ variant.wire_name }}"` — are actually reachable. (`src/backends/napi/templates/visitor_method.jinja`)
