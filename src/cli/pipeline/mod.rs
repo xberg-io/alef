@@ -5,6 +5,10 @@ mod format;
 mod generate;
 mod helpers;
 mod version;
+mod version_regen;
+mod version_registry;
+mod version_swift;
+mod version_text;
 
 pub use cleanup::cleanup_orphaned_files;
 pub use commands::{build, clean, fmt, fmt_post_generate, lint, run_post_build, setup, test, test_apps_run, update};
