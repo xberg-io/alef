@@ -20,12 +20,10 @@ if (!file_exists($pkgAutoloader)) {
 require_once $pkgAutoloader;
 
 // Import the app class and supporting types from the binding.
-{% for import_name in imports %}
-use {{ import_name | replace('-', '_') | replace('.', '\\') }}\{{ app_class }};
-use {{ import_name | replace('-', '_') | replace('.', '\\') }}\ServerConfig;
-use {{ import_name | replace('-', '_') | replace('.', '\\') }}\RouteBuilder;
-use {{ import_name | replace('-', '_') | replace('.', '\\') }}\Method;
-{% endfor %}
+use {{ route_builder_import }}\{{ app_class }};
+use {{ route_builder_import }}\ServerConfig;
+use {{ route_builder_import }}\{{ route_builder_class }};
+use {{ method_enum_import }}\{{ method_enum_class }};
 
 // Load fixtures from the JSON payload.
 // The fixtures dict contains per-fixture data with handler route, method, body_schema, etc.
