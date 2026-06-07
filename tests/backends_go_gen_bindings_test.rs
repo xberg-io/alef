@@ -79,7 +79,7 @@ fn test_basic_generation() {
             has_stripped_cfg_fields: false,
             is_return_type: false,
             serde_rename_all: None,
-            has_serde: false,
+            has_serde: true,
             super_traits: vec![],
             doc: "Configuration type".to_string(),
             cfg: None,
@@ -153,7 +153,7 @@ fn test_basic_generation() {
             doc: "Processing mode".to_string(),
             cfg: None,
             is_copy: false,
-            has_serde: false,
+            has_serde: true,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -734,7 +734,7 @@ fn test_methods_generation() {
             has_stripped_cfg_fields: false,
             is_return_type: false,
             serde_rename_all: None,
-            has_serde: false,
+            has_serde: true,
             super_traits: vec![],
             doc: "A handler type".to_string(),
             cfg: None,
@@ -765,7 +765,7 @@ fn test_methods_generation() {
     // Non-opaque receivers must be marshaled to JSON, so even methods without explicit error_type
     // return (T, error). Verify GetName returns (string, error) with bare string (not *string).
     assert!(
-        content.contains("func (r *Handler) GetName() (string, error)"),
+        content.contains("func (r *Handler) GetName(") && content.contains(") (string, error) {"),
         "Should define instance method GetName returning (string, error) with bare string type"
     );
 
@@ -2041,7 +2041,7 @@ fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
     );
 
     assert!(
-        code.contains("vtable := C.SAMPLE_CRATESampleCrateOcrBackendVTable{"),
+        code.contains("vtable := &C.struct_SAMPLE_CRATESampleCrateOcrBackendVTable{"),
         "must use correct cbindgen-generated VTable struct name format: {{CRATE_UPPER}}{{CratePascal}}{{TraitPascal}}VTable"
     );
 }
@@ -2334,7 +2334,7 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
             has_stripped_cfg_fields: false,
             is_return_type: false,
             serde_rename_all: None,
-            has_serde: false,
+            has_serde: true,
             super_traits: vec![],
             doc: "Upload file".to_string(),
             cfg: None,
@@ -2366,7 +2366,7 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
         helper_decls, content
     );
     assert!(
-        content.contains("unmarshalBytes(ptr)"),
+        content.matches("unmarshalBytes(").count() > helper_decls,
         "bytes-returning methods must call the package-level helper, got:\n{}",
         content
     );

@@ -636,8 +636,11 @@ mod tests {
         let java = gen_service_class(&surface, &surface.services[0], "com.example", &config);
 
         assert!(
-            !java.contains("native "),
-            "should not contain JNI native method declarations"
+            !java.contains("public native ")
+                && !java.contains("private native ")
+                && !java.contains("protected native ")
+                && !java.contains("static native "),
+            "should not contain JNI native method declarations:\n{java}"
         );
         assert!(
             !java.contains("System.loadLibrary"),

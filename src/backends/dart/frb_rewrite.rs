@@ -448,17 +448,21 @@ fn rewrite_handler_calls_in_parameterized_functions(source: &str) -> String {
             // Check if this function has `handler` as a parameter
             let is_handler_parameterized = detect_handler_parameter(&lines, i);
 
-            // Collect lines until we reach the closing brace of the function body
+            // Collect lines until we reach the closing brace of the function body.
+            // Function signatures can span multiple lines before the opening `{`,
+            // so keep collecting until the body starts and then closes.
             let mut func_lines = vec![line];
             i += 1;
 
-            // Find the opening brace of the function body and track nesting
             let mut depth = count_brace_depth(line);
+            let mut saw_body = depth > 0;
 
-            while i < lines.len() && depth > 0 {
+            while i < lines.len() && (!saw_body || depth > 0) {
                 let curr_line = lines[i];
                 func_lines.push(curr_line);
-                depth += count_brace_depth(curr_line);
+                let line_depth = count_brace_depth(curr_line);
+                depth += line_depth;
+                saw_body = saw_body || line_depth > 0;
                 i += 1;
             }
 
@@ -595,7 +599,7 @@ fn rewrite_handler_to_task_executor(source: &str) -> String {
     // The `)` before `.executeSync()` is orphaned and should be removed.
     // Fix: Strip the orphaned `)` on the line before `.executeSync()` / `.executeNormal()`
 
-    let mut result = source.to_string();
+    let mut result = rewrite_handler_executor_wrappers(source);
 
     // Match `),` followed by any whitespace (including newlines), then orphaned `)` before `.executeSync()` or `.executeNormal()`
     // Pattern: `),` + newline + indent + `)` + `.execute(Sync|Normal)()`
@@ -610,6 +614,61 @@ fn rewrite_handler_to_task_executor(source: &str) -> String {
         .into_owned();
 
     result
+}
+
+fn rewrite_handler_executor_wrappers(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut cursor = 0;
+
+    while let Some((relative_start, method)) = find_next_handler_executor(&source[cursor..]) {
+        let start = cursor + relative_start;
+        let open_paren = start + format!("handler.{method}").len();
+        let Some(close_paren) = find_matching_paren(source, open_paren) else {
+            break;
+        };
+
+        out.push_str(&source[cursor..start]);
+        let task = source[open_paren + 1..close_paren].trim();
+        let task = task.strip_suffix(',').map(str::trim_end).unwrap_or(task);
+        out.push_str(task);
+        out.push('.');
+        out.push_str(method);
+        out.push_str("()");
+        cursor = close_paren + 1;
+    }
+
+    out.push_str(&source[cursor..]);
+    out
+}
+
+fn find_next_handler_executor(source: &str) -> Option<(usize, &'static str)> {
+    let sync = source.find("handler.executeSync(");
+    let normal = source.find("handler.executeNormal(");
+
+    match (sync, normal) {
+        (Some(sync), Some(normal)) if sync <= normal => Some((sync, "executeSync")),
+        (Some(_), Some(normal)) => Some((normal, "executeNormal")),
+        (Some(sync), None) => Some((sync, "executeSync")),
+        (None, Some(normal)) => Some((normal, "executeNormal")),
+        (None, None) => None,
+    }
+}
+
+fn find_matching_paren(source: &str, open_paren: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (offset, ch) in source[open_paren..].char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(open_paren + offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Ensure all closures and anonymous functions that contain `await handler` calls

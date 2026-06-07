@@ -408,10 +408,10 @@ mod tests {
         // When MOCK_SERVER_URL is pre-set by the test runner, reuse it and skip
         // spawning the local binary. The early return must precede the spawn().
         assert!(
-            out.contains("if (process.env.MOCK_SERVER_URL)"),
+            out.contains("const presetUrl = process.env.MOCK_SERVER_URL ?? process.env.SUT_URL;"),
             "globalSetup must short-circuit on a pre-set MOCK_SERVER_URL, got: {out}"
         );
-        let guard = out.find("if (process.env.MOCK_SERVER_URL)").expect("guard present");
+        let guard = out.find("if (presetUrl)").expect("guard present");
         let spawn = out.find("spawn(").expect("spawn present");
         assert!(
             guard < spawn,

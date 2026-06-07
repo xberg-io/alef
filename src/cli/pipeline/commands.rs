@@ -1715,18 +1715,45 @@ sources = ["src/lib.rs"]
 #[cfg(all(test, unix))]
 mod run_command_tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn restore_skip_env(previous: Option<String>) {
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("ALEF_SKIP_COMMANDS", value),
+                None => std::env::remove_var("ALEF_SKIP_COMMANDS"),
+            }
+        }
+    }
 
     #[test]
     fn run_run_command_succeeds_for_echo() {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        let previous = std::env::var("ALEF_SKIP_COMMANDS").ok();
+        unsafe {
+            std::env::remove_var("ALEF_SKIP_COMMANDS");
+        }
         let dir = std::env::temp_dir();
         let result = run_run_command("echo", &["alef-runcommand-ok"], &dir);
+        restore_skip_env(previous);
         assert!(result.is_ok(), "echo should succeed: {result:?}");
     }
 
     #[test]
     fn run_run_command_fails_for_false() {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        let previous = std::env::var("ALEF_SKIP_COMMANDS").ok();
+        unsafe {
+            std::env::remove_var("ALEF_SKIP_COMMANDS");
+        }
         let dir = std::env::temp_dir();
         let result = run_run_command("false", &[], &dir);
+        restore_skip_env(previous);
         assert!(result.is_err(), "false should return Err");
         let msg = format!("{:?}", result.unwrap_err());
         assert!(
@@ -1737,6 +1764,8 @@ mod run_command_tests {
 
     #[test]
     fn run_run_command_honors_skip_env_var() {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        let previous = std::env::var("ALEF_SKIP_COMMANDS").ok();
         // Single test rather than two parallel tests, because cargo runs tests
         // concurrently by default and ALEF_SKIP_COMMANDS is a process-global
         // env var: separate tests would race each other on set/unset.
@@ -1759,9 +1788,7 @@ mod run_command_tests {
             std::env::set_var("ALEF_SKIP_COMMANDS", "something-else");
         }
         let honored = run_run_command("false", &[], &dir);
-        unsafe {
-            std::env::remove_var("ALEF_SKIP_COMMANDS");
-        }
+        restore_skip_env(previous);
         assert!(
             honored.is_err(),
             "unlisted command must still spawn and surface failure"

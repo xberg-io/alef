@@ -486,6 +486,7 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         );
         let _ = writeln!(out, "\t// MOCK_SERVER line, then drain the rest in the background.");
         let _ = writeln!(out, "\thaveURL := false");
+        let _ = writeln!(out, "\t//nolint:gocritic");
         let _ = writeln!(out, "\tfor scanner.Scan() {{");
         let _ = writeln!(out, "\t\tline := scanner.Text()");
         let _ = writeln!(out, "\t\tif strings.HasPrefix(line, \"MOCK_SERVER_URL=\") {{");
@@ -495,8 +496,7 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         );
         let _ = writeln!(out, "\t\t\thaveURL = true");
         let _ = writeln!(out, "\t\t\tcontinue");
-        let _ = writeln!(out, "\t\t}}");
-        let _ = writeln!(out, "\t\tif strings.HasPrefix(line, \"MOCK_SERVERS=\") {{");
+        let _ = writeln!(out, "\t\t}} else if strings.HasPrefix(line, \"MOCK_SERVERS=\") {{");
         let _ = writeln!(out, "\t\t\tpayload := strings.TrimPrefix(line, \"MOCK_SERVERS=\")");
         let _ = writeln!(out, "\t\t\t_ = os.Setenv(\"MOCK_SERVERS\", payload)");
         let _ = writeln!(out, "\t\t\tvar servers map[string]string");
@@ -512,8 +512,7 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out, "\t\t\t\t}}");
         let _ = writeln!(out, "\t\t\t}}");
         let _ = writeln!(out, "\t\t\tbreak");
-        let _ = writeln!(out, "\t\t}}");
-        let _ = writeln!(out, "\t\tif haveURL {{");
+        let _ = writeln!(out, "\t\t}} else if haveURL {{");
         let _ = writeln!(out, "\t\t\tbreak");
         let _ = writeln!(out, "\t\t}}");
         let _ = writeln!(out, "\t}}");
@@ -659,6 +658,7 @@ fn render_helpers_test_go() -> String {
         out,
         "// Array fields use jsonString instead of fmt.Sprint to preserve structure."
     );
+    let _ = writeln!(out, "//nolint:unused");
     let _ = writeln!(out, "func jsonString(value any) string {{");
     let _ = writeln!(out, "\tencoded, err := json.Marshal(value)");
     let _ = writeln!(out, "\tif err != nil {{");

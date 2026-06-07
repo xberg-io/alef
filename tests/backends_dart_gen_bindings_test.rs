@@ -455,7 +455,7 @@ fn default_config_param_uses_default_constructor_for_empty_default_type() {
     let content = find_dart_src(&files).expect("src dart file should be emitted");
 
     assert!(
-        content.contains("static Future<void> pack([PackConfig? config]) async {"),
+        content.contains("static Future<void> pack({PackConfig? config}) async {"),
         "config should be optional: {content}"
     );
     assert!(
@@ -535,7 +535,7 @@ fn default_config_param_synthesizes_expression_from_type_metadata() {
     let content = find_dart_src(&files).expect("src dart file should be emitted");
 
     assert!(
-        content.contains("static Future<String> runExample([ExampleConfig? config]) async {"),
+        content.contains("static Future<String> runExample({ExampleConfig? config}) async {"),
         "config should be optional: {content}"
     );
     assert!(

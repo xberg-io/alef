@@ -753,7 +753,7 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
 
     // Required method fn ptr must be null-checked; optional need not be
     assert!(
-        code.contains("vtable.transform.is_none()"),
+        code.contains("vtable_ref.transform.is_none()"),
         "register fn must validate required fn pointers are non-null"
     );
 }

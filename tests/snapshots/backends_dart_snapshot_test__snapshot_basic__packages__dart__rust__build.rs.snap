@@ -1,6 +1,5 @@
 ---
 source: tests/backends_dart_snapshot_test.rs
-assertion_line: 193
 expression: "&file.content"
 ---
 use std::path::Path;
@@ -113,8 +112,14 @@ const FRB_INIT_REPLACEMENT: &str = r#"  /// Resolve the prebuilt native library 
   static List<String> _alefHostLibNames() {
     // The Dart-binding Rust crate is `{stem}-dart` (per the cargo manifest
     // template), which produces a cdylib named `lib{stem}_dart.{ext}` on Unix
-    // and `{stem}_dart.dll` on Windows.
-    if (Platform.isMacOS) return const ['libdemo_dart.dylib'];
+    // and `{stem}_dart.dll` on Windows. On macOS, pub.dev-published packages
+    // may ship the binary as a Framework bundle (preferred modern packaging)
+    // — list that first so the loader finds it before the bare dylib.
+    if (Platform.isMacOS)
+      return const [
+        'demo_dart.framework/demo_dart',
+        'libdemo_dart.dylib',
+      ];
     if (Platform.isWindows) return const ['demo_dart.dll'];
     return const ['libdemo_dart.so'];
   }
@@ -189,6 +194,7 @@ fn patch_published_loader() {
 /// erroneous method calls, calling the handler directly as a function.
 ///
 /// Idempotent: when the broken pattern is absent the function is a no-op.
+#[allow(clippy::collapsible_if)]
 fn fix_handler_executor_calls() {
     let path = Path::new(FRB_GENERATED_DART);
     let Ok(source) = std::fs::read_to_string(path) else {

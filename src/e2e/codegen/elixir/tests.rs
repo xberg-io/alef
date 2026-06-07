@@ -68,7 +68,7 @@ mod test_helper_tests {
         let config = make_e2e_config();
         let output = render_test_helper(false, true, &config);
         assert!(
-            output.contains("Finch.start_link(name: AlefE2EFinch)"),
+            output.contains("Finch.start_link(name: AlefE2EFinch, pools: %{:default => [protocols: [:http1]]})"),
             "uses_harness path must start named Finch pool, got:\n{output}"
         );
         assert!(
@@ -84,7 +84,7 @@ mod test_helper_tests {
         let config = make_e2e_config();
         let output = render_test_helper(true, false, &config);
         assert!(
-            output.contains("Finch.start_link(name: AlefE2EFinch)"),
+            output.contains("Finch.start_link(name: AlefE2EFinch, pools: %{:default => [protocols: [:http1]]})"),
             "has_http_tests path must start named Finch pool, got:\n{output}"
         );
         assert!(

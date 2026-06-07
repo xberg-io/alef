@@ -527,6 +527,7 @@ kotlin {{
     // Set JVM target for compilation. gradle.properties enables auto-detection
     // of host JDK installations so Gradle uses the available JDK version on the
     // build machine, preventing provisioning failures when the target version is not installed.
+    jvmToolchain({jvm_target})
     compilerOptions {{
         jvmTarget = JvmTarget.JVM_{jvm_target}
     }}

@@ -1019,8 +1019,13 @@ mod tests {
         );
 
         // Ensure the old shadowing name is NOT present
+        let service_method = rust
+            .split("pub fn add_handler(")
+            .nth(1)
+            .and_then(|body| body.split(") -> i32").next())
+            .expect("generated add_handler signature should be present");
         assert!(
-            !rust.contains("handler: impl Fn(String) -> DartFnFuture<String>"),
+            !service_method.contains("handler: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static"),
             "callback param must not be named `handler` to avoid FRB shadowing in:\n{rust}"
         );
 

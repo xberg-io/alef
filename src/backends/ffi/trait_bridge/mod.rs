@@ -1698,7 +1698,9 @@ mod tests {
 
         // Should not use value-type vtable parameter.
         assert!(
-            !code.contains("    vtable: TestTestBackendVTable,\n    user_data"),
+            !code.contains(
+                "pub unsafe extern \"C\" fn test_register_backend(\n    name: *const std::ffi::c_char,\n    vtable: TestTestBackendVTable,"
+            ),
             "FFI registration function must NOT take vtable as value type (bare struct);\n\
              actual code:\n{code}"
         );

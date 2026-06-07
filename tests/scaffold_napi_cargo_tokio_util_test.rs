@@ -1,26 +1,6 @@
-use alef::core::config::{ResolvedCrateConfig, TraitBridgeConfig, new_config::NewAlefConfig};
-use alef::core::ir::{ApiSurface, CoreWrapper, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
-use alef::scaffold::languages::node::scaffold_node_cargo;
-
-fn make_param(name: &str, ty: TypeRef) -> ParamDef {
-    ParamDef {
-        name: name.to_string(),
-        ty,
-        optional: false,
-        default: None,
-        sanitized: false,
-        typed_default: None,
-        is_ref: false,
-        is_mut: false,
-        newtype_wrapper: None,
-        original_type: None,
-        map_is_ahash: false,
-        map_key_is_cow: false,
-        vec_inner_is_ref: false,
-        map_is_btree: false,
-        core_wrapper: CoreWrapper::None,
-    }
-}
+use alef::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
+use alef::core::ir::{ApiSurface, TypeDef};
+use alef::scaffold::scaffold;
 
 fn make_type(name: &str, is_trait: bool) -> TypeDef {
     TypeDef {
@@ -57,30 +37,32 @@ fn scaffold_napi_cargo_includes_tokio_util_with_sync_feature_when_trait_bridges_
         functions: vec![],
         enums: vec![],
         errors: vec![],
-        constants: vec![],
-        modules: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: vec![],
     };
 
     let mut config = ResolvedCrateConfig::default();
     config.name = "demo".to_string();
+    config.languages = vec![Language::Node];
     config.workspace_root = Some(std::path::PathBuf::from("/workspace"));
 
     // Add a trait bridge to enable tokio-util dependency generation
     config.trait_bridges = vec![TraitBridgeConfig {
-        type_alias: "MyTrait".to_string(),
-        trait_type: "demo::traits::MyTrait".to_string(),
-        super_trait: None,
         register_fn: Some("register_my_trait".to_string()),
-        unregister_fn: None,
-        clear_fn: None,
-        bind_via: alef::core::config::BridgeBinding::FunctionParam,
-        options_type: None,
+        trait_name: "MyTrait".to_string(),
+        ..TraitBridgeConfig::default()
     }];
 
-    let result = scaffold_node_cargo(&api, &config).expect("scaffold_node_cargo failed");
+    let result = scaffold(&api, &config, &[Language::Node]).expect("scaffold failed");
+    let cargo_file = result
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("crates/demo-node/Cargo.toml"))
+        .expect("Node scaffold should generate Cargo.toml");
 
-    assert_eq!(result.len(), 1, "Should generate one file");
-    let content = &result[0].content;
+    let content = &cargo_file.content;
 
     // Verify tokio-util with sync feature is present in dependencies
     assert!(
@@ -115,19 +97,26 @@ fn scaffold_napi_cargo_excludes_tokio_util_when_no_trait_bridges() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
-        constants: vec![],
-        modules: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: vec![],
     };
 
     let mut config = ResolvedCrateConfig::default();
     config.name = "demo".to_string();
+    config.languages = vec![Language::Node];
     config.workspace_root = Some(std::path::PathBuf::from("/workspace"));
     config.trait_bridges = vec![]; // No trait bridges
 
-    let result = scaffold_node_cargo(&api, &config).expect("scaffold_node_cargo failed");
+    let result = scaffold(&api, &config, &[Language::Node]).expect("scaffold failed");
+    let cargo_file = result
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("crates/demo-node/Cargo.toml"))
+        .expect("Node scaffold should generate Cargo.toml");
 
-    assert_eq!(result.len(), 1, "Should generate one file");
-    let content = &result[0].content;
+    let content = &cargo_file.content;
 
     // tokio-util should not be present when there are no trait bridges
     assert!(

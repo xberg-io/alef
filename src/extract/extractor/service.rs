@@ -991,6 +991,7 @@ pub trait IntoHandler {}
         let (_dir, file_path, mut surface) = extract_source_persistent(src);
         let mut cfg = make_resolved_config_with_service();
         cfg.sources = vec![file_path];
+        cfg.services[0].configurators.clear();
         cfg.services[0].registrations[0].method = "route".to_owned();
         cfg.services[0].registrations[0].variants = vec![
             RegistrationVariantSpec {
@@ -1087,6 +1088,7 @@ pub trait IntoHandler {}
         let (_dir, file_path, mut surface) = extract_source_persistent(src);
         let mut cfg = make_resolved_config_with_service();
         cfg.sources = vec![file_path];
+        cfg.services[0].configurators.clear();
         cfg.services[0].registrations[0].method = "route".to_owned();
         cfg.services[0].registrations[0].variants = vec![RegistrationVariantSpec {
             name: "bogus".to_owned(),
@@ -1127,6 +1129,7 @@ pub trait IntoHandler {}
         let (_dir, file_path, mut surface) = extract_source_persistent(src);
         let mut cfg = make_resolved_config_with_service();
         cfg.sources = vec![file_path];
+        cfg.services[0].configurators.clear();
         cfg.services[0].registrations[0].method = "route".to_owned();
         cfg.services[0].registrations[0].variants = vec![RegistrationVariantSpec {
             name: "bad_style".to_owned(),

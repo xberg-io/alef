@@ -2321,14 +2321,14 @@ mod tests {
             "entrypoint method should be emitted as async method on wrapper; output:\n{output}"
         );
 
-        // Should use the inner accessor to call the actual entrypoint
+        // Should use the configured inner accessor to move the owner out before awaiting.
         assert!(
-            output.contains("let mut inner = self.inner.lock().expect(\"mutex poisoned\");"),
+            output.contains("let mut guard = self.inner.lock().expect(\"mutex poisoned\");"),
             "entrypoint method should use configured inner accessor; output:\n{output}"
         );
 
         assert!(
-            output.contains("inner.run(addr)"),
+            output.contains("owner.run(addr)"),
             "entrypoint method should call the inner method; output:\n{output}"
         );
 

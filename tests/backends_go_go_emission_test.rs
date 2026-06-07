@@ -159,7 +159,7 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
             has_stripped_cfg_fields: false,
             is_return_type: false,
             serde_rename_all: None,
-            has_serde: false,
+            has_serde: true,
             super_traits: vec![],
             doc: String::new(),
             cfg: None,

@@ -60,12 +60,11 @@ fn field_with_doc(name: &str, ty: TypeRef, doc: &str) -> FieldDef {
     }
 }
 
-/// Force the record into the multi-line emit path where per-field Javadoc is
-/// legal. A single-line record (`record Foo(int x, int y)`) cannot legally
-/// carry per-component Javadoc, so the emitter intentionally skips field docs
-/// there; we exercise the multi-line path with a long type name + many fields.
+/// Force the record into the multi-line emit path. Field-level docs are omitted
+/// there because PMD 7.x treats javadocs before record component annotations as
+/// dangling comments.
 #[test]
-fn record_components_carry_field_javadoc_in_multi_line_emit() {
+fn record_components_omit_field_javadoc_in_multi_line_emit() {
     let backend = JavaBackend;
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -134,13 +133,20 @@ fn record_components_carry_field_javadoc_in_multi_line_emit() {
         .expect("dto file generated");
     let body = &dto.content;
     assert!(
-        body.contains("Alpha-channel value used for alpha blending."),
-        "alpha doc missing:\n{body}"
+        body.contains("Three-channel record with documented components."),
+        "record doc missing:\n{body}"
     );
-    assert!(body.contains("Beta is the second factor."), "beta doc missing:\n{body}");
     assert!(
-        body.contains("Gamma exponent for tone mapping."),
-        "gamma doc missing:\n{body}"
+        !body.contains("Alpha-channel value used for alpha blending."),
+        "field docs should be omitted in multiline record components:\n{body}"
+    );
+    assert!(
+        !body.contains("Beta is the second factor."),
+        "field docs should be omitted in multiline record components:\n{body}"
+    );
+    assert!(
+        !body.contains("Gamma exponent for tone mapping."),
+        "field docs should be omitted in multiline record components:\n{body}"
     );
 }
 

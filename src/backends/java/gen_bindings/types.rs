@@ -107,11 +107,6 @@ pub(crate) fn gen_record_type(
     let visible_fields: Vec<_> = binding_fields(&typ.fields).collect();
     let mut fields_joined = String::with_capacity(visible_fields.len().saturating_mul(42));
     let mut field_decls: Vec<String> = Vec::with_capacity(visible_fields.len());
-    // Per-field Javadoc captured at decl time so the multi-line emit path can
-    // attach `/** ... */` above each record component. The single-line path
-    // intentionally skips field docs — inlining `/** ... */` inside a
-    // comma-joined parameter list would produce invalid Java.
-    let mut field_docs: Vec<String> = Vec::with_capacity(visible_fields.len());
 
     for (i, f) in visible_fields.iter().enumerate() {
         // Complex enums (tagged unions with data) can't be simple Java enums.
@@ -289,9 +284,6 @@ pub(crate) fn gen_record_type(
         }
         fields_joined.push_str(&decl);
         field_decls.push(decl);
-        let mut doc_block = String::new();
-        emit_javadoc(&mut doc_block, &f.doc, "    ");
-        field_docs.push(doc_block);
     }
 
     // Build the single-line form to check length and scan for imports.
@@ -324,12 +316,10 @@ pub(crate) fn gen_record_type(
         let mut multiline_fields = String::new();
         for (i, decl) in field_decls.iter().enumerate() {
             let comma = if i < field_decls.len() - 1 { "," } else { "" };
-            // Field Javadoc lives above the component when present, indented to
-            // match the component declaration (4 spaces). Empty docs no-op via
-            // emit_javadoc's early return.
-            if let Some(doc) = field_docs.get(i) {
-                multiline_fields.push_str(doc);
-            }
+            // Note: PMD 7.x does not recognize javadoc preceding annotations as belonging
+            // to a record component (DanglingJavadoc rule). Record components are self-documenting
+            // value types; field-level docs are redundant with the class-level record javadoc.
+            // Omitting field docs in multiline mode satisfies PMD and keeps records concise.
             multiline_fields.push_str("    ");
             multiline_fields.push_str(decl);
             multiline_fields.push_str(comma);
