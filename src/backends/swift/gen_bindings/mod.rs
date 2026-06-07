@@ -418,7 +418,7 @@ impl Backend for SwiftBackend {
         // type has no Swift client class wrapper (no client_constructor_body in alef.toml).
         // For these adapters, emit_client_class is never called so the streaming methods
         // must be top-level free functions taking the handle as the first parameter.
-        emit_streaming_free_functions(config, &first_class_types, &mut body);
+        emit_streaming_free_functions(config, &first_class_types, &mut sendable_emitted, &mut body);
 
         // Emit `@unchecked Sendable` conformance for all remaining opaque types.
         // swift-bridge emits opaque types as plain Swift classes without `Sendable`
@@ -443,10 +443,14 @@ impl Backend for SwiftBackend {
             // parameter-only DTOs such as `BatchFileItem` / `BatchBytesItem`, which then
             // failed Swift 6 strict-concurrency checks when captured by async forwarders'
             // `Task.detached` closures.
+            // Skip types that are opaque-only (not in first_class_types) since their
+            // Sendable conformance is already emitted by streaming owner paths. Opaque
+            // types returned by streaming adapters get Sendable at line 2507; emitting
+            // again here causes Swift redundancy warnings.
             for ty in api
                 .types
                 .iter()
-                .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
+                .filter(|t| !t.is_trait && !exclude_types.contains(&t.name) && first_class_types.contains(&t.name))
             {
                 if sendable_emitted.insert(ty.name.clone()) {
                     emit_sendable_conformance(
@@ -2467,6 +2471,7 @@ fn emit_stream_handle_sendable(adapter: &AdapterConfig, owner_type: &str, out: &
 fn emit_streaming_free_functions(
     config: &ResolvedCrateConfig,
     first_class_types: &std::collections::HashSet<String>,
+    sendable_emitted: &mut std::collections::HashSet<String>,
     out: &mut String,
 ) {
     use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase};
@@ -2501,8 +2506,6 @@ fn emit_streaming_free_functions(
          // streaming methods are therefore exposed as module-level free functions\n\
          // that accept the owner handle as their first parameter.\n\n",
     );
-
-    let mut sendable_emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
     for adapter in &orphan_adapters {
         let owner_type = adapter.owner_type.as_deref().unwrap_or("");
         if sendable_emitted.insert(owner_type.to_string()) {
@@ -4558,6 +4561,29 @@ fn forwarder_param_signature(
                 Some(format!("let {local} = try {swift_param_name}?.intoRust()"))
             } else {
                 Some(format!("let {local} = try {swift_param_name}.intoRust()"))
+            };
+            (
+                swift_ty,
+                ForwarderArg {
+                    setup_line: setup,
+                    arg_expr: local,
+                },
+            )
+        }
+        // Plain `String` params: explicitly convert to `RustString` before the
+        // bridge call. The swift-bridge extern declares params as a single
+        // `<T: IntoRustString>`; when another sibling param is concrete
+        // `RustVec<RustString>` (e.g. `Vec<String>`), Swift cannot unify
+        // `T = String` with `T = RustString` and fails type inference. Emitting
+        // `RustString(value)` here pins both sites to `RustString` and works
+        // for solo-String calls too.
+        TypeRef::String => {
+            let swift_ty = make_optional("String");
+            let local = format!("_rb_{swift_param_name}");
+            let setup = if optional || matches!(ty, TypeRef::Optional(_)) {
+                Some(format!("let {local} = {swift_param_name}.map {{ RustString($0) }}"))
+            } else {
+                Some(format!("let {local} = RustString({swift_param_name})"))
             };
             (
                 swift_ty,
