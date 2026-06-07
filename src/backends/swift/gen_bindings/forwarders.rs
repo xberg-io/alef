@@ -2,7 +2,7 @@ use crate::backends::swift::gen_bindings::bridge_artifacts::already_emitted_top_
 use crate::backends::swift::gen_bindings::client::emit_doc_comment;
 use crate::backends::swift::naming::swift_rust_shim_ident as swift_ident;
 use crate::core::config::{BridgeBinding, ResolvedCrateConfig};
-use crate::core::ir::{ApiSurface, FunctionDef, TypeRef};
+use crate::core::ir::{ApiSurface, FunctionDef, PrimitiveType, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::HashSet;
 
@@ -717,13 +717,90 @@ fn swift_type_name(ty: &TypeRef) -> String {
         TypeRef::Bytes => "[UInt8]".to_string(),
         TypeRef::Path => "String".to_string(),
         TypeRef::Json => "String".to_string(),
-        TypeRef::Duration => "Double".to_string(),
+        TypeRef::Duration => "Duration".to_string(),
         TypeRef::Char => "Character".to_string(),
         TypeRef::Unit => "Void".to_string(),
         TypeRef::Named(name) => name.clone(),
         TypeRef::Optional(inner) => format!("{}?", swift_type_name(inner)),
         TypeRef::Vec(inner) => format!("[{}]", swift_type_name(inner)),
-        TypeRef::Map(_, _) => "String".to_string(),
-        TypeRef::Primitive(_) => "Int".to_string(),
+        TypeRef::Map(k, v) => format!("[{}: {}]", swift_type_name(k), swift_type_name(v)),
+        TypeRef::Primitive(p) => match p {
+            PrimitiveType::Bool => "Bool",
+            PrimitiveType::U8 => "UInt8",
+            PrimitiveType::U16 => "UInt16",
+            PrimitiveType::U32 => "UInt32",
+            PrimitiveType::U64 => "UInt64",
+            PrimitiveType::I8 => "Int8",
+            PrimitiveType::I16 => "Int16",
+            PrimitiveType::I32 => "Int32",
+            PrimitiveType::I64 => "Int64",
+            PrimitiveType::Usize => "UInt",
+            PrimitiveType::Isize => "Int",
+            PrimitiveType::F32 => "Float",
+            PrimitiveType::F64 => "Double",
+        }
+        .to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::TypeRef;
+
+    #[test]
+    fn test_swift_type_name_bool_returns_bool() {
+        assert_eq!(
+            swift_type_name(&TypeRef::Primitive(PrimitiveType::Bool)),
+            "Bool"
+        );
+    }
+
+    #[test]
+    fn test_swift_type_name_usize_returns_uint() {
+        assert_eq!(
+            swift_type_name(&TypeRef::Primitive(PrimitiveType::Usize)),
+            "UInt"
+        );
+    }
+
+    #[test]
+    fn test_swift_type_name_u8_returns_uint8() {
+        assert_eq!(
+            swift_type_name(&TypeRef::Primitive(PrimitiveType::U8)),
+            "UInt8"
+        );
+    }
+
+    #[test]
+    fn test_swift_type_name_u32_returns_uint32() {
+        assert_eq!(
+            swift_type_name(&TypeRef::Primitive(PrimitiveType::U32)),
+            "UInt32"
+        );
+    }
+
+    #[test]
+    fn test_swift_type_name_u64_returns_uint64() {
+        assert_eq!(
+            swift_type_name(&TypeRef::Primitive(PrimitiveType::U64)),
+            "UInt64"
+        );
+    }
+
+    #[test]
+    fn test_swift_type_name_i32_returns_int32() {
+        assert_eq!(
+            swift_type_name(&TypeRef::Primitive(PrimitiveType::I32)),
+            "Int32"
+        );
+    }
+
+    #[test]
+    fn test_swift_type_name_f32_returns_float() {
+        assert_eq!(
+            swift_type_name(&TypeRef::Primitive(PrimitiveType::F32)),
+            "Float"
+        );
     }
 }

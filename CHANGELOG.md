@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift (type-mapping bug in wrapper return types)**: fix incorrect mapping of Rust `bool` → Swift `Int` 
+  and Rust `usize` → Swift `Int` in the public function wrapper layer. The `swift_type_name()` function 
+  in `gen_bindings/forwarders.rs` now correctly maps `PrimitiveType::Bool` → `"Bool"` and 
+  `PrimitiveType::Usize` → `"UInt"`. Affected functions: `hasLanguage()`, `languageCount()`, 
+  `download()`, `downloadAll()`, `downloadGroup()` which previously declared impossible return types 
+  (`Int` where the body returns `Bool`/`UInt`). (`src/backends/swift/gen_bindings/forwarders.rs`)
+
 - **ruby (CROSS_PLATFORMS YARD doc)**: add a YARD-visible doc comment above the
   `CROSS_PLATFORMS` constant in the alef-emitted Ruby `Rakefile` so
   `yard-coverage` stops flagging the alef-generated cross-compile constant as
