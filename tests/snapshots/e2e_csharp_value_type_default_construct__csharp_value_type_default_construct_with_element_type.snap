@@ -31,7 +31,7 @@ namespace TestCrate
         {
             // Embedding test with omitted config parameter
             var result = await TestCrateLib.EmbedTextsAsync(new List<string>() { "sample text" }, new EmbeddingConfig());
-    
+
         }
 
 

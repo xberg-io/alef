@@ -443,14 +443,10 @@ impl Backend for SwiftBackend {
             // parameter-only DTOs such as `BatchFileItem` / `BatchBytesItem`, which then
             // failed Swift 6 strict-concurrency checks when captured by async forwarders'
             // `Task.detached` closures.
-            // Skip types that are opaque-only (not in first_class_types) since their
-            // Sendable conformance is already emitted by streaming owner paths. Opaque
-            // types returned by streaming adapters get Sendable at line 2507; emitting
-            // again here causes Swift redundancy warnings.
             for ty in api
                 .types
                 .iter()
-                .filter(|t| !t.is_trait && !exclude_types.contains(&t.name) && first_class_types.contains(&t.name))
+                .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
             {
                 if sendable_emitted.insert(ty.name.clone()) {
                     emit_sendable_conformance(

@@ -1,4 +1,4 @@
-{% if doc_comment %}{{ doc_comment.replace("  # ", "  ## ") }}{% endif %}{% if symbol_args %}  {{ variant_class }} = Data.define({{ symbol_args }}) do
+{% if doc_comment %}{{ doc_comment | replace("  # ", "  ## ") }}{% endif %}{% if symbol_args %}  {{ variant_class }} = Data.define({{ symbol_args }}) do
 {% else %}  {{ variant_class }} = Data.define do
 {% endif %}    include {{ class_name }}
     extend T::Sig
