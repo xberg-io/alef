@@ -491,14 +491,15 @@ fn main_test_go_non_http_fixtures_includes_net_http_and_strings_imports() {
         out.contains("\t\"strings\""),
         "main_test.go (mock-server bootstrap path) must import strings; got:\n{out}"
     );
-    // And must NOT import "net" or "io" (those are http-fixtures harness path only)
+    // io is now needed for the runTests helper's io.ReadCloser parameter
+    assert!(
+        out.contains("\t\"io\""),
+        "main_test.go (mock-server bootstrap path) must import io for helper; got:\n{out}"
+    );
+    // And must NOT import "net" (that's http-fixtures harness path only)
     assert!(
         !out.contains("\t\"net\""),
         "main_test.go (mock-server bootstrap path) must NOT import net; got:\n{out}"
-    );
-    assert!(
-        !out.contains("\t\"io\""),
-        "main_test.go (mock-server bootstrap path) must NOT import io; got:\n{out}"
     );
 }
 
@@ -516,5 +517,49 @@ fn main_test_go_sets_mock_server_no_stdin_watch_env() {
     assert!(
         out.contains("cmd.Env = append(os.Environ(),"),
         "main_test.go must use cmd.Env = append(os.Environ(), ...) form; got:\n{out}"
+    );
+}
+
+/// Regression test: TestMain must not trigger the 'exitAfterDefer' linter error.
+/// This is avoided by extracting deferred cleanup into helper functions that
+/// return int before os.Exit is called.
+#[test]
+fn main_test_go_avoids_exitafterdefer_linter_error() {
+    // Mock-server bootstrap path: must have a runTests helper function
+    let mock_server_out = render_main_test_go("testing_data", true, false);
+    assert!(
+        mock_server_out.contains("func runTests(m *testing.M, cmd *exec.Cmd, stdout io.ReadCloser) int"),
+        "mock-server bootstrap path must emit runTests helper; got:\n{mock_server_out}"
+    );
+    assert!(
+        mock_server_out.contains("code := runTests(m, cmd, stdout)"),
+        "TestMain must call runTests to get int, not inline defer; got:\n{mock_server_out}"
+    );
+    assert!(
+        mock_server_out.contains("os.Exit(code)"),
+        "os.Exit must be called AFTER runTests returns; got:\n{mock_server_out}"
+    );
+    // Must NOT have os.Exit inside a function with defers still in scope
+    assert!(
+        !mock_server_out.contains("defer func() { _ = cmd.Process.Kill() }()")
+            || mock_server_out.contains("func runTests"),
+        "defers must be moved out of TestMain scope; got:\n{mock_server_out}"
+    );
+
+    // Harness-spawn path: must have runHarnessTests helper
+    let harness_out = render_main_test_go("testing_data", false, true);
+    assert!(
+        harness_out.contains(
+            "func runHarnessTests(m *testing.M, cmd *exec.Cmd, stdin io.WriteCloser, stdout io.ReadCloser) int"
+        ),
+        "harness-spawn path must emit runHarnessTests helper; got:\n{harness_out}"
+    );
+    assert!(
+        harness_out.contains("code := runHarnessTests(m, cmd, stdin, stdout)"),
+        "TestMain must call runHarnessTests to get int; got:\n{harness_out}"
+    );
+    assert!(
+        harness_out.contains("os.Exit(code)"),
+        "os.Exit must be called AFTER runHarnessTests returns; got:\n{harness_out}"
     );
 }
