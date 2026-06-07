@@ -25,6 +25,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "python/test_function.jinja",
         include_str!("templates/python/test_function.jinja"),
     ),
+    (
+        "python/test_smoke.py.jinja",
+        include_str!("templates/python/test_smoke.py.jinja"),
+    ),
     ("ruby/Gemfile.jinja", include_str!("templates/ruby/Gemfile.jinja")),
     (
         "ruby/rubocop.yml.jinja",
