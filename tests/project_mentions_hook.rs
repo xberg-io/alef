@@ -547,11 +547,9 @@ fn skips_tests_fixtures_snapshots_and_prose_documentation_files() {
 fn strict_mode_reports_mentions_in_snapshots_and_docs() {
     let dir = tempfile::tempdir().expect("tempdir");
     let snapshot_dir = dir.path().join("tests").join("snapshots");
-    let docs_dir = dir.path().join("docs");
     fs::create_dir_all(&snapshot_dir).expect("create snapshot dir");
-    fs::create_dir_all(&docs_dir).expect("create docs dir");
     let snapshot = snapshot_dir.join("fixture.snap");
-    let doc = docs_dir.join("guide.md");
+    let doc = snapshot_dir.join("guide.md");
 
     fs::write(&snapshot, forbidden(&["sample", "crawler"], "-")).expect("write snapshot fixture");
     fs::write(&doc, forbidden(&["liter", "llm"], "-")).expect("write doc fixture");
@@ -573,9 +571,9 @@ fn strict_mode_reports_mentions_in_snapshots_and_docs() {
 #[test]
 fn strict_mode_reports_domain_types_in_prose() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let docs_dir = dir.path().join("docs");
-    fs::create_dir_all(&docs_dir).expect("create docs dir");
-    let doc = docs_dir.join("guide.md");
+    let snapshot_dir = dir.path().join("tests").join("snapshots");
+    fs::create_dir_all(&snapshot_dir).expect("create snapshot dir");
+    let doc = snapshot_dir.join("guide.md");
 
     fs::write(&doc, "Regression note for ConversionOptions.\n").expect("write doc fixture");
 

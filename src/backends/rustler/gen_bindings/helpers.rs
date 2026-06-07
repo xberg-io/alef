@@ -878,6 +878,12 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
         // in the struct if the return type matches the module's type.
         let is_static = method.receiver.is_none();
         let returns_self = matches!(&method.return_type, TypeRef::Named(n) if n == &typ.name);
+
+        // Ensure blank line before @doc (mix format requirement between defs)
+        if !doc_first.is_empty() && !out.is_empty() && !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+
         out.push_str(&template_env::render(
             "elixir_opaque_method_wrapper.ex.jinja",
             minijinja::context! {

@@ -1047,6 +1047,10 @@ impl Backend for RustlerBackend {
                     })
                     .collect();
 
+                // Ensure blank line before @doc (mix format requirement between defs)
+                if !content.is_empty() && !content.ends_with("\n\n") {
+                    content.push('\n');
+                }
                 content.push_str(&template_env::render(
                     "elixir_doc_line.jinja",
                     minijinja::context! {

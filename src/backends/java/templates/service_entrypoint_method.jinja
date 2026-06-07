@@ -9,11 +9,15 @@
                 .orElseThrow();
             FunctionDescriptor epDesc = FunctionDescriptor.of(
 {{ return_layout }}                ValueLayout.ADDRESS       // owner: *mut opaque
-{% if descriptor_layouts -%}
-{{ descriptor_layouts }}{% endif -%}
-            );
+{% for layout in descriptor_layouts %}
+                , {{ layout.0 }}    // {{ layout.1 }} param
+{% endfor %}            );
             MethodHandle epHandle = LINKER.downcallHandle(epAddr, epDesc);
-            {{ invoke_expr }};
+            {% if return_type == "void" %}epHandle.invoke(ownerHandle{% else %}return (long) epHandle.invoke(ownerHandle{% endif %}
+{% for arg in invoke_args %}
+                , {{ arg }}
+{% endfor %}            );
+
         } catch (Throwable e) {
             throw new RuntimeException("Failed to invoke entrypoint", e);
         }

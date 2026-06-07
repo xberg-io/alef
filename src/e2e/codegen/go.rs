@@ -486,9 +486,9 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         );
         let _ = writeln!(out, "\t// MOCK_SERVER line, then drain the rest in the background.");
         let _ = writeln!(out, "\thaveURL := false");
-        let _ = writeln!(out, "\t//nolint:gocritic");
         let _ = writeln!(out, "\tfor scanner.Scan() {{");
         let _ = writeln!(out, "\t\tline := scanner.Text()");
+        let _ = writeln!(out, "\t\t//nolint:gocritic");
         let _ = writeln!(out, "\t\tif strings.HasPrefix(line, \"MOCK_SERVER_URL=\") {{");
         let _ = writeln!(
             out,

@@ -37,17 +37,17 @@
                 ValueLayout.JAVA_INT,  // return: int
                 ValueLayout.ADDRESS,   // owner: *mut opaque
                 ValueLayout.ADDRESS    // callback: upcall stub
-{% if descriptor_layouts -%}
-{{ descriptor_layouts }}{% endif -%}
-            );
+{% for layout in descriptor_layouts %}
+                , {{ layout.0 }}    // {{ layout.1 }} param
+{% endfor %}            );
             MethodHandle regHandle = LINKER.downcallHandle(regAddr, regDesc);
 
             return (int) regHandle.invokeExact(
                 ownerHandle,     // owner
                 upcallStub       // callback
-{% if invoke_args -%}
-{{ invoke_args }}{% endif -%}
-            );
+{% for arg in invoke_args %}
+                , {{ arg }}
+{% endfor %}            );
         } catch (Throwable e) {
             throw new RuntimeException("Failed to register handler", e);
         }

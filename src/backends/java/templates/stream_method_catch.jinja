@@ -1,5 +1,6 @@
-        } catch (Throwable e) {
-            if (e instanceof {{ exception_class }} ex) { throw ex; }
+        } catch ({{ exception_class }} ex) {
+            throw ex;
+        } catch (RuntimeException e) {
             throw new {{ exception_class }}("{{ method_name }}: failed", e);
         }
     }

@@ -4,3 +4,4 @@
     %__MODULE__{ref: ref}
 {% else %}    Native.{{ nif_fn }}({{ call_args }})
 {% endif %}  end
+

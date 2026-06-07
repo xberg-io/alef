@@ -159,7 +159,7 @@ pub(crate) fn scaffold_node_cargo(
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("tokio-util = { version = \"0.7\", features = [\"rt\"] }");
+        all_deps.push_str("tokio-util = { version = \"0.7\", features = [\"sync\"] }");
     }
     if has_streaming && !all_deps.contains("futures-util = ") && !all_deps.contains("futures-util =\"") {
         if !all_deps.is_empty() {

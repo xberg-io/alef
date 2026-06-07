@@ -77,16 +77,18 @@ fn java_layout_for_metadata(ty: &TypeRef) -> &'static str {
     }
 }
 
-fn descriptor_layouts(params: &[ParamDef]) -> String {
-    let mut layouts = String::new();
-    for param in params {
-        layouts.push_str(",\n                ");
-        layouts.push_str(java_layout_for_metadata(&param.ty));
-        layouts.push_str("    // ");
-        layouts.push_str(&param.name.to_lower_camel_case());
-        layouts.push_str(" param\n");
-    }
-    layouts
+/// Build a Vec of (layout, param_name) tuples for Jinja emission.
+/// Jinja template is responsible for commas and newlines.
+fn descriptor_layouts_vec(params: &[ParamDef]) -> Vec<(String, String)> {
+    params
+        .iter()
+        .map(|param| {
+            (
+                java_layout_for_metadata(&param.ty).to_owned(),
+                param.name.to_lower_camel_case(),
+            )
+        })
+        .collect()
 }
 
 fn bool_arg_expr(param_name: &str) -> String {
@@ -201,12 +203,12 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
             metadata_signature.push_str(signature_param.trim_end());
         }
 
-        let descriptor_layouts = descriptor_layouts(&reg.metadata_params);
-        let mut invoke_args = String::new();
-        for meta_param in &reg.metadata_params {
-            invoke_args.push_str(",\n                ");
-            invoke_args.push_str(&metadata_arg(meta_param, api, "metadata"));
-        }
+        let descriptor_layouts_vec = descriptor_layouts_vec(&reg.metadata_params);
+        let invoke_args_vec: Vec<_> = reg
+            .metadata_params
+            .iter()
+            .map(|meta_param| metadata_arg(meta_param, api, "metadata"))
+            .collect();
 
         out.push_str(&template_env::render(
             "service_registration_method.jinja",
@@ -219,8 +221,8 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
                 method_name => format!("register{class_name}{reg_method_camel}"),
                 metadata_signature => metadata_signature,
                 class_name => class_name,
-                descriptor_layouts => descriptor_layouts,
-                invoke_args => invoke_args,
+                descriptor_layouts => descriptor_layouts_vec,
+                invoke_args => invoke_args_vec,
             },
         ));
     }
@@ -278,23 +280,20 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
                 "                ValueLayout.ADDRESS,     // return *mut opaque or int status\n"
             }
         };
-        let descriptor_layouts = descriptor_layouts(&ep.params);
-        let mut invoke_args = String::new();
-        for param in &ep.params {
-            invoke_args.push_str(", ");
-            if is_opaque_metadata(&param.ty, api) {
-                invoke_args.push_str(&param.name.to_lower_camel_case());
-                invoke_args.push_str(".handle()");
-            } else if matches!(param.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
-                invoke_args.push_str(&bool_arg_expr(&param.name.to_lower_camel_case()));
-            } else {
-                invoke_args.push_str(&param.name.to_lower_camel_case());
-            }
-        }
-        let invoke_expr = match ep.kind {
-            EntrypointKind::Run => format!("epHandle.invoke(ownerHandle{invoke_args})"),
-            EntrypointKind::Finalize => format!("return (long) epHandle.invoke(ownerHandle{invoke_args})"),
-        };
+        let descriptor_layouts_vec = descriptor_layouts_vec(&ep.params);
+        let invoke_args_vec: Vec<String> = ep
+            .params
+            .iter()
+            .map(|param| {
+                if is_opaque_metadata(&param.ty, api) {
+                    format!("{}.handle()", param.name.to_lower_camel_case())
+                } else if matches!(param.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
+                    bool_arg_expr(&param.name.to_lower_camel_case())
+                } else {
+                    param.name.to_lower_camel_case()
+                }
+            })
+            .collect();
 
         out.push_str(&template_env::render(
             "service_entrypoint_method.jinja",
@@ -306,8 +305,8 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
                 return_type => return_type,
                 params_signature => params_signature,
                 return_layout => return_layout,
-                descriptor_layouts => descriptor_layouts,
-                invoke_expr => invoke_expr,
+                descriptor_layouts => descriptor_layouts_vec,
+                invoke_args => invoke_args_vec,
             },
         ));
     }

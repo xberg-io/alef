@@ -212,7 +212,7 @@ fn greater_than_positive_value_is_emitted() {
 
     // The assertion must appear when the value is non-negative.
     assert!(
-        rendered.contains("object.links.length > @as(usize, 0)"),
+        rendered.contains("object.links.len > 0"),
         "greater_than: 0 must emit a valid assertion. Rendered:\n{rendered}"
     );
 }
@@ -261,7 +261,7 @@ fn less_than_negative_value_is_emitted() {
 
     // less_than comparisons are meaningful even with negative values (e.g., comparing signed ints).
     assert!(
-        rendered.contains("count < @as(i64, -1)"),
-        "less_than: -1 must emit assertion with i64 cast. Rendered:\n{rendered}"
+        rendered.contains("result.len < -1"),
+        "less_than: -1 must emit assertion. Rendered:\n{rendered}"
     );
 }

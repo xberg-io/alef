@@ -1097,9 +1097,11 @@ pub(crate) fn gen_opaque_handle_class(
 
     let mut imports: Vec<&str> = vec!["java.lang.foreign.MemorySegment"];
     if needs_helpers || has_static_factories {
-        // `Arena.ofShared()` is referenced by every helper / instance-method / static-factory
-        // template even when the method body is a stub, so the import is always live.
-        imports.push("java.lang.foreign.Arena");
+        // `Arena.ofShared()` is only referenced when method bodies actually use it
+        // (e.g., string parameters that allocate via Arena).
+        if body.contains("Arena") {
+            imports.push("java.lang.foreign.Arena");
+        }
         // `ValueLayout` only appears when an instance method, streaming helper, or static
         // factory actually marshals memory; stub methods never reference it.
         if body.contains("ValueLayout") {
@@ -1223,7 +1225,22 @@ fn gen_instance_method(
         }
     }
 
-    out.push_str("        try (var arena = Arena.ofShared()) {\n");
+    // Check if any parameters require Arena allocation (String, Path, etc.)
+    let needs_arena = method.params.iter().any(|p| {
+        match &p.ty {
+            TypeRef::String | TypeRef::Char | TypeRef::Path => true,
+            TypeRef::Optional(inner) if matches!(
+                inner.as_ref(),
+                TypeRef::String | TypeRef::Char | TypeRef::Path
+            ) => true,
+            _ => false,
+        }
+    });
+
+    out.push_str("        try {\n");
+    if needs_arena {
+        out.push_str("            Arena arena = Arena.ofShared();\n");
+    }
 
     let mut named_ptr_frees: Vec<(String, String)> = Vec::new();
     let mut call_args: Vec<String> = Vec::new();
@@ -1607,7 +1624,7 @@ fn gen_static_factory_method(
         }
     }
 
-    out.push_str("        try (var arena = Arena.ofShared()) {\n");
+    out.push_str("        try {\n");
 
     let mut named_ptr_frees: Vec<(String, String)> = Vec::new();
     let mut call_args: Vec<String> = Vec::new();

@@ -3,8 +3,8 @@
         if (handle != null && !handle.equals(MemorySegment.NULL)) {
             try {
                 NativeLib.{{ free_handle }}.invoke(handle);
-            } catch (Throwable e) {
-                throw new RuntimeException("Failed to free {{ class_name }}: " + e.getMessage(), e);
+            } catch (RuntimeException | Error e) {
+                throw new RuntimeException("Failed to free {{ class_name }}", e);
             }
         }
     }

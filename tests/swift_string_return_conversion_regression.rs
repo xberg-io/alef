@@ -78,7 +78,7 @@ fn swift_string_return_includes_to_string_conversion() {
 
     let swift_src = files
         .iter()
-        .find(|f| f.path.ends_with(".swift"))
+        .find(|f| f.path.to_string_lossy().ends_with("TestCrate.swift"))
         .map(|f| f.content.as_str())
         .unwrap_or("");
 
@@ -115,7 +115,7 @@ fn swift_vec_string_return_includes_map_to_string() {
 
     let swift_src = files
         .iter()
-        .find(|f| f.path.ends_with(".swift"))
+        .find(|f| f.path.to_string_lossy().ends_with("TestCrate.swift"))
         .map(|f| f.content.as_str())
         .unwrap_or("");
 
