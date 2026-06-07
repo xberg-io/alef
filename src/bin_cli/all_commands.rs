@@ -33,6 +33,20 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
             let base_dir = std::env::current_dir()?;
+
+            // Stamp alef.toml + the pre-commit alef hook rev with the CLI version
+            // BEFORE computing any hashes. `finalize_hashes` mixes alef.toml bytes
+            // into the embedded `alef:hash:` value; if we wrote the version pin
+            // after hashing, the bytes seen by `alef verify` would differ from
+            // the bytes used at generate time and every file would be reported
+            // stale right after a clean regen.
+            if let Err(e) = version_pin::write_alef_toml_version(config_path) {
+                tracing::warn!("could not update alef.toml version pin: {e}");
+            }
+            if let Err(e) = version_pin::sync_precommit_alef_rev(&base_dir) {
+                tracing::warn!("could not update .pre-commit-config.yaml alef hook rev: {e}");
+            }
+
             let config_toml = std::fs::read_to_string(config_path)?;
 
             let mut grand_binding_count: usize = 0;
@@ -428,15 +442,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 grand_e2e_count += e2e_count;
                 grand_doc_count += doc_count;
             } // end for resolved_cfg in crates_to_process
-
-            // Stamp alef.toml with the CLI version that produced this run.
-            if let Err(e) = version_pin::write_alef_toml_version(config_path) {
-                tracing::warn!("could not update alef.toml version pin: {e}");
-            }
-            // Keep the .pre-commit-config.yaml alef hook rev in lockstep.
-            if let Err(e) = version_pin::sync_precommit_alef_rev(&base_dir) {
-                tracing::warn!("could not update .pre-commit-config.yaml alef hook rev: {e}");
-            }
 
             println!(
                 "Done: {grand_binding_count} binding files, {grand_stub_count} stub files, {grand_api_count} API files, {grand_scaffold_count} scaffold files, {grand_readme_count} readme files, {grand_e2e_count} e2e files, {grand_doc_count} doc files"
