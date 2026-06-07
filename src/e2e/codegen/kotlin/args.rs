@@ -223,14 +223,12 @@ pub(super) fn build_args_and_setup(
                             .map(|arr| {
                                 arr.iter()
                                     .filter_map(|item| {
-                                        if let Some(path) = item.as_str() {
-                                            Some(format!(
+                                        item.as_str().map(|path| {
+                                            format!(
                                                 "BatchBytesItem(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(\"{}\")), \"application/octet-stream\")",
                                                 escape_kotlin(path)
-                                            ))
-                                        } else {
-                                            None
-                                        }
+                                            )
+                                        })
                                     })
                                     .collect()
                             })

@@ -266,7 +266,7 @@ fn service_c_arg_expr_with_marshal(
                         .replace("{ffi_prefix}", ffi_prefix)
                         .replace("{type_name_snake}", &type_name_snake)
                         .replace("{type_name}", type_name);
-                    let arg_expr = format!("{var_name}");
+                    let arg_expr = var_name.to_string();
                     (preprocessing, arg_expr)
                 }
             } else {

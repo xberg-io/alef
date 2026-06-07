@@ -528,27 +528,29 @@ mod tests {
     fn test_resolve_json_object_default_with_default_constructible_type() {
         // Create a fixture type that can be default-constructed
         // (all fields are optional or have defaults).
-        let mut my_config = TypeDef::default();
-        my_config.name = "MyConfig".to_string();
-        my_config.rust_path = "crate::MyConfig".to_string();
-        my_config.fields = vec![
-            FieldDef {
-                name: "timeout".to_string(),
-                ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
-                optional: true,
-                default: None,
-                doc: String::new(),
-                ..FieldDef::default()
-            },
-            FieldDef {
-                name: "enabled".to_string(),
-                ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
-                optional: false,
-                default: Some("true".to_string()),
-                doc: String::new(),
-                ..FieldDef::default()
-            },
-        ];
+        let my_config = TypeDef {
+            name: "MyConfig".to_string(),
+            rust_path: "crate::MyConfig".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "timeout".to_string(),
+                    ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+                    optional: true,
+                    default: None,
+                    doc: String::new(),
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "enabled".to_string(),
+                    ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+                    optional: false,
+                    default: Some("true".to_string()),
+                    doc: String::new(),
+                    ..FieldDef::default()
+                },
+            ],
+            ..TypeDef::default()
+        };
 
         let type_defs = vec![my_config];
 
@@ -563,17 +565,19 @@ mod tests {
     fn test_resolve_json_object_default_with_non_default_constructible_type() {
         // Create a type that cannot be default-constructed
         // (has a required field with no default).
-        let mut required_config = TypeDef::default();
-        required_config.name = "RequiredConfig".to_string();
-        required_config.rust_path = "crate::RequiredConfig".to_string();
-        required_config.fields = vec![FieldDef {
-            name: "api_key".to_string(),
-            ty: TypeRef::String,
-            optional: false,
-            default: None,
-            doc: String::new(),
-            ..FieldDef::default()
-        }];
+        let required_config = TypeDef {
+            name: "RequiredConfig".to_string(),
+            rust_path: "crate::RequiredConfig".to_string(),
+            fields: vec![FieldDef {
+                name: "api_key".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                doc: String::new(),
+                ..FieldDef::default()
+            }],
+            ..TypeDef::default()
+        };
 
         let type_defs = vec![required_config];
 
@@ -585,15 +589,19 @@ mod tests {
     #[test]
     fn test_resolve_json_object_default_prefers_explicit_type() {
         // Create an explicit options_type and fallback types
-        let mut my_config = TypeDef::default();
-        my_config.name = "MyConfig".to_string();
-        my_config.rust_path = "crate::MyConfig".to_string();
-        my_config.fields = vec![];
+        let my_config = TypeDef {
+            name: "MyConfig".to_string(),
+            rust_path: "crate::MyConfig".to_string(),
+            fields: vec![],
+            ..TypeDef::default()
+        };
 
-        let mut fallback_config = TypeDef::default();
-        fallback_config.name = "Config".to_string();
-        fallback_config.rust_path = "crate::Config".to_string();
-        fallback_config.fields = vec![];
+        let fallback_config = TypeDef {
+            name: "Config".to_string(),
+            rust_path: "crate::Config".to_string(),
+            fields: vec![],
+            ..TypeDef::default()
+        };
 
         let type_defs = vec![my_config, fallback_config];
 
@@ -605,10 +613,12 @@ mod tests {
     #[test]
     fn test_resolve_json_object_default_with_element_type() {
         // Create types for element_type fallback
-        let mut elem_config = TypeDef::default();
-        elem_config.name = "ElemConfig".to_string();
-        elem_config.rust_path = "crate::ElemConfig".to_string();
-        elem_config.fields = vec![];
+        let elem_config = TypeDef {
+            name: "ElemConfig".to_string(),
+            rust_path: "crate::ElemConfig".to_string(),
+            fields: vec![],
+            ..TypeDef::default()
+        };
 
         let type_defs = vec![elem_config];
 
