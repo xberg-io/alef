@@ -179,7 +179,11 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     // Constructor
     {
         let ctor = &service.constructor;
-        let params = ["options \\\\ []".to_owned()];
+        let params = if ctor.params.is_empty() {
+            ["_options \\\\ []".to_owned()]
+        } else {
+            ["options \\\\ []".to_owned()]
+        };
         let mut field_inits = vec!["registrations: []".to_owned()];
 
         for p in &ctor.params {
