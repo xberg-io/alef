@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// Generic metadata bag.
 public typealias Metadata = RustBridge.Metadata
 
@@ -19,6 +18,5 @@ public typealias Metadata = RustBridge.Metadata
 public func metadataFromJson(_ json: String) throws -> Metadata {
     return try RustBridge.metadataFromJson(json)
 }
-
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.Metadata: @unchecked Sendable {}

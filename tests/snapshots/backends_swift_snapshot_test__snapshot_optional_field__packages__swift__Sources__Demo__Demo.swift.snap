@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// A system-role chat message.
 public struct SystemMessage: Codable, Sendable, Hashable {
     public let content: String
@@ -33,6 +32,7 @@ internal extension SystemMessage {
         self.content = rb.content().toString()
         self.name = rb.name()?.toString()
     }
+
     func intoRust() throws -> RustBridge.SystemMessage {
         return RustBridge.SystemMessage(RustString(self.content), self.name.map(RustString.init))
     }
@@ -47,6 +47,5 @@ public func systemMessageFromJson(_ json: String) throws -> SystemMessage {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(SystemMessage.self, from: data)
 }
-
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.SystemMessage: @unchecked Sendable {}

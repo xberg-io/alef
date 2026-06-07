@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// Data struct.
 public typealias Data = RustBridge.Data
 

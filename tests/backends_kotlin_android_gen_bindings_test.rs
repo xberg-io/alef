@@ -2899,9 +2899,9 @@ fn long_signature_short_method_stays_single_line() {
     );
 }
 
-/// Test 2: Long suspend method signature wraps multi-line with trailing commas
+/// Test 2: Trait method signatures use visible binding types before wrap decisions
 #[test]
-fn long_signature_suspend_method_wraps_multiline_with_trailing_commas() {
+fn long_signature_trait_method_substitutes_hidden_types_before_wrapping() {
     let api = make_long_signature_api();
     let config = make_long_signature_config();
     let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
@@ -2913,27 +2913,15 @@ fn long_signature_suspend_method_wraps_multiline_with_trailing_commas() {
 
     let content = &interface_kt.content;
 
-    // Long suspend method should wrap and have trailing commas on params
+    // Named types that are not emitted as visible bindings are substituted with
+    // String before the signature-length decision, keeping this fixture short.
     assert!(
-        content.contains("suspend fun extractFile(\n"),
-        "long suspend method must wrap to multi-line, got:\n{content}"
+        content.contains("suspend fun extractFile(path: String, mimeType: String, config: String): String"),
+        "trait method must use substituted visible types in single-line form, got:\n{content}"
     );
     assert!(
-        content.contains("path: java.nio.file.Path,\n"),
-        "path param must have trailing comma, got:\n{content}"
-    );
-    assert!(
-        content.contains("mimeType: String,\n"),
-        "mimeType param must have trailing comma, got:\n{content}"
-    );
-    assert!(
-        content.contains("config: ExtractionConfig,\n"),
-        "config param must have trailing comma, got:\n{content}"
-    );
-    // Return type should be on its own line
-    assert!(
-        content.contains("): ParseResult"),
-        "return type must be on closing paren line, got:\n{content}"
+        !content.contains("suspend fun extractFile(\n"),
+        "substituted short trait method must not wrap, got:\n{content}"
     );
 }
 

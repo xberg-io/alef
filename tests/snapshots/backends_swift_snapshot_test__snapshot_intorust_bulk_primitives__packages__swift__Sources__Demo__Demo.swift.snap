@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// Source span.
 public struct Span: Codable, Sendable, Hashable {
     public let startByte: UInt
@@ -33,6 +32,7 @@ internal extension Span {
         self.startByte = rb.startByte()
         self.endByte = rb.endByte()
     }
+
     func intoRust() throws -> RustBridge.Span {
         return RustBridge.Span(self.startByte, self.endByte)
     }
@@ -47,6 +47,5 @@ public func spanFromJson(_ json: String) throws -> Span {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(Span.self, from: data)
 }
-
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.Span: @unchecked Sendable {}

@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// Keyword extraction configuration.
 public struct KeywordConfig: Codable, Sendable, Hashable {
     public let maxKeywords: UInt
@@ -33,6 +32,7 @@ internal extension KeywordConfig {
         self.maxKeywords = rb.maxKeywords()
         self.ngramRange = Array(rb.ngramRange())
     }
+
     func intoRust() throws -> RustBridge.KeywordConfig {
         let __ngramRange = RustVec<UInt>()
         for __elem in self.ngramRange { __ngramRange.push(value: __elem) }
@@ -81,7 +81,6 @@ public func extractKeywords(_ text: String, _ configJson: String) throws -> [Str
     let config = try keywordConfigFromJson(configJson)
     return try extractKeywords(text: text, config: config)
 }
-
 // MARK: - From-JSON Helpers
 // Public helpers that decode JSON into first-class Swift types.
 // First-class struct types (Codable) use JSONDecoder directly.
@@ -91,7 +90,6 @@ public func keywordConfigFromJson(_ json: String) throws -> KeywordConfig {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(KeywordConfig.self, from: data)
 }
-
 // MARK: - Free-function Forwarders
 // Re-export every public free function on the source Rust crate as a
 // top-level `public func` on the host module so consumers do not need to
@@ -100,9 +98,9 @@ public func keywordConfigFromJson(_ json: String) throws -> KeywordConfig {
 
 /// Extract keywords from text.
 public func extractKeywords(text: String, config: KeywordConfig) throws -> [String] {
-    let _rb_config = try config.intoRust()
-    return try RustBridge.extractKeywords(text, _rb_config).map { $0.as_str().toString() }
+        let _rb_text = RustString(text)
+        let _rb_config = try config.intoRust()
+    return try RustBridge.extractKeywords(_rb_text, _rb_config).map { $0.as_str().toString() }
 }
-
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.KeywordConfig: @unchecked Sendable {}

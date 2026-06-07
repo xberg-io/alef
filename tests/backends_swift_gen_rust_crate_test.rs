@@ -2015,7 +2015,7 @@ fn vec_string_ref_param_on_method_converts_to_str_slice() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
-            vec_inner_is_ref: false,
+            vec_inner_is_ref: true,
             map_is_btree: false,
             core_wrapper: alef::core::ir::CoreWrapper::None,
         }],

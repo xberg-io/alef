@@ -371,12 +371,6 @@ fn emit_lib_rs(
         .iter()
         .filter_map(|(bridge_cfg, _)| bridge_cfg.result_type.as_deref().map(|s| s.to_string()))
         .collect();
-    eprintln!("[DEBUG] active_bridges count: {}", active_bridges.len());
-    eprintln!("[DEBUG] result_type_enums: {:?}", result_type_enums);
-    eprintln!(
-        "[DEBUG] visible_enums before filter: {:?}",
-        visible_enums.iter().map(|e| e.name.as_str()).collect::<Vec<_>>()
-    );
 
     // Collect extern "Rust" blocks for the ffi module
     // Build a HashSet<String> from enum_names (&str) for the enum-aware bridge type helper.

@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// Source span.
 public struct Span: Codable, Sendable, Hashable {
     public let startByte: UInt
@@ -33,6 +32,7 @@ internal extension Span {
         self.startByte = rb.startByte()
         self.endByte = rb.endByte()
     }
+
     func intoRust() throws -> RustBridge.Span {
         return RustBridge.Span(self.startByte, self.endByte)
     }
@@ -63,6 +63,7 @@ internal extension Diagnostic {
         self.message = rb.message().toString()
         self.span = try Span(rb.span())
     }
+
     func intoRust() throws -> RustBridge.Diagnostic {
         return RustBridge.Diagnostic(RustString(self.message), try self.span.intoRust())
     }
@@ -98,6 +99,7 @@ internal extension ProcessResult {
         self.diagnostics = try rb.diagnostics().map { try Diagnostic($0) }
         self.tags = rb.tags().map { $0.as_str().toString() }
     }
+
     func intoRust() throws -> RustBridge.ProcessResult {
         let __diagnostics = RustVec<RustBridge.Diagnostic>()
         for __elem in self.diagnostics { __diagnostics.push(value: try __elem.intoRust()) }
@@ -116,17 +118,14 @@ public func spanFromJson(_ json: String) throws -> Span {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(Span.self, from: data)
 }
-
 public func diagnosticFromJson(_ json: String) throws -> Diagnostic {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(Diagnostic.self, from: data)
 }
-
 public func processResultFromJson(_ json: String) throws -> ProcessResult {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(ProcessResult.self, from: data)
 }
-
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.Span: @unchecked Sendable {}
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.

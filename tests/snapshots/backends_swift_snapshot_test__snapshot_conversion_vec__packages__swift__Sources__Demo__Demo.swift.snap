@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// Item struct.
 public typealias Item = RustBridge.Item
 
@@ -21,6 +20,5 @@ public typealias Item = RustBridge.Item
 public func getItems() -> [Item] {
     return RustBridge.getItems().map { ref in var item = try RustBridge.Item(ptr: ref.ptr); item.isOwned = false; return item }
 }
-
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.Item: @unchecked Sendable {}

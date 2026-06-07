@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **node (napi-rs scaffold)**: switch trait-bridge-emitted `tokio-util` dependency from the non-existent `sync` feature to `rt` (`rt = [tokio/rt, tokio/sync, futures-util]`), which is what actually gates the `tokio_util::sync::CancellationToken` re-export. `features = ["sync"]` failed cargo resolution with `package 'tokio-util' does not have that feature`. (`src/scaffold/languages/node.rs`)
+
+- **elixir (rustler)**: `elixir_struct_type_field.ex.jinja` now uses the inline `{{ "," if not is_last else "" }}` expression for the trailing-field comma instead of a `{% if %}{% endif %}` block. The minijinja env is configured with `trim_blocks = true`, which consumed the template's trailing newline whenever the block tag ran, collapsing every field onto a single line and forcing `mix format` to reflow on every regen. (`src/backends/rustler/templates/elixir_struct_type_field.ex.jinja`)
+
 - **swift (Package.swift scaffold)**: add `exclude: ["LICENSE"]` to the user-facing module target so SwiftPM does not emit `'<module>': found 1 file(s) which are unhandled; explicitly declare them as resources or exclude from the target` on every `swift build`. The LICENSE file is copied alongside `Sources/{module}/{module}.swift` for distribution but is not a Swift source, resource, or excluded path by default. (`src/scaffold/languages/swift.rs`)
 
 - **swift (SwiftBridgeCore post-process)**: rewrite swift-bridge's `extension RustStr: Identifiable` / `extension RustStr: Equatable` to `extension RustStr: @retroactive Identifiable` / `extension RustStr: @retroactive Equatable` in `SwiftBridgeCore.swift` before emission. swift-bridge generates the un-annotated form; Swift 6 then warns on every build that `extension declares a conformance of imported type 'RustStr' to imported protocol '...'; this will not behave correctly if the owners of 'RustBridgeC' introduce this conformance in the future — add '@retroactive' to silence`. Adding `@retroactive` is the documented suppression. (`src/backends/swift/gen_bindings/mod.rs`)

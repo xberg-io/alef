@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// A text chunk.
 public struct Chunk: Codable, Sendable, Hashable {
     public let text: String
@@ -28,6 +27,7 @@ internal extension Chunk {
     init(_ rb: RustBridge.ChunkRef) throws {
         self.text = rb.text().toString()
     }
+
     func intoRust() throws -> RustBridge.Chunk {
         return RustBridge.Chunk(RustString(self.text))
     }
@@ -59,11 +59,9 @@ public func chunkFromJson(_ json: String) throws -> Chunk {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(Chunk.self, from: data)
 }
-
 public func streamEventFromJson(_ json: String) throws -> StreamEvent {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(StreamEvent.self, from: data)
 }
-
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.Chunk: @unchecked Sendable {}

@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// Visitor handle type alias.
 public typealias CallbackHandle = RustBridge.CallbackHandle
 
@@ -31,6 +30,7 @@ internal extension RenderOptions {
     init(_ rb: RustBridge.RenderOptionsRef) throws {
         self.timeoutMs = rb.timeoutMs()
     }
+
     func intoRust() throws -> RustBridge.RenderOptions {
         return RustBridge.RenderOptions(self.timeoutMs)
     }
@@ -53,12 +53,10 @@ public func renderOptionsFromJson(_ json: String) throws -> RenderOptions {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(RenderOptions.self, from: data)
 }
-
 public func flowDecisionFromJson(_ json: String) throws -> FlowDecision {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(FlowDecision.self, from: data)
 }
-
 /// Swift protocol that Swift classes implement to provide visitor callbacks.
 /// Conform to this protocol to intercept configured Rust trait bridge events.
 public protocol MarkupVisitorProtocol: AnyObject {

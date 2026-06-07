@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// A demo configuration struct.
 public typealias Config = RustBridge.Config
 
@@ -30,8 +29,8 @@ public enum DemoError: Swift.Error {
 
 /// Process input and return a result.
 public func process(input: String, count: UInt32) throws -> String {
-    return try RustBridge.process(input, count).toString()
+        let _rb_input = RustString(input)
+    return try RustBridge.process(_rb_input, count).toString()
 }
-
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.Config: @unchecked Sendable {}

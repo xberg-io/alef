@@ -2595,7 +2595,11 @@ fn forwarder_optional_string_return_emits_json_decode_body() {
         "forwarder signature must declare Optional String return:\n{content}"
     );
     assert!(
-        content.contains("let _rb_json = RustBridge.detectLanguageFromExtension(ext).toString()"),
+        content.contains("let _rb_ext = RustString(ext)"),
+        "forwarder must convert String param to RustString before bridge call:\n{content}"
+    );
+    assert!(
+        content.contains("let _rb_json = RustBridge.detectLanguageFromExtension(_rb_ext).toString()"),
         "forwarder must read bridge return as non-optional RustString via .toString():\n{content}"
     );
     assert!(
@@ -2608,7 +2612,7 @@ fn forwarder_optional_string_return_emits_json_decode_body() {
          on non-optional RustString):\n{content}"
     );
     assert!(
-        !content.contains("return RustBridge.detectLanguageFromExtension(ext)\n"),
+        !content.contains("return RustBridge.detectLanguageFromExtension(_rb_ext)\n"),
         "forwarder must NOT return the raw RustString bridge value:\n{content}"
     );
 }
@@ -2686,11 +2690,15 @@ fn forwarder_named_dto_param_calls_into_rust_before_bridge_call() {
         "forwarder must materialise the bridge value via intoRust() before the bridge call:\n{content}"
     );
     assert!(
-        content.contains("RustBridge.process(source, _rb_config)"),
+        content.contains("let _rb_source = RustString(source)"),
+        "forwarder must convert String params to RustString before the bridge call:\n{content}"
+    );
+    assert!(
+        content.contains("RustBridge.process(_rb_source, _rb_config)"),
         "forwarder must pass the converted `_rb_config` local to the bridge:\n{content}"
     );
     assert!(
-        !content.contains("RustBridge.process(source, config)"),
+        !content.contains("RustBridge.process(_rb_source, config)"),
         "forwarder must NOT pass the host DTO directly — bridge expects RustBridge.ProcessConfig:\n{content}"
     );
 }
@@ -2921,12 +2929,11 @@ fn swift_string_param_not_wrapped() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(
-        !content.contains("RustString(mimeType)"),
-        "plain String param must not wrap in async call"
+        content.contains("let _rb_mimeType = RustString(mimeType)"),
+        "plain String param must be converted once before async bridge call:\n{content}"
     );
-    // Async function calls bridge with bare parameter name, not wrapped
     assert!(
-        content.contains("RustBridge.doThing(mimeType"),
-        "async call should pass String directly to bridge"
+        content.contains("RustBridge.doThing(_rb_mimeType"),
+        "async call should pass converted RustString local to bridge:\n{content}"
     );
 }

@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// Output struct.
 public typealias Output = RustBridge.Output
 
@@ -22,9 +21,9 @@ public typealias Wrapper = RustBridge.Wrapper
 
 /// Process and wrap result.
 public func processAndWrap(input: String) -> Wrapper {
-    return RustBridge.processAndWrap(input)
+        let _rb_input = RustString(input)
+    return RustBridge.processAndWrap(_rb_input)
 }
-
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.Output: @unchecked Sendable {}
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.

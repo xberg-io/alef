@@ -7,7 +7,6 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-
 /// Image configuration.
 public struct ImageConfig: Codable, Sendable, Hashable {
     public let language: String
@@ -28,6 +27,7 @@ internal extension ImageConfig {
     init(_ rb: RustBridge.ImageConfigRef) throws {
         self.language = rb.language().toString()
     }
+
     func intoRust() throws -> RustBridge.ImageConfig {
         return RustBridge.ImageConfig(RustString(self.language))
     }
@@ -53,6 +53,7 @@ internal extension ProcessingResult {
     init(_ rb: RustBridge.ProcessingResultRef) throws {
         self.text = rb.text().toString()
     }
+
     func intoRust() throws -> RustBridge.ProcessingResult {
         return RustBridge.ProcessingResult(RustString(self.text))
     }
@@ -67,12 +68,10 @@ public func imageConfigFromJson(_ json: String) throws -> ImageConfig {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(ImageConfig.self, from: data)
 }
-
 public func processingResultFromJson(_ json: String) throws -> ProcessingResult {
     let data = json.data(using: .utf8) ?? Data()
     return try JSONDecoder().decode(ProcessingResult.self, from: data)
 }
-
 // MARK: - Trait Bridge Registration Forwarders
 // Top-level `public func` re-exports of the swift-bridge–generated
 // `register_*` / `unregister_*` / `clear_*` plugin registration entry
@@ -85,12 +84,10 @@ public func processingResultFromJson(_ json: String) throws -> ProcessingResult 
 public func registerImageProcessor(_ swiftBox: SwiftImageProcessorBox) throws {
     try RustBridge.registerImageProcessor(swiftBox)
 }
-
 /// Unregister a previously-registered `ImageProcessor` plugin by name.
 public func unregisterImageProcessor(_ name: String) throws {
     try RustBridge.unregisterImageProcessor(name)
 }
-
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.ImageConfig: @unchecked Sendable {}
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.

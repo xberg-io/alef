@@ -991,6 +991,11 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
             format!("new({})", field_args.join(", "))
         };
 
+        // YARD documents constants only when the preceding comment uses `##`.
+        // emit_yard_doc / tagged_enum_variant_doc.rb.jinja both emit single-`#`
+        // form; promote to double for the constant-assignment site.
+        let doc_comment = doc_comment.replace("  # ", "  ## ");
+
         out.push_str(&crate::backends::magnus::template_env::render(
             "tagged_enum_variant_class.rb.jinja",
             minijinja::context! {
