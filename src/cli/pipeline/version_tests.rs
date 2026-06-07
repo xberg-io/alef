@@ -1,3 +1,4 @@
+use super::super::version_core::*;
 use super::super::version_registry::{render_registry_version, update_zig_package_hash};
 use super::super::version_swift::compute_sha256_hex;
 use super::super::version_text::*;

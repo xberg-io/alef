@@ -1,7 +1,7 @@
 use crate::core::version::{to_r_version, to_rubygems_prerelease};
 use anyhow::Context as _;
 
-use super::version::to_pep440;
+use super::version_core::to_pep440;
 
 /// `~>`, `^`, `v`) and the version number.  This function:
 ///

@@ -8,7 +8,7 @@ use tracing::{debug, info};
 
 use crate::cli::cache;
 
-use super::version::read_version;
+use super::version_core::read_version;
 
 const IR_CACHE_SCHEMA_VERSION: &str = "ir-cache-v2";
 
