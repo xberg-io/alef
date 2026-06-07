@@ -359,7 +359,8 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             builder.add_item(&gen_flat_data_enum(enum_def, &mapper, Some(&php_namespace)));
             builder.add_item(&gen_flat_data_enum_methods(enum_def, &mapper));
         } else {
-            builder.add_item(&gen_enum_constants(enum_def));
+            // Unit-variant enums are lowered to PHP classes with class constants.
+            builder.add_item(&gen_enum_constants(enum_def, Some(&php_namespace)));
         }
     }
 
@@ -761,9 +762,9 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             context! { class_name => &format!("{facade_class_name}Api") },
         ));
     }
-    // Tagged data enums are lowered to flat PHP classes — register them like other classes.
-    // Unit-variant enums remain as string constants and don't need .class::<T>() registration.
-    for enum_def in api.enums.iter().filter(|e| is_tagged_data_enum(e)) {
+    // All enums are lowered to PHP classes: tagged data enums as flat classes,
+    // unit-variant enums as classes with class constants. Register them all.
+    for enum_def in api.enums.iter() {
         class_registrations.push_str(&crate::backends::php::template_env::render(
             "php_class_registration.jinja",
             context! { class_name => &enum_def.name },

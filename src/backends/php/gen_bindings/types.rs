@@ -957,14 +957,34 @@ fn gen_struct_methods_impl(
     impl_builder.build()
 }
 
-/// Generate PHP enum constants (enums as string constants).
-pub(crate) fn gen_enum_constants(enum_def: &EnumDef) -> String {
-    let mut lines = vec![format!("// {} enum values", enum_def.name)];
+/// Generate a `#[php_class]` with class constants for unit-variant enums.
+///
+/// Emits a PHP-visible class that allows consumers to reference enum values as
+/// `EnumName::VARIANT_NAME` at runtime.
+pub(crate) fn gen_enum_constants(enum_def: &EnumDef, php_namespace: Option<&str>) -> String {
+    let mut lines = vec![];
+
+    // Emit the #[php_class] decorator with optional namespace.
+    if let Some(ns) = php_namespace {
+        lines.push(format!("#[php_class(namespace = \"{}\")]", ns));
+    } else {
+        lines.push("#[php_class]".to_string());
+    }
+
+    // Emit the PHP class struct (with no fields — exists only for constants).
+    lines.push(format!("pub struct {} {{}}", enum_def.name));
+    lines.push(String::new());
+
+    // Emit the #[php_impl] block with class constants.
+    lines.push(format!("#[php_impl]"));
+    lines.push(format!("impl {} {{", enum_def.name));
 
     for variant in &enum_def.variants {
-        let const_name = format!("{}_{}", enum_def.name.to_uppercase(), variant.name.to_uppercase());
-        lines.push(format!("pub const {}: &str = \"{}\";", const_name, variant.name));
+        let const_name = variant.name.to_uppercase();
+        lines.push(format!("    pub const {}: &str = \"{}\";", const_name, variant.name));
     }
+
+    lines.push("}".to_string());
 
     lines.join("\n")
 }
