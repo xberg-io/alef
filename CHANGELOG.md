@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.26] - 2026-06-07
+
 ### Fixed
 
 - **node (napi-rs)**: drop the broken `cancellation_token` field and `dispose()` JS method from the auto-generated NAPI trait-bridge templates. The introduction in `c5854dc21` produced code that did not compile under napi-rs 3.x — `Promise::new` and `Env::execute_tokio_future` were referenced as if they were inherent items, and the `dispose` method was emitted inside the inherent constructor `impl` block (causing `error: arguments cannot be 'self'` because napi-rs rejects `&self` methods outside `#[napi] impl` blocks). The original B11 motivation (vitest worker timeout on async trait bridge teardown) should be revisited with an `async fn` shape compatible with napi-rs 3.x rather than the manual `Promise::new` pattern. (`src/backends/napi/templates/napi_bridge_struct.jinja`, `src/backends/napi/templates/trait_bridge_constructor.jinja`)
