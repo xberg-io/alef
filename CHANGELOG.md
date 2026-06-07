@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **typescript e2e (auth middleware dispatch)**: fix TypeScript app_harness to dispatch all middleware types via a generic dispatch table, matching Python harness design. Previously hardcoded only `cors` and `compression`, ignoring `api_key_auth`, `jwt_auth`, and `bearer_auth` specified in fixtures, causing auth tests to return 404 instead of 401/200. (`src/e2e/templates/typescript/app_harness.mjs.jinja`)
+
 ## [0.23.29] - 2026-06-07
 
 ### Fixed
