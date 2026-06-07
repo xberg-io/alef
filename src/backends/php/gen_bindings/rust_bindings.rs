@@ -140,7 +140,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
 
     // Build the inner module content (types, methods, conversions)
     let mut builder = RustFileBuilder::new().with_generated_header();
-    builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
+    builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables, missing_docs)");
     builder.add_inner_attribute("allow(unsafe_code)");
     // PHP parameter names are lowerCamelCase; Rust complains about non-snake_case variables.
     builder.add_inner_attribute("allow(non_snake_case)");
