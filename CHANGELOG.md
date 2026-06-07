@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **code organization**: split the Kotlin object-wrapper generator, core e2e
+  config model, streaming assertion generator, and CLI extraction pipeline into
+  concern-based modules while keeping their existing public APIs available from
+  the original module paths. (`src/backends/kotlin/gen_bindings/object_wrapper.rs`,
+  `src/core/config/e2e.rs`, `src/e2e/codegen/streaming_assertions.rs`,
+  `src/cli/pipeline/extract.rs`)
+
 - **java codegen organization**: split Java type generation into concern-based modules for
   records, enums/unions, opaque handles, builders, serializers, and tests while preserving the
   existing Java backend entrypoints. (`src/backends/java/gen_bindings/types.rs`,
