@@ -20,21 +20,21 @@ use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup};
 fn make_fixture_omit_config(id: &str) -> Fixture {
     Fixture {
         id: id.to_string(),
-        category: Some("embed_test".to_string()),
-        description: "Embedding test with omitted config parameter".to_string(),
+        category: Some("batch_test".to_string()),
+        description: "Batch test with omitted config parameter".to_string(),
         tags: vec!["value_type_default".to_string()],
         skip: None,
         env: None,
-        call: Some("embed_texts_async".to_string()),
+        call: Some("process_items_async".to_string()),
         input: serde_json::json!({
             "texts": ["sample text"]
             // Deliberately omit the "config" field to trigger default construction.
-            // The C# binding expects EmbeddingConfig (a struct), not null.
+            // The C# binding expects BatchConfig (a struct), not null.
         }),
         mock_response: None,
         visitor: None,
         args: Vec::new(),
-        assertion_recipes: vec!["embeddings".to_string()],
+        assertion_recipes: vec!["items".to_string()],
         assertions: vec![Assertion {
             assertion_type: "not_error".to_string(),
             field: None,
@@ -45,23 +45,23 @@ fn make_fixture_omit_config(id: &str) -> Fixture {
             args: None,
             return_type: None,
         }],
-        source: "embed_texts_async_happy.json".to_string(),
+        source: "process_items_async_happy.json".to_string(),
         http: None,
     }
 }
 
 fn make_group() -> FixtureGroup {
     FixtureGroup {
-        category: "embed_test".to_string(),
-        fixtures: vec![make_fixture_omit_config("embed_texts_async_value_type_default")],
+        category: "batch_test".to_string(),
+        fixtures: vec![make_fixture_omit_config("process_items_async_value_type_default")],
     }
 }
 
-fn make_embedding_config_type() -> TypeDef {
+fn make_batch_config_type() -> TypeDef {
     let mut def = TypeDef::default();
-    def.name = "EmbeddingConfig".to_string();
-    def.rust_path = "kreuzberg::EmbeddingConfig".to_string();
-    def.doc = "Configuration for embeddings".to_string();
+    def.name = "BatchConfig".to_string();
+    def.rust_path = "demo::BatchConfig".to_string();
+    def.doc = "Configuration for batch processing".to_string();
     def.has_default = true;
     def
 }
@@ -82,7 +82,7 @@ fixtures = "fixtures"
 output = "e2e"
 
 [crates.e2e.call]
-function = "embed_texts_async"
+function = "process_items_async"
 result_var = "result"
 async = true
 
@@ -95,7 +95,7 @@ type = "json_object"
 name = "config"
 field = "input.config"
 type = "json_object"
-element_type = "EmbeddingConfig"
+element_type = "BatchConfig"
 "#;
 
 #[test]
@@ -104,7 +104,7 @@ fn csharp_value_type_default_construct_with_element_type() {
     let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let groups = vec![make_group()];
-    let type_defs = vec![make_embedding_config_type()];
+    let type_defs = vec![make_batch_config_type()];
 
     let generated = CSharpCodegen
         .generate(&groups, &e2e, &resolved, &type_defs, &[])
@@ -122,7 +122,7 @@ fn csharp_value_type_default_construct_with_element_type() {
     assert!(!test_code.is_empty(), "Should generate test code");
 
     // Snapshot the generated C# code to verify:
-    // 1. The config parameter is constructed as `new EmbeddingConfig()` NOT `null`
+    // 1. The config parameter is constructed as `new BatchConfig()` NOT `null`
     // 2. The generated code is syntactically valid C#
     insta::assert_snapshot!(test_code);
 }

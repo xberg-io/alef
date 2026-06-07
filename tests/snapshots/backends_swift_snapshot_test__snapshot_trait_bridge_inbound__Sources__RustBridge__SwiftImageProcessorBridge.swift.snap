@@ -27,27 +27,25 @@ final class SwiftImageProcessorAdapter {
     private let bridge: any SwiftImageProcessorBridge
 
     init(bridge: any SwiftImageProcessorBridge) {
-    self.bridge = bridge
+        self.bridge = bridge
     }
 
     func processImageCall(imageBytes: Data, config: String) throws -> String {
         do {
-    let result = try self.bridge.processImage(imageBytes: imageBytes, config: config)
+            let result = try self.bridge.processImage(imageBytes: imageBytes, config: config)
             let encodedData = try marshal_encode_excluded(result)
-    if let jsonString = String(data: encodedData, encoding: .utf8) {
-        return "{\"ok\": \(jsonString)}"
+            if let jsonString = String(data: encodedData, encoding: .utf8) {
+                return "{\"ok\": \(jsonString)}"
+            }
+            return "{\"ok\": null}"
+        } catch {
+            return marshal_error_result(error)
+        }
     }
-    return "{\"ok\": null}"
-    } catch {
-        return marshal_error_result(error)
-    }
-    }
-
     func supportsLanguageCall(lang: String) -> Bool {
         let result = self.bridge.supportsLanguage(lang: lang)
         return result
     }
-
 }
 
 // MARK: - Marshalling helpers

@@ -1492,6 +1492,11 @@
             "null"
           ]
         },
+        "skip_frb": {
+          "default": false,
+          "description": "Skip the `flutter_rust_bridge_codegen generate` post-build step.\n\nWhen `true`, alef omits the `RunCommand` that invokes\n`flutter_rust_bridge_codegen` during `alef all` / `alef generate`.\nFile post-processors (sealed-variant rewriting, loader injection, etc.)\nare still executed; only the upstream codegen invocation is suppressed.\n\nUse this when `flutter_rust_bridge` is not installed on the host —\ne.g. in CI environments that regen binding scaffolding only, or on\ndeveloper machines that have not installed the Flutter SDK.\n\nEquivalent CLI override: pass `--skip-frb` to `alef all` or\n`alef generate`, or set `ALEF_SKIP_COMMANDS=flutter_rust_bridge_codegen`.\n\nDefault: `false` (FRB codegen runs as usual).",
+          "type": "boolean"
+        },
         "stub_methods": {
           "default": [],
           "description": "Method names whose Rust bridge body should be emitted as `unimplemented!()`.\n\nUse this when a function's FFI signature (e.g. nested tuples containing\n`Vec<u8>`) cannot be represented across the FRB bridge at all. Consumers must\nlist the method names explicitly — this field has no built-in defaults so the\nknob is library-agnostic.\n\nExample (`alef.toml`):\n```toml\n[crates.dart]\nstub_methods = [\"batch_extract_bytes\", \"batch_extract_bytes_sync\"]\n```",
@@ -1648,7 +1653,7 @@
             "type": "string"
           },
           "default": {},
-          "description": "Field path aliases: maps fixture field paths to actual API struct paths.\nE.g., \"metadata.title\" -> \"metadata.document.title\"\nSupports struct access (foo.bar), map access (foo[key]), direct fields.",
+          "description": "Field path aliases: maps fixture field paths to actual API struct paths.\nE.g., \"metadata.title\" -> \"metadata.document.title\"\nSupports struct access (`foo.bar`), map access (`foo[key]`), direct fields.",
           "type": "object"
         },
         "fields_array": {
@@ -4819,7 +4824,7 @@
         },
         "suppress_validation_codes": {
           "default": [],
-          "description": "Validation diagnostic codes that are downgraded from errors to warnings\nfor this crate, allowing generation to proceed despite pre-existing surface\nissues. Each entry is the string form of a [`ValidationCode`] (e.g.\n`\"lossy_sanitized_surface\"`, `\"unknown_named_type\"`).\n\nUse this to opt out of specific validation gates while you work toward full\ncompliance; remove entries once the underlying surface issues are fixed.",
+          "description": "Validation diagnostic codes that are downgraded from errors to warnings\nfor this crate, allowing generation to proceed despite pre-existing surface\nissues. Each entry is the string form of a [`crate::core::validation::ValidationCode`] (e.g.\n`\"lossy_sanitized_surface\"`, `\"unknown_named_type\"`).\n\nUse this to opt out of specific validation gates while you work toward full\ncompliance; remove entries once the underlying surface issues are fixed.",
           "items": {
             "type": "string"
           },
@@ -4988,7 +4993,7 @@
       "type": "object"
     },
     "RegistrationVariantSpec": {
-      "description": "A named shortcut over a base [`RegistrationSpec`] with one or more pinned\nparameter values.\n\nThe variant's emitted method takes the **non-pinned** subset of the base's\nmetadata params and forwards them, along with the handler, to the base\nregistration with the pinned values substituted in. For library-supplied\nenum overrides, the pinned value is the variant *name* (e.g. `\"GET\"`); the\nextractor resolves it against the param type's [`EnumDef`] variants. For\nnon-enum types, the pinned value is a verbatim expression in the host\nlanguage's Rust bridge.\n\n```toml\n[[crates.services.registrations.variants]]\nname = \"get\"\nfixed = { method = \"GET\" }\nstyle = \"verb_decorator\"\n```",
+      "description": "A named shortcut over a base [`RegistrationSpec`] with one or more pinned\nparameter values.\n\nThe variant's emitted method takes the **non-pinned** subset of the base's\nmetadata params and forwards them, along with the handler, to the base\nregistration with the pinned values substituted in. For library-supplied\nenum overrides, the pinned value is the variant *name* (e.g. `\"GET\"`); the\nextractor resolves it against the param type's [`crate::core::ir::EnumDef`] variants. For\nnon-enum types, the pinned value is a verbatim expression in the host\nlanguage's Rust bridge.\n\n```toml\n[[crates.services.registrations.variants]]\nname = \"get\"\nfixed = { method = \"GET\" }\nstyle = \"verb_decorator\"\n```",
       "properties": {
         "doc": {
           "default": null,

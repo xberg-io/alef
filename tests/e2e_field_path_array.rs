@@ -80,11 +80,11 @@ fn choices_0_message_content_csharp() {
 #[test]
 fn choices_0_message_content_swift() {
     let r = empty_resolver();
-    // First-class Swift structs use property access (no parens) — matches the codegen
-    // emitted by alef-backend-swift for Codable struct types.
+    // With no Swift first-class map configured, unknown roots default to
+    // swift-bridge method access.
     assert_eq!(
         r.accessor("choices[0].message.content", "swift", "result"),
-        "result.choices[0].message.content"
+        "result.choices()[0].message().content()"
     );
 }
 
@@ -193,7 +193,7 @@ fn data_2_text_csharp() {
 #[test]
 fn data_2_text_swift() {
     let r = empty_resolver();
-    assert_eq!(r.accessor("data[2].text", "swift", "result"), "result.data[2].text");
+    assert_eq!(r.accessor("data[2].text", "swift", "result"), "result.data()[2].text()");
 }
 
 #[test]
@@ -320,7 +320,7 @@ fn explicit_index_overrides_config_default() {
 // ── Swift optional-chain subscript on Optional<Vec<T>> getter ─────────────────
 //
 // When an array field is listed in `fields_optional` (meaning the getter
-// returns `Optional<RustVec<T>>` in Swift), the subscript must use `?[N]`
+// returns `Optional<RustVec<T>>` in Swift), the subscript must use `()?[N]`
 // so Swift can unwrap the Optional before indexing.  Subsequent non-leaf
 // segments must also use `?.` chaining.
 //
@@ -347,7 +347,7 @@ fn swift_optional_array_field_subscript_uses_optional_chain() {
     let r = resolver_with_optional("choices[0].message.tool_calls");
     assert_eq!(
         r.accessor("choices[0].message.tool_calls[0].function.name", "swift", "result"),
-        "result.choices[0].message.toolCalls?[0].function.name"
+        "result.choices()[0].message().toolCalls()?[0].function().name()"
     );
 }
 
@@ -358,7 +358,7 @@ fn swift_optional_array_field_leaf_no_trailing_question() {
     let r = resolver_with_optional("choices[0].message.tool_calls");
     assert_eq!(
         r.accessor("choices[0].message.tool_calls[0]", "swift", "result"),
-        "result.choices[0].message.toolCalls?[0]"
+        "result.choices()[0].message().toolCalls()?[0]"
     );
 }
 
@@ -368,7 +368,7 @@ fn swift_non_optional_array_field_unchanged() {
     let r = resolver_with_optional("choices[0].message.tool_calls");
     assert_eq!(
         r.accessor("choices[0].message.content", "swift", "result"),
-        "result.choices[0].message.content"
+        "result.choices()[0].message().content()"
     );
 }
 
@@ -381,7 +381,7 @@ fn swift_path_so_far_includes_index_for_subsequent_checks() {
     let r = resolver_with_optional("choices[0].message");
     assert_eq!(
         r.accessor("choices[0].message.content", "swift", "result"),
-        "result.choices[0].message?.content"
+        "result.choices()[0].message()?.content()"
     );
 }
 

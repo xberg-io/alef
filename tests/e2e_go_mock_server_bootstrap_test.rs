@@ -124,11 +124,14 @@ fn test_go_main_test_with_mock_server_fixture() {
         "TestMain should use cargo to build mock-server if missing"
     );
 
-    // Test files derive fixture URLs from MOCK_SERVER_URL/fixtures/<id>; TestMain
-    // only needs to discover and export the base URL.
+    // TestMain parses optional per-fixture mock-server URLs and exports them.
     assert!(
-        !content.contains("encoding/json"),
-        "TestMain should not import unused JSON parsing helpers"
+        content.contains("encoding/json"),
+        "TestMain should import JSON parsing helpers for MOCK_SERVERS"
+    );
+    assert!(
+        content.contains("json.Unmarshal([]byte(payload), &servers)"),
+        "TestMain should parse MOCK_SERVERS metadata"
     );
 }
 

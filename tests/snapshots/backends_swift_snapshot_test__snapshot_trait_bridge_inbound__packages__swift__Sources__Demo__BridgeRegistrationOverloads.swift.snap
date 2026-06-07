@@ -14,7 +14,6 @@ import RustBridge
 public func unregisterImageProcessor(name: String) throws {
     try RustBridge.unregisterImageProcessor(name)
 }
-
 // MARK: - Bridge → Box register overloads
 
 public func registerImageProcessor(_ bridge: any SwiftImageProcessorBridge) throws {

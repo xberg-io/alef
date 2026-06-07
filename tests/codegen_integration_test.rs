@@ -65,6 +65,17 @@ fn default_cfg<'a>() -> RustBindingConfig<'a> {
     }
 }
 
+fn assert_unimplemented_compile_error(result: &str, fn_name: &str) {
+    assert!(
+        result.contains("compile_error!"),
+        "unsupported auto-delegation should emit a compile-time diagnostic"
+    );
+    assert!(
+        result.contains(&format!("alef cannot auto-delegate `{fn_name}`")),
+        "diagnostic should name the non-delegatable item"
+    );
+}
+
 fn simple_type_def() -> TypeDef {
     TypeDef {
         name: "MyConfig".to_string(),
@@ -1522,7 +1533,7 @@ fn test_gen_unimplemented_body_with_error() {
     );
 
     assert!(result.contains("let _ = input;"));
-    assert!(result.contains("Err(\"Not implemented"));
+    assert_unimplemented_compile_error(&result, "unimplemented_fn");
 }
 
 #[test]
@@ -1540,7 +1551,7 @@ fn test_gen_unimplemented_body_string_return() {
         &empty_opaque,
     );
 
-    assert!(result.contains("[unimplemented"));
+    assert_unimplemented_compile_error(&result, "unimplemented_fn");
 }
 
 #[test]
@@ -1558,7 +1569,7 @@ fn test_gen_unimplemented_body_bool_return() {
         &empty_opaque,
     );
 
-    assert!(result.contains("false"));
+    assert_unimplemented_compile_error(&result, "is_valid");
 }
 
 #[test]
@@ -1576,7 +1587,7 @@ fn test_gen_unimplemented_body_vec_return() {
         &empty_opaque,
     );
 
-    assert!(result.contains("Vec::new()"));
+    assert_unimplemented_compile_error(&result, "list_items");
 }
 
 #[test]
@@ -6446,7 +6457,7 @@ fn test_gen_unimplemented_body_optional_return() {
         &empty_opaque,
     );
 
-    assert_eq!(result, "None", "Optional return should default to None");
+    assert_unimplemented_compile_error(&result, "get_optional");
 }
 
 #[test]
@@ -6464,10 +6475,7 @@ fn test_gen_unimplemented_body_map_return() {
         &empty_opaque,
     );
 
-    assert_eq!(
-        result, "Default::default()",
-        "Map return should default to Default::default()"
-    );
+    assert_unimplemented_compile_error(&result, "get_map");
 }
 
 #[test]
@@ -6479,7 +6487,7 @@ fn test_gen_unimplemented_body_duration_return() {
     let result =
         binding_helpers::gen_unimplemented_body(&TypeRef::Duration, "get_timeout", false, &cfg, &params, &empty_opaque);
 
-    assert_eq!(result, "0", "Duration return should default to 0");
+    assert_unimplemented_compile_error(&result, "get_timeout");
 }
 
 #[test]
@@ -6499,13 +6507,10 @@ fn test_gen_unimplemented_body_opaque_named_return_uses_compile_error() {
     );
 
     assert!(
-        result.contains("compile_error!"),
-        "opaque Named return should use compile-time diagnostic"
-    );
-    assert!(
-        result.contains("non-delegatable function `get_opaque` returns opaque type `MyOpaque`"),
+        result.contains("configure an adapter body or exclude this item"),
         "should contain actionable diagnostic"
     );
+    assert_unimplemented_compile_error(&result, "get_opaque");
 }
 
 #[test]
@@ -6523,10 +6528,7 @@ fn test_gen_unimplemented_body_non_opaque_named_return_uses_default() {
         &opaque_types,
     );
 
-    assert_eq!(
-        result, "Default::default()",
-        "non-opaque Named return should use Default::default()"
-    );
+    assert_unimplemented_compile_error(&result, "get_config");
 }
 
 #[test]
@@ -6538,10 +6540,7 @@ fn test_gen_unimplemented_body_json_return_without_error() {
     let result =
         binding_helpers::gen_unimplemented_body(&TypeRef::Json, "get_json", false, &cfg, &params, &empty_opaque);
 
-    assert_eq!(
-        result, "Default::default()",
-        "Json return without error should use Default::default()"
-    );
+    assert_unimplemented_compile_error(&result, "get_json");
 }
 
 #[test]
@@ -6559,7 +6558,7 @@ fn test_gen_unimplemented_body_f32_return() {
         &empty_opaque,
     );
 
-    assert_eq!(result, "0.0f32", "F32 return should default to 0.0f32");
+    assert_unimplemented_compile_error(&result, "get_float");
 }
 
 #[test]
@@ -6577,7 +6576,7 @@ fn test_gen_unimplemented_body_f64_return() {
         &empty_opaque,
     );
 
-    assert_eq!(result, "0.0f64", "F64 return should default to 0.0f64");
+    assert_unimplemented_compile_error(&result, "get_score");
 }
 
 #[test]
@@ -6590,11 +6589,7 @@ fn test_gen_unimplemented_body_napi_error() {
     let result =
         binding_helpers::gen_unimplemented_body(&TypeRef::String, "missing_fn", true, &cfg, &params, &empty_opaque);
 
-    assert!(
-        result.contains("napi::Error::new"),
-        "NAPI pattern should use napi::Error"
-    );
-    assert!(result.contains("Not implemented"), "should contain error message");
+    assert_unimplemented_compile_error(&result, "missing_fn");
 }
 
 #[test]
@@ -6607,11 +6602,7 @@ fn test_gen_unimplemented_body_wasm_error() {
     let result =
         binding_helpers::gen_unimplemented_body(&TypeRef::String, "missing_fn", true, &cfg, &params, &empty_opaque);
 
-    assert!(
-        result.contains("JsValue::from_str"),
-        "WASM pattern should use JsValue::from_str"
-    );
-    assert!(result.contains("Not implemented"), "should contain error message");
+    assert_unimplemented_compile_error(&result, "missing_fn");
 }
 
 #[test]
@@ -6624,10 +6615,7 @@ fn test_gen_unimplemented_body_pyo3_error() {
     let result =
         binding_helpers::gen_unimplemented_body(&TypeRef::String, "missing_fn", true, &cfg, &params, &empty_opaque);
 
-    assert!(
-        result.contains("PyNotImplementedError"),
-        "PyO3 pattern should use PyNotImplementedError"
-    );
+    assert_unimplemented_compile_error(&result, "missing_fn");
 }
 
 #[test]
@@ -6689,7 +6677,7 @@ fn test_gen_unimplemented_body_bytes_return() {
     let result =
         binding_helpers::gen_unimplemented_body(&TypeRef::Bytes, "get_bytes", false, &cfg, &params, &empty_opaque);
 
-    assert_eq!(result, "Vec::new()", "Bytes return should default to Vec::new()");
+    assert_unimplemented_compile_error(&result, "get_bytes");
 }
 
 #[test]
@@ -6701,10 +6689,7 @@ fn test_gen_unimplemented_body_path_return() {
     let result =
         binding_helpers::gen_unimplemented_body(&TypeRef::Path, "get_path", false, &cfg, &params, &empty_opaque);
 
-    assert!(
-        result.contains("[unimplemented"),
-        "Path return should use placeholder string"
-    );
+    assert_unimplemented_compile_error(&result, "get_path");
 }
 
 #[test]

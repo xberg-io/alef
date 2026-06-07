@@ -124,7 +124,7 @@ fn dart_materializes_absent_optional_config_from_type_default() {
         "Dart must materialize default config from configured options_type + TypeDef.has_default. Rendered:\n{content}"
     );
     assert!(
-        content.contains("processSample(_settings)"),
+        content.contains("processSample(settings: _settings)"),
         "Dart call must pass the materialized settings arg. Rendered:\n{content}"
     );
 }
