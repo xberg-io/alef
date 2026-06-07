@@ -170,7 +170,9 @@ pub(crate) fn scaffold_node_cargo(
             .map(|f| format!("\"{f}\""))
             .collect::<Vec<_>>()
             .join(", ");
-        all_deps.push_str(&format!("tokio-util = {{ version = \"0.7\", features = [{feats_list}] }}"));
+        all_deps.push_str(&format!(
+            "tokio-util = {{ version = \"0.7\", features = [{feats_list}] }}"
+        ));
     }
     if has_streaming && !all_deps.contains("futures-util = ") && !all_deps.contains("futures-util =\"") {
         if !all_deps.is_empty() {

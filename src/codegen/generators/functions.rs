@@ -378,7 +378,7 @@ pub fn gen_function_with_mutex(
                     crate::core::ir::PrimitiveType::Isize => "isize",
                     _ => "",
                 };
-                if original != "" && mapped != original {
+                if !original.is_empty() && mapped != original {
                     format!(" as {}", mapped)
                 } else {
                     String::new()

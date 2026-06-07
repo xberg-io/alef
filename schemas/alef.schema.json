@@ -3343,6 +3343,17 @@
             "null"
           ]
         },
+        "tokio_util_features": {
+          "default": null,
+          "description": "Features for the auto-emitted `tokio-util` dependency that backs napi trait-bridge\ncancellation tokens. Defaults to `[\"rt\"]` because `tokio_util::sync::CancellationToken`\nis gated behind the `rt` feature in tokio-util 0.7+. Override when a consumer needs\nadditional tokio-util features (e.g. `[\"rt\", \"codec\"]`).",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "type_prefix": {
           "default": null,
           "description": "Prefix for generated type names (e.g. \"Js\" produces `JsConversionOptions`).\nDefaults to `\"Js\"`.",

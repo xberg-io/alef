@@ -5,17 +5,16 @@ final class {{ class_name }} {
     private static final Object NATIVE_EXTRACT_LOCK = new Object();
     private static String cachedExtractKey;
     private static Path cachedExtractDir;
-    private static Path loadedLibraryPath;
 
     static {
-        loadNativeLibrary();
+        Path loadedLibraryPath = loadNativeLibrary();
         try {
             Arena arena = Arena.ofShared();
             // Try the loaded library path (for System.load() with absolute path)
             if (loadedLibraryPath != null) {
                 try {
                     LIB = SymbolLookup.libraryLookup(loadedLibraryPath, arena);
-                } catch (Throwable inner1) {
+                } catch (RuntimeException | Error inner) {
                     // If Path variant fails, fallback to defaultLookup
                     LIB = LINKER.defaultLookup();
                 }
@@ -23,12 +22,16 @@ final class {{ class_name }} {
                 // Library loaded via System.loadLibrary() without absolute path
                 LIB = LINKER.defaultLookup();
             }
-        } catch (Throwable e) {
-            throw new ExceptionInInitializerError("Failed to initialize library symbols: " + e.getMessage());
+        } catch (RuntimeException | Error e) {
+            ExceptionInInitializerError error = new ExceptionInInitializerError(
+                "Failed to initialize library symbols: " + e.getMessage());
+            error.initCause(e);
+            throw error;
         }
     }
 
-    private static void loadNativeLibrary() {
+    private static Path loadNativeLibrary() {
+        Path loadedLibraryPath = null;
         String osName = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
         String osArch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT);
 
@@ -50,7 +53,8 @@ final class {{ class_name }} {
 
         Path extracted = tryExtractAndLoadFromResources(nativesDir, libName, libExt);
         if (extracted != null) {
-            return;
+            loadedLibraryPath = extracted;
+            return loadedLibraryPath;
         }
 
         try {
@@ -69,6 +73,7 @@ final class {{ class_name }} {
             out.initCause(e);
             throw out;
         }
+        return loadedLibraryPath;
     }
 
     private static Path tryExtractAndLoadFromResources(String nativesDir, String libName, String libExt) {
@@ -86,9 +91,8 @@ final class {{ class_name }} {
             }
             Path absPath = libPath.toAbsolutePath();
             System.load(absPath.toString());
-            loadedLibraryPath = absPath;
-            return libPath;
-        } catch (Exception e) {
+            return absPath;
+        } catch (Exception | Error e) {
             System.err.println("[NativeLib] Failed to extract and load native library from resources: " + e.getMessage());
             return null;
         }

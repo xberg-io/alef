@@ -815,8 +815,11 @@ fn render_test_method(
     let rendered = crate::e2e::template_env::render("csharp/test_method.jinja", ctx);
     // Indent each line by 4 spaces to nest inside the test class
     for line in rendered.lines() {
-        out.push_str("    ");
-        out.push_str(line);
+        let trimmed = line.trim_end();
+        if !trimmed.is_empty() {
+            out.push_str("    ");
+            out.push_str(trimmed);
+        }
         out.push('\n');
     }
 }

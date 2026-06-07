@@ -58,12 +58,13 @@ fn make_group() -> FixtureGroup {
 }
 
 fn make_batch_config_type() -> TypeDef {
-    let mut def = TypeDef::default();
-    def.name = "BatchConfig".to_string();
-    def.rust_path = "demo::BatchConfig".to_string();
-    def.doc = "Configuration for batch processing".to_string();
-    def.has_default = true;
-    def
+    TypeDef {
+        name: "BatchConfig".to_string(),
+        rust_path: "demo::BatchConfig".to_string(),
+        doc: "Configuration for batch processing".to_string(),
+        has_default: true,
+        ..TypeDef::default()
+    }
 }
 
 const TOML: &str = r#"

@@ -215,7 +215,12 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         let invoke_args_vec: Vec<_> = reg
             .metadata_params
             .iter()
-            .map(|meta_param| (metadata_arg_expr(meta_param, api), metadata_arg_comment(meta_param, api, "metadata")))
+            .map(|meta_param| {
+                (
+                    metadata_arg_expr(meta_param, api),
+                    metadata_arg_comment(meta_param, api, "metadata"),
+                )
+            })
             .collect();
 
         out.push_str(&template_env::render(

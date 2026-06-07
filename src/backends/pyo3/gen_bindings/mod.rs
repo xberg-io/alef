@@ -709,11 +709,11 @@ impl Backend for Pyo3Backend {
         // which require Clone. Uses std::sync::Arc to make the handle cheaply cloneable
         // without needing the GIL (Clone doesn't require GIL entry, only Arc::clone).
         let py_visitor_ref_def = r#"
-/// Wrapper for trait visitor types (Py<PyAny>) that implements Clone.
+/// Wrapper for trait visitor types (`Py<PyAny>`) that implements Clone.
 ///
-/// Py<PyAny> is not Clone. This wrapper uses Arc<Py<PyAny>> internally for cheap cloning.
+/// `Py<PyAny>` is not Clone. This wrapper uses `Arc<Py<PyAny>>` internally for cheap cloning.
 /// The .inner field is public for compatibility with generated code that needs to access
-/// the underlying Py<PyAny> for trait dispatch.
+/// the underlying `Py<PyAny>` for trait dispatch.
 #[derive(Debug)]
 pub struct PyVisitorRef {
     pub inner: std::sync::Arc<pyo3::Py<pyo3::PyAny>>,
