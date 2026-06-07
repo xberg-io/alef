@@ -51,6 +51,7 @@ impl Pyo3Backend {
             serializable_opaque_type_names: &[],
             never_skip_cfg_field_names: &[],
             emit_delegating_default_impl: false,
+            skip_methods_when_not_delegatable: false,
         }
     }
 

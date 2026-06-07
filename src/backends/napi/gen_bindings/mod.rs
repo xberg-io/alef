@@ -58,6 +58,7 @@ impl NapiBackend {
             // Keep the flag off until the napi gen_struct learns the same
             // suppress-derive + delegate-impl pattern.
             emit_delegating_default_impl: false,
+            skip_methods_when_not_delegatable: false,
         }
     }
 }
@@ -120,6 +121,8 @@ impl Backend for NapiBackend {
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute("allow(unsafe_code)");
+        // The napi-rs crate is entirely generated glue — rustdoc coverage is not meaningful here.
+        builder.add_inner_attribute("allow(missing_docs)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::arc_with_non_send_sync, clippy::collapsible_if, clippy::clone_on_copy, clippy::should_implement_trait)");
         // Cast lints fire heavily on the JS u32/i64/Number bridge — these are
         // intentional, deliberate at the FFI boundary. Pedantic/nursery noise

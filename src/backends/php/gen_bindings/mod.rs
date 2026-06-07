@@ -161,6 +161,9 @@ impl PhpBackend {
             // `From<BindingType>`. Setting this to `true` emits a delegating `impl Default`
             // that defers to `<core::Type as Default>::default().into()`.
             emit_delegating_default_impl: true,
+            // PHP backend has its own per-method skip logic in `gen_bindings/functions.rs`
+            // and does not route through the shared `gen_impl_block` skip path.
+            skip_methods_when_not_delegatable: false,
         }
     }
 }
@@ -1177,11 +1180,6 @@ impl Backend for PhpBackend {
                 }
             };
 
-            content.push_str(&crate::backends::php::template_env::render(
-                "php_method_signature_start.jinja",
-                context! { method_name => &method_name },
-            ));
-
             // Build wrapper signature in RUST parameter order (not reordered).
             // E2e test generator expects Rust param order, so the wrapper must match.
             // This aligns PHP bindings with Python, Ruby, Go, etc. which also preserve
@@ -1234,11 +1232,27 @@ impl Backend for PhpBackend {
                     }
                 })
                 .collect();
-            content.push_str(&params.join(", "));
-            content.push_str(&crate::backends::php::template_env::render(
-                "php_method_signature_end.jinja",
-                context! { return_type => &return_php_type },
-            ));
+
+            // Emit signature: when params is empty, collapse () to single line.
+            // Otherwise, multi-line with params on separate line.
+            if params.is_empty() {
+                // Single-line signature for no-arg functions
+                content.push_str(&format!(
+                    "    public static function {}(): {} {{\n",
+                    method_name, return_php_type
+                ));
+            } else {
+                // Multi-line signature for functions with params
+                content.push_str(&crate::backends::php::template_env::render(
+                    "php_method_signature_start.jinja",
+                    context! { method_name => &method_name },
+                ));
+                content.push_str(&params.join(", "));
+                content.push_str(&crate::backends::php::template_env::render(
+                    "php_method_signature_end.jinja",
+                    context! { return_type => &return_php_type },
+                ));
+            }
             // Delegate to the native extension class (registered as `{namespace}\{class_name}Api`).
             // ext-php-rs auto-converts Rust snake_case to PHP camelCase.
             // PHP does not expose async — async behaviour is handled internally via Tokio

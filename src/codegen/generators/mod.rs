@@ -120,6 +120,13 @@ pub struct RustBindingConfig<'a> {
     /// don't need this; the bug it fixes is specific to PHP's `#[serde(default)]` + partial
     /// JSON deserialisation path.
     pub emit_delegating_default_impl: bool,
+
+    /// When true, methods that cannot be auto-delegated AND have no adapter override are
+    /// silently skipped from emitted impl blocks (mirroring the PHP backend's pattern)
+    /// instead of emitting a `compile_error!` stub. Required for backends whose host
+    /// language cannot meaningfully panic at startup (e.g. extendr's `#[extendr]` macro
+    /// fails to expand around `compile_error!` bodies, breaking the whole crate).
+    pub skip_methods_when_not_delegatable: bool,
 }
 
 /// Method names that conflict with standard trait methods.

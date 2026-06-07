@@ -1085,6 +1085,12 @@ pub fn gen_impl_block_with_renames(
         if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;
         }
+        if cfg.skip_methods_when_not_delegatable
+            && !adapter_bodies.contains_key(&adapter_key)
+            && !crate::codegen::shared::can_auto_delegate(m, opaque_types)
+        {
+            continue;
+        }
         out.push_str(&gen_method(
             m,
             mapper,
@@ -1103,6 +1109,12 @@ pub fn gen_impl_block_with_renames(
         // Skip sanitized static methods that have no adapter override.
         let adapter_key = format!("{}.{}", typ.name, m.name);
         if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
+        if cfg.skip_methods_when_not_delegatable
+            && !adapter_bodies.contains_key(&adapter_key)
+            && !crate::codegen::shared::can_auto_delegate(m, opaque_types)
+        {
             continue;
         }
         out.push_str(&gen_static_method(
@@ -1168,6 +1180,12 @@ pub fn gen_opaque_impl_block(
         if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;
         }
+        if cfg.skip_methods_when_not_delegatable
+            && !adapter_bodies.contains_key(&adapter_key)
+            && !crate::codegen::shared::can_auto_delegate(m, opaque_types)
+        {
+            continue;
+        }
         out.push_str(&gen_method(
             m,
             mapper,
@@ -1186,6 +1204,12 @@ pub fn gen_opaque_impl_block(
         // Skip sanitized static methods that have no adapter override.
         let adapter_key = format!("{}.{}", typ.name, m.name);
         if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
+        if cfg.skip_methods_when_not_delegatable
+            && !adapter_bodies.contains_key(&adapter_key)
+            && !crate::codegen::shared::can_auto_delegate(m, opaque_types)
+        {
             continue;
         }
         out.push_str(&gen_static_method(

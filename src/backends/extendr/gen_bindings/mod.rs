@@ -64,6 +64,12 @@ impl ExtendrBackend {
             serializable_opaque_type_names: &[],
             never_skip_cfg_field_names: &[],
             emit_delegating_default_impl: false,
+            // extendr's `#[extendr]` macro fails to expand impl blocks that contain
+            // `compile_error!` bodies, breaking the whole binding crate. Skip
+            // non-auto-delegatable methods (e.g. those whose signature contains
+            // Vec<EnumVariant> or Result<Vec<NamedStruct>> shapes the extendr_api
+            // converters do not implement) rather than emitting an unimplemented stub.
+            skip_methods_when_not_delegatable: true,
         }
     }
 }
