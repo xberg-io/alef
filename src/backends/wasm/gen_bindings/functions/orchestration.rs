@@ -11,6 +11,7 @@ use crate::core::ir::{FunctionDef, TypeRef};
 use ahash::AHashSet;
 use std::collections::HashMap;
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
     func: &FunctionDef,
     mapper: &WasmMapper,
@@ -90,7 +91,7 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
     };
 
     if func.is_async {
-        return super::async_wrappers::gen_async_free_function(
+        super::async_wrappers::gen_async_free_function(
             &input_dtos,
             func,
             mapper,
@@ -104,7 +105,7 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
             &js_name_attr,
             &return_annotation,
             &core_fn_path,
-        );
+        )
     } else if can_delegate {
         let mut let_bindings = if crate::codegen::generators::has_named_params(&func.params, opaque_types) {
             crate::codegen::generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)

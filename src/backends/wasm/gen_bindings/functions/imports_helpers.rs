@@ -17,7 +17,6 @@ pub(in crate::backends::wasm::gen_bindings) fn emit_rustdoc(doc: &str) -> String
 /// Convert a `TypeRef` to its concrete Rust type string for use in serde deserialization
 /// let-bindings. Unlike `WasmMapper::map_type`, this always returns a concrete Rust type
 /// (e.g. `String`, `Vec<String>`) rather than `JsValue`. Used when emitting
-
 pub(in crate::backends::wasm::gen_bindings) fn gen_env_shims(shim_names: &[String]) -> String {
     let mut out = String::from("// WASM environment shims for C scanner interop\n");
 

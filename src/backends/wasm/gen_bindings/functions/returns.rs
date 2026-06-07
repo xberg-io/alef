@@ -15,7 +15,6 @@ pub(super) fn to_turbofish_from(type_name: &str) -> String {
 /// Generate a free function binding with deduplication of input DTOs.
 /// Returns a string containing any generated Input DTO structs (not in emitted_input_dtos set)
 /// followed by the function code.
-
 pub(in crate::backends::wasm::gen_bindings) fn gen_wasm_unimplemented_body(
     return_type: &TypeRef,
     fn_name: &str,

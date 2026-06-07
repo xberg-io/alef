@@ -220,7 +220,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
         excluded_variants: vec![],
     };
 
-    let result = gen_elixir_enum_module(&image_source_enum, "SampleCrawler");
+    let result = gen_elixir_enum_module(&image_source_enum, "SampleFixture");
 
     // @type should contain quoted atoms for special chars
     assert!(

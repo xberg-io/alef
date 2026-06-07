@@ -49,7 +49,6 @@ pub(in crate::backends::wasm::gen_bindings) fn format_param_unused(name: &str, t
 ///
 /// Rust requires turbofish when a type has generic parameters and sits before `::`:
 ///   `Vec<T>::from(x)` is a syntax error — `Vec::<T>::from(x)` is required.
-
 pub(super) fn wasm_serde_recovery_call_args(
     params: &[crate::core::ir::ParamDef],
     opaque_types: &AHashSet<String>,

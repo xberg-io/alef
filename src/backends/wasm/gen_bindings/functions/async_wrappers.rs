@@ -143,7 +143,7 @@ pub(super) fn gen_async_free_function(
             }
         }
         TypeRef::Named(_) => {
-            format!("{}::from(result)", to_turbofish_from(&return_type))
+            format!("{}::from(result)", to_turbofish_from(return_type))
         }
         TypeRef::Unit => "result".to_string(),
         _ => "result".to_string(),

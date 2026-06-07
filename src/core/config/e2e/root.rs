@@ -159,7 +159,7 @@ impl E2eConfig {
     ///
     /// When the fixture has an explicit `call` name, that named config is returned
     /// (same as [`Self::resolve_call`]).  When the fixture has no explicit call, the method
-    /// scans named calls for a [`SelectWhen`] condition that matches the fixture's
+    /// scans named calls for a [`super::selection::SelectWhen`] condition that matches the fixture's
     /// shape (id, category, tags, input) and returns the first match.  If no condition
     /// matches, it falls back to the default `[e2e.call]`.
     ///

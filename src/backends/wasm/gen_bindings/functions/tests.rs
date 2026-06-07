@@ -27,7 +27,7 @@ fn param(name: &str, ty: TypeRef) -> ParamDef {
 fn async_function(params: Vec<ParamDef>) -> FunctionDef {
     FunctionDef {
         name: "interact".to_string(),
-        rust_path: "sample_crawler::interact".to_string(),
+        rust_path: "sample_fixture::interact".to_string(),
         original_rust_path: String::new(),
         params,
         return_type: TypeRef::Unit,
@@ -106,7 +106,7 @@ fn async_vec_named_params_convert_to_core_vec() {
         TypeRef::Vec(Box::new(TypeRef::Named("PageAction".to_string()))),
     )]);
     let api = crate::core::ir::ApiSurface {
-        crate_name: "sample_crawler".to_string(),
+        crate_name: "sample_fixture".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
         functions: vec![],
@@ -122,7 +122,7 @@ fn async_vec_named_params_convert_to_core_vec() {
     let out = gen_function_with_emitted_dtos(
         &func,
         &mapper,
-        "sample_crawler",
+        "sample_fixture",
         &AHashSet::new(),
         "Wasm",
         &AHashSet::new(),
@@ -133,11 +133,11 @@ fn async_vec_named_params_convert_to_core_vec() {
     assert!(out.contains("actions: Vec<WasmPageAction>"));
     assert!(
         out.contains(
-            "let actions_core: Vec<sample_crawler::PageAction> = actions.into_iter().map(Into::into).collect();"
+            "let actions_core: Vec<sample_fixture::PageAction> = actions.into_iter().map(Into::into).collect();"
         ),
         "{out}"
     );
-    assert!(out.contains("sample_crawler::interact(actions_core).await"), "{out}");
+    assert!(out.contains("sample_fixture::interact(actions_core).await"), "{out}");
 }
 
 #[test]
@@ -333,7 +333,7 @@ fn gen_input_dto_excludes_binding_excluded_fields() {
 
     let type_def = crate::core::ir::TypeDef {
         name: "CrawlConfig".to_string(),
-        rust_path: "sample_crawler::CrawlConfig".to_string(),
+        rust_path: "sample_fixture::CrawlConfig".to_string(),
         original_rust_path: String::new(),
         fields: vec![
             // Normal field — must appear in the DTO.
@@ -365,7 +365,7 @@ fn gen_input_dto_excludes_binding_excluded_fields() {
         has_lifetime_params: false,
     };
 
-    let (code, _name) = gen_input_dto_for_type("CrawlConfig", "sample_crawler", &type_def);
+    let (code, _name) = gen_input_dto_for_type("CrawlConfig", "sample_fixture", &type_def);
 
     assert!(
         code.contains("max_depth"),

@@ -40,6 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **backend code organization**: split Dart FRB rewriting, Go trait bridge
+  generation, PyO3 function generation, and Rustler service API generation into
+  concern-based modules while preserving their existing backend APIs.
+  (`src/backends/dart/frb_rewrite.rs`, `src/backends/go/trait_bridge.rs`,
+  `src/backends/pyo3/gen_bindings/functions.rs`,
+  `src/backends/rustler/gen_bindings/service_api.rs`)
+
 - **backend code organization**: split PHP service API generation, Rustler helper
   generation, WASM function generation, and FFI function generation into
   concern-based modules while preserving their existing backend APIs.
