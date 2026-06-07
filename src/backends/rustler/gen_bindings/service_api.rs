@@ -161,7 +161,9 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         all_fields.extend(method.params.iter().map(|p| p.name.clone()));
     }
     // Format fields with proper commas for mix format
-    let formatted_fields = all_fields.iter().enumerate()
+    let formatted_fields = all_fields
+        .iter()
+        .enumerate()
         .map(|(i, field)| {
             let comma = if i < all_fields.len() - 1 { "," } else { "" };
             format!("    :{}{}\n", field, comma)
@@ -190,7 +192,9 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
 
         push_elixir_doc(out, &ctor.doc, "doc");
         // Format field inits with proper commas for mix format
-        let formatted_inits = field_inits.iter().enumerate()
+        let formatted_inits = field_inits
+            .iter()
+            .enumerate()
             .map(|(i, init)| {
                 let comma = if i < field_inits.len() - 1 { "," } else { "" };
                 format!("      {}{}\n", init, comma)

@@ -1,11 +1,14 @@
   def {{ method_name }}({{ params }}) do
     # Wrap handler closure in a process if it's not already one
-    handler_pid = case handler do
-      pid when is_pid(pid) -> pid
-      fun when is_function(fun) ->
-        {:ok, pid} = GenServer.start_link(__MODULE__.HandlerWrapper, fun)
-        pid
-    end
+    handler_pid =
+      case handler do
+        pid when is_pid(pid) ->
+          pid
+
+        fun when is_function(fun) ->
+          {:ok, pid} = GenServer.start_link(__MODULE__.HandlerWrapper, fun)
+          pid
+      end
 
     entry = {"{{ method_name }}", {{ meta_tuple }}, handler_pid}
     %__MODULE__{self | registrations: [entry | self.registrations]}
