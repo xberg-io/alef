@@ -1,4 +1,4 @@
-  def {{ method_name }}({{ params }}) do
+  def {{ method_name }}(%__MODULE__{} = {{ params }}) do
     # Wrap handler closure in a process if it's not already one
     handler_pid =
       case handler do
