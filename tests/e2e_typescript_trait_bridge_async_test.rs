@@ -23,7 +23,7 @@ sources = ["src/lib.rs"]
 fixtures = "fixtures"
 output = "e2e"
 
-[crates.e2e.trait_bridges]
+[[crates.trait_bridges]]
 trait_name = "MyBackend"
 super_trait = "Plugin"
 register_fn = "register_my_backend"
