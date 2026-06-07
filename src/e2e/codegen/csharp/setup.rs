@@ -224,16 +224,11 @@ pub(super) fn build_args_and_setup(
             input.get(field)
         };
         match val {
-            None | Some(serde_json::Value::Null) if arg.optional => {
-                // Optional arg with no fixture value: pass null explicitly since
-                // C# nullable parameters still require an argument at the call site.
-                parts.push("null".to_string());
-                continue;
-            }
             None | Some(serde_json::Value::Null) => {
-                // Required arg with no fixture value: pass a language-appropriate default.
-                // For json_object args with a known options_type, use `new OptionsType()`
-                // so the generated code compiles when the method parameter is non-nullable.
+                // No fixture value provided. Determine what to emit:
+                // - For explicitly optional parameters, emit null
+                // - For json_object args, emit default-constructed value (struct/record) or null (reference type)
+                // - For other types, use language-appropriate defaults
                 let default_val = match arg.arg_type.as_str() {
                     "string" => "\"\"".to_string(),
                     "int" | "integer" => "0".to_string(),
@@ -241,29 +236,14 @@ pub(super) fn build_args_and_setup(
                     "bool" | "boolean" => "false".to_string(),
                     "json_object" => {
                         if arg.optional {
-                            // Optional parameter can be null
+                            // Explicitly optional parameter: can safely pass null
                             "null".to_string()
-                        } else if let Some(opts_type) = options_type {
-                            // Required parameter: construct default instance
-                            format!("new {opts_type}()")
-                        } else if let Some(elem_type) = &arg.element_type {
-                            // Try element_type as fallback for config type
-                            format!("new {elem_type}()")
                         } else {
-                            // Infer from argument name: try directly (e.g., "config" → "Config"),
-                            // then try with "Config" suffix (e.g., "config" → "ConfigConfig").
-                            let name_upper = arg.name.to_upper_camel_case();
-                            let candidates = [name_upper.clone(), format!("{name_upper}Config")];
-                            let matched = candidates
-                                .iter()
-                                .find(|cand| type_defs.iter().any(|ty| ty.name == **cand))
-                                .cloned();
-                            if let Some(inferred_type) = matched {
-                                format!("new {inferred_type}()")
-                            } else {
-                                // Cannot determine type; pass null (will fail at runtime with ArgumentNullException)
-                                "null".to_string()
-                            }
+                            // Required parameter: infer the type and decide whether to construct or null.
+                            // C# value types (structs, records) cannot be null, so emit `new T()`.
+                            // Reference types can be null, but we still prefer to construct defaults
+                            // when the type is known and constructible.
+                            resolve_json_object_default(options_type, &arg.element_type, &arg.name, type_defs)
                         }
                     }
                     _ => "null".to_string(),
@@ -310,6 +290,51 @@ pub(super) fn build_args_and_setup(
     }
 
     (setup_lines, parts.join(", "))
+}
+
+/// Resolve the default value for a json_object parameter when no fixture value is provided.
+///
+/// This is called for required (non-optional) json_object parameters. Since C# value types
+/// (structs, records) cannot be null, this function emits `new T()` when the type is known.
+/// Reference types that cannot be inferred fall back to `null`.
+///
+/// Strategy:
+/// 1. Prefer explicit options_type from call config
+/// 2. Fall back to arg.element_type
+/// 3. Infer from parameter name: try "ParamName" and "ParamNameConfig"
+/// 4. Last resort: `null` (will fail at runtime with proper error)
+fn resolve_json_object_default(
+    options_type: Option<&str>,
+    element_type: &Option<String>,
+    param_name: &str,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> String {
+    // Explicit options_type from call config: highest priority
+    if let Some(opts_type) = options_type {
+        return format!("new {opts_type}()");
+    }
+
+    // Fall back to element_type from arg mapping
+    if let Some(elem_type) = element_type {
+        return format!("new {elem_type}()");
+    }
+
+    // Try to infer type name from parameter name:
+    // - Try direct match first (e.g., "config" → "Config")
+    // - Then try with "Config" suffix (e.g., "options" → "OptionsConfig")
+    let name_upper = param_name.to_upper_camel_case();
+    let candidates = [name_upper.clone(), format!("{name_upper}Config")];
+    if let Some(inferred) = candidates
+        .iter()
+        .find(|cand| type_defs.iter().any(|ty| ty.name == **cand))
+        .cloned()
+    {
+        return format!("new {inferred}()");
+    }
+
+    // Cannot determine type; pass null
+    // This will fail at runtime with a clear error message pointing to the parameter
+    "null".to_string()
 }
 
 /// Convert a JSON array to a typed C# `List<T>` expression.
