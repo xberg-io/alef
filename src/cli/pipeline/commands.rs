@@ -1033,7 +1033,7 @@ fn build_command_for(
             // NAPI outputs .node + .d.ts to the crate directory
             // Use npx to provision @napi-rs/cli on demand
             format!(
-                "npx --yes @napi-rs/cli@{} build --platform --manifest-path {}/Cargo.toml -o {}{}",
+                "npx --yes -p @napi-rs/cli@{} napi build --platform --manifest-path {}/Cargo.toml -o {}{}",
                 tv::npm::NAPI_RS_CLI_CRATE,
                 crate_dir,
                 crate_dir,

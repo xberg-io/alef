@@ -35,10 +35,10 @@ pub(crate) fn default_build_config(
             precondition: Some(require_tool("npm")),
             before: None,
             build: Some(StringOrVec::Single(format!(
-                "npx --yes @napi-rs/cli@3.6.2 build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node"
+                "npx --yes -p @napi-rs/cli@3.6.2 napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node"
             ))),
             build_release: Some(StringOrVec::Single(format!(
-                "npx --yes @napi-rs/cli@3.6.2 build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node --release"
+                "npx --yes -p @napi-rs/cli@3.6.2 napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node --release"
             ))),
         },
         Language::Wasm => BuildCommandConfig {

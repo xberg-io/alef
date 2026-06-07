@@ -170,7 +170,9 @@ pub(super) fn apply_java_visitor_arg(
         return args_str.to_string();
     }
 
-    let options_expr = format!("new {}().{}({})", binding.options_type, wither, visitor_var);
+    // Records emit `withVisitor` on the Builder, not the record itself; use
+    // the builder-chain pattern (`Options.builder().withVisitor(v).build()`).
+    let options_expr = format!("{}.builder().{}({}).build()", binding.options_type, wither, visitor_var);
     if args_str.is_empty() {
         options_expr
     } else if let Some(stripped) = args_str.strip_suffix(", null") {

@@ -47,3 +47,4 @@ rust_out.*
 AGENTS.md
 CLAUDE.md
 # END ai-rulez
+*.rlib

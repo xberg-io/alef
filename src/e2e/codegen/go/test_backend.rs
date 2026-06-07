@@ -695,8 +695,7 @@ mod trait_bridge_tests {
     /// a named type (treated as enum) to verify the fix works generically.
     #[test]
     fn test_go_stub_emits_methods_returning_named_excluded_types() {
-        let diagnose_method =
-            make_method("diagnose", vec![], TypeRef::Named("DiagnosticLevel".to_string()), false);
+        let diagnose_method = make_method("diagnose", vec![], TypeRef::Named("DiagnosticLevel".to_string()), false);
 
         let trait_bridge = TraitBridgeConfig {
             trait_name: "MyService".to_string(),
@@ -715,8 +714,7 @@ mod trait_bridge_tests {
         excluded.insert("DiagnosticLevel");
 
         let enum_names = std::collections::HashSet::new();
-        let emission =
-            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "", &enum_names);
+        let emission = emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "", &enum_names);
 
         // Method returning an excluded named type must be emitted (it's now exported as json.RawMessage).
         assert!(

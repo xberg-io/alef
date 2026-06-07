@@ -216,16 +216,23 @@ pub fn default_test_apps_run_config(
             ))),
         },
         Language::Zig => TestAppRunConfig {
-            // `zig fetch --save` resolves the FFI/package URL pinned in build.zig.zon,
-            // writes the content-addressed multihash back into the manifest, and
-            // populates the global zig cache. This is required because alef emits
-            // build.zig.zon with a placeholder hash that the Zig toolchain refuses
-            // to resolve from a fresh checkout — `zig build test` would otherwise
-            // abort with "expected hash" before any test runs.
+            // At release time, build.zig.zon is generated with `.url` but no `.hash` field
+            // because the network fetch fails (published tarballs don't yet exist). After
+            // release, the tarballs are live on GitHub. This command runs `zig fetch --save=<dep_name>`
+            // for each dependency to populate the `.hash` field, then runs `zig build test`.
+            // We extract (dep_name, url) pairs by normalizing the file to single lines per block,
+            // then parse each dependency section for its .url field.
             precondition: Some(require_tool("zig")),
             before: None,
             run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/zig && zig fetch --save && zig build test"
+                "cd {test_apps_dir}/zig && \
+                cat build.zig.zon | tr '\\n' ' ' | sed 's/}} *,/}}\\n/g' | \
+                while read block; do \
+                  dep=$(echo \"$block\" | sed -n 's/.*\\.\\([a-z_0-9]*\\) *= *\\.{{.*/\\1/p'); \
+                  url=$(echo \"$block\" | sed -n 's/.*\\.url *= *\"\\([^\"]*\\)\".*/\\1/p'); \
+                  [ -n \"$dep\" ] && [ -n \"$url\" ] && zig fetch --save=\"$dep\" \"$url\" 2>&1 | grep -v overwriting || true; \
+                done && \
+                zig build test"
             ))),
         },
         Language::Gleam => TestAppRunConfig {
