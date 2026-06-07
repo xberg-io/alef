@@ -352,14 +352,17 @@ fn ruby_spec_helper_skips_spawn_when_mock_server_url_preset() {
         .find(|f| f.path.ends_with("spec_helper.rb"))
         .expect("spec_helper.rb not found");
     assert!(
-        spec_helper.content.contains("next if ENV['MOCK_SERVER_URL']"),
+        spec_helper.content.contains("existing_url = ENV['MOCK_SERVER_URL']")
+            && spec_helper
+                .content
+                .contains("if existing_url && !existing_url.empty?"),
         "spec_helper.rb must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
         spec_helper.content
     );
     // Guard must appear before the popen3 spawn call.
     let guard = spec_helper
         .content
-        .find("next if ENV['MOCK_SERVER_URL']")
+        .find("if existing_url && !existing_url.empty?")
         .expect("guard present");
     let spawn = spec_helper.content.find("popen3").expect("popen3 present");
     assert!(
@@ -489,13 +492,16 @@ fn typescript_global_setup_skips_spawn_when_mock_server_url_preset() {
         .find(|f| f.path.ends_with("globalSetup.ts"))
         .expect("globalSetup.ts not found");
     assert!(
-        global_setup.content.contains("if (process.env.MOCK_SERVER_URL)"),
+        global_setup
+            .content
+            .contains("const presetUrl = process.env.MOCK_SERVER_URL ?? process.env.SUT_URL;")
+            && global_setup.content.contains("if (presetUrl)"),
         "globalSetup.ts must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
         global_setup.content
     );
     let guard = global_setup
         .content
-        .find("if (process.env.MOCK_SERVER_URL)")
+        .find("if (presetUrl)")
         .expect("guard present");
     let spawn = global_setup.content.find("spawn(").expect("spawn present");
     assert!(

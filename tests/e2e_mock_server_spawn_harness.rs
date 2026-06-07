@@ -179,22 +179,22 @@ fn elixir_http_fixture_forces_http1_on_req() {
         .expect("elixir HTTP test file is emitted");
     let content = &test_file.content;
     // The mock server is plain HTTP/1.1; Req's default HTTP/2 negotiation fails
-    // with `:pool_not_available`. Every Req call must pin the connection to
-    // HTTP/1 via `connect_options: [protocols: [:http1]]`.
+    // with `:pool_not_available`. Test helper starts AlefE2EFinch with HTTP/1
+    // protocols, and every Req call must use that named pool.
     assert!(
         content.contains("Req."),
         "elixir test file must emit a Req call. Rendered:\n{content}"
     );
     assert!(
-        content.contains("connect_options: [protocols: [:http1]]"),
-        "every Req call must force HTTP/1 against the HTTP/1.1 mock server. Rendered:\n{content}"
+        content.contains("finch: AlefE2EFinch"),
+        "every Req call must use the HTTP/1 Finch pool. Rendered:\n{content}"
     );
-    // No Req call may be emitted without the HTTP/1 option — otherwise it would
-    // negotiate HTTP/2 and fail.
+    // No Req call may be emitted without the named Finch pool — otherwise it
+    // would use Req's default pool and may negotiate HTTP/2.
     for line in content.lines().filter(|l| l.contains("Req.")) {
         assert!(
-            line.contains("connect_options: [protocols: [:http1]]"),
-            "Req call missing HTTP/1 option: {line}\nRendered:\n{content}"
+            line.contains("finch: AlefE2EFinch"),
+            "Req call missing named Finch pool: {line}\nRendered:\n{content}"
         );
     }
 }
