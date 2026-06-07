@@ -845,7 +845,7 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
                     next_fn => &next_fn,
                 },
             ));
-            // Add blank line after each method for mix format compatibility
+            // Template ends with newline; add blank line for mix format compatibility
             out.push('\n');
             continue;
         }
@@ -897,9 +897,7 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
                 call_args => &call_args.join(", "),
             },
         ));
-        // Add blank line after each method for mix format compatibility
-        out.push('\n');
-        // Add blank line after each method for mix format compatibility
+        // Template ends with newline; add blank line for mix format compatibility
         out.push('\n');
     }
 

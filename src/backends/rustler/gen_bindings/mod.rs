@@ -1607,7 +1607,7 @@ impl Backend for RustlerBackend {
                         native_mod => &native_mod,
                     },
                 ));
-                // Add blank line after each method for mix format compatibility
+                // Template ends with newline; add blank line for mix format compatibility
                 content.push('\n');
             }
         }
