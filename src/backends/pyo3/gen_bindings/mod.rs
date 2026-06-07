@@ -1,16 +1,25 @@
 //! PyO3 (Python) backend: orchestration and `Backend` trait implementation.
 
 pub mod capsule;
+mod capsule_methods;
+mod config;
+mod constructors;
 pub mod enums;
 pub mod errors;
 pub mod functions;
 pub mod methods;
+mod mutex;
+mod opaque_helpers;
+mod public_files;
 pub mod service_api;
+mod support_items;
+#[cfg(test)]
+mod tests;
 pub mod types;
 
 use crate::backends::pyo3::type_map::Pyo3Mapper;
 use crate::codegen::builder::RustFileBuilder;
-use crate::codegen::generators::{self, AsyncPattern, RustBindingConfig};
+use crate::codegen::generators;
 use crate::codegen::shared::binding_fields;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir};
@@ -19,408 +28,6 @@ use ahash::AHashSet;
 use std::path::PathBuf;
 
 pub struct Pyo3Backend;
-
-impl Pyo3Backend {
-    fn binding_config(core_import: &str, has_serde: bool) -> RustBindingConfig<'_> {
-        RustBindingConfig {
-            struct_attrs: &["pyclass(frozen, from_py_object)"],
-            field_attrs: &["pyo3(get)"],
-            struct_derives: &["Clone"],
-            method_block_attr: Some("pymethods"),
-            constructor_attr: "#[new]",
-            static_attr: Some("staticmethod"),
-            function_attr: "#[pyfunction]",
-            enum_attrs: &["pyclass(eq, eq_int, from_py_object)"],
-            enum_derives: &["Clone", "PartialEq"],
-            needs_signature: true,
-            signature_prefix: "    #[pyo3(signature = (",
-            signature_suffix: "))]",
-            core_import,
-            async_pattern: AsyncPattern::Pyo3FutureIntoPy,
-            has_serde,
-            type_name_prefix: "",
-            // Duration fields on has_default types become Option<u64> so that unset fields
-            // fall back to the core type's Default rather than Duration::ZERO.
-            option_duration_on_defaults: true,
-            opaque_type_names: &[],
-            skip_impl_constructor: false,
-            cast_uints_to_i32: false,
-            cast_large_ints_to_f64: false,
-            named_non_opaque_params_by_ref: false,
-            lossy_skip_types: &[],
-            serializable_opaque_type_names: &[],
-            never_skip_cfg_field_names: &[],
-            emit_delegating_default_impl: false,
-            skip_methods_when_not_delegatable: false,
-        }
-    }
-
-    /// Variant of `binding_config` that uses `unsendable` instead of `frozen` for types
-    /// that contain `Rc<...>`-based handles (e.g. visitor handles).  PyO3 requires either
-    /// `Send + Sync` (for `frozen`) or the `unsendable` marker (for single-threaded types).
-    fn unsendable_binding_config(core_import: &str, has_serde: bool) -> RustBindingConfig<'_> {
-        RustBindingConfig {
-            struct_attrs: &["pyclass(unsendable, from_py_object)"],
-            ..Self::binding_config(core_import, has_serde)
-        }
-    }
-}
-
-/// Whether a `#[cfg(...)]` predicate is satisfied for PyO3 bindings.
-///
-/// PyO3 bindings always compile for native CPython (never WASM), so we can include
-/// cfg-gated fields in constructor signatures if either:
-/// - The field is gated on `not(target_arch = "wasm32")` (always present on native)
-/// - The field is gated on a feature (statically enabled when kompiling pyo3 module)
-///
-/// This is safe because the PyO3 compilation unit is directly controlled by the
-/// binding's `Cargo.toml` (sample_core-py), which explicitly lists all features
-/// like `pdf`, `html`, `tree-sitter`, etc. Unlike FFI-based bindings that link
-/// against a separately-compiled core library, pyo3 builds the core with known
-/// features, so feature gates are deterministic at binding-compilation time.
-fn cfg_present_for_pyo3(cfg: &str) -> bool {
-    let normalized: String = cfg.chars().filter(|c| !c.is_whitespace()).collect();
-    // Accept `not(target_arch="wasm32")` — always true on native Python
-    if normalized == "not(target_arch=\"wasm32\")" {
-        return true;
-    }
-    // Accept feature gates — pyo3 features are statically enabled/disabled
-    if normalized.starts_with("feature=") {
-        return true;
-    }
-    // Accept `any(...)` containing only feature gates and native-target gates
-    if normalized.starts_with("any(") && normalized.ends_with(")") {
-        let inner = &normalized[4..normalized.len() - 1];
-        return inner
-            .split(',')
-            .all(|part| part.starts_with("feature=") || part == "not(target_arch=\"wasm32\")");
-    }
-    false
-}
-
-/// Replace the constructor in an impl block with one that honors serde_rename.
-/// For has_default types, the constructor parameters should use serde_rename names
-/// (the JSON wire names) to match other language bindings' public APIs.
-/// This function finds the existing constructor and replaces it with a custom one.
-/// Also adds extra parameters for any options-field bridges (e.g., visitor).
-#[allow(clippy::too_many_arguments)]
-fn replace_constructor_with_serde_rename(
-    impl_block: &str,
-    typ: &crate::core::ir::TypeDef,
-    mapper: &dyn crate::codegen::type_mapper::TypeMapper,
-    config: &crate::codegen::generators::RustBindingConfig,
-    config_renames: Option<&std::collections::HashMap<String, String>>,
-    trait_bridges: &[crate::core::config::TraitBridgeConfig],
-    never_skip_cfg_field_names: &[String],
-    api: &crate::core::ir::ApiSurface,
-) -> String {
-    use crate::codegen::shared::binding_fields;
-    use crate::core::keywords::{is_valid_rust_ident_chars, rust_raw_ident};
-
-    // When the type already has an explicit static `new()` method in its IR, do not
-    // emit a second field-based `#[new]` constructor — the static method will be emitted
-    // as `#[staticmethod] pub fn new(...)` and PyO3 forbids two `new` registrations in
-    // the same impl block (E0592 duplicate definitions).
-    let has_explicit_new = typ.methods.iter().any(|m| m.is_static && m.name == "new");
-    if has_explicit_new {
-        return impl_block.to_string();
-    }
-
-    /// Check if a field should be emitted as Option<T> to accept None for BLK-5 fix.
-    /// This applies when:
-    /// - The parent type has_default=true
-    /// - The field is non-optional (!f.optional && not already Optional)
-    /// - The field type is a Named type
-    /// - The referenced type has has_default=true
-    fn should_option_for_nested_default(
-        typ: &crate::core::ir::TypeDef,
-        field: &crate::core::ir::FieldDef,
-        api: &crate::core::ir::ApiSurface,
-    ) -> bool {
-        if !typ.has_default || field.optional || matches!(&field.ty, crate::core::ir::TypeRef::Optional(_)) {
-            return false;
-        }
-        if let crate::core::ir::TypeRef::Named(ref type_name) = field.ty {
-            api.types
-                .iter()
-                .find(|t| t.name == *type_name)
-                .map(|t| t.has_default)
-                .unwrap_or(false)
-        } else {
-            false
-        }
-    }
-
-    /// Resolve the constructor parameter identifier for a field.
-    ///
-    /// Prefers the serde rename (or config rename) over the bare Rust field name, but only
-    /// when the resolved name is a syntactically valid Rust identifier (i.e. contains only
-    /// `[A-Za-z0-9_]` and does not start with a digit).  Names like `"self-harm"` or
-    /// `"self-harm/intent"` (containing hyphens or slashes) are not valid Rust identifiers
-    /// even with `r#` escaping, so the function falls back to the Rust field name in those
-    /// cases.  When the resolved name is valid but happens to be a Rust keyword (e.g. `"type"`),
-    /// it is escaped as a raw identifier (`r#type`).
-    fn resolve_param_ident<'a>(
-        field_name: &'a str,
-        serde_rename: Option<&'a String>,
-        config_renames: Option<&std::collections::HashMap<String, String>>,
-    ) -> String {
-        let wire_name = serde_rename
-            .map(|s| s.as_str())
-            .or_else(|| config_renames.and_then(|r| r.get(field_name)).map(|s| s.as_str()))
-            .unwrap_or(field_name);
-        if is_valid_rust_ident_chars(wire_name) {
-            rust_raw_ident(wire_name)
-        } else {
-            // Wire name contains characters that are not valid in a Rust identifier (e.g. hyphens,
-            // slashes in serde renames like "self-harm" or "self-harm/intent").  Fall back to the
-            // Rust field name, which is guaranteed to be a valid identifier.
-            field_name.to_string()
-        }
-    }
-
-    // Check if this type has an options-field bridge (e.g., ParseOptions.visitor).
-    // The bridge field is appended later via `bridge_param`; filter it out of
-    // `sorted_fields` so we do not emit it twice when the field is force-restored
-    // through `never_skip_cfg_field_names`.
-    let bridge_field_name = trait_bridges
-        .iter()
-        .find(|b| {
-            b.bind_via == crate::core::config::BridgeBinding::OptionsField
-                && b.options_type.as_deref() == Some(&typ.name)
-        })
-        .and_then(|b| b.resolved_options_field());
-
-    // Build parameter list with serde_rename and config-based renames.
-    // Include cfg-gated fields that the consumer has force-restored via
-    // `never_skip_cfg_field_names` (e.g. sample_core-py builds with all features so
-    // pdf_options / keywords / html_* / layout / tree_sitter need to be kwargs).
-    let mut sorted_fields: Vec<_> = binding_fields(&typ.fields)
-        .filter(|f| !f.binding_excluded && (f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name)))
-        .filter(|f| bridge_field_name.is_none() || f.name != bridge_field_name.unwrap())
-        .collect();
-    sorted_fields.sort_by_key(|f| f.optional as u8);
-
-    let params: Vec<String> = sorted_fields
-        .iter()
-        .map(|f| {
-            // Use serde_rename if available (and valid), otherwise the Rust field name.
-            // Keywords are escaped as raw identifiers (e.g. "type" → "r#type").
-            let param_ident = resolve_param_ident(&f.name, f.serde_rename.as_ref(), config_renames);
-
-            // Determine if this field should be optional in the constructor.
-            // This matches the logic in gen_struct_with_per_field_attrs (structs.rs lines 128-131).
-            let force_optional = config.option_duration_on_defaults
-                && typ.has_default
-                && !f.optional
-                && matches!(f.ty, crate::core::ir::TypeRef::Duration);
-
-            // BLK-5 fix: for non-optional nested-struct fields on has_default types,
-            // if the nested struct also has_default, emit as Option<T> to accept None.
-            let nested_default_optional = should_option_for_nested_default(typ, f, api);
-
-            let ty = if (f.optional || force_optional || nested_default_optional)
-                && !matches!(f.ty, crate::core::ir::TypeRef::Optional(_))
-            {
-                // All optional constructor parameters are emitted as Option<T>.
-                // The IR unwraps TypeRef::Optional to mark fields as optional,
-                // so we need to re-wrap the base type for the constructor signature.
-                // Skip re-wrapping when the IR field type is *already* Optional —
-                // that happens for Update structs where a source field of
-                // `Option<Option<T>>` peels to `f.optional = true, f.ty = Optional(T)`.
-                // Mirrors the same guard in `gen_struct_with_per_field_attrs`.
-                format!("Option<{}>", mapper.map_type(&f.ty))
-            } else {
-                mapper.map_type(&f.ty)
-            };
-            format!("{}: {}", param_ident, ty)
-        })
-        .collect();
-
-    let bridge_param = trait_bridges
-        .iter()
-        .find(|b| {
-            b.bind_via == crate::core::config::BridgeBinding::OptionsField
-                && b.options_type.as_deref() == Some(&typ.name)
-        })
-        .and_then(|b| {
-            let param_name = b.param_name.as_deref()?;
-            Some((param_name, b.type_alias.as_deref().unwrap_or("object")))
-        });
-
-    let defaults: Vec<String> = sorted_fields
-        .iter()
-        .filter(|f| bridge_field_name.is_none() || f.name != bridge_field_name.unwrap())
-        .map(|f| {
-            // PyO3 strips the `r#` prefix when deriving the Python-facing keyword argument
-            // name, so `r#type` in the signature → Python `type`.
-            let param_ident = resolve_param_ident(&f.name, f.serde_rename.as_ref(), config_renames);
-
-            // Same force_optional logic as above.
-            let force_optional = config.option_duration_on_defaults
-                && typ.has_default
-                && !f.optional
-                && matches!(f.ty, crate::core::ir::TypeRef::Duration);
-
-            // BLK-5 fix: for non-optional nested-struct fields on has_default types,
-            // if the nested struct also has_default, emit default as None.
-            let nested_default_optional = should_option_for_nested_default(typ, f, api);
-
-            if f.optional || force_optional || nested_default_optional {
-                format!("{}=None", param_ident)
-            } else if typ.has_default {
-                // For has_default types, non-optional fields get a default value in the signature
-                // so the generated `__new__` is callable with keyword args omitted.
-                // The field's default is `Self::default().<field>`.
-                format!("{}=Self::default().{}", param_ident, f.name)
-            } else {
-                // For non-has_default types, required fields have no default in the signature
-                // (they are required keyword arguments).
-                param_ident
-            }
-        })
-        .collect();
-
-    // Struct literal uses bare Rust field names (never renamed).
-    // For non-cfg fields: use constructor parameters (with explicit form if renamed).
-    // For cfg-gated fields: initialize with default (None for Option types, Default::default() otherwise).
-    // Bridge fields are handled separately below.
-    let assignments: Vec<String> = typ
-        .fields
-        .iter()
-        .filter(|f| !f.binding_excluded && (bridge_field_name.is_none() || f.name != bridge_field_name.unwrap()))
-        .map(|f| {
-            if f.cfg.is_some() && !never_skip_cfg_field_names.contains(&f.name) {
-                // Cfg-gated field that was NOT force-restored: not a constructor parameter, use default
-                if f.optional {
-                    format!("{}: None", f.name)
-                } else {
-                    format!("{}: Default::default()", f.name)
-                }
-            } else {
-                // Non-cfg field: use constructor parameter.
-                // Use the same resolve_param_ident logic so the struct literal references
-                // exactly the same variable as the parameter declaration.
-                let param_ident = resolve_param_ident(&f.name, f.serde_rename.as_ref(), config_renames);
-
-                // BLK-5 fix: for nested-struct fields emitted as Option<T> due to has_default,
-                // use unwrap_or_else to fall back to the nested type's default.
-                let nested_default_optional = should_option_for_nested_default(typ, f, api);
-
-                // The binding struct's Rust field name is python-keyword-escaped
-                // (e.g. `from` -> `from_`), so the LEFT side of the struct literal must
-                // match that escaped name, not the core IR field name.
-                let binding_field = crate::core::keywords::python_ident(&f.name);
-                if nested_default_optional {
-                    // Use unwrap_or_else for nested default optional fields
-                    format!(
-                        "{}: {}.unwrap_or_else(|| Self::default().{})",
-                        binding_field, param_ident, binding_field
-                    )
-                } else if param_ident != binding_field {
-                    // Parameter name differs from binding struct field name:
-                    // use explicit form to match the parameter variable
-                    format!("{}: {}", binding_field, param_ident)
-                } else {
-                    // Names match: use shorthand
-                    binding_field
-                }
-            }
-        })
-        .collect();
-
-    // Add bridge parameter to defaults and params if present.
-    //
-    // The bridge parameter's *type* must match the struct field it ultimately
-    // populates — the struct literal below emits a bare `visitor: visitor`,
-    // which would fail to compile if the parameter type and field type differ
-    // (e.g. user-facing `VisitorHandle` pyclass vs the binding's internal
-    // `PyVisitorRef` wrapper). Look up the matching field's actual mapped
-    // type and use it. Fall back to the bridge's `type_alias` only when the
-    // bridge field can't be located in the struct (which would be a bug, but
-    // preserves the prior behaviour).
-    let mut all_defaults = defaults.clone();
-    let mut all_params = params.clone();
-    if let Some((param_name, type_alias)) = bridge_param {
-        let field_type = bridge_field_name
-            .and_then(|fname| typ.fields.iter().find(|f| f.name == fname))
-            .map(|f| mapper.map_type(&f.ty))
-            .unwrap_or_else(|| type_alias.to_string());
-        // The field's mapped type may already include `Option<...>` (it
-        // typically does, since bridge fields are optional). Avoid double-
-        // wrapping by checking for the prefix.
-        let param_type = if field_type.starts_with("Option<") {
-            field_type
-        } else {
-            format!("Option<{}>", field_type)
-        };
-        all_params.push(format!("{}: {}", param_name, param_type));
-        all_defaults.push(format!("{}=None", param_name));
-    }
-
-    let param_list = if all_params.join(", ").len() > 100 {
-        format!("\n        {},\n    ", all_params.join(",\n        "))
-    } else {
-        all_params.join(", ")
-    };
-
-    // Build the assignment for the bridge field
-    let mut all_assignments = assignments.clone();
-    if let Some((param_name, _)) = bridge_param {
-        if let Some(field_name) = bridge_field_name {
-            all_assignments.push(format!("{}: {}", field_name, param_name));
-        }
-    }
-
-    // Build the new constructor method (without impl wrapper — we'll inject it into existing impl)
-    let new_constructor = format!(
-        "    #[allow(clippy::too_many_arguments)]\n    \
-         #[must_use]\n    \
-         #[pyo3(signature = ({}))]#[new]\n    \
-         pub fn new({}) -> Self {{\n        \
-         Self {{ {} }}\n    \
-         }}",
-        all_defaults.join(", "),
-        param_list,
-        all_assignments.join(", ")
-    );
-
-    // Find and replace the old constructor in the impl block
-    // Look for the pattern that includes the signature and fn new
-    if let Some(start) = impl_block.find("#[pyo3(signature = (") {
-        if let Some(new_start) = impl_block[..start].rfind("\n") {
-            // Find the end of the constructor (closing brace of the function)
-            if let Some(fn_new_pos) = impl_block.find("pub fn new(") {
-                // Find the closing brace of this constructor
-                let mut brace_count = 0;
-                let mut in_fn = false;
-                let mut end_pos = None;
-
-                for (i, c) in impl_block[fn_new_pos..].chars().enumerate() {
-                    if c == '{' {
-                        in_fn = true;
-                        brace_count += 1;
-                    } else if c == '}' && in_fn {
-                        brace_count -= 1;
-                        if brace_count == 0 {
-                            end_pos = Some(fn_new_pos + i + 1);
-                            break;
-                        }
-                    }
-                }
-
-                if let Some(end) = end_pos {
-                    let before = &impl_block[..new_start + 1];
-                    let after = &impl_block[end..];
-                    return format!("{}{}{}", before, new_constructor, after);
-                }
-            }
-        }
-    }
-
-    // Fallback: if we can't find the constructor to replace, return the original
-    impl_block.to_string()
-}
 
 impl Backend for Pyo3Backend {
     fn name(&self) -> &str {
@@ -473,8 +80,8 @@ impl Backend for Pyo3Backend {
         // Detect serde availability from the output crate's Cargo.toml
         let output_dir = resolve_output_dir(config.output_paths.get("python"), &config.name, "crates/{name}-py/src/");
         let has_serde = detect_serde_available(&output_dir);
-        let mut cfg = Self::binding_config(&core_import, has_serde);
-        let mut cfg_unsendable = Self::unsendable_binding_config(&core_import, has_serde);
+        let mut cfg = config::binding_config(&core_import, has_serde);
+        let mut cfg_unsendable = config::unsendable_binding_config(&core_import, has_serde);
 
         // Build adapter body map for method body substitution
         let adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Python)?;
@@ -655,7 +262,7 @@ impl Backend for Pyo3Backend {
                 let Some(cfg) = field.cfg.as_deref() else {
                     continue;
                 };
-                let present = !typ.has_stripped_cfg_fields || cfg_present_for_pyo3(cfg);
+                let present = !typ.has_stripped_cfg_fields || config::cfg_present_for_pyo3(cfg);
                 if present && !never_skip_cfg_field_names.contains(&field.name) {
                     never_skip_cfg_field_names.push(field.name.clone());
                 }
@@ -704,97 +311,9 @@ impl Backend for Pyo3Backend {
             builder.add_import("std::collections::HashMap"); // Used in Map field conversions and method returns
         }
 
-        // PyVisitorRef: a thin wrapper around Py<PyAny> that implements Clone.
-        // This newtype makes Py<PyAny> work with PyO3's #[pyclass] field derivations,
-        // which require Clone. Uses std::sync::Arc to make the handle cheaply cloneable
-        // without needing the GIL (Clone doesn't require GIL entry, only Arc::clone).
-        let py_visitor_ref_def = r#"
-/// Wrapper for trait visitor types (`Py<PyAny>`) that implements Clone.
-///
-/// `Py<PyAny>` is not Clone. This wrapper uses `Arc<Py<PyAny>>` internally for cheap cloning.
-/// The .inner field is public for compatibility with generated code that needs to access
-/// the underlying `Py<PyAny>` for trait dispatch.
-#[derive(Debug)]
-pub struct PyVisitorRef {
-    pub inner: std::sync::Arc<pyo3::Py<pyo3::PyAny>>,
-}
+        support_items::add_py_visitor_ref(&mut builder);
 
-impl Clone for PyVisitorRef {
-    fn clone(&self) -> Self {
-        PyVisitorRef {
-            inner: std::sync::Arc::clone(&self.inner),
-        }
-    }
-}
-
-impl From<pyo3::Py<pyo3::PyAny>> for PyVisitorRef {
-    fn from(visitor: pyo3::Py<pyo3::PyAny>) -> Self {
-        PyVisitorRef {
-            inner: std::sync::Arc::new(visitor),
-        }
-    }
-}
-
-impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PyVisitorRef {
-    type Error = pyo3::PyErr;
-
-    fn extract(ob: pyo3::Borrowed<'a, 'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-        Ok(PyVisitorRef {
-            inner: std::sync::Arc::new(ob.to_owned().unbind()),
-        })
-    }
-}
-
-impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
-    type Target = pyo3::PyAny;
-    type Output = pyo3::Bound<'py, pyo3::PyAny>;
-    type Error = std::convert::Infallible;
-
-    fn into_pyobject(self, py: pyo3::Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok((*self.inner).bind(py).clone())
-    }
-}
-"#;
-        builder.add_item(py_visitor_ref_def);
-
-        // Serde helper for fields where the Python binding stores JSON as a `String` but
-        // the input may be either a JSON string or a raw value. Used via
-        // `#[serde(default, deserialize_with = "alef_json_str::deserialize")]` on Json
-        // fields so `from_json` accepts both `"parameters": "{...}"` and the more
-        // ergonomic `"parameters": {...}`.
-        let alef_json_helper = r#"
-mod alef_json_str {
-    use serde::{Deserialize, Deserializer};
-    use serde_json::Value;
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<String, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let v = Value::deserialize(deserializer)?;
-        Ok(match v {
-            Value::String(s) => s,
-            other => other.to_string(),
-        })
-    }
-}
-
-mod alef_json_str_opt {
-    use serde::{Deserialize, Deserializer};
-    use serde_json::Value;
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let v: Option<Value> = Option::deserialize(deserializer)?;
-        Ok(v.and_then(|val| match val {
-            Value::Null => None,
-            Value::String(s) => Some(s),
-            other => Some(other.to_string()),
-        }))
-    }
-}
-"#;
-        builder.add_item(alef_json_helper);
+        support_items::add_json_helpers(&mut builder);
 
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Python);
@@ -935,13 +454,14 @@ mod alef_json_str_opt {
                     &adapter_bodies,
                 );
                 if tokio_mutex_types.contains(&typ.name) {
-                    struct_code = rewrite_to_tokio_mutex_struct(&struct_code);
-                    impl_block = rewrite_to_tokio_mutex_impl(&impl_block);
+                    struct_code = mutex::rewrite_to_tokio_mutex_struct(&struct_code);
+                    impl_block = mutex::rewrite_to_tokio_mutex_impl(&impl_block);
                 }
                 // Rewrite methods whose return type is a capsule type so they produce
                 // PyCapsule objects instead of the (non-existent) #[pyclass] wrapper structs.
                 if !capsule_types.is_empty() {
-                    impl_block = rewrite_capsule_methods(impl_block, typ, &capsule_types, &error_converters);
+                    impl_block =
+                        capsule_methods::rewrite_capsule_methods(impl_block, typ, &capsule_types, &error_converters);
                 }
                 // Variant-wrapper constructor — when the type is referenced as the
                 // wrapper of one or more registration variants (and therefore variant
@@ -956,9 +476,9 @@ mod alef_json_str_opt {
                 // `#[new]` attribute regardless of the Rust name.
                 if typ.is_variant_wrapper
                     && !impl_block.is_empty()
-                    && let Some(ctor_body) = variant_wrapper_constructor_body(typ, &mapper)
+                    && let Some(ctor_body) = opaque_helpers::variant_wrapper_constructor_body(typ, &mapper)
                 {
-                    impl_block = inject_into_impl_block(&impl_block, &ctor_body);
+                    impl_block = opaque_helpers::inject_into_impl_block(&impl_block, &ctor_body);
                 }
                 builder.add_item(&struct_code);
                 if !impl_block.is_empty() {
@@ -966,8 +486,8 @@ mod alef_json_str_opt {
                 }
                 // Emit `impl Default for Type` when the type has a no-arg new() constructor
                 // to satisfy clippy's `new_without_default` lint
-                if should_emit_default_impl(typ, &impl_block) {
-                    builder.add_item(&emit_default_impl(&typ.name));
+                if opaque_helpers::should_emit_default_impl(typ, &impl_block) {
+                    builder.add_item(&opaque_helpers::emit_default_impl(&typ.name));
                 }
                 // Client constructor — emit a separate #[pymethods] impl with #[new]
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
@@ -1065,7 +585,7 @@ mod alef_json_str_opt {
                 // For all types, replace the constructor with one that honors serde_rename
                 // For has_default types, fields get default values in the signature.
                 // For non-has_default types, required fields stay required.
-                impl_block = replace_constructor_with_serde_rename(
+                impl_block = constructors::replace_constructor_with_serde_rename(
                     &impl_block,
                     typ,
                     &mapper,
@@ -1160,7 +680,7 @@ mod alef_json_str_opt {
                 // impl blocks, so apply targeted replacement here for free functions.
                 if !tokio_mutex_types.is_empty()
                     && fn_code.contains("Arc::new(std::sync::Mutex::new(")
-                    && returns_tokio_mutex_type(f, &tokio_mutex_types)
+                    && mutex::returns_tokio_mutex_type(f, &tokio_mutex_types)
                 {
                     fn_code = fn_code.replace("Arc::new(std::sync::Mutex::new(", "Arc::new(tokio::sync::Mutex::new(");
                 }
@@ -1424,30 +944,7 @@ mod alef_json_str_opt {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        let stubs_config = match config.python.as_ref().and_then(|c| c.stubs.as_ref()) {
-            Some(s) => s,
-            None => return Ok(vec![]),
-        };
-
-        let stubs_exclude_functions: AHashSet<String> = config
-            .python
-            .as_ref()
-            .map(|c| c.exclude_functions.iter().cloned().collect())
-            .unwrap_or_default();
-        let content =
-            crate::backends::pyo3::gen_stubs::gen_stubs(api, &config.trait_bridges, config, &stubs_exclude_functions);
-
-        let stubs_path = resolve_output_dir(
-            Some(&stubs_config.output),
-            &config.name,
-            stubs_config.output.to_string_lossy().as_ref(),
-        );
-
-        Ok(vec![GeneratedFile {
-            path: PathBuf::from(&stubs_path).join(format!("{}.pyi", config.python_module_name())),
-            content,
-            generated_header: true,
-        }])
+        public_files::generate_type_stubs(api, config)
     }
 
     fn generate_public_api(
@@ -1455,100 +952,7 @@ mod alef_json_str_opt {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        let module_name = config.python_module_name();
-
-        // Use stubs output path as the package directory (e.g., packages/python/sample_markdown/)
-        // This ensures we write to the correct Python package, not the Rust crate name.
-        let output_base = config
-            .python
-            .as_ref()
-            .and_then(|p| p.stubs.as_ref())
-            .map(|s| PathBuf::from(&s.output))
-            .unwrap_or_else(|| {
-                let package_name = config.name.replace('-', "_");
-                PathBuf::from(format!("packages/python/{}", package_name))
-            });
-        let package_name = output_base
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| config.name.replace('-', "_"));
-
-        let mut files = vec![];
-
-        // 1. Generate options.py (enums and dataclasses)
-        let options_content = types::gen_options_py(api, &module_name, &config.dto);
-        files.push(GeneratedFile {
-            path: output_base.join("options.py"),
-            content: options_content,
-            generated_header: true,
-        });
-
-        // 2. Generate api.py (wrapper functions)
-        let exclude_functions: AHashSet<String> = config
-            .python
-            .as_ref()
-            .map(|c| c.exclude_functions.iter().cloned().collect())
-            .unwrap_or_default();
-        let capsule_types = config
-            .python
-            .as_ref()
-            .map(|c| c.capsule_types.clone())
-            .unwrap_or_default();
-        let reexported_types = config
-            .python
-            .as_ref()
-            .map(|c| c.reexported_types.clone())
-            .unwrap_or_default();
-        let api_content = functions::gen_api_py(
-            api,
-            &module_name,
-            &package_name,
-            &config.trait_bridges,
-            &config.dto,
-            &capsule_types,
-            &config.adapters,
-            &reexported_types,
-            &exclude_functions,
-        );
-        files.push(GeneratedFile {
-            path: output_base.join("api.py"),
-            content: api_content,
-            generated_header: true,
-        });
-
-        // 3. Generate exceptions.py (exception hierarchy)
-        let exceptions_content = errors::gen_exceptions_py(api);
-        files.push(GeneratedFile {
-            path: output_base.join("exceptions.py"),
-            content: exceptions_content,
-            generated_header: true,
-        });
-
-        // 4. Generate __init__.py (re-exports)
-        let extra_init_imports = config
-            .python
-            .as_ref()
-            .map(|c| c.extra_init_imports.clone())
-            .unwrap_or_default();
-        let init_content = errors::gen_init_py(
-            api,
-            &module_name,
-            &api.version,
-            &config.dto,
-            &config.trait_bridges,
-            &extra_init_imports,
-            &capsule_types,
-            &config.adapters,
-            &config.opaque_types,
-            &exclude_functions,
-        );
-        files.push(GeneratedFile {
-            path: output_base.join("__init__.py"),
-            content: init_content,
-            generated_header: true,
-        });
-
-        Ok(files)
+        public_files::generate_public_api(api, config)
     }
 
     fn generate_service_api(
@@ -1566,557 +970,5 @@ mod alef_json_str_opt {
             build_dep: BuildDependency::None,
             post_build: vec![],
         })
-    }
-}
-
-/// Rewrite opaque impl-block methods whose return type is a capsule type.
-///
-/// The generic method generator emits `Ok({CapsuleType} { inner: Arc::new(result) })` for
-/// methods returning capsule-configured types.  Because capsule types have no `#[pyclass]`
-/// struct, that code does not compile.  This function replaces each such method with a
-/// capsule-aware body that either calls `into_raw()` + `PyCapsule_New` (Capsule variant) or
-/// constructs the Python object via the dependency capsule (ConstructFrom variant), mirroring
-/// what `capsule::gen_capsule_function` does for free functions.
-fn rewrite_capsule_methods(
-    impl_block: String,
-    typ: &crate::core::ir::TypeDef,
-    capsule_types: &std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
-    error_converters: &[String],
-) -> String {
-    use crate::codegen::type_mapper::TypeMapper as _;
-    use crate::core::ir::TypeRef;
-    use heck::ToSnakeCase;
-
-    let mut result = impl_block;
-
-    for method in &typ.methods {
-        // Determine whether this method's return type is a capsule type.
-        let capsule_ret_name: Option<&str> = match &method.return_type {
-            TypeRef::Named(n) if capsule_types.contains_key(n.as_str()) => Some(n.as_str()),
-            TypeRef::Optional(inner) => {
-                if let TypeRef::Named(n) = inner.as_ref() {
-                    if capsule_types.contains_key(n.as_str()) {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        // Check if any parameter is a capsule type.
-        let has_capsule_param = method
-            .params
-            .iter()
-            .any(|p| matches!(&p.ty, TypeRef::Named(n) if capsule_types.contains_key(n.as_str())));
-
-        // Skip methods that don't involve capsules in parameters or return type.
-        if capsule_ret_name.is_none() && !has_capsule_param {
-            continue;
-        }
-
-        // If we're only handling parameter extraction (no return capsule), emit a simpler body.
-        let cfg = capsule_ret_name.map(|n| &capsule_types[n]);
-
-        // Build the old signature fragment that the generic generator emitted.
-        let old_sig_search = if let Some(ret_name) = capsule_ret_name {
-            // Methods returning capsules: search for `-> PyResult<{CapsuleTypeName}>`
-            format!("-> PyResult<{ret_name}>")
-        } else {
-            // Methods only with capsule params: search for method name + opening paren.
-            // We'll match by method name pattern and update params + body.
-            format!("pub fn {}(", method.name)
-        };
-
-        // For methods returning capsules, verify the signature exists.
-        if capsule_ret_name.is_some() && !result.contains(&old_sig_search) {
-            continue;
-        }
-
-        // Detect capsule-type parameters and prepare extraction code.
-        let mut capsule_param_extract = String::new();
-        let mut call_args_parts: Vec<String> = Vec::new();
-
-        for p in &method.params {
-            let param_is_capsule = matches!(&p.ty, TypeRef::Named(n) if capsule_types.contains_key(n.as_str()));
-
-            if param_is_capsule {
-                if let TypeRef::Named(capsule_name) = &p.ty {
-                    // Generate extraction code for this capsule parameter
-                    capsule_param_extract.push_str(&crate::backends::pyo3::template_env::render(
-                        "pyo3_capsule_param_extract.jinja",
-                        minijinja::context! {
-                            param_name => p.name.as_str(),
-                            capsule_name => capsule_name,
-                        },
-                    ));
-                    call_args_parts.push(p.name.clone());
-                } else {
-                    // Fallback for non-Named types
-                    call_args_parts.push(p.name.clone());
-                }
-            } else {
-                let needs_borrow = p.is_ref && matches!(p.ty, TypeRef::String | TypeRef::Char);
-                if needs_borrow {
-                    call_args_parts.push(format!("&{}", p.name));
-                } else {
-                    call_args_parts.push(p.name.clone());
-                }
-            }
-        }
-        let call_args_str = call_args_parts.join(", ");
-
-        // Build param list for the new signature.
-        // Always prepend `py: pyo3::Python<'_>` since we need it for PyCapsule_New / Python calls.
-        let mapper = crate::backends::pyo3::type_map::Pyo3Mapper::new();
-        let mut sig_params = vec!["&self".to_string(), "py: pyo3::Python<'_>".to_string()];
-        for p in &method.params {
-            // Capsule-type parameters are accepted as Py<PyAny>, not as the Rust type
-            let param_type = if matches!(&p.ty, TypeRef::Named(n) if capsule_types.contains_key(n.as_str())) {
-                "pyo3::Py<pyo3::PyAny>".to_string()
-            } else {
-                mapper.map_type(&p.ty)
-            };
-            sig_params.push(format!("{}: {}", p.name, param_type));
-        }
-
-        // Build the #[pyo3(signature = (...))] attribute (skipped when there are no params).
-        let sig_attr = if method.params.is_empty() {
-            String::new()
-        } else {
-            let names = method
-                .params
-                .iter()
-                .map(|p| p.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("    #[pyo3(signature = ({names}))]\n")
-        };
-
-        // Build the inner core call (self.inner.method(args)).
-        let core_call = format!("self.inner.{}({})", method.name, call_args_str);
-
-        // Build the `.map_err(…)?` suffix when the method is fallible.
-        let err_map_suffix = if method.error_type.is_some() {
-            let converter = method
-                .error_type
-                .as_ref()
-                .and_then(|et| {
-                    let short = et.split("::").last().unwrap_or(et.as_str());
-                    let candidate = format!("{}_to_py_err", short.to_snake_case());
-                    if error_converters.iter().any(|c| c == &candidate) {
-                        Some(candidate)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|| "|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string())".to_string());
-            format!(".map_err({converter})?")
-        } else {
-            String::new()
-        };
-
-        let params_str = sig_params.join(", ");
-        let method_name = &method.name;
-
-        // Generate the new method body based on capsule variant.
-        // For methods with only capsule params (no return capsule), emit a simple wrapper.
-        let new_body = if cfg.is_none() {
-            // Method only has capsule params, no capsule return.
-            // Just rewrite to extract capsule params and call the inner method.
-            let return_annotation = if matches!(method.return_type, TypeRef::Unit) {
-                "".to_string()
-            } else {
-                format!(" -> PyResult<{}>", mapper.map_type(&method.return_type))
-            };
-            format!(
-                r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
-    pub fn {method_name}({params_str}){return_annotation} {{
-{capsule_param_extract}        {core_call}{err_map_suffix}
-    }}"#,
-            )
-        } else if let Some(cfg) = cfg {
-            // Method returns a capsule (and may also have capsule params).
-            match cfg {
-                crate::core::config::CapsuleTypeConfig::Capsule(capsule_name_str) => {
-                    let capsule_cstr = capsule_name_str.replace('.', "_").to_ascii_uppercase();
-                    // If capsule_name_str is dotted (e.g. "tree_sitter.Language"), also construct the
-                    // target Python type from the capsule so callers receive a real tree_sitter.Language,
-                    // not the bare PyCapsule.
-                    let construct = match capsule_name_str.rsplit_once('.') {
-                    Some((module_path, class_name)) => format!(
-                        r#"        // SAFETY: capsule_ptr is a valid, non-null Python object pointer we just created above.
-        let _capsule_obj = unsafe {{ pyo3::Bound::from_owned_ptr(py, capsule_ptr) }};
-        let _ts_mod = py.import("{module_path}")?;
-        let _cls = _ts_mod.getattr("{class_name}")?;
-        Ok(_cls.call1((_capsule_obj,))?.unbind())"#,
-                    ),
-                    None => {
-                        "        // SAFETY: capsule_ptr is a valid, non-null Python object pointer we just created above.\n        Ok(unsafe { pyo3::Bound::from_owned_ptr(py, capsule_ptr) }.unbind())".to_string()
-                    }
-                };
-                    format!(
-                        r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
-    pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
-        const {capsule_cstr}_NAME: &::std::ffi::CStr = c"{capsule_name_str}";
-{capsule_param_extract}        let result = {core_call}{err_map_suffix};
-        let raw_ptr = result.into_raw();
-        // SAFETY: raw_ptr is a valid pointer derived from into_raw() on a value with program lifetime.
-        let capsule_ptr = unsafe {{ pyo3::ffi::PyCapsule_New(raw_ptr as *mut _, {capsule_cstr}_NAME.as_ptr(), None) }};
-        if capsule_ptr.is_null() {{
-            return Err(pyo3::exceptions::PyRuntimeError::new_err("Failed to create PyCapsule"));
-        }}
-{construct}
-    }}"#,
-                    )
-                }
-                crate::core::config::CapsuleTypeConfig::ConstructFrom {
-                    python_type,
-                    construct_from,
-                } => {
-                    // For ConstructFrom: produce the dependency capsule by calling the matching
-                    // free function, then call the Python factory to construct the target type.
-                    let dep_snake = construct_from.to_snake_case();
-                    let first_str_param = method.params.iter().find(|p| matches!(p.ty, TypeRef::String));
-                    let dep_expr = if let Some(sp) = first_str_param {
-                        format!("get_{dep_snake}(py, {}.clone())?.bind(py).clone()", sp.name)
-                    } else {
-                        format!("/* Unsupported: obtain {construct_from} capsule */ unreachable!()")
-                    };
-
-                    if let Some((module_path, class_name)) = python_type.rsplit_once('.') {
-                        format!(
-                            r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
-    pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
-        // Construct {python_type} via Python-side factory.
-        let _dep = {dep_expr};
-        let _ts_mod = py.import("{module_path}")?;
-        let _cls = _ts_mod.getattr("{class_name}")?;
-        Ok(_cls.call1((_dep,))?.unbind())
-    }}"#,
-                        )
-                    } else {
-                        format!(
-                            r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
-    pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
-        // Construct {python_type} via Python-side factory.
-        let _dep = {dep_expr};
-        let _cls = py.eval(c"{python_type}", None, None)?;
-        Ok(_cls.call1((_dep,))?.unbind())
-    }}"#,
-                        )
-                    }
-                }
-            }
-        } else {
-            unreachable!("Method capsule config should be present when cfg.is_none() is false.");
-        };
-
-        // Find and replace the old method in the impl block.
-        // The method generator emits `pub fn {name}(` at the start of a line with no
-        // guaranteed leading indentation (the impl_block template wraps the content but
-        // doesn't add per-line indentation).  Search for the bare `pub fn {name}(`.
-        let method_start_marker = format!("pub fn {method_name}(");
-        if let Some(start_idx) = result.find(&method_start_marker) {
-            let attr_start = find_method_attrs_start(&result, start_idx);
-            if let Some(end_idx) = find_method_end(&result, start_idx) {
-                result = format!("{}{}{}", &result[..attr_start], new_body, &result[end_idx..]);
-            }
-        }
-    }
-
-    result
-}
-
-/// Returns true when `line` (trimmed) consists entirely of `#[…]` attribute patterns and
-/// intervening whitespace — i.e. it contains no non-attribute tokens such as `impl Foo {`.
-///
-/// This correctly handles:
-/// - A single attribute: `#[pyo3(signature = (name))]`  → true
-/// - Multiple attributes on one line: `#[allow(dead_code)]  #[pyo3(get)]`  → true
-/// - A block-attr + impl opener on one line: `#[pymethods]impl Foo {`  → false
-fn is_method_attr_line(line: &str) -> bool {
-    let mut rest = line.trim();
-    if rest.is_empty() {
-        return false; // handled by the blank-line branch; don't treat blank as attr
-    }
-    loop {
-        rest = rest.trim_start();
-        if rest.is_empty() {
-            return true;
-        }
-        if !rest.starts_with("#[") {
-            return false;
-        }
-        // Consume the `#[…]` span, respecting nested brackets.
-        let mut depth = 0usize;
-        let mut consumed = 0usize;
-        let mut found_close = false;
-        for (i, ch) in rest.char_indices() {
-            match ch {
-                '[' => depth += 1,
-                ']' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        consumed = i + 1;
-                        found_close = true;
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        if !found_close {
-            return false;
-        }
-        rest = &rest[consumed..];
-    }
-}
-
-/// Find the byte index of the start of the attribute block that precedes the `pub fn` at
-/// `fn_idx`.  Walks backward line-by-line past `#[…]` attribute lines and blank lines.
-/// Stops as soon as it encounters a line that is not purely made of `#[…]` attributes
-/// (e.g. `#[pymethods]impl Foo {`).  Returns the byte index of the first character of the
-/// first method-attribute line (or `fn_idx` when there are none).
-fn find_method_attrs_start(code: &str, fn_idx: usize) -> usize {
-    let before = &code[..fn_idx];
-    // Collect line-start byte offsets so we can walk backward.
-    let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(before.match_indices('\n').map(|(i, _)| i + 1))
-        .collect();
-
-    let mut attr_start_byte = fn_idx;
-    // Walk the line-start offsets in reverse (skip the last one — that is the `pub fn` line).
-    for &line_byte_start in line_starts.iter().rev() {
-        let line = &before[line_byte_start..before.len().min(attr_start_byte)];
-        let trimmed = line.trim_end_matches('\n').trim();
-        if trimmed.is_empty() || is_method_attr_line(trimmed) {
-            attr_start_byte = line_byte_start;
-        } else {
-            break;
-        }
-    }
-    attr_start_byte
-}
-
-/// Find the byte index just after the closing `}` of a Rust method block whose `pub fn`
-/// starts at byte `fn_idx` in `code`.
-fn find_method_end(code: &str, fn_idx: usize) -> Option<usize> {
-    let slice = &code[fn_idx..];
-    let mut depth = 0usize;
-    let mut found_open = false;
-    let mut byte_offset = 0usize;
-    for ch in slice.chars() {
-        match ch {
-            '{' => {
-                depth += 1;
-                found_open = true;
-            }
-            '}' if found_open => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    byte_offset += ch.len_utf8();
-                    return Some(fn_idx + byte_offset);
-                }
-            }
-            _ => {}
-        }
-        byte_offset += ch.len_utf8();
-    }
-    None
-}
-
-/// Whether a free function's return type involves an opaque type that requires the
-/// tokio variant of `Mutex` (because every `&mut self` method on that type is async).
-fn returns_tokio_mutex_type(func: &crate::core::ir::FunctionDef, tokio_mutex_types: &AHashSet<String>) -> bool {
-    use crate::core::ir::TypeRef;
-    fn check(ty: &TypeRef, set: &AHashSet<String>) -> bool {
-        match ty {
-            TypeRef::Named(n) => set.contains(n.as_str()),
-            TypeRef::Optional(inner) | TypeRef::Vec(inner) => check(inner, set),
-            _ => false,
-        }
-    }
-    check(&func.return_type, tokio_mutex_types)
-}
-
-fn rewrite_to_tokio_mutex_struct(struct_code: &str) -> String {
-    struct_code.replace("Arc<std::sync::Mutex<", "Arc<tokio::sync::Mutex<")
-}
-
-fn rewrite_to_tokio_mutex_impl(impl_code: &str) -> String {
-    impl_code
-        .replace("Arc<std::sync::Mutex<", "Arc<tokio::sync::Mutex<")
-        .replace("Arc::new(std::sync::Mutex::new(", "Arc::new(tokio::sync::Mutex::new(")
-        .replace(".lock().unwrap()", ".lock().await")
-}
-
-/// For a wrapper type referenced by registration variants (i.e. one whose
-/// `is_variant_wrapper` flag is set by the extractor), produce a `#[new]
-/// pub fn py_new(...) -> Self { Self::new(...) }` method body suitable for
-/// in-place insertion into the type's existing `#[pymethods] impl T { ... }`
-/// block via [`inject_into_impl_block`].
-///
-/// Returns `None` when the wrapper has no `new` method (or the constructor's
-/// receiver is not static) — the variant body would not compile in that
-/// case either, but we silently skip rather than panic so the rest of the
-/// surface can still be generated for diagnosis.
-fn variant_wrapper_constructor_body(typ: &crate::core::ir::TypeDef, mapper: &Pyo3Mapper) -> Option<String> {
-    use crate::codegen::type_mapper::TypeMapper as _;
-    let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
-    let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
-    let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
-    let call_args = ctor
-        .params
-        .iter()
-        .map(|p| p.name.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
-    // The binding wrapper's static `new` already does the
-    // `binding-side type → core-side type` conversion for each argument and
-    // produces a `Self`; we just delegate.
-    let body = if call_args.is_empty() {
-        "Self::new()".to_string()
-    } else {
-        format!("Self::new({call_args})")
-    };
-    Some(format!(
-        "    #[new]\n    pub fn py_new({sig_params}) -> Self {{\n        {body}\n    }}\n"
-    ))
-}
-
-/// Check if a type has a no-arg `pub fn new() -> Self` method (either static or constructor).
-/// This is used to determine whether we should emit an `impl Default for Type` block.
-///
-/// Returns true only when:
-/// - The type has `has_default = true` (indicating it has impl Default in core Rust)
-/// - The type has at least one method named "new"
-/// - That method takes no parameters and is static (receiver.is_none())
-/// - No existing `impl Default` is already present in the impl_block
-fn should_emit_default_impl(typ: &crate::core::ir::TypeDef, impl_block: &str) -> bool {
-    // Only emit if the core Rust type has impl Default
-    if !typ.has_default {
-        return false;
-    }
-
-    // Check if Default impl already exists
-    if impl_block.contains("impl Default") {
-        return false;
-    }
-
-    // Check if there's a no-arg static new() method
-    typ.methods.iter().any(|m| {
-        m.name == "new" && m.params.is_empty() && m.receiver.is_none() // static method (not &self or &mut self)
-    })
-}
-
-/// Generate an `impl Default for Type { fn default() -> Self { Self::new() } }` block
-/// for a no-arg constructor. This satisfies clippy's `new_without_default` lint.
-fn emit_default_impl(type_name: &str) -> String {
-    format!("impl Default for {type_name} {{\n    fn default() -> Self {{\n        Self::new()\n    }}\n}}\n")
-}
-
-/// Inject a method body into the existing `#[pymethods] impl T { ... }`
-/// block produced by `gen_opaque_impl_block`. The block ends with a closing
-/// `}`; the body is inserted right before it.
-fn inject_into_impl_block(impl_block: &str, body: &str) -> String {
-    let trimmed = impl_block.trim_end();
-    let Some(close_idx) = trimmed.rfind('}') else {
-        return impl_block.to_string();
-    };
-    let (head, tail) = trimmed.split_at(close_idx);
-    let head_trimmed = head.trim_end();
-    format!("{head_trimmed}\n\n{body}{tail}\n")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Pyo3Backend, cfg_present_for_pyo3, rewrite_to_tokio_mutex_impl, rewrite_to_tokio_mutex_struct};
-    use crate::core::backend::Backend;
-    use crate::core::config::Language;
-
-    /// Pyo3Backend::name returns "pyo3".
-    #[test]
-    fn pyo3_backend_name_is_pyo3() {
-        let b = Pyo3Backend;
-        assert_eq!(b.name(), "pyo3");
-    }
-
-    /// Pyo3Backend::language returns Language::Python.
-    #[test]
-    fn pyo3_backend_language_is_python() {
-        let b = Pyo3Backend;
-        assert_eq!(b.language(), Language::Python);
-    }
-
-    /// rewrite_to_tokio_mutex_struct replaces std::sync::Mutex with tokio::sync::Mutex in struct.
-    #[test]
-    fn rewrite_tokio_mutex_struct_replaces_std_mutex() {
-        let input = "pub inner: Arc<std::sync::Mutex<MyType>>";
-        let result = rewrite_to_tokio_mutex_struct(input);
-        assert_eq!(result, "pub inner: Arc<tokio::sync::Mutex<MyType>>");
-    }
-
-    /// rewrite_to_tokio_mutex_struct is a no-op when no std::sync::Mutex is present.
-    #[test]
-    fn rewrite_tokio_mutex_struct_noop_when_no_std_mutex() {
-        let input = "pub inner: Arc<tokio::sync::Mutex<MyType>>";
-        let result = rewrite_to_tokio_mutex_struct(input);
-        assert_eq!(result, input);
-    }
-
-    /// rewrite_to_tokio_mutex_impl replaces all three patterns in impl block.
-    #[test]
-    fn rewrite_tokio_mutex_impl_replaces_all_patterns() {
-        let input = concat!(
-            "pub inner: Arc<std::sync::Mutex<MyType>>,\n",
-            "Self { inner: Arc::new(std::sync::Mutex::new(val)) }\n",
-            "let guard = self.inner.lock().unwrap();\n",
-        );
-        let result = rewrite_to_tokio_mutex_impl(input);
-        assert!(result.contains("Arc<tokio::sync::Mutex<MyType>>"));
-        assert!(result.contains("Arc::new(tokio::sync::Mutex::new(val))"));
-        assert!(result.contains("self.inner.lock().await"));
-    }
-
-    /// rewrite_to_tokio_mutex_impl is a no-op when no std patterns are present.
-    #[test]
-    fn rewrite_tokio_mutex_impl_noop_when_already_tokio() {
-        let input = concat!(
-            "pub inner: Arc<tokio::sync::Mutex<MyType>>,\n",
-            "Self { inner: Arc::new(tokio::sync::Mutex::new(val)) }\n",
-            "let guard = self.inner.lock().await;\n",
-        );
-        let result = rewrite_to_tokio_mutex_impl(input);
-        assert_eq!(result, input);
-    }
-
-    /// `cfg_present_for_pyo3` accepts `not(target_arch = "wasm32")` gates.
-    #[test]
-    fn cfg_present_for_pyo3_accepts_non_wasm_gate() {
-        assert!(cfg_present_for_pyo3("not(target_arch = \"wasm32\")"));
-        assert!(cfg_present_for_pyo3("not (target_arch = \"wasm32\")"));
-    }
-
-    /// `cfg_present_for_pyo3` accepts feature gates since pyo3 compiles with known features.
-    #[test]
-    fn cfg_present_for_pyo3_accepts_feature_gates() {
-        assert!(cfg_present_for_pyo3("feature = \"pdf\""));
-        assert!(cfg_present_for_pyo3("feature = \"html\""));
-        assert!(cfg_present_for_pyo3("feature=\"tree-sitter\""));
-        assert!(cfg_present_for_pyo3(
-            "any(feature=\"keywords-yake\", feature=\"keywords-rake\")"
-        ));
-    }
-
-    /// `cfg_present_for_pyo3` rejects unsupported gates.
-    #[test]
-    fn cfg_present_for_pyo3_rejects_unsupported_gates() {
-        assert!(!cfg_present_for_pyo3("target_arch = \"wasm32\""));
-        assert!(!cfg_present_for_pyo3("any(unix, windows)"));
-        assert!(!cfg_present_for_pyo3("any(unix, feature=\"pdf\")"));
     }
 }
