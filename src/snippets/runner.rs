@@ -18,7 +18,7 @@ impl Default for RunnerConfig {
         Self {
             level: ValidationLevel::Syntax,
             parallelism: available_parallelism(),
-            timeout_secs: 30,
+            timeout_secs: 120,
             fail_fast: false,
         }
     }
