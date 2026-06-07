@@ -273,14 +273,6 @@ pub fn visitor_param_type(ty: &TypeRef, is_ref: bool, optional: bool, tp: &HashM
     bridge_param_type(ty, "", is_ref, tp)
 }
 
-/// True if `func_name` is owned by any trait bridge's `clear_fn` (or, in the future,
-/// any other bridge-managed wrapper). Backends should skip emitting a regular function
-/// wrapper for such names because the trait-bridge codegen path emits its own wrapper.
-///
-/// Only `clear_fn` is matched today: `register_fn` and `unregister_fn` always have a
-/// `dyn Trait` parameter and are caught by [`find_bridge_param`] before regular emission.
-/// `clear_fn` takes no parameters, so without this guard backends emit two wrappers
-
 pub fn to_camel_case(s: &str) -> String {
     let mut result = String::new();
     let mut capitalize_next = false;

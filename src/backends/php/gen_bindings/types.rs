@@ -976,7 +976,7 @@ pub(crate) fn gen_enum_constants(enum_def: &EnumDef, php_namespace: Option<&str>
     lines.push(String::new());
 
     // Emit the #[php_impl] block with class constants.
-    lines.push(format!("#[php_impl]"));
+    lines.push("#[php_impl]".to_string());
     lines.push(format!("impl {} {{", enum_def.name));
 
     for variant in &enum_def.variants {
