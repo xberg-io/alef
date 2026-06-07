@@ -1,4 +1,4 @@
-use crate::backends::swift::naming::swift_rust_shim_ident as swift_case_ident;
+use crate::backends::swift::naming::swift_source_ident as swift_case_ident;
 use crate::backends::swift::type_map::SwiftMapper;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{EnumDef, EnumVariant, TypeRef};

@@ -207,11 +207,9 @@ pub(crate) fn emit_function(
         // (single underscore) to discard a value; named locals must be used.
         //
         // For Unit/Bytes returns there is no `_result` pointer to inspect, so we
-        // consult `{prefix}_last_error_code()`. For pointer-returning calls we
-        // gate on `_result == null` — `last_error_code` is thread-local and may
-        // hold a stale non-zero value from an earlier failed call that the host
-        // never cleared, so checking it on a successful (non-null) result would
-        // produce spurious errors (regression observed in scrape/crawl/map paths).
+        // consult `{prefix}_last_error_code()`. Pointer-returning calls also
+        // consult it before falling back to a null guard so FFI error state is
+        // not silently ignored.
         let result_is_pointer = !(matches!(f.return_type, TypeRef::Unit) || returns_bytes);
         if !result_is_pointer {
             out.push_str(&crate::backends::zig::template_env::render(
@@ -229,6 +227,19 @@ pub(crate) fn emit_function(
             ));
         }
         if result_is_pointer {
+            out.push_str(&crate::backends::zig::template_env::render(
+                "function_error_check.jinja",
+                minijinja::context! {
+                    prefix => prefix,
+                },
+            ));
+            out.push_str(&crate::backends::zig::template_env::render(
+                "function_error_return.jinja",
+                minijinja::context! {
+                    error_type => error_type,
+                },
+            ));
+            out.push_str("    }\n");
             out.push_str("    if (_result == null) {\n");
         } else {
             out.push_str(&crate::backends::zig::template_env::render(

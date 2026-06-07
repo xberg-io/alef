@@ -133,14 +133,19 @@ fn teardown_all_has_correct_format() {
         .position(|line| line.contains("tearDownAll(() async {"))
         .expect("tearDownAll found");
 
-    // The next line should contain the RustLib.dispose() call.
+    // The body should contain the guarded RustLib.dispose() call.
     assert!(
-        teardown_idx + 1 < lines.len(),
+        teardown_idx + 2 < lines.len(),
         "tearDownAll must have a body (at least RustLib.dispose)"
     );
     assert!(
-        lines[teardown_idx + 1].contains("RustLib.dispose();"),
-        "second line after tearDownAll opening must contain RustLib.dispose(). Found: {}",
+        lines[teardown_idx + 1].contains("if (_rustLibInitialized) {"),
+        "first line after tearDownAll opening must guard RustLib.dispose(). Found: {}",
         lines[teardown_idx + 1]
+    );
+    assert!(
+        lines[teardown_idx + 2].contains("RustLib.dispose();"),
+        "guarded tearDownAll body must contain RustLib.dispose(). Found: {}",
+        lines[teardown_idx + 2]
     );
 }

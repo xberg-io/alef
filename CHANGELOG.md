@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test to assert the pinned `@napi-rs/cli` invocation emitted by the current
   scaffold configuration.
 
+- **swift enum keyword cases**: Emit Swift source enum cases with Swift-source
+  identifier escaping so reserved keywords use backticks instead of Rust-shim
+  trailing underscores.
+
+- **zig fallible pointer returns**: Restore the explicit
+  `{prefix}_last_error_code()` check for fallible pointer-returning free
+  functions before applying the null-result guard.
+
+- **dart e2e teardown test**: Update the teardown regression test to expect the
+  guarded `RustLib.dispose()` call emitted for failed RustLib initialization.
+
 - **dart cargo.toml dependency sort**: Emit the generated Rust `[dependencies]`
   block in alphabetical order so cargo-sort no longer rewrites the generated
   `packages/dart/rust/Cargo.toml`. Collects core dep, `flutter_rust_bridge`,

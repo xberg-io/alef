@@ -120,7 +120,7 @@ fn struct_with_primitive_fields_emits_public_struct() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     // generate_bindings returns the main Swift file, the Rust bridge crate files,
     // a RustBridgeC placeholder header when swift-bridge build output is absent,
-    // and `SwiftPluginHelpers.swift` (unconditional shared helpers for
+    // and `ZSwiftPluginHelpers.swift` (unconditional shared helpers for
     // FunctionParam bridges — see commit 12362ba09).
     assert_eq!(files.len(), 6);
     assert!(
@@ -133,8 +133,8 @@ fn struct_with_primitive_fields_emits_public_struct() {
         files.iter().any(|f| f
             .path
             .to_string_lossy()
-            .ends_with("Sources/RustBridge/SwiftPluginHelpers.swift")),
-        "missing SwiftPluginHelpers.swift"
+            .ends_with("Sources/RustBridge/ZSwiftPluginHelpers.swift")),
+        "missing ZSwiftPluginHelpers.swift"
     );
     let content = &files[0].content;
 

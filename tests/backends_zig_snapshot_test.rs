@@ -468,27 +468,14 @@ fn trait_bridge_vcoverage_assertion_catches_missing_trait_definitions() {
         result_type: None,
     });
 
-    // Generate bindings
-    let files = ZigBackend.generate_bindings(&api, &config).unwrap();
-    let content = files
-        .iter()
-        .find(|f| f.content.contains("pub fn make_") || f.content.contains("pub struct I"))
-        .or_else(|| files.first())
-        .expect("zig binding file must be generated")
-        .content
-        .clone();
-
-    // EXPECTED: vtable builder should NOT exist for a missing trait
-    let not_found = !content.contains("pub fn make_missing_trait1_vtable");
+    let err = ZigBackend
+        .generate_bindings(&api, &config)
+        .expect_err("missing trait bridge definitions must be rejected");
+    let message = err.to_string();
     assert!(
-        not_found,
-        "EXPECTED: make_missing_trait1_vtable should NOT be emitted when trait definition is missing from API"
+        message.contains("MissingTrait1") && message.contains("has no trait definition"),
+        "missing trait bridge error should name the absent trait and reason; got: {message}"
     );
-
-    // CRITICAL INVARIANT: If a trait bridge is configured but the trait is not found,
-    // the build should emit a warning or error. For now, we document the current behavior:
-    // Missing traits are silently skipped. Future work: add a validation pass that detects
-    // this mismatch and reports it to the user.
 }
 
 #[test]
@@ -496,7 +483,7 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
     // Regression test: B20 — verify that generated registration functions pass
     // the vtable as a typed pointer (`&_c_vtable`) not as a value (`_c_vtable`).
     //
-    // The C FFI layer expects `kreuzberg_register_ocr_backend(..., vtable: [*c]const struct_*, ...)`.
+    // The C FFI layer expects `demo_register_ocr_backend(..., vtable: [*c]const struct_*, ...)`.
     // The Zig wrapper creates a local `_c_vtable` value via `@bitCast`, then must pass
     // its address `&_c_vtable` to the C function. Passing the value directly causes a type error.
 
@@ -578,17 +565,17 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
 
     // CRITICAL: The register function must pass `&_c_vtable` (typed pointer),
     // NOT `_c_vtable` (value).
-    // Pattern: `const _rc = c.kreuzberg_register_ocr_backend(name, &_c_vtable, ...)`
+    // Pattern: `const _rc = c.demo_register_ocr_backend(name, &_c_vtable, ...)`
     assert!(
-        content.contains("c.kreuzberg_register_ocr_backend(name, &_c_vtable,"),
+        content.contains("c.demo_register_ocr_backend(name, &_c_vtable,"),
         "BUG: register_ocr_backend should pass `&_c_vtable` (pointer), not `_c_vtable` (value). Content:\n{}",
         &content
     );
 
     // Negative check: should NOT pass the value directly
     assert!(
-        !content.contains("c.kreuzberg_register_ocr_backend(name, _c_vtable,")
-            || content.contains("c.kreuzberg_register_ocr_backend(name, &_c_vtable,"),
+        !content.contains("c.demo_register_ocr_backend(name, _c_vtable,")
+            || content.contains("c.demo_register_ocr_backend(name, &_c_vtable,"),
         "BUG: register_ocr_backend passing value instead of pointer"
     );
 }
