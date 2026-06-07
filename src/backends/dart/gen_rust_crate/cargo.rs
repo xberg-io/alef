@@ -187,11 +187,6 @@ pub(crate) fn emit_cargo_toml(
         })
         .collect();
     workspace_dep_lines.sort();
-    let workspace_deps_block = if workspace_dep_lines.is_empty() {
-        String::new()
-    } else {
-        format!("{}\n", workspace_dep_lines.join("\n"))
-    };
     // serde_json is required when generated conversions serialize JSON fields,
     // enum fields, or excluded trait-bridge carrier values.
     let has_trait_bridge_excluded_carrier = api_has_trait_bridge_excluded_carrier(api, config);
@@ -229,9 +224,51 @@ pub(crate) fn emit_cargo_toml(
     } else {
         ""
     };
-    let extra_deps = format!(
-        "{ahash_dep}{serde_dep}{serde_json_dep}{futures_util_dep}{tokio_dep}{trait_bridge_deps}{workspace_deps_block}"
-    );
+    let target_overrides = config
+        .dart
+        .as_ref()
+        .map(|c| c.target_dep_overrides.as_slice())
+        .unwrap_or(&[]);
+
+    // Collect every line that belongs in `[dependencies]` and sort them alphabetically
+    // by package name so the generated Cargo.toml is idempotent under cargo-sort.
+    //
+    // The conditional `*_dep` strings above are either empty or shaped as
+    // `"<name> = <value>\n"`; strip the trailing newline and parse the package name
+    // from the substring before the first `=`. Core + flutter_rust_bridge are
+    // unconditional (core is omitted when per-target overrides apply, since it then
+    // lives in `[target.'cfg(...)'.dependencies]` blocks instead).
+    let frb_line = format!("flutter_rust_bridge = \"={frb_version}\"");
+    let mut dep_lines: Vec<String> = Vec::new();
+    if target_overrides.is_empty() {
+        dep_lines.push(format!(
+            "{core_dep_key} = {{ path = \"{core_path}\"{package_rename_block}{features_block} }}"
+        ));
+    }
+    dep_lines.push(frb_line);
+    for dep in [
+        ahash_dep,
+        serde_dep,
+        serde_json_dep,
+        futures_util_dep,
+        tokio_dep,
+        trait_bridge_deps,
+    ] {
+        let trimmed = dep.trim_end_matches('\n');
+        if !trimmed.is_empty() {
+            dep_lines.push(trimmed.to_string());
+        }
+    }
+    dep_lines.extend(workspace_dep_lines);
+    dep_lines.sort_by(|a, b| {
+        let key = |line: &str| line.split('=').next().unwrap_or("").trim().to_string();
+        key(a).cmp(&key(b))
+    });
+    let extra_deps = if dep_lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", dep_lines.join("\n"))
+    };
 
     let license = config
         .scaffold
@@ -260,19 +297,9 @@ pub(crate) fn emit_cargo_toml(
         .join(", ");
 
     // Per-target dependency overrides: if configured, emit the base core dep
-    // gated on `cfg(not(<overrides>))` and an override block per cfg. The base
-    // `flutter_rust_bridge` + extras stay in `[dependencies]` since they don't
-    // change per target.
-    let target_overrides = config
-        .dart
-        .as_ref()
-        .map(|c| c.target_dep_overrides.as_slice())
-        .unwrap_or(&[]);
+    // gated on `cfg(not(<overrides>))` and an override block per cfg.
     let (core_dep_line, target_override_blocks) = if target_overrides.is_empty() {
-        (
-            format!("{core_dep_key} = {{ path = \"{core_path}\"{package_rename_block}{features_block} }}\n"),
-            String::new(),
-        )
+        (String::new(), String::new())
     } else {
         let neg_cfg = if target_overrides.len() == 1 {
             target_overrides[0].cfg.clone()
