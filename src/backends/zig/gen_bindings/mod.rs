@@ -1,8 +1,8 @@
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use crate::core::ir::{ApiSurface, TypeRef};
-use std::path::PathBuf;
 use heck::AsSnakeCase;
+use std::path::PathBuf;
 
 use crate::backends::zig::trait_bridge::emit_trait_bridge;
 

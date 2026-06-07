@@ -158,7 +158,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
 "#;
 
     files.push(GeneratedFile {
-        path: rust_bridge_dir.join("SwiftPluginHelpers.swift"),
+        path: rust_bridge_dir.join("ZSwiftPluginHelpers.swift"),
         content: helpers_content.to_string(),
         generated_header: false,
     });
