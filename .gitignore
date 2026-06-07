@@ -40,6 +40,8 @@ rust_out.*
 .agents/
 .ruff_cache/
 
+*.rlib
+
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .claude/
 .codex/
@@ -47,4 +49,3 @@ rust_out.*
 AGENTS.md
 CLAUDE.md
 # END ai-rulez
-*.rlib
