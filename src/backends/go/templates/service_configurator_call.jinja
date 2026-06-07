@@ -1,0 +1,12 @@
+	new_owner := C.{{ service_lower }}_{{ service_snake }}_{{ cfg_method_snake }}(
+{% for arg in args %}
+		{{ arg.expr }},
+{% endfor %}
+	)
+
+	if new_owner == nil {
+		return errors.New("configurator failed")
+	}
+	s.owner = unsafe.Pointer(new_owner)
+	return nil
+}

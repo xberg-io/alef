@@ -217,16 +217,12 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_registration_return.jinja"),
     ),
     (
-        "service_configurator_call_header.jinja",
-        include_str!("templates/service_configurator_call_header.jinja"),
+        "service_configurator_call.jinja",
+        include_str!("templates/service_configurator_call.jinja"),
     ),
     (
         "service_call_arg_continuation.jinja",
         include_str!("templates/service_call_arg_continuation.jinja"),
-    ),
-    (
-        "service_configurator_footer.jinja",
-        include_str!("templates/service_configurator_footer.jinja"),
     ),
     (
         "service_entrypoint_call_header.jinja",

@@ -229,15 +229,6 @@ fn emit_service_call_arg(out: &mut String, expr: &str) {
     ));
 }
 
-fn emit_service_call_arg_continuation(out: &mut String, expr: &str) {
-    out.push_str(&crate::backends::go::template_env::render(
-        "service_call_arg_continuation.jinja",
-        minijinja::context! {
-            expr => expr,
-        },
-    ));
-}
-
 /// Generate the handler registry and cgo trampoline.
 fn gen_handler_registry(out: &mut String) {
     out.push_str(&crate::backends::go::template_env::render(
@@ -611,25 +602,33 @@ fn gen_configurator_method(
     ));
 
     let upper_prefix = ffi_prefix.to_uppercase();
+
+    // Build configurator call with all arguments (owner + config params) as a Jinja array
+    // to ensure commas are on the same line as their arguments, not orphaned.
+    let mut cfg_args = Vec::new();
+
+    // First argument: owner (always present)
+    cfg_args.push(minijinja::context! {
+        expr => format!("(*C.{upper_prefix}{service_name}Opaque)(s.owner)"),
+    });
+
+    // Config parameters
+    for cfg_param in &cfg.params {
+        let expr = service_c_arg_expr(&cfg_param.name, &cfg_param.ty, api, &upper_prefix);
+        cfg_args.push(minijinja::context! {
+            expr => expr,
+        });
+    }
+
     out.push_str(&crate::backends::go::template_env::render(
-        "service_configurator_call_header.jinja",
+        "service_configurator_call.jinja",
         minijinja::context! {
             service_lower => &service_lower,
             service_snake => &service_snake,
             cfg_method_snake => &cfg_method_snake,
-            upper_prefix => &upper_prefix,
             service_name => service_name,
+            args => cfg_args,
         },
-    ));
-
-    // Add config params as arguments, marshaling correctly
-    for cfg_param in &cfg.params {
-        let expr = service_c_arg_expr(&cfg_param.name, &cfg_param.ty, api, &upper_prefix);
-        emit_service_call_arg_continuation(out, &expr);
-    }
-    out.push_str(&crate::backends::go::template_env::render(
-        "service_configurator_footer.jinja",
-        minijinja::Value::default(),
     ));
 }
 
