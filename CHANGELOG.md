@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.28] - 2026-06-07
+
 ### Changed
 
 - **code organization**: modularize large production codegen and CLI files into concern-based modules, including error generation, NAPI service API generation, Go type generation, and the binary CLI dispatch surface. This keeps the remediated production files under the 1,000-line source limit and removes their max-lines pre-commit exclusions. (`src/codegen/error_gen.rs`, `src/backends/napi/gen_bindings/service_api.rs`, `src/backends/go/gen_bindings/types.rs`, `src/main.rs`, `src/bin_cli/`)
+
+- **test/codegen organization**: split the Homebrew e2e generator and CLI version test suite into concern-based modules so both files satisfy the 1,000-line source limit while keeping generated behavior and test coverage unchanged. (`src/e2e/codegen/brew.rs`, `src/e2e/codegen/brew/`, `src/cli/pipeline/version_tests.rs`, `src/cli/pipeline/version_tests/`)
 
 ### Fixed
 
 - **kotlin-android (Foojay toolchain resolver)**: install the `org.gradle.toolchains.foojay-resolver-convention` v0.7.0 plugin in the generated `settings.gradle.kts` and drop the unused `org.gradle.jvm.toolchain.download.repository=adoptium` property from `gradle.properties`. The Foojay resolver supersedes the deprecated `download.repository` knob and handles automatic JDK downloads when the requested `jvmToolchain(N)` is not installed locally, so test_app builds succeed on hosts that only have a newer or older JDK version installed. (`src/backends/kotlin_android/gen_gradle_properties.rs`, `src/backends/kotlin_android/gen_settings_gradle.rs`)
 
-- **swift (alphabetical compile order)**: rename the generated `SwiftPluginHelpers.swift` to `ZSwiftPluginHelpers.swift` so that swift-bridge generated modules compile *before* the helpers file in SwiftPM's alphabetical source order. Earlier ordering forced helpers to be compiled before `RustString` / `RustVec` came into scope, producing `cannot find 'RustString' in scope` errors. (`src/backends/swift/gen_bindings/boxes.rs`)
+- **e2e hooks cleanup**: make Kotlin Android typed-array fixture generation use the configured item type instead of a downstream-specific type name, and replace downstream-specific smoke/PIE examples with generic fixture names so `no-project-special-casing` stays green. (`src/e2e/codegen/kotlin/args.rs`, `src/e2e/codegen/kotlin/tests.rs`, `src/e2e/codegen/php/project.rs`, `src/e2e/templates/python/test_smoke.py.jinja`)
+
+- **swift (alphabetical compile order)**: rename the generated `SwiftPluginHelpers.swift` to `ZSwiftPluginHelpers.swift` so that swift-bridge generated modules compile _before_ the helpers file in SwiftPM's alphabetical source order. Earlier ordering forced helpers to be compiled before `RustString` / `RustVec` came into scope, producing `cannot find 'RustString' in scope` errors. (`src/backends/swift/gen_bindings/boxes.rs`)
 
 - **e2e (brew test_app mock-server bootstrap)**: extend the generated `run_tests.sh` to auto-build and auto-spawn the fixture-driven mock-server when `MOCK_SERVER_URL` is not pre-set. The runner now invokes `cargo build --release --manifest-path ../rust/Cargo.toml --bin mock-server` on demand, launches the binary, polls its stdout for `MOCK_SERVER_URL=` / `MOCK_SERVERS=`, exports them, and tears the process down on `EXIT`. This makes `task test-apps:smoke:brew` self-contained instead of requiring a parent harness. (`src/e2e/codegen/brew.rs`)
 
