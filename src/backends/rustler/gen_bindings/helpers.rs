@@ -899,6 +899,8 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
         ));
         // Add blank line after each method for mix format compatibility
         out.push('\n');
+        // Add blank line after each method for mix format compatibility
+        out.push('\n');
     }
 
     // Emit a separate `default/0` function if the type has a default.

@@ -1,4 +1,5 @@
-{% if doc_first %}  @doc "{{ doc_first }}"
+{% if doc_first %}
+  @doc "{{ doc_first }}"
 {% endif %}{% if args %}  def {{ func_name }}({{ args }}) do
 {% else %}  def {{ func_name }} do
 {% endif %}    {{ native_mod }}.{{ func_name }}({{ args }})

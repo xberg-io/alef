@@ -1,4 +1,5 @@
-{% if doc_first %}  @doc "{{ doc_first }}"
+{% if doc_first %}
+  @doc "{{ doc_first }}"
 {% endif %}  def {{ method_name }}({{ def_args }}) do
     case Native.{{ start_fn }}({{ start_call_args }}) do
       {:ok, handle} ->
