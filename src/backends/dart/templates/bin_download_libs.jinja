@@ -72,7 +72,6 @@ String _packageRoot() {
   // Use the directory containing this script (bin/) as reference
   // to find the package root (parent of bin/).
   final scriptPath = Platform.script.toFilePath();
-  final scriptDir = File(scriptPath).parent.path;
   final binDir = File(scriptPath).parent;
   return binDir.parent.path;
 }
@@ -114,9 +113,8 @@ Future<void> _extractTarGz(Uint8List bytes, String dstDir) async {
   // A pure-Dart implementation would require a tar+gzip library; invoking the OS
   // tool is simpler and more reliable.
 
-  File tempFile;
+  final tempFile = File('$dstDir/.download.tar.gz');
   try {
-    tempFile = File('$dstDir/.download.tar.gz');
     await tempFile.writeAsBytes(bytes);
 
     if (Platform.isWindows) {
@@ -127,7 +125,7 @@ Future<void> _extractTarGz(Uint8List bytes, String dstDir) async {
       await Process.run('tar', ['-xzf', tempFile.path, '-C', dstDir]);
     }
   } finally {
-    if (tempFile != null && tempFile.existsSync()) {
+    if (tempFile.existsSync()) {
       await tempFile.delete();
     }
   }
