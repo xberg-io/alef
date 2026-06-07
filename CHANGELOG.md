@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **code organization**: modularize large production codegen and CLI files into concern-based modules, including error generation, NAPI service API generation, Go type generation, and the binary CLI dispatch surface. This keeps the remediated production files under the 1,000-line source limit and removes their max-lines pre-commit exclusions. (`src/codegen/error_gen.rs`, `src/backends/napi/gen_bindings/service_api.rs`, `src/backends/go/gen_bindings/types.rs`, `src/main.rs`, `src/bin_cli/`)
+
 ### Fixed
+
+- **e2e (brew test_app mock-server bootstrap)**: extend the generated `run_tests.sh` to auto-build and auto-spawn the fixture-driven mock-server when `MOCK_SERVER_URL` is not pre-set. The runner now invokes `cargo build --release --manifest-path ../rust/Cargo.toml --bin mock-server` on demand, launches the binary, polls its stdout for `MOCK_SERVER_URL=` / `MOCK_SERVERS=`, exports them, and tears the process down on `EXIT`. This makes `task test-apps:smoke:brew` self-contained instead of requiring a parent harness. (`src/e2e/codegen/brew.rs`)
+
+- **e2e (dart visitor wrappers)**: when a fixture binds a non-`WithVisitor` `options:` call alongside an attached visitor, the dart e2e generator now rewrites the emitted `<options>FromJson(json: …)` call site to its `WithVisitor` sibling (`<options>FromJsonWithVisitor(visitor: _visitor, json: …)`), so the visitor reaches the converter. Previously the visitor was created but ignored, breaking visitor-attached fixtures. (`src/e2e/codegen/dart/test_case.rs`)
+
+- **e2e (zig visitor C types)**: switch the generated zig visitor context type from `{prefix}{stem}NodeContext` to `{prefix}{stem}Context`. The C FFI re-defines visitor context as a stem-prefixed struct (e.g. `HtmContext`) distinct from the opaque core `NodeContext`; the callbacks in `{stem}VisitorCallbacks` take `*const {stem}Context`, so Zig sees `c.HTMHtmContext` (NOT `c.HTMNodeContext`). Aligns the zig visitor with both context and callbacks types following the `{prefix}{stem}…` pattern. (`src/e2e/codegen/zig/visitor.rs`)
 
 - **java (PMD ControlStatementBraces + SimplifyBooleanReturns)**: wrap single-statement `if`/`for` bodies in the `untagged_union_wrapper` helpers in braces and collapse the `equals()` shape to `this == o || (o instanceof X other && Objects.equals(...))`. PMD's `ControlStatementBraces` and `SimplifyBooleanReturns` rules flagged the brace-less single-statement bodies and the verbose `if (this == o) { return true; } return …` pattern in every generated untagged-union wrapper class. (`src/backends/java/templates/untagged_union_wrapper.jinja`, `src/backends/java/gen_bindings/types.rs`)
 

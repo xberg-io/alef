@@ -132,6 +132,48 @@ fn render_run_tests(categories: &[String]) -> String {
     let _ = writeln!(out, "# shellcheck disable=SC1091");
     let _ = writeln!(out, "set -euo pipefail");
     let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "# Auto-spawn mock-server if MOCK_SERVER_URL is not pre-set."
+    );
+    let _ = writeln!(out, "# Mirrors the C test_app Makefile's run_with_mock_server macro: builds the");
+    let _ = writeln!(out, "# fixture-driven mock-server from ../rust/ on demand, launches it in the");
+    let _ = writeln!(out, "# background, harvests MOCK_SERVER_URL + MOCK_SERVERS from its stdout, and");
+    let _ = writeln!(out, "# tears it down on exit. Without this the `task test-apps:smoke:brew` entry");
+    let _ = writeln!(out, "# point — which just calls `bash run_tests.sh` — fails at the require-check");
+    let _ = writeln!(out, "# above because nothing else in the smoke task spawns a mock-server.");
+    let _ = writeln!(out, "if [ -z \"${{MOCK_SERVER_URL:-}}\" ]; then");
+    let _ = writeln!(out, "  MOCK_SERVER_BIN=\"${{MOCK_SERVER_BIN:-../rust/target/release/mock-server}}\"");
+    let _ = writeln!(out, "  MOCK_SERVER_MANIFEST=\"${{MOCK_SERVER_MANIFEST:-../rust/Cargo.toml}}\"");
+    let _ = writeln!(out, "  FIXTURES_DIR=\"${{FIXTURES_DIR:-../../fixtures}}\"");
+    let _ = writeln!(out, "  if [ ! -x \"$MOCK_SERVER_BIN\" ]; then");
+    let _ = writeln!(out, "    echo \"Building mock-server from $MOCK_SERVER_MANIFEST...\" >&2");
+    let _ = writeln!(out, "    cargo build --release --manifest-path \"$MOCK_SERVER_MANIFEST\" --bin mock-server >&2");
+    let _ = writeln!(out, "  fi");
+    let _ = writeln!(out, "  rm -f mock_server.stdout");
+    let _ = writeln!(out, "  : > mock_server.stdout");
+    let _ = writeln!(out, "  \"$MOCK_SERVER_BIN\" \"$FIXTURES_DIR\" >mock_server.stdout 2>&1 &");
+    let _ = writeln!(out, "  __MOCK_PID=$!");
+    let _ = writeln!(out, "  trap '[ -n \"${{__MOCK_PID:-}}\" ] && kill \"$__MOCK_PID\" 2>/dev/null || true' EXIT");
+    let _ = writeln!(out, "  for _i in $(seq 1 200); do");
+    let _ = writeln!(out, "    if grep -q '^MOCK_SERVER_URL=' mock_server.stdout 2>/dev/null; then");
+    let _ = writeln!(out, "      break");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "    sleep 0.05");
+    let _ = writeln!(out, "  done");
+    let _ = writeln!(out, "  if ! grep -q '^MOCK_SERVER_URL=' mock_server.stdout 2>/dev/null; then");
+    let _ = writeln!(out, "    echo 'error: mock-server did not emit MOCK_SERVER_URL within 10s' >&2");
+    let _ = writeln!(out, "    cat mock_server.stdout >&2 || true");
+    let _ = writeln!(out, "    exit 1");
+    let _ = writeln!(out, "  fi");
+    let _ = writeln!(out, "  MOCK_SERVER_URL=\"$(grep '^MOCK_SERVER_URL=' mock_server.stdout | tail -1 | cut -d= -f2-)\"");
+    let _ = writeln!(out, "  export MOCK_SERVER_URL");
+    let _ = writeln!(out, "  if grep -q '^MOCK_SERVERS=' mock_server.stdout 2>/dev/null; then");
+    let _ = writeln!(out, "    MOCK_SERVERS=\"$(grep '^MOCK_SERVERS=' mock_server.stdout | tail -1 | cut -d= -f2-)\"");
+    let _ = writeln!(out, "    export MOCK_SERVERS");
+    let _ = writeln!(out, "  fi");
+    let _ = writeln!(out, "fi");
+    let _ = writeln!(out);
     let _ = writeln!(out, "# MOCK_SERVER_URL must be set to the base URL of the mock server.");
     let _ = writeln!(out, ": \"${{MOCK_SERVER_URL:?MOCK_SERVER_URL is required}}\"");
     let _ = writeln!(out);

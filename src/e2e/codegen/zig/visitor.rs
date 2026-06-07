@@ -56,7 +56,7 @@ pub(super) fn resolve_zig_visitor_call_symbols(
         visitor_free: format!("{ffi_prefix}_visitor_free"),
         options_from_json: format!("{ffi_prefix}_{options_type_snake}_from_json"),
         options_free: format!("{ffi_prefix}_{options_type_snake}_free"),
-        options_set_visitor_handle: format!("{ffi_prefix}_options_set_visitor_handle"),
+        options_set_visitor_handle: format!("{ffi_prefix}_options_set_visitor"),
         function_name,
         result_free: format!("{ffi_prefix}_{result_type_snake}_free"),
         result_to_json: format!("{ffi_prefix}_{result_type_snake}_to_json"),
@@ -92,8 +92,13 @@ pub(super) fn emit_visitor_test_body(
     // 1. Per-fixture visitor struct + callbacks table.
     let c_prefix = symbols.visitor_prefix.to_uppercase();
     let visitor_type_stem = symbols.visitor_prefix.to_pascal_case();
+    // The C FFI re-defines visitor context as a stem-prefixed struct (e.g.
+    // `HtmContext`) — distinct from the opaque core `NodeContext`. The
+    // callbacks in `HtmVisitorCallbacks` take `*const HtmContext`, so Zig
+    // sees `c.HTMHtmContext` (NOT `c.HTMNodeContext`). Both context and
+    // callbacks types follow the `{prefix}{stem}…` pattern.
     let c_types = zig_visitors::ZigVisitorCTypes {
-        context_type: format!("{c_prefix}{visitor_type_stem}NodeContext"),
+        context_type: format!("{c_prefix}{visitor_type_stem}Context"),
         callbacks_type: format!("{c_prefix}{visitor_type_stem}VisitorCallbacks"),
     };
     let visitor_block = zig_visitors::build_zig_visitor(fixture_id, module_name, visitor_spec, &c_types);

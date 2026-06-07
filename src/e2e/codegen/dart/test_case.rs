@@ -621,6 +621,20 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                 ));
                 args.push("options: _options".to_string());
             }
+        } else if let Some(opts_type) = options_type {
+            // The args loop already emitted a non-WithVisitor options call (e.g.
+            // for `options: {}` or `options: {some: value}`). Without the visitor
+            // attached the convert call ignores `_visitor` — rewrite the
+            // emitted call to its `WithVisitor` sibling so the visitor reaches
+            // the converter.
+            let dart_fn = type_name_to_create_from_json_dart(opts_type);
+            let needle = format!("await {dart_fn}(json:");
+            let replacement = format!("await {dart_fn}WithVisitor(visitor: _visitor, json:");
+            for line in setup_lines.iter_mut() {
+                if line.contains(&needle) {
+                    *line = line.replace(&needle, &replacement);
+                }
+            }
         }
     }
 
