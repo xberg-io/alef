@@ -7,7 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.29] - 2026-06-07
+
 ### Fixed
+
+- **java e2e (linux native lib detection)**: fix the broken Ant fallback in the
+  java e2e `pom.xml.jinja` `copy-native-lib` execution. The previous Linux
+  detection compared `${os.name.detected}` to `""` — but Ant evaluates unset
+  properties as the literal `${os.name.detected}` token, never the empty
+  string, so the fallback never fired and the linux runner produced a copy
+  source with the literal `${native.lib.name}` placeholder unresolved. Replace
+  with a positive `.*linux.*` / `.*nux.*` pattern match so linux runners
+  correctly resolve `native.lib.name` to the platform filename.
+  (`src/e2e/templates/java/pom.xml.jinja`)
+
+- **elixir e2e (dead-store `ready` / `route` warnings)**: drop the
+  initial-then-rebound `ready = false` in the test_helper TCP-poll block and
+  the unused `route = Map.get(handler, "route", "/")` in app_harness — the
+  full_route is constructed from `fixture_id` alone, and `ready` is
+  immediately rebound by the `Enum.reduce_while` destructuring. Eliminates
+  two `variable is unused` warnings.
+  (`src/e2e/templates/elixir/test_helper_server.exs.jinja`,
+  `src/e2e/templates/elixir/app_harness.exs.jinja`)
 
 - **swift (type-mapping bug in wrapper return types)**: fix incorrect mapping of Rust `bool` → Swift `Int` 
   and Rust `usize` → Swift `Int` in the public function wrapper layer. The `swift_type_name()` function 

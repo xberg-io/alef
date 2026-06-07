@@ -40,7 +40,6 @@ unless System.get_env("SUT_URL") do
 
   # Poll until the harness accepts TCP connections
   deadline = :erlang.monotonic_time(:millisecond) + 15_000
-  ready = false
 
   {ready, url} =
     Enum.reduce_while(1..150, {false, url}, fn _, {_, url_acc} ->
