@@ -46,7 +46,7 @@
                 ownerHandle,     // owner
                 upcallStub       // callback
 {% for arg in invoke_args %}
-                , {{ arg }}
+                , {{ arg.0 }}    // {{ arg.1 }}
 {% endfor %}            );
         } catch (Throwable e) {
             throw new RuntimeException("Failed to register handler", e);

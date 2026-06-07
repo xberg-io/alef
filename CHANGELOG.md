@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **ruby (magnus)**: emit `##` YARD documentation comment for the generated `VERSION` constant in `version.rb` so that `yard-coverage` correctly identifies all public constants and reaches 100% documented. (`src/backends/magnus/templates/version_rb_wrapper.rb.jinja`)
 
+- **java (panama)**: fix FFM call-site argument emission to place comma separators on the same line as the previous argument instead of orphaned on the next line. The registration method's `FunctionDescriptor.of()` and `.invokeExact()` calls (and entrypoint descriptor calls) were emitting malformed Java with commas appearing on their own lines after comments (e.g., `ValueLayout.ADDRESS    // callback\n,`), causing javac parse errors. Refactored Rust emitters to separate argument expressions from comments and pass arrays of tuples to Jinja templates, allowing the templates to correctly interleave arguments, commas, and comments on single lines. (`src/backends/java/gen_bindings/service_api.rs`, `src/backends/java/templates/service_registration_method.jinja`, `src/backends/java/templates/service_entrypoint_method.jinja`) <!-- N+15-java-ffm-args -->
+
 ## [0.23.25] - 2026-06-07
 
 ### Fixed

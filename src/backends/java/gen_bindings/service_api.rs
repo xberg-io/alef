@@ -102,14 +102,22 @@ fn bool_arg_expr(param_name: &str) -> String {
     .to_owned()
 }
 
-fn metadata_arg(param: &ParamDef, api: &ApiSurface, comment: &str) -> String {
+fn metadata_arg_expr(param: &ParamDef, api: &ApiSurface) -> String {
     let param_name = param.name.to_lower_camel_case();
     if is_opaque_metadata(&param.ty, api) {
-        format!("{param_name}.handle()    // opaque handle")
+        format!("{param_name}.handle()")
     } else if matches!(param.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
-        format!("{}    // {comment}", bool_arg_expr(&param_name))
+        bool_arg_expr(&param_name)
     } else {
-        format!("{param_name}    // {comment}")
+        param_name
+    }
+}
+
+fn metadata_arg_comment(param: &ParamDef, api: &ApiSurface, default_comment: &str) -> String {
+    if is_opaque_metadata(&param.ty, api) {
+        "opaque handle".to_owned()
+    } else {
+        default_comment.to_owned()
     }
 }
 
@@ -207,7 +215,7 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         let invoke_args_vec: Vec<_> = reg
             .metadata_params
             .iter()
-            .map(|meta_param| metadata_arg(meta_param, api, "metadata"))
+            .map(|meta_param| (metadata_arg_expr(meta_param, api), metadata_arg_comment(meta_param, api, "metadata")))
             .collect();
 
         out.push_str(&template_env::render(
