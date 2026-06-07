@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **php (unit-variant enum classes)**: emit unit-variant enums (e.g., `Method` with `GET`, `POST` variants) as `#[php_class]` structs with class constants instead of bare Rust constants. Consumers can now reference enum values as `ClassName::VARIANT_NAME` at runtime. Namespace-aware per config. (`src/backends/php/gen_bindings/types.rs`, `src/backends/php/gen_bindings/rust_bindings.rs`)
 - **swift e2e (harness port mismatch)**: fix Swift e2e tests to use port 8000 (default harness port) instead of hardcoded 8009 fallback. Mismatch caused URLSession requests to fail silently with nil response. (`src/e2e/codegen/swift/http.rs`)
 - **typescript e2e (auth middleware dispatch)**: fix TypeScript app_harness to dispatch all middleware types via a generic dispatch table, matching Python harness design. Previously hardcoded only `cors` and `compression`, ignoring `api_key_auth`, `jwt_auth`, and `bearer_auth` specified in fixtures, causing auth tests to return 404 instead of 401/200. (`src/e2e/templates/typescript/app_harness.mjs.jinja`)
 
