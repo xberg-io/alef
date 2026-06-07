@@ -89,6 +89,9 @@ Config/testthat/edition: 3
     object_usage_linter = NULL,
     commented_code_linter = NULL
   )
+exclusions: list(
+    "R/extendr-wrappers.R"
+  )
 "#
             .to_string(),
             generated_header: false,

@@ -121,11 +121,7 @@ pub(super) fn generate_public_api(
             // php_phpdoc_type() handles TypeRef::Optional by returning a string starting with '?',
             // but parameters can also have p.optional = true without the type being Optional.
             // In that case, we need to prepend '?' to the PHPDoc type.
-            let nullable_prefix = if p.optional && !ptype.starts_with('?') {
-                "?"
-            } else {
-                ""
-            };
+            let nullable_prefix = if p.optional && !ptype.starts_with('?') { "?" } else { "" };
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_param_line.jinja",
                 context! {
@@ -201,12 +197,13 @@ pub(super) fn generate_public_api(
                 // use a null default.
                 let type_is_nullable = ptype.starts_with('?');
                 let is_optional_in_ir = p.optional;
-                let can_be_optional = type_is_nullable || is_optional_in_ir || is_optional_default_constructible_param(p);
+                let can_be_optional =
+                    type_is_nullable || is_optional_in_ir || is_optional_default_constructible_param(p);
 
                 // Only emit `= null` default for parameters that are truly optional.
                 // The tail_optional check ensures PHP 8.1 compliance (required params before optional ones).
-                let can_emit_default =
-                    tail_optional[idx] && (type_is_nullable || is_optional_in_ir || is_optional_default_constructible_param(p));
+                let can_emit_default = tail_optional[idx]
+                    && (type_is_nullable || is_optional_in_ir || is_optional_default_constructible_param(p));
 
                 if can_be_optional && can_emit_default {
                     // ptype may already be nullable (e.g., "?string" from php_type handling

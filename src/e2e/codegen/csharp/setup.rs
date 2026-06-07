@@ -292,17 +292,26 @@ pub(super) fn build_args_and_setup(
     (setup_lines, parts.join(", "))
 }
 
+/// Check if a type can be default-constructed in C#.
+/// A type can be default-constructed if all its fields are either optional or have defaults.
+fn is_default_constructible(type_name: &str, type_defs: &[crate::core::ir::TypeDef]) -> bool {
+    type_defs.iter().find(|ty| ty.name == type_name).is_some_and(|ty| {
+        // Empty types are always constructible
+        ty.fields.is_empty() || ty.fields.iter().all(|field| field.optional || field.default.is_some())
+    })
+}
+
 /// Resolve the default value for a json_object parameter when no fixture value is provided.
 ///
-/// This is called for required (non-optional) json_object parameters. Since C# value types
-/// (structs, records) cannot be null, this function emits `new T()` when the type is known.
-/// Reference types that cannot be inferred fall back to `null`.
+/// This is called for required (non-optional) json_object parameters. In C#, any type
+/// with a parameterless constructor can be default-constructed with `new T()`. This includes
+/// records and structs where all fields are optional or have defaults.
 ///
 /// Strategy:
-/// 1. Prefer explicit options_type from call config
-/// 2. Fall back to arg.element_type
-/// 3. Infer from parameter name: try "ParamName" and "ParamNameConfig"
-/// 4. Last resort: `null` (will fail at runtime with proper error)
+/// 1. Prefer explicit options_type from call config (must exist in type_defs and be constructible)
+/// 2. Fall back to arg.element_type (must be constructible)
+/// 3. Infer from parameter name: try "ParamName" and "ParamNameConfig" (must be constructible)
+/// 4. Last resort: `null` (will fail at runtime with ArgumentNullException)
 fn resolve_json_object_default(
     options_type: Option<&str>,
     element_type: &Option<String>,
@@ -311,12 +320,17 @@ fn resolve_json_object_default(
 ) -> String {
     // Explicit options_type from call config: highest priority
     if let Some(opts_type) = options_type {
-        return format!("new {opts_type}()");
+        if is_default_constructible(opts_type, type_defs) {
+            return format!("new {opts_type}()");
+        }
+        // Explicit type exists but cannot be default-constructed; fall through
     }
 
     // Fall back to element_type from arg mapping
     if let Some(elem_type) = element_type {
-        return format!("new {elem_type}()");
+        if is_default_constructible(elem_type, type_defs) {
+            return format!("new {elem_type}()");
+        }
     }
 
     // Try to infer type name from parameter name:
@@ -326,14 +340,14 @@ fn resolve_json_object_default(
     let candidates = [name_upper.clone(), format!("{name_upper}Config")];
     if let Some(inferred) = candidates
         .iter()
-        .find(|cand| type_defs.iter().any(|ty| ty.name == **cand))
+        .find(|cand| is_default_constructible(cand, type_defs))
         .cloned()
     {
         return format!("new {inferred}()");
     }
 
-    // Cannot determine type; pass null
-    // This will fail at runtime with a clear error message pointing to the parameter
+    // Cannot determine constructible type; pass null
+    // This will fail at runtime with ArgumentNullException on non-nullable params
     "null".to_string()
 }
 
@@ -502,5 +516,104 @@ fn normalize_csharp_enum_values(value: &serde_json::Value, enum_fields: &HashMap
             serde_json::Value::Object(result)
         }
         other => other.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+
+    #[test]
+    fn test_resolve_json_object_default_with_default_constructible_type() {
+        // Create a fixture type that can be default-constructed
+        // (all fields are optional or have defaults).
+        let mut my_config = TypeDef::default();
+        my_config.name = "MyConfig".to_string();
+        my_config.rust_path = "crate::MyConfig".to_string();
+        my_config.fields = vec![
+            FieldDef {
+                name: "timeout".to_string(),
+                ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+                optional: true,
+                default: None,
+                doc: String::new(),
+                ..FieldDef::default()
+            },
+            FieldDef {
+                name: "enabled".to_string(),
+                ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+                optional: false,
+                default: Some("true".to_string()),
+                doc: String::new(),
+                ..FieldDef::default()
+            },
+        ];
+
+        let type_defs = vec![my_config];
+
+        // Test: when fixture omits a parameter named "my", infer "My" → "MyConfig" and construct it.
+        // This tests the pattern that fixed the EmbedTextsAsync(texts, null) failure where
+        // omitted config parameters now default-construct instead of passing null.
+        let result = resolve_json_object_default(None, &None, "my", &type_defs);
+        assert_eq!(result, "new MyConfig()", "Expected default construction of MyConfig");
+    }
+
+    #[test]
+    fn test_resolve_json_object_default_with_non_default_constructible_type() {
+        // Create a type that cannot be default-constructed
+        // (has a required field with no default).
+        let mut required_config = TypeDef::default();
+        required_config.name = "RequiredConfig".to_string();
+        required_config.rust_path = "crate::RequiredConfig".to_string();
+        required_config.fields = vec![FieldDef {
+            name: "api_key".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            ..FieldDef::default()
+        }];
+
+        let type_defs = vec![required_config];
+
+        // Test: when type cannot be default-constructed, fall back to null
+        let result = resolve_json_object_default(None, &None, "config", &type_defs);
+        assert_eq!(result, "null", "Expected null for non-default-constructible type");
+    }
+
+    #[test]
+    fn test_resolve_json_object_default_prefers_explicit_type() {
+        // Create an explicit options_type and fallback types
+        let mut my_config = TypeDef::default();
+        my_config.name = "MyConfig".to_string();
+        my_config.rust_path = "crate::MyConfig".to_string();
+        my_config.fields = vec![];
+
+        let mut fallback_config = TypeDef::default();
+        fallback_config.name = "Config".to_string();
+        fallback_config.rust_path = "crate::Config".to_string();
+        fallback_config.fields = vec![];
+
+        let type_defs = vec![my_config, fallback_config];
+
+        // Test: explicit options_type takes highest priority
+        let result = resolve_json_object_default(Some("MyConfig"), &None, "config", &type_defs);
+        assert_eq!(result, "new MyConfig()", "Expected explicit MyConfig");
+    }
+
+    #[test]
+    fn test_resolve_json_object_default_with_element_type() {
+        // Create types for element_type fallback
+        let mut elem_config = TypeDef::default();
+        elem_config.name = "ElemConfig".to_string();
+        elem_config.rust_path = "crate::ElemConfig".to_string();
+        elem_config.fields = vec![];
+
+        let type_defs = vec![elem_config];
+
+        // Test: element_type is preferred over inferred names when explicit options_type is absent
+        let result = resolve_json_object_default(None, &Some("ElemConfig".to_string()), "other", &type_defs);
+        assert_eq!(result, "new ElemConfig()", "Expected ElemConfig from element_type");
     }
 }

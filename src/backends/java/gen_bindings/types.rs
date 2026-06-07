@@ -294,6 +294,17 @@ pub(crate) fn gen_record_type(
     // Build the actual record declaration, splitting across lines if too long.
     let mut record_block = String::new();
     emit_javadoc(&mut record_block, &typ.doc, "");
+
+    // Check if any fields are binding-excluded (marked with #[cfg_attr(alef, alef(skip))]).
+    // When excluded fields are present, add @JsonIgnoreProperties(ignoreUnknown = true)
+    // to allow Jackson to deserialize JSON containing those fields without error.
+    // Rust may serialize fields excluded from binding (they're still in the core type),
+    // but the Java POJO intentionally omits them.
+    let has_binding_excluded_fields = typ.fields.iter().any(|f| f.binding_excluded);
+    if has_binding_excluded_fields {
+        record_block.push_str("@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)\n");
+    }
+
     // Suppress absent fields during serialization: null Java values and empty Optionals must
     // not be sent to Rust as `null` JSON. Rust's serde would reject null for non-optional
     // fields, and `serde(skip)` fields cause "unknown field" errors even when null.
@@ -537,6 +548,8 @@ pub(crate) fn gen_record_type(
         record_block.contains("@JsonDeserialize(") || fields_joined.contains("@JsonDeserialize(");
     let needs_json_serialize = fields_joined.contains("@JsonSerialize(");
     let needs_json_ignore = fields_joined.contains("@JsonIgnore");
+    // @JsonIgnoreProperties may appear at class level when binding-excluded fields exist.
+    let needs_json_ignore_properties = record_block.contains("@JsonIgnoreProperties(");
     // @Nullable may appear in record fields OR in builder method signatures.
     let needs_nullable =
         fields_joined.contains("@Nullable") || (will_emit_builder && record_block.contains("@Nullable"));
@@ -575,6 +588,9 @@ pub(crate) fn gen_record_type(
     }
     if needs_json_include {
         imports.push("com.fasterxml.jackson.annotation.JsonInclude");
+    }
+    if needs_json_ignore_properties {
+        imports.push("com.fasterxml.jackson.annotation.JsonIgnoreProperties");
     }
     if needs_json_deserialize {
         imports.push("com.fasterxml.jackson.databind.annotation.JsonDeserialize");
@@ -662,12 +678,28 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
     }
     variants_block.push('\n');
 
+    // Collect excluded variant names to document in comments or emit validation logic
+    let excluded_variant_json_names: Vec<String> = enum_def
+        .excluded_variants
+        .iter()
+        .map(|v| {
+            v.serde_rename
+                .clone()
+                .unwrap_or_else(|| match enum_def.serde_rename_all.as_deref() {
+                    Some(rename_all) => java_apply_rename_all(&v.name, Some(rename_all)),
+                    None => v.name.to_lowercase(),
+                })
+        })
+        .collect();
+
     out.push_str(&crate::backends::java::template_env::render(
         "simple_enum_class.jinja",
         minijinja::context! {
             javadocs => enum_javadocs,
             enum_name => &enum_def.name,
             variants_block => variants_block,
+            has_excluded_variants => !excluded_variant_json_names.is_empty(),
+            excluded_variant_names => excluded_variant_json_names,
         },
     ));
 

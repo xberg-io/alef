@@ -213,27 +213,25 @@ fn go_stub_default_with_context(
 /// Check if a type (or its top-level structure) is an excluded type in a way that would
 /// exclude the entire method from the binding interface.
 ///
-/// For return types with error handling (has_error_type=true):
-/// - Excludes if Optional<ExcludedType>
-/// - Does NOT exclude directly excluded types (Result<ExcludedType> is handled by binding)
-///
-/// For return types without error handling (has_error_type=false) or parameter types:
-/// - Excludes if the type IS an excluded type
-/// - Excludes if Optional<ExcludedType>
+/// A method should be skipped ONLY if its return type is structurally unmarshalable or
+/// not exported at all — specifically, Optional<ExcludedType>. Named excluded types
+/// (including enums and other types) are always exported in the Go binding, so methods
+/// returning them directly should be emitted. Methods returning Optional<ExcludedType>
+/// are skipped because they would require returning nil for types that don't export.
 fn should_skip_method_with_type(
     ty: &crate::core::ir::TypeRef,
     excluded_types: &std::collections::HashSet<&str>,
-    is_result_return: bool,
+    _is_result_return: bool,
 ) -> bool {
     use crate::core::ir::TypeRef;
     match ty {
-        // Optional<ExcludedType> is always skipped.
+        // Optional<ExcludedType> is always skipped (would need nil, but type not exported).
         TypeRef::Optional(inner) => {
             matches!(inner.as_ref(), TypeRef::Named(name) if excluded_types.contains(name.as_str()))
         }
-        // Directly excluded types: skip unless it's a Result return (binding handles conversion)
-        TypeRef::Named(name) if excluded_types.contains(name.as_str()) => !is_result_return,
-        // Other types are not skipped
+        // Directly named excluded types are NOT skipped anymore. The Go binding emits them
+        // (as json.RawMessage for trait-bridge purposes), so the stub must emit the method.
+        // Only Optional<ExcludedType> is structurally problematic.
         _ => false,
     }
 }
@@ -682,6 +680,56 @@ mod trait_bridge_tests {
         assert!(
             emission.setup_block.contains("myproject.ParseConfig"),
             "named type ParseConfig must be qualified as myproject.ParseConfig, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    /// Regression (Go trait bridges): methods returning enum types must not be skipped.
+    ///
+    /// Example: OcrBackend.BackendType() returns OcrBackendType (an enum).
+    /// The Go interface declares `BackendType() OcrBackendType`, so the test-stub
+    /// MUST emit a default implementation, even though OcrBackendType is a Named type
+    /// and may be in the excluded_types set (for trait-bridge json.RawMessage purposes).
+    ///
+    /// This test uses a synthetic `MyService` trait with `Diagnose() string` returning
+    /// a named type (treated as enum) to verify the fix works generically.
+    #[test]
+    fn test_go_stub_emits_methods_returning_named_excluded_types() {
+        let diagnose_method =
+            make_method("diagnose", vec![], TypeRef::Named("DiagnosticLevel".to_string()), false);
+
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "MyService".to_string(),
+            super_trait: None,
+            register_fn: Some("register_my_service".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let fixture = make_fixture("service_diagnose");
+        let methods = vec![&diagnose_method];
+
+        // Simulate the scenario where DiagnosticLevel is in excluded_types
+        // (e.g., treated as json.RawMessage at the trait-bridge interface level).
+        // Before the fix, this method would be skipped; after the fix, it must be emitted.
+        let mut excluded = std::collections::HashSet::new();
+        excluded.insert("DiagnosticLevel");
+
+        let enum_names = std::collections::HashSet::new();
+        let emission =
+            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "", &enum_names);
+
+        // Method returning an excluded named type must be emitted (it's now exported as json.RawMessage).
+        assert!(
+            emission.setup_block.contains("Diagnose()"),
+            "method returning excluded named type must be emitted, got:\n{}",
+            emission.setup_block
+        );
+
+        // Return type must be properly handled (json.RawMessage for excluded, or proper type name).
+        // The signature should reflect the binding's interface (json.RawMessage for excluded types).
+        assert!(
+            emission.setup_block.contains("json.RawMessage") || emission.setup_block.contains("nil"),
+            "method must emit a zero-value that matches the excluded type handling, got:\n{}",
             emission.setup_block
         );
     }

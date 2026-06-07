@@ -637,3 +637,139 @@ fn local_dep_references_built_jar_by_base_name() {
         "expected local jar reference, got:\n{out}"
     );
 }
+
+/// Regression: kotlin_android bytes args must be coerced to ByteArray by reading
+/// the file path, not passed as plain String literals.
+#[test]
+fn kotlin_android_bytes_arg_emits_files_read_all_bytes() {
+    let args = vec![ArgMapping {
+        name: "content".to_string(),
+        field: "input.path".to_string(),
+        arg_type: "bytes".to_string(),
+        optional: false,
+        owned: false,
+        element_type: None,
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+    let fixture = Fixture {
+        id: "extract_bytes_fixture".to_string(),
+        category: None,
+        description: "test bytes extraction".to_string(),
+        tags: vec![],
+        skip: None,
+        env: None,
+        call: None,
+        input: serde_json::json!({ "path": "pdf/test.pdf" }),
+        mock_response: None,
+        visitor: None,
+        args: vec![],
+        assertion_recipes: vec![],
+        assertions: vec![],
+        source: String::new(),
+        http: None,
+    };
+
+    // JVM style: should emit plain string
+    let (_, args_jvm) = build_args_and_setup(
+        &fixture.input,
+        &args,
+        KotlinArgsContext {
+            fixture: &fixture,
+            class_name: "Kreuzberg",
+            options_type: None,
+            fixture_id: "extract_bytes_fixture",
+            kotlin_android_style: false,
+            config: &ResolvedCrateConfig::default(),
+            type_defs: &[],
+        },
+    );
+    assert!(
+        args_jvm.contains("\"pdf/test.pdf\""),
+        "JVM style must emit string literal, got: {args_jvm}"
+    );
+
+    // Android style: should emit Files.readAllBytes(Paths.get(...))
+    let (_, args_android) = build_args_and_setup(
+        &fixture.input,
+        &args,
+        KotlinArgsContext {
+            fixture: &fixture,
+            class_name: "Kreuzberg",
+            options_type: None,
+            fixture_id: "extract_bytes_fixture",
+            kotlin_android_style: true,
+            config: &ResolvedCrateConfig::default(),
+            type_defs: &[],
+        },
+    );
+    assert!(
+        args_android.contains("java.nio.file.Files.readAllBytes"),
+        "kotlin_android bytes arg must use Files.readAllBytes, got: {args_android}"
+    );
+    assert!(
+        args_android.contains("Paths.get("),
+        "kotlin_android bytes arg must use Paths.get, got: {args_android}"
+    );
+}
+
+/// Regression: kotlin_android batch_bytes args must wrap each path string in
+/// BatchBytesItem(...) with file contents as ByteArray.
+#[test]
+fn kotlin_android_batch_bytes_item_wraps_paths() {
+    let args = vec![ArgMapping {
+        name: "items".to_string(),
+        field: "input.paths".to_string(),
+        arg_type: "json_object".to_string(),
+        optional: false,
+        owned: false,
+        element_type: Some("BatchBytesItem".to_string()),
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+    let fixture = Fixture {
+        id: "batch_extract_fixture".to_string(),
+        category: None,
+        description: "test batch extraction".to_string(),
+        tags: vec![],
+        skip: None,
+        env: None,
+        call: None,
+        input: serde_json::json!({ "paths": ["pdf/test1.pdf", "pdf/test2.pdf"] }),
+        mock_response: None,
+        visitor: None,
+        args: vec![],
+        assertion_recipes: vec![],
+        assertions: vec![],
+        source: String::new(),
+        http: None,
+    };
+
+    let (_, args_android) = build_args_and_setup(
+        &fixture.input,
+        &args,
+        KotlinArgsContext {
+            fixture: &fixture,
+            class_name: "Kreuzberg",
+            options_type: None,
+            fixture_id: "batch_extract_fixture",
+            kotlin_android_style: true,
+            config: &ResolvedCrateConfig::default(),
+            type_defs: &[],
+        },
+    );
+    assert!(
+        args_android.contains("BatchBytesItem"),
+        "kotlin_android batch must wrap items in BatchBytesItem, got: {args_android}"
+    );
+    assert!(
+        args_android.contains("java.nio.file.Files.readAllBytes"),
+        "kotlin_android batch items must read file bytes, got: {args_android}"
+    );
+    assert!(
+        args_android.contains("listOf("),
+        "kotlin_android batch must emit listOf(...), got: {args_android}"
+    );
+}

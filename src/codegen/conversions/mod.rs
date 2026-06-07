@@ -439,6 +439,57 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_enum_from_core_to_binding_unit_only_with_struct_variants_no_catchall() {
+        // Regression: when the binding is unit-only (binding_enums_have_data=false) but the
+        // core enum has named-field (struct) variants, every variant still gets its own
+        // explicit arm (`CoreT::V { .. } => Self::V,`).  The match is exhaustive; emitting
+        // `_ => Default::default()` produces an "unreachable pattern" error under -D warnings.
+        let mut enum_def = simple_enum();
+        // Add a named-field (struct) variant to simulate e.g. WebSocketMessage::Close { code, reason }.
+        enum_def.variants.push(EnumVariant {
+            name: "Disconnect".into(),
+            fields: vec![FieldDef {
+                name: "code".into(),
+                ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U16),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                original_type: None,
+            }],
+            doc: String::new(),
+            is_default: false,
+            serde_rename: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_tuple: false,
+            originally_had_data_fields: false,
+        });
+        // Unit-only binding (default config has binding_enums_have_data=false).
+        let result = gen_enum_from_core_to_binding(&enum_def, "my_crate");
+        assert!(
+            !result.contains("_ => Default::default()"),
+            "catch-all must not be emitted when all core variants are covered by explicit arms; got:\n{result}"
+        );
+        // The struct variant must still get its own arm (not silently dropped).
+        assert!(
+            result.contains("Backend::Disconnect { .. } => Self::Disconnect"),
+            "struct variant must have an explicit arm; got:\n{result}"
+        );
+    }
+
     fn untagged_tuple_enum() -> EnumDef {
         EnumDef {
             name: "UserContent".to_string(),

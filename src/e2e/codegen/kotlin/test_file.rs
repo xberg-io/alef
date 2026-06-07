@@ -198,6 +198,27 @@ pub(super) fn render_test_file_inner(
         }
     }
     let needs_object_mapper_for_options = !per_fixture_options_types.is_empty();
+
+    // Collect trait bridge class names used by fixtures in this file (kotlin_android only).
+    // These are specified via call overrides, e.g., class = "ValidatorBridge".
+    let mut trait_bridge_classes: HashSet<String> = HashSet::new();
+    if kotlin_android_style {
+        for f in fixtures.iter() {
+            let cc = e2e_config.resolve_call_for_fixture(
+                f.call.as_deref(),
+                &f.id,
+                &f.resolved_category(),
+                &f.tags,
+                &f.input,
+            );
+            if let Some(overrides) = cc.overrides.get("kotlin_android") {
+                if let Some(bridge_class) = &overrides.class {
+                    trait_bridge_classes.insert(bridge_class.clone());
+                }
+            }
+        }
+    }
+
     // Also need ObjectMapper when a handle arg has a non-null config.
     let needs_object_mapper_for_handle = fixtures.iter().any(|f| {
         let cc =
@@ -287,6 +308,14 @@ pub(super) fn render_test_file_inner(
         sorted_opts.sort();
         for opts_type in sorted_opts {
             let _ = writeln!(out, "import {binding_pkg_for_imports}.{opts_type}");
+        }
+    }
+    // Import trait bridge classes used by fixtures (kotlin_android only).
+    if !trait_bridge_classes.is_empty() {
+        let mut sorted_bridges: Vec<&String> = trait_bridge_classes.iter().collect();
+        sorted_bridges.sort();
+        for bridge_class in sorted_bridges {
+            let _ = writeln!(out, "import {binding_pkg_for_imports}.{bridge_class}");
         }
     }
     let mut handle_config_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();

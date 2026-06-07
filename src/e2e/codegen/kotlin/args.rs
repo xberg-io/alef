@@ -216,6 +216,28 @@ pub(super) fn build_args_and_setup(
                 // Typed arrays carry `element_type` and are materialised as a
                 // plain `listOf(...)` of the JSON literals.
                 if arg.arg_type == "json_object" && v.is_array() && arg.element_type.is_some() {
+                    // Special handling for BatchBytesItem: wrap each string path in BatchBytesItem(...)
+                    if kotlin_android_style && arg.element_type.as_deref() == Some("BatchBytesItem") {
+                        let items: Vec<String> = v
+                            .as_array()
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|item| {
+                                        if let Some(path) = item.as_str() {
+                                            Some(format!(
+                                                "BatchBytesItem(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(\"{}\")), \"application/octet-stream\")",
+                                                escape_kotlin(path)
+                                            ))
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        parts.push(format!("listOf({})", items.join(", ")));
+                        continue;
+                    }
                     let items: Vec<String> = v
                         .as_array()
                         .map(|arr| arr.iter().map(super::values::json_to_kotlin).collect())
@@ -229,10 +251,24 @@ pub(super) fn build_args_and_setup(
                     continue;
                 }
                 // bytes args in Kotlin binding carry a relative file path (e.g. "docx/fake.docx")
-                // that the Kotlin API resolves and reads internally. Pass the path string directly.
+                // that the Kotlin API resolves and reads internally.
+                // - JVM binding: pass the path string directly
+                // - android binding: need to read bytes and wrap in ByteArray
                 if arg.arg_type == "bytes" {
                     let val = super::values::json_to_kotlin(v);
-                    parts.push(val);
+                    if kotlin_android_style {
+                        // kotlin_android needs ByteArray, not String path
+                        // Emit code to read the file as bytes
+                        if v.is_string() {
+                            parts.push(format!(
+                                "java.nio.file.Files.readAllBytes(java.nio.file.Paths.get({val}))"
+                            ));
+                        } else {
+                            parts.push("byteArrayOf()".to_string());
+                        }
+                    } else {
+                        parts.push(val);
+                    }
                     continue;
                 }
                 // file_path args: Kotlin module wraps the Java facade (which takes Path),

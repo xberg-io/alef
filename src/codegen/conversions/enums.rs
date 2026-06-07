@@ -77,15 +77,21 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
         })
         .collect();
 
-    // Emit a wildcard arm when:
-    // 1. The core enum has cfg-gated variants (excluded from the IR's `variants` list), OR
-    // 2. The binding enum is unit-only but the core enum has struct-variants with data
-    //    (e.g., JSON-passthrough wrapper struct binding matching a struct-variant core enum).
-    //    The compiler sees all core variants at compile time, so we must cover unrepresented ones.
-    let has_excluded_variants = !enum_def.excluded_variants.is_empty();
-    let binding_is_unit_only = !config.binding_enums_have_data;
-    let core_has_struct_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty() && !v.is_tuple);
-    let needs_catch_all = has_excluded_variants || (binding_is_unit_only && core_has_struct_variants);
+    // Emit a wildcard arm only when the core enum has cfg-gated variants that are absent
+    // from the IR's `variants` list (stored in `excluded_variants` instead). In that case
+    // the compiler sees those variants at compile time but the match has no arm for them,
+    // so a `_ => Default::default()` catch-all keeps the match exhaustive.
+    //
+    // When all core variants ARE in `enum_def.variants`, every variant gets its own
+    // explicit arm (unit variants → `Self::V`, tuple variants → `CoreT::V(..)`,
+    // struct variants → `CoreT::V { .. }`). The match is exhaustive without a wildcard,
+    // and emitting `_ => Default::default()` would produce an "unreachable pattern"
+    // error under `-D warnings`.
+    //
+    // In particular, a unit-only binding with core struct variants (e.g. a NAPI
+    // `string_enum` for a core enum that has data) does NOT need a catch-all: each
+    // struct variant is matched by its own `CoreT::Variant { .. } => Self::Variant,` arm.
+    let needs_catch_all = !enum_def.excluded_variants.is_empty();
 
     crate::codegen::template_env::render(
         "conversions/enum_from_core_to_binding",

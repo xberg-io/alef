@@ -9,7 +9,7 @@
         let bridge: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(crate::{{ bridge_name }}::new(cb));
         let mut guard = self.inner.blocking_lock();
         if let Some(inner) = guard.as_mut() {
-            inner.{{ method_name }}(
+            let _ = inner.{{ method_name }}(
 {%- for param in metadata_params %}
                 {{ param.name }}{% if param.is_opaque %}.inner{% endif %},
 {%- endfor %}

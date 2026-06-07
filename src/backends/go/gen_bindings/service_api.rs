@@ -228,14 +228,23 @@ fn service_c_arg_expr(param_name: &str, ty: &TypeRef, api: &ApiSurface, upper_pr
 /// Returns a tuple of (preprocessing_code, argument_expr) where preprocessing_code
 /// is any setup needed before the call (e.g., JSON marshaling), and argument_expr
 /// is the expression to pass to the C function.
-fn service_c_arg_expr_with_marshal(param_name: &str, ty: &TypeRef, api: &ApiSurface, upper_prefix: &str, ffi_prefix: &str) -> (String, String) {
+fn service_c_arg_expr_with_marshal(
+    param_name: &str,
+    ty: &TypeRef,
+    api: &ApiSurface,
+    upper_prefix: &str,
+    ffi_prefix: &str,
+) -> (String, String) {
     match ty {
         TypeRef::String => (String::new(), format!("C.CString({param_name})")),
         TypeRef::Named(type_name) => {
             if let Some(typedef) = api.types.iter().find(|t| t.name == *type_name) {
                 if typedef.is_opaque {
                     // Opaque type: access the .ptr field directly
-                    (String::new(), format!("(*C.{upper_prefix}{type_name})(unsafe.Pointer({param_name}.ptr))"))
+                    (
+                        String::new(),
+                        format!("(*C.{upper_prefix}{type_name})(unsafe.Pointer({param_name}.ptr))"),
+                    )
                 } else {
                     // DTO: marshal to JSON, call _from_json, store in intermediate var
                     let var_name = format!("c_{param_name}");
@@ -262,7 +271,10 @@ fn service_c_arg_expr_with_marshal(param_name: &str, ty: &TypeRef, api: &ApiSurf
                 }
             } else {
                 // Unknown named type - try to pass as is
-                (String::new(), format!("(*C.{upper_prefix}{type_name})(unsafe.Pointer({param_name}.ptr))"))
+                (
+                    String::new(),
+                    format!("(*C.{upper_prefix}{type_name})(unsafe.Pointer({param_name}.ptr))"),
+                )
             }
         }
         _ => {
@@ -667,7 +679,8 @@ fn gen_configurator_method(
 
     // Config parameters: collect preprocessing code and argument expressions
     for cfg_param in &cfg.params {
-        let (pre, expr) = service_c_arg_expr_with_marshal(&cfg_param.name, &cfg_param.ty, api, &upper_prefix, ffi_prefix);
+        let (pre, expr) =
+            service_c_arg_expr_with_marshal(&cfg_param.name, &cfg_param.ty, api, &upper_prefix, ffi_prefix);
         preprocessing.push_str(&pre);
         cfg_args.push(minijinja::context! {
             expr => expr,

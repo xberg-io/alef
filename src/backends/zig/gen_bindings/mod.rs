@@ -2,6 +2,7 @@ use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, 
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use crate::core::ir::{ApiSurface, TypeRef};
 use std::path::PathBuf;
+use heck::AsSnakeCase;
 
 use crate::backends::zig::trait_bridge::emit_trait_bridge;
 
@@ -284,14 +285,14 @@ impl Backend for ZigBackend {
                 emit_trait_bridge(&prefix, error_type, bridge_cfg, trait_def, &exclude_types, &mut content);
                 content.push('\n');
             } else {
-                // NOTE: If a trait bridge is registered but the trait definition is not found
-                // (e.g., excluded or missing from the IR), the vtable builder is silently omitted.
-                // This could cause e2e test fixtures to reference undefined `make_*_vtable` functions.
-                // Future work: Add a validation pass to detect this mismatch and report it.
-                eprintln!(
-                    "warning: trait bridge for '{}' has no corresponding trait definition in Zig binding surface",
-                    bridge_cfg.trait_name
-                );
+                let snake = AsSnakeCase(&bridge_cfg.trait_name).to_string();
+                return Err(anyhow::anyhow!(
+                    "zig backend: trait bridge '{}' has no trait definition in binding surface. \
+                    Vtable builders (e.g., make_{}_vtable) will be undefined, breaking e2e tests. \
+                    Check that the trait is not in exclude_types or marked binding_excluded.",
+                    bridge_cfg.trait_name,
+                    snake
+                ));
             }
         }
 

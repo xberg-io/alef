@@ -164,7 +164,7 @@ fn forwarder_param_signature(
                 },
             )
         }
-        TypeRef::String => {
+        TypeRef::String | TypeRef::Path => {
             let swift_ty = make_optional("String");
             let local = format!("_rb_{swift_param_name}");
             let setup = if optional || matches!(ty, TypeRef::Optional(_)) {
@@ -418,7 +418,7 @@ pub(super) fn emit_async_free_function_forwarder(
         let arg_expr = if is_enum_param {
             let local = format!("_rb_{swift_param_name}");
             conversion_lines.push(format!(
-                "let {local} = try String(data: JSONEncoder().encode({swift_param_name}), encoding: .utf8) ?? \"null\""
+                "let {local} = RustString(try String(data: JSONEncoder().encode({swift_param_name}), encoding: .utf8) ?? \"null\")"
             ));
             local
         } else {
