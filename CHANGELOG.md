@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.43] - 2026-06-08
+
 ### Fixed
 
 - **e2e c `download_ffi.sh` uses rust target triples and version-prefixed asset names.** The script previously requested `${FFI_PKG_NAME}-${PLATFORM}.tar.gz` with short labels (`macos-arm64`, `linux-x86_64`, …) but `alef publish package --lang ffi --target <triple>` emits tarballs named `${FFI_PKG_NAME}-v${VERSION}-${TRIPLE}.tar.gz` (e.g. `…-v1.9.0-rc.27-aarch64-apple-darwin.tar.gz`). Every test_app c download silently 404'd → stale cached header from prior rc → C compile errors on newly-added FFI exports (e.g. tslp rc.27's `ts_pack_get_tags_query`). Template now emits a host-OS → rust-triple table and uses `${FFI_PKG_NAME}-v${VERSION}-${TRIPLE}` as the asset stem.
