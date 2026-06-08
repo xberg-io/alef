@@ -1,5 +1,5 @@
 use alef::backends::napi::NapiBackend;
-use alef::core::backend::Backend;
+use alef::core::backend::{Backend, PostBuildStep};
 use alef::core::config::{NewAlefConfig, NodeCapsuleTypeConfig, NodeConfig, ResolvedCrateConfig};
 use alef::core::ir::*;
 use std::collections::HashMap;
@@ -45,6 +45,35 @@ package_name = "test-lib"
     )
     .unwrap();
     cfg.resolve().unwrap().remove(0)
+}
+
+#[test]
+fn build_config_service_wrapper_patch_overrides_app_after_native_export() {
+    let backend = NapiBackend;
+    let build_config = backend.build_config().expect("NAPI backend should have build config");
+    let service_patch = build_config
+        .post_build
+        .iter()
+        .find_map(|step| match step {
+            PostBuildStep::PatchFile { path, find, replace }
+                if *path == "index.js" && *find == "module.exports = nativeBinding;" =>
+            {
+                Some(*replace)
+            }
+            _ => None,
+        })
+        .expect("index.js service wrapper patch should be configured");
+
+    let export_pos = service_patch
+        .find("module.exports = nativeBinding;")
+        .expect("patch should preserve native export");
+    let override_pos = service_patch
+        .find("module.exports.App = _service.App;")
+        .expect("patch should override App with service wrapper");
+    assert!(
+        export_pos < override_pos,
+        "service wrapper override must happen after native export:\n{service_patch}"
+    );
 }
 
 #[test]

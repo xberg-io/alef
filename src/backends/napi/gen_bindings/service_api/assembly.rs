@@ -80,8 +80,10 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
                 if let Some(end_brace) = modified_line.rfind('}') {
                     if let Some(from_pos) = modified_line.find("from") {
                         let imports = modified_line[start_brace..=end_brace].to_string();
-                        let module_part = modified_line[from_pos..].trim();
-                        modified_line = format!("const {imports} = require({}", &module_part[5..]);
+                        let module_spec = modified_line[from_pos + 4..].trim(); // Skip "from"
+                        // module_spec is something like `"./index";` — strip trailing semicolon
+                        let module_spec = module_spec.trim_end_matches(';');
+                        modified_line = format!("const {imports} = require({module_spec});");
                     }
                 }
             }
@@ -96,8 +98,10 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
                 if let Some(end_brace) = modified_line.rfind('}') {
                     if let Some(from_pos) = modified_line.find("from") {
                         let imports = modified_line[start_brace..=end_brace].to_string();
-                        let module_part = modified_line[from_pos..].trim();
-                        modified_line = format!("const {imports} = require({}", &module_part[5..]);
+                        let module_spec = modified_line[from_pos + 4..].trim(); // Skip "from"
+                        // module_spec is something like `"./index";` — strip trailing semicolon
+                        let module_spec = module_spec.trim_end_matches(';');
+                        modified_line = format!("const {imports} = require({module_spec});");
                     }
                 }
             }
@@ -178,3 +182,74 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
 }
 
 // ───────────────────────────────────────────────────────────────────── tests ──
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_typescript_annotations_converts_imports() {
+        let ts_input = r#"import type { ServerConfig } from "./index";
+import { Method, RouteBuilder } from "./index";
+import { appIntoRouter } from "./index";"#;
+
+        let js_output = strip_typescript_annotations(ts_input);
+
+        // Check that import type converts to const
+        assert!(
+            js_output.contains(r#"const { ServerConfig } = require("./index");"#),
+            "import type should convert to const with require, got: {}",
+            js_output
+        );
+
+        // Check that import converts to const with closing paren
+        assert!(
+            js_output.contains(r#"const { Method, RouteBuilder } = require("./index");"#),
+            "import should convert to const with require, got: {}",
+            js_output
+        );
+
+        // Check that appIntoRouter import is correct
+        assert!(
+            js_output.contains(r#"const { appIntoRouter } = require("./index");"#),
+            "appIntoRouter import should convert correctly, got: {}",
+            js_output
+        );
+    }
+
+    #[test]
+    fn strip_typescript_annotations_removes_export_class() {
+        let ts_input = "export class App {";
+        let js_output = strip_typescript_annotations(ts_input);
+
+        assert!(js_output.contains("class App {"), "export class should become class");
+        assert!(!js_output.contains("export class"), "export should be removed");
+    }
+
+    #[test]
+    fn strip_typescript_annotations_removes_private() {
+        let ts_input = "  private _registrations: Array<[string, any[]]> = [];";
+        let js_output = strip_typescript_annotations(ts_input);
+
+        assert!(
+            !js_output.contains("private"),
+            "private keyword should be removed, got: {}",
+            js_output
+        );
+        assert!(js_output.contains("_registrations"), "field name should be preserved");
+    }
+
+    #[test]
+    fn strip_typescript_annotations_removes_type_annotations() {
+        let ts_input = "  route(builder: RouteBuilder): (fn: (...args: any[]) => any) => (...args: any[]) => any {";
+        let js_output = strip_typescript_annotations(ts_input);
+
+        // Should remove the type annotations but keep structure
+        assert!(
+            js_output.contains("route(builder)"),
+            "type annotations should be stripped, got: {}",
+            js_output
+        );
+        assert!(!js_output.contains("RouteBuilder"), "type name should be removed");
+    }
+}

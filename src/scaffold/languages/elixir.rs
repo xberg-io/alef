@@ -308,11 +308,12 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         }
     } else if let Some(relative) = external_elixir_src.as_deref() {
         files_entries.push(relative.to_string());
-    } else {
-        // Without a workspace root, scaffold cannot inspect the target filesystem.
-        // Preserve the standard native source path used by newly scaffolded packages.
-        files_entries.push(format!("native/{nif_name}/src"));
     }
+    // Note: if neither condition above is met (no workspace_root, no external source,
+    // and native/<nif>/src doesn't exist), we omit the Rust source from files:.
+    // This avoids listing nonexistent paths that would cause `mix hex.publish` to fail.
+    // The NIF source will be included via other means (e.g., as part of "lib" if
+    // the Elixir source is co-located with it).
 
     let native_crate_dir_rel = format!("{pkg_dir}/native/{nif_name}");
     let build_rs_path = if let Some(ws_root) = config.workspace_root.as_deref() {
