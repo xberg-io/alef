@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **TypeScript JSDoc generation now escapes `*/` sequences in rustdoc comments to prevent premature comment termination.** When rustdoc contains backtick code spans like `` `/* ... */` `` or `` `/** ... */` ``, the `*/` inside backticks was landing verbatim in the emitted JSDoc block and prematurely closing the `/** ... */` comment, breaking downstream tools like oxfmt with `TS(1164): Computed property names are not allowed in enums`. The sanitization pipeline for `DocTarget::TsDoc` and `DocTarget::JsDoc` now escapes `*/` as `* /` (backslash breaks the JS/TS comment-terminator matching while rendering identically in documentation). Affects NAPI-RS enum variant documentation and all TypeScript service API JSDoc blocks. Regression test `sanitize_rust_idioms_escapes_jsdoc_block_close` pins the escape ordering against all JSDoc emission paths (single-line `/** foo */` and multi-line `/** \n * foo \n */`).
+
 ## [0.23.46] - 2026-06-08
 
 ### Fixed

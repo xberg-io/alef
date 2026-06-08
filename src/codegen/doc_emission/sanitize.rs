@@ -176,6 +176,13 @@ fn sanitize_rust_idioms_inner(text: &str, target: DocTarget, drop_csharp_section
         out.pop();
     }
 
+    // For JSDoc and TSDoc, escape any `*/` sequences so they don't prematurely
+    // close the /** ... */ block. Replace `*/` with `* /` (backslash prevents
+    // JS/TS comment-terminator matching but renders identically in docs).
+    if matches!(target, DocTarget::TsDoc | DocTarget::JsDoc) {
+        out = escape_jsdoc_block_close(&out);
+    }
+
     // For C# XML doc, escape any remaining `<`, `>`, `&` so the result is
     // safe to embed inside `<summary>...</summary>`. By this point the
     // Rust-idiom substitutions have replaced `Vec<T>` / `Option<T>` /
@@ -201,6 +208,17 @@ fn is_rustdoc_section_heading(trimmed: &str) -> bool {
         head.as_str(),
         "arguments" | "args" | "returns" | "errors" | "panics" | "safety" | "example" | "examples"
     )
+}
+
+/// Escape JSDoc block-close sequences (`*/`) by replacing with `* /`.
+///
+/// JSDoc comments use `/** ... */` blocks. If rustdoc content contains a backtick
+/// code span like `` `/* ... */` ``, the `*/` inside the backticks lands verbatim
+/// in the emitted JSDoc and prematurely closes the comment block, breaking downstream
+/// tools like oxfmt. This function replaces `*/` with `* /` (backslash breaks the
+/// terminator matching) while preserving visual rendering in docs.
+fn escape_jsdoc_block_close(s: &str) -> String {
+    s.replace("*/", "* /")
 }
 
 /// XML-escape `<`, `>`, `&` for safe embedding inside a C# `<summary>` element.

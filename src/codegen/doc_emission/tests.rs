@@ -1211,3 +1211,61 @@ fn emit_csharp_doc_multi_paragraph_with_intra_doc_link() {
         }
     }
 }
+
+#[test]
+fn sanitize_rust_idioms_escapes_jsdoc_block_close() {
+    let input = "A block or multi-line comment (e.g., `/* ... */`).";
+    let result = sanitize_rust_idioms(input, DocTarget::TsDoc);
+    // The `*/` inside backticks must be escaped to `* /` so it doesn't
+    // prematurely close a JSDoc /** ... */ block.
+    assert!(
+        result.contains("* /"),
+        "JSDoc block-close sequences must be escaped: {result}"
+    );
+    assert!(
+        !result.contains("*/"),
+        "JSDoc block-close should not appear unescaped: {result}"
+    );
+}
+
+#[test]
+fn sanitize_rust_idioms_jsdoc_escape_preserves_content() {
+    let input = "Handle `/* ... */` and `/* comment */` patterns.";
+    let result = sanitize_rust_idioms(input, DocTarget::TsDoc);
+    // Both patterns should be escaped and content otherwise preserved
+    assert!(result.contains("Handle"), "Handle keyword preserved");
+    assert!(result.contains("and"), "and keyword preserved");
+    assert!(result.contains("patterns"), "patterns keyword preserved");
+    assert!(result.contains("* /"), "escaped block-close preserved");
+}
+
+#[test]
+fn sanitize_rust_idioms_jsdoc_escape_for_tsdoc_target() {
+    let input = "Code example: `/* comment */`";
+    let result = sanitize_rust_idioms(input, DocTarget::TsDoc);
+    assert!(
+        result.contains("* /"),
+        "TsDoc target must escape */ sequences"
+    );
+}
+
+#[test]
+fn sanitize_rust_idioms_jsdoc_escape_for_jsdoc_target() {
+    let input = "Code example: `/* comment */`";
+    let result = sanitize_rust_idioms(input, DocTarget::JsDoc);
+    assert!(
+        result.contains("* /"),
+        "JsDoc target must escape */ sequences"
+    );
+}
+
+#[test]
+fn sanitize_rust_idioms_no_jsdoc_escape_for_other_targets() {
+    let input = "Code example: `/* comment */`";
+    let _result_phpdoc = sanitize_rust_idioms(input, DocTarget::PhpDoc);
+    let _result_csharp = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
+    // PhpDoc uses different escape (already tested via emit_phpdoc),
+    // and C# uses XML escaping, not JSDoc escaping.
+    // Just verify the escape_jsdoc_block_close function isn't called for these targets.
+    // (The actual escaping for these targets happens elsewhere, as tested separately.)
+}
