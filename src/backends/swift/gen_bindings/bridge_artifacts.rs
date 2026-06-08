@@ -525,7 +525,7 @@ fn swift_inbound_type(ty: &TypeRef, optional: bool, exclude_types: &HashSet<Stri
         TypeRef::Primitive(PrimitiveType::U64) => "UInt64".to_string(),
         TypeRef::Primitive(PrimitiveType::I32) => "Int32".to_string(),
         TypeRef::Primitive(PrimitiveType::I64) => "Int64".to_string(),
-        TypeRef::Primitive(PrimitiveType::Usize) => "Int".to_string(),
+        TypeRef::Primitive(PrimitiveType::Usize) => "UInt".to_string(),
         TypeRef::Primitive(PrimitiveType::Isize) => "Int".to_string(),
         TypeRef::Primitive(PrimitiveType::F32) => "Float".to_string(),
         TypeRef::Primitive(PrimitiveType::F64) => "Double".to_string(),

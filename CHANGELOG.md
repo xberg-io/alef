@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift inbound box protocol `Usize` return type mapping**: `swift_inbound_type` in `bridge_artifacts.rs` mapped both `Usize` and `Isize` primitives to `Int`, so protocols for Rust trait methods returning `usize` (e.g., `EmbeddingBackend::dimensions`) declared `func dimensions() -> Int` instead of `func dimensions() -> UInt`. Swift type-check failed in inbound bridge protocols. Fixed by mapping `Usize -> "UInt"`.
+
 - **NAPI trait bridge V8 lifetime issue**: NAPI-RS trait bridges were using `unsafe { transmute }` to extend JS object lifetimes to `'static`, causing V8 GC to finalize objects while references were still held. This led to "Cannot convert undefined or null to object" errors in plugin registry clear operations when GC ran between test files. Fixed by storing `napi::Reference<Object>` instead, which safely pins JS objects to the V8 heap across method calls. Constructor now takes `env: napi::Env` parameter for Reference creation. Method bodies use `.borrow()` to access the referenced JS object.
 
 - **Kotlin e2e codegen options_type resolution**: The Kotlin e2e test file generator was
