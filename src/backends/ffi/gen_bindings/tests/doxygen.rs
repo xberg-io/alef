@@ -346,6 +346,30 @@ fn test_generates_build_rs() {
 }
 
 #[test]
+fn test_build_rs_sets_macos_install_name_and_loader_rpath() {
+    // Without the @loader_path LC_RPATH, transitively-linked dylibs (e.g.
+    // @rpath/libonnxruntime.<ver>.dylib) fail to resolve at consumer load
+    // time with `no LC_RPATH's found`. Co-locating ensures NuGet, Maven,
+    // and wheel layouts that bundle native deps next to the cdylib all work.
+    let api = sample_api();
+    let config = sample_config();
+    let backend = FfiBackend;
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let build = files.iter().find(|f| f.path.ends_with("build.rs")).unwrap();
+    assert!(
+        build.content.contains("-Wl,-install_name,@rpath/"),
+        "build.rs must set @rpath-relative install_name on macOS:\n{}",
+        build.content
+    );
+    assert!(
+        build.content.contains("-Wl,-rpath,@loader_path"),
+        "build.rs must add @loader_path LC_RPATH on macOS so sibling dylibs resolve:\n{}",
+        build.content
+    );
+}
+
+#[test]
 fn test_custom_prefix() {
     let api = sample_api();
     let config = resolved_one(

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **FFI `build.rs` adds `-rpath @loader_path` on macOS** so transitively-linked
+  dylibs (e.g. `@rpath/libonnxruntime.<ver>.dylib` referenced by `ort-bundled`)
+  can be resolved against the cdylib's own directory at load time. Without an
+  LC_RPATH entry, consumers report `Library not loaded: @rpath/...` with
+  `Reason: no LC_RPATH's found`. NuGet, Maven, and Python wheel packaging all
+  co-locate the bundled native deps next to the FFI cdylib, so `@loader_path`
+  is the universally correct rpath. Includes a regression test asserting both
+  the `install_name` and `rpath` link-args appear in the emitted `build.rs`.
+
 - **Python e2e generator emits `EnumType("variant")` constructor for enum-typed
   kwargs** instead of `EnumType.VARIANT_UPPER` attribute access. The previous
   emission only worked for unit enums alef projects as `(str, Enum)` subclasses
