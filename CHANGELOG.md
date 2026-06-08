@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **e2e c `download_ffi.sh` uses rust target triples and version-prefixed asset names.** The script previously requested `${FFI_PKG_NAME}-${PLATFORM}.tar.gz` with short labels (`macos-arm64`, `linux-x86_64`, …) but `alef publish package --lang ffi --target <triple>` emits tarballs named `${FFI_PKG_NAME}-v${VERSION}-${TRIPLE}.tar.gz` (e.g. `…-v1.9.0-rc.27-aarch64-apple-darwin.tar.gz`). Every test_app c download silently 404'd → stale cached header from prior rc → C compile errors on newly-added FFI exports (e.g. tslp rc.27's `ts_pack_get_tags_query`). Template now emits a host-OS → rust-triple table and uses `${FFI_PKG_NAME}-v${VERSION}-${TRIPLE}` as the asset stem.
 
+- **e2e zig `test_apps_run` nukes `zig-pkg/` + `.zig-cache/` before `zig fetch`.** After a fresh rc cuts, `zig fetch --save="$dep" "$url"` resolves the new tarball cleanly but the per-test-app `zig-pkg/<dep-1.9.0-rc.<prev>-<hash>/` directory carries a `file_hash` whose computed value no longer matches the new package digest. The next `zig build test` then fails with `failed to check cache: '<src>.zig' file_hash FileNotFound` despite the manifest looking correct. Always nuke both caches before fetch.
+
 - **PHP facade now emits `?T $name` for `Option<T>` params forced into a
   non-tail position by PHP 8.1 required-before-optional ordering.** When a
   Rust function has the canonical `extract_file(path, mime_type: Option<&str>,

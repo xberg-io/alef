@@ -222,10 +222,17 @@ pub fn default_test_apps_run_config(
             // for each dependency to populate the `.hash` field, then runs `zig build test`.
             // We extract (dep_name, url) pairs by normalizing the file to single lines per block,
             // then parse each dependency section for its .url field.
+            //
+            // Cache cleanup: `zig-pkg/` (per-test-app global cache) and `.zig-cache/`
+            // (per-build cache) carry stale per-version directories from prior rcs whose
+            // computed `file_hash` no longer matches the new tarball — surfaces as
+            // `failed to check cache: '…/src/<file>.zig' file_hash FileNotFound` even
+            // though the hash in build.zig.zon resolves cleanly. Nuke both before fetch.
             precondition: Some(require_tool("zig")),
             before: None,
             run: Some(StringOrVec::Single(format!(
                 "cd {test_apps_dir}/zig && \
+                rm -rf zig-pkg .zig-cache && \
                 cat build.zig.zon | tr '\\n' ' ' | sed 's/}}, */}}\\n/g' | \
                 while read block; do \
                   dep=$(echo \"$block\" | sed -n 's/.*\\.\\([a-z_0-9]*\\) *= *\\.{{.*/\\1/p'); \
