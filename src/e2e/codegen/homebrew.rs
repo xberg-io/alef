@@ -599,4 +599,27 @@ mod tests {
         assert!(!out.contains("_convert("), "must NOT call _convert — domain-neutral");
         assert!(!out.contains("<h1>Hi</h1>"), "must NOT contain HTML test payload");
     }
+
+    // --- render_run_tests version substitution ---
+
+    #[test]
+    fn render_run_tests_parameterizes_version_correctly() {
+        let tests = default_cli_tests();
+        let out = render_run_tests("myorg/tap", "mytool", None, "1.9.0-rc.25", "mytool", &tests);
+        // Version must be parameterized into the script.
+        assert!(out.contains("VERSION=\"1.9.0-rc.25\""), "must set VERSION variable to the provided version");
+        // The $VERSION variable must be used in the test expectation.
+        assert!(out.contains("*\"$VERSION\"*"), "must reference $VERSION in the version test expectation");
+        // The $CLI_FORMULA variable must be used to call the binary.
+        assert!(out.contains("eval \"$CLI_FORMULA --version\""), "must use $CLI_FORMULA variable");
+    }
+
+    #[test]
+    fn render_run_tests_version_used_in_default_test() {
+        let tests = default_cli_tests();
+        let out = render_run_tests("myorg/tap", "mytool", None, "2.0.0", "mytool", &tests);
+        // The default --version test should check for the parameterized VERSION.
+        assert!(out.contains("VERSION=\"2.0.0\""));
+        assert!(out.contains("if [[ \"$_output_version\" == *\"$VERSION\"* ]]"));
+    }
 }

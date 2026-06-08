@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **homebrew e2e test_app version parameterization coverage**: Added unit tests to
+  verify that `HomebrewCodegen` correctly substitutes the version into the generated
+  `run_tests.sh` script, ensuring consumers regenerating their test_app via Alef
+  can dynamically pass version from Cargo.toml without hardcoding.
 - **php e2e test_app install.sh fails to enable extension in php.ini**: PIE 1.4.0+
   with `--skip-enable-extension` no longer auto-updates php.ini after installing the
   extension binary. The generated `install.sh` now explicitly appends `extension=<name>`
