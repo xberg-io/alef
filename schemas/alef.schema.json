@@ -2222,7 +2222,7 @@
         },
         "nif_module": {
           "default": null,
-          "description": "Erlang atom name for `@external(erlang, \"<nif>\", ...)` lookups (e.g., \"my_app_nif\").\nDefaults to the app_name.",
+          "description": "Erlang atom name for @external(erlang, \"<nif>\", ...) lookups (e.g., \"my_app_nif\").\nDefaults to the app_name.",
           "type": [
             "string",
             "null"
@@ -6797,7 +6797,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.23.34/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.23.35/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -6907,6 +6907,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.23.34",
-  "x-alef-version": "0.23.34"
+  "version": "0.23.35",
+  "x-alef-version": "0.23.35"
 }
