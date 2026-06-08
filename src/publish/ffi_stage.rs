@@ -3,7 +3,7 @@
 //!
 //! After `cargo build --release -p {name}-ffi --target {triple}`, the shared
 //! library lives in `target/{triple}/release/`. This module copies it to:
-//! - Go: `packages/go/lib/` or a platform subdirectory
+//! - Go: `packages/go/.lib/{platform}/` (e.g., `macos-arm64/`, `linux-x86_64/`)
 //! - Java: `packages/java/src/main/resources/natives/{rid}/`
 //! - C#: `packages/csharp/{Project}/runtimes/{rid}/native/`
 
@@ -86,7 +86,7 @@ fn staging_dir(
     let platform = target.platform_for(lang);
 
     let rel = match lang {
-        Language::Go => PathBuf::from(&pkg_dir).join("lib"),
+        Language::Go => PathBuf::from(&pkg_dir).join(".lib").join(&platform),
         Language::Java => PathBuf::from(&pkg_dir)
             .join("src/main/resources/natives")
             .join(&platform),
@@ -186,7 +186,12 @@ namespace = "MyLib"
 
         let result = stage_ffi(&config, Language::Go, &target, root).unwrap();
         assert!(result.exists());
-        assert!(result.to_string_lossy().replace('\\', "/").contains("packages/go/lib"));
+        assert!(
+            result
+                .to_string_lossy()
+                .replace('\\', "/")
+                .contains("packages/go/.lib/linux-x86_64")
+        );
     }
 
     #[test]
@@ -291,5 +296,11 @@ namespace = "MyLib"
 
         let result = stage_ffi(&config, Language::Go, &target, root).unwrap();
         assert!(result.exists());
+        assert!(
+            result
+                .to_string_lossy()
+                .replace('\\', "/")
+                .contains(".lib/linux-x86_64")
+        );
     }
 }

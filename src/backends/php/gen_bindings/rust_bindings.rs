@@ -778,9 +778,17 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             context! { class_name => &info_class },
         ));
     }
-    builder.add_item(&format!(
-            "#[php_module]\npub fn get_module(module: ModuleBuilder) -> ModuleBuilder {{\n    module{class_registrations}\n}}"
-        ));
+    // Generate the PHP module entry point explicitly with the correct extension name.
+    // The #[php_module] macro defaults to env!("CARGO_PKG_NAME"), which may differ from
+    // the publishable extension name (e.g., crate "ts-pack-core-php" vs. extension "tree_sitter_language_pack").
+    // By using ModuleBuilder::new(extension_name, version) explicitly, we ensure
+    // the registered module name matches the php.ini directive and PIE installation filename.
+    let version = &api.version;
+    let module_code = format!(
+        "#[doc(hidden)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn get_module() -> *mut ::ext_php_rs::zend::ModuleEntry {{\n    static __EXT_PHP_RS_MODULE_ENTRY: ::ext_php_rs::zend::StaticModuleEntry = ::ext_php_rs::zend::StaticModuleEntry::new();\n    __EXT_PHP_RS_MODULE_ENTRY.get_or_init(|| {{\n        let builder = ::ext_php_rs::builders::ModuleBuilder::new(\"{}\", \"{}\");\n        let builder = builder{};\n        match builder.try_into() {{\n            Ok((entry, _startup)) => entry,\n            Err(e) => panic!(\"Failed to build PHP module: {{:?}}\", e),\n        }}\n    }})\n}}\n",
+        extension_name, version, class_registrations
+    );
+    builder.add_item(&module_code);
 
     let mut content = builder.build();
 

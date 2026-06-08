@@ -4212,3 +4212,57 @@ fn facade_emits_nullable_marker_for_non_tail_optional_param() {
         facade.content
     );
 }
+
+#[test]
+fn module_entry_uses_explicit_extension_name_not_cargo_pkg_name() {
+    // Regression test for PHP module registration bug where the module name
+    // did not match the extension name, causing `php -m` to fail and PIE
+    // install to error with "already loaded". The root cause was #[php_module]
+    // macro expansion using env!("CARGO_PKG_NAME") which could differ from
+    // the publishable extension_name (e.g., crate "ts-pack-core-php" vs.
+    // extension "tree_sitter_language_pack").
+    // Solution: generate ModuleBuilder::new(extension_name, version) explicitly.
+    let backend = PhpBackend;
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "1.2.3".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+    let config = make_config_with_extension("tree_sitter_language_pack");
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).expect("lib.rs generated");
+
+    // Verify the module entry function explicitly passes extension_name to ModuleBuilder::new()
+    assert!(
+        lib_rs.content.contains("ModuleBuilder::new(") && lib_rs.content.contains("tree_sitter_language_pack"),
+        "module entry must use explicit extension name in ModuleBuilder::new(); got:\n{}",
+        lib_rs.content
+    );
+
+    // Verify it does NOT use env!("CARGO_PKG_NAME") fallback
+    assert!(
+        !lib_rs.content.contains("CARGO_PKG_NAME"),
+        "module entry must not rely on CARGO_PKG_NAME macro; got:\n{}",
+        lib_rs.content
+    );
+
+    // Verify the get_module function is properly formed with manual ModuleBuilder
+    assert!(
+        lib_rs.content.contains("extern \"C\" fn get_module()"),
+        "module entry must export get_module extern function; got:\n{}",
+        lib_rs.content
+    );
+    assert!(
+        lib_rs.content.contains("StaticModuleEntry"),
+        "module entry must use StaticModuleEntry for thread-safe singleton; got:\n{}",
+        lib_rs.content
+    );
+}
