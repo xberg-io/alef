@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.50] - 2026-06-08
+
+### Fixed
+
+- **PHP bindings now pin `ext-php-rs` to `0.15.12+` instead of the loose `0.15` constraint.** The 0.23.47 PHP module-entry codegen emits `::ext_php_rs::zend::StaticModuleEntry`, which was added in ext-php-rs 0.15.12. Consumers with locked Cargo.lock entries pinning to older 0.15.x (e.g. 0.15.4) hit `E0433: cannot find StaticModuleEntry in zend` at compile time. Tightening the `EXT_PHP_RS` template constant to `0.15.12` ensures freshly generated PHP Cargo manifests resolve to a compatible version on the first build.
+
 ## [0.23.49] - 2026-06-08
 
 ### Fixed
