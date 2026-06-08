@@ -1,4 +1,4 @@
-use heck::ToSnakeCase;
+use heck::{ToLowerCamelCase, ToSnakeCase};
 use minijinja::context;
 
 use crate::backends::napi::template_env::render;
@@ -29,14 +29,13 @@ fn classify_service_imports(api: &ApiSurface, config: &ResolvedCrateConfig) -> S
     let mut value_imports: Vec<String> = Vec::new();
     let mut native_imports: Vec<String> = Vec::new();
 
-    for contract in &api.handler_contracts {
-        if let Some(req_ty) = &contract.wire_request_type {
-            type_imports.push(req_ty.clone());
-        }
-        if let Some(resp_ty) = &contract.wire_response_type {
-            type_imports.push(resp_ty.clone());
-        }
-    }
+    // Wire DTOs (RequestData, Response, etc.) are deliberately NOT pre-seeded
+    // here. napi-rs generated handler signatures use `(...args: any[])` so
+    // wire-type names never appear in the rendered service body; importing
+    // them produces TS6196 (declared but unused). They will be picked up
+    // organically via constructor/configurator/variant signature_params below
+    // if they ever appear in a position where TypeScript can type-check them.
+    let _ = &api.handler_contracts;
 
     if let Some(service) = api.services.first() {
         for param in &service.constructor.params {
@@ -82,7 +81,12 @@ fn classify_service_imports(api: &ApiSurface, config: &ResolvedCrateConfig) -> S
         for ep in &service.entrypoints {
             let method_key = format!("{}.{}", service_name, ep.method);
             if !config.exclude.methods.contains(&method_key) {
-                native_imports.push(format!("{}_{}", service_name.to_snake_case(), ep.method));
+                // napi-rs auto-camelCases Rust function names at the JS boundary
+                // (e.g. `app_into_router` → `appIntoRouter`), so the imported
+                // symbol must match the camelCase form.
+                native_imports.push(
+                    format!("{}_{}", service_name.to_snake_case(), ep.method).to_lower_camel_case(),
+                );
             }
         }
     }
@@ -261,7 +265,7 @@ fn gen_service_class_ts(
         let ep_name = &ep.method;
 
         let doc = ep.doc.trim().replace('\n', "\n   * ");
-        let native_fn = format!("{}_{}", class_name.to_snake_case(), ep_name);
+        let native_fn = format!("{}_{}", class_name.to_snake_case(), ep_name).to_lower_camel_case();
         let native_args = ep.params.iter().map(|p| format!(", {}", p.name)).collect::<String>();
 
         match ep.kind {
@@ -425,9 +429,16 @@ fn gen_registration_variant_method_ts(
         }
         let ctor_arg_str = ctor_args.join(", ");
         let metadata_param = &wrapper_call.metadata_param;
+        // napi-rs does not emit JS `new`-able constructors for Rust types — Rust
+        // constructors are exposed as static methods on the class (typically
+        // named `new`). Call the static factory instead of `new WrapperType(…)`
+        // to avoid TS2350 (`Only a void function can be called with the 'new'
+        // keyword`).
+        let constructor_method = &wrapper_call.constructor_method;
 
         // Return a tuple: (wrapper construction code, metadata array expression)
-        let wrapper_code = format!("    const {metadata_param} = new {wrapper_type}({ctor_arg_str});\n");
+        let wrapper_code =
+            format!("    const {metadata_param} = {wrapper_type}.{constructor_method}({ctor_arg_str});\n");
         (wrapper_code, format!("[{metadata_param}]"))
     } else {
         // No wrapper constructor: build metadata array from variant params
@@ -743,16 +754,12 @@ mod classify_service_imports_tests {
         } = classify_service_imports(&api, &config);
 
         assert_eq!(value_imports, vec!["Method", "RouteBuilder"]);
-        assert_eq!(
-            type_imports,
-            vec![
-                "Path".to_owned(),
-                "RequestData".to_owned(),
-                "Response".to_owned(),
-                "ServerConfig".to_owned(),
-            ]
-        );
-        assert_eq!(native_imports, vec!["app_into_router", "app_run"]);
+        // Wire DTOs (`RequestData`, `Response`) are intentionally NOT
+        // pre-seeded — they would be flagged TS6196 since napi-rs handler
+        // signatures use `(...args: any[])` and never reference them.
+        assert_eq!(type_imports, vec!["Path".to_owned(), "ServerConfig".to_owned(),]);
+        // napi-rs auto-camelCases at the JS boundary.
+        assert_eq!(native_imports, vec!["appIntoRouter", "appRun"]);
     }
 
     #[test]
@@ -763,7 +770,7 @@ mod classify_service_imports_tests {
 
         let imports = classify_service_imports(&api, &config);
 
-        assert_eq!(imports.native_imports, vec!["app_into_router"]);
+        assert_eq!(imports.native_imports, vec!["appIntoRouter"]);
     }
 
     #[test]

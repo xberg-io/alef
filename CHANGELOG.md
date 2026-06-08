@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.36] - 2026-06-08
+
+### Fixed
+
+- **napi service.ts emits valid TypeScript against the napi-rs JS surface**:
+  Generated service classes used three patterns that napi-rs does not expose
+  on the JavaScript side: (1) snake_case native function imports
+  (`app_into_router`) where napi-rs auto-camelCases at the JS boundary
+  (`appIntoRouter`); (2) `new WrapperType(...)` construction syntax where
+  napi-rs exposes Rust constructors only as static factory methods
+  (`WrapperType.new(...)`); (3) wire DTOs (`RequestData`, `Response`) imported
+  via `import type` but never referenced because handler signatures are
+  `(...args: any[])` — emitting TS6196 *declared but never used*. All three
+  are fixed in `gen_service_ts`: native imports are camelCased via
+  `heck::ToLowerCamelCase`, wrapper construction uses
+  `{wrapper_type}.{constructor_method}({args})` reading the
+  `constructor_method` field from the IR, and wire DTO pre-seeding is
+  removed (signature param walks still pick types up organically when they
+  appear in typed positions). Unit tests updated to assert the new shapes.
+
 ## [0.23.35] - 2026-06-08
 
 ### Added
