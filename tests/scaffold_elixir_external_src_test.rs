@@ -1,4 +1,4 @@
-use alef::core::config::{Language, ResolvedCrateConfig};
+use alef::core::config::{Language, PackageMetadataConfig, ResolvedCrateConfig};
 use alef::core::ir::ApiSurface;
 use alef::scaffold::scaffold;
 use std::path::PathBuf;
@@ -27,6 +27,10 @@ fn scaffold_elixir_mix_exs_omits_missing_native_src_directory() {
         name: "demo".to_string(),
         languages: vec![Language::Elixir],
         workspace_root: Some(PathBuf::from("/workspace")),
+        package_metadata: Some(PackageMetadataConfig {
+            license: Some("MIT".to_string()),
+            ..PackageMetadataConfig::default()
+        }),
         // Default output: packages/elixir/lib/
         explicit_output: Default::default(),
         ..ResolvedCrateConfig::default()

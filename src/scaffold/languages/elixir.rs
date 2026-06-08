@@ -294,22 +294,25 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     //   module in lib/). We must list the directory containing the actual lib.rs
     //   or the hex tarball will be incomplete and RustlerPrecompiled's build
     //   fallback will fail. Omit it here if `lib_populated` will add it below.
-    let native_src_dir_rel = format!("{pkg_dir}/native/{nif_name}/src");
-    let native_src_dir = if let Some(ws_root) = config.workspace_root.as_deref() {
-        ws_root.join(&native_src_dir_rel)
-    } else {
-        PathBuf::from(&native_src_dir_rel)
-    };
-    if native_src_dir.exists() {
-        files_entries.push(format!("native/{nif_name}/src"));
+    if let Some(ws_root) = config.workspace_root.as_deref() {
+        let native_src_dir_rel = format!("{pkg_dir}/native/{nif_name}/src");
+        let native_src_dir = ws_root.join(&native_src_dir_rel);
+        if native_src_dir.exists() {
+            files_entries.push(format!("native/{nif_name}/src"));
+        } else if let Some(relative) = external_elixir_src.as_deref() {
+            // External source: list the directory containing the actual lib.rs.
+            files_entries.push(relative.to_string());
+        } else if !lib_populated {
+            // The NIF source is co-located with the generated wrapper module in lib/.
+            files_entries.push("lib".to_string());
+        }
     } else if let Some(relative) = external_elixir_src.as_deref() {
-        // External source: list the directory containing the actual lib.rs
         files_entries.push(relative.to_string());
+    } else {
+        // Without a workspace root, scaffold cannot inspect the target filesystem.
+        // Preserve the standard native source path used by newly scaffolded packages.
+        files_entries.push(format!("native/{nif_name}/src"));
     }
-    // If neither native/<nif>/src nor external path exists, the Rust source
-    // must be co-located with the wrapper module in lib/. Alef always generates
-    // a wrapper .ex file there, so lib_populated will be true and "lib" will be
-    // added at the end of this block via the insert at line 324.
 
     let native_crate_dir_rel = format!("{pkg_dir}/native/{nif_name}");
     let build_rs_path = if let Some(ws_root) = config.workspace_root.as_deref() {

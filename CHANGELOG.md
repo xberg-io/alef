@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.48] - 2026-06-08
+
+### Fixed
+
+- **Zig package name now uses the Zig platform mapping instead of Go's.** `package_zig()` was deriving the platform identifier with `target.platform_for(Language::Go)`, which produced Go-flavored names (`linux-x86_64`, `macos-arm64`) in the published Zig tarball filename. The publish-zig action's `multi-platform-ffi-dir` layout expects Zig-native names (`linux-x64`, `linux-arm64`, `osx-arm64`, `osx-x64`, `win-x64`). Switched to `Language::Zig` so the tarball name matches the canonical mapping consumers expect.
+- **Added regression test pinning the 0.23.47 JSDoc `*/` escape behavior** for napi enum variant docs that contain backtick code spans like `` `/* ... */` ``. Test verifies the sanitization pipeline escapes `*/` to `* /` so the JSDoc block isn't prematurely closed.
+
 ## [0.23.47] - 2026-06-08
 
 ### Fixed
