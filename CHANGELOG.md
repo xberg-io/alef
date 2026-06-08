@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.45] - 2026-06-08
+
 ### Fixed
 
 - **Zig binding now returns `error.SerializationFailed` instead of crashing when the C `<prefix>_<snake>_to_json` helper returns NULL.** The `return_named_json_block.jinja` template called `std.mem.sliceTo(_json_ptr, 0)` unconditionally, so a NULL pointer from the FFI's `_to_json` path (which it is explicitly allowed to return on serialisation failure) panicked deep in `std.mem.lenSliceTo` at the `assert(ptr != null)` line — surfacing to the test runner as `thread panic: reached unreachable code` / SIGABRT. The template now null-checks `_json_ptr` immediately after the C call and returns `error.SerializationFailed` when null, before the `sliceTo`. Affects every Zig function that returns a Named struct (e.g. `extract_file_sync` → `ExtractionResult`); two kreuzberg e2e tests (`code_test.code_shebang_detection`, `contract_test.config_tree_sitter`) were crashing the test process before this fix. Regression test `named_json_return_guards_against_null_to_json_pointer` pins the guard ordering against the canonical Named-result emission.
