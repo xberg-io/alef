@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.42] - 2026-06-08
+
+### Fixed
+
+- **Publish `VendorMode::CoreOnly` now rewrites binding-manifest workspace-member
+  path deps to registry version-deps**, matching `VendorMode::Registry` behavior.
+  CoreOnly vendors the core crate sources alongside the binding so consumers can
+  build offline, but the shipped binding `Cargo.toml` still referenced workspace
+  members via `path = "..."` — paths that only resolve in-workspace, so the gem,
+  hex, NuGet, and Maven builds failed on consumer machines with `error: failed
+  to load manifest`. The new shared `rewrite_binding_path_deps` helper applies
+  the registry rewrite for both modes. The vendored core sources stay available
+  for users who explicitly want a from-source build; cargo falls back to the
+  registry version for normal installs.
+
+- **PHP test-app install script is now idempotent.** `pie install` raised
+  `Module "<ext>" is already loaded` on re-runs when `php.ini` already carried
+  the `extension=…` line from a prior install. The script now skips the `pie
+  install` step when the extension file exists in the running PHP's
+  `extension_dir`, and the load-verification step uses `php -m` first (catches
+  the ini-enabled case) before falling back to the `-d extension=…` probe.
+  Together these eliminate the duplicate-load error and keep `test_apps:run`
+  re-executions clean.
+
+- **Mock-server harness exports per-fixture `MOCK_SERVER_<FIXTURE_ID_UPPER>=<url>`
+  env vars** derived from the existing `MOCK_SERVERS` JSON map. Shell-based test
+  apps (brew, generated `.sh` suites) reference per-fixture URLs directly
+  without parsing JSON. Falls back to `MOCK_SERVER_URL`-only export on JSON
+  parse failure so existing harnesses are not silently broken.
+
 ## [0.23.41] - 2026-06-08
 
 ### Fixed
