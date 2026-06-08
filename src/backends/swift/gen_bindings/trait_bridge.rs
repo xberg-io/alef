@@ -354,7 +354,7 @@ fn swift_type_name_native(ty: &TypeRef, _exclude_types: &HashSet<String>) -> Str
             crate::core::ir::PrimitiveType::U16 => "UInt16".to_string(),
             crate::core::ir::PrimitiveType::U32 => "UInt32".to_string(),
             crate::core::ir::PrimitiveType::U64 => "UInt64".to_string(),
-            crate::core::ir::PrimitiveType::Usize => "Int".to_string(),
+            crate::core::ir::PrimitiveType::Usize => "UInt".to_string(),
             crate::core::ir::PrimitiveType::Isize => "Int".to_string(),
             crate::core::ir::PrimitiveType::F32 => "Float".to_string(),
             crate::core::ir::PrimitiveType::F64 => "Double".to_string(),
@@ -395,7 +395,7 @@ fn swift_type_name(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
             crate::core::ir::PrimitiveType::U16 => "UInt16".to_string(),
             crate::core::ir::PrimitiveType::U32 => "UInt32".to_string(),
             crate::core::ir::PrimitiveType::U64 => "UInt64".to_string(),
-            crate::core::ir::PrimitiveType::Usize => "Int".to_string(), // Maps to platform-dependent size
+            crate::core::ir::PrimitiveType::Usize => "UInt".to_string(), // Maps to platform-dependent size
             crate::core::ir::PrimitiveType::Isize => "Int".to_string(), // Maps to platform-dependent size
             crate::core::ir::PrimitiveType::F32 => "Float".to_string(),
             crate::core::ir::PrimitiveType::F64 => "Double".to_string(),

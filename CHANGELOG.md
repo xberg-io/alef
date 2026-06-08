@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Swift wrapper return types for `bool` and `size_t`**: The Swift backend's
+  wrapper-method return-type codegen incorrectly mapped `bool` (FFI returns C bool)
+  and `size_t`/`usize` (FFI returns `size_t`) to `Int` instead of `Bool` and `UInt`
+  respectively in three places: `typeref_to_swift_type` in service_api.rs, and both
+  `swift_type_name_native` and `swift_type_name` in trait_bridge.rs. Service entrypoint
+  returns and trait protocol methods now emit the correct Swift types. Fixes downstream
+  Swift compile errors where bool/usize values were assigned to Int.
+
 ## [0.23.32] - 2026-06-08
 
 ### Fixed

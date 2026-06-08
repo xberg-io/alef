@@ -100,7 +100,7 @@ fn typeref_to_swift_type(ty: &TypeRef) -> String {
                 PrimitiveType::I64 => "Int64".to_owned(),
                 PrimitiveType::F32 => "Float".to_owned(),
                 PrimitiveType::F64 => "Double".to_owned(),
-                PrimitiveType::Usize => "Int".to_owned(),
+                PrimitiveType::Usize => "UInt".to_owned(),
                 PrimitiveType::Isize => "Int".to_owned(),
             }
         }
