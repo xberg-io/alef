@@ -134,26 +134,26 @@ pub(super) fn render_test_method(
     let result_var = effective_result_var.as_str();
     let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
     let args: &[crate::e2e::config::ArgMapping] = recipe.args;
-    // Resolve per-fixture options_type: prefer the kotlin call override, fall back
-    // to class-level, then to any other language's options_type for the same call.
-    // The Kotlin module re-exports Java facade types unchanged, so a type name declared
-    // by csharp/c/go/php/python applies equally to Kotlin without an explicit override.
-    // For kotlin_android, also try kotlin_android and java overrides.
+    // Resolve per-fixture options_type using per-fixture call config resolution.
+    // Per-fixture kotlin overrides take precedence, then fall back to class-level,
+    // then to any other language's options_type for the same call (kotlin_android, java, csharp, etc.).
+    // This mirrors the Python e2e codegen pattern where fixture_opts_type is resolved
+    // per-fixture from the call config overrides, ensuring enums and types are correctly
+    // imported and constructed.
     let compatible_options_languages: &[&str] = if kotlin_android_style {
         &["kotlin_android", "java", "csharp", "c", "go", "php", "python"]
     } else {
         &["csharp", "c", "go", "php", "python"]
     };
-    let effective_options_type: Option<String> = recipe
-        .options_type
-        .map(str::to_string)
+    let fixture_options_type: Option<String> = call_overrides
+        .and_then(|o| o.options_type.clone())
         .or_else(|| options_type.map(str::to_string))
         .or_else(|| {
             recipe
                 .compatible_options_type(compatible_options_languages)
                 .map(str::to_string)
         });
-    let options_type = effective_options_type.as_deref();
+    let options_type = fixture_options_type.as_deref();
 
     // Resolve per-fixture result_is_simple: prefer the kotlin override, then the
     // class-level default, then any sibling language override (java/csharp/go).

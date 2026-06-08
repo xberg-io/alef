@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Kotlin e2e codegen options_type resolution**: The Kotlin e2e test file generator was
+  resolving `options_type` at the global level only, causing fixtures that override the
+  call with a different `options_type` (e.g., via `[e2e.calls.custom_call.overrides.kotlin]
+  options_type = "ExtractionConfig"`) to fall back to the inferred type name from
+  `arg.name` (e.g., "Config" for arg.name="config"). This resulted in unresolved type
+  errors at test compilation. Fixed by resolving `fixture_options_type` per-fixture from
+  the call config overrides (matching the Python e2e codegen pattern), ensuring the
+  correct type is used for argument construction and imports. This fix also prevents
+  incorrect fallback inference when `options_type` is `None`.
+
 ## [0.23.33] - 2026-06-08
 
 ### Fixed
