@@ -4238,7 +4238,10 @@ fn module_entry_uses_explicit_extension_name_not_cargo_pkg_name() {
     };
     let config = make_config_with_extension("tree_sitter_language_pack");
     let files = backend.generate_bindings(&api, &config).unwrap();
-    let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).expect("lib.rs generated");
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs generated");
 
     // Verify the module entry function explicitly passes extension_name to ModuleBuilder::new()
     assert!(

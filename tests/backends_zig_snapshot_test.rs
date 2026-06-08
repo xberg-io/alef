@@ -622,7 +622,9 @@ fn fallible_function_returning_primitive_no_null_check() {
         .clone();
 
     // CRITICAL: Extract just the count_items function and verify it does NOT contain null check
-    let start = content.find("pub fn count_items").expect("count_items function must exist");
+    let start = content
+        .find("pub fn count_items")
+        .expect("count_items function must exist");
     let end = content[start..].find("}\n").expect("function must have closing brace") + start + 2;
     let count_items_fn = &content[start..end];
 

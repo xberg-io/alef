@@ -1243,20 +1243,14 @@ fn sanitize_rust_idioms_jsdoc_escape_preserves_content() {
 fn sanitize_rust_idioms_jsdoc_escape_for_tsdoc_target() {
     let input = "Code example: `/* comment */`";
     let result = sanitize_rust_idioms(input, DocTarget::TsDoc);
-    assert!(
-        result.contains("* /"),
-        "TsDoc target must escape */ sequences"
-    );
+    assert!(result.contains("* /"), "TsDoc target must escape */ sequences");
 }
 
 #[test]
 fn sanitize_rust_idioms_jsdoc_escape_for_jsdoc_target() {
     let input = "Code example: `/* comment */`";
     let result = sanitize_rust_idioms(input, DocTarget::JsDoc);
-    assert!(
-        result.contains("* /"),
-        "JsDoc target must escape */ sequences"
-    );
+    assert!(result.contains("* /"), "JsDoc target must escape */ sequences");
 }
 
 #[test]

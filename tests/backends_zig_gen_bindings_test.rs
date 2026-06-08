@@ -1760,7 +1760,7 @@ fn named_json_return_guards_against_null_to_json_pointer() {
     // represent). The previous template called `std.mem.sliceTo(_json_ptr, 0)`
     // unconditionally and panicked with `reached unreachable code` on the
     // `ptr != null` assert deep in std.mem.lenSliceTo, crashing the test
-    // process. The fix returns `error.SerializationFailed` when the pointer
+    // process. The fix returns `error.Serialization` when the pointer
     // is NULL so callers see an error instead of an ABRT.
     let result_type = TypeDef {
         name: "ExtractionResult".into(),
@@ -1818,12 +1818,12 @@ fn named_json_return_guards_against_null_to_json_pointer() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(
-        content.contains("if (_json_ptr == null) return error.SerializationFailed;"),
+        content.contains("if (_json_ptr == null) return error.Serialization;"),
         "named struct return must guard against NULL to_json pointer: {content}"
     );
     // And the slice/dupe must come AFTER the guard, never before.
     let guard_pos = content
-        .find("if (_json_ptr == null) return error.SerializationFailed;")
+        .find("if (_json_ptr == null) return error.Serialization;")
         .expect("guard line present");
     let slice_pos = content
         .find("std.mem.sliceTo(_json_ptr, 0)")
