@@ -675,4 +675,70 @@ mod tests {
             "struct variant enum must use js_name matching serde tag;\nactual:\n{result}"
         );
     }
+
+    /// Regression test for JSDoc block-close escaping in enum variant docs.
+    /// When a variant doc contains `/* ... */` inside backticks (e.g., a code example),
+    /// the `*/` must be escaped to `* /` so it doesn't prematurely close the JSDoc block
+    /// in the generated TypeScript .d.ts file.
+    #[test]
+    fn gen_enum_escapes_jsdoc_block_close_in_variant_docs() {
+        let e = EnumDef {
+            name: "CommentType".to_string(),
+            rust_path: "test::CommentType".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Block".to_string(),
+                    fields: vec![],
+                    doc: "A block or multi-line comment (e.g., `/* ... */`).".to_string(),
+                    is_default: false,
+                    serde_rename: Some("block".to_string()),
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                },
+                EnumVariant {
+                    name: "Doc".to_string(),
+                    fields: vec![],
+                    doc: "A documentation comment (e.g., `/// ...` or `/** ... */`).".to_string(),
+                    is_default: false,
+                    serde_rename: Some("doc".to_string()),
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: true,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+        };
+
+        let result = gen_enum(&e, "", false);
+        eprintln!("Generated code:\n{}\n", result);
+
+        // The variant docs should have `*/` escaped to `* /` to prevent premature
+        // JSDoc block closure in the generated TypeScript .d.ts
+        assert!(
+            result.contains("* /"),
+            "enum variant doc must escape */ sequences:\nactual:\n{result}"
+        );
+        // Verify the unescaped `*/` does not appear (except in the escaped form)
+        let unescaped_count = result.matches("*/").count();
+        let escaped_count = result.matches("* /").count();
+        eprintln!("Unescaped */ count: {}", unescaped_count);
+        eprintln!("Escaped * / count: {}", escaped_count);
+        assert!(
+            escaped_count > 0 && unescaped_count == 0,
+            "enum variant doc should contain escaped * / but no bare */:\nactual:\n{result}"
+        );
+    }
 }

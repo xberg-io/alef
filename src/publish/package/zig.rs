@@ -27,7 +27,7 @@ pub fn package_zig(
     let module_name = config.zig_module_name();
     let crate_name = &config.name;
     let pkg_dir = config.package_dir(crate::core::config::extras::Language::Zig);
-    let platform = target.platform_for(crate::core::config::extras::Language::Go);
+    let platform = target.platform_for(crate::core::config::extras::Language::Zig);
 
     let pkg_name = format!("{crate_name}-zig-v{version}-{platform}");
     let staging = output_dir.join(&pkg_name);
