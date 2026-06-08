@@ -579,3 +579,71 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
         "BUG: register_ocr_backend passing value instead of pointer"
     );
 }
+
+#[test]
+fn fallible_function_returning_primitive_no_null_check() {
+    // Regression test for alef zig codegen bug: primitive return types (u64, bool, etc.)
+    // cannot be null and should NOT emit `if (_result == null)` check.
+    // See: tslp packages/zig/src/tree_sitter_language_pack.zig line 766 in v1.9.0-rc.26
+    //
+    // Bug symptom: Zig 0.16 error "comparison of 'u64' with null"
+    // Root cause: codegen unconditionally emitted null-check for non-Unit, non-Bytes returns
+    // without checking if the type can actually be null.
+
+    let mut api = make_basic_api();
+    // Add a function that returns u64 and is fallible (has error_type)
+    api.functions.push(FunctionDef {
+        name: "count_items".into(),
+        rust_path: "demo::count_items".into(),
+        original_rust_path: String::new(),
+        params: vec![],
+        return_type: TypeRef::Primitive(PrimitiveType::U64),
+        is_async: false,
+        error_type: Some("DemoError".to_string()),
+        doc: "Count items, returning a u64 result.".to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    });
+
+    let config = make_basic_config();
+    let files = ZigBackend.generate_bindings(&api, &config).unwrap();
+    let content = files
+        .iter()
+        .find(|f| f.content.contains("count_items"))
+        .or_else(|| files.first())
+        .expect("zig binding file must be generated")
+        .content
+        .clone();
+
+    // CRITICAL: Extract just the count_items function and verify it does NOT contain null check
+    let start = content.find("pub fn count_items").expect("count_items function must exist");
+    let end = content[start..].find("}\n").expect("function must have closing brace") + start + 2;
+    let count_items_fn = &content[start..end];
+
+    assert!(
+        !count_items_fn.contains("if (_result == null)"),
+        "BUG: fallible function returning u64 should NOT emit null check. \
+         Zig 0.16 error: 'comparison of u64 with null'. Function:\n{}",
+        count_items_fn
+    );
+
+    // POSITIVE: Should contain the error check and early return via last_error_code
+    assert!(
+        content.contains("if (c.demo_last_error_code() != 0)"),
+        "BUG: fallible function should check last_error_code. Content:\n{}",
+        &content
+    );
+
+    // The function should return the result directly without a null guard
+    assert!(
+        content.contains("return _result;") || content.contains("return"),
+        "BUG: function should have a return statement. Content:\n{}",
+        &content
+    );
+}

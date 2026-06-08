@@ -73,6 +73,18 @@ fn needs_from_json_param(
     get_opaque_named(&p.ty, opaque_creator_map).is_some() || is_struct_named(&p.ty, struct_names)
 }
 
+/// Returns true if `ty` can be null. Pointer-like types (String, Path, Json, Bytes,
+/// Vec, Map, Named structs, and Optional<T>) can be null. Primitives cannot be null.
+fn return_type_can_be_null(ty: &TypeRef, struct_names: &std::collections::HashSet<String>) -> bool {
+    match ty {
+        TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _) => true,
+        TypeRef::Named(name) => struct_names.contains(name),
+        TypeRef::Optional(_) => true,
+        // Primitives (bool, u64, i64, f32, etc.) and Unit cannot be null.
+        _ => false,
+    }
+}
+
 pub(crate) fn emit_function(
     f: &FunctionDef,
     prefix: &str,
@@ -211,6 +223,7 @@ pub(crate) fn emit_function(
         // consult it before falling back to a null guard so FFI error state is
         // not silently ignored.
         let result_is_pointer = !(matches!(f.return_type, TypeRef::Unit) || returns_bytes);
+        let result_can_be_null = return_type_can_be_null(&f.return_type, struct_names);
         if !result_is_pointer {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_call_unit.jinja",
@@ -240,7 +253,18 @@ pub(crate) fn emit_function(
                 },
             ));
             out.push_str("    }\n");
-            out.push_str("    if (_result == null) {\n");
+            // Only emit null check for types that can actually be null (pointers, optionals).
+            // Primitives like u64, bool, etc. cannot be null and should not have a null check.
+            if result_can_be_null {
+                out.push_str("    if (_result == null) {\n");
+                out.push_str(&crate::backends::zig::template_env::render(
+                    "function_error_return.jinja",
+                    minijinja::context! {
+                        error_type => error_type,
+                    },
+                ));
+                out.push_str("    }\n");
+            }
         } else {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_error_check.jinja",
@@ -248,14 +272,14 @@ pub(crate) fn emit_function(
                     prefix => prefix,
                 },
             ));
+            out.push_str(&crate::backends::zig::template_env::render(
+                "function_error_return.jinja",
+                minijinja::context! {
+                    error_type => error_type,
+                },
+            ));
+            out.push_str("    }\n");
         }
-        out.push_str(&crate::backends::zig::template_env::render(
-            "function_error_return.jinja",
-            minijinja::context! {
-                error_type => error_type,
-            },
-        ));
-        out.push_str("    }\n");
         if let Some(len_call) = &c_len_call {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_result_len.jinja",
