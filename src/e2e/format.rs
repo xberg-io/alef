@@ -77,7 +77,7 @@ fn normalize_rust_toml(dir: &str) {
 ///
 /// For each language present in `files`, picks the command from
 /// `e2e_config.format[lang]` when available, then falls back to
-/// `default_formatter` for languages that have a built-in default (rust,
+/// [`default_formatter`] for languages that have a built-in default (rust,
 /// python). The `{dir}` placeholder is replaced with `{output}/{lang}`.
 /// Failures are logged as warnings and do not abort the process.
 pub fn run_formatters(files: &[GeneratedFile], e2e_config: &E2eConfig) {

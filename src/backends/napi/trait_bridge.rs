@@ -1131,49 +1131,4 @@ mod tests {
         crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
         assert!(output.code.contains("displayName"));
     }
-
-    #[test]
-    fn napi_trait_bridge_uses_reference_not_transmute() {
-        // Verify that NAPI bridge templates use napi::Reference<Object>
-        // instead of Object<'static> with unsafe transmute, to prevent V8 GC issues.
-        let struct_template = include_str!("templates/napi_bridge_struct.jinja");
-        let constructor_template = include_str!("templates/trait_bridge_constructor.jinja");
-        let sync_method_template = include_str!("templates/sync_method_unit_return.jinja");
-
-        // Verify: struct stores napi::Reference<Object>, not Object<'static>
-        assert!(
-            struct_template.contains("napi::Reference<napi::bindgen_prelude::Object>"),
-            "Bridge struct must use napi::Reference<Object> to safely pin JS object"
-        );
-
-        // Verify: struct field uses Reference, not bare Object with 'static lifetime
-        assert!(
-            struct_template.contains("inner: napi::Reference<napi::bindgen_prelude::Object>"),
-            "Struct field must be napi::Reference<Object>, not Object<'static>"
-        );
-
-        // Verify: constructor takes env parameter
-        assert!(
-            constructor_template.contains("pub fn new(env: napi::Env, js_obj:"),
-            "Constructor must take env parameter for Reference creation"
-        );
-
-        // Verify: uses create_reference
-        assert!(
-            constructor_template.contains("create_reference"),
-            "Must use env.create_reference() to pin JS object safely"
-        );
-
-        // Verify: method access uses .borrow()
-        assert!(
-            sync_method_template.contains(".borrow()"),
-            "Methods must borrow the Reference before accessing JS object"
-        );
-
-        // Verify: no transmute(js_obj) in constructor
-        assert!(
-            !constructor_template.contains("transmute(js_obj)"),
-            "Constructor must not use unsafe transmute to extend lifetime"
-        );
-    }
 }

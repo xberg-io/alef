@@ -1,4 +1,4 @@
-//! NAPI-RS capsule-type codegen: `External<T>` + `__parser` property passthrough.
+//! NAPI-RS capsule-type codegen: External<T> + `__parser` property passthrough.
 //!
 //! When `[crates.node.capsule_types]` is configured, types listed there are NOT emitted
 //! as `#[napi]` opaque wrappers. Instead, functions returning those types produce a

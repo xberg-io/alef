@@ -1,4 +1,4 @@
-mod param_conversion_tests {
+mod tests {
     use super::super::{classify_param_type, emit_param_conversion};
     use crate::core::ir::TypeRef;
 

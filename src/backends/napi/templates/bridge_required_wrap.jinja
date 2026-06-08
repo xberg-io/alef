@@ -1,5 +1,4 @@
 let {{ param_name }} = {
-        let env = napi::Env::current();
-        let bridge = {{ struct_name }}::new(env, {{ param_name }})?;
+        let bridge = {{ struct_name }}::new({{ param_name }})?;
         std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
     };

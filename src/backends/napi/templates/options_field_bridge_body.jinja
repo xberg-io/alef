@@ -1,6 +1,5 @@
 let {{ visitor_kwarg }}_handle: Option<{{ handle_path }}> = {{ visitor_kwarg }}.and_then(|v| {
-        let env = napi::Env::current();
-        {{ struct_name }}::new(env, v).ok().map(|bridge| {
+        {{ struct_name }}::new(v).ok().map(|bridge| {
             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
         })
     });

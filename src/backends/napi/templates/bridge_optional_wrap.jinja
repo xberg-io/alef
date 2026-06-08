@@ -1,6 +1,5 @@
 let {{ param_name }} = {{ param_name }}.and_then(|v| {
-        let env = napi::Env::current();
-        {{ struct_name }}::new(env, v).ok().map(|bridge| {
+        {{ struct_name }}::new(v).ok().map(|bridge| {
             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
         })
     });

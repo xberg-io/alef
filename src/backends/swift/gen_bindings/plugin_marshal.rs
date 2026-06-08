@@ -55,7 +55,7 @@ pub fn swift_shim_param_ffi_type(ty: &TypeRef, optional: bool) -> String {
 /// the bridge protocol method expects.
 ///
 /// For simple types (String, Bool, primitives), this is a direct conversion or passthrough.
-/// For complex types (Codable structs, enums, `Vec<String>`), this involves JSON decoding.
+/// For complex types (Codable structs, enums, Vec<String>), this involves JSON decoding.
 ///
 /// Returns `ParamDecode` with:
 /// - `setup`: Vec of setup lines to emit before the bridge call (e.g., `let cfg = try JSONDecoder...`)
@@ -243,7 +243,7 @@ pub struct ParamDecode {
 /// - If method returns Unit and no error: `"Void"`.
 /// - If method returns Bool and no error: `"Bool"`.
 /// - If method returns primitive int and no error: the mapped type (UInt32, Int64, etc.).
-/// - If method returns `Vec<String>` and no error: `"RustVec<RustString>"`.
+/// - If method returns Vec<String> and no error: `"RustVec<RustString>"`.
 /// - If method returns [other complex] and no error: `"RustString"` (envelope).
 pub fn swift_shim_return_ffi_type(method: &MethodDef) -> String {
     // If the method can throw, it always returns an envelope (RustString).
@@ -278,7 +278,7 @@ pub fn swift_shim_return_ffi_type(method: &MethodDef) -> String {
 /// Handles:
 /// - Throwing methods returning Unit: encode `{"ok":null}` on success, `{"err": "..."}` on error
 /// - Throwing methods returning T: encode `{"ok": <T>}` / `{"err": "..."}`
-/// - Non-throwing methods: passthrough the result or build RustVec for `Vec<String>`
+/// - Non-throwing methods: passthrough the result or build RustVec for Vec<String>
 /// - String return types are wrapped in RustString for FFI boundary
 ///
 /// The `bridge_call_expr` is the expression that calls the inner bridge method

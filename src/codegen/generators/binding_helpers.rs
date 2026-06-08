@@ -1291,9 +1291,9 @@ pub fn gen_serde_let_bindings(
 }
 
 /// Check if params contain any non-opaque Named types that need let bindings.
-/// This includes direct Named types, `Vec<Named>` types, `Vec<String>` params
+/// This includes direct Named types, Vec<Named> types, Vec<String> params
 /// with is_ref=true (which need a Vec<&str> intermediate to pass as &[&str]),
-/// and sanitized `Vec<String>` params (which are JSON-deserialized to tuples).
+/// and sanitized Vec<String> params (which are JSON-deserialized to tuples).
 pub fn has_named_params(params: &[ParamDef], opaque_types: &AHashSet<String>) -> bool {
     params.iter().any(|p| match &p.ty {
         TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => true,
@@ -1310,7 +1310,7 @@ pub fn has_named_params(params: &[ParamDef], opaque_types: &AHashSet<String>) ->
 }
 
 /// Check if a param type is safe for non-opaque delegation (no complex conversions needed).
-/// Vec and Map params can cause type mismatches (e.g. `Vec<String>` vs &[&str]).
+/// Vec and Map params can cause type mismatches (e.g. Vec<String> vs &[&str]).
 ///
 /// `Json` is delegatable: the binding takes a JSON string and `gen_call_args` emits
 /// `serde_json::from_str(...)` to bridge it into the core `serde_json::Value` parameter.

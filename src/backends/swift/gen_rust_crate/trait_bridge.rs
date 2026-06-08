@@ -24,7 +24,7 @@ use std::collections::HashSet;
 /// Swift-specific trait bridge generator.
 ///
 /// The Swift inbound plugin pattern (Swift class implements a Rust trait) is
-/// primarily handled by the plugin inbound emitter, which emits `extern "Swift"`
+/// primarily handled by [`super::plugin_inbound`], which emits `extern "Swift"`
 /// shims, wrapper structs, and the `Plugin` / trait impls. This generator
 /// provides the [`TraitBridgeGenerator`] contract so that `gen_unregistration_fn`
 /// and `gen_clear_fn` can be called uniformly from the plugin inbound emitter.
@@ -125,7 +125,7 @@ impl TraitBridgeGenerator for SwiftBridgeGenerator {
 /// Declares an opaque `{Trait}Box` type plus one free trampoline function per method:
 /// `fn {trait_snake}_call_{method}(this: &{Trait}Box, args…) -> ret`.
 /// All parameter/return types are flattened to swift-bridge-safe types (primitives,
-/// String, `Vec<leaf>`). Complex types (Named, Optional, Map, `Vec<non-leaf>`) are JSON-bridged.
+/// String, Vec<leaf>). Complex types (Named, Optional, Map, Vec<non-leaf>) are JSON-bridged.
 pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_names: &HashSet<&str>) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");

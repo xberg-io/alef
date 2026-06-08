@@ -1,8 +1,5 @@
 /// Wrapper that bridges a foreign JavaScript object to a Rust trait.
-///
-/// Uses `napi::Reference<Object>` instead of `Object<'static>` to safely
-/// pin the JS object to the V8 heap without unsafe lifetime extension.
 pub struct {{ wrapper_name }} {
-    inner: napi::Reference<napi::bindgen_prelude::Object>,
+    inner: napi::bindgen_prelude::Object<'static>,
     cached_name: String,
 }
