@@ -216,10 +216,15 @@ fn gen_service_class_ts(
         let mut params = Vec::new();
         for p in &method.params {
             let ty = typescript_type_annotation(&p.ty);
+            // Configurator body is a stub `return this;` — params are
+            // intentionally unused until alef supports persisting config
+            // through the binding. TypeScript convention: prefix with `_` so
+            // `noUnusedParameters` accepts the declaration.
+            let display_name = format!("_{}", p.name);
             if p.optional {
-                params.push(format!("{}: {} = undefined", p.name, ty));
+                params.push(format!("{}: {} = undefined", display_name, ty));
             } else {
-                params.push(format!("{}: {}", p.name, ty));
+                params.push(format!("{}: {}", display_name, ty));
             }
         }
 
@@ -282,7 +287,17 @@ fn gen_service_class_ts(
                 ));
             }
             EntrypointKind::Finalize => {
-                let return_ty = typescript_type_annotation(&ep.return_type);
+                let base_ty = typescript_type_annotation(&ep.return_type);
+                // napi-rs exposes Rust `async fn` (or `tokio::spawn`-backed
+                // entrypoints) as JS functions that return `Promise<T>`. The
+                // TS wrapper signature must match the native function's actual
+                // return shape; declaring a bare `T` against a `Promise<T>`
+                // body fails TS2322.
+                let return_ty = if ep.is_async {
+                    format!("Promise<{base_ty}>")
+                } else {
+                    base_ty
+                };
                 out.push_str(&render(
                     "service_ts_entrypoint_finalize.jinja",
                     context! {

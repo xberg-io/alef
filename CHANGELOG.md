@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.37] - 2026-06-08
+
+### Fixed
+
+- **napi service.ts configurator stub params no longer trip `noUnusedParameters`**:
+  Generated configurator methods have a stub body (`return this;`) that never
+  references the declared parameter, so under `tsc --noUnusedParameters` the
+  declaration produced TS6133. The TypeScript codegen now prefixes the
+  display name with `_` (the standard convention for intentionally unused
+  parameters) so the declaration type-checks until alef supports persisting
+  configurator state through the binding.
+- **napi `Finalize` entrypoint return type now wraps async natives in `Promise`**:
+  When the underlying napi-rs function is `async` (`#[napi]` on an async fn),
+  the bridge returns `Promise<T>` but the generated wrapper declared `(): T`,
+  producing TS2322 *Type 'Promise<T>' is not assignable to type 'T'* at the
+  `return native_fn(...);` site. The wrapper now emits `(): Promise<T>` when
+  `EntrypointDef::is_async` is true.
+
 ## [0.23.36] - 2026-06-08
 
 ### Fixed
