@@ -118,6 +118,26 @@ pub(super) fn gen_dts(
     }
     trait_bridge_fns.sort_by(|a, b| a.0.cmp(&b.0));
 
+    // Service entrypoint bridge functions → `export declare function`
+    // For each service, emit bridge functions for each entrypoint (run/finalize).
+    // The bridge function receives the registrations array and materializes the service.
+    let mut service_entrypoint_fns: Vec<(String, String, String)> = Vec::new();
+    for service in &api.services {
+        for entrypoint in &service.entrypoints {
+            let bridge_name = to_node_name(&format!("{}_{}", service.name.to_lowercase(), entrypoint.method));
+            // Registrations parameter: Array<[string, any[], (...args: any[]) => any]>
+            let registrations_param = "registrations: Array<[string, any[], (...args: any[]) => any]>".to_string();
+            // Return type: Promise<void> for async, void for sync
+            let return_type = if entrypoint.is_async {
+                "Promise<void>".to_string()
+            } else {
+                "void".to_string()
+            };
+            service_entrypoint_fns.push((bridge_name, registrations_param, return_type));
+        }
+    }
+    service_entrypoint_fns.sort_by(|a, b| a.0.cmp(&b.0));
+
     // Build a merged list of all declarations sorted by their Js-prefixed name so the
     // output is fully alphabetical (matching the committed index.d.ts format).
     enum Decl<'a> {
@@ -127,6 +147,11 @@ pub(super) fn gen_dts(
         Enum(&'a EnumDef),
         Function(&'a FunctionDef),
         TraitBridgeFunction {
+            name: String,
+            params: String,
+            return_type: String,
+        },
+        ServiceEntrypoint {
             name: String,
             params: String,
             return_type: String,
@@ -153,6 +178,16 @@ pub(super) fn gen_dts(
         all_decls.push((
             name.clone(),
             Decl::TraitBridgeFunction {
+                name,
+                params,
+                return_type: ret,
+            },
+        ));
+    }
+    for (name, params, ret) in service_entrypoint_fns {
+        all_decls.push((
+            name.clone(),
+            Decl::ServiceEntrypoint {
                 name,
                 params,
                 return_type: ret,
@@ -311,6 +346,13 @@ pub(super) fn gen_dts(
                 lines.push(format!("export declare function {js_name}({params}): {ret};"));
             }
             Decl::TraitBridgeFunction {
+                name,
+                params,
+                return_type,
+            } => {
+                lines.push(format!("export declare function {name}({params}): {return_type};"));
+            }
+            Decl::ServiceEntrypoint {
                 name,
                 params,
                 return_type,
@@ -703,5 +745,79 @@ mod tests {
             ..Default::default()
         }];
         assert!(trait_bridge_requires_plugin_name(&typ, &bridges));
+    }
+
+    #[test]
+    fn gen_dts_includes_service_entrypoint_bridge_functions() {
+        use crate::core::ir::{EntrypointDef, EntrypointKind, MethodDef, ReceiverKind, ServiceDef};
+        let api = ApiSurface {
+            crate_name: "test".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: Default::default(),
+            excluded_trait_names: Default::default(),
+            services: vec![ServiceDef {
+                name: "App".to_string(),
+                rust_path: "test::App".to_string(),
+                constructor: MethodDef {
+                    name: "new".to_string(),
+                    params: vec![],
+                    return_type: TypeRef::Named("App".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    receiver: Some(ReceiverKind::Owned),
+                    doc: String::new(),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                configurators: vec![],
+                registrations: vec![],
+                entrypoints: vec![EntrypointDef {
+                    method: "into_router".to_string(),
+                    kind: EntrypointKind::Finalize,
+                    is_async: true,
+                    params: vec![],
+                    return_type: TypeRef::Unit,
+                    error_type: None,
+                    doc: String::new(),
+                }],
+                doc: String::new(),
+                cfg: None,
+            }],
+            handler_contracts: vec![],
+            unsupported_public_items: vec![],
+        };
+        let dts = gen_dts(
+            &api,
+            "",
+            &ahash::AHashSet::new(),
+            &[],
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+        );
+        // Verify the service entrypoint function appears in the dts
+        assert!(
+            dts.contains("export declare function appIntoRouter"),
+            "dts should declare appIntoRouter bridge function for App.into_router"
+        );
+        assert!(
+            dts.contains("registrations: Array<[string, any[], (...args: any[]) => any]>"),
+            "service entrypoint should have registrations parameter"
+        );
+        assert!(
+            dts.contains("Promise<void>"),
+            "async into_router entrypoint should return Promise<void>"
+        );
     }
 }

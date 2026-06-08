@@ -58,8 +58,8 @@ pub fn can_auto_delegate(method: &MethodDef, opaque_types: &AHashSet<String>) ->
 }
 
 /// A Named param with is_ref=true needs a let-binding (can't inline .into() + borrow).
-/// A Vec<String> param with is_ref=true needs conversion to Vec<&str>.
-/// A Vec<NonOpaqueNamed> param with is_ref=true needs a let-binding (gen_php_call_args emits
+/// A `Vec<String>` param with is_ref=true needs conversion to `Vec<&str>`.
+/// A `Vec<NonOpaqueNamed>` param with is_ref=true needs a let-binding (gen_php_call_args emits
 /// `&{name}_core[..]` which is only valid when a let binding for `{name}_core` exists).
 /// Public alias for use by backend-specific codegen (e.g. napi types.rs opaque delegate check).
 pub fn is_named_ref_param_pub(p: &crate::core::ir::ParamDef, opaque_types: &AHashSet<String>) -> bool {
@@ -376,7 +376,7 @@ pub fn format_default_value(default: &DefaultValue) -> String {
 }
 
 /// Generate constructor parameter and assignment lists for types with has_default.
-/// All fields become Option<T> with None defaults for optional fields,
+/// All fields become `Option<T>` with None defaults for optional fields,
 /// or unwrap_or_else with actual defaults for required fields.
 ///
 /// Returns (param_list, signature_defaults, assignments).

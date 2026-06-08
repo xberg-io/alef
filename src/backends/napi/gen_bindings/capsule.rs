@@ -1,9 +1,8 @@
-//! NAPI-RS capsule-type codegen: External<T> + `__parser` property passthrough.
+//! NAPI-RS capsule-type codegen: `External<T>` + `__parser` property passthrough.
 //!
 //! When `[crates.node.capsule_types]` is configured, types listed there are NOT emitted
 //! as `#[napi]` opaque wrappers. Instead, functions returning those types produce a
-//! `JsObject` carrying a `Napi::External<T>` in a `__parser` property — the shape
-//! consumed by the `sample_language` npm package's `Parser.setLanguage()`.
+//! `JsObject` carrying a `Napi::External<T>` in a `__parser` property.
 //!
 //! Only the `"external_pointer"` construct variant is implemented. The emitted shim:
 //!   1. Calls the core function to obtain the Rust value.

@@ -305,11 +305,11 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     } else if let Some(relative) = external_elixir_src.as_deref() {
         // External source: list the directory containing the actual lib.rs
         files_entries.push(relative.to_string());
-    } else if !lib_populated {
-        // No standard src dir, no external path, and lib/ is not already being added.
-        // Rust source must be in lib/; add it now.
-        files_entries.push("lib".to_string());
     }
+    // If neither native/<nif>/src nor external path exists, the Rust source
+    // must be co-located with the wrapper module in lib/. Alef always generates
+    // a wrapper .ex file there, so lib_populated will be true and "lib" will be
+    // added at the end of this block via the insert at line 324.
 
     let native_crate_dir_rel = format!("{pkg_dir}/native/{nif_name}");
     let build_rs_path = if let Some(ws_root) = config.workspace_root.as_deref() {

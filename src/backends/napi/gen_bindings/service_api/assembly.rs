@@ -30,7 +30,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let service_ts = gen_service_ts(api, &package_name, config);
 
     // JavaScript version (TypeScript with types stripped)
-    let _service_js = strip_typescript_annotations(&service_ts);
+    let service_cjs = strip_typescript_annotations(&service_ts);
 
     // Node package output base: derive from package_name or use default
     let output_base = config
@@ -56,17 +56,12 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
             content: service_ts,
             generated_header: true,
         },
-        // Note: service.js is transpiled from service.ts by removing type annotations.
-        // Since JavaScript doesn't have TypeScript's type syntax, we emit service.ts as-is
-        // but the post-build step in index.js will reference './service' which requires
-        // Node to either: (a) have TypeScript loader registered, or (b) have service.ts
-        // compiled to JS during build. For now, we omit service.js and rely on index.js
-        // to use a try-catch fallback.
-        // GeneratedFile {
-        //     path: crate_root.join("service.js"),
-        //     content: service_js,
-        //     generated_header: true,
-        // },
+        // Emit CommonJS version for runtime require() in index.js
+        GeneratedFile {
+            path: crate_root.join("service.cjs"),
+            content: service_cjs,
+            generated_header: true,
+        },
     ])
 }
 

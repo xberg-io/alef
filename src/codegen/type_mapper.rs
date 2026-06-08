@@ -28,7 +28,7 @@ pub trait TypeMapper {
         Cow::Borrowed("String")
     }
 
-    /// Map a bytes type. Default: "Vec<u8>"
+    /// Map a bytes type. Default: "`Vec<u8>`"
     fn bytes(&self) -> Cow<'static, str> {
         Cow::Borrowed("Vec<u8>")
     }
@@ -53,12 +53,12 @@ pub trait TypeMapper {
         Cow::Borrowed("u64")
     }
 
-    /// Map an optional type. Default: "Option<T>"
+    /// Map an optional type. Default: "`Option<T>`"
     fn optional(&self, inner: &str) -> String {
         format!("Option<{inner}>")
     }
 
-    /// Map a vec type. Default: "Vec<T>"
+    /// Map a vec type. Default: "`Vec<T>`"
     fn vec(&self, inner: &str) -> String {
         format!("Vec<{inner}>")
     }

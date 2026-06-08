@@ -18,8 +18,8 @@ use super::functions::{
 /// Check if a type is scalar-compatible for PHP properties, considering enum names.
 /// `#[php(prop)]` without needing a manual getter.  Scalar-compatible means the mapped Rust
 /// type implements `IntoZval` + `FromZval` automatically:
-///   primitives, String, bool, Duration (→ u64), Path (→ String), Option<scalar>,
-///   Vec<primitive> (the `Vec<T: IntoZval>` blanket impl).
+///   primitives, String, bool, Duration (→ u64), Path (→ String), `Option<scalar>`,
+///   `Vec<primitive>` (the `Vec<T: IntoZval>` blanket impl).
 /// Anything containing a Named struct, Map, nested Vec, Json, or Bytes requires a getter.
 /// Enums are mapped as String in the PHP binding, so they count as scalar.
 ///

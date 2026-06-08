@@ -65,7 +65,7 @@ fn diff_count(s1: &str, s2: &str) -> usize {
 }
 
 /// Check if a TypeRef references an opaque type, including through Optional and Vec wrappers.
-/// Opaque types use Arc<T> which doesn't implement Serialize/Deserialize, so any struct with
+/// Opaque types use `Arc<T>` which doesn't implement Serialize/Deserialize, so any struct with
 /// such a field cannot derive those traits.
 pub fn field_references_opaque_type(ty: &TypeRef, opaque_names: &[String]) -> bool {
     match ty {

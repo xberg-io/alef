@@ -1,7 +1,7 @@
 //! Emits the mutable-default-construction path for struct wrapper `new()` methods.
 //!
 //! When a struct needs serde-based field assignment (has_serde=true, or has
-//! Vec<non-primitive> fields, or non-serde String-like fields), `emit_type_wrapper`
+//! `Vec<non-primitive>` fields, or non-serde String-like fields), `emit_type_wrapper`
 //! delegates here. The emitted code creates a `Default` instance and assigns each
 //! field individually via serde JSON round-trips and native unwrapping.
 

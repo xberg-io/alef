@@ -683,7 +683,7 @@ pub fn emit_trait_bridge(
 /// The required trait methods that produce *Rust* source (`gen_sync_method_body`,
 /// `gen_async_method_body`, `gen_constructor`, `gen_registration_fn`) return
 /// empty strings because Zig bridge code is produced by the standalone
-/// [`emit_trait_bridge`] free function, not the shared driver.
+/// `emit_trait_bridge` free function, not the shared driver.
 pub struct ZigTraitBridgeGenerator {
     /// FFI symbol prefix (e.g., `"sample_core"`).
     pub prefix: String,

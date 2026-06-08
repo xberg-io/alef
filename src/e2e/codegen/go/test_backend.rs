@@ -27,7 +27,7 @@ fn uses_json_type(ty: &crate::core::ir::TypeRef) -> bool {
 /// contains package-level type and method declarations. The `arg_expr` is the struct
 /// literal `testStub_<id>{}` that callers pass to `Register<Trait>`.
 ///
-/// Call [`emit_test_backend_with_context`] from e2e test-file renderers that have the
+/// Call `emit_test_backend_with_context` from e2e test-file renderers that have the
 /// `excluded_types` set (binding-excluded types → `json.RawMessage`) and `import_alias`
 /// (qualifies named types for an external test package).
 pub fn emit_test_backend(

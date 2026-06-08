@@ -859,7 +859,7 @@ pub enum DartStyle {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GleamConfig {
     pub app_name: Option<String>,
-    /// Erlang atom name for @external(erlang, "<nif>", ...) lookups (e.g., "my_app_nif").
+    /// Erlang atom name for `@external(erlang, "<nif>", ...)` lookups (e.g., "my_app_nif").
     /// Defaults to the app_name.
     #[serde(default)]
     pub nif_module: Option<String>,

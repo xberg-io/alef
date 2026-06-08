@@ -17,7 +17,7 @@ pub struct ConversionConfig<'a> {
     pub map_uses_jsvalue: bool,
     /// When true, f32 is mapped to f64 (NAPI only — JS has no f32).
     pub cast_f32_to_f64: bool,
-    /// When true, non-optional fields on defaultable types are wrapped in Option<T>
+    /// When true, non-optional fields on defaultable types are wrapped in `Option<T>`
     /// in the binding struct and need `.unwrap_or_default()` in binding→core From.
     /// Used by NAPI to make JS-facing structs fully optional.
     pub optionalize_defaults: bool,
@@ -46,9 +46,9 @@ pub struct ConversionConfig<'a> {
     /// are skipped in the binding struct and defaulted in From conversions.
     /// Used by WASM to handle types excluded due to native dependency requirements.
     pub exclude_types: &'a [String],
-    /// When true, Vec<Named> fields are stored as JSON strings in the binding layer.
+    /// When true, `Vec<Named>` fields are stored as JSON strings in the binding layer.
     /// Core→binding uses `serde_json::to_string`, binding→core uses `serde_json::from_str`.
-    /// Used by Magnus (Ruby) where Vec<Named> cannot cross the FFI boundary directly and
+    /// Used by Magnus (Ruby) where `Vec<Named>` cannot cross the FFI boundary directly and
     /// is collapsed to String by `field_type_for_serde`'s catch-all arm.
     pub vec_named_to_string: bool,
     /// When true, all Map(K, V) fields are stored as a plain `String` in the binding layer.

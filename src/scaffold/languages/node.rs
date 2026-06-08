@@ -487,6 +487,13 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         .collect::<Vec<_>>()
         .join(",\n");
 
+    // When services are defined, include service.cjs in the published files.
+    let files_list = if api.services.is_empty() {
+        "[\"index.js\", \"index.d.ts\", \"*.node\"]".to_string()
+    } else {
+        "[\"index.js\", \"index.d.ts\", \"service.cjs\", \"*.node\"]".to_string()
+    };
+
     // Crate-level package.json required by `napi build`
     let crate_pkg = format!(
         r#"{{
@@ -502,7 +509,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
       "default": "./index.js"
     }}
   }},
-  "files": ["index.js", "index.d.ts", "*.node"],
+  "files": {files_list},
   "optionalDependencies": {{
 {optional_dependencies}
   }},
@@ -529,6 +536,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         license_block = license_block,
         repository_block = repository_block,
         crate_dir = crate_dir,
+        files_list = files_list,
         optional_dependencies = optional_dependencies,
         targets = targets,
         napi_rs_cli_crate = tv::npm::NAPI_RS_CLI_CRATE,

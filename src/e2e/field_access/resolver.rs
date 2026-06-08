@@ -64,7 +64,7 @@ impl FieldResolver {
     /// accessor renderer emits `->getCamelCase()` when `(owner_type, field)` is
     /// recorded as needing a getter, and `->camelCase` property syntax otherwise.
     /// This matches the ext-php-rs 0.15.x behaviour where `#[php(getter)]` is used for
-    /// non-scalar fields (Named structs, Vec<Named>, Map, etc.) while `#[php(prop)]` is
+    /// non-scalar fields (Named structs, `Vec<Named>`, Map, etc.) while `#[php(prop)]` is
     /// used for scalar-compatible fields.
     ///
     /// Keying by (type, field) — not bare field name — is essential because the same
@@ -138,7 +138,7 @@ impl FieldResolver {
 
     /// Create a new resolver that also knows the Dart stringy field
     /// classification per IR type (for aggregating text accessors in contains
-    /// assertions on Vec<T> fields).
+    /// assertions on `Vec<T>` fields).
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_dart_first_class(
         fields: &HashMap<String, String>,

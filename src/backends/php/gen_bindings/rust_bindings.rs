@@ -780,7 +780,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     }
     // Generate the PHP module entry point explicitly with the correct extension name.
     // The #[php_module] macro defaults to env!("CARGO_PKG_NAME"), which may differ from
-    // the publishable extension name (e.g., crate "ts-pack-core-php" vs. extension "tree_sitter_language_pack").
+    // the publishable extension name configured for PHP packaging.
     // By using ModuleBuilder::new(extension_name, version) explicitly, we ensure
     // the registered module name matches the php.ini directive and PIE installation filename.
     let version = &api.version;
