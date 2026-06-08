@@ -260,30 +260,42 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     let _ = writeln!(out, "  ;;");
     let _ = writeln!(out, "esac");
     let _ = writeln!(out);
+    // alef publish package emits tarballs named ${FFI_PKG_NAME}-v${VERSION}-${TRIPLE}.tar.gz
+    // (rust target triple, not the short platform label). Match that naming so the asset URL
+    // resolves; otherwise the GitHub release returns 404 and the test_app falls back to a
+    // stale cached header missing any newly-added FFI exports.
     let _ = writeln!(out, "case \"$OS\" in");
     let _ = writeln!(out, "linux)");
     let _ = writeln!(out, "  case \"$ARCH\" in");
-    let _ = writeln!(out, "  x86_64) PLATFORM=\"linux-x86_64\" ;;");
-    let _ = writeln!(out, "  arm64) PLATFORM=\"linux-aarch64\" ;;");
+    let _ = writeln!(out, "  x86_64) TRIPLE=\"x86_64-unknown-linux-gnu\" ;;");
+    let _ = writeln!(out, "  arm64) TRIPLE=\"aarch64-unknown-linux-gnu\" ;;");
     let _ = writeln!(out, "  esac");
     let _ = writeln!(out, "  ;;");
     let _ = writeln!(out, "darwin)");
     let _ = writeln!(out, "  case \"$ARCH\" in");
-    let _ = writeln!(out, "  x86_64) PLATFORM=\"macos-x86_64\" ;;");
-    let _ = writeln!(out, "  arm64) PLATFORM=\"macos-arm64\" ;;");
+    let _ = writeln!(out, "  x86_64) TRIPLE=\"x86_64-apple-darwin\" ;;");
+    let _ = writeln!(out, "  arm64) TRIPLE=\"aarch64-apple-darwin\" ;;");
     let _ = writeln!(out, "  esac");
     let _ = writeln!(out, "  ;;");
-    let _ = writeln!(
-        out,
-        "mingw* | msys* | cygwin* | windows) PLATFORM=\"windows-x86_64\" ;;"
-    );
+    let _ = writeln!(out, "mingw* | msys* | cygwin* | windows)");
+    let _ = writeln!(out, "  case \"$ARCH\" in");
+    let _ = writeln!(out, "  x86_64) TRIPLE=\"x86_64-pc-windows-msvc\" ;;");
+    let _ = writeln!(out, "  arm64) TRIPLE=\"aarch64-pc-windows-msvc\" ;;");
+    let _ = writeln!(out, "  esac");
+    let _ = writeln!(out, "  ;;");
     let _ = writeln!(out, "*)");
     let _ = writeln!(out, "  echo \"Unsupported OS: $OS\" >&2");
     let _ = writeln!(out, "  exit 1");
     let _ = writeln!(out, "  ;;");
     let _ = writeln!(out, "esac");
     let _ = writeln!(out);
-    let _ = writeln!(out, "ARCHIVE=\"${{FFI_PKG_NAME}}-${{PLATFORM}}.tar.gz\"");
+    let _ = writeln!(out, "if [ -z \"${{TRIPLE:-}}\" ]; then");
+    let _ = writeln!(out, "  echo \"Unsupported platform: $OS/$ARCH\" >&2");
+    let _ = writeln!(out, "  exit 1");
+    let _ = writeln!(out, "fi");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "ASSET_STEM=\"${{FFI_PKG_NAME}}-v${{VERSION}}-${{TRIPLE}}\"");
+    let _ = writeln!(out, "ARCHIVE=\"${{ASSET_STEM}}.tar.gz\"");
     let _ = writeln!(
         out,
         "URL=\"${{REPO_URL}}/releases/download/v${{VERSION}}/${{ARCHIVE}}\""
@@ -293,7 +305,7 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     let _ = writeln!(out, "mkdir -p \"$FFI_DIR\"");
     let _ = writeln!(out, "curl -fSL \"$URL\" | tar xz -C \"$FFI_DIR\"");
     let _ = writeln!(out, "# Flatten the platform subdirectory into the ffi/ root");
-    let _ = writeln!(out, "EXTRACTED_DIR=\"$FFI_DIR\"/${{FFI_PKG_NAME}}-${{PLATFORM}}");
+    let _ = writeln!(out, "EXTRACTED_DIR=\"$FFI_DIR/$ASSET_STEM\"");
     let _ = writeln!(out, "if [ -d \"$EXTRACTED_DIR\" ]; then");
     let _ = writeln!(out, "  rm -rf \"${{FFI_DIR:?}}\"/include \"${{FFI_DIR:?}}\"/lib");
     let _ = writeln!(
