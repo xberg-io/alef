@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.63] - 2026-06-09
+
+### Fixed
+
+- **NAPI: silence `unused_variables` warnings on `config: &ResolvedCrateConfig` in `classify_service_imports` and `gen_service_class_ts`.** After v0.23.62 made service entrypoints override `exclude.methods`, both functions no longer read from `config`, but the parameters stayed because the call sites are part of the public-shape contract within the napi service module. Consumers that build alef with `-D warnings` (notably any CI running `cargo install ... --git ... alef`) failed with `error: unused variable: 'config'`. Prefixed both parameters with `_` to keep the contract and silence the warning.
+
 ## [0.23.62] - 2026-06-09
 
 ### Fixed

@@ -24,7 +24,7 @@ struct ServiceImports {
     native_imports: Vec<String>,
 }
 
-fn classify_service_imports(api: &ApiSurface, config: &ResolvedCrateConfig) -> ServiceImports {
+fn classify_service_imports(api: &ApiSurface, _config: &ResolvedCrateConfig) -> ServiceImports {
     let mut type_imports: Vec<String> = Vec::new();
     let mut value_imports: Vec<String> = Vec::new();
     let mut native_imports: Vec<String> = Vec::new();
@@ -143,7 +143,7 @@ fn gen_service_class_ts(
     service: &ServiceDef,
     api: &ApiSurface,
     _native_module: &str,
-    config: &ResolvedCrateConfig,
+    _config: &ResolvedCrateConfig,
 ) {
     let class_name = &service.name;
 
