@@ -783,9 +783,13 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     // the publishable extension name configured for PHP packaging.
     // By using ModuleBuilder::new(extension_name, version) explicitly, we ensure
     // the registered module name matches the php.ini directive and PIE installation filename.
+    //
+    // Wire the ModuleStartup returned from `try_into()` into a MINIT function via
+    // `.startup_function(...)`. Without this, classes registered via `.class::<T>()`
+    // never reach PHP's class table and consumers see `Class "X" not found` at runtime.
     let version = &api.version;
     let module_code = format!(
-        "#[doc(hidden)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn get_module() -> *mut ::ext_php_rs::zend::ModuleEntry {{\n    static __EXT_PHP_RS_MODULE_ENTRY: ::ext_php_rs::zend::StaticModuleEntry = ::ext_php_rs::zend::StaticModuleEntry::new();\n    __EXT_PHP_RS_MODULE_ENTRY.get_or_init(|| {{\n        let builder = ::ext_php_rs::builders::ModuleBuilder::new(\"{}\", \"{}\");\n        let builder = builder{};\n        match builder.try_into() {{\n            Ok((entry, _startup)) => entry,\n            Err(e) => panic!(\"Failed to build PHP module: {{:?}}\", e),\n        }}\n    }})\n}}\n",
+        "static __EXT_PHP_RS_MODULE_STARTUP: ::std::sync::Mutex<::std::option::Option<::ext_php_rs::builders::ModuleStartup>> =\n    ::std::sync::Mutex::new(::std::option::Option::None);\n\nunsafe extern \"C\" fn __ext_php_rs_module_startup(ty: i32, mod_num: i32) -> i32 {{\n    let startup = match __EXT_PHP_RS_MODULE_STARTUP.lock() {{\n        Ok(mut guard) => guard.take(),\n        Err(_) => return 1,\n    }};\n    match startup {{\n        Some(s) => match s.startup(ty, mod_num) {{ Ok(_) => 0, Err(_) => 1 }},\n        None => 1,\n    }}\n}}\n\n#[doc(hidden)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn get_module() -> *mut ::ext_php_rs::zend::ModuleEntry {{\n    static __EXT_PHP_RS_MODULE_ENTRY: ::ext_php_rs::zend::StaticModuleEntry = ::ext_php_rs::zend::StaticModuleEntry::new();\n    __EXT_PHP_RS_MODULE_ENTRY.get_or_init(|| {{\n        let builder = ::ext_php_rs::builders::ModuleBuilder::new(\"{}\", \"{}\")\n            .startup_function(__ext_php_rs_module_startup);\n        let builder = builder{};\n        match builder.try_into() {{\n            Ok((entry, startup)) => {{\n                *__EXT_PHP_RS_MODULE_STARTUP.lock().expect(\"module startup mutex poisoned\") = Some(startup);\n                entry\n            }}\n            Err(e) => panic!(\"Failed to build PHP module: {{:?}}\", e),\n        }}\n    }})\n}}\n",
         extension_name, version, class_registrations
     );
     builder.add_item(&module_code);
