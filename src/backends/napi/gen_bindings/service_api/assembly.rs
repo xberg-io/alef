@@ -147,7 +147,19 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
                             paren_depth -= 1;
                         }
                         '<' => angle_depth += 1,
-                        '>' => angle_depth -= 1,
+                        // Only decrement `angle_depth` when there's actually an open
+                        // generic — a `>` from `=>` (function-type arrow) is not a
+                        // generic close and must not push the counter negative.
+                        '>' if angle_depth > 0 => angle_depth -= 1,
+                        // `=>` inside a type annotation is a function-type arrow, not an
+                        // assignment terminator — skip past both chars and keep scanning.
+                        '=' if paren_depth == 0
+                            && angle_depth == 0
+                            && j + 1 < chars.len()
+                            && chars[j + 1] == '>' =>
+                        {
+                            j += 1;
+                        }
                         ',' | '=' | '{' | ';' if paren_depth == 0 && angle_depth == 0 => {
                             break;
                         }
@@ -251,5 +263,43 @@ import { appIntoRouter } from "./index";"#;
             js_output
         );
         assert!(!js_output.contains("RouteBuilder"), "type name should be removed");
+        // Critical: the method-body opener `{` must survive the strip.
+        // Earlier the function-type return annotation `=> any =>` confused the
+        // boundary scanner into stopping at the first `=`, leaving `{` consumed.
+        assert!(
+            js_output.trim_end().ends_with('{'),
+            "method-body opener `{{` must be preserved, got: {}",
+            js_output
+        );
+        assert!(
+            !js_output.contains("fn =>"),
+            "stripping must not leave fragmentary arrow-type pieces like `fn => any`, got: {}",
+            js_output
+        );
+    }
+
+    #[test]
+    fn strip_typescript_annotations_preserves_brace_on_method_with_arrow_return_type() {
+        // Regression test for service.cjs being unparseable: a method whose return type
+        // is itself a function type (`(...) => (...) => T`) used to drop the `{` body
+        // opener because the boundary scanner broke on the `=` from the first `=>`.
+        let ts_input = "  register_route(builder: RouteBuilder, handler: (...args: any[]) => any): this {";
+        let js_output = strip_typescript_annotations(ts_input);
+        assert!(
+            js_output.trim_end().ends_with('{'),
+            "method-body opener must survive when params contain arrow-type annotations, got: {}",
+            js_output
+        );
+        assert!(
+            js_output.contains("register_route(builder, handler)"),
+            "param-list type annotations should be stripped cleanly, got: {}",
+            js_output
+        );
+        // No stray `=> any` fragment must leak through.
+        assert!(
+            !js_output.contains("=> any"),
+            "arrow-type return fragments must be fully stripped, got: {}",
+            js_output
+        );
     }
 }
