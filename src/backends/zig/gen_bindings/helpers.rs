@@ -59,8 +59,8 @@ pub(crate) fn emit_helpers(prefix: &str, out: &mut String) {
     out.push_str("/// Coarse fallback: returns the first declared variant. Per-code dispatch\n");
     out.push_str("/// will replace this once the IR exposes per-variant numeric codes.\n");
     out.push_str("inline fn _first_error(comptime E: type) E {\n");
-    out.push_str("    const fields = @typeInfo(E).error_set orelse return @as(E, error.Unknown);\n");
-    out.push_str("    if (fields.len == 0) return @as(E, error.Unknown);\n");
+    out.push_str("    const fields = @typeInfo(E).error_set orelse unreachable;\n");
+    out.push_str("    if (fields.len == 0) unreachable;\n");
     out.push_str("    return @field(E, fields[0].name);\n");
     out.push_str("}\n");
 }

@@ -236,8 +236,17 @@ pub(super) fn build_args_and_setup(
                     "bool" | "boolean" => "false".to_string(),
                     "json_object" => {
                         if arg.optional {
-                            // Explicitly optional parameter: can safely pass null
-                            "null".to_string()
+                            // Explicitly optional parameter. When options_via == "from_json",
+                            // emit FromJson("{}") instead of null to satisfy binding requirements.
+                            if options_via == Some("from_json") {
+                                if let Some(opts_type) = options_type {
+                                    format!("{opts_type}.FromJson(\"{{}}\")")
+                                } else {
+                                    "null".to_string()
+                                }
+                            } else {
+                                "null".to_string()
+                            }
                         } else {
                             // Required parameter: infer the type and decide whether to construct or null.
                             // C# value types (structs, records) cannot be null, so emit `new T()`.
