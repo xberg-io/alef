@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.61] - 2026-06-09
+
+### Fixed
+
+- **Dart: stop injecting a `typedef BaseHandler = FutureOr<dynamic> Function(dynamic);` into `frb_generated.dart`.** The injection was originally added so that a parameter literally named `handler` could be invoked directly as a function (`await handler(task)`); after `handler_bridge_constructor.rs.jinja` was updated to emit the callback as `cb` instead of `handler` (v0.23.59), the typedef became both unnecessary and actively harmful — it shadowed FRB 2.x's real `BaseHandler` class import in `RustLibApiImpl`, so the typed field `handler: BaseHandler?` was resolved as a plain function and `handler.executeNormal(...)` in the FRB-emitted dispatcher failed with `The method 'executeNormal' isn't defined for the type 'FutureOr<String> Function(String)'`. The internal `inject_base_handler_typedef` helper is removed; FRB's own `BaseHandler` class now flows through untouched.
+
 ## [0.23.60] - 2026-06-09
 
 ### Fixed
