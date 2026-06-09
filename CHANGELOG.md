@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.65] - 2026-06-09
+
 ### Fixed
 
 - **kotlin-android: bump Foojay toolchain resolver plugin v0.7.0 → v0.10.0 in both `settings.gradle.kts` emitters.** v0.7.0 references `JvmVendorSpec.IBM_SEMERU`, a field Gradle 9.0+ removed (renamed to `IBM`). On Gradle 9.5.1 hosts the test_app build fails at project-evaluation with `Class org.gradle.jvm.toolchain.JvmVendorSpec does not have member field 'IBM_SEMERU'`. v0.10.0 is Gradle 9.x-safe. Patched both `src/backends/kotlin_android/gen_settings_gradle.rs:26` and `src/e2e/codegen/kotlin_android.rs:569`. Fixes tslp v1.9.0-rc.30 test_apps/kotlin_android (#146).
