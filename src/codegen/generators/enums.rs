@@ -84,6 +84,27 @@ fn to_pyo3_screaming(name: &str) -> String {
     }
 }
 
+/// Apply a serde `rename_all = "..."` rule to a Rust-style variant name. Returns the
+/// transformed wire identifier (`ElementBased` + `snake_case` → `element_based`). An empty
+/// rule (no enum-level rename_all attribute) returns the input unchanged so callers can
+/// uniformly dedup against `variant.name`.
+fn apply_rename_all(name: &str, rule: &str) -> String {
+    use heck::{ToKebabCase, ToLowerCamelCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
+    match rule {
+        "" => name.to_string(),
+        "lowercase" => name.to_ascii_lowercase(),
+        "UPPERCASE" => name.to_ascii_uppercase(),
+        "snake_case" => name.to_snake_case(),
+        "kebab-case" => name.to_kebab_case(),
+        "camelCase" => name.to_lower_camel_case(),
+        "PascalCase" => name.to_upper_camel_case(),
+        "SCREAMING_SNAKE_CASE" => name.to_shouty_snake_case(),
+        "SCREAMING-KEBAB-CASE" => name.to_shouty_kebab_case(),
+        // Unknown rule: pass through; this matches serde's tolerant behavior.
+        _ => name.to_string(),
+    }
+}
+
 /// Generate an enum.
 pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     // All enums are generated as unit-variant-only in the binding layer.
@@ -107,6 +128,7 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     // #[default] attribute); fall back to the first variant when none is explicitly marked.
     let default_idx = enum_def.variants.iter().position(|v| v.is_default).unwrap_or(0);
 
+    let serde_rename_all = enum_def.serde_rename_all.as_deref().unwrap_or("");
     let variants: Vec<_> = enum_def
         .variants
         .iter()
@@ -121,6 +143,13 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
             } else {
                 String::new()
             };
+            // Compute the on-the-wire (serde) name: explicit per-variant rename takes
+            // precedence; otherwise derive from the enum-level rename_all rule. This is what
+            // FromStr-style constructors must accept in addition to the raw variant name.
+            let wire_name = v
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| apply_rename_all(&v.name, serde_rename_all));
             minijinja::context! {
                 name => v.name.clone(),
                 idx => idx,
@@ -128,6 +157,7 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
                 has_pyo3_rename => is_pyo3,
                 pyo3_name => pyo3_name,
                 serde_rename => v.serde_rename.clone().unwrap_or_default(),
+                wire_name => wire_name,
             }
         })
         .collect();
@@ -149,7 +179,7 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
         minijinja::context! {
             enum_name => enum_def.name,
             derives => derives.join(", "),
-            serde_rename_all => enum_def.serde_rename_all.as_deref().unwrap_or(""),
+            serde_rename_all => serde_rename_all,
             enum_attrs => cfg.enum_attrs.to_vec(),
             variants => variants,
             is_pyo3 => is_pyo3,

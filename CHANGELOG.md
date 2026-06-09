@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.70] - 2026-06-09
+
+### Fixed
+
+- **PyO3 enum `__new__` FromStr now accepts wire names derived from `serde(rename_all = ...)`.** Previously only `variant.serde_rename` (per-variant attribute) seeded the FromStr alias arm. Enums with enum-level `#[serde(rename_all = "snake_case")]` (e.g. `ResultFormat::ElementBased` → wire name `element_based`) had no per-variant `serde_rename`, so the deserialized FromStr only matched the lowercased Rust identifier (`elementbased`). Calling `ResultFormat("element_based")` raised `ValueError: invalid value for ResultFormat: 'element_based'`. Added `apply_rename_all()` over `heck` that produces the wire name from `enum_def.serde_rename_all` (`snake_case`, `kebab-case`, `camelCase`, `PascalCase`, `SCREAMING_SNAKE_CASE`, `SCREAMING-KEBAB-CASE`, `lowercase`, `UPPERCASE`). The template now uses `variant.wire_name` (which prefers explicit serde_rename when present, else falls back to the rule-derived form) and emits the alias arm whenever it differs from the lowercased Rust identifier. Fixes CI kreuzberg run 27225519292 Python e2e job 80398941655: `test_contract.py::test_config_element_types`.
+
 ## [0.23.69] - 2026-06-09
 
 ### Fixed

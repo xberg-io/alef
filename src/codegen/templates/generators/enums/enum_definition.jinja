@@ -32,8 +32,8 @@ impl {{ enum_name }} {
             match s_lower.as_str() {
 {%- for variant in variants %}
                 "{{ variant.name | lower }}" => return Ok(Self::{{ variant.name }}),
-{%- if variant.serde_rename and (variant.serde_rename | lower) != (variant.name | lower) %}
-                "{{ variant.serde_rename | lower }}" => return Ok(Self::{{ variant.name }}),
+{%- if variant.wire_name and (variant.wire_name | lower) != (variant.name | lower) %}
+                "{{ variant.wire_name | lower }}" => return Ok(Self::{{ variant.name }}),
 {%- endif %}
 {%- endfor %}
                 _ => {}
