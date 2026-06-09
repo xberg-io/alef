@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Go: scaffold emits `go.mod` to `packages/go/v5/` instead of `packages/go/`.** The Go module path must live in a versioned subdirectory to allow future major versions (v6+) to coexist. The workspace `go.work` references `./packages/go/v5` and e2e tests `replace` into `../../packages/go/v5`, but the scaffold generator was emitting to the parent directory. Now all Go scaffold output (`go.mod`, `.golangci.yml`, `.lib/.gitkeep`) lands under `packages/go/v5/` consistently. Fixes CI E2E run 27197295469 Go binding module resolution errors.
+
+- **Zig: `_first_error()` helper no longer emits undefined `error.Unknown` fallback.** The helper function is used to map FFI error codes to Zig error set variants. When the error set type information was unavailable or had zero variants, the generator emitted `return @as(E, error.Unknown)` as a fallback, but `Unknown` is not a valid variant of any error set, causing Zig compilation to fail. Both fallback paths now emit `unreachable`, which is correct because valid error sets always have at least one variant and `@typeInfo(E).error_set` returns non-null for any error set type. Fixes CI E2E run 27197295469 Zig binding compilation errors.
+
 ## [0.23.63] - 2026-06-09
 
 ### Fixed
@@ -17,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **NAPI: service entrypoints declared in `[[crates.services.entrypoints]]` now ignore `exclude.methods` when emitting the free-function shim, the wrapper class method, and the import line.** The previous behaviour treated `exclude.methods` as authoritative for *every* code-gen site, which made it impossible to suppress the standard type-method placeholder (a `pub async fn run(&self) { compile_error!("alef cannot auto-delegate `App.run`"); }`) without ALSO suppressing the registration-replay free function (`pub async fn app_run(registrations: ...) -> napi::Result<()>`) that the wrapper class needs to call. Consuming-self entrypoints like `App::run(self) -> Result<...>` could not be exposed at all: the standard generator refused to delegate, and adding the method to `exclude.methods` then hid the entrypoint shim too. Service entrypoints are explicit config and override `exclude.methods`. The conflict between the two emission paths is gone, the wrapper class now exposes `async run(): Promise<void>` calling `appRun(this._registrations)`, and the standard-generator placeholder for the same method can still be suppressed via `exclude.methods` without affecting the entrypoint.
+- **NAPI: service entrypoints declared in `[[crates.services.entrypoints]]` now ignore `exclude.methods` when emitting the free-function shim, the wrapper class method, and the import line.** The previous behaviour treated `exclude.methods` as authoritative for _every_ code-gen site, which made it impossible to suppress the standard type-method placeholder (a `pub async fn run(&self) { compile_error!("alef cannot auto-delegate `App.run`"); }`) without ALSO suppressing the registration-replay free function (`pub async fn app_run(registrations: ...) -> napi::Result<()>`) that the wrapper class needs to call. Consuming-self entrypoints like `App::run(self) -> Result<...>` could not be exposed at all: the standard generator refused to delegate, and adding the method to `exclude.methods` then hid the entrypoint shim too. Service entrypoints are explicit config and override `exclude.methods`. The conflict between the two emission paths is gone, the wrapper class now exposes `async run(): Promise<void>` calling `appRun(this._registrations)`, and the standard-generator placeholder for the same method can still be suppressed via `exclude.methods` without affecting the entrypoint.
 
 ## [0.23.61] - 2026-06-09
 

@@ -12,12 +12,12 @@ pub(crate) fn scaffold_go(api: &ApiSurface, config: &ResolvedCrateConfig) -> any
 
     let mut files = vec![
         GeneratedFile {
-            path: PathBuf::from("packages/go/go.mod"),
+            path: PathBuf::from("packages/go/v5/go.mod"),
             content,
             generated_header: false,
         },
         GeneratedFile {
-            path: PathBuf::from("packages/go/.golangci.yml"),
+            path: PathBuf::from("packages/go/v5/.golangci.yml"),
             content: r#"version: "2"
 
 run:
@@ -146,7 +146,7 @@ formatters:
     // This directory will be referenced by go:embed directives in embed_ffi.go.
     // Pre-built FFI libraries for different platforms should be placed here.
     files.push(GeneratedFile {
-        path: PathBuf::from("packages/go/.lib/.gitkeep"),
+        path: PathBuf::from("packages/go/v5/.lib/.gitkeep"),
         content: String::new(),
         generated_header: false,
     });

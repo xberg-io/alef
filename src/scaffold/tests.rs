@@ -1166,7 +1166,7 @@ fn test_scaffold_go_uses_inert_module_when_unconfigured() {
     let files = language_files(&all_files);
     let go_mod = files
         .iter()
-        .find(|f| f.path == Path::new("packages/go/go.mod"))
+        .find(|f| f.path == Path::new("packages/go/v5/go.mod"))
         .expect("go.mod must be emitted");
 
     assert!(

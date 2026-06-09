@@ -4,7 +4,7 @@ impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
         {{ wire_param_name }}: {{ req_path }},
     ) -> Pin<Box<dyn std::future::Future<Output = {{ output_type }}> + Send + '_>> {
 
-        let handler_clone = self.handler.clone();
+        let handler_clone = self.callback.clone();
         Box::pin(async move {
             let outcome: {{ wire_output }} = async move {
 

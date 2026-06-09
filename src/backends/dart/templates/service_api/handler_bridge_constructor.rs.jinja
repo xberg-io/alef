@@ -4,7 +4,7 @@ impl {{ bridge_name }} {
         cb: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static,
     ) -> Self {
         Self {
-            handler: std::sync::Arc::new(cb),
+            callback: std::sync::Arc::new(cb),
         }
     }
 }
