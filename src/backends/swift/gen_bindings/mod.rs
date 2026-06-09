@@ -202,6 +202,7 @@ impl Backend for SwiftBackend {
                     &known_dto_names,
                     &unit_serde_enum_names,
                     &untagged_enum_names,
+                    &config.error_type_name(),
                     &mut body,
                 );
             } else {

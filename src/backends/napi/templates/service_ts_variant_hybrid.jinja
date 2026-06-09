@@ -5,11 +5,11 @@
   {{ variant_name }}({{ factory_params }}): (fn: (...args: any[]) => any) => (...args: any[]) => any;
   {{ variant_name }}({{ impl_params }}): this | ((fn: (...args: any[]) => any) => (...args: any[]) => any) {
 {{ wrapper_code }}    if (handler !== undefined) {
-      this._registrations.push(["{{ base_method }}", {{ metadata_array }}, handler]);
+      this._app.{{ variant_name }}({{ native_args }}, handler);
       return this;
     }
     return (fn: (...args: any[]) => any) => {
-      this._registrations.push(["{{ base_method }}", {{ metadata_array }}, fn]);
+      this._app.{{ variant_name }}({{ native_args }}, fn);
       return fn;
     };
   }

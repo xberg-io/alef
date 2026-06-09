@@ -361,11 +361,13 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
     use minijinja::Value;
 
     let class_name = csharp_type_name(&enum_def.name);
-    // Only include non-binding-excluded variants in the converter's switch statement
+    // Include all variants in the converter's switch statement.
+    // Non-binding-excluded variants deserialize normally.
+    // Binding-excluded variants (feature-gated or hidden from bindings) emit
+    // an error mentioning they are excluded, improving forward compatibility.
     let variants: Vec<Value> = enum_def
         .variants
         .iter()
-        .filter(|v| !v.binding_excluded)
         .map(|v| {
             let pascal = to_csharp_name(&v.name);
             let discriminator = v
@@ -374,12 +376,14 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
                 .unwrap_or_else(|| wire_variant_value(&v.name, None, enum_def.serde_rename_all.as_deref()));
             let is_unit = v.fields.is_empty();
             let is_tuple = !is_unit && v.fields.len() == 1 && is_tuple_field(&v.fields[0]);
+            let is_excluded = v.binding_excluded;
             Value::from_serialize(serde_json::json!({
                 "pascal": pascal,
                 "pascal_lower": pascal.to_lowercase(),
                 "discriminator": discriminator,
                 "is_unit": is_unit,
                 "is_tuple": is_tuple,
+                "is_excluded": is_excluded,
             }))
         })
         .collect();

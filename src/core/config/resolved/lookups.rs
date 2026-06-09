@@ -107,6 +107,7 @@ impl ResolvedCrateConfig {
             Language::Ruby => "packages/ruby".to_string(),
             Language::Php => "packages/php".to_string(),
             Language::Elixir => "packages/elixir".to_string(),
+            Language::Go => "packages/go/v5".to_string(),
             Language::KotlinAndroid => "packages/kotlin-android".to_string(),
             _ => format!("packages/{lang}"),
         }
@@ -586,7 +587,7 @@ tokio = "1"
         assert_eq!(r.package_dir(Language::Node), format!("crates/{}-node", r.name));
         assert_eq!(r.package_dir(Language::Wasm), format!("crates/{}-wasm", r.name));
         assert_eq!(r.package_dir(Language::Ruby), "packages/ruby");
-        assert_eq!(r.package_dir(Language::Go), "packages/go");
+        assert_eq!(r.package_dir(Language::Go), "packages/go/v5");
         assert_eq!(r.package_dir(Language::Java), "packages/java");
         assert_eq!(r.package_dir(Language::Kotlin), "packages/kotlin");
         assert_eq!(r.package_dir(Language::KotlinAndroid), "packages/kotlin-android");

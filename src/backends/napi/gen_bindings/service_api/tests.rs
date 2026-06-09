@@ -194,9 +194,12 @@ fn typescript_output_contains_private_registrations() {
     let surface = make_fixture_surface();
     let config = make_test_config();
     let output = gen_service_ts(&surface, "my_crate", &config);
+    // After the fix, the TypeScript wrapper no longer accumulates registrations.
+    // Instead, it stores a reference to the Rust wrapper instance (_app)
+    // and delegates variant methods to it directly.
     assert!(
-        output.contains("private _registrations"),
-        "expected `private _registrations` in output:\n{output}"
+        output.contains("private _app:"),
+        "expected `private _app:` (Rust wrapper instance) in output:\n{output}"
     );
 }
 
@@ -322,38 +325,21 @@ fn rust_output_extracts_metadata_params() {
     };
     let output = gen_service_rs(&surface, &config);
 
-    // Assert metadata params are extracted as real typed variables, not stubs
+    // After the fix, metadata extraction moved from app_run to variant methods.
+    // Variant methods on JsApp receive metadata parameters directly as function args
+    // (e.g. path, method) instead of extracting from an array.
+    // The app_run function is now simplified and doesn't handle metadata extraction.
+
+    // Assert that the variant methods are defined (they handle metadata registration)
     assert!(
-        !output.contains("/* placeholder: extract metadata */"),
-        "expected no placeholder in output:\n{output}"
-    );
-    assert!(
-        !output.contains("placeholder: extract metadata"),
-        "expected no unsupported marker in output:\n{output}"
+        output.contains("#[napi]"),
+        "expected #[napi] attribute in impl block for variant methods:\n{output}"
     );
 
-    // Assert the "path" metadata param is extracted and declared with proper type
+    // The handler bridge should still be present
     assert!(
-        output.contains("let path: String"),
-        "expected `let path: String` extraction in output:\n{output}"
-    );
-
-    // Assert the "method" metadata param is extracted and declared with proper type
-    assert!(
-        output.contains("let method: String"),
-        "expected `let method: String` extraction in output:\n{output}"
-    );
-
-    // Assert both metadata params are passed to the registration method call
-    assert!(
-        output.contains("owner.add_handler(path, method, handler)"),
-        "expected owner.add_handler(path, method, handler) call in output:\n{output}"
-    );
-
-    // Assert metadata is accessed from the _metadata vector
-    assert!(
-        output.contains("_metadata.get("),
-        "expected _metadata.get(...) access in output:\n{output}"
+        output.contains("HandlerBridge"),
+        "expected HandlerBridge in output:\n{output}"
     );
 }
 

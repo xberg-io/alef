@@ -67,6 +67,7 @@ pub(super) fn emit_first_class_struct(
     known_dto_names: &HashSet<String>,
     unit_enum_names: &HashSet<String>,
     untagged_enum_names: &HashSet<String>,
+    error_type_name: &str,
     out: &mut String,
 ) {
     let type_name = &ty.name;
@@ -258,6 +259,7 @@ pub(super) fn emit_first_class_struct(
                 known_dto_names,
                 unit_enum_names,
                 untagged_enum_names,
+                error_type_name,
             )
         };
         ffi_init_assignments.push_str(&crate::backends::swift::template_env::render(
@@ -641,6 +643,7 @@ pub(super) fn swift_ffi_read_expr(
     known_dto_names: &HashSet<String>,
     unit_enum_names: &HashSet<String>,
     untagged_enum_names: &HashSet<String>,
+    error_type_name: &str,
 ) -> String {
     // When the field is optional in the extractor-unwrapped IR form (field.optional == true
     // but TypeRef is NOT Optional), the swift-bridge getter returns `T?` natively.
@@ -668,7 +671,7 @@ pub(super) fn swift_ffi_read_expr(
             format!(
                 "try {{ let rawValue = rb.{accessor}().toString(); \
                  guard let value = {name}(rawValue: rawValue) else {{ \
-                 throw KreuzbergError.validation(message: \"Unknown {name} variant\", source: rawValue) \
+                 throw {error_type_name}.validation(message: \"Unknown {name} variant\", source: rawValue) \
                  }}; return value }}()"
             )
         }

@@ -5,7 +5,7 @@ use crate::backends::napi::template_env::render;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
 
-use super::helpers::{find_contract, gen_metadata_extraction, typeref_to_rust_type};
+use super::helpers::{find_contract, typeref_to_rust_type};
 
 pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
     api: &ApiSurface,
@@ -32,6 +32,11 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
     for contract in &referenced_contracts {
         gen_handler_bridge(&mut out, contract, &core_import);
     }
+
+    // Registration happens directly via variant methods on JsApp,
+    // which are exposed as #[napi] methods in the JsApp impl block.
+    // No need for separate registration functions — variants call
+    // the base registration method on their inner Arc<Mutex<App>> directly.
 
     // Emit one napi function per service × entrypoint. Service entrypoints are
     // declared explicitly under `[[crates.services.entrypoints]]` and are the
@@ -233,7 +238,7 @@ fn gen_run_napi_function(
     out: &mut String,
     service: &ServiceDef,
     ep: &crate::core::ir::EntrypointDef,
-    api: &ApiSurface,
+    _api: &ApiSurface,
     core_import: &str,
 ) {
     let service_snake = service.name.to_snake_case();
@@ -280,101 +285,9 @@ fn gen_run_napi_function(
         },
     ));
 
-    // Iterate registrations and dispatch
-    out.push_str("    for (method_name, _metadata, handler_fn) in registrations {\n");
-    out.push_str("        match method_name.as_str() {\n");
-
-    for reg in &service.registrations {
-        let reg_method = &reg.method;
-        let contract_name = &reg.callback_contract;
-
-        if let Some(contract) = find_contract(api, contract_name) {
-            // Check if any metadata param is opaque. If so, skip this registration
-            // in the generic app_run function since opaque types cannot be serialized
-            // from JavaScript. Verb shortcuts (get, post, etc.) use wrapper_call to
-            // construct opaque params, so they handle the registration differently.
-            let has_opaque_metadata = reg.metadata_params.iter().any(|p| {
-                if let TypeRef::Named(n) = &p.ty {
-                    api.types
-                        .iter()
-                        .find(|t| &t.name == n && !t.is_trait && t.is_opaque)
-                        .is_some()
-                } else {
-                    false
-                }
-            });
-
-            if has_opaque_metadata {
-                // Skip generic registration for this method in app_run.
-                // Verb variants (which use wrapper_call to construct opaque params)
-                // are sufficient for the binding-side API.
-                continue;
-            }
-
-            let bridge_name = format!("{}Bridge", contract.trait_name.to_upper_camel_case());
-
-            out.push_str(&render(
-                "service_rs_registration_arm_header.jinja",
-                context! {
-                    reg_method,
-                    bridge_name,
-                    core_import,
-                    contract_name,
-                },
-            ));
-
-            // Extract and convert metadata params from serde_json::Value entries
-            if !reg.metadata_params.is_empty() {
-                for (idx, param) in reg.metadata_params.iter().enumerate() {
-                    let param_name = &param.name;
-                    let rust_ty = typeref_to_rust_type(&param.ty, core_import);
-                    let extraction = gen_metadata_extraction(&param.ty, core_import, api);
-                    out.push_str(&render(
-                        "service_rs_metadata_binding.jinja",
-                        context! {
-                            param_name,
-                            rust_ty,
-                            idx,
-                            extraction,
-                        },
-                    ));
-                }
-                let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
-                let meta_args = meta_names.join(", ");
-                out.push_str(&render(
-                    "service_rs_registration_call.jinja",
-                    context! {
-                        reg_method,
-                        meta_args,
-                        has_meta => true,
-                    },
-                ));
-            } else {
-                out.push_str(&render(
-                    "service_rs_registration_call.jinja",
-                    context! {
-                        reg_method,
-                        meta_args => "",
-                        has_meta => false,
-                    },
-                ));
-            }
-
-            // Handle error if the registration is fallible
-            if reg.error_type.is_some() {
-                out.push_str(
-                    "                    .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n",
-                );
-            } else {
-                out.push_str("                    ;\n");
-            }
-            out.push_str("            }\n");
-        }
-    }
-
-    out.push_str("            _ => {}\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
+    // Registrations are now handled directly via variant methods that call
+    // nativeRegisterRoute, so we no longer need to dispatch them here.
+    // The owner already has the registered routes from those direct calls.
 
     // Call the entrypoint
     let ep_call = build_ep_call_napi(ep, service, core_import);

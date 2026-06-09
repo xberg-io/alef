@@ -74,13 +74,15 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
         {
             {%- for variant in variants %}
             "{{ variant.discriminator }}" =>
-                {%- if variant.is_unit %} new {{ class_name }}.{{ variant.pascal }}(),
+                {%- if variant.is_excluded %}
+                    throw new JsonException($"{{ class_name }}.{{ variant.pascal }} is excluded from this binding (feature-gated or hidden)"),
+                {%- elif variant.is_unit %} new {{ class_name }}.{{ variant.pascal }}(),
                 {%- elif variant.is_tuple %} JsonSerializer.Deserialize<{{ class_name }}.{{ variant.pascal }}>(wrappedJson, options) ?? throw new JsonException("Failed to deserialize variant"),
                 {%- else %} JsonSerializer.Deserialize<{{ class_name }}.{{ variant.pascal }}>(flatJson, options) ?? throw new JsonException("Failed to deserialize variant"),
                 {%- endif %}
             {%- endfor %}
-            // Unknown discriminator: binding-excluded variant or forward compatibility
-            _ => throw new JsonException($"Unknown {{ class_name }} discriminator: {tagValue} (this may be a binding-excluded variant)")
+            // Unknown discriminator: forward compatibility for unknown variants
+            _ => throw new JsonException($"Unknown {{ class_name }} discriminator: {tagValue}")
         };
     }
 
