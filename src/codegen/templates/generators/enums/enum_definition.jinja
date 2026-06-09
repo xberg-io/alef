@@ -23,6 +23,38 @@ pub enum {{ enum_name }} {
 
 #[pymethods]
 impl {{ enum_name }} {
+    #[new]
+    fn __new__(value: pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        use pyo3::prelude::*;
+        // Try to extract as string first
+        if let Ok(s) = value.extract::<&str>() {
+            let s_lower = s.to_lowercase();
+            match s_lower.as_str() {
+{%- for variant in variants %}
+                "{{ variant.name | lower }}" => return Ok(Self::{{ variant.name }}),
+{%- if variant.serde_rename %}
+                "{{ variant.serde_rename | lower }}" => return Ok(Self::{{ variant.name }}),
+{%- endif %}
+{%- endfor %}
+                _ => {}
+            }
+        }
+        // Try to extract as integer (by discriminant value)
+        if let Ok(n) = value.extract::<i32>() {
+            match n {
+{%- for variant in variants %}
+                {{ variant.idx }} => return Ok(Self::{{ variant.name }}),
+{%- endfor %}
+                _ => {}
+            }
+        }
+        let type_name = stringify!({{ enum_name }});
+        Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "invalid value for {}: {:#?}. Expected variant name (str) or discriminant (int)",
+            type_name, value
+        )))
+    }
+
 {{ string_methods }}
 }
 {%- endif %}
