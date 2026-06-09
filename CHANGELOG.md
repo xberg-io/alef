@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.51] - 2026-06-08
+
+### Fixed
+
+- **PHP `get_module()` now wires `ModuleStartup` into `module_startup_func` so class registrations actually reach PHP.** The 0.23.47 explicit `ModuleBuilder` pattern destructured `try_into()` as `(entry, _startup)` and dropped the `ModuleStartup` half. `ModuleStartup` is what carries the deferred `.class::<T>()` registrations; PHP only invokes them through the module's MINIT (`module_startup_func`). Without that wiring, every generated PHP extension loaded successfully but registered zero classes, producing `Class "X" not found` for every test that constructed an alef-generated class (255 PHPUnit tests → 216 errors against rc.52). Codegen now emits a `Mutex<Option<ModuleStartup>>` plus a `unsafe extern "C" fn` MINIT handler, and routes the builder through `.startup_function(__ext_php_rs_module_startup)` so the handler takes the startup value and calls `startup.startup(ty, mod_num)` at MINIT.
+
 ## [0.23.50] - 2026-06-08
 
 ### Fixed
