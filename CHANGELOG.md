@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.57] - 2026-06-09
+
+### Fixed
+
+- **napi service-wrapper direct-register method now emits in lowerCamelCase, not snake_case.** JavaScript classes use lowerCamelCase method names, but the wrapper was emitting `register_<method>` straight from the IR's snake_case identifier — consumers calling `app.registerRoute(builder, handler)` hit `TypeError: app.registerRoute is not a function` at runtime because the wrapper exposed `register_route` instead. The constructed name is now piped through `heck::to_lower_camel_case`, matching what the napi backend already does for native function emission (Round 4 snake→camel conversion). Regression test pins the expected `registerAddHandler` shape and verifies the snake_case form does not survive into the emitted class.
+
 ## [0.23.56] - 2026-06-09
 
 ### Changed
