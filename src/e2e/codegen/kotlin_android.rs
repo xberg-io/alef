@@ -1290,7 +1290,7 @@ pub fn emit_test_backend(
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr,
-        type_imports: Vec::new(),
+        type_imports: vec![interface_name.clone()],
         teardown_block: String::new(),
     }
 }

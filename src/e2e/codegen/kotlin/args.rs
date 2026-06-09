@@ -228,7 +228,7 @@ pub(super) fn build_args_and_setup(
                                     .map(|item| {
                                         if let Some(path) = item.as_str() {
                                             format!(
-                                                "{element_type}(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(\"{}\")), \"application/octet-stream\")",
+                                                "{element_type}(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(\"{}\")), java.nio.charset.StandardCharsets.UTF_8)",
                                                 escape_kotlin(path)
                                             )
                                         } else {

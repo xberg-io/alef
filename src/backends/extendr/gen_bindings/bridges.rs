@@ -489,7 +489,18 @@ pub(super) fn gen_extendr_json_bridged_function(
                 if matches!(inner.as_ref(), TypeRef::Named(n)
                     if !opaque_types.contains(n.as_str())
                         && !enum_names.contains(n.as_str())
-                        && !extendr_incompatible_types.contains(n.as_str()))));
+                        && !extendr_incompatible_types.contains(n.as_str()))))
+            && (param.optional || !cfg.named_non_opaque_params_by_ref);
+        // Non-optional Named struct when cfg.named_non_opaque_params_by_ref=true: use by-ref instead of JSON
+        let needs_by_ref_struct = !needs_json_enum
+            && !needs_json_struct
+            && !needs_json_vec
+            && cfg.named_non_opaque_params_by_ref
+            && !param.optional
+            && matches!(&param.ty, TypeRef::Named(n)
+                if !opaque_types.contains(n.as_str())
+                    && !enum_names.contains(n.as_str())
+                    && !extendr_incompatible_types.contains(n.as_str()));
         if needs_json_vec {
             let (core_ty_path, is_optional) = match &param.ty {
                 TypeRef::Vec(inner) => match inner.as_ref() {
@@ -532,6 +543,15 @@ pub(super) fn gen_extendr_json_bridged_function(
                 ));
                 body_preamble.push_str("    ");
             }
+        } else if needs_by_ref_struct {
+            // Non-optional Named struct with cfg.named_non_opaque_params_by_ref=true: use &T
+            let core_ty_path = match &param.ty {
+                TypeRef::Named(n) => format!("{core_import}::{n}"),
+                _ => unreachable!(),
+            };
+            let sig_ty = format!("&{core_ty_path}");
+            sig_params.push(format!("{}: {sig_ty}", param.name));
+            // No preamble needed — param is passed by-ref directly
         } else if needs_json_struct || needs_json_enum {
             let (core_ty_path, is_optional) = match &param.ty {
                 TypeRef::Named(n) => (format!("{core_import}::{n}"), false),
@@ -611,7 +631,8 @@ pub(super) fn gen_extendr_json_bridged_function(
                 || matches!(&param.ty, TypeRef::Optional(inner)
                 if matches!(inner.as_ref(), TypeRef::Named(n)
                     if !opaque_types.contains(n.as_str())
-                        && !enum_names.contains(n.as_str()))));
+                        && !enum_names.contains(n.as_str()))))
+            && (param.optional || !cfg.named_non_opaque_params_by_ref);
         if !needs_json && !needs_json_struct && !needs_json_enum {
             if let TypeRef::Named(n) = &param.ty {
                 if !opaque_types.contains(n.as_str()) {
@@ -670,7 +691,8 @@ pub(super) fn gen_extendr_json_bridged_function(
                     if matches!(inner.as_ref(), TypeRef::Named(n)
                         if !opaque_types.contains(n.as_str())
                             && !enum_names.contains(n.as_str())
-                            && !extendr_incompatible_types.contains(n.as_str()))));
+                            && !extendr_incompatible_types.contains(n.as_str()))))
+                && (param.optional || !cfg.named_non_opaque_params_by_ref);
             if needs_json {
                 if param.optional {
                     format!("{}_core.as_deref().unwrap_or_default()", param.name)
@@ -692,7 +714,11 @@ pub(super) fn gen_extendr_json_bridged_function(
                     format!("{}_core", param.name)
                 }
             } else if matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
-                if param.optional {
+                // By-ref Named struct (when cfg.named_non_opaque_params_by_ref=true and !param.optional)
+                if cfg.named_non_opaque_params_by_ref && !param.optional {
+                    // Signature is `&T`, pass directly to core fn that expects `&T`
+                    param.name.clone()
+                } else if param.optional {
                     format!("{}_core.as_ref()", param.name)
                 } else if param.is_mut {
                     format!("&mut {}_core", param.name)
@@ -721,14 +747,18 @@ pub(super) fn gen_extendr_json_bridged_function(
             _ => false,
         },
         TypeRef::Named(n) => {
-            enum_names.contains(n.as_str())
+            (enum_names.contains(n.as_str())
                 || extendr_incompatible_types.contains(n.as_str())
-                || !opaque_types.contains(n.as_str())
+                || !opaque_types.contains(n.as_str()))
+                && (p.optional
+                    || !cfg.named_non_opaque_params_by_ref
+                    || enum_names.contains(n.as_str())
+                    || extendr_incompatible_types.contains(n.as_str()))
         }
         TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n)
-            if enum_names.contains(n.as_str())
+            if (enum_names.contains(n.as_str())
                 || extendr_incompatible_types.contains(n.as_str())
-                || !opaque_types.contains(n.as_str())),
+                || !opaque_types.contains(n.as_str()))),
         _ => false,
     });
     let effectively_fallible = func.error_type.is_some() || params_need_json_deserialize;

@@ -664,12 +664,13 @@ pub(super) fn swift_ffi_read_expr(
             format!("rb.{accessor}().flatMap {{ {name}(rawValue: $0.toString()) }}")
         }
         TypeRef::Named(name) if unit_enum_names.contains(name) => {
-            // The Rust getter for enum fields returns `String` (the serde-serialized name).
-            // Since the bridge generates the value, the rawValue is always valid for known variants
-            // (unknown variants map to `other` when the enum has a catch-all, or panic otherwise).
-            // Using non-optional init here: callers that care about safety should make the field optional.
-            let unknown_message = format!("Unknown {name}: \\(rb.{accessor}().toString())");
-            format!("{name}(rawValue: rb.{accessor}().toString()) ?? {{ fatalError(\"{unknown_message}\") }}()")
+            // Throw proper error instead of crashing on unknown variants.
+            format!(
+                "try {{ let rawValue = rb.{accessor}().toString(); \
+                 guard let value = {name}(rawValue: rawValue) else {{ \
+                 throw KreuzbergError.validation(message: \"Unknown {name} variant\", source: rawValue) \
+                 }}; return value }}()"
+            )
         }
 
         // Named(S) where S is a first-class struct: getter returns RustBridge.S (or S?).
