@@ -74,6 +74,58 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
     for line in ts_code.lines() {
         let mut modified_line = line.to_string();
 
+        // Drop TypeScript method-overload signatures — lines that look like a method
+        // header but end with `;` instead of `{`. JS has no overload concept; only
+        // the implementation line (ending in `{`) should survive.
+        // Heuristic: a non-comment, non-import, non-`return` line that contains `(`
+        // before its trailing `;` and does not contain `=` (excluding assignments
+        // inside default-value expressions) is a signature-only declaration.
+        let trimmed = modified_line.trim();
+        if trimmed.ends_with(';')
+            && trimmed.contains('(')
+            && !trimmed.starts_with("//")
+            && !trimmed.starts_with("/*")
+            && !trimmed.starts_with('*')
+            && !trimmed.starts_with("import")
+            && !trimmed.starts_with("export")
+            && !trimmed.starts_with("const")
+            && !trimmed.starts_with("let")
+            && !trimmed.starts_with("var")
+            && !trimmed.starts_with("return")
+            && !trimmed.starts_with("throw")
+            && !trimmed.starts_with("this.")
+            && !trimmed.contains(" = ")
+            && !trimmed.contains(".push(")
+            && !trimmed.contains(".pop(")
+            && !trimmed.contains(".set(")
+            && !trimmed.contains(".get(")
+            && trimmed.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        {
+            // Looks like a method overload signature — drop it entirely.
+            continue;
+        }
+
+        // Strip TypeScript optional-parameter markers — `name?: T` → `name`.
+        // The `: T` part is removed by the type-annotation scanner below; here we
+        // just drop the trailing `?` so the JS param list is syntactically valid.
+        // Only `?` immediately followed by `:` or `,` or `)` qualifies.
+        let mut without_optional_marker = String::with_capacity(modified_line.len());
+        let bytes: Vec<char> = modified_line.chars().collect();
+        let mut k = 0;
+        while k < bytes.len() {
+            let c = bytes[k];
+            if c == '?' && k + 1 < bytes.len() {
+                let next = bytes[k + 1];
+                if next == ':' || next == ',' || next == ')' {
+                    k += 1;
+                    continue;
+                }
+            }
+            without_optional_marker.push(c);
+            k += 1;
+        }
+        modified_line = without_optional_marker;
+
         // Convert `import type { ... } from 'module'` → `const { ... } = require('module')`
         if modified_line.trim().starts_with("import type {") && modified_line.contains("from") {
             if let Some(start_brace) = modified_line.find('{') {
@@ -274,6 +326,49 @@ import { appIntoRouter } from "./index";"#;
         assert!(
             !js_output.contains("fn =>"),
             "stripping must not leave fragmentary arrow-type pieces like `fn => any`, got: {}",
+            js_output
+        );
+    }
+
+    #[test]
+    fn strip_typescript_annotations_drops_method_overload_signatures() {
+        let ts_input = "  get(path: string, handler: (...args: any[]) => any): this;\n  get(path: string): (fn: (...args: any[]) => any) => (...args: any[]) => any;\n  get(path: string, handler?: (...args: any[]) => any): this | ((fn: (...args: any[]) => any) => (...args: any[]) => any) {\n    return this;\n  }";
+        let js_output = strip_typescript_annotations(ts_input);
+        // Overload-only lines (ending with `;`) must be dropped — they have no body
+        // and JS rejects them as method declarations.
+        let lines: Vec<&str> = js_output.lines().collect();
+        let signature_only_lines: Vec<&&str> = lines
+            .iter()
+            .filter(|l| l.trim().ends_with(';') && l.contains("get(") && !l.contains('{'))
+            .collect();
+        assert!(
+            signature_only_lines.is_empty(),
+            "all overload signatures should be dropped, got: {}\noutput:\n{}",
+            signature_only_lines.len(),
+            js_output
+        );
+        // The implementation line (ending in `{`) must survive.
+        assert!(
+            lines.iter().any(|l| l.contains("get(") && l.trim_end().ends_with('{')),
+            "implementation line must be preserved, got:\n{}",
+            js_output
+        );
+    }
+
+    #[test]
+    fn strip_typescript_annotations_drops_optional_param_marker() {
+        let ts_input = "  get(path: string, handler?: (...args: any[]) => any): this {";
+        let js_output = strip_typescript_annotations(ts_input);
+        // The `?` on `handler?` must not survive — JS function params have no
+        // optional marker syntax (default-undefined is implicit).
+        assert!(
+            !js_output.contains("handler?"),
+            "optional-param `?` must be stripped, got: {}",
+            js_output
+        );
+        assert!(
+            js_output.contains("get(path, handler)"),
+            "stripped param list should be clean, got: {}",
             js_output
         );
     }
