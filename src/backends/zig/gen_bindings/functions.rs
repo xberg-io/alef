@@ -760,6 +760,7 @@ fn unwrap_return_expr(
                     prefix => prefix,
                     snake => &snake,
                     raw => raw,
+                    error_type => error_type,
                 },
             )
         }
@@ -795,6 +796,7 @@ fn unwrap_return_expr(
                         prefix => prefix,
                         snake => &snake,
                         raw => raw,
+                        error_type => error_type,
                     },
                 );
                 format!("if ({raw} == null) null else {inner_block}")

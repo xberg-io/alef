@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Publish workflow now mints `kreuzberg-dev-publisher[bot]` GitHub App tokens (`secrets.BOT_APP_ID` / `secrets.BOT_APP_PRIVATE_KEY`) for every release-write step**, replacing the prior `HOMEBREW_TOKEN` PAT and the workflow-scoped `GITHUB_TOKEN` used for release-asset uploads and homebrew-tap pushes. The bot identity must be granted branch-protection-bypass on `kreuzberg-dev/homebrew-tap` for tap pushes to land.
+
+## [0.23.53] - 2026-06-09
+
+### Fixed
+
+- **Zig `to_json` NULL-guard now returns a member of the function's declared error set instead of `error.Serialization`.** The 0.23.47 guard hardcoded `return error.Serialization`, but `Serialization` is not declared in the user's `<ErrorSet>` (e.g. `CrawlError`), so every `scrape`/`crawl`/`map_urls`-style wrapper failed to compile with `expected type 'error{...}![]u8', found 'error{Serialization}'`. The codegen now threads the function's `error_type` through to `return_named_json_block.jinja` and emits `_first_error({{ error_type }})` matching the pattern used elsewhere in the same function — preserving the null-guard while keeping the wrapper's return-type contract intact.
+
 ## [0.23.52] - 2026-06-09
 
 ### Fixed

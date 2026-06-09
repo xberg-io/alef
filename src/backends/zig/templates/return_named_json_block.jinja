@@ -1,7 +1,9 @@
 blk: {
         const _json_ptr = c.{{ prefix }}_{{ snake }}_to_json({{ raw }}.?);
         c.{{ prefix }}_{{ snake }}_free({{ raw }}.?);
-        if (_json_ptr == null) return error.Serialization; // FFI to_json returned NULL — surface as error instead of crashing on null-slice
+{% if error_type %}
+        if (_json_ptr == null) return _first_error({{ error_type }}); // FFI to_json returned NULL — surface first declared variant rather than crashing on null-slice
+{% endif %}
         defer _free_string(_json_ptr);
         const slice = std.mem.sliceTo(_json_ptr, 0);
         const owned = try std.heap.c_allocator.dupe(u8, slice);
