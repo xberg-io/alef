@@ -198,9 +198,15 @@ pub(super) fn render_test_method(
     // Check if this test needs ObjectMapper deserialization for json_object args.
     // Uses `resolve_field` so that `field = "input"` resolves to the whole fixture
     // input (and not a nested key called "input"), matching dart/swift behavior.
-    let needs_deser = options_type.is_some()
+    // Also include tests with array element types, which are deserialized inline.
+    let needs_deser = (options_type.is_some()
         && args.iter().any(|arg| {
             arg.arg_type == "json_object" && !crate::e2e::codegen::resolve_field(&fixture.input, &arg.field).is_null()
+        }))
+        || args.iter().any(|arg| {
+            arg.arg_type == "json_object"
+                && arg.element_type.is_some()
+                && !crate::e2e::codegen::resolve_field(&fixture.input, &arg.field).is_null()
         });
 
     // Merge per-call kotlin enum_fields (HashMap key = field path, value = enum type name)

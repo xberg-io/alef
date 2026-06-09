@@ -4,5 +4,5 @@
 {% endif %}
    */
   constructor({{ param_sig }}) {
-    // Constructor initialization (parameters stored for future use)
+    this._app = new {{ native_class_name }}({{ args }});
   }

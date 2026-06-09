@@ -139,7 +139,23 @@ pub(super) fn build_args_and_setup(
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
-                setup_lines.push(format!("var {} = {class_name}.{constructor_name}(null);", arg.name,));
+                // When config is null or empty object:
+                // - If the config type is default-constructible, emit new T()
+                // - Otherwise, emit null (will fail at runtime with ArgumentNullException)
+                let config_type = resolve_handle_config_type(arg, options_type, type_defs);
+                let default_config = if let Some(ctype) = &config_type {
+                    if is_default_constructible(ctype, type_defs) {
+                        format!("new {ctype}()")
+                    } else {
+                        "null".to_string()
+                    }
+                } else {
+                    "null".to_string()
+                };
+                setup_lines.push(format!(
+                    "var {} = {class_name}.{constructor_name}({default_config});",
+                    arg.name,
+                ));
             } else {
                 // Sort discriminator fields ("type") to appear first in nested objects so
                 // System.Text.Json [JsonPolymorphic] can find the type discriminator before

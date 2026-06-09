@@ -202,6 +202,8 @@ pub(super) fn render_test_file_inner(
     // Collect trait bridge class names used by fixtures in this file (kotlin_android only).
     // These are specified via call overrides, e.g., class = "ValidatorBridge".
     let mut trait_bridge_classes: HashSet<String> = HashSet::new();
+    // Collect plugin interface names (e.g., IDocumentExtractor, IValidator) for test stubs.
+    let mut plugin_interfaces: HashSet<String> = HashSet::new();
     if kotlin_android_style {
         for f in fixtures.iter() {
             let cc = e2e_config.resolve_call_for_fixture(
@@ -214,6 +216,28 @@ pub(super) fn render_test_file_inner(
             if let Some(overrides) = cc.overrides.get("kotlin_android") {
                 if let Some(bridge_class) = &overrides.class {
                     trait_bridge_classes.insert(bridge_class.clone());
+                    // Map bridge classes to their plugin interfaces
+                    match bridge_class.as_str() {
+                        "DocumentExtractorBridge" => {
+                            plugin_interfaces.insert("IDocumentExtractor".to_string());
+                        }
+                        "EmbeddingBackendBridge" => {
+                            plugin_interfaces.insert("IEmbeddingBackend".to_string());
+                        }
+                        "OcrBackendBridge" => {
+                            plugin_interfaces.insert("IOcrBackend".to_string());
+                        }
+                        "PostProcessorBridge" => {
+                            plugin_interfaces.insert("IPostProcessor".to_string());
+                        }
+                        "RendererBridge" => {
+                            plugin_interfaces.insert("IRenderer".to_string());
+                        }
+                        "ValidatorBridge" => {
+                            plugin_interfaces.insert("IValidator".to_string());
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
@@ -234,8 +258,27 @@ pub(super) fn render_test_file_inner(
             !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
         })
     });
+    // Also need ObjectMapper when a json_object arg has array elements with element_type.
+    let needs_object_mapper_for_array_elements = fixtures.iter().any(|f| {
+        let cc =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let lang_for_recipe = if kotlin_android_style {
+            "kotlin_android"
+        } else {
+            "kotlin"
+        };
+        let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang_for_recipe, f, cc, type_defs);
+        recipe.args.iter().any(|a| {
+            a.arg_type == "json_object"
+                && a.element_type.is_some()
+                && !crate::e2e::codegen::resolve_field(&f.input, &a.field).is_null()
+        })
+    });
     // HTTP fixtures always need ObjectMapper for JSON body comparison.
-    let needs_object_mapper = needs_object_mapper_for_options || needs_object_mapper_for_handle || has_http_fixtures;
+    let needs_object_mapper = needs_object_mapper_for_options
+        || needs_object_mapper_for_handle
+        || needs_object_mapper_for_array_elements
+        || has_http_fixtures;
 
     // Detect if any non-error fixture in this group is a streaming call.  The
     // kotlin_android target collects a Flow<T> into a List via `.toList()`, which
@@ -316,6 +359,14 @@ pub(super) fn render_test_file_inner(
         sorted_bridges.sort();
         for bridge_class in sorted_bridges {
             let _ = writeln!(out, "import {binding_pkg_for_imports}.{bridge_class}");
+        }
+    }
+    // Import plugin interfaces used by test stubs (kotlin_android only).
+    if !plugin_interfaces.is_empty() {
+        let mut sorted_interfaces: Vec<&String> = plugin_interfaces.iter().collect();
+        sorted_interfaces.sort();
+        for iface in sorted_interfaces {
+            let _ = writeln!(out, "import {binding_pkg_for_imports}.{iface}");
         }
     }
     let mut handle_config_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();

@@ -66,6 +66,11 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
     // Generate a switch/case based on the tag value
     out.push_str("        return switch (tagValue) {\n");
     for variant in &enum_def.variants {
+        // Skip excluded variants from the deserializer switch arms
+        if variant.binding_excluded {
+            continue;
+        }
+
         let discriminator = variant.serde_rename.clone().unwrap_or_else(|| {
             let name = &variant.name;
             // Apply the same naming convention as the Rust enum
@@ -114,10 +119,48 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
             out.push_str(".class);\n");
         }
     }
-    out.push_str("            default -> throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
-    out.push_str("                parser, \"Unknown ");
+
+    // Check for excluded variants in the default case
+    let excluded_variants: Vec<String> = enum_def
+        .variants
+        .iter()
+        .filter(|v| v.binding_excluded)
+        .map(|v| {
+            let discriminator = v.serde_rename.clone().unwrap_or_else(|| {
+                let name = &v.name;
+                enum_def
+                    .serde_rename_all
+                    .as_deref()
+                    .map(|strategy| java_apply_rename_all(name, Some(strategy)))
+                    .unwrap_or_else(|| java_apply_rename_all(name, None))
+            });
+            format!("\"{}\"", discriminator)
+        })
+        .collect();
+
+    out.push_str("            default -> {\n");
+    if !excluded_variants.is_empty() {
+        out.push_str("                if (");
+        for (i, variant_discriminator) in excluded_variants.iter().enumerate() {
+            if i > 0 {
+                out.push_str(" || ");
+            }
+            out.push_str("tagValue.equals(");
+            out.push_str(variant_discriminator);
+            out.push(')');
+        }
+        out.push_str(") {\n");
+        out.push_str("                    throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
+        out.push_str("                        parser, \"");
+        out.push_str(&enum_def.name);
+        out.push_str(" variant '\" + tagValue + \"' is not available in this binding\");\n");
+        out.push_str("                }\n");
+    }
+    out.push_str("                throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
+    out.push_str("                    parser, \"Unknown ");
     out.push_str(&enum_def.name);
     out.push_str(" discriminator: \" + tagValue);\n");
+    out.push_str("            }\n");
     out.push_str("        };\n");
     out.push_str("    }\n");
     out.push_str("}\n");

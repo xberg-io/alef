@@ -215,35 +215,45 @@ pub(super) fn build_args_and_setup(
             Some(v) => {
                 // Typed arrays carry `element_type` and are materialised as `listOf(...)`.
                 // For kotlin_android batch APIs the element type is a binding class
-                // (e.g. FileBytesItem) that wraps file bytes + content type, so string
-                // path entries must be read into ByteArray and wrapped in a constructor call.
-                // For JVM bindings the element type matches the JSON literal shape, so we emit
-                // the raw `listOf(literals)` form.
+                // (e.g. BatchBytesItem) that wraps multiple fields from JSON objects.
+                // For JVM bindings, when element_type is present, deserialize objects via Jackson
+                // instead of emitting raw JSON strings.
                 if arg.arg_type == "json_object" && v.is_array() && arg.element_type.is_some() {
-                    if let Some(element_type) = arg.element_type.as_deref().filter(|_| kotlin_android_style) {
-                        let items: Vec<String> = v
-                            .as_array()
-                            .map(|arr| {
-                                arr.iter()
-                                    .map(|item| {
-                                        if let Some(path) = item.as_str() {
+                    let element_type = arg.element_type.as_deref().unwrap();
+                    let items: Vec<String> = v
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .map(|item| {
+                                    // For object items, deserialize via Jackson to the element type
+                                    if item.is_object() {
+                                        let normalized = crate::e2e::codegen::transform_json_keys_for_language(item, "snake_case");
+                                        let json_str = serde_json::to_string(&normalized).unwrap_or_default();
+                                        format!(
+                                            "MAPPER.readValue(\"{}\", {element_type}::class.java)",
+                                            escape_kotlin(&json_str)
+                                        )
+                                    } else if let Some(path) = item.as_str() {
+                                        // For string items (file paths), construct the element with the path
+                                        if kotlin_android_style {
                                             format!(
                                                 "{element_type}(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(\"{}\")), java.nio.charset.StandardCharsets.UTF_8)",
                                                 escape_kotlin(path)
                                             )
                                         } else {
-                                            super::values::json_to_kotlin(item)
+                                            // JVM version takes Path objects, not ByteArray
+                                            format!(
+                                                "{element_type}(java.nio.file.Paths.get(\"{}\"))",
+                                                escape_kotlin(path)
+                                            )
                                         }
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        parts.push(format!("listOf({})", items.join(", ")));
-                        continue;
-                    }
-                    let items: Vec<String> = v
-                        .as_array()
-                        .map(|arr| arr.iter().map(super::values::json_to_kotlin).collect())
+                                    } else {
+                                        // Fallback for other literal types
+                                        super::values::json_to_kotlin(item)
+                                    }
+                                })
+                                .collect()
+                        })
                         .unwrap_or_default();
                     parts.push(format!("listOf({})", items.join(", ")));
                     continue;

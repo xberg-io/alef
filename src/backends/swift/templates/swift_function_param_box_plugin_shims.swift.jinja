@@ -8,14 +8,14 @@
         return RustString(bridge.version())
     }
 
-    public func alef_initialize() -> RustString {
+    public func alef_initialize() -> String {
         do {
             try bridge.initialize()
             return encodeOkVoidEnvelope()
         } catch { return encodeErrEnvelope("\(error)") }
     }
 
-    public func alef_shutdown() -> RustString {
+    public func alef_shutdown() -> String {
         do {
             try bridge.shutdown()
             return encodeOkVoidEnvelope()

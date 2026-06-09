@@ -246,9 +246,9 @@ pub struct ParamDecode {
 /// - If method returns `Vec<String>` and no error: `"RustVec<RustString>"`.
 /// - If method returns [other complex] and no error: `"RustString"` (envelope).
 pub fn swift_shim_return_ffi_type(method: &MethodDef) -> String {
-    // If the method can throw, it always returns an envelope (RustString).
+    // If the method can throw, it always returns an envelope (String).
     if method.error_type.is_some() {
-        return "RustString".to_string();
+        return "String".to_string();
     }
 
     // No error type: return the actual type mapped to FFI.

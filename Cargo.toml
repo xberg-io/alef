@@ -1,6 +1,6 @@
 [package]
 name = "alef"
-version = "0.23.68"
+version = "0.23.69"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"

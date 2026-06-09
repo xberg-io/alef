@@ -67,7 +67,9 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
         let app_type_name = format!("{prefix}{}", service.name);
         let mut impl_methods = String::new();
 
-        // Emit variant methods (per-verb registration shortcuts)
+        // Emit variant methods (per-verb registration shortcuts) so the TS
+        // wrapper class can delegate per-variant calls to the napi class
+        // without round-tripping callbacks through serde.
         for reg in &service.registrations {
             for variant in &reg.variants {
                 gen_variant_napi_method(&mut impl_methods, service, reg, variant, api, &core_import, config);

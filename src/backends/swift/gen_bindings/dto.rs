@@ -60,6 +60,7 @@ pub(super) fn first_class_field_supported(ty: &TypeRef, known_dto_names: &HashSe
 ///          when field names differ from their wire (serde snake_case) keys.
 /// Layer 2: `internal extension Foo` with `init(_ rb: RustBridge.Foo) throws` and
 ///          `func intoRust() throws -> RustBridge.Foo` for FFI marshaling.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_first_class_struct(
     ty: &TypeDef,
     mapper: &SwiftMapper,

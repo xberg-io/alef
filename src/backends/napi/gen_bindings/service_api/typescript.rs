@@ -143,9 +143,10 @@ fn gen_service_class_ts(
     service: &ServiceDef,
     api: &ApiSurface,
     _native_module: &str,
-    _config: &ResolvedCrateConfig,
+    config: &ResolvedCrateConfig,
 ) {
     let class_name = &service.name;
+    let native_class_name = format!("{}{}", config.node_type_prefix(), service.name);
 
     // Class docstring
     let class_doc = if service.doc.is_empty() {
@@ -158,6 +159,7 @@ fn gen_service_class_ts(
         context! {
             class_doc,
             class_name,
+            native_class_name => native_class_name.as_str(),
         },
     ));
 
@@ -205,12 +207,20 @@ fn gen_service_class_ts(
         }
 
         let param_sig = params.join(", ");
+        let args = ctor
+            .params
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
         let doc = ctor.doc.trim().replace('\n', "\n   * ");
         out.push_str(&render(
             "service_ts_constructor.jinja",
             context! {
                 doc,
                 param_sig,
+                args,
+                native_class_name => native_class_name.as_str(),
             },
         ));
     }
@@ -602,6 +612,12 @@ fn emit_variant_hybrid_overloaded(
         p.push("handler?: (...args: any[]) => any".to_string());
         p.join(", ")
     };
+    let native_args = variant
+        .signature_params
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
 
     let doc = variant
         .doc
@@ -623,6 +639,7 @@ fn emit_variant_hybrid_overloaded(
             wrapper_code,
             base_method,
             metadata_array,
+            native_args,
         },
     ));
 }
