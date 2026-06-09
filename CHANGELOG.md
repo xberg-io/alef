@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Publish workflow now mints `kreuzberg-dev-publisher[bot]` GitHub App tokens (`secrets.BOT_APP_ID` / `secrets.BOT_APP_PRIVATE_KEY`) for every release-write step**, replacing the prior `HOMEBREW_TOKEN` PAT and the workflow-scoped `GITHUB_TOKEN` used for release-asset uploads and homebrew-tap pushes. The bot identity must be granted branch-protection-bypass on `kreuzberg-dev/homebrew-tap` for tap pushes to land.
 
+## [0.23.55] - 2026-06-09
+
+### Fixed
+
+- **napi `strip_typescript_annotations` now drops TypeScript method overload signatures and optional-parameter markers, both of which the 0.23.54 fix did not address.** When a class defines multiple overload signatures followed by a single implementation (e.g. `get(path: string, handler: Fn): this;` / `get(path: string): (fn: Fn) => Fn;` / `get(path: string, handler?: Fn): ... { ... }`), the prior strip left the signature-only lines (ending in `;`) in the emitted `service.cjs`. JavaScript has no overload concept and rejects bodyless method declarations as syntax errors — the published `@spikard/node`-style package's `service.cjs` was unparseable. Separately, optional-parameter markers like `handler?:` had the type stripped but the `?` survived, leaving `handler?` as a parameter name which is not legal JS. Both fixes are line-shape heuristics in the strip pipeline: bodyless method-header lines (non-import, non-keyword, contains `(`, ends `;`) are dropped wholesale; `?` immediately followed by `:`, `,`, or `)` is treated as the optional marker and elided. Two regression tests pin each behavior. Combined with 0.23.54's brace-preservation fix, the emitted `service.cjs` now passes `oxlint`.
+
 ## [0.23.54] - 2026-06-09
 
 ### Fixed
