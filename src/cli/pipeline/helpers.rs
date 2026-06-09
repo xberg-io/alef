@@ -301,7 +301,9 @@ pub(crate) fn run_command_captured_with_timeout(
 /// Run a shell command, capturing stdout and stderr.
 ///
 /// Returns the captured output on success.  On failure the error includes
-/// the command string and captured stderr for diagnostics.
+/// the command string, captured stderr **and** stdout — many tools (pnpm,
+/// napi, cargo when wrapped by sccache) write diagnostics to stdout, so
+/// surfacing only stderr leaves CI failures opaque.
 pub(crate) fn run_command_captured(cmd: &str) -> anyhow::Result<(String, String)> {
     info!("Running: {cmd}");
     let output = std::process::Command::new("sh")
@@ -311,7 +313,7 @@ pub(crate) fn run_command_captured(cmd: &str) -> anyhow::Result<(String, String)
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     if !output.status.success() {
-        anyhow::bail!("Command failed: {cmd}\n{stderr}");
+        anyhow::bail!("Command failed: {cmd}\n--- stderr ---\n{stderr}\n--- stdout ---\n{stdout}");
     }
     Ok((stdout, stderr))
 }

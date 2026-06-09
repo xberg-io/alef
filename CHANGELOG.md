@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.71] - 2026-06-09
+
+### Fixed
+
+- **CLI: `run_command_captured` includes both stdout and stderr in failure messages.** Before-hook and other captured commands previously surfaced only stderr on failure. Many real-world tools (pnpm, napi-rs CLI, cargo wrapped by sccache) write diagnostics to stdout, so opaque failures like `before hook failed for node` had no actionable detail attached. The error now formats as `Command failed: <cmd>\n--- stderr ---\n<stderr>\n--- stdout ---\n<stdout>`, exposing what the tool actually printed and unblocking CI triage.
+
 ## [0.23.70] - 2026-06-09
 
 ### Fixed
