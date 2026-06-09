@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.62] - 2026-06-09
+
+### Fixed
+
+- **NAPI: service entrypoints declared in `[[crates.services.entrypoints]]` now ignore `exclude.methods` when emitting the free-function shim, the wrapper class method, and the import line.** The previous behaviour treated `exclude.methods` as authoritative for *every* code-gen site, which made it impossible to suppress the standard type-method placeholder (a `pub async fn run(&self) { compile_error!("alef cannot auto-delegate `App.run`"); }`) without ALSO suppressing the registration-replay free function (`pub async fn app_run(registrations: ...) -> napi::Result<()>`) that the wrapper class needs to call. Consuming-self entrypoints like `App::run(self) -> Result<...>` could not be exposed at all: the standard generator refused to delegate, and adding the method to `exclude.methods` then hid the entrypoint shim too. Service entrypoints are explicit config and override `exclude.methods`. The conflict between the two emission paths is gone, the wrapper class now exposes `async run(): Promise<void>` calling `appRun(this._registrations)`, and the standard-generator placeholder for the same method can still be suppressed via `exclude.methods` without affecting the entrypoint.
+
 ## [0.23.61] - 2026-06-09
 
 ### Fixed

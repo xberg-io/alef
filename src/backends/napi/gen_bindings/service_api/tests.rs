@@ -439,52 +439,43 @@ fn registration_variants_emit_napi_methods() {
 }
 
 #[test]
-fn typescript_output_skips_excluded_entrypoint() {
+fn typescript_output_emits_entrypoint_even_when_method_excluded() {
+    // Service entrypoints are explicit config (`[[crates.services.entrypoints]]`)
+    // and must always be emitted on the wrapper, even when the same method
+    // appears in `exclude.methods`. The exclude list is used to suppress the
+    // *standard* type-method placeholder for items that can't be auto-delegated
+    // (consuming-self), not to suppress the wrapper class's run/finalize hooks.
     let surface = make_fixture_surface();
     let mut config = make_test_config();
-    // Add the entrypoint method to the exclude list
     config.exclude.methods.push("TestService.run".to_string());
 
     let output = gen_service_ts(&surface, "my_crate", &config);
 
-    // Should NOT contain the run method when excluded
     assert!(
-        !output.contains("async run(addr: string)"),
-        "excluded `async run` entrypoint should not be present:\n{output}"
+        output.contains("async run(addr: string)"),
+        "service entrypoint `run` must still be emitted even when in exclude.methods:\n{output}"
     );
-
-    // Should NOT import the native function when excluded
-    assert!(
-        !output.contains("import { test_service_run }"),
-        "excluded native function import should not be present:\n{output}"
-    );
-
-    // But should still contain the class
     assert!(
         output.contains("export class TestService"),
-        "service class should still be present even with excluded entrypoint:\n{output}"
+        "service class must still be present:\n{output}"
     );
 }
 
 #[test]
-fn rust_output_skips_excluded_entrypoint() {
+fn rust_output_emits_entrypoint_free_fn_even_when_method_excluded() {
     let surface = make_fixture_surface();
     let mut config = make_test_config();
-    // Add the entrypoint method to the exclude list
     config.exclude.methods.push("TestService.run".to_string());
 
     let output = gen_service_rs(&surface, &config);
 
-    // Should NOT contain the napi function when excluded
     assert!(
-        !output.contains("pub async fn test_service_run"),
-        "excluded `test_service_run` napi function should not be present:\n{output}"
+        output.contains("pub async fn test_service_run"),
+        "service entrypoint free fn must still be emitted even when in exclude.methods:\n{output}"
     );
-
-    // But should still contain the handler bridge
     assert!(
         output.contains("pub struct RequestHandlerBridge"),
-        "RequestHandlerBridge should still be present even with excluded entrypoint:\n{output}"
+        "RequestHandlerBridge should still be present:\n{output}"
     );
 }
 

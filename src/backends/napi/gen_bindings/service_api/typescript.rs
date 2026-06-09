@@ -79,13 +79,12 @@ fn classify_service_imports(api: &ApiSurface, config: &ResolvedCrateConfig) -> S
 
         let service_name = &service.name;
         for ep in &service.entrypoints {
-            let method_key = format!("{}.{}", service_name, ep.method);
-            if !config.exclude.methods.contains(&method_key) {
-                // napi-rs auto-camelCases Rust function names at the JS boundary
-                // (e.g. `app_into_router` → `appIntoRouter`), so the imported
-                // symbol must match the camelCase form.
-                native_imports.push(format!("{}_{}", service_name.to_snake_case(), ep.method).to_lower_camel_case());
-            }
+            // napi-rs auto-camelCases Rust function names at the JS boundary
+            // (e.g. `app_into_router` → `appIntoRouter`), so the imported
+            // symbol must match the camelCase form. Service entrypoints are
+            // explicit config and always import their free-function shim — the
+            // wrapper class needs it regardless of `exclude.methods`.
+            native_imports.push(format!("{}_{}", service_name.to_snake_case(), ep.method).to_lower_camel_case());
         }
     }
 
@@ -251,16 +250,12 @@ fn gen_service_class_ts(
         gen_registration_method_ts(out, reg, service, api);
     }
 
-    // Entrypoint methods
+    // Entrypoint methods — service entrypoints are declared explicitly in
+    // `[[crates.services.entrypoints]]` and always belong on the wrapper class,
+    // even when the same method is listed in `exclude.methods` to suppress the
+    // standard type-method placeholder. See the parallel comment in
+    // `service_api::rust_glue` for the full rationale.
     for ep in &service.entrypoints {
-        let method_key = format!("{}.{}", class_name, ep.method);
-        let is_excluded = config.exclude.methods.contains(&method_key);
-
-        // Skip generating entrypoint methods that are excluded from bindings
-        if is_excluded {
-            continue;
-        }
-
         let mut params = Vec::new();
         for p in &ep.params {
             let ty = typescript_type_annotation(&p.ty);
@@ -786,18 +781,15 @@ mod classify_service_imports_tests {
     }
 
     #[test]
-    fn excludes_native_import_when_entrypoint_method_is_excluded() {
-        let api = fixture_surface();
-        let mut config = ResolvedCrateConfig::default();
-        config.exclude.methods.push("App.run".to_owned());
-
-        let imports = classify_service_imports(&api, &config);
-
-        assert_eq!(imports.native_imports, vec!["appIntoRouter"]);
-    }
-
-    #[test]
-    fn empty_native_imports_when_all_entrypoints_excluded() {
+    fn entrypoint_imports_ignore_exclude_methods() {
+        // Service entrypoints are declared explicitly under
+        // `[[crates.services.entrypoints]]` and must always import their
+        // free-function shim — they are the wrapper class's entry into the
+        // native binding. `exclude.methods` is a generic per-method blacklist
+        // used to suppress the standard type-method placeholder for items that
+        // cannot be auto-delegated (consuming-self, async, etc.); it must not
+        // suppress entrypoint imports, because the wrapper still needs to
+        // reach the registration-replay free function.
         let api = fixture_surface();
         let mut config = ResolvedCrateConfig::default();
         config.exclude.methods.push("App.run".to_owned());
@@ -805,7 +797,7 @@ mod classify_service_imports_tests {
 
         let imports = classify_service_imports(&api, &config);
 
-        assert!(imports.native_imports.is_empty());
+        assert_eq!(imports.native_imports, vec!["appIntoRouter", "appRun"]);
     }
 
     #[test]

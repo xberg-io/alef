@@ -33,13 +33,15 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
         gen_handler_bridge(&mut out, contract, &core_import);
     }
 
-    // Emit one napi function per service × entrypoint (skip if excluded)
+    // Emit one napi function per service × entrypoint. Service entrypoints are
+    // declared explicitly under `[[crates.services.entrypoints]]` and are the
+    // intended public surface — they bypass `exclude.methods`, which is a
+    // general per-method blacklist used to suppress the standard type-method
+    // generator's placeholder for items that can't be auto-delegated (e.g.
+    // consuming-self) but that the service wrapper *does* need to call via
+    // the registration-replay free function pattern.
     for service in &api.services {
         for ep in &service.entrypoints {
-            let method_key = format!("{}.{}", service.name, ep.method);
-            if config.exclude.methods.contains(&method_key) {
-                continue;
-            }
             gen_run_napi_function(&mut out, service, ep, api, &core_import);
         }
     }
