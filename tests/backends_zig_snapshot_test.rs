@@ -621,6 +621,7 @@ fn fallible_function_returning_primitive_no_null_check() {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     });
 
     let config = make_basic_config();

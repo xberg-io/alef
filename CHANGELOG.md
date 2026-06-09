@@ -7,28 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.23.58] - 2026-06-09
+## [0.23.56] - 2026-06-09
 
 ### Added
 
-- **Per-item version annotations in IR and docs generator**: Added `VersionAnnotation` and `DeprecationInfo` types to the IR. `FunctionDef`, `MethodDef`, `TypeDef`, `EnumDef`, and `EnumVariant` now carry a `version` field populated from `#[alef(since = "x.y.z")]` and `#[deprecated(since = "...", note = "...")]` Rust attributes. The docs generator renders a `**Since:** \`vX.Y.Z\`` badge and a `!!! warning` admonition for deprecated items in generated `api-{lang}.md` reference pages. Variant-level version annotations are inlined into the description column of the enum table. Backend binding emission (e.g. `@Deprecated` in Java, `[Obsolete]` in C#) is tracked as a follow-up.
-
-### Fixed
-
-- **NAPI: enum variant doc comments now have `*/` inside backticks escaped so the outer JSDoc block doesn't terminate early.** Variant rustdoc like `` `/** ... */` `` in `DocstringFormat::JSDoc` was emitting `/** JSDoc (`/** ... */`). */` which oxlint rejected as `TS(1164): Computed property names are not allowed in enums`. The escape is now applied after doc sanitization to prevent the `*/` sequence (whether in backticks or inline code spans) from prematurely closing the JSDoc comment block in generated `.d.ts` files. Regression test verifies `*/` inside backticks is emitted as `* /`.
-
-## [0.23.57] - 2026-06-09
-
-### Fixed
-
-- **napi service-wrapper direct-register method now emits in lowerCamelCase, not snake_case.** JavaScript classes use lowerCamelCase method names, but the wrapper was emitting `register_<method>` straight from the IR's snake_case identifier — consumers calling `app.registerRoute(builder, handler)` hit `TypeError: app.registerRoute is not a function` at runtime because the wrapper exposed `register_route` instead. The constructed name is now piped through `heck::to_lower_camel_case`, matching what the napi backend already does for native function emission (Round 4 snake→camel conversion). Regression test pins the expected `registerAddHandler` shape and verifies the snake_case form does not survive into the emitted class.
-
-## [0.23.56] - 2026-06-09
+- **Per-item version annotations in IR and docs generator.** Added `VersionAnnotation` and `DeprecationInfo` types to the IR. `FunctionDef`, `MethodDef`, `TypeDef`, `EnumDef`, and `EnumVariant` now carry a `version` field populated from `#[alef(since = "x.y.z")]` and `#[deprecated(since = "...", note = "...")]` Rust attributes. The docs generator renders a `**Since:** \`vX.Y.Z\`` badge and a `!!! warning` admonition for deprecated items in generated `api-{lang}.md` reference pages. Variant-level version annotations are inlined into the description column of the enum table. Backend binding emission (e.g. `@Deprecated` in Java, `[Obsolete]` in C#) is tracked as a follow-up.
 
 ### Changed
 
 - **Publish workflow now mints `kreuzberg-dev-publisher[bot]` GitHub App tokens (`secrets.BOT_APP_ID` / `secrets.BOT_APP_PRIVATE_KEY`) for every release-write step**, replacing the prior `HOMEBREW_TOKEN` PAT and the workflow-scoped `GITHUB_TOKEN` used for release-asset uploads and homebrew-tap pushes. The bot identity must be granted branch-protection-bypass on `kreuzberg-dev/homebrew-tap` for tap pushes to land.
 - **Bump `ext-php-rs` pin from `0.15.12` to `0.15.15`.** Picks up the latest 0.15.x patches; the minimum-version comment still notes `0.15.12+` as the floor required by the `StaticModuleEntry`-based module entry in `gen_bindings/rust_bindings.rs`.
+
+### Fixed
+
+- **NAPI: enum variant doc comments now have `*/` inside backticks escaped so the outer JSDoc block doesn't terminate early.** Variant rustdoc like `` `/** ... */` `` in `DocstringFormat::JSDoc` was emitting `/** JSDoc (`/** ... */`). */` which oxlint rejected as `TS(1164): Computed property names are not allowed in enums`. The escape is now applied after doc sanitization to prevent the `*/` sequence (whether in backticks or inline code spans) from prematurely closing the JSDoc comment block in generated `.d.ts` files. Regression test verifies `*/` inside backticks is emitted as `* /`.
+- **napi service-wrapper direct-register method now emits in lowerCamelCase, not snake_case.** JavaScript classes use lowerCamelCase method names, but the wrapper was emitting `register_<method>` straight from the IR's snake_case identifier — consumers calling `app.registerRoute(builder, handler)` hit `TypeError: app.registerRoute is not a function` at runtime because the wrapper exposed `register_route` instead. The constructed name is now piped through `heck::to_lower_camel_case`, matching what the napi backend already does for native function emission (Round 4 snake→camel conversion). Regression test pins the expected `registerAddHandler` shape and verifies the snake_case form does not survive into the emitted class.
 
 ## [0.23.55] - 2026-06-09
 
