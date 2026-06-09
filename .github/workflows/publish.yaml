@@ -216,7 +216,7 @@ jobs:
       needs.publish-crates.result != 'failure'
     runs-on: runner-medium
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: tap-token
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
@@ -283,7 +283,7 @@ jobs:
             bottle_tag: arm64_linux
             install_brew: true
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
@@ -328,7 +328,7 @@ jobs:
       needs.homebrew-bottles.result == 'success'
     runs-on: runner-medium
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: tap-token
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
@@ -388,7 +388,7 @@ jobs:
       (needs.check-github-release.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
     runs-on: runner-medium
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
