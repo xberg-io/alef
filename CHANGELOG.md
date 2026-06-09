@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **NAPI: service wrapper class now exported from service.cjs for CommonJS consumers.** The generated `service.ts` TypeScript file declares `export class App { ... }` and now also emits an explicit `export { App };` statement at the end. When `strip_typescript_annotations` converts this to CommonJS, the export becomes `module.exports = { App };`, allowing consumers to `const { App } = require('./service.cjs')`. Previously, `service.cjs` was missing the export entirely, forcing consumers to use the raw native binding via `module.exports = nativeBinding`, which exposed snake_case methods like `app.register_route` instead of the wrapper's idiomatic `app.registerRoute`. Regression tests verify export namespace conversion and multi-name exports.
+
 ## [0.23.58] - 2026-06-09
 
 ### Added

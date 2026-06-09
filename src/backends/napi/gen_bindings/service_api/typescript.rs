@@ -129,6 +129,13 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_ts(
         gen_service_class_ts(&mut out, service, api, native_module, config);
     }
 
+    // Add explicit export statements for all services so they're available to CommonJS
+    // (service.cjs will convert these to module.exports)
+    let service_names: Vec<&str> = api.services.iter().map(|s| s.name.as_str()).collect();
+    if !service_names.is_empty() {
+        out.push_str(&format!("\nexport {{ {} }};\n", service_names.join(", ")));
+    }
+
     out
 }
 

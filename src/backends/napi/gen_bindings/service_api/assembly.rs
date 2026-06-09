@@ -74,6 +74,21 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
     for line in ts_code.lines() {
         let mut modified_line = line.to_string();
 
+        // Convert `export { Name1, Name2 };` → `module.exports = { Name1, Name2 };`
+        // This handles the TypeScript namespace export pattern used for service classes.
+        let trimmed = modified_line.trim();
+        if trimmed.starts_with("export {") && trimmed.ends_with("};") {
+            if let Some(start_brace) = modified_line.find('{') {
+                if let Some(end_brace) = modified_line.rfind('}') {
+                    let exports = &modified_line[start_brace..=end_brace];
+                    modified_line = format!("module.exports = {};", exports);
+                }
+            }
+            result.push_str(&modified_line);
+            result.push('\n');
+            continue;
+        }
+
         // Drop TypeScript method-overload signatures — lines that look like a method
         // header but end with `;` instead of `{`. JS has no overload concept; only
         // the implementation line (ending in `{`) should survive.
@@ -390,6 +405,39 @@ import { appIntoRouter } from "./index";"#;
         assert!(
             !js_output.contains("=> any"),
             "arrow-type return fragments must be fully stripped, got: {}",
+            js_output
+        );
+    }
+
+    #[test]
+    fn strip_typescript_annotations_converts_export_namespace() {
+        // Regression test: service.cjs must end with module.exports containing all
+        // service class names so consumers can destructure them:
+        // const { App } = require('./service.cjs')
+        let ts_input = "export { App };";
+        let js_output = strip_typescript_annotations(ts_input);
+
+        assert!(
+            js_output.contains("module.exports = { App };"),
+            "export namespace should convert to CommonJS module.exports, got: {}",
+            js_output
+        );
+        assert!(
+            !js_output.contains("export {"),
+            "TypeScript export syntax must be removed, got: {}",
+            js_output
+        );
+    }
+
+    #[test]
+    fn strip_typescript_annotations_converts_export_namespace_multiple() {
+        // Multiple classes in export statement
+        let ts_input = "export { App, Server, Router };";
+        let js_output = strip_typescript_annotations(ts_input);
+
+        assert!(
+            js_output.contains("module.exports = { App, Server, Router };"),
+            "export with multiple names should convert to CommonJS, got: {}",
             js_output
         );
     }
