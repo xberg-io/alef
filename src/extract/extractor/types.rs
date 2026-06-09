@@ -334,5 +334,6 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
         methods: Vec::new(),
         binding_excluded,
         binding_exclusion_reason,
+        version: extract_version_annotation(&item.attrs),
     })
 }

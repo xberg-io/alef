@@ -310,6 +310,7 @@ fn error_emits_custom_type() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -733,6 +734,7 @@ fn trait_bridge_response_shim_uses_typed_return_and_error() {
         methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -776,6 +778,7 @@ fn trait_bridge_response_shim_unit_return_emits_nil() {
         methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {

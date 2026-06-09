@@ -565,6 +565,7 @@ mod tests {
             ],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let mut api = empty_api();
@@ -650,6 +651,7 @@ mod tests {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let mut api = empty_api();

@@ -589,6 +589,7 @@ fn api_surface_validation_checks_enum_and_error_variant_fields() {
             methods: Vec::new(),
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         ..ApiSurface::default()
     };
@@ -639,6 +640,7 @@ fn api_surface_validation_skips_binding_excluded_variant_fields() {
             methods: Vec::new(),
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         ..ApiSurface::default()
     };

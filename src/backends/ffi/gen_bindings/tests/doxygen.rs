@@ -283,6 +283,7 @@ fn test_error_type_with_methods_gets_opaque_typedef_in_cbindgen_toml() {
         }],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     });
 
     let config = sample_config();
@@ -324,6 +325,7 @@ fn test_error_type_without_methods_does_not_get_typedef_in_cbindgen_toml() {
         methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     });
 
     let config = sample_config();

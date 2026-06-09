@@ -917,6 +917,7 @@ fn test_duplicate_error_variant_exception_classes_are_emitted_once() {
                 methods: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             ErrorDef {
                 name: "SchemaError".to_string(),
@@ -927,6 +928,7 @@ fn test_duplicate_error_variant_exception_classes_are_emitted_once() {
                 methods: vec![],
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
         ],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1481,6 +1483,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),

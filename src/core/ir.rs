@@ -788,6 +788,9 @@ pub struct ErrorDef {
     /// Human-readable reason for `binding_excluded`, used in diagnostics.
     #[serde(default)]
     pub binding_exclusion_reason: Option<String>,
+    /// Version annotation (since, deprecated).
+    #[serde(default)]
+    pub version: VersionAnnotation,
 }
 
 /// An error variant.

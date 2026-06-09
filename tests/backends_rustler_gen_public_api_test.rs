@@ -1615,6 +1615,7 @@ fn make_error_with_methods() -> ErrorDef {
         ],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 

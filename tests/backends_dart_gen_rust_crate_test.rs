@@ -2094,6 +2094,7 @@ fn mirror_error_introspection_uses_safe_from_conversion_not_transmute() {
         }],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -2236,6 +2237,7 @@ fn mirror_error_from_impl_handles_optional_string_duration_and_sanitized_fields(
         methods: vec![status_code_method],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -2407,6 +2409,7 @@ fn mirror_error_from_impl_uses_tuple_syntax_for_tuple_variants() {
         }],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {

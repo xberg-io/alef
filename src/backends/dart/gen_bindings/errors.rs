@@ -274,6 +274,7 @@ mod tests {
             ],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
         let mut out = String::new();
         let mut imports = BTreeSet::new();

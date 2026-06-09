@@ -224,6 +224,7 @@ fn test_generate_docs_with_error_appears_in_lang_page_and_errors_md() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),

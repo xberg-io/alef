@@ -1117,7 +1117,13 @@ pub(crate) fn extract_alef_since(attrs: &[syn::Attribute]) -> Option<String> {
                         Ok(())
                     });
                 } else if let Ok(v) = meta.value() {
+                    // Simple `key = value` condition (e.g., `feature = "x"`).
                     let _: syn::Expr = v.parse()?;
+                } else {
+                    // Compound cfg predicate (e.g., `all(...)`, `any(...)`, `not(...)`):
+                    // consume the parenthesized inner tokens so parse_nested_meta can
+                    // continue to the next comma-separated item.
+                    let _ = meta.parse_nested_meta(|_| Ok(()));
                 }
                 Ok(())
             });
