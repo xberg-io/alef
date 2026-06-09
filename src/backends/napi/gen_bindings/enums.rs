@@ -132,7 +132,10 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
             &variant.doc,
             crate::codegen::doc_emission::DocTarget::TsDoc,
         );
-        crate::codegen::doc_emission::emit_rustdoc(&mut variant_doc, &sanitized_variant_doc, "    ");
+        // Further escape */ sequences that may remain to prevent JSDoc block closure.
+        // This handles cases where the sanitizer's escape is lost during rustdoc emission.
+        let escaped_variant_doc = sanitized_variant_doc.replace("*/", "* /");
+        crate::codegen::doc_emission::emit_rustdoc(&mut variant_doc, &escaped_variant_doc, "    ");
         if !variant_doc.is_empty() {
             lines.push(variant_doc.trim_end_matches('\n').to_string());
         }
@@ -706,6 +709,7 @@ mod tests {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Doc".to_string(),
@@ -717,6 +721,7 @@ mod tests {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -729,6 +734,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         };
 
         let result = gen_enum(&e, "", false);

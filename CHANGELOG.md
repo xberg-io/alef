@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.58] - 2026-06-09
+
 ### Added
 
 - **Per-item version annotations in IR and docs generator**: Added `VersionAnnotation` and `DeprecationInfo` types to the IR. `FunctionDef`, `MethodDef`, `TypeDef`, `EnumDef`, and `EnumVariant` now carry a `version` field populated from `#[alef(since = "x.y.z")]` and `#[deprecated(since = "...", note = "...")]` Rust attributes. The docs generator renders a `**Since:** \`vX.Y.Z\`` badge and a `!!! warning` admonition for deprecated items in generated `api-{lang}.md` reference pages. Variant-level version annotations are inlined into the description column of the enum table. Backend binding emission (e.g. `@Deprecated` in Java, `[Obsolete]` in C#) is tracked as a follow-up.
+
+### Fixed
+
+- **NAPI: enum variant doc comments now have `*/` inside backticks escaped so the outer JSDoc block doesn't terminate early.** Variant rustdoc like `` `/** ... */` `` in `DocstringFormat::JSDoc` was emitting `/** JSDoc (`/** ... */`). */` which oxlint rejected as `TS(1164): Computed property names are not allowed in enums`. The escape is now applied after doc sanitization to prevent the `*/` sequence (whether in backticks or inline code spans) from prematurely closing the JSDoc comment block in generated `.d.ts` files. Regression test verifies `*/` inside backticks is emitted as `* /`.
 
 ## [0.23.57] - 2026-06-09
 
