@@ -266,6 +266,10 @@ pub fn emit_test_backend(
     let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
     let defaults = language_defaults("typescript");
 
+    // Extract the backend input block if present (e.g., fixture.input.backend).
+    // Used to populate method defaults like dimensions(), backend name, etc.
+    let backend_input = fixture.input.get("backend").and_then(|v| v.as_object());
+
     let mut setup = String::new();
 
     let _ = writeln!(setup, "class {stub_name} {{");
@@ -284,7 +288,7 @@ pub fn emit_test_backend(
         if trait_bridge.super_trait.is_some() && method.name == "name" {
             continue;
         }
-        emit_ts_stub_method(&mut setup, method, &*defaults);
+        emit_ts_stub_method(&mut setup, method, &*defaults, backend_input);
     }
 
     let _ = writeln!(setup, "}}");
@@ -304,10 +308,15 @@ pub fn emit_test_backend(
 /// Async methods return `Promise.resolve(<default>)`. Sync methods return the
 /// default value directly. All parameters are elided with `_p0`, `_p1`, ...
 /// prefixes (TypeScript allows unused parameters when prefixed with `_`).
+///
+/// Method defaults are extracted from fixture.input.backend first, then fall
+/// back to language defaults. For numeric types that would emit 0, emit 1
+/// instead (downstream validation rejects 0 for counts like dimensions()).
 fn emit_ts_stub_method(
     out: &mut String,
     method: &crate::core::ir::MethodDef,
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+    backend_input: Option<&serde_json::Map<String, serde_json::Value>>,
 ) {
     use std::fmt::Write as FmtWrite;
 
@@ -336,7 +345,28 @@ fn emit_ts_stub_method(
         crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "false".to_string(),
         crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F32) => "0.0".to_string(),
         crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F64) => "0.0".to_string(),
-        crate::core::ir::TypeRef::Primitive(_) => "1".to_string(), // all integer types: 1 instead of 0
+        crate::core::ir::TypeRef::Primitive(_) => {
+            // Try to extract fixture value first, then fall back to 1 instead of 0
+            let fixture_val = backend_input
+                .and_then(|b| b.get(&method.name.to_lowercase()))
+                .or_else(|| backend_input.and_then(|b| b.get(&to_camel_case(&method.name))));
+
+            if let Some(val) = fixture_val {
+                // Emit the fixture value directly (primitives, numbers, etc.)
+                match val {
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::String(s) => format!("\"{}\"", s),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    _ => {
+                        // Complex types: fall back to 1 for numeric
+                        "1".to_string()
+                    }
+                }
+            } else {
+                // No fixture value: emit 1 instead of 0
+                "1".to_string()
+            }
+        }
         other => defaults.emit_default(other),
     };
     let return_type = ts_stub_return_type(&method.return_type);
@@ -600,6 +630,52 @@ result_var = "result"
         assert!(
             !emission.setup_block.contains("new WorkResult()"),
             "Named return type must not emit a constructor call, got: {}",
+            emission.setup_block
+        );
+    }
+
+    #[test]
+    fn emit_test_backend_ts_extracts_fixture_values_for_numeric_defaults() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{PrimitiveType, TypeRef};
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "EmbeddingBackend".to_string(),
+            super_trait: Some("OcrBackend".to_string()),
+            ..Default::default()
+        };
+
+        let m1 = test_method("dimensions", TypeRef::Primitive(PrimitiveType::U32), false, false);
+        let m2 = test_method("model", TypeRef::String, false, false);
+        let methods = [&m1, &m2];
+
+        // Fixture with backend input containing dimensions value
+        let fixture = make_fixture(
+            "embedding_fixture",
+            serde_json::json!({
+                "name": "my-embedder",
+                "backend": {
+                    "dimensions": 768,
+                    "model": "all-MiniLM-L6-v2"
+                }
+            }),
+        );
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        // Should extract dimensions: 768 from fixture.input.backend
+        assert!(
+            emission.setup_block.contains("dimensions(): number { return 768; }"),
+            "numeric method should extract value from fixture.input.backend, got: {}",
+            emission.setup_block
+        );
+
+        // Should extract model string from fixture
+        assert!(
+            emission
+                .setup_block
+                .contains("model(): string { return \"all-MiniLM-L6-v2\"; }"),
+            "string method should extract value from fixture.input.backend, got: {}",
             emission.setup_block
         );
     }
