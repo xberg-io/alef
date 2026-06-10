@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-06-10
+
 ### Fixed
 
+- **Go e2e test stubs: extract method defaults from fixture.input.backend.** Same shape as the Swift, Java, and Node fixes — Go trait-bridge stubs now pull numeric/string return values from `fixture.input.backend` and emit `1` instead of `0` for numeric defaults that downstream validation rejects.
 - **Java e2e test stubs: emit JSON-valid defaults for trait-bridge methods with Named return types and extract fixture input values.** Trait-bridge methods whose Rust return type is a Named type (enum, struct) are marshalled as JSON strings across the FFI boundary. The test-backend stub generator was emitting empty string `""` as the default, which caused `serde_json::from_str` to panic with "EOF while parsing". The fix: (1) Named return types now default to `"null"` (valid JSON); (2) numeric defaults without fixture values emit `1` instead of `0` (downstream rejects `0` for counts like `dimensions()`); (3) method defaults are extracted from `fixture.input.backend` when available (e.g., `dimensions: 768`). Mirrors Swift and Node fix pattern for parity across trait-bridge languages. Fixes `testRegisterPostProcessorTraitBridge`, `testRegisterEmbeddingBackendTraitBridge`, and similar Java e2e fixture panics.
 - **Node e2e test stubs: extract method defaults from fixture.input.backend.** The TypeScript/NAPI-RS test-backend stub generator now populates trait-bridge method returns from fixture input values (e.g., `dimensions: 768` from `fixture.input.backend`) instead of hardcoding `0`. Numeric defaults without fixture values emit `1` (downstream rejects `0` for counts). Mirrors Swift fix pattern for parity across languages. Fixes trait-bridge validation errors in Node e2e tests like `register_embedding_backend_trait_bridge`.
 - **Swift e2e test stubs: extract method defaults from fixture.input.backend.** The test-backend stub generator now populates trait-bridge method returns from fixture input values (e.g., `dimensions: 768` from `fixture.input.backend`) instead of hardcoding `0`. Numeric defaults without fixture values emit `1` (downstream rejects `0` for counts). Fixes `testRegisterEmbeddingBackendTraitBridge` validation error where the stub emitted `dimensions() -> 0` instead of the required `> 0`.
