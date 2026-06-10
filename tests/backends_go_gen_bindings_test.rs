@@ -1956,8 +1956,8 @@ fn test_gen_trait_bridges_file_registration_fn_builds_vtable_and_calls_c_registe
         "registration function must have the correct Go signature"
     );
     assert!(
-        code.contains("cgo.NewHandle(impl)"),
-        "registration must create a cgo.Handle for the Go object"
+        code.contains("bridge := NewOcrBackendBridge(impl)") && code.contains("cgo.NewHandle(bridge)"),
+        "registration must create a cgo.Handle for the Go bridge wrapper"
     );
     assert!(
         code.contains("C.krz_register_ocr_backend("),
