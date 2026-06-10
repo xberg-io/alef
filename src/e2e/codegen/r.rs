@@ -75,7 +75,7 @@ impl E2eCodegen for RCodegen {
         // Generate test runner script.
         files.push(GeneratedFile {
             path: output_base.join("run_tests.R"),
-            content: render_test_runner(&pkg_path, e2e_config.dep_mode),
+            content: render_test_runner(&pkg_name, &pkg_path, e2e_config.dep_mode),
             generated_header: true,
         });
 
@@ -230,14 +230,15 @@ fn render_setup_fixtures(test_documents_path: &str) -> String {
     out
 }
 
-fn render_test_runner(pkg_path: &str, dep_mode: crate::e2e::config::DependencyMode) -> String {
+fn render_test_runner(pkg_name: &str, pkg_path: &str, dep_mode: crate::e2e::config::DependencyMode) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out, "library(testthat)");
     match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // In registry mode, require the installed CRAN package directly.
-            let _ = writeln!(out, "# Package loaded via library() from CRAN install.");
+            // In registry mode, load the installed CRAN package. This must happen before
+            // test_dir() runs so that all package functions are available to the tests.
+            let _ = writeln!(out, "library({})", pkg_name);
         }
         crate::e2e::config::DependencyMode::Local => {
             // Use devtools::load_all() to load the local R package without requiring
