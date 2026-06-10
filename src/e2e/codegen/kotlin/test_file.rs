@@ -258,7 +258,14 @@ pub(super) fn render_test_file_inner(
         for a in recipe.args.iter() {
             if a.arg_type == "json_object" {
                 if let Some(element_type) = a.element_type.as_deref() {
-                    element_type_classes.insert(element_type.to_string());
+                    // Skip Kotlin built-in primitive types — they don't need imports.
+                    const KOTLIN_BUILTINS: &[&str] = &[
+                        "String", "Int", "Long", "Short", "Byte", "Boolean", "Char", "Float", "Double", "Unit", "Any",
+                        "Nothing", "List", "Map", "Set",
+                    ];
+                    if !KOTLIN_BUILTINS.contains(&element_type) {
+                        element_type_classes.insert(element_type.to_string());
+                    }
                 }
             }
         }
