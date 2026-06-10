@@ -1,7 +1,7 @@
 //! Go e2e test-backend stub emission.
 
 use crate::codegen::naming::go_param_name;
-use heck::ToUpperCamelCase;
+use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::fmt::Write as FmtWrite;
 
 /// Emit a Go test backend stub.
@@ -103,6 +103,7 @@ pub fn emit_test_backend_with_context(
                     excluded_types,
                     import_alias,
                     enum_names,
+                    fixture,
                 );
             }
         }
@@ -146,6 +147,7 @@ pub fn emit_test_backend_with_context(
             excluded_types,
             import_alias,
             enum_names,
+            fixture,
         );
     }
 
@@ -208,6 +210,39 @@ fn go_stub_default_with_context(
         }
         _ => go_zero_value(ty),
     }
+}
+
+/// Extract a default value from fixture.input.backend for a stub method.
+///
+/// Given a method name and fixture, attempts to find the corresponding input
+/// value in fixture.input.backend. Returns JSON-marshalled values for Named types,
+/// and raw values for primitives. For numeric defaults, emits 1 instead of 0
+/// (downstream rejects 0 for counts like dimensions).
+fn extract_fixture_default(method_name: &str, fixture: &crate::e2e::fixture::Fixture) -> Option<String> {
+    let backend_input = fixture.input.get("backend").and_then(|v| v.as_object())?;
+
+    // Try snake_case first, then the lower_camel_case variant.
+    let snake_name = method_name.to_snake_case();
+    let val = backend_input
+        .get(&snake_name)
+        .or_else(|| backend_input.get(method_name))?;
+
+    Some(match val {
+        serde_json::Value::Number(n) => {
+            // For numeric defaults, emit 1 instead of 0 if it's 0
+            // (downstream validation rejects 0 for counts like dimensions).
+            if let Some(i) = n.as_i64() {
+                if i == 0 { "1".to_string() } else { i.to_string() }
+            } else if let Some(u) = n.as_u64() {
+                if u == 0 { "1".to_string() } else { u.to_string() }
+            } else {
+                n.to_string()
+            }
+        }
+        serde_json::Value::String(s) => format!("\"{}\"", s),
+        serde_json::Value::Bool(b) => b.to_string(),
+        _ => return None, // Complex types not supported in fixture defaults
+    })
 }
 
 /// Check if a type (or its top-level structure) is an excluded type in a way that would
@@ -305,6 +340,7 @@ fn emit_go_stub_method_body(
     excluded_types: &std::collections::HashSet<&str>,
     import_alias: &str,
     enum_names: &std::collections::HashSet<&str>,
+    fixture: &crate::e2e::fixture::Fixture,
 ) {
     use crate::core::ir::TypeRef;
 
@@ -338,15 +374,18 @@ fn emit_go_stub_method_body(
         match &method.return_type {
             TypeRef::Unit => "return nil".to_string(),
             _ => {
-                let default_val =
-                    go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias);
+                let default_val = extract_fixture_default(&method.name, fixture).unwrap_or_else(|| {
+                    go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias)
+                });
                 format!("return {default_val}, nil")
             }
         }
     } else if matches!(method.return_type, TypeRef::Unit) {
         String::new()
     } else {
-        let default_val = go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias);
+        let default_val = extract_fixture_default(&method.name, fixture).unwrap_or_else(|| {
+            go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias)
+        });
         format!("return {default_val}")
     };
 
