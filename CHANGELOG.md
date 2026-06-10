@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.74] - 2026-06-10
+
+### Fixed
+
+- **R extendr: force JSON-bridge for extendr_incompatible types regardless of optional/by-ref config.** `extendr_incompatible_types` are structs whose fields aren't extendr-native (e.g., `Vec<TableData>`, enum vecs, maps) — alef suppresses their `#[extendr] impl` block, so neither `T` nor `&T` has `TryFrom<&Robj>`. The old `needs_json_struct` condition gated incompatible types on `(param.optional || !cfg.named_non_opaque_params_by_ref)`, which was false in the by-ref-enabled cfg, so they fell through to no branch and the signature stayed `&T`, producing `error[E0277]: the trait bound '&ExtractionResult: extendr_api::TryFrom<&extendr_api::Robj>' is not satisfied`. Now any incompatible Named type unconditionally routes through the JSON branch. Resolves the remaining ~8 R e2e errors after v0.23.72 — `&ExtractionResult` × 4, `&RedactionConfig`, and 3 downstream E0308 cascades.
+
 ## [0.23.73] - 2026-06-10
 
 ### Fixed

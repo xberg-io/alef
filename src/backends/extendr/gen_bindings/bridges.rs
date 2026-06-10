@@ -486,19 +486,24 @@ pub(super) fn gen_extendr_json_bridged_function(
                 if !opaque_types.contains(n.as_str())
                     && !enum_names.contains(n.as_str())
                     && !extendr_incompatible_types.contains(n.as_str()));
+        // Force JSON-bridge when the type is extendr_incompatible regardless of optional /
+        // by-ref config: these types have no `#[extendr] impl` block emitted, so neither
+        // `T` nor `&T` has `TryFrom<&Robj>` and the by-ref path produces E0277.
+        let is_named_incompatible = matches!(&param.ty, TypeRef::Named(n)
+            if extendr_incompatible_types.contains(n.as_str()));
         let needs_json_struct = !needs_json_enum
             && !needs_by_ref_struct
-            && (matches!(&param.ty, TypeRef::Named(n)
-            if extendr_incompatible_types.contains(n.as_str())
-                || (!opaque_types.contains(n.as_str())
-                    && !enum_names.contains(n.as_str())
-                    && !extendr_incompatible_types.contains(n.as_str())))
-                || matches!(&param.ty, TypeRef::Optional(inner)
-                if matches!(inner.as_ref(), TypeRef::Named(n)
+            && (is_named_incompatible
+                || (matches!(&param.ty, TypeRef::Named(n)
                     if !opaque_types.contains(n.as_str())
                         && !enum_names.contains(n.as_str())
-                        && !extendr_incompatible_types.contains(n.as_str()))))
-            && (param.optional || !cfg.named_non_opaque_params_by_ref);
+                        && !extendr_incompatible_types.contains(n.as_str()))
+                    || matches!(&param.ty, TypeRef::Optional(inner)
+                    if matches!(inner.as_ref(), TypeRef::Named(n)
+                        if !opaque_types.contains(n.as_str())
+                            && !enum_names.contains(n.as_str())
+                            && !extendr_incompatible_types.contains(n.as_str()))))
+                    && (param.optional || !cfg.named_non_opaque_params_by_ref));
         if needs_json_vec {
             let (core_ty_path, is_optional) = match &param.ty {
                 TypeRef::Vec(inner) => match inner.as_ref() {
