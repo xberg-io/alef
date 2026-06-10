@@ -148,12 +148,11 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "}}");
 
     // Emit teardown: unregister call to prevent test backends from leaking into subsequent tests.
-    // The adapter class emitted by alef-backend-swift uses a fixed name derived from the trait.
-    // Pattern: `try? <Module>.unregister<Trait>("<adapter-name>")`
+    // Use the actual plugin_name that the stub declares via its `name` property, not a
+    // generic adapter name. This ensures the unregister matches what was registered.
     let unregister_fn = format!("unregister{}", trait_bridge.trait_name.to_upper_camel_case());
-    let adapter_name = format!("swift-bridge-{}", trait_bridge.trait_name.to_snake_case());
     // Emit without module qualification: caller will add it when needed.
-    let teardown = format!("try? {unregister_fn}(\"{adapter_name}\")");
+    let teardown = format!("try? {unregister_fn}(\"{plugin_name}\")");
 
     TestBackendEmission {
         setup_block: setup,

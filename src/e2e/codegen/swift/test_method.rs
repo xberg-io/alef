@@ -435,8 +435,15 @@ pub(super) fn render_test_method(
             if let Some(trait_name) = &arg.trait_name {
                 if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
                     let unregister_fn = format!("unregister{}", trait_bridge.trait_name.to_upper_camel_case());
-                    let adapter_name = format!("swift-bridge-{}", trait_bridge.trait_name.to_snake_case());
-                    let _ = writeln!(out, "        try? {module_name}.{unregister_fn}(\"{adapter_name}\")");
+                    // Use the actual plugin name from fixture.input["name"] or default to fixture.id,
+                    // matching what the stub's `name` property declares. This ensures unregister()
+                    // matches the registered backend name.
+                    let plugin_name = fixture
+                        .input
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&fixture.id);
+                    let _ = writeln!(out, "        try? {module_name}.{unregister_fn}(\"{plugin_name}\")");
                 }
             }
         }
