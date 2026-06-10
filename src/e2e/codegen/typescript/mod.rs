@@ -291,6 +291,10 @@ pub fn emit_test_backend(
         emit_ts_stub_method(&mut setup, method, &*defaults, backend_input);
     }
 
+    // Emit dispose() method for cleanup. The test cleanup code calls dispose()
+    // on trait bridge stubs to signal test teardown. This is a no-op in test stubs.
+    let _ = writeln!(setup, "  async dispose(): Promise<void> {{ return undefined; }}");
+
     let _ = writeln!(setup, "}}");
 
     let arg_expr = format!("new {stub_name}()");
