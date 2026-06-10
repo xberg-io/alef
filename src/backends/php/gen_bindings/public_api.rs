@@ -60,10 +60,14 @@ pub(super) fn generate_public_api(
     // Only qualifies when ALL fields are optional (PHP constructor needs no required args).
     // `has_default` (Rust Default impl) is NOT sufficient — the PHP constructor is
     // generated from struct fields and still requires non-optional ones.
+    // Opaque types are excluded: their `fields` is empty (no fields exposed to bindings),
+    // which would vacuously satisfy `all(optional)` and incorrectly mark required handle
+    // parameters as optional in facade method signatures, producing `?Type` and a
+    // PHPStan `argument.type` failure when forwarding to the non-nullable native stub.
     let no_arg_constructor_types: AHashSet<String> = api
         .types
         .iter()
-        .filter(|t| t.fields.iter().all(|f| f.optional))
+        .filter(|t| !t.is_opaque && t.fields.iter().all(|f| f.optional))
         .map(|t| t.name.clone())
         .collect();
 
