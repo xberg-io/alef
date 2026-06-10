@@ -396,7 +396,7 @@ pub fn emit_test_backend(
         "c" => c::emit_test_backend(trait_bridge, methods, fixture),
         "zig" => zig::emit_test_backend(trait_bridge, methods, fixture),
         "dart" => dart::emit_test_backend(trait_bridge, methods, fixture),
-        "swift" => swift::emit_test_backend(trait_bridge, methods, fixture),
+        "swift" => swift::emit_test_backend(trait_bridge, methods, fixture, &[]),
         "brew" => brew::emit_test_backend(trait_bridge, methods, fixture),
         "php_ext" => php_ext::emit_test_backend(trait_bridge, methods, fixture),
         "homebrew" => homebrew::emit_test_backend(trait_bridge, methods, fixture),

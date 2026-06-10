@@ -12,6 +12,7 @@ pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
+    enums: &[crate::core::ir::EnumDef],
 ) -> TestBackendEmission {
     use crate::backends::swift::type_map::SwiftMapper;
     use crate::codegen::defaults::language_defaults;
@@ -84,7 +85,21 @@ pub fn emit_test_backend(
         // then fall back to language defaults. For primitives that would emit 0,
         // emit 1 instead (downstream rejects 0 for counts like dimensions()).
         let default_val = match &method.return_type {
-            crate::core::ir::TypeRef::Named(_) => "\"null\"".to_string(),
+            crate::core::ir::TypeRef::Named(name) => {
+                // Check if this Named type is an enum in the IR
+                if let Some(enum_def) = enums.iter().find(|e| e.name == *name) {
+                    // Emit JSON-encoded first variant of the enum
+                    if let Some(first_variant) = enum_def.variants.first() {
+                        format!("\"\\\"{}\\\"\"", first_variant.name)
+                    } else {
+                        // Enum with no variants (shouldn't happen), fall back to null
+                        "\"null\"".to_string()
+                    }
+                } else {
+                    // Named type is a struct or other non-enum: emit null
+                    "\"null\"".to_string()
+                }
+            }
             _ => {
                 // Try to find the fixture value keyed by snake_case method name.
                 let fixture_val = backend_input
@@ -215,7 +230,7 @@ mod tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let emission = emit_test_backend(&bridge, &methods, &fixture, &[]);
 
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
@@ -298,7 +313,7 @@ mod tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let emission = emit_test_backend(&bridge, &methods, &fixture, &[]);
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(
@@ -332,7 +347,7 @@ mod tests {
         let mut fixture = make_fixture("my_fixture_id");
         fixture.input = serde_json::json!({ "name": "my-backend-name" });
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let emission = emit_test_backend(&bridge, &methods, &fixture, &[]);
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(

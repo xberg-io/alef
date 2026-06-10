@@ -32,6 +32,7 @@ pub(super) fn render_test_method(
     module_name: &str,
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
 ) {
     // Resolve per-fixture call config.
     let call_config = e2e_config.resolve_call_for_fixture(
@@ -255,6 +256,7 @@ pub(super) fn render_test_method(
         fixture,
         arg_name_map,
         streaming_request_type,
+        enums,
     );
     // Prepend visitor class declarations (before any setup lines that reference the handle).
     if !visitor_setup_lines.is_empty() {

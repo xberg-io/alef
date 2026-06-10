@@ -36,6 +36,7 @@ pub(super) fn build_args_and_setup(
     fixture: &Fixture,
     arg_name_map: Option<&std::collections::HashMap<String, String>>,
     streaming_request_type: Option<&str>,
+    enums: &[crate::core::ir::EnumDef],
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -198,7 +199,7 @@ pub(super) fn build_args_and_setup(
                         .find(|t| t.name == *trait_name)
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
-                    let emission = crate::e2e::codegen::emit_test_backend("swift", trait_bridge, &methods, fixture);
+                    let emission = super::stubs::emit_test_backend(trait_bridge, &methods, fixture, enums);
                     setup_lines.push(emission.setup_block);
                     parts.push((idx, emission.arg_expr));
                     continue;

@@ -201,6 +201,7 @@ impl E2eCodegen for SwiftE2eCodegen {
                 config,
                 type_defs,
                 has_http_fixtures,
+                enums,
             );
             files.push(GeneratedFile {
                 path: tests_base
