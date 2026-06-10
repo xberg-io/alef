@@ -629,17 +629,24 @@ pub(super) fn gen_extendr_json_bridged_function(
             if enum_names.contains(n.as_str()))
             || matches!(&param.ty, TypeRef::Optional(inner)
                 if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())));
+        // Mirror the upstream needs_json_struct calculation: extendr_incompatible Named
+        // types unconditionally route through JSON because they lack #[extendr] impl blocks
+        // and therefore lack the `&T: TryFrom<&Robj>` / `T: TryFrom<Robj>` impls extendr
+        // needs. When the JSON branch owns the preamble, we must skip the named_let
+        // binding here — otherwise we emit a duplicate (and now-wrong-typed) let.
+        let is_named_incompatible = matches!(&param.ty, TypeRef::Named(n)
+            if extendr_incompatible_types.contains(n.as_str()));
         let needs_json_struct = !needs_json_enum
-            && (matches!(&param.ty, TypeRef::Named(n)
-            if extendr_incompatible_types.contains(n.as_str())
-                || (!opaque_types.contains(n.as_str())
-                    && !enum_names.contains(n.as_str())
-                    && !extendr_incompatible_types.contains(n.as_str())))
-                || matches!(&param.ty, TypeRef::Optional(inner)
-                if matches!(inner.as_ref(), TypeRef::Named(n)
+            && (is_named_incompatible
+                || (matches!(&param.ty, TypeRef::Named(n)
                     if !opaque_types.contains(n.as_str())
-                        && !enum_names.contains(n.as_str()))))
-            && (param.optional || !cfg.named_non_opaque_params_by_ref);
+                        && !enum_names.contains(n.as_str())
+                        && !extendr_incompatible_types.contains(n.as_str()))
+                    || matches!(&param.ty, TypeRef::Optional(inner)
+                    if matches!(inner.as_ref(), TypeRef::Named(n)
+                        if !opaque_types.contains(n.as_str())
+                            && !enum_names.contains(n.as_str()))))
+                    && (param.optional || !cfg.named_non_opaque_params_by_ref));
         if !needs_json && !needs_json_struct && !needs_json_enum {
             if let TypeRef::Named(n) = &param.ty {
                 if !opaque_types.contains(n.as_str()) {
@@ -688,18 +695,21 @@ pub(super) fn gen_extendr_json_bridged_function(
                 if enum_names.contains(n.as_str()))
                 || matches!(&param.ty, TypeRef::Optional(inner)
                     if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())));
+            // Same is_named_incompatible shortcut as the upstream needs_json_struct calc.
+            let is_named_incompatible = matches!(&param.ty, TypeRef::Named(n)
+                if extendr_incompatible_types.contains(n.as_str()));
             let needs_json_struct = !needs_json_enum
-                && (matches!(&param.ty, TypeRef::Named(n)
-                if extendr_incompatible_types.contains(n.as_str())
-                    || (!opaque_types.contains(n.as_str())
-                        && !enum_names.contains(n.as_str())
-                        && !extendr_incompatible_types.contains(n.as_str())))
-                    || matches!(&param.ty, TypeRef::Optional(inner)
-                    if matches!(inner.as_ref(), TypeRef::Named(n)
+                && (is_named_incompatible
+                    || (matches!(&param.ty, TypeRef::Named(n)
                         if !opaque_types.contains(n.as_str())
                             && !enum_names.contains(n.as_str())
-                            && !extendr_incompatible_types.contains(n.as_str()))))
-                && (param.optional || !cfg.named_non_opaque_params_by_ref);
+                            && !extendr_incompatible_types.contains(n.as_str()))
+                        || matches!(&param.ty, TypeRef::Optional(inner)
+                        if matches!(inner.as_ref(), TypeRef::Named(n)
+                            if !opaque_types.contains(n.as_str())
+                                && !enum_names.contains(n.as_str())
+                                && !extendr_incompatible_types.contains(n.as_str()))))
+                        && (param.optional || !cfg.named_non_opaque_params_by_ref));
             if needs_json {
                 if param.optional {
                     format!("{}_core.as_deref().unwrap_or_default()", param.name)

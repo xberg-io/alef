@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.75] - 2026-06-10
+
+### Fixed
+
+- **R extendr: apply `is_named_incompatible` shortcut to all three needs_json_struct calculations.** v0.23.74 only added the incompatible-type unconditional-JSON-bridge fix to the first calculation (signature path). The second (named_let_bindings preamble) and third (call args) calculations still gated on `(param.optional || !cfg.named_non_opaque_params_by_ref)`, so for incompatible types they emitted bogus `let result_core: kreuzberg::T = result.clone().into();` (from String) preambles and bogus `&result_core` call args (where the core fn expected `&mut T`). All three sites now share the same `is_named_incompatible` shortcut. R now compiles clean locally (0 errors). Fixes the remaining E0277 (`From<String> for kreuzberg::ExtractionResult`) and E0308 (`&result_core` vs expected `&mut`) cascade from v0.23.74.
+
 ## [0.23.74] - 2026-06-10
 
 ### Fixed
