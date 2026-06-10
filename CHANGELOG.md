@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`alef scaffold` patches `[workspace.lints.rust]` to allowlist the `alef-meta` cfg key.** Adds `unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("alef-meta"))'] }` via a format-preserving `toml_edit` patch so downstream crates can use `#[cfg_attr(feature = "alef-meta", alef(since = "..."))]` without declaring a real Cargo feature — which would cause `cargo clippy --all-features` to activate the feature and fail. Patch is idempotent and skipped on non-workspace manifests.
+
 ## [0.25.0] - 2026-06-14
 
 ### Added

@@ -12,6 +12,7 @@ mod version_registry;
 mod version_swift;
 mod version_text;
 mod version_workspace;
+mod workspace_lints;
 
 pub use cleanup::cleanup_orphaned_files;
 pub use commands::{build, clean, fmt, fmt_post_generate, lint, run_post_build, setup, test, test_apps_run, update};
@@ -25,3 +26,4 @@ pub use generate::{
 pub use helpers::init;
 pub use version::sync_versions;
 pub use version_core::{set_version, verify_versions};
+pub use workspace_lints::ensure_workspace_alef_meta_check_cfg;
