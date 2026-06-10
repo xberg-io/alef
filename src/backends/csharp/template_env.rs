@@ -607,6 +607,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "trait_unregister_facade.jinja",
         include_str!("templates/trait_unregister_facade.jinja"),
     ),
+    (
+        "trait_bridge_adapters.csharp.jinja",
+        include_str!("templates/trait_bridge_adapters.csharp.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

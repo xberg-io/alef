@@ -57,29 +57,73 @@ pub(super) fn ts_method_helper_import(method_name: &str) -> Option<String> {
 }
 
 /// Extract bridge variable names from setup lines and generate cleanup code.
-/// Looks for patterns like `const _bridge_* = ...` and generates `await bridge.dispose()` calls.
+/// Also generates unregister calls for trait bridges to properly clean up Rust-side state.
 pub(in crate::e2e::codegen::typescript::test_file) fn extract_bridge_cleanup(setup_lines: &[String]) -> String {
     let mut cleanup_lines = Vec::new();
     for line in setup_lines {
-        if let Some(var_name) = extract_bridge_var_name(line) {
+        if let Some((var_name, trait_name)) = extract_bridge_var_and_trait(line) {
+            // Generate unregister call first to clean up Rust-side bridge
+            let unregister_fn = format!("unregister{}", trait_name);
+            cleanup_lines.push(format!("await {}({});", unregister_fn, var_name));
+            // Then dispose the JS stub
             cleanup_lines.push(format!("await {}.dispose();", var_name));
         }
     }
     cleanup_lines.join("\n\t\t")
 }
 
-/// Extract bridge variable name from a setup line like `const _bridge_foo = new _TestStub_...`
-fn extract_bridge_var_name(line: &str) -> Option<String> {
+/// Extract bridge variable name and trait name from a setup line.
+/// Looks for patterns like `const _bridge_foo = new _TestStub_<fixture_id>()` where
+/// the fixture was generated from a trait bridge, and extracts the trait name from the
+/// bridge variable name mapping.
+fn extract_bridge_var_and_trait(line: &str) -> Option<(String, String)> {
     if let Some(start) = line.find("const ") {
         let after_const = &line[start + 6..];
         if let Some(end) = after_const.find(" =") {
             let var_name = after_const[..end].trim();
-            if var_name.starts_with("_bridge_") {
-                return Some(var_name.to_string());
+            if let Some(arg_name) = var_name.strip_prefix("_bridge_") {
+                // Extract trait name from variable name: _bridge_{arg_name}
+                // Maps to the arg's trait_name field, which we infer from common patterns:
+                // _bridge_extractor -> DocumentExtractor
+                // _bridge_backend -> OcrBackend (or EmbeddingBackend, etc.)
+                // _bridge_processor -> PostProcessor
+                // _bridge_validator -> Validator
+                // _bridge_renderer -> Renderer
+                // Skip "_bridge_"
+                let trait_name = infer_trait_name_from_arg(arg_name);
+                return Some((var_name.to_string(), trait_name));
             }
         }
     }
     None
+}
+
+/// Infer trait name from argument name using common patterns.
+fn infer_trait_name_from_arg(arg_name: &str) -> String {
+    match arg_name {
+        "extractor" => "DocumentExtractor".to_string(),
+        "backend" => "OcrBackend".to_string(), // Most common, but could be EmbeddingBackend
+        "processor" => "PostProcessor".to_string(),
+        "validator" => "Validator".to_string(),
+        "renderer" => "Renderer".to_string(),
+        _ => {
+            // Fallback: capitalize first letter and append 'Backend' if not otherwise identifiable
+            if let Some(base) = arg_name.strip_suffix("backend") {
+                // Remove "backend"
+                format!("{}Backend", capitalize_first(base))
+            } else {
+                capitalize_first(arg_name)
+            }
+        }
+    }
+}
+
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+    }
 }
 
 /// Check whether any arg at index `idx` or later has a non-null value in `input`.

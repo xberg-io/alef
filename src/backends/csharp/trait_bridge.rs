@@ -158,6 +158,105 @@ pub fn gen_trait_bridges_file(
     ("TraitBridges.cs".to_string(), out)
 }
 
+/// Generate the BridgeAdapters.cs file with sealed adapter classes for each trait.
+///
+/// For each trait bridge in the config that uses `FunctionParam` binding:
+/// - Generates a sealed `_{TraitName}BridgeAdapter` class that implements `I{TraitName}`
+/// - The adapter wraps a user-provided `I{TraitName}` implementation and delegates to it
+/// - This follows the "Path A" pattern from Swift, enabling e2e tests to register user impls
+///
+/// Returns Option<(filename, content)> if there are any trait bridges to emit, None otherwise.
+pub fn gen_bridge_adapters_file(
+    namespace: &str,
+    bridges: &[(String, &TraitBridgeConfig, &TypeDef)],
+    visible_type_names: &HashSet<&str>,
+) -> Option<(String, String)> {
+    use crate::backends::csharp::template_env::render;
+    use minijinja::Value;
+
+    // Filter to function_param bridges only (those where user provides implementation instance)
+    let adapter_bridges: Vec<_> = bridges
+        .iter()
+        .filter(|(_, bridge_cfg, _)| {
+            !bridge_cfg.exclude_languages.iter().any(|lang| lang == "csharp")
+                && matches!(bridge_cfg.bind_via, BridgeBinding::FunctionParam)
+        })
+        .collect();
+
+    if adapter_bridges.is_empty() {
+        return None;
+    }
+
+    let mut trait_data = Vec::new();
+
+    for (trait_name, bridge_cfg, trait_def) in &adapter_bridges {
+        let trait_pascal = csharp_type_name(trait_name);
+        let trait_snake = trait_name.to_snake_case();
+        let has_super_trait = bridge_cfg.super_trait.is_some();
+
+        // Build method signatures for delegation
+        let methods: Vec<_> = trait_def
+            .methods
+            .iter()
+            .map(|method| {
+                let return_type = if method.is_async {
+                    match &method.return_type {
+                        TypeRef::Unit => "void".to_string(),
+                        _ => csharp_type_visible(&method.return_type, visible_type_names),
+                    }
+                } else {
+                    csharp_type_visible(&method.return_type, visible_type_names)
+                };
+
+                let params_sig = method
+                    .params
+                    .iter()
+                    .map(|p| {
+                        format!(
+                            "{} {}",
+                            csharp_type_visible(&p.ty, visible_type_names),
+                            to_csharp_name(&p.name)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                let params_pass = method
+                    .params
+                    .iter()
+                    .map(|p| to_csharp_name(&p.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                serde_json::json!({
+                    "pascal_name": to_csharp_name(&method.name),
+                    "return_type": return_type,
+                    "params_sig": params_sig,
+                    "params_pass": params_pass,
+                    "is_void_return": return_type == "void",
+                })
+            })
+            .collect();
+
+        trait_data.push(serde_json::json!({
+            "pascal_name": trait_pascal,
+            "snake_name": trait_snake,
+            "has_super_trait": has_super_trait,
+            "methods": methods,
+        }));
+    }
+
+    let content = render(
+        "trait_bridge_adapters.csharp.jinja",
+        Value::from_serialize(serde_json::json!({
+            "namespace": namespace,
+            "traits": trait_data,
+        })),
+    );
+
+    Some(("BridgeAdapters.cs".to_string(), content))
+}
+
 fn gen_single_trait_bridge(
     out: &mut String,
     trait_name: &str,

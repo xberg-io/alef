@@ -14,49 +14,139 @@ use crate::core::ir::TypeDef;
 use heck::ToUpperCamelCase;
 use std::collections::BTreeSet;
 
-/// Generate the complete trait bridge (interface + bridge object) for Kotlin Android.
+/// Generate the complete trait bridge (interface + bridge object + adapter) for Kotlin Android.
 ///
 /// For each bridge in the config:
 /// - The interface is generated elsewhere by `emit_trait_interfaces` in gen_bindings.rs
 /// - This function generates the bridge object with registration/unregistration methods
+/// - This function generates the adapter class that wraps user impls for JNI invocation
 ///
-/// Returns (filename, content) ready for GeneratedFile emission.
+/// Returns a list of (filename, content) tuples ready for GeneratedFile emission.
+pub fn gen_trait_bridge_files(
+    package: &str,
+    trait_name: &str,
+    bridge_cfg: &TraitBridgeConfig,
+    trait_def: &TypeDef,
+    bridge_class_name: &str,
+) -> Vec<(String, String)> {
+    let interface_name = format!("I{trait_name}");
+    let bridge_obj = bridge_object_name(trait_name);
+    let adapter_class_name = format!("{}Adapter", trait_name);
+
+    let mut files = Vec::new();
+
+    // Emit bridge object
+    {
+        let has_super_trait = bridge_cfg.super_trait.is_some();
+        let register_native_fn = format!("nativeRegister{}", trait_name.to_upper_camel_case());
+        let unregister_native_fn = bridge_cfg
+            .unregister_fn
+            .as_ref()
+            .map(|_| format!("nativeUnregister{}", trait_name.to_upper_camel_case()));
+        let clear_native_fn = bridge_cfg
+            .clear_fn
+            .as_ref()
+            .map(|_| format!("nativeClear{}s", trait_name.to_upper_camel_case()));
+        let body = template_env::render(
+            "trait_bridge_object.jinja",
+            minijinja::context! {
+                bridge_obj => bridge_obj,
+                interface_name => interface_name,
+                bridge_class_name => bridge_class_name,
+                has_super_trait => has_super_trait,
+                register_native_fn => register_native_fn,
+                unregister_native_fn => unregister_native_fn,
+                clear_native_fn => clear_native_fn,
+            },
+        );
+
+        let content = assemble_kt_content(package, &BTreeSet::new(), &body);
+        files.push((format!("{bridge_obj}.kt"), content));
+    }
+
+    // Emit adapter class
+    {
+        use heck::ToLowerCamelCase;
+
+        let mut adapter_methods = String::new();
+
+        // Delegate Plugin super-trait methods if present
+        adapter_methods.push_str("    override fun name(): String = impl.name()\n\n");
+        adapter_methods.push_str("    override fun version(): String = impl.version()\n\n");
+        adapter_methods.push_str("    override fun initialize() = impl.initialize()\n\n");
+        adapter_methods.push_str("    override fun shutdown() = impl.shutdown()\n\n");
+
+        // Delegate all trait methods
+        for method in &trait_def.methods {
+            let method_camel = method.name.to_lower_camel_case();
+            let params: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| {
+                    let pname = p.name.to_lower_camel_case();
+                    format!(
+                        "{pname}: {}",
+                        match &p.ty {
+                            crate::core::ir::TypeRef::String => "String",
+                            crate::core::ir::TypeRef::Primitive(_) => "String",
+                            crate::core::ir::TypeRef::Vec(_) => "String",
+                            crate::core::ir::TypeRef::Named(_) => "String",
+                            _ => "Any",
+                        }
+                    )
+                })
+                .collect();
+            let params_str = params.join(", ");
+            let delegate_args = method
+                .params
+                .iter()
+                .map(|p| p.name.to_lower_camel_case())
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            if method.is_async {
+                adapter_methods.push_str(&format!(
+                    "    override suspend fun {method_camel}({params_str}): String {{\n"
+                ));
+                adapter_methods.push_str(&format!(
+                    "        return impl.{method_camel}({delegate_args}).toString()\n"
+                ));
+                adapter_methods.push_str("    }\n\n");
+            } else {
+                adapter_methods.push_str(&format!("    override fun {method_camel}({params_str}): String {{\n"));
+                adapter_methods.push_str(&format!(
+                    "        return impl.{method_camel}({delegate_args}).toString()\n"
+                ));
+                adapter_methods.push_str("    }\n\n");
+            }
+        }
+
+        let adapter_body = template_env::render(
+            "trait_bridge_adapter.jinja",
+            minijinja::context! {
+                interface_name => interface_name,
+                adapter_class_name => adapter_class_name,
+                adapter_methods => adapter_methods,
+            },
+        );
+
+        let content = assemble_kt_content(package, &BTreeSet::new(), &adapter_body);
+        files.push((format!("{adapter_class_name}.kt"), content));
+    }
+
+    files
+}
+
+/// Generate the bridge object (legacy entry point for compatibility).
 pub fn gen_trait_bridge_object(
     package: &str,
     trait_name: &str,
     bridge_cfg: &TraitBridgeConfig,
-    _trait_def: &TypeDef,
+    trait_def: &TypeDef,
     bridge_class_name: &str,
 ) -> Option<(String, String)> {
-    let interface_name = format!("I{trait_name}");
-    // Use the canonical naming helper so both production and e2e emit the same name.
-    let bridge_obj = bridge_object_name(trait_name);
-
-    let has_super_trait = bridge_cfg.super_trait.is_some();
-    let register_native_fn = format!("nativeRegister{}", trait_name.to_upper_camel_case());
-    let unregister_native_fn = bridge_cfg
-        .unregister_fn
-        .as_ref()
-        .map(|_| format!("nativeUnregister{}", trait_name.to_upper_camel_case()));
-    let clear_native_fn = bridge_cfg
-        .clear_fn
-        .as_ref()
-        .map(|_| format!("nativeClear{}s", trait_name.to_upper_camel_case()));
-    let body = template_env::render(
-        "trait_bridge_object.jinja",
-        minijinja::context! {
-            bridge_obj => bridge_obj,
-            interface_name => interface_name,
-            bridge_class_name => bridge_class_name,
-            has_super_trait => has_super_trait,
-            register_native_fn => register_native_fn,
-            unregister_native_fn => unregister_native_fn,
-            clear_native_fn => clear_native_fn,
-        },
-    );
-
-    let content = assemble_kt_content(package, &BTreeSet::new(), &body);
-    Some((format!("{bridge_obj}.kt"), content))
+    let files = gen_trait_bridge_files(package, trait_name, bridge_cfg, trait_def, bridge_class_name);
+    files.first().map(|(name, content)| (name.clone(), content.clone()))
 }
 
 /// Assemble Kotlin file content with package and imports.

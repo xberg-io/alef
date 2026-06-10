@@ -413,6 +413,19 @@ impl Backend for CsharpBackend {
                     content: strip_trailing_whitespace(&content),
                     generated_header: true,
                 });
+
+                // Generate bridge adapters (Path A pattern: sealed adapter classes wrapping user impls)
+                if let Some((filename, content)) = crate::backends::csharp::trait_bridge::gen_bridge_adapters_file(
+                    &namespace,
+                    &bridges,
+                    &visible_type_names,
+                ) {
+                    files.push(GeneratedFile {
+                        path: base_path.join(filename),
+                        content: strip_trailing_whitespace(&content),
+                        generated_header: true,
+                    });
+                }
             }
         }
 
