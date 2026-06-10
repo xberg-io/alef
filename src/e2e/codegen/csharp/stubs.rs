@@ -2,7 +2,7 @@
 
 use crate::e2e::codegen::TestBackendEmission;
 use crate::e2e::escape::sanitize_ident;
-use heck::{ToLowerCamelCase, ToUpperCamelCase};
+use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::fmt::Write as FmtWrite;
 
 /// Map an IR `TypeRef` to a C# type string for stub method signatures.
@@ -107,6 +107,39 @@ fn emit_csharp_stub_default(
     }
 }
 
+/// Extract a default value from fixture.input.backend for a stub method.
+///
+/// Given a method name and fixture, attempts to find the corresponding input
+/// value in fixture.input.backend. Returns C#-syntax literals for primitives
+/// and complex types. For numeric defaults, emits 1 instead of 0
+/// (downstream rejects 0 for counts like dimensions).
+fn extract_fixture_default(method_name: &str, fixture: &crate::e2e::fixture::Fixture) -> Option<String> {
+    let backend_input = fixture.input.get("backend").and_then(|v| v.as_object())?;
+
+    // Try snake_case first, then the original name.
+    let snake_name = method_name.to_snake_case();
+    let val = backend_input
+        .get(&snake_name)
+        .or_else(|| backend_input.get(method_name))?;
+
+    Some(match val {
+        serde_json::Value::Number(n) => {
+            // For numeric defaults, emit 1 instead of 0 if it's 0
+            // (downstream validation rejects 0 for counts like dimensions).
+            if let Some(i) = n.as_i64() {
+                if i == 0 { "1".to_string() } else { i.to_string() }
+            } else if let Some(u) = n.as_u64() {
+                if u == 0 { "1".to_string() } else { u.to_string() }
+            } else {
+                n.to_string()
+            }
+        }
+        serde_json::Value::String(s) => format!("\"{}\"", s),
+        serde_json::Value::Bool(b) => b.to_string(),
+        _ => return None, // Complex types not supported in fixture defaults
+    })
+}
+
 /// Emit a single C# stub method body into `out`.
 ///
 /// Used by both the main method loop and the super-trait method section of
@@ -118,6 +151,7 @@ fn emit_csharp_stub_method(
     method: &crate::core::ir::MethodDef,
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
     excluded_types: &std::collections::HashSet<&str>,
+    fixture: &crate::e2e::fixture::Fixture,
 ) {
     use crate::core::ir::TypeRef;
 
@@ -127,22 +161,24 @@ fn emit_csharp_stub_method(
     let ret_ty = csharp_type_for_stub_visible(&method.return_type, excluded_types);
     // Use the visible type to determine the default value, not the original type
     // (e.g., HiddenRecord → string → "")
-    // Special case: methods with validation requirements (e.g., Dimensions must be > 0)
-    // use a sensible default instead of the language-wide default.
-    let default_val = if method.params.is_empty()
-        && matches!(
-            method.return_type,
-            TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize | crate::core::ir::PrimitiveType::U64)
-        ) {
-        // For zero-parameter methods returning usize/u64 (properties), check for known
-        // properties that have validation requirements.
-        match method.name.to_lowercase().as_str() {
-            "dimensions" | "embedding_dimensions" | "model_dimensions" => "1".to_string(),
-            _ => emit_csharp_stub_default(&method.return_type, &ret_ty, defaults, excluded_types),
+    // Try to extract a value from fixture.input.backend first; fall back to language defaults.
+    let default_val = extract_fixture_default(&method.name, fixture).unwrap_or_else(|| {
+        if method.params.is_empty()
+            && matches!(
+                method.return_type,
+                TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize | crate::core::ir::PrimitiveType::U64)
+            )
+        {
+            // For zero-parameter methods returning usize/u64 (properties), check for known
+            // properties that have validation requirements.
+            match method.name.to_lowercase().as_str() {
+                "dimensions" | "embedding_dimensions" | "model_dimensions" => "1".to_string(),
+                _ => emit_csharp_stub_default(&method.return_type, &ret_ty, defaults, excluded_types),
+            }
+        } else {
+            emit_csharp_stub_default(&method.return_type, &ret_ty, defaults, excluded_types)
         }
-    } else {
-        emit_csharp_stub_default(&method.return_type, &ret_ty, defaults, excluded_types)
-    };
+    });
 
     // Build parameter list using visible types (internal types like HiddenRecord
     // are mapped to string to avoid stub referencing non-public types).
@@ -259,7 +295,7 @@ pub(super) fn emit_test_backend_with_class_name(
             .filter(|m| m.trait_source.as_deref() == Some(super_trait))
         {
             let method_cs = method.name.to_upper_camel_case();
-            emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults, excluded_types);
+            emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults, excluded_types, fixture);
             emitted_methods.insert(method.name.clone());
         }
     }
@@ -272,7 +308,7 @@ pub(super) fn emit_test_backend_with_class_name(
             continue;
         }
         let method_cs = method.name.to_upper_camel_case();
-        emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults, excluded_types);
+        emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults, excluded_types, fixture);
     }
 
     let _ = writeln!(setup, "    }}");
