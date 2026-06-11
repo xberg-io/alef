@@ -16,6 +16,7 @@ pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &Fixture,
+    enums: &[crate::core::ir::EnumDef],
 ) -> TestBackendEmission {
     use crate::backends::dart::type_map::DartMapper;
     use crate::codegen::defaults::language_defaults;
@@ -80,7 +81,7 @@ pub fn emit_test_backend(
         let params_str = params.join(", ");
 
         let return_type = map_dart_type_with_fallback(&mapper, &method.return_type);
-        let default_val = emit_dart_default_for_type(defaults.as_ref(), &method.return_type);
+        let default_val = emit_dart_default_for_type(defaults.as_ref(), &method.return_type, enums);
 
         // Always emit `Future<T> ... async => default` to match the abstract trait, which
         // wraps every method in `Future<T>` because FRB bridges every Dart-side callback as
@@ -187,6 +188,7 @@ pub(super) fn map_dart_type_with_fallback(
 pub(super) fn emit_dart_default_for_type(
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
     ty: &crate::core::ir::TypeRef,
+    enums: &[crate::core::ir::EnumDef],
 ) -> String {
     // Map internal-only types to the opaque bridge carrier for default generation.
     let effective_ty = match ty {
@@ -194,12 +196,16 @@ pub(super) fn emit_dart_default_for_type(
         _ => ty.clone(),
     };
 
-    if let TypeRef::Named(_) = &effective_ty {
-        // Avoid `T()` defaults because the FRB-generated class or enum may require
-        // constructor params or a specific variant we cannot enumerate generically. Stubs in the
-        // generated e2e plugin tests are registration-only — methods are never invoked —
-        // so a `throw UnimplementedError()` body is type-safe (Never assignable to T)
-        // and semantically correct.
+    if let TypeRef::Named(name) = &effective_ty {
+        // Check if this Named type is an enum in the IR; if so, return the first variant
+        if let Some(enum_def) = enums.iter().find(|e| &e.name == name) {
+            if let Some(first_variant) = enum_def.variants.first() {
+                let variant_name = first_variant.name.to_lowercase();
+                return format!("{name}.{variant_name}");
+            }
+        }
+        // For non-enum Named types, throw UnimplementedError (struct/complex type stubs
+        // are registration-only and methods are never invoked).
         return "throw UnimplementedError()".to_string();
     }
     // Integer primitives default to `1` (not `0`). Floats stay at `0.0`;

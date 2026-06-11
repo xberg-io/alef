@@ -65,7 +65,7 @@ fn dart_stub_contains_no_sample_crate_domain_names() {
     let methods = [&required_method];
     let fixture = make_fixture("my_test_fixture");
 
-    let emission = emit_test_backend(&bridge, &methods, &fixture);
+    let emission = emit_test_backend(&bridge, &methods, &fixture, &[]);
 
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
@@ -148,7 +148,7 @@ fn dart_stub_uses_typed_params_not_dynamic() {
     let methods = [&required_method];
     let fixture = make_fixture("my_test_fixture");
 
-    let emission = emit_test_backend(&bridge, &methods, &fixture);
+    let emission = emit_test_backend(&bridge, &methods, &fixture, &[]);
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
     assert!(
@@ -182,7 +182,7 @@ fn dart_stub_uses_fixture_input_name_for_plugin_name() {
     let mut fixture = make_fixture("my_fixture_id");
     fixture.input = serde_json::json!({ "name": "my-backend-name" });
 
-    let emission = emit_test_backend(&bridge, &methods, &fixture);
+    let emission = emit_test_backend(&bridge, &methods, &fixture, &[]);
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
     assert!(

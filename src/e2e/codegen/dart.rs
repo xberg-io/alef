@@ -147,6 +147,7 @@ impl E2eCodegen for DartE2eCodegen {
                 &config.adapters,
                 config,
                 type_defs,
+                enums,
             );
             files.push(GeneratedFile {
                 path: test_base.join(filename),

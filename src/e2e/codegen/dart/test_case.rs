@@ -20,6 +20,7 @@ pub(super) struct DartTestCaseContext<'a> {
     pub(super) adapters: &'a [crate::core::config::extras::AdapterConfig],
     pub(super) config: &'a ResolvedCrateConfig,
     pub(super) type_defs: &'a [crate::core::ir::TypeDef],
+    pub(super) enums: &'a [crate::core::ir::EnumDef],
 }
 
 pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseContext<'_>) {
@@ -31,6 +32,7 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
         adapters,
         config,
         type_defs,
+        enums,
     } = context;
     // HTTP fixtures: hit the mock server.
     if let Some(http) = &fixture.http {
@@ -291,7 +293,7 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                             .find(|t| t.name == *trait_name)
                             .map(|t| t.methods.iter().collect())
                             .unwrap_or_default();
-                        let emission = emit_test_backend(trait_bridge, &methods, fixture);
+                        let emission = emit_test_backend(trait_bridge, &methods, fixture, enums);
                         // Dart class definitions are emitted at module-level (before void main)
                         // in collect_dart_test_stub_classes, so we only push the instantiation here.
                         args.push(emission.arg_expr);

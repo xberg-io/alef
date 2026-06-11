@@ -18,6 +18,7 @@ pub(super) fn render_test_file(
     adapters: &[crate::core::config::extras::AdapterConfig],
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -428,7 +429,7 @@ pub(super) fn render_test_file(
     // at the module level before void main().
     let mut test_stub_classes = String::new();
     for fixture in fixtures {
-        collect_dart_test_stub_classes(&mut test_stub_classes, fixture, e2e_config, config, type_defs);
+        collect_dart_test_stub_classes(&mut test_stub_classes, fixture, e2e_config, config, type_defs, enums);
     }
     if !test_stub_classes.is_empty() {
         out.push_str(&test_stub_classes);
@@ -501,6 +502,7 @@ pub(super) fn render_test_file(
                 adapters,
                 config,
                 type_defs,
+                enums,
             },
         );
     }
@@ -654,6 +656,7 @@ fn collect_dart_test_stub_classes(
     _e2e_config: &E2eConfig,
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
 ) {
     // HTTP fixtures do not use test_backend.
     if fixture.is_http_test() {
@@ -673,7 +676,7 @@ fn collect_dart_test_stub_classes(
                     .find(|t| t.name == *trait_name)
                     .map(|t| t.methods.iter().collect())
                     .unwrap_or_default();
-                let emission = super::stubs::emit_test_backend(trait_bridge, &methods, fixture);
+                let emission = super::stubs::emit_test_backend(trait_bridge, &methods, fixture, enums);
                 // Emit only the class definition at module-level.
                 let _ = writeln!(out, "{}", emission.setup_block);
                 let _ = writeln!(out);
