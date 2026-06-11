@@ -74,6 +74,22 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
             ));
         }
     }
+    // Append a synthetic `validation(message:source:)` case used by DTO
+    // first-class struct initializers (`dto.rs:675`) when a unit-serde-enum
+    // raw value from the Rust bridge cannot be mapped to a known Swift
+    // case. Without this the generated Swift refuses to compile against
+    // any Rust error type that doesn't already declare this exact variant
+    // (e.g. kreuzcrawl `CrawlError`, which has 18 domain variants but no
+    // `Validation`). Skipped if the Rust error type already declares it.
+    let has_validation_variant = error
+        .variants
+        .iter()
+        .any(|v| swift_case_ident(&v.name.to_lower_camel_case()) == "validation");
+    if !has_validation_variant {
+        out.push_str("    /// Synthetic case raised when a Rust serde unit-enum raw value cannot\n");
+        out.push_str("    /// be mapped to a known Swift case during DTO unmarshaling.\n");
+        out.push_str("    case validation(message: String, source: String)\n");
+    }
     out.push_str("}\n");
     // Emit a public extension with computed properties for each whitelisted
     // introspection method (e.g. `status_code`, `is_transient`, `error_type`).
@@ -140,6 +156,19 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
                         case_name => &case_name,
                         wildcard => &wildcard,
                         return_expression => &ret_expr,
+                    },
+                ));
+            }
+            // Cover the synthetic `validation(message:source:)` case (appended
+            // above when not already declared by the user) so Swift's exhaustive
+            // switch is satisfied for every introspection-method property.
+            if !has_validation_variant {
+                cases.push_str(&crate::backends::swift::template_env::render(
+                    "swift_error_property_case.swift.jinja",
+                    minijinja::context! {
+                        case_name => "validation",
+                        wildcard => "(message: _, source: _)",
+                        return_expression => &default_val,
                     },
                 ));
             }

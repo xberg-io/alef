@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.5] - 2026-06-11
+
+### Fixed
+
+- **Swift backend: append synthetic `validation(message:source:)` case to emitted error enum when not already present.** `dto.rs:675` emits `throw {error_type_name}.validation(message: …, source: rawValue)` in first-class struct initializers to surface unit-serde-enum roundtrip failures (e.g. when the Rust bridge returns a raw value that doesn't map to a known Swift case). v0.24.3/v0.24.4 fixed the type-name reference but assumed every emitted error enum already declares a `.validation(message:source:)` case — true for some consumers, false for others (e.g. kreuzcrawl's `CrawlError` has 18 domain-specific variants but no `Validation`). Now `errors::emit_error` appends a synthetic `case validation(message: String, source: String)` when the user's Rust error type does not already declare a `validation` variant. The introspection-method extension also emits a synthetic case to keep the exhaustive switch valid. Existing snapshots updated.
+
 ## [0.24.4] - 2026-06-11
 
 ### Fixed

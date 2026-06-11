@@ -19,6 +19,9 @@ public enum DemoError: Swift.Error {
     case invalidInput
     /// Processing encountered an error.
     case processingFailed
+    /// Synthetic case raised when a Rust serde unit-enum raw value cannot
+    /// be mapped to a known Swift case during DTO unmarshaling.
+    case validation(message: String, source: String)
 }
 
 // MARK: - Free-function Forwarders

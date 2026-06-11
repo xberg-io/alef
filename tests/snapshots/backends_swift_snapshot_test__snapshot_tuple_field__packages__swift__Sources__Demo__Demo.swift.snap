@@ -44,6 +44,9 @@ internal extension KeywordConfig {
 public enum DemoError: Swift.Error {
     /// Extraction encountered an error.
     case extractionFailed
+    /// Synthetic case raised when a Rust serde unit-enum raw value cannot
+    /// be mapped to a known Swift case during DTO unmarshaling.
+    case validation(message: String, source: String)
 }
 
 // MARK: - JSON-String Convenience Overloads
