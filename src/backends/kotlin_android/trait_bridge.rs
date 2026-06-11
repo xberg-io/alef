@@ -28,6 +28,8 @@ pub fn gen_trait_bridge_files(
     bridge_cfg: &TraitBridgeConfig,
     trait_def: &TypeDef,
     bridge_class_name: &str,
+    api: &crate::core::ir::ApiSurface,
+    effective_excluded_types: &std::collections::HashSet<String>,
 ) -> Vec<(String, String)> {
     let interface_name = format!("I{trait_name}");
     let bridge_obj = bridge_object_name(trait_name);
@@ -69,6 +71,16 @@ pub fn gen_trait_bridge_files(
         use heck::ToLowerCamelCase;
 
         let mut adapter_methods = String::new();
+        let mut imports = BTreeSet::new();
+
+        // Build the set of type names visible in this binding (same as emit_trait_methods)
+        let visible_type_names: std::collections::HashSet<&str> = api
+            .types
+            .iter()
+            .filter(|t| !t.binding_excluded && !effective_excluded_types.contains(&t.name))
+            .map(|t| t.name.as_str())
+            .chain(api.enums.iter().map(|e| e.name.as_str()))
+            .collect();
 
         // Delegate Plugin super-trait methods if present
         adapter_methods.push_str("    override fun name(): String = impl.name()\n\n");
@@ -76,47 +88,48 @@ pub fn gen_trait_bridge_files(
         adapter_methods.push_str("    override fun initialize() = impl.initialize()\n\n");
         adapter_methods.push_str("    override fun shutdown() = impl.shutdown()\n\n");
 
-        // Delegate all trait methods
+        // Delegate all trait methods using the same type resolution as emit_trait_methods
         for method in &trait_def.methods {
+            if method.sanitized || method.is_static {
+                continue;
+            }
+
             let method_camel = method.name.to_lower_camel_case();
-            let params: Vec<String> = method
+
+            // Use substitute_trait_carrier_type and kotlin_type_str_visible just like emit_trait_methods
+            let params = method
                 .params
                 .iter()
                 .map(|p| {
-                    let pname = p.name.to_lower_camel_case();
-                    format!(
-                        "{pname}: {}",
-                        match &p.ty {
-                            crate::core::ir::TypeRef::String => "String",
-                            crate::core::ir::TypeRef::Primitive(_) => "String",
-                            crate::core::ir::TypeRef::Vec(_) => "String",
-                            crate::core::ir::TypeRef::Named(_) => "String",
-                            _ => "Any",
-                        }
-                    )
+                    let name = crate::backends::kotlin::to_lower_camel(&p.name);
+                    let ty_ref = substitute_trait_carrier_type(api, bridge_cfg, &p.ty);
+                    let ty = kotlin_type_str_visible(&ty_ref, p.optional, &visible_type_names, &mut imports);
+                    format!("{name}: {ty}")
                 })
-                .collect();
-            let params_str = params.join(", ");
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let return_type_ref = substitute_trait_carrier_type(api, bridge_cfg, &method.return_type);
+            let return_type = kotlin_type_str_visible(&return_type_ref, false, &visible_type_names, &mut imports);
+
             let delegate_args = method
                 .params
                 .iter()
-                .map(|p| p.name.to_lower_camel_case())
+                .map(|p| crate::backends::kotlin::to_lower_camel(&p.name))
                 .collect::<Vec<_>>()
                 .join(", ");
 
             if method.is_async {
                 adapter_methods.push_str(&format!(
-                    "    override suspend fun {method_camel}({params_str}): String {{\n"
+                    "    override suspend fun {method_camel}({params}): {return_type} {{\n"
                 ));
-                adapter_methods.push_str(&format!(
-                    "        return impl.{method_camel}({delegate_args}).toString()\n"
-                ));
+                adapter_methods.push_str(&format!("        return impl.{method_camel}({delegate_args})\n"));
                 adapter_methods.push_str("    }\n\n");
             } else {
-                adapter_methods.push_str(&format!("    override fun {method_camel}({params_str}): String {{\n"));
                 adapter_methods.push_str(&format!(
-                    "        return impl.{method_camel}({delegate_args}).toString()\n"
+                    "    override fun {method_camel}({params}): {return_type} {{\n"
                 ));
+                adapter_methods.push_str(&format!("        return impl.{method_camel}({delegate_args})\n"));
                 adapter_methods.push_str("    }\n\n");
             }
         }
@@ -130,7 +143,19 @@ pub fn gen_trait_bridge_files(
             },
         );
 
-        let content = assemble_kt_content(package, &BTreeSet::new(), &adapter_body);
+        // kotlin_type_with_string_imports already includes "import " prefix, so we need to
+        // avoid duplicates when assembling. Filter out duplicates and format properly.
+        let mut final_imports = BTreeSet::new();
+        for import_line in &imports {
+            if import_line.starts_with("import ") {
+                // Already has prefix, add as-is
+                final_imports.insert(import_line.trim_start_matches("import ").to_string());
+            } else {
+                final_imports.insert(import_line.clone());
+            }
+        }
+
+        let content = assemble_kt_content(package, &final_imports, &adapter_body);
         files.push((format!("{adapter_class_name}.kt"), content));
     }
 
@@ -138,6 +163,7 @@ pub fn gen_trait_bridge_files(
 }
 
 /// Generate the bridge object (legacy entry point for compatibility).
+/// This is used primarily by tests and creates an empty ApiSurface for backward compatibility.
 pub fn gen_trait_bridge_object(
     package: &str,
     trait_name: &str,
@@ -145,7 +171,33 @@ pub fn gen_trait_bridge_object(
     trait_def: &TypeDef,
     bridge_class_name: &str,
 ) -> Option<(String, String)> {
-    let files = gen_trait_bridge_files(package, trait_name, bridge_cfg, trait_def, bridge_class_name);
+    use crate::core::ir::ApiSurface;
+
+    // Create an empty ApiSurface for backward-compatible test calls
+    let api = ApiSurface {
+        crate_name: "test_crate".to_string(),
+        version: "0.0.0".to_string(),
+        types: vec![],
+        enums: vec![],
+        functions: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: vec![],
+    };
+    let excluded_types = std::collections::HashSet::new();
+
+    let files = gen_trait_bridge_files(
+        package,
+        trait_name,
+        bridge_cfg,
+        trait_def,
+        bridge_class_name,
+        &api,
+        &excluded_types,
+    );
     files.first().map(|(name, content)| (name.clone(), content.clone()))
 }
 
@@ -166,6 +218,76 @@ fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) ->
         },
     ));
     out
+}
+
+/// Map a `TypeRef` to its Kotlin representation, substituting `String` for any
+/// `Named` type that is not in the set of visible (generated) types.
+/// This prevents excluded/internal types like `InternalDocument` from appearing
+/// in trait interface signatures where they are not defined.
+///
+/// Mirrors the logic from emit_trait_methods in gen_bindings.rs.
+fn kotlin_type_str_visible(
+    ty: &crate::core::ir::TypeRef,
+    optional: bool,
+    visible_type_names: &std::collections::HashSet<&str>,
+    imports: &mut BTreeSet<String>,
+) -> String {
+    use crate::backends::kotlin::kotlin_type_str_pub;
+
+    match ty {
+        crate::core::ir::TypeRef::Named(name) if !visible_type_names.contains(name.as_str()) => {
+            if optional {
+                "String?".to_string()
+            } else {
+                "String".to_string()
+            }
+        }
+        crate::core::ir::TypeRef::Optional(inner) => kotlin_type_str_visible(inner, true, visible_type_names, imports),
+        other => kotlin_type_str_pub(other, optional, imports),
+    }
+}
+
+/// Substitute trait carrier types for named types that are context or result types.
+/// This mirrors the logic from emit_trait_methods in gen_bindings.rs.
+fn substitute_trait_carrier_type(
+    api: &crate::core::ir::ApiSurface,
+    bridge: &TraitBridgeConfig,
+    ty: &crate::core::ir::TypeRef,
+) -> crate::core::ir::TypeRef {
+    use crate::core::ir::TypeRef;
+
+    match ty {
+        TypeRef::Named(name) if should_project_trait_carrier(api, bridge, name) => TypeRef::Named(
+            bridge
+                .result_type
+                .as_ref()
+                .expect("checked by should_project_trait_carrier")
+                .clone(),
+        ),
+        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(substitute_trait_carrier_type(api, bridge, inner))),
+        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(substitute_trait_carrier_type(api, bridge, inner))),
+        TypeRef::Map(key, value) => TypeRef::Map(
+            Box::new(substitute_trait_carrier_type(api, bridge, key)),
+            Box::new(substitute_trait_carrier_type(api, bridge, value)),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Check if a type should be projected to a trait carrier type.
+/// This mirrors the logic from emit_trait_methods in gen_bindings.rs.
+fn should_project_trait_carrier(
+    api: &crate::core::ir::ApiSurface,
+    bridge: &TraitBridgeConfig,
+    type_name: &str,
+) -> bool {
+    bridge.context_type.as_deref() == Some(type_name)
+        && bridge.result_type.is_some()
+        && (api.excluded_type_paths.contains_key(type_name)
+            || api
+                .types
+                .iter()
+                .any(|typ| typ.name == type_name && (typ.binding_excluded || typ.is_opaque)))
 }
 
 #[cfg(test)]

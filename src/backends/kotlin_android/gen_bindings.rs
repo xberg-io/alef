@@ -373,9 +373,15 @@ fn emit_trait_interfaces(
 
         // Emit the bridge object and adapter (registration/unregistration wrapper + adapter)
         let bridge_class = bridge_class_name(&config.name);
-        for (filename, bridge_content) in
-            trait_bridge::gen_trait_bridge_files(package, &trait_def.name, bridge, trait_def, &bridge_class)
-        {
+        for (filename, bridge_content) in trait_bridge::gen_trait_bridge_files(
+            package,
+            &trait_def.name,
+            bridge,
+            trait_def,
+            &bridge_class,
+            api,
+            &effective_excluded_types,
+        ) {
             files.push(GeneratedFile {
                 path: kotlin_source_dir.join(filename),
                 content: bridge_content,
