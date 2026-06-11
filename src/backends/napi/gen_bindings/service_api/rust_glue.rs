@@ -386,10 +386,10 @@ fn gen_base_registration_napi_method(
 
     // Build method signature from registration's metadata_params.
     //
-    // napi-rs cannot synthesize `FromNapiValue` for bare core types (e.g.
-    // `spikard::RouteBuilder`), so the public-facing param uses the wrapper
-    // class (e.g. `&JsRouteBuilder`) and is unwrapped into the core type
-    // inside the function body before being forwarded to `inner.method(..)`.
+    // napi-rs cannot synthesize `FromNapiValue` for bare core types, so the
+    // public-facing param uses the wrapper class and is unwrapped into the
+    // core type inside the function body before being forwarded to
+    // `inner.method(..)`.
     let prefix = config.node_type_prefix();
     let mut rust_params = vec!["&self".to_owned()];
     let mut unwrap_lines = String::new();
