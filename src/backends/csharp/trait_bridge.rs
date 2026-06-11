@@ -228,12 +228,16 @@ pub fn gen_bridge_adapters_file(
                     .collect::<Vec<_>>()
                     .join(", ");
 
+                // Zero-parameter methods with non-void return are properties
+                let is_property = method.params.is_empty() && return_type != "void";
+
                 serde_json::json!({
                     "pascal_name": to_csharp_name(&method.name),
                     "return_type": return_type,
                     "params_sig": params_sig,
                     "params_pass": params_pass,
                     "is_void_return": return_type == "void",
+                    "is_property": is_property,
                 })
             })
             .collect();
