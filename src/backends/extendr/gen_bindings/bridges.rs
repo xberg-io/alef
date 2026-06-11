@@ -716,7 +716,9 @@ pub(super) fn gen_extendr_json_bridged_function(
                 } else if param.is_mut {
                     format!("&mut {}_core", param.name)
                 } else {
-                    format!("{}_core.as_slice()", param.name)
+                    // Vec<Named> parameters: pass the Vec directly, not as a slice.
+                    // The core functions expect owned Vec, not &[T].
+                    format!("{}_core", param.name)
                 }
             } else if needs_json_struct || needs_json_enum {
                 if param.optional && param.is_ref {
@@ -788,7 +790,7 @@ pub(super) fn gen_extendr_json_bridged_function(
                     "result.map(|v| serde_json::to_string(&v){err_map}).transpose()",
                     err_map = err_map
                 );
-                ("Result<Option<String>>".to_string(), ser, true)
+                ("Option<String>".to_string(), ser, true)
             } else {
                 let ser = "result.map(|v| serde_json::to_string(&v).expect(\"serialization failed\"))".to_string();
                 ("Option<String>".to_string(), ser, false)
@@ -797,7 +799,7 @@ pub(super) fn gen_extendr_json_bridged_function(
         _ => {
             if effectively_fallible {
                 let ser = format!("serde_json::to_string(&result){err_map}");
-                ("Result<String>".to_string(), ser, true)
+                ("String".to_string(), ser, true)
             } else {
                 (
                     "String".to_string(),
@@ -878,13 +880,17 @@ pub(super) fn gen_extendr_json_bridged_function(
     let body = if wrap_in_result_closure {
         // Wrap the computation in a closure that returns Result, then match on it
         // and convert errors to R stop() calls via throw_r_error()
+        let closure_ret_type = match &func.return_type {
+            TypeRef::Optional(_) => "Result<Option<String>>".to_string(),
+            _ => "Result<String>".to_string(),
+        };
         format!(
-            "match (|| -> {ret_type} {{ Ok({}) }})() {{\n    \
+            "match (|| -> {closure_ret_type} {{ {} }})() {{\n    \
              Ok(v) => v,\n    \
              Err(e) => extendr_api::throw_r_error(&format!(\"{{:?}}\", e)),\n    \
              }}",
-            inner_body.trim(),
-            ret_type = ret_type
+            inner_body,
+            closure_ret_type = closure_ret_type
         )
     } else {
         inner_body

@@ -15,7 +15,7 @@
 //! how the FFI vtable receives values from native callers.
 
 use crate::core::ir::{MethodDef, PrimitiveType, TypeDef, TypeRef};
-use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use heck::{ToPascalCase, ToSnakeCase};
 use minijinja::Value;
 use std::collections::HashSet;
 
@@ -141,6 +141,10 @@ pub fn gen_trait_bridge_files(
 /// 3. Delegates all method calls to the user impl
 ///
 /// The Bridge class is what the registration function passes to native side.
+///
+/// Note: The Adapter does not need to import List or Map since it only delegates to impl.
+/// The interface itself declares the required imports for those types. This prevents
+/// checkstyle unused-import warnings when methods don't actually use generic containers.
 pub fn gen_trait_adapter_bridge_file(
     trait_def: &TypeDef,
     package: &str,
@@ -187,7 +191,8 @@ pub fn gen_trait_adapter_bridge_file(
 
     // Add trait-specific methods
     for method in &bridge_methods {
-        let method_camel = method.name.to_lower_camel_case();
+        // Use the method name as-is from the interface (snake_case), not camelCase
+        let method_name = &method.name;
         let return_type_str = java_type_visible(&method.return_type, visible_type_names, excluded_types);
 
         let params_str = method
@@ -209,19 +214,51 @@ pub fn gen_trait_adapter_bridge_file(
         methods_code.push_str("    @Override\n");
         methods_code.push_str(&format!(
             "    public {} {}({}) throws Exception {{\n",
-            return_type_str, method_camel, params_str
+            return_type_str, method_name, params_str
         ));
 
         if matches!(method.return_type, TypeRef::Unit) {
-            methods_code.push_str(&format!("        impl.{}({});\n", method_camel, call_args_str));
+            methods_code.push_str(&format!("        impl.{}({});\n", method_name, call_args_str));
         } else {
-            methods_code.push_str(&format!("        return impl.{}({});\n", method_camel, call_args_str));
+            methods_code.push_str(&format!("        return impl.{}({});\n", method_name, call_args_str));
         }
 
         methods_code.push_str("    }\n\n");
     }
 
-    let imports = vec!["java.util.List", "java.util.Map"];
+    // Collect which imports are actually needed based on method return types and parameters.
+    // The Adapter signature must match the interface, so we need imports for List/Map when used.
+    let mut needs_list = false;
+    let mut needs_map = false;
+
+    fn check_type_needs_list_or_map(ty: &TypeRef) -> (bool, bool) {
+        match ty {
+            TypeRef::Vec(_) => (true, false),
+            TypeRef::Map(_, _) => (false, true),
+            TypeRef::Optional(inner) => check_type_needs_list_or_map(inner),
+            _ => (false, false),
+        }
+    }
+
+    for method in &bridge_methods {
+        let (ret_list, ret_map) = check_type_needs_list_or_map(&method.return_type);
+        needs_list = needs_list || ret_list;
+        needs_map = needs_map || ret_map;
+
+        for param in &method.params {
+            let (param_list, param_map) = check_type_needs_list_or_map(&param.ty);
+            needs_list = needs_list || param_list;
+            needs_map = needs_map || param_map;
+        }
+    }
+
+    let mut imports: Vec<&str> = vec![];
+    if needs_list {
+        imports.push("java.util.List");
+    }
+    if needs_map {
+        imports.push("java.util.Map");
+    }
 
     let ctx = minijinja::context! {
         package => package,
