@@ -140,6 +140,46 @@ pub fn gen_trait_bridges_file(
         }
     }
 
+    // Emit C helper functions for vtable construction.
+    // Each helper allocates and initializes a vtable in C, correctly populating function pointer slots.
+    for bridge_cfg in &config.trait_bridges {
+        if !bridge_cfg.exclude_languages.iter().any(|lang| lang == "go")
+            && api.types.iter().any(|t| t.name == bridge_cfg.trait_name)
+        {
+            if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
+                let trait_pascal = trait_def.name.to_pascal_case();
+                let trait_snake = heck::AsSnakeCase(&trait_def.name).to_string();
+                let vtable_constructor = format!("{}_{}_vtable_new", ffi_prefix, trait_snake);
+                let crate_normalized = crate_name.replace('-', "_");
+                let crate_upper = crate_normalized.to_uppercase();
+                let crate_pascal = crate_normalized.to_pascal_case();
+                let c_vtable_struct = format!("{}{}{}{}", crate_upper, crate_pascal, trait_pascal, "VTable");
+                let vtable_methods: Vec<_> = trait_def
+                    .methods
+                    .iter()
+                    .filter(|m| !bridge_cfg.ffi_skip_methods.contains(&m.name))
+                    .collect();
+                let method_field_names: Vec<String> =
+                    vtable_methods.iter().map(|method| method.name.to_lowercase()).collect();
+                let method_pascal_names: Vec<String> = vtable_methods
+                    .iter()
+                    .map(|method| method.name.to_pascal_case())
+                    .collect();
+
+                out.push_str(&crate::backends::go::template_env::render(
+                    "vtable_constructor_helper.jinja",
+                    minijinja::context! {
+                        c_vtable_struct => &c_vtable_struct,
+                        method_field_names => method_field_names,
+                        method_pascal_names => method_pascal_names,
+                        trait_pascal => &trait_pascal,
+                        vtable_constructor => &vtable_constructor,
+                    },
+                ));
+            }
+        }
+    }
+
     out.push_str("*/\n");
     out.push_str("import \"C\"\n");
     out.push('\n');
@@ -266,6 +306,7 @@ pub(super) fn gen_trait_bridge(
     let crate_normalized = crate_name.replace('-', "_");
     let crate_upper = crate_normalized.to_uppercase();
     let crate_pascal = crate_normalized.to_pascal_case();
+    #[allow(unused_variables)]
     let c_vtable_struct = format!("{}{}{}{}", crate_upper, crate_pascal, trait_pascal, "VTable");
 
     // =========================================================================
@@ -371,82 +412,25 @@ pub(super) fn gen_trait_bridge(
         },
     ));
 
-    out.push_str(&crate::backends::go::template_env::render(
-        "vtable_struct_init.jinja",
-        minijinja::context! {
-            c_vtable_struct => &c_vtable_struct,
-        },
-    ));
-
-    // Set up vtable function pointers (via //export trampolines).
-    // cgo declares function pointers as *[0]byte, so cast via unsafe.Pointer.
-    // Skip FFI-incompatible methods — they have no C VTable slot.
-    for method in trait_def
+    // Collect export names for method trampolines
+    let export_names: Vec<String> = trait_def
         .methods
         .iter()
         .filter(|m| !bridge_cfg.ffi_skip_methods.contains(&m.name))
-    {
-        let export_name = format!("go{}{}", &trait_pascal, method.name.to_pascal_case());
-        out.push_str(&crate::backends::go::template_env::render(
-            "register_vtable_method_field.jinja",
-            minijinja::context! {
-                method_name => &method.name,
-                export_name => export_name,
-            },
-        ));
-    }
+        .map(|m| format!("go{}{}", &trait_pascal, m.name.to_pascal_case()))
+        .collect();
 
-    // Plugin method pointers (cbindgen suffixes lifecycle hooks with `_fn`).
+    // Build the C vtable by calling the C helper function.
+    // This ensures function pointers are correctly populated in C, fixing ARM64 macOS issues
+    // where unsafe.Pointer casts don't work correctly for function addresses.
+    let vtable_constructor = format!("{}_{}_vtable_new", ffi_prefix, trait_snake);
     out.push_str(&crate::backends::go::template_env::render(
-        "plugin_trampoline_lifecycle.jinja",
+        "vtable_allocation_via_c_helper.jinja",
         minijinja::context! {
-            field => "name_fn",
-            pascal => &trait_pascal,
-            method => "Name",
+            export_names => export_names,
+            vtable_constructor => &vtable_constructor,
         },
     ));
-    out.push_str(&crate::backends::go::template_env::render(
-        "plugin_trampoline_lifecycle.jinja",
-        minijinja::context! {
-            field => "version_fn",
-            pascal => &trait_pascal,
-            method => "Version",
-        },
-    ));
-    out.push_str(&crate::backends::go::template_env::render(
-        "plugin_trampoline_lifecycle.jinja",
-        minijinja::context! {
-            field => "initialize_fn",
-            pascal => &trait_pascal,
-            method => "Initialize",
-        },
-    ));
-    out.push_str(&crate::backends::go::template_env::render(
-        "plugin_trampoline_lifecycle.jinja",
-        minijinja::context! {
-            field => "shutdown_fn",
-            pascal => &trait_pascal,
-            method => "Shutdown",
-        },
-    ));
-
-    out.push_str(&crate::backends::go::template_env::render(
-        "vtable_free_string_field.jinja",
-        minijinja::context! {
-            trait_pascal => &trait_pascal,
-        },
-    ));
-
-    // free_user_data deletes the cgo.Handle when the bridge is dropped by Rust
-    out.push_str(&crate::backends::go::template_env::render(
-        "vtable_free_user_data_field.jinja",
-        minijinja::context! {
-            pascal => &trait_pascal,
-        },
-    ));
-
-    out.push_str("\t}\n");
-    out.push('\n');
 
     out.push_str(&crate::backends::go::template_env::render(
         "register_c_call.jinja",

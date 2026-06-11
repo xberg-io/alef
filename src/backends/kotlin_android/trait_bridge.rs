@@ -83,10 +83,14 @@ pub fn gen_trait_bridge_files(
             .collect();
 
         // Delegate Plugin super-trait methods if present
-        adapter_methods.push_str("    override fun name(): String = impl.name()\n\n");
-        adapter_methods.push_str("    override fun version(): String = impl.version()\n\n");
-        adapter_methods.push_str("    override fun initialize() = impl.initialize()\n\n");
-        adapter_methods.push_str("    override fun shutdown() = impl.shutdown()\n\n");
+        if bridge_cfg.super_trait.is_some() {
+            adapter_methods.push_str("    override fun name(): String = impl.name()\n\n");
+            adapter_methods.push_str("    override fun version(): String = impl.version()\n\n");
+            adapter_methods.push_str("    override fun initialize() = impl.initialize()\n\n");
+            adapter_methods.push_str("    override fun shutdown() = impl.shutdown()\n\n");
+            adapter_methods.push_str("    override fun description(): String = impl.description()\n\n");
+            adapter_methods.push_str("    override fun author(): String = impl.author()\n\n");
+        }
 
         // Delegate all trait methods using the same type resolution as emit_trait_methods
         for method in &trait_def.methods {

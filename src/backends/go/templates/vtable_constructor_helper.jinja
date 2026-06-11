@@ -1,0 +1,25 @@
+// C helper function to construct the {{ c_vtable_struct }} vtable with proper function pointers.
+// Function pointers must be populated in C using address-of operators (&) to ensure
+// ABI-correct values on all platforms (especially ARM64 macOS where unsafe.Pointer casts fail).
+static {{ c_vtable_struct }}* {{ vtable_constructor }}(
+{%- for method in method_pascal_names %}
+	void (*go{{ trait_pascal }}{{ method }})(void)
+	{%- if not loop.last %},{% endif %}
+{%- endfor %}
+) {
+	{{ c_vtable_struct }}* vtable = ({{ c_vtable_struct }}*)malloc(sizeof({{ c_vtable_struct }}));
+	if (!vtable) return NULL;
+	memset(vtable, 0, sizeof({{ c_vtable_struct }}));
+
+{%- for field_name in method_field_names %}
+	vtable->{{ field_name }} = (void(*)(void))go{{ trait_pascal }}{{ method_pascal_names[loop.index0] }};
+{%- endfor %}
+	vtable->free_string = (void(*)(void))go{{ trait_pascal }}FreeString;
+	vtable->free_user_data = (void(*)(void))go{{ trait_pascal }}FreeUserData;
+	vtable->name_fn = (void(*)(void))go{{ trait_pascal }}Name;
+	vtable->version_fn = (void(*)(void))go{{ trait_pascal }}Version;
+	vtable->initialize_fn = (void(*)(void))go{{ trait_pascal }}Initialize;
+	vtable->shutdown_fn = (void(*)(void))go{{ trait_pascal }}Shutdown;
+
+	return vtable;
+}

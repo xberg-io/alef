@@ -197,9 +197,9 @@ fn snapshot_emit_test_backend_no_super_trait_no_name_method() {
     );
 }
 
-/// Verify that methods with default implementations are still emitted.
+/// Verify that methods with default implementations are inherited from the interface.
 #[test]
-fn snapshot_emit_test_backend_emits_default_impl_methods() {
+fn snapshot_emit_test_backend_skips_default_impl_methods() {
     let bridge = TraitBridgeConfig {
         trait_name: "MyBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
@@ -209,8 +209,7 @@ fn snapshot_emit_test_backend_emits_default_impl_methods() {
     // fn required_method(&self) -> String — no default
     let required = make_method("required_method", vec![], TypeRef::String, false, false);
 
-    // fn optional_method(&self) — has default impl, but the generated interface
-    // still requires a concrete implementation.
+    // fn optional_method(&self) — has default impl and should be inherited.
     let optional = make_method(
         "optional_method",
         vec![],
@@ -230,10 +229,10 @@ fn snapshot_emit_test_backend_emits_default_impl_methods() {
         emission.setup_block
     );
 
-    // Must also emit the optional method.
+    // Must not emit the optional method.
     assert!(
-        emission.setup_block.contains("override fun optionalMethod()"),
-        "optional method must be emitted, got:\n{}",
+        !emission.setup_block.contains("override fun optionalMethod()"),
+        "optional method must be inherited, got:\n{}",
         emission.setup_block
     );
 }

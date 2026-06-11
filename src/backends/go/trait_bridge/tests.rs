@@ -299,7 +299,7 @@ fn c_trampoline_signature_bytes_param_includes_len_companion() {
 }
 
 #[test]
-fn trait_bridge_vtable_includes_free_string_callback() {
+fn trait_bridge_register_uses_c_vtable_helper_and_free_string_callback() {
     let trait_def = TypeDef {
         name: "OcrBackend".to_string(),
         rust_path: "sample_crate::OcrBackend".to_string(),
@@ -355,7 +355,8 @@ fn trait_bridge_vtable_includes_free_string_callback() {
         "ocr_backend",
     );
 
-    assert!(out.contains("free_string: (*[0]byte)(unsafe.Pointer(C.goOcrBackendFreeString))"));
+    assert!(out.contains("vtable := C.sample_crate_ocr_backend_vtable_new("));
+    assert!(out.contains("defer C.free(unsafe.Pointer(vtable))"));
     assert!(out.contains("func goOcrBackendFreeString(ptr *C.char)"));
     assert!(out.contains("C.free(unsafe.Pointer(ptr))"));
 }

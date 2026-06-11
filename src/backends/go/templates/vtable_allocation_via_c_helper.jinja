@@ -1,0 +1,12 @@
+	// Build the C vtable by calling the C helper function.
+	// This ensures function pointers are correctly populated in C, fixing ARM64 macOS issues.
+	vtable := C.{{ vtable_constructor }}(
+{%- for export_name in export_names %}
+		C.{{ export_name }}
+		{%- if not loop.last %},{% endif %}
+{%- endfor %}
+	)
+	if vtable == nil {
+		return fmt.Errorf("failed to allocate %s vtable", impl.Name())
+	}
+	defer C.free(unsafe.Pointer(vtable))

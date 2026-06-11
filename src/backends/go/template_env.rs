@@ -289,6 +289,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/register_vtable_method_field.jinja"),
     ),
     (
+        "vtable_allocation_via_c_helper.jinja",
+        include_str!("templates/vtable_allocation_via_c_helper.jinja"),
+    ),
+    (
+        "vtable_constructor_helper.jinja",
+        include_str!("templates/vtable_constructor_helper.jinja"),
+    ),
+    (
         "base_visitor_method.jinja",
         include_str!("templates/base_visitor_method.jinja"),
     ),
