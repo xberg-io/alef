@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.6] - 2026-06-11
+
 ### Fixed
+
+- **NAPI backend: drop unconditional `service.cjs` App re-export from `index.js`.** Two PatchFile post-build steps injected a defensive `try { const _service = require('./service.cjs'); ... }` block alongside `module.exports = nativeBinding` regardless of whether the consumer crate emitted services. For consumers without services (e.g. tslp), `service.cjs` is never written and the block is dead try/catch noise. Service-bearing consumers can still `require('./service.cjs')` directly to access the `App` class.
+
+- **Dart backend: absolute-path fallback for macOS framework loading in the alef-injected loader.** When the alef loader can't find the native library in expected package locations (pub.dev-installed or bridge-generated directories), it now tries one more absolute path constructed from `Directory.current.path` before returning `null`. This prevents flutter_rust_bridge's default loader from falling back to a relative `.framework/<stem>` path, which hardened macOS runtimes reject with "relative path not allowed in hardened program". Resolves dart test_apps loading failures on Homebrew-installed dart 3.12.1.
 
 - **C# e2e codegen: emit default-constructed config when fixture value missing.** When a C# e2e test has no fixture value for a required `json_object` parameter (like `config`), the codegen was falling back to passing `null`, which triggers `ArgumentNullException: Parameter 'config'` because the C# bindings declare config parameters as non-nullable. Fix: when we have an explicit `options_type` from the call config (e.g., `ExtractionConfig`), trust it and emit default construction (`new ExtractionConfig()`) even if the type can't be verified in type_defs. Also try more naming candidates (`Options`, `Settings` suffixes) and fall back to the first candidate if none can be verified as constructible. Only emit `null` as an absolute last resort. Collapses ArgumentNullException failures in 30 C# e2e tests.
 

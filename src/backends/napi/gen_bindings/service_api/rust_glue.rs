@@ -381,7 +381,19 @@ fn gen_base_registration_napi_method(
     rust_params.push("handler: ThreadsafeFunction<serde_json::Value, serde_json::Value>".to_string());
     let param_sig = rust_params.join(", ");
 
-    let doc = reg.doc.trim();
+    let doc = reg
+        .doc
+        .trim()
+        .lines()
+        .map(|line| {
+            if line.is_empty() {
+                "    ///".to_owned()
+            } else {
+                format!("    /// {line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     out.push_str(&render(
         "service_rs_base_registration_method_header.jinja",
         context! {
