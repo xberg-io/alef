@@ -1,0 +1,4 @@
+---
+source: tests/backends_kotlin_android_snapshot_test.rs
+expression: "&file.content"
+---

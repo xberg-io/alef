@@ -447,7 +447,7 @@ pub(super) fn render_assertion(
                 if let Some(n) = val.as_u64() {
                     let _ = writeln!(
                         out,
-                        "      assert (is_binary({field_expr}) && byte_size({field_expr}) >= {n}) || (is_list({field_expr}) && length({field_expr}) >= {n}) || (is_binary({field_expr}) == false && is_list({field_expr}) == false && String.length({field_expr}) >= {n})"
+                        "      assert (is_binary({field_expr}) && byte_size({field_expr}) >= {n}) || (is_list({field_expr}) && length({field_expr}) >= {n})"
                     );
                 }
             }
@@ -457,7 +457,7 @@ pub(super) fn render_assertion(
                 if let Some(n) = val.as_u64() {
                     let _ = writeln!(
                         out,
-                        "      assert (is_binary({field_expr}) && byte_size({field_expr}) <= {n}) || (is_list({field_expr}) && length({field_expr}) <= {n}) || (is_binary({field_expr}) == false && is_list({field_expr}) == false && String.length({field_expr}) <= {n})"
+                        "      assert (is_binary({field_expr}) && byte_size({field_expr}) <= {n}) || (is_list({field_expr}) && length({field_expr}) <= {n})"
                     );
                 }
             }

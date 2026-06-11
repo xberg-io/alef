@@ -411,6 +411,81 @@ fn replace_intradoc_links(s: &str, _target: DocTarget) -> String {
     out
 }
 
+/// Wrap bare method/identifier references in brackets with backticks.
+///
+/// Converts `[identifier]`, `[method()]`, `[Type::method]` → `` `identifier` ``,
+/// `` `method()` ``, `` `Type.method` `` respectively. This prevents rustdoc from
+/// treating them as intra-doc links when emitting to FFI bindings, where those
+/// identifiers may not be in scope.
+///
+/// Does not modify already-backtick-wrapped references like `` [`identifier`] ``.
+pub(crate) fn wrap_bare_bracket_references(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            // Check if this is already a backtick-prefixed link: [`
+            if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
+                // Already formatted as intra-doc link — emit as-is.
+                i = advance_char(s, &mut out, i);
+            } else {
+                // Look for closing bracket to determine what's inside.
+                let search_start = i + 1;
+                if let Some(close_pos) = bytes[search_start..].iter().position(|&b| b == b']') {
+                    let bracket_end = search_start + close_pos;
+                    let inner = &s[search_start..bracket_end].trim();
+
+                    // Only wrap if inner contains identifier-like characters (alphanumeric, underscore, ::, ::, ()).
+                    if is_identifier_like(inner) {
+                        out.push('`');
+                        // Convert :: to . for foreign-language compatibility.
+                        out.push_str(&inner.replace("::", "."));
+                        out.push('`');
+                        i = bracket_end + 1;
+                    } else {
+                        // Not an identifier reference — emit literally.
+                        i = advance_char(s, &mut out, i);
+                    }
+                } else {
+                    // No closing bracket — emit literally.
+                    i = advance_char(s, &mut out, i);
+                }
+            }
+        } else {
+            i = advance_char(s, &mut out, i);
+        }
+    }
+
+    out
+}
+
+/// Return `true` if `s` looks like a Rust identifier, method call, or path.
+///
+/// Matches patterns like:
+/// - `identifier`
+/// - `method()`
+/// - `Type::method`
+/// - `Self::method`
+fn is_identifier_like(s: &str) -> bool {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    // Check if it starts with an identifier character (letter, underscore, or 'Self').
+    let first_char = trimmed.chars().next().unwrap();
+    if !first_char.is_alphabetic() && first_char != '_' {
+        return false;
+    }
+
+    // Allow letters, digits, underscores, ::, (), and dots (for method chains).
+    trimmed
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == ':' || c == '(' || c == ')' || c == '.')
+}
+
 /// Strip inline `#[...]` attribute references (not on their own line — those
 /// are handled as full-line drops in the main loop).
 fn strip_inline_attributes(s: &str) -> String {

@@ -118,7 +118,8 @@ impl RustTarget {
     /// This method maps the Rust target triple to the correct convention.
     pub fn platform_for(&self, lang: Language) -> String {
         match lang {
-            Language::Go | Language::Java | Language::Zig => self.go_java_platform(),
+            Language::Go | Language::Java => self.go_java_platform(),
+            Language::Zig => self.triple.clone(),
             Language::Csharp => self.csharp_rid(),
             Language::Node => self.node_platform(),
             Language::Ruby => self.ruby_platform(),

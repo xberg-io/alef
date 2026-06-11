@@ -2,9 +2,9 @@ pub(super) fn js_bytes_def() -> &'static str {
     r#"
 /// Wrapper for byte arrays that implements custom FromNapiValue to accept Buffer.from(...).
 ///
-/// NAPI v3's default FromNapiValue for Vec<u8> expects Array[number], not Buffer.
+/// NAPI v3's default FromNapiValue for `Vec<u8>` expects Array[number], not Buffer.
 /// This wrapper provides custom deserialization that accepts Buffer, Uint8Array, or Array,
-/// converting them to Vec<u8>. Implements Clone and serde traits for use in struct fields.
+/// converting them to `Vec<u8>`. Implements Clone and serde traits for use in struct fields.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct JsBytes(pub Vec<u8>);
 
@@ -109,4 +109,31 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
     }
 }
 "#
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_js_bytes_def_has_backtick_wrapped_vec_types() {
+        let content = js_bytes_def();
+        // Verify that `Vec<u8>` is backtick-wrapped to avoid rustdoc HTML tag warnings
+        assert!(
+            content.contains("`Vec<u8>`"),
+            "js_bytes_def should contain backtick-wrapped `Vec<u8>` to prevent rustdoc unclosed-tag warnings"
+        );
+        // Verify no unwrapped Vec<u8> exists in doc comments
+        let lines: Vec<&str> = content.lines().collect();
+        for (idx, line) in lines.iter().enumerate() {
+            if line.trim_start().starts_with("///") && !line.contains("`Vec<u8>`") {
+                assert!(
+                    !line.contains("Vec<u8>"),
+                    "Line {} should not contain unwrapped 'Vec<u8>' in doc comments: {}",
+                    idx + 1,
+                    line
+                );
+            }
+        }
+    }
 }

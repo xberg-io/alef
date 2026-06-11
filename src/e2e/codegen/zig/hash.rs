@@ -194,11 +194,11 @@ pub(super) fn resolve_zig_hash(explicit: Option<&str>, url: &str) -> Option<Stri
 
 pub(super) fn supported_zig_platforms() -> &'static [&'static str] {
     &[
-        "linux-x86_64",
-        "linux-aarch64",
-        "macos-arm64",
-        "macos-x86_64",
-        "windows-x86_64",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "x86_64-pc-windows-msvc",
     ]
 }
 
@@ -262,17 +262,17 @@ mod zig_hash_tests {
     fn build_zig_zon_emits_platform_hashes_as_lazy_dependencies() {
         let mut platform_hashes = std::collections::BTreeMap::new();
         platform_hashes.insert(
-            "linux-x86_64".to_string(),
+            "x86_64-unknown-linux-gnu".to_string(),
             (
-                "https://example.invalid/example-org/sample-lib/releases/download/v1.2.3/sample-lib-zig-v1.2.3-linux-x86_64.tar.gz"
+                "https://example.invalid/example-org/sample-lib/releases/download/v1.2.3/sample-lib-zig-v1.2.3-x86_64-unknown-linux-gnu.tar.gz"
                     .to_string(),
                 Some("1220linux".to_string()),
             ),
         );
         platform_hashes.insert(
-            "macos-arm64".to_string(),
+            "aarch64-apple-darwin".to_string(),
             (
-                "https://example.invalid/example-org/sample-lib/releases/download/v1.2.3/sample-lib-zig-v1.2.3-macos-arm64.tar.gz"
+                "https://example.invalid/example-org/sample-lib/releases/download/v1.2.3/sample-lib-zig-v1.2.3-aarch64-apple-darwin.tar.gz"
                     .to_string(),
                 Some("1220macos".to_string()),
             ),
@@ -287,8 +287,8 @@ mod zig_hash_tests {
             false,
         );
 
-        assert!(content.contains(".sample_lib_linux_x86_64"));
-        assert!(content.contains(".sample_lib_macos_arm64"));
+        assert!(content.contains(".sample_lib_x86_64_unknown_linux_gnu"));
+        assert!(content.contains(".sample_lib_aarch64_apple_darwin"));
         assert!(content.contains(".lazy = true"));
         assert!(content.contains(".hash = \"1220linux\""));
         assert!(content.contains(".hash = \"1220macos\""));
@@ -352,7 +352,11 @@ mod zig_hash_tests {
 
 #[cfg(test)]
 mod detect_stale_zig_hash_tests {
+    use crate::core::config::e2e::DependencyMode;
+    use crate::e2e::codegen::zig::build::render_build_zig_zon;
+
     use super::detect_stale_zig_hash;
+    use super::supported_zig_platforms;
 
     /// Stale hash detection: hash contains rc.50, current version is rc.57 → true (stale).
     #[test]
@@ -401,6 +405,73 @@ mod detect_stale_zig_hash_tests {
         assert!(
             !result,
             "expected no detection for mismatched pkg_name prefix, but got true"
+        );
+    }
+
+    /// Regression test: zig platform URLs must use Rust target triples to match
+    /// publish-zig action asset naming (e.g., aarch64-unknown-linux-gnu, not linux-aarch64).
+    #[test]
+    fn build_zig_zon_emits_rust_triple_platform_suffixes() {
+        let mut platform_hashes = std::collections::BTreeMap::new();
+        for platform in supported_zig_platforms() {
+            let url = format!(
+                "https://github.com/example/releases/download/v1.0.0/mylib-zig-v1.0.0-{}.tar.gz",
+                platform
+            );
+            platform_hashes.insert(platform.to_string(), (url, None));
+        }
+
+        let content = render_build_zig_zon(
+            "mylib",
+            "../../packages/zig",
+            DependencyMode::Registry,
+            "1.0.0",
+            &platform_hashes,
+            false,
+        );
+
+        // Verify all Rust target triples are present in the emitted URLs
+        assert!(
+            content.contains("aarch64-unknown-linux-gnu"),
+            "URL must include aarch64-unknown-linux-gnu triple: {content}"
+        );
+        assert!(
+            content.contains("aarch64-apple-darwin"),
+            "URL must include aarch64-apple-darwin triple: {content}"
+        );
+        assert!(
+            content.contains("x86_64-unknown-linux-gnu"),
+            "URL must include x86_64-unknown-linux-gnu triple: {content}"
+        );
+        assert!(
+            content.contains("x86_64-apple-darwin"),
+            "URL must include x86_64-apple-darwin triple: {content}"
+        );
+        assert!(
+            content.contains("x86_64-pc-windows-msvc"),
+            "URL must include x86_64-pc-windows-msvc triple: {content}"
+        );
+
+        // Verify old simple platform names are NOT present
+        assert!(
+            !content.contains("linux-x86_64"),
+            "URL must NOT use simple platform name linux-x86_64: {content}"
+        );
+        assert!(
+            !content.contains("linux-aarch64"),
+            "URL must NOT use simple platform name linux-aarch64: {content}"
+        );
+        assert!(
+            !content.contains("macos-arm64"),
+            "URL must NOT use simple platform name macos-arm64: {content}"
+        );
+        assert!(
+            !content.contains("macos-x86_64"),
+            "URL must NOT use simple platform name macos-x86_64: {content}"
+        );
+        assert!(
+            !content.contains("windows-x86_64"),
+            "URL must NOT use simple platform name windows-x86_64: {content}"
         );
     }
 }

@@ -1,4 +1,6 @@
-use super::sanitize::{DocTarget, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections};
+use super::sanitize::{
+    DocTarget, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections, wrap_bare_bracket_references,
+};
 use super::sections::{
     RustdocSections, example_for_target, parse_arguments_bullets, parse_rustdoc_sections, render_csharp_xml_sections,
     render_phpdoc_sections,
@@ -372,6 +374,8 @@ pub fn emit_c_doxygen(out: &mut String, doc: &str, indent: &str) {
         sections.summary.clone()
     };
     body = strip_markdown_links(&body);
+    // Wrap bare bracket references in backticks to prevent rustdoc broken-intra-doc-link warnings.
+    body = wrap_bare_bracket_references(&body);
     let wrapped = word_wrap(&body, DOXYGEN_WRAP_WIDTH);
     for line in wrapped.lines() {
         out.push_str(indent);

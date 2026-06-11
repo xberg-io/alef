@@ -1265,6 +1265,47 @@ pub fn emit_test_backend(
     let defaults = language_defaults("kotlin_android");
     let mapper = KotlinMapper;
 
+    // Collect all type imports needed by method parameters and return types.
+    // Exclude Kotlin built-in types and the interface itself (which is always imported).
+    let mut type_imports = std::collections::HashSet::new();
+    type_imports.insert(interface_name.clone());
+
+    const KOTLIN_BUILTINS: &[&str] = &[
+        "String",
+        "Int",
+        "Long",
+        "Short",
+        "Byte",
+        "Boolean",
+        "Char",
+        "Float",
+        "Double",
+        "Unit",
+        "Any",
+        "Nothing",
+        "List",
+        "Map",
+        "Set",
+        "ByteArray",
+    ];
+
+    for method in methods {
+        // Collect parameter types.
+        for param in &method.params {
+            if let crate::core::ir::TypeRef::Named(name) = &param.ty {
+                if !KOTLIN_BUILTINS.contains(&name.as_str()) {
+                    type_imports.insert(name.clone());
+                }
+            }
+        }
+        // Collect return type.
+        if let crate::core::ir::TypeRef::Named(name) = &method.return_type {
+            if !KOTLIN_BUILTINS.contains(&name.as_str()) {
+                type_imports.insert(name.clone());
+            }
+        }
+    }
+
     let mut setup = String::new();
     let _ = writeln!(setup, "class {class_name} : {interface_name} {{");
 
@@ -1275,12 +1316,10 @@ pub fn emit_test_backend(
         emitted_methods.insert("name".to_string());
     }
 
-    // Required methods only. Trait methods with default implementations are optional
-    // for test stubs and should inherit the generated interface default.
+    // All methods (including those with default impls). Kotlin interfaces require
+    // all abstract methods to be implemented in concrete classes, even if Rust traits
+    // provide default implementations. This mirrors the Java e2e stub generation.
     for method in methods {
-        if method.has_default_impl {
-            continue;
-        }
         // Skip if already emitted (e.g., super-trait name method).
         if emitted_methods.contains(&method.name) {
             continue;
@@ -1353,10 +1392,13 @@ pub fn emit_test_backend(
     // Emit a registration comment in the setup block so the caller can see the bridge object.
     let _ = writeln!(setup, "// register via: {bridge_object}.register({class_name}())");
 
+    let mut sorted_imports: Vec<String> = type_imports.into_iter().collect();
+    sorted_imports.sort();
+
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr,
-        type_imports: vec![interface_name.clone()],
+        type_imports: sorted_imports,
         teardown_block: String::new(),
     }
 }

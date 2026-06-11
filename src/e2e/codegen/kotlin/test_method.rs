@@ -141,7 +141,7 @@ pub(super) fn render_test_method(
     // per-fixture from the call config overrides, ensuring enums and types are correctly
     // imported and constructed.
     let compatible_options_languages: &[&str] = if kotlin_android_style {
-        &["kotlin_android", "java", "csharp", "c", "go", "php", "python"]
+        &["kotlin_android", "kotlin", "java", "csharp", "c", "go", "php", "python"]
     } else {
         &["csharp", "c", "go", "php", "python"]
     };

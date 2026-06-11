@@ -1160,7 +1160,12 @@ fn test_scaffold_go_production_format() {
 
 #[test]
 fn test_scaffold_go_uses_inert_module_when_unconfigured() {
-    let config = minimal_config_from_toml("");
+    let config = minimal_config_from_toml(
+        r#"
+[crates.go]
+module_major = 5
+"#,
+    );
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Go]).unwrap();
     let files = language_files(&all_files);

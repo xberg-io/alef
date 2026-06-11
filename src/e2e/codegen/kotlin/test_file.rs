@@ -168,7 +168,7 @@ pub(super) fn render_test_file_inner(
             .and_then(|o| o.options_type.clone())
             .or_else(|| options_type.map(|s| s.to_string()))
             .or_else(|| {
-                for cand in ["csharp", "c", "go", "php", "python"] {
+                for cand in ["kotlin", "csharp", "c", "go", "php", "python"] {
                     if let Some(o) = cc.overrides.get(cand) {
                         if let Some(t) = &o.options_type {
                             return Some(t.clone());

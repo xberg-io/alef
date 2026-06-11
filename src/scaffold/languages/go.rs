@@ -1,5 +1,5 @@
 use crate::core::backend::GeneratedFile;
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 use std::path::PathBuf;
 
@@ -7,17 +7,18 @@ pub(crate) fn scaffold_go(api: &ApiSurface, config: &ResolvedCrateConfig) -> any
     let go_module = config.go_module();
     let version = &api.version;
     let _ = version; // go.mod doesn't embed the package version
+    let package_dir = config.package_dir(Language::Go);
 
     let content = format!("module {module}\n\ngo 1.26\n", module = go_module,);
 
     let mut files = vec![
         GeneratedFile {
-            path: PathBuf::from("packages/go/v5/go.mod"),
+            path: PathBuf::from(format!("{package_dir}/go.mod")),
             content,
             generated_header: false,
         },
         GeneratedFile {
-            path: PathBuf::from("packages/go/v5/.golangci.yml"),
+            path: PathBuf::from(format!("{package_dir}/.golangci.yml")),
             content: r#"version: "2"
 
 run:
@@ -146,7 +147,7 @@ formatters:
     // This directory will be referenced by go:embed directives in embed_ffi.go.
     // Pre-built FFI libraries for different platforms should be placed here.
     files.push(GeneratedFile {
-        path: PathBuf::from("packages/go/v5/.lib/.gitkeep"),
+        path: PathBuf::from(format!("{package_dir}/.lib/.gitkeep")),
         content: String::new(),
         generated_header: false,
     });

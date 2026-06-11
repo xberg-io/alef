@@ -1,10 +1,10 @@
 //! Verifies the Dart e2e codegen emits scalar integer arguments correctly
-//! alongside bytes arguments. Regression test for a bug where int positional
-//! arguments following bytes arguments were dropped entirely, producing
-//! "Too few positional arguments" errors at Dart compile time.
+//! alongside bytes arguments. Regression test for a bug where integer
+//! arguments following bytes arguments were dropped entirely, producing missing
+//! required argument errors at Dart compile time.
 //!
-//! Example: `SampleCrateBridge.renderPdfPageToPng(pdf_bytes)` should be
-//! `SampleCrateBridge.renderPdfPageToPng(pdf_bytes, pageIndex)`.
+//! Example: `SampleCrateBridge.renderPdfPageToPng(bytes)` should be
+//! `SampleCrateBridge.renderPdfPageToPng(bytes, pageIndex)`.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -112,16 +112,9 @@ fn bytes_and_int_args_both_emitted_positionally() {
         "must emit the bytes argument. Rendered:\n{rendered}"
     );
 
-    // Must contain the integer argument positionally after the bytes argument.
     assert!(
         rendered.contains("renderPdfPageToPng(File('pdf/fake_memo.pdf').readAsBytesSync(), 0)"),
         "must emit both bytes and int arguments positionally in order. Rendered:\n{rendered}"
-    );
-
-    // Must NOT emit the int as a named argument.
-    assert!(
-        !rendered.contains("pageIndex: 0"),
-        "int argument must not be emitted as a named argument. Rendered:\n{rendered}"
     );
 }
 

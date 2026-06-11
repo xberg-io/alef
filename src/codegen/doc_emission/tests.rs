@@ -1263,3 +1263,67 @@ fn sanitize_rust_idioms_no_jsdoc_escape_for_other_targets() {
     // Just verify the escape_jsdoc_block_close function isn't called for these targets.
     // (The actual escaping for these targets happens elsewhere, as tested separately.)
 }
+
+#[test]
+fn emit_c_doxygen_wraps_bare_bracket_references() {
+    let mut out = String::new();
+    emit_c_doxygen(&mut out, "Call [download()] to fetch data.", "");
+    // The bare [download()] should be wrapped in backticks to prevent
+    // rustdoc from treating it as a broken intra-doc link.
+    assert!(
+        out.contains("`download()`"),
+        "Bare bracket reference should be wrapped in backticks: {out}"
+    );
+    // Ensure the original bracket syntax is removed
+    assert!(
+        !out.contains("[download()]"),
+        "Original [download()] should be converted to `download()`: {out}"
+    );
+}
+
+#[test]
+fn emit_c_doxygen_wraps_method_identifier_references() {
+    let mut out = String::new();
+    emit_c_doxygen(
+        &mut out,
+        "Use [configure] or [init] to set options. Call [Self::ensure_languages].",
+        "",
+    );
+    assert!(out.contains("`configure`"), "Bare [configure] should be wrapped: {out}");
+    assert!(out.contains("`init`"), "Bare [init] should be wrapped: {out}");
+    assert!(
+        out.contains("`Self.ensure_languages`"),
+        "[Self::ensure_languages] should convert :: to . and wrap: {out}"
+    );
+}
+
+#[test]
+fn emit_c_doxygen_converts_colons_to_dots_in_references() {
+    let mut out = String::new();
+    emit_c_doxygen(&mut out, "See [Type::method] for details.", "");
+    // :: should be converted to . and wrapped
+    assert!(
+        out.contains("`Type.method`"),
+        "[Type::method] should become `Type.method`: {out}"
+    );
+    assert!(
+        !out.contains("::"),
+        ":: should be converted to . in wrapped references: {out}"
+    );
+}
+
+#[test]
+fn emit_c_doxygen_preserves_already_backtick_wrapped_references() {
+    let mut out = String::new();
+    emit_c_doxygen(&mut out, "Use [`identifier`] as documented.", "");
+    // Already-backtick-wrapped references should not be double-wrapped
+    assert!(
+        out.contains("`identifier`"),
+        "Backtick-wrapped reference should be preserved: {out}"
+    );
+    // Should not double-wrap to ``identifier``
+    assert!(
+        !out.contains("``identifier``"),
+        "Already-wrapped references should not be double-wrapped: {out}"
+    );
+}
