@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-06-11
+
 ### Fixed
 
 - **Elixir e2e codegen: remove invalid String.length/1 call from min_length and max_length assertions.** The Elixir assertion emitter for `min_length` and `max_length` tried to handle three cases: binaries (via `byte_size/1`), lists (via `length/1`), and strings (via `String.length/1`). The third branch appeared in a guard like `(is_binary(...) == false && is_list(...) == false && String.length(...) >= N)`, but Elixir's type checker cannot prove the narrowed type is actually a string after the two guards; the value could be any non-binary, non-list term. Calling `String.length/1` on a non-binary type is invalid. Since a value that is neither binary nor list has no meaningful "length 10" semantics in the extraction results, the third branch is dropped. Fixes Elixir e2e type check errors on every min_length assertion.
