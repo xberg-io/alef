@@ -405,7 +405,7 @@ fn render_test_case(
     // exposes under different identifiers (`content`, `items`).
     let arg_name_map = r_override.map(|o| &o.arg_name_map);
     let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve("r", fixture, call_config, type_defs);
-    let options_type = recipe.compatible_options_type(&["csharp", "java", "go", "php", "python"]);
+    let options_type = recipe.compatible_options_type(&["r", "csharp", "java", "go", "php", "python"]);
     // Build visitor setup and args if present
     let mut setup_lines = Vec::new();
     let mut teardown_block = String::new();
