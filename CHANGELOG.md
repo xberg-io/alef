@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Java backend: emit App.config(String, int) method on service wrappers and call from e2e harness.** The Java service class now generates a `config(String host, int port)` method that creates a ServerConfig from JSON, applies it via C FFI (`{prefix}_server_config_from_json`, `{prefix}_{service}_config`, `{prefix}_server_config_free`), and uses the arena for temporary allocations. The e2e harness template calls `app.config(effectiveHost, effectivePort)` before `app.run()` to ensure the service binds to the dynamically discovered port. Replaces manual hardcoding of host/port in the generated App class with a template-driven solution. The arena was already using `Arena.ofShared()` for thread-safe upcall stub allocation across Tokio worker threads.
+
+- **extendr backend: JSON-bridge `Vec<Named>` return types.** The `return_type_needs_json` function was inconsistent with parameter-handling logic: it required `Vec<Named>` types to be in `extendr_incompatible_types` to trigger JSON bridging, but the parameter code always JSON-bridges `Vec<Named>` because extendr cannot derive `TryFrom<Robj>` for struct collections. Return types like `Vec<SupportedFormat>`, `Vec<ClassificationLabel>`, `Vec<Keyword>`, and `Vec<RerankedDocument>` now unconditionally trigger JSON bridging, ensuring the extendr wrapper serializes and deserializes them correctly. The same logic now applies to `Optional<Vec<Named>>` return types. Fixes 7 R compilation errors in functions that return these types.
+
 ## [0.24.7] - 2026-06-11
 
 ### Fixed

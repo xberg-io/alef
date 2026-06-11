@@ -324,6 +324,15 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         ));
     }
 
+    // Config method: configure host and port via C FFI
+    out.push_str(&template_env::render(
+        "service_config_method.jinja",
+        context! {
+            ffi_prefix => &ffi_prefix,
+            service_snake => &service_snake,
+        },
+    ));
+
     // AutoCloseable implementation
     out.push_str(&template_env::render(
         "service_close.jinja",

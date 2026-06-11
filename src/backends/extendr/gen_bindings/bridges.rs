@@ -398,14 +398,12 @@ pub(super) fn return_type_needs_json(
             extendr_incompatible_types.contains(n.as_str())
         }
         TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Named(n) => {
-                if enum_names.contains(n.as_str()) {
-                    return true;
-                }
-                if opaque_types.contains(n.as_str()) {
-                    return true;
-                }
-                extendr_incompatible_types.contains(n.as_str())
+            TypeRef::Named(_) => {
+                // Vec<Named> always needs JSON bridging because extendr cannot
+                // derive TryFrom<Robj> for Vec<LocalStruct> — the binding wrappers
+                // are local-only, not exposed to R's Robj system. JSON serialization
+                // is the safe transport for heterogeneous struct collections.
+                true
             }
             TypeRef::Vec(_) => true,
             _ => false,
@@ -414,10 +412,9 @@ pub(super) fn return_type_needs_json(
             TypeRef::Named(n) if enum_names.contains(n.as_str()) => true,
             TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !enum_names.contains(n.as_str()) => true,
             TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
-                TypeRef::Named(n) => {
-                    enum_names.contains(n.as_str())
-                        || opaque_types.contains(n.as_str())
-                        || extendr_incompatible_types.contains(n.as_str())
+                TypeRef::Named(_) => {
+                    // Optional<Vec<Named>> also needs JSON bridging for the same reason.
+                    true
                 }
                 _ => false,
             },
