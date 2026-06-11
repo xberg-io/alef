@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Zig e2e codegen: align build.zig platform-name detection with build.zig.zon dependency naming.** When generating multi-target lazy dependency test apps, `build.zig.zon` emits dependency names like `tree_sitter_language_pack_aarch64_apple_darwin` (using Rust target triples per #145), but `build.zig` had hardcoded platform-name detection that was looking for obsolete names like `tree_sitter_language_pack_macos_arm64`. On macOS ARM64, the `b.lazyDependency` call would fail with "no dependency named 'tree_sitter_language_pack_macos_arm64'" even though the correct dependency existed under the triple-based name. The fix updates the conditional chain in `render_build_zig` from simple names (`linux_x86_64`, `macos_arm64`, etc.) to Rust target triples (`x86_64_unknown_linux_gnu`, `aarch64_apple_darwin`, etc.), matching what `build.zig.zon` emits via the `platform.replace('-', "_")` suffix logic in `render_build_zig_zon`. Fixes Zig test-app verification for rc.32+.
+
 ## [0.24.5] - 2026-06-11
 
 ### Fixed

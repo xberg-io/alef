@@ -185,6 +185,18 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
           }}
         }}
       }}
+
+      // As a last resort on macOS, try to open the framework with an absolute path
+      // constructed from the current working directory. This handles cases where the
+      // package's native library is staged in the cwd (e.g., during local test runs
+      // or CI). Without this, flutter_rust_bridge's default loader would try a
+      // relative path, which hardened runtimes reject.
+      if (Platform.isMacOS) {{
+        final cwdFramework = File('${{Directory.current.path}}/{stem}.framework/{stem}');
+        if (cwdFramework.existsSync()) {{
+          return ExternalLibrary.open(cwdFramework.path);
+        }}
+      }}
     }} catch (_) {{
       // Fall through to the default loader on any resolution failure.
     }}

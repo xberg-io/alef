@@ -163,15 +163,15 @@ pub fn build(b: *std.Build) void {{
     const target_arch = target.result.cpu.arch;
 
     const {pkg_name}_dep_name = if (target_os == .linux and target_arch == .x86_64)
-        "{pkg_name}_linux_x86_64"
+        "{pkg_name}_x86_64_unknown_linux_gnu"
     else if (target_os == .linux and target_arch == .aarch64)
-        "{pkg_name}_linux_aarch64"
+        "{pkg_name}_aarch64_unknown_linux_gnu"
     else if (target_os == .macos and target_arch == .aarch64)
-        "{pkg_name}_macos_arm64"
+        "{pkg_name}_aarch64_apple_darwin"
     else if (target_os == .macos and target_arch == .x86_64)
-        "{pkg_name}_macos_x86_64"
+        "{pkg_name}_x86_64_apple_darwin"
     else if (target_os == .windows and target_arch == .x86_64)
-        "{pkg_name}_windows_x86_64"
+        "{pkg_name}_x86_64_pc_windows_msvc"
     else
         @panic("unsupported target — supported: linux-{{x86_64,aarch64}}, macos-{{arm64,x86_64}}, windows-x86_64");
 
