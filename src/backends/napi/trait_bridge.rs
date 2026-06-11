@@ -71,6 +71,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             "napi::bindgen_prelude::{JsObjectValue, ToNapiValue, Unknown, Object}".to_string(),
             "napi::JsValue".to_string(),
             "std::sync::Arc".to_string(),
+            "tokio_util::sync::CancellationToken".to_string(),
         ]
     }
 

@@ -2,4 +2,5 @@
 pub struct {{ wrapper_name }} {
     inner: napi::bindgen_prelude::Object<'static>,
     cached_name: String,
+    cancellation_token: std::sync::Arc<tokio_util::sync::CancellationToken>,
 }

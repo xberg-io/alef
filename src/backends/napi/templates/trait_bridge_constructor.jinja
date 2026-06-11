@@ -46,7 +46,14 @@ impl {{ wrapper_name }} {
         Ok(Self {
             inner: js_obj,
             cached_name,
+            cancellation_token: std::sync::Arc::new(tokio_util::sync::CancellationToken::new()),
         })
+    }
+
+    /// Clean up TSFN callbacks and release the event loop.
+    pub async fn dispose(&self) -> napi::Result<()> {
+        self.cancellation_token.cancel();
+        Ok(())
     }
 
     /// Extract napi::Env from the stored Object.

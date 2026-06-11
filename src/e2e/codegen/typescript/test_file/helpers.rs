@@ -62,10 +62,11 @@ pub(in crate::e2e::codegen::typescript::test_file) fn extract_bridge_cleanup(set
     let mut cleanup_lines = Vec::new();
     for line in setup_lines {
         if let Some((var_name, trait_name)) = extract_bridge_var_and_trait(line) {
-            // Generate unregister call first to clean up Rust-side bridge
+            // Generate unregister call first to clean up Rust-side bridge.
+            // Unregister expects the plugin name string, not the bridge object.
             let unregister_fn = format!("unregister{}", trait_name);
-            cleanup_lines.push(format!("await {}({});", unregister_fn, var_name));
-            // Then dispose the JS stub
+            cleanup_lines.push(format!("await {}({}.name());", unregister_fn, var_name));
+            // Then dispose the JS stub to release TSFN references
             cleanup_lines.push(format!("await {}.dispose();", var_name));
         }
     }
@@ -74,56 +75,70 @@ pub(in crate::e2e::codegen::typescript::test_file) fn extract_bridge_cleanup(set
 
 /// Extract bridge variable name and trait name from a setup line.
 /// Looks for patterns like `const _bridge_foo = new _TestStub_<fixture_id>()` where
-/// the fixture was generated from a trait bridge, and extracts the trait name from the
-/// bridge variable name mapping.
+/// the fixture was generated from a trait bridge. Extracts the trait name from the
+/// fixture ID in the stub class name (e.g., register_document_extractor -> DocumentExtractor).
 fn extract_bridge_var_and_trait(line: &str) -> Option<(String, String)> {
     if let Some(start) = line.find("const ") {
         let after_const = &line[start + 6..];
         if let Some(end) = after_const.find(" =") {
             let var_name = after_const[..end].trim();
-            if let Some(arg_name) = var_name.strip_prefix("_bridge_") {
-                // Extract trait name from variable name: _bridge_{arg_name}
-                // Maps to the arg's trait_name field, which we infer from common patterns:
-                // _bridge_extractor -> DocumentExtractor
-                // _bridge_backend -> OcrBackend (or EmbeddingBackend, etc.)
-                // _bridge_processor -> PostProcessor
-                // _bridge_validator -> Validator
-                // _bridge_renderer -> Renderer
-                // Skip "_bridge_"
-                let trait_name = infer_trait_name_from_arg(arg_name);
-                return Some((var_name.to_string(), trait_name));
+            if var_name.starts_with("_bridge_") {
+                // Extract fixture ID from stub class name: _TestStub_{fixture_id}
+                // Pattern: new _TestStub_{fixture_id}()
+                if let Some(stub_start) = line.find("new _TestStub_") {
+                    let after_stub = &line[stub_start + 14..]; // len("new _TestStub_") == 14
+                    if let Some(paren_end) = after_stub.find("()") {
+                        let fixture_id = &after_stub[..paren_end];
+                        // Extract trait name from fixture ID
+                        // Example: register_document_extractor -> DocumentExtractor
+                        if let Some(trait_name) = extract_trait_from_fixture_id(fixture_id) {
+                            return Some((var_name.to_string(), trait_name));
+                        }
+                    }
+                }
             }
         }
     }
     None
 }
 
-/// Infer trait name from argument name using common patterns.
-fn infer_trait_name_from_arg(arg_name: &str) -> String {
-    match arg_name {
-        "extractor" => "DocumentExtractor".to_string(),
-        "backend" => "OcrBackend".to_string(), // Most common, but could be EmbeddingBackend
-        "processor" => "PostProcessor".to_string(),
-        "validator" => "Validator".to_string(),
-        "renderer" => "Renderer".to_string(),
-        _ => {
-            // Fallback: capitalize first letter and append 'Backend' if not otherwise identifiable
-            if let Some(base) = arg_name.strip_suffix("backend") {
-                // Remove "backend"
-                format!("{}Backend", capitalize_first(base))
-            } else {
-                capitalize_first(arg_name)
-            }
+/// Extract trait name from fixture ID.
+/// Examples:
+/// - register_document_extractor_trait_bridge -> DocumentExtractor
+/// - register_embedding_backend_trait_bridge -> EmbeddingBackend
+/// - register_ocr_backend_trait_bridge -> OcrBackend
+/// - register_post_processor_trait_bridge -> PostProcessor
+fn extract_trait_from_fixture_id(fixture_id: &str) -> Option<String> {
+    // Remove _trait_bridge suffix if present
+    let base = fixture_id.strip_suffix("_trait_bridge").unwrap_or(fixture_id);
+
+    // Remove register_ prefix if present
+    let after_register = base.strip_prefix("register_").unwrap_or(base);
+
+    // Convert snake_case to PascalCase
+    let trait_name = snake_to_pascal_case(after_register);
+
+    // Validate that it's a known trait name
+    match trait_name.as_str() {
+        "DocumentExtractor" | "EmbeddingBackend" | "OcrBackend" | "PostProcessor" | "Validator" | "Renderer" => {
+            Some(trait_name)
         }
+        _ => None,
     }
 }
 
-fn capitalize_first(s: &str) -> String {
-    let mut chars = s.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-    }
+/// Convert snake_case to PascalCase.
+/// Examples: document_extractor -> DocumentExtractor, ocr_backend -> OcrBackend
+fn snake_to_pascal_case(s: &str) -> String {
+    s.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+            }
+        })
+        .collect()
 }
 
 /// Check whether any arg at index `idx` or later has a non-null value in `input`.

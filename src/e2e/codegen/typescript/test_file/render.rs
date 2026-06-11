@@ -214,6 +214,30 @@ pub fn render_test_file(
             }
         }
 
+        // Collect unregister function names for trait bridge cleanup (Node.js only).
+        if lang == "node" {
+            for fixture in fixtures.iter().filter(|f| !f.is_http_test()) {
+                let call_config = e2e_config.resolve_call_for_fixture(
+                    fixture.call.as_deref(),
+                    &fixture.id,
+                    &fixture.resolved_category(),
+                    &fixture.tags,
+                    &fixture.input,
+                );
+                // Check if any arg is a trait bridge (test_backend) and collect unregister functions
+                for arg in &call_config.args {
+                    if arg.arg_type == "test_backend" && arg.trait_name.is_some() {
+                        // The ArgMapping.trait_name specifies the trait name (e.g., "OcrBackend")
+                        let trait_name = arg.trait_name.as_ref().unwrap();
+                        let unregister_fn = format!("unregister{}", trait_name);
+                        if !imports.contains(&unregister_fn) {
+                            imports.push(unregister_fn);
+                        }
+                    }
+                }
+            }
+        }
+
         for ctor in &handle_constructors {
             if !imports.contains(ctor) {
                 imports.push(ctor.clone());
@@ -435,4 +459,18 @@ pub fn render_test_file(
         fixtures_body => fixtures_body,
     };
     crate::e2e::template_env::render("typescript/test_file.jinja", ctx)
+}
+
+/// Convert snake_case to PascalCase for function naming.
+/// Examples: document_extractor -> DocumentExtractor, ocr_backend -> OcrBackend
+fn snake_to_pascal_case_for_import(s: &str) -> String {
+    s.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+            }
+        })
+        .collect()
 }
