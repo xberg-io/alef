@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.10] - 2026-06-11
+
+### Fixed
+
+- **PHP / Ruby / Python / TypeScript / WASM / R e2e visitor fixtures: emit PascalCase tag literals.** The Jinja templates for dynamic-language visitor methods (`php/visitor_method.jinja`, `ruby/visitor_method.jinja`, `python/visitor_method.jinja`, `typescript/visitor_method.jinja`, `wasm/visitor_method.jinja`) and the R Rust-emitter (`codegen/r.rs`) previously returned lowercase tag literals (`'skip'`, `{custom: …}`). Rust enums with default serde derive emit PascalCase variant tags, so consumer bindings that key on `"Skip"` / `"Custom"` / `"Continue"` / `"PreserveHtml"` (the common pattern across PyO3 / NAPI / magnus / ext-php-rs / wasm-bindgen / extendr visitor adapters) silently fell through to the default `Continue` branch instead of dispatching to `Skip` / `Custom`, producing the wrong rendered output and failing fixture assertions. The templates now emit `'Skip'` / `'Continue'` / `'PreserveHtml'` / `{Custom: …}` (and `[Custom => …]` for PHP, `list(Custom = …)` for R).
+
 ## [0.24.9] - 2026-06-11
 
 ### Fixed

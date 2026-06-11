@@ -9,17 +9,17 @@
 #}
         def {{ method_name }}({{ params }}):  # noqa: A002, ANN001, ANN202, ARG002
 {% if action_type == "skip" %}
-            return "skip"
+            return "Skip"
 {% elif action_type == "continue" %}
-            return "continue"
+            return "Continue"
 {% elif action_type == "preserve_html" %}
-            return "preserve_html"
+            return "PreserveHtml"
 {% elif action_type == "custom" %}
-            return {"custom": "{{ action_value }}"}
+            return {"Custom": "{{ action_value }}"}
 {% elif action_type == "custom_template" %}
 {% if return_form == "bare_string" %}
             return f'{{ action_template }}'
 {% else %}
-            return {"custom": f'{{ action_template }}'}
+            return {"Custom": f'{{ action_template }}'}
 {% endif %}
 {% endif %}

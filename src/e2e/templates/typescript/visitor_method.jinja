@@ -7,20 +7,20 @@
    - action_value: escaped string value (for custom)
    - action_template: template string with ${...} interpolation (for custom_template)
 #}
-    {{ camel_method }}({{ params }}): string | { custom: string } {
+    {{ camel_method }}({{ params }}): string | { Custom: string } {
 {% if action_type == "skip" %}
-        return "skip";
+        return "Skip";
 {% elif action_type == "continue" %}
-        return "continue";
+        return "Continue";
 {% elif action_type == "preserve_html" %}
-        return "preserve_html";
+        return "PreserveHtml";
 {% elif action_type == "custom" %}
-        return { custom: "{{ action_value }}" };
+        return { Custom: "{{ action_value }}" };
 {% elif action_type == "custom_template" %}
 {% if return_form == "bare_string" %}
         return `{{ action_template }}`;
 {% else %}
-        return { custom: `{{ action_template }}` };
+        return { Custom: `{{ action_template }}` };
 {% endif %}
 {% endif %}
     },

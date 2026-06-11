@@ -1440,17 +1440,17 @@ fn emit_r_visitor_method(out: &mut String, method_name: &str, action: &CallbackA
     let _ = writeln!(out, "    {method_name} = function({params}) {{");
     match action {
         CallbackAction::Skip => {
-            let _ = writeln!(out, "      \"skip\"");
+            let _ = writeln!(out, "      \"Skip\"");
         }
         CallbackAction::Continue => {
-            let _ = writeln!(out, "      \"continue\"");
+            let _ = writeln!(out, "      \"Continue\"");
         }
         CallbackAction::PreserveHtml => {
-            let _ = writeln!(out, "      \"preserve_html\"");
+            let _ = writeln!(out, "      \"PreserveHtml\"");
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_r(output);
-            let _ = writeln!(out, "      list(custom = \"{escaped}\")");
+            let _ = writeln!(out, "      list(Custom = \"{escaped}\")");
         }
         CallbackAction::CustomTemplate { template, return_form } => {
             let r_expr = r_template_to_paste0(template);
@@ -1459,7 +1459,7 @@ fn emit_r_visitor_method(out: &mut String, method_name: &str, action: &CallbackA
                     let _ = writeln!(out, "      {r_expr}");
                 }
                 TemplateReturnForm::Dict => {
-                    let _ = writeln!(out, "      list(custom = {r_expr})");
+                    let _ = writeln!(out, "      list(Custom = {r_expr})");
                 }
             }
         }
