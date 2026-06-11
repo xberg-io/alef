@@ -112,6 +112,8 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
             .any(|f| f.needs_mock_server());
 
         // Generate build.gradle.kts for the host JVM project.
+        let jni_lib_name = config.jni_lib_name();
+        let jni_crate_path = config.jni_crate_path();
         files.push(GeneratedFile {
             path: output_base.join("build.gradle.kts"),
             content: render_build_gradle_kotlin_android(
@@ -121,6 +123,8 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
                 &maven_coordinate,
                 e2e_config.dep_mode,
                 needs_mock_server,
+                &jni_lib_name,
+                &jni_crate_path,
             ),
             generated_header: false,
         });
@@ -326,6 +330,8 @@ fn render_build_gradle_kotlin_android(
     maven_coordinate: &str,
     dep_mode: crate::e2e::config::DependencyMode,
     needs_mock_server: bool,
+    jni_lib_name: &str,
+    jni_crate_path: &str,
 ) -> String {
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
     let android_gradle_plugin = maven::ANDROID_GRADLE_PLUGIN;
@@ -378,6 +384,8 @@ fn render_build_gradle_kotlin_android(
     // from the workspace target directory.
     // In registry mode, emit a verifyAarPublished task that downloads and inspects
     // the published AAR without loading JNI on the host JVM.
+    // In both modes, emit buildHostJni and copyHostJni tasks for JVM unit tests
+    // that load System.loadLibrary("{jni_lib_name}").
     let tasks_block = if dep_mode == crate::e2e::config::DependencyMode::Registry {
         format!(
             r#"tasks.register("verifyAarPublished") {{
@@ -436,25 +444,167 @@ fn render_build_gradle_kotlin_android(
     }}
 }}
 
+// Build host JNI library for JVM unit tests (macOS/Linux/Windows).
+// The generated Kotlin Bridge object calls System.loadLibrary("{jni_lib_name}") for JVM
+// unit tests running on developer machines. This task builds the host-platform binary
+// and stages it into src/test/resources/host-jni/<platform>/ for the test loader.
+// Set alef.skipHostJni=true to disable this (e.g., in CI where only AAR validation is needed).
+tasks.register("buildHostJni", Exec::class) {{
+    if (project.properties["alef.skipHostJni"] != "true") {{
+        val jniCargoPath = "{jni_crate_path}/Cargo.toml"
+        description = "Build host-platform JNI library from {jni_crate_path}"
+        commandLine("cargo", "build", "--release", "--manifest-path", jniCargoPath)
+        errorOutput = System.err
+    }} else {{
+        description = "Build host JNI (disabled via alef.skipHostJni=true)"
+        commandLine("true")
+    }}
+}}
+
+tasks.register("copyHostJni", Copy::class) {{
+    if (project.properties["alef.skipHostJni"] != "true") {{
+        description = "Copy host JNI library to test resources"
+        dependsOn("buildHostJni")
+
+        val hostPlatform = if (System.getProperty("os.name").lowercase().contains("mac")) {{
+            "darwin"
+        }} else if (System.getProperty("os.name").lowercase().contains("win")) {{
+            "windows"
+        }} else {{
+            "linux"
+        }}
+        val jniCargoPath = "{jni_crate_path}/Cargo.toml"
+        val crateDir = jniCargoPath.substringBeforeLast("/Cargo.toml")
+        val workspaceTarget = file("../../target/release")
+        val crateTarget = file(crateDir).resolve("target/release")
+        val buildDir = if (workspaceTarget.exists()) workspaceTarget else crateTarget
+
+        val libName = when (hostPlatform) {{
+            "darwin" -> "lib{jni_lib_name}.dylib"
+            "windows" -> "{jni_lib_name}.dll"
+            else -> "lib{jni_lib_name}.so"
+        }}
+
+        from(buildDir) {{
+            include(libName)
+        }}
+        into(layout.projectDirectory.dir("src/test/resources/host-jni/$hostPlatform"))
+    }}
+}}
+
 tasks.withType<Test> {{
     useJUnitPlatform()
     dependsOn("verifyAarPublished")
+    if (project.properties["alef.skipHostJni"] != "true") {{
+        val hostPlatform = if (System.getProperty("os.name").lowercase().contains("mac")) {{
+            "darwin"
+        }} else if (System.getProperty("os.name").lowercase().contains("win")) {{
+            "windows"
+        }} else {{
+            "linux"
+        }}
+        systemProperty(
+            "java.library.path",
+            project.layout.projectDirectory.dir("src/test/resources/host-jni/$hostPlatform").asFile.absolutePath
+        )
+        dependsOn("copyHostJni")
+    }}
+}}
+
+tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
+    if (project.properties["alef.skipHostJni"] != "true" && name.contains("UnitTestJavaRes")) {{
+        dependsOn("copyHostJni")
+    }}
 }}"#,
-            maven_coordinate = maven_coordinate
+            maven_coordinate = maven_coordinate,
+            jni_crate_path = jni_crate_path,
+            jni_lib_name = jni_lib_name,
         )
     } else {
-        r#"tasks.withType<Test> {
+        format!(
+            r#"// Build host JNI library for JVM unit tests (macOS/Linux/Windows).
+// The generated Kotlin Bridge object calls System.loadLibrary("{jni_lib_name}") for JVM
+// unit tests running on developer machines. This task builds the host-platform binary
+// and stages it into src/test/resources/host-jni/<platform>/ for the test loader.
+// Set alef.skipHostJni=true to disable this (e.g., in CI where only source-set validation is needed).
+tasks.register("buildHostJni", Exec::class) {{
+    if (project.properties["alef.skipHostJni"] != "true") {{
+        val jniCargoPath = "{jni_crate_path}/Cargo.toml"
+        description = "Build host-platform JNI library from {jni_crate_path}"
+        commandLine("cargo", "build", "--release", "--manifest-path", jniCargoPath)
+        errorOutput = System.err
+    }} else {{
+        description = "Build host JNI (disabled via alef.skipHostJni=true)"
+        commandLine("true")
+    }}
+}}
+
+tasks.register("copyHostJni", Copy::class) {{
+    if (project.properties["alef.skipHostJni"] != "true") {{
+        description = "Copy host JNI library to test resources"
+        dependsOn("buildHostJni")
+
+        val hostPlatform = if (System.getProperty("os.name").lowercase().contains("mac")) {{
+            "darwin"
+        }} else if (System.getProperty("os.name").lowercase().contains("win")) {{
+            "windows"
+        }} else {{
+            "linux"
+        }}
+        val jniCargoPath = "{jni_crate_path}/Cargo.toml"
+        val crateDir = jniCargoPath.substringBeforeLast("/Cargo.toml")
+        val workspaceTarget = file("../../target/release")
+        val crateTarget = file(crateDir).resolve("target/release")
+        val buildDir = if (workspaceTarget.exists()) workspaceTarget else crateTarget
+
+        val libName = when (hostPlatform) {{
+            "darwin" -> "lib{jni_lib_name}.dylib"
+            "windows" -> "{jni_lib_name}.dll"
+            else -> "lib{jni_lib_name}.so"
+        }}
+
+        from(buildDir) {{
+            include(libName)
+        }}
+        into(layout.projectDirectory.dir("src/test/resources/host-jni/$hostPlatform"))
+    }}
+}}
+
+tasks.withType<Test> {{
     useJUnitPlatform()
 
     // Resolve the native library location (e.g., ../../target/release)
-    val libPath = System.getProperty("kb.lib.path") ?: "${rootDir}/../../target/release"
+    val libPath = System.getProperty("kb.lib.path") ?: "${{rootDir}}/../../target/release"
     systemProperty("java.library.path", libPath)
     systemProperty("jna.library.path", libPath)
 
     // Resolve fixture paths (e.g. "docx/fake.docx") against test_documents/
-    workingDir = file("${rootDir}/../../test_documents")
-}"#
-        .to_string()
+    workingDir = file("${{rootDir}}/../../test_documents")
+
+    if (project.properties["alef.skipHostJni"] != "true") {{
+        val hostPlatform = if (System.getProperty("os.name").lowercase().contains("mac")) {{
+            "darwin"
+        }} else if (System.getProperty("os.name").lowercase().contains("win")) {{
+            "windows"
+        }} else {{
+            "linux"
+        }}
+        systemProperty(
+            "java.library.path",
+            project.layout.projectDirectory.dir("src/test/resources/host-jni/$hostPlatform").asFile.absolutePath
+        )
+        dependsOn("copyHostJni")
+    }}
+}}
+
+tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
+    if (project.properties["alef.skipHostJni"] != "true" && name.contains("UnitTestJavaRes")) {{
+        dependsOn("copyHostJni")
+    }}
+}}"#,
+            jni_crate_path = jni_crate_path,
+            jni_lib_name = jni_lib_name,
+        )
     };
 
     // Test dependencies are always needed for host-JVM tests (both Local and Registry modes).
@@ -973,6 +1123,8 @@ mod tests {
             "dev.sample_crate:demo-client-android:1.0.0",
             crate::e2e::config::DependencyMode::Local,
             false,
+            "demo_client_jni",
+            "../../crates/demo-client-jni",
         );
         assert!(
             output.contains("jackson-module-kotlin"),
@@ -995,6 +1147,8 @@ mod tests {
             "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Registry,
             false,
+            "sample_crate_jni",
+            "../../crates/sample_crate-jni",
         );
         assert!(
             output.contains(r#"implementation("dev.sample_crate:sample_crate-android:5.0.0-rc.1")"#),
@@ -1064,6 +1218,8 @@ mod tests {
             "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Registry,
             false,
+            "sample_crate_jni",
+            "../../crates/sample_crate-jni",
         );
         assert!(
             output.contains("verifyAarPublished"),
@@ -1101,6 +1257,8 @@ mod tests {
                 "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
                 dep_mode,
                 false,
+                "sample_crate_jni",
+                "../../crates/sample_crate-jni",
             );
             assert!(
                 output.contains("jvmToolchain(17)"),
@@ -1120,6 +1278,8 @@ mod tests {
             "dev.sample_crate:demo-client-android:1.0.0",
             crate::e2e::config::DependencyMode::Local,
             false,
+            "demo_client_jni",
+            "../../crates/demo-client-jni",
         );
         assert!(
             !output.contains("verifyAarPublished"),
@@ -1193,6 +1353,99 @@ mod tests {
         assert!(
             !jar_b64.contains('\n'),
             "gradle-wrapper.jar base64 must not contain newlines"
+        );
+    }
+
+    /// Regression: both local and registry modes must emit buildHostJni and copyHostJni
+    /// tasks so that JVM unit tests can load System.loadLibrary("{jni_lib_name}").
+    /// Without these tasks, gradle test fails with UnsatisfiedLinkError on the host JVM.
+    #[test]
+    fn build_gradle_kotlin_android_includes_host_jni_tasks() {
+        for dep_mode in [
+            crate::e2e::config::DependencyMode::Registry,
+            crate::e2e::config::DependencyMode::Local,
+        ] {
+            let output = render_build_gradle_kotlin_android(
+                "sample_crate",
+                "dev.sample_crate",
+                "5.0.0-rc.1",
+                "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
+                dep_mode,
+                false,
+                "sample_crate_jni",
+                "../../crates/sample_crate-jni",
+            );
+
+            assert!(
+                output.contains(r#"tasks.register("buildHostJni", Exec::class)"#),
+                "build.gradle.kts ({dep_mode:?}) must include buildHostJni task registration, got:\n{output}"
+            );
+            assert!(
+                output.contains(r#"tasks.register("copyHostJni", Copy::class)"#),
+                "build.gradle.kts ({dep_mode:?}) must include copyHostJni task registration, got:\n{output}"
+            );
+            assert!(
+                output.contains("java.library.path"),
+                "build.gradle.kts ({dep_mode:?}) must set java.library.path for the Test task, got:\n{output}"
+            );
+            assert!(
+                output.contains(r#"src/test/resources/host-jni"#),
+                "build.gradle.kts ({dep_mode:?}) must reference src/test/resources/host-jni, got:\n{output}"
+            );
+        }
+    }
+
+    /// Regression: buildHostJni task must reference the JNI crate path
+    /// and build the JNI library for the host platform.
+    #[test]
+    fn build_gradle_kotlin_android_build_host_jni_uses_parameterized_jni_crate_path() {
+        let output = render_build_gradle_kotlin_android(
+            "sample_crate",
+            "dev.sample_crate",
+            "5.0.0-rc.1",
+            "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            "sample_crate_jni",
+            "../../crates/sample_crate-jni",
+        );
+
+        assert!(
+            output.contains("../../crates/sample_crate-jni/Cargo.toml"),
+            "buildHostJni must pass the parameterized JNI crate path to cargo build, got:\n{output}"
+        );
+        assert!(
+            output.contains(r#"commandLine("cargo", "build", "--release", "--manifest-path", jniCargoPath)"#),
+            "buildHostJni must invoke cargo build with --release flag, got:\n{output}"
+        );
+    }
+
+    /// Regression: copyHostJni task must reference the parameterized JNI library name
+    /// when mapping platform-specific filenames (libsample_crate_jni.dylib, etc).
+    #[test]
+    fn build_gradle_kotlin_android_copy_host_jni_uses_parameterized_jni_lib_name() {
+        let output = render_build_gradle_kotlin_android(
+            "sample_crate",
+            "dev.sample_crate",
+            "5.0.0-rc.1",
+            "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
+            crate::e2e::config::DependencyMode::Registry,
+            false,
+            "sample_crate_jni",
+            "../../crates/sample_crate-jni",
+        );
+
+        assert!(
+            output.contains("libsample_crate_jni.dylib"),
+            "copyHostJni must emit macOS library name with parameterized JNI lib name, got:\n{output}"
+        );
+        assert!(
+            output.contains("sample_crate_jni.dll"),
+            "copyHostJni must emit Windows library name with parameterized JNI lib name, got:\n{output}"
+        );
+        assert!(
+            output.contains("libsample_crate_jni.so"),
+            "copyHostJni must emit Linux library name with parameterized JNI lib name, got:\n{output}"
         );
     }
 }
