@@ -267,52 +267,6 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         }
     }
 
-    // Configurator methods (if any exist) — allows setting config before running
-    for configurator in &service.configurators {
-        let config_method = &configurator.name;
-        let config_method_camel = config_method.to_upper_camel_case();
-        let config_method_snake = config_method.to_snake_case();
-
-        let params_signature = configurator
-            .params
-            .iter()
-            .map(|param| {
-                let java_type = java_type_for_metadata(&param.ty, api);
-                let param_name = param.name.to_lower_camel_case();
-                format!("{java_type} {param_name}")
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let descriptor_layouts_vec = descriptor_layouts_vec(&configurator.params);
-        let invoke_args_vec: Vec<String> = configurator
-            .params
-            .iter()
-            .map(|param| {
-                if is_opaque_metadata(&param.ty, api) {
-                    format!("{}.handle()", param.name.to_lower_camel_case())
-                } else if matches!(param.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
-                    bool_arg_expr(&param.name.to_lower_camel_case())
-                } else {
-                    param.name.to_lower_camel_case()
-                }
-            })
-            .collect();
-
-        out.push_str(&template_env::render(
-            "service_configurator_method.jinja",
-            context! {
-                config_method => config_method,
-                ffi_prefix => &ffi_prefix,
-                service_snake => &service_snake,
-                config_method_snake => &config_method_snake,
-                params_signature => params_signature,
-                descriptor_layouts => descriptor_layouts_vec,
-                invoke_args => invoke_args_vec,
-            },
-        ));
-    }
-
     // Entrypoint methods
     for ep in &service.entrypoints {
         let ep_method = &ep.method;
@@ -369,15 +323,6 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
             },
         ));
     }
-
-    // Special config method for host and port configuration (always emit)
-    out.push_str(&template_env::render(
-        "service_config_method.jinja",
-        context! {
-            ffi_prefix => &ffi_prefix,
-            service_snake => &service_snake,
-        },
-    ));
 
     // AutoCloseable implementation
     out.push_str(&template_env::render(

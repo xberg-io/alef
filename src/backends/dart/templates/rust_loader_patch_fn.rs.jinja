@@ -144,6 +144,7 @@ fn fix_handler_executor_calls() {
 /// Tracks parentheses to handle multi-line signatures with complex parameter lists.
 fn extract_signature(src: &str) -> String {
     let mut paren = 0;
+    let mut brace_found = false;
     let mut result = String::new();
     for ch in src.chars() {
         match ch {
@@ -155,9 +156,11 @@ fn extract_signature(src: &str) -> String {
                 result.push(ch);
                 paren -= 1;
             }
-            '{' => {
+            '{' if paren == 0 => {
+                // Only treat `{` as body-start when all parens are closed.
                 result.push(ch);
-                return result;
+                brace_found = true;
+                break;
             }
             _ => result.push(ch),
         }

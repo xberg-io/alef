@@ -1,3 +1,59 @@
+    /**
+     * Configure the service with a host and port.
+     * Creates a ServerConfig from JSON and applies it via the C FFI.
+     */
+    public void config(String host, int port) {
+        try {
+            // Build ServerConfig JSON from host and port
+            String configJson = String.format(
+                "{\"host\": \"%s\", \"port\": %d}",
+                host.replace("\"", "\\\""),
+                port
+            );
+
+            // Allocate and populate the config JSON string in the shared arena
+            MemorySegment configSegment = arena.allocateUtf8String(configJson);
+
+            // Look up the C function to create ServerConfig from JSON
+            MemorySegment createAddr = LOOKUP.find("{{ ffi_prefix }}_server_config_from_json")
+                .or(() -> LOOKUP.find("_{{ ffi_prefix }}_server_config_from_json"))
+                .orElseThrow();
+            FunctionDescriptor createDesc = FunctionDescriptor.of(
+                ValueLayout.ADDRESS   // return: ServerConfig*
+                , ValueLayout.ADDRESS  // param: config JSON string
+            );
+            MethodHandle createHandle = LINKER.downcallHandle(createAddr, createDesc);
+            MemorySegment configHandle = (MemorySegment) createHandle.invoke(configSegment);
+
+            if (configHandle == null || configHandle.address() == 0) {
+                throw new RuntimeException("Failed to create ServerConfig from JSON");
+            }
+
+            // Look up the C function to apply config to the service
+            MemorySegment applyAddr = LOOKUP.find("{{ ffi_prefix }}_{{ service_snake }}_config")
+                .or(() -> LOOKUP.find("_{{ ffi_prefix }}_{{ service_snake }}_config"))
+                .orElseThrow();
+            FunctionDescriptor applyDesc = FunctionDescriptor.of(
+                ValueLayout.ADDRESS,   // return: *mut opaque (updated owner)
+                ValueLayout.ADDRESS,   // owner: *mut opaque
+                ValueLayout.ADDRESS    // config: ServerConfig*
+            );
+            MethodHandle applyHandle = LINKER.downcallHandle(applyAddr, applyDesc);
+            ownerHandle = (MemorySegment) applyHandle.invoke(ownerHandle, configHandle);
+
+            // Free the ServerConfig handle
+            MemorySegment freeAddr = LOOKUP.find("{{ ffi_prefix }}_server_config_free")
+                .or(() -> LOOKUP.find("_{{ ffi_prefix }}_server_config_free"))
+                .orElseThrow();
+            FunctionDescriptor freeDesc = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS);
+            MethodHandle freeHandle = LINKER.downcallHandle(freeAddr, freeDesc);
+            freeHandle.invoke(configHandle);
+
+        } catch (Throwable e) {
+            throw new RuntimeException("Failed to configure host and port", e);
+        }
+    }
+
     @Override
     public void close() {
         try {
