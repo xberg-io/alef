@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.3] - 2026-06-11
+
+### Fixed
+
+- **Kotlin Android e2e codegen: wildcard binding import + skip default-impl methods in trait-bridge test stubs.** Two related fixes: (1) `kotlin/test_file.rs` now emits `import {pkg}.*` in trait-bridge test stubs so plugin-related types (`ExtractionResult`, `ExtractionConfig`, `OcrConfig`, `OcrBackendType`, `ProcessingStage`, etc.) resolve without enumerating each one — previously test stubs failed to compile because only a subset of types were imported and the Bridge protocol referenced the rest. (2) `kotlin_android.rs::emit_test_backend` now filters out methods marked `has_default_impl` in the IR; Kotlin interface generation already provides empty default implementations for `initialize`, `shutdown`, `description`, `author`, etc., so the test backend stubs no longer need to override them — eliminating "overrides nothing" compile errors. Fixes the kotlin-android e2e trait-bridge test compile gap.
+- **Swift backend: rename bare `Error` to `{ModuleName}Error` at DTO call sites for unit-serde-enum field roundtrips.** The Swift error enum already renames bare `Error` → `{module_name}Error` in `errors::emit_error` to avoid the parser ambiguity of `public enum Error: Error`, but the same rename was not applied where DTO-side code references the type. The unit-serde-enum field initializer at `gen_bindings/dto.rs:675` emitted `throw {error_type_name}.validation(message: "Unknown <Variant> variant", source: rawValue)` using the raw `config.error_type_name()` ("Error"). Because the generated enum is actually named `{ModuleName}Error` (e.g. `CrawlError`), `any Error` (the protocol) has no `.validation` member and Swift refused to compile. The fix mirrors the rename at `gen_bindings/mod.rs:205` before threading the name into `emit_first_class_struct`, so DTO references now point at the actual emitted enum. Fixes consumer Swift compile failures on every unit-serde-enum field (e.g. kreuzcrawl `FeedType`, `AssetCategory`, `LinkType`, `ImageSource` in first-class structs).
+
 ## [0.24.2] - 2026-06-11
 
 ### Fixed
