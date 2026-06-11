@@ -411,14 +411,17 @@ fn replace_intradoc_links(s: &str, _target: DocTarget) -> String {
     out
 }
 
-/// Wrap bare method/identifier references in brackets with backticks.
+/// Wrap or unwrap bracketed method/identifier references so rustdoc does not
+/// treat them as intra-doc links.
 ///
-/// Converts `[identifier]`, `[method()]`, `[Type::method]` → `` `identifier` ``,
-/// `` `method()` ``, `` `Type.method` `` respectively. This prevents rustdoc from
-/// treating them as intra-doc links when emitting to FFI bindings, where those
-/// identifiers may not be in scope.
+/// Converts:
+/// - `[identifier]`, `[method()]`, `[Type::method]` → `` `identifier` ``, `` `method()` ``, `` `Type.method` ``
+/// - `` [`identifier`] ``, `` [`Type::method`] `` (rustdoc intra-doc-link form) → `` `identifier` ``, `` `Type.method` ``
 ///
-/// Does not modify already-backtick-wrapped references like `` [`identifier`] ``.
+/// The path separator `::` is normalised to `.` for foreign-language compatibility.
+/// Both forms are unwrapped because the FFI / foreign-language emitters reference
+/// core-crate items that are not in scope, so any intra-doc link form would
+/// raise a rustdoc broken-intra-doc-link warning.
 pub(crate) fn wrap_bare_bracket_references(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let bytes = s.as_bytes();
@@ -426,10 +429,27 @@ pub(crate) fn wrap_bare_bracket_references(s: &str) -> String {
 
     while i < bytes.len() {
         if bytes[i] == b'[' {
-            // Check if this is already a backtick-prefixed link: [`
+            // Already-backticked intra-doc link form: [`...`]
             if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
-                // Already formatted as intra-doc link — emit as-is.
-                i = advance_char(s, &mut out, i);
+                // Find closing `]
+                let inner_start = i + 2;
+                let mut j = inner_start;
+                let mut found = false;
+                while j + 1 < bytes.len() {
+                    if bytes[j] == b'`' && bytes[j + 1] == b']' {
+                        let inner = &s[inner_start..j];
+                        out.push('`');
+                        out.push_str(&inner.replace("::", "."));
+                        out.push('`');
+                        i = j + 2;
+                        found = true;
+                        break;
+                    }
+                    j += 1;
+                }
+                if !found {
+                    i = advance_char(s, &mut out, i);
+                }
             } else {
                 // Look for closing bracket to determine what's inside.
                 let search_start = i + 1;

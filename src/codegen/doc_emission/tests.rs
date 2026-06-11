@@ -1313,10 +1313,13 @@ fn emit_c_doxygen_converts_colons_to_dots_in_references() {
 }
 
 #[test]
-fn emit_c_doxygen_preserves_already_backtick_wrapped_references() {
+fn emit_c_doxygen_unwraps_intradoc_backtick_references() {
     let mut out = String::new();
     emit_c_doxygen(&mut out, "Use [`identifier`] as documented.", "");
-    // Already-backtick-wrapped references should not be double-wrapped
+    // Intra-doc link form [`identifier`] should be unwrapped to bare `identifier`
+    // because referenced items live on the core crate's API and are out of scope
+    // from the FFI wrapper — leaving the [`...`] form would cause rustdoc
+    // broken-intra-doc-link warnings.
     assert!(
         out.contains("`identifier`"),
         "Backtick-wrapped reference should be preserved: {out}"
@@ -1325,5 +1328,25 @@ fn emit_c_doxygen_preserves_already_backtick_wrapped_references() {
     assert!(
         !out.contains("``identifier``"),
         "Already-wrapped references should not be double-wrapped: {out}"
+    );
+    // The outer brackets should be removed
+    assert!(
+        !out.contains("[`identifier`]"),
+        "Outer brackets of intra-doc link form should be removed: {out}"
+    );
+}
+
+#[test]
+fn emit_c_doxygen_unwraps_intradoc_backtick_with_path_separator() {
+    let mut out = String::new();
+    emit_c_doxygen(&mut out, "Returns [`Error::LanguageNotFound`] if missing.", "");
+    // [`Error::LanguageNotFound`] should become `Error.LanguageNotFound`
+    assert!(
+        out.contains("`Error.LanguageNotFound`"),
+        "Type::method form should be unwrapped and :: → . normalised: {out}"
+    );
+    assert!(
+        !out.contains("[`Error"),
+        "Outer brackets of intra-doc link form should be removed: {out}"
     );
 }
