@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.9] - 2026-06-11
+
 ### Fixed
+
+- **FFI options-field setter: align visitor handle with `visitor_create` for Zig.** When both `visitor_callbacks = true` and a `[[trait_bridges]]` entry with `bind_via = "options_field"` are configured, `gen_options_set_bridge` now emits `{prefix}_options_set_{field}(*mut {prefix}Visitor)` instead of `*mut {prefix}{Trait}Bridge`. Both handle types implement the configured trait, but strict-typed C consumers (Zig) cannot implicitly cast between distinct opaque pointer types — Zig consumers call `{prefix}_visitor_create` (which returns `*mut {prefix}Visitor`) and pass the result directly to the setter. The Go template now casts via `unsafe.Pointer` to satisfy the updated C signature (Go's bridge-vs-visitor layout mismatch at runtime is a known follow-up; Go's visitor support is not currently exercised in CI).
 
 - **Swift backend: inbound plugin impl method signatures use owned types.** The Swift inbound plugin codegen was emitting `&str` and `&[u8]` instead of `String` and `Vec<u8>` for non-reference parameters in trait impl methods. The fix: call `inbound_native_ty_owned` instead of `inbound_native_ty` when `is_ref = false`, matching the pattern already used for `Vec<T>` parameters. This ensures impl method signatures match their trait declarations exactly. Fixes signature mismatch errors in `RerankerBackend::rerank` and other inbound plugin trait methods with String or Bytes parameters.
 
