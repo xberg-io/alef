@@ -44,6 +44,7 @@ impl ResolvedCrateConfig {
         //   - Kotlin:        `packages/kotlin/src/main/kotlin/.../`
         //   - KotlinAndroid: `packages/kotlin-android/src/main/kotlin/.../`
         //   - R:             `packages/r/src/rust/src/` (extendr Rust source — DESCRIPTION lives at packages/r/)
+        //   - Go:            computed from module_major config (see hardcoded defaults below)
         // These languages fall through to the hardcoded defaults below, which
         // return the package root that `publish validate` and packager helpers
         // expect.
@@ -61,6 +62,7 @@ impl ResolvedCrateConfig {
                 | Language::Kotlin
                 | Language::KotlinAndroid
                 | Language::R
+                | Language::Go
         ) && let Some(output_path) = self.output_paths.get(&lang.to_string())
         {
             return output_path.to_string_lossy().to_string();
@@ -107,7 +109,10 @@ impl ResolvedCrateConfig {
             Language::Ruby => "packages/ruby".to_string(),
             Language::Php => "packages/php".to_string(),
             Language::Elixir => "packages/elixir".to_string(),
-            Language::Go => "packages/go/v5".to_string(),
+            Language::Go => match self.go.as_ref().and_then(|c| c.module_major) {
+                Some(n) if n >= 2 => format!("packages/go/v{n}"),
+                _ => "packages/go".to_string(),
+            },
             Language::KotlinAndroid => "packages/kotlin-android".to_string(),
             _ => format!("packages/{lang}"),
         }
@@ -587,10 +592,90 @@ tokio = "1"
         assert_eq!(r.package_dir(Language::Node), format!("crates/{}-node", r.name));
         assert_eq!(r.package_dir(Language::Wasm), format!("crates/{}-wasm", r.name));
         assert_eq!(r.package_dir(Language::Ruby), "packages/ruby");
-        assert_eq!(r.package_dir(Language::Go), "packages/go/v5");
+        // Go defaults to "packages/go" when module_major is None
+        assert_eq!(r.package_dir(Language::Go), "packages/go");
         assert_eq!(r.package_dir(Language::Java), "packages/java");
         assert_eq!(r.package_dir(Language::Kotlin), "packages/kotlin");
         assert_eq!(r.package_dir(Language::KotlinAndroid), "packages/kotlin-android");
+    }
+
+    #[test]
+    fn package_dir_go_with_module_major() {
+        // Test that Go respects module_major configuration:
+        // - None or 0/1: "packages/go"
+        // - 2+: "packages/go/v{N}"
+        let r_none = resolved_one(
+            r#"
+[workspace]
+languages = ["go"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+"#,
+        );
+        assert_eq!(
+            r_none.package_dir(Language::Go),
+            "packages/go",
+            "Go without module_major should default to 'packages/go'"
+        );
+
+        let r_v1 = resolved_one(
+            r#"
+[workspace]
+languages = ["go"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.go]
+module_major = 1
+"#,
+        );
+        assert_eq!(
+            r_v1.package_dir(Language::Go),
+            "packages/go",
+            "Go with module_major = 1 should use 'packages/go'"
+        );
+
+        let r_v2 = resolved_one(
+            r#"
+[workspace]
+languages = ["go"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.go]
+module_major = 2
+"#,
+        );
+        assert_eq!(
+            r_v2.package_dir(Language::Go),
+            "packages/go/v2",
+            "Go with module_major = 2 should use 'packages/go/v2'"
+        );
+
+        let r_v5 = resolved_one(
+            r#"
+[workspace]
+languages = ["go"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.go]
+module_major = 5
+"#,
+        );
+        assert_eq!(
+            r_v5.package_dir(Language::Go),
+            "packages/go/v5",
+            "Go with module_major = 5 should use 'packages/go/v5'"
+        );
     }
 
     #[test]

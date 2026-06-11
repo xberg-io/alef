@@ -190,7 +190,24 @@ pub(super) fn render_test_file(
     // no longer needs jsonDecode — it routes through `create<Config>FromJson(json:)` which
     // accepts the JSON string directly, so `has_handle_args` is intentionally excluded here
     // to avoid an unused `dart:convert` import.
-    if has_http_fixtures || has_page_action || has_mock_url_refs {
+    // Generic typed json_object arrays (e.g. batch items) materialize via
+    // `jsonDecode(r'…')` in the test body, so the import is required whenever
+    // any fixture passes a json_object array argument with no element_type
+    // (PageAction) handling.
+    let has_json_array_args = fixtures.iter().any(|f| {
+        if f.is_http_test() {
+            return false;
+        }
+        let call_config =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        f.resolved_args(call_config).iter().any(|a| {
+            a.arg_type == "json_object"
+                && a.element_type.is_some()
+                && a.element_type.as_deref() != Some("String")
+                && resolve_field(&f.input, &a.field).is_array()
+        })
+    });
+    if has_http_fixtures || has_page_action || has_mock_url_refs || has_json_array_args {
         let _ = writeln!(out, "import 'dart:convert';");
     }
     let _ = writeln!(out);

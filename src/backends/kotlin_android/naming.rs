@@ -115,6 +115,21 @@ pub fn abis(config: &ResolvedCrateConfig) -> Vec<String> {
         .unwrap_or_else(|| vec!["arm64-v8a".to_string(), "x86_64".to_string()])
 }
 
+/// Host platform directory name based on the target OS.
+/// Returns "darwin", "linux", or "windows".
+pub fn host_platform_dir() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    }
+}
+
+/// All supported host platform names for emitting test resource placeholders.
+pub const HOST_PLATFORMS: &[&str] = &["darwin", "linux", "windows"];
+
 /// Return the canonical Kotlin Android bridge object name for a trait.
 ///
 /// Both the production wrapper codegen (`trait_bridge.rs`) and the e2e stub

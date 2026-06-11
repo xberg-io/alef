@@ -246,29 +246,44 @@ pub(super) fn build_args_and_setup(
                 // - For json_object args, emit default-constructed value (struct/record) or null (reference type)
                 // - For other types, use language-appropriate defaults
                 let default_val = match arg.arg_type.as_str() {
+                    // Optional string args (e.g. `mime_type: Option<String>`) must be
+                    // emitted as `null` so the binding can dispatch the auto-detect
+                    // path. Emitting `""` triggers `UnsupportedFormatException` because
+                    // the Rust core treats it as an explicit (empty) MIME type.
+                    "string" if arg.optional => "null".to_string(),
                     "string" => "\"\"".to_string(),
                     "int" | "integer" => "0".to_string(),
                     "float" | "number" => "0.0d".to_string(),
                     "bool" | "boolean" => "false".to_string(),
                     "json_object" => {
-                        if arg.optional {
-                            // Explicitly optional parameter. When options_via == "from_json",
-                            // emit FromJson("{}") instead of null to satisfy binding requirements.
-                            if options_via == Some("from_json") {
-                                if let Some(opts_type) = options_type {
-                                    format!("{opts_type}.FromJson(\"{{}}\")")
-                                } else {
-                                    "null".to_string()
-                                }
+                        // For optional `json_object` args we used to emit bare `null`, but the C#
+                        // bindings declare their config parameters as non-nullable reference types
+                        // (e.g. `ExtractionConfig config`), so passing null trips
+                        // `ArgumentNullException : Value cannot be null. (Parameter 'config')`.
+                        // Instead default-construct when we know the type. When `options_via ==
+                        // "from_json"` (P/Invoke ABI requires the JSON wire format) emit the
+                        // `FromJson("{}")` factory; otherwise emit `new <Type>()`. Fall back to
+                        // null only when nothing constructible can be resolved.
+                        if options_via == Some("from_json") {
+                            if let Some(opts_type) = options_type {
+                                format!("{opts_type}.FromJson(\"{{}}\")")
                             } else {
-                                "null".to_string()
+                                resolve_json_object_default(
+                                    options_type,
+                                    &arg.element_type,
+                                    &arg.name,
+                                    type_defs,
+                                    options_via,
+                                )
                             }
                         } else {
-                            // Required parameter: infer the type and decide whether to construct or null.
-                            // C# value types (structs, records) cannot be null, so emit `new T()`.
-                            // Reference types can be null, but we still prefer to construct defaults
-                            // when the type is known and constructible.
-                            resolve_json_object_default(options_type, &arg.element_type, &arg.name, type_defs)
+                            resolve_json_object_default(
+                                options_type,
+                                &arg.element_type,
+                                &arg.name,
+                                type_defs,
+                                options_via,
+                            )
                         }
                     }
                     _ => "null".to_string(),
@@ -332,8 +347,11 @@ fn is_default_constructible(type_name: &str, type_defs: &[crate::core::ir::TypeD
 /// with a parameterless constructor can be default-constructed with `new T()`. This includes
 /// records and structs where all fields are optional or have defaults.
 ///
+/// When `options_via == "from_json"`, emit the factory method (e.g., `ExtractionConfig.FromJson("{}")`)
+/// instead of the default constructor, as the binding may require this pattern for proper initialization.
+///
 /// Strategy:
-/// 1. Prefer explicit options_type from call config (must exist in type_defs and be constructible)
+/// 1. Prefer explicit options_type from call config with options_via check
 /// 2. Fall back to arg.element_type (must be constructible)
 /// 3. Infer from parameter name: try "ParamName" and "ParamNameConfig" (must be constructible)
 /// 4. Last resort: `null` (will fail at runtime with ArgumentNullException)
@@ -342,10 +360,15 @@ fn resolve_json_object_default(
     element_type: &Option<String>,
     param_name: &str,
     type_defs: &[crate::core::ir::TypeDef],
+    options_via: Option<&str>,
 ) -> String {
     // Explicit options_type from call config: highest priority
     if let Some(opts_type) = options_type {
         if is_default_constructible(opts_type, type_defs) {
+            // When options_via == "from_json", use the factory method for consistency
+            if options_via == Some("from_json") {
+                return format!("{opts_type}.FromJson(\"{{}}\")");
+            }
             return format!("new {opts_type}()");
         }
         // Explicit type exists but cannot be default-constructed; fall through
@@ -354,6 +377,10 @@ fn resolve_json_object_default(
     // Fall back to element_type from arg mapping
     if let Some(elem_type) = element_type {
         if is_default_constructible(elem_type, type_defs) {
+            // When options_via == "from_json", use the factory method for consistency
+            if options_via == Some("from_json") {
+                return format!("{elem_type}.FromJson(\"{{}}\")");
+            }
             return format!("new {elem_type}()");
         }
     }
@@ -368,6 +395,10 @@ fn resolve_json_object_default(
         .find(|cand| is_default_constructible(cand, type_defs))
         .cloned()
     {
+        // When options_via == "from_json", use the factory method for consistency
+        if options_via == Some("from_json") {
+            return format!("{inferred}.FromJson(\"{{}}\")");
+        }
         return format!("new {inferred}()");
     }
 
@@ -582,8 +613,36 @@ mod tests {
         // Test: when fixture omits a parameter named "my", infer "My" → "MyConfig" and construct it.
         // This tests the pattern that fixed the EmbedTextsAsync(texts, null) failure where
         // omitted config parameters now default-construct instead of passing null.
-        let result = resolve_json_object_default(None, &None, "my", &type_defs);
+        let result = resolve_json_object_default(None, &None, "my", &type_defs, None);
         assert_eq!(result, "new MyConfig()", "Expected default construction of MyConfig");
+    }
+
+    #[test]
+    fn test_resolve_json_object_default_with_from_json_factory() {
+        // Create a fixture type that can be default-constructed
+        let extraction_config = TypeDef {
+            name: "ExtractionConfig".to_string(),
+            rust_path: "crate::ExtractionConfig".to_string(),
+            fields: vec![],
+            ..TypeDef::default()
+        };
+
+        let type_defs = vec![extraction_config];
+
+        // Test: when options_via == "from_json", use factory method instead of constructor
+        let result =
+            resolve_json_object_default(Some("ExtractionConfig"), &None, "config", &type_defs, Some("from_json"));
+        assert_eq!(
+            result, "ExtractionConfig.FromJson(\"{}\")",
+            "Expected factory method for from_json"
+        );
+
+        // Test: without options_via, use default constructor
+        let result2 = resolve_json_object_default(Some("ExtractionConfig"), &None, "config", &type_defs, None);
+        assert_eq!(
+            result2, "new ExtractionConfig()",
+            "Expected default constructor without from_json"
+        );
     }
 
     #[test]
@@ -607,7 +666,7 @@ mod tests {
         let type_defs = vec![required_config];
 
         // Test: when type cannot be default-constructed, fall back to null
-        let result = resolve_json_object_default(None, &None, "config", &type_defs);
+        let result = resolve_json_object_default(None, &None, "config", &type_defs, None);
         assert_eq!(result, "null", "Expected null for non-default-constructible type");
     }
 
@@ -631,7 +690,7 @@ mod tests {
         let type_defs = vec![my_config, fallback_config];
 
         // Test: explicit options_type takes highest priority
-        let result = resolve_json_object_default(Some("MyConfig"), &None, "config", &type_defs);
+        let result = resolve_json_object_default(Some("MyConfig"), &None, "config", &type_defs, None);
         assert_eq!(result, "new MyConfig()", "Expected explicit MyConfig");
     }
 
@@ -648,7 +707,7 @@ mod tests {
         let type_defs = vec![elem_config];
 
         // Test: element_type is preferred over inferred names when explicit options_type is absent
-        let result = resolve_json_object_default(None, &Some("ElemConfig".to_string()), "other", &type_defs);
+        let result = resolve_json_object_default(None, &Some("ElemConfig".to_string()), "other", &type_defs, None);
         assert_eq!(result, "new ElemConfig()", "Expected ElemConfig from element_type");
     }
 }

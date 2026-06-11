@@ -1,11 +1,12 @@
 //! `build.gradle.kts` emitter — full Android library project with
-//! vanniktech maven-publish, ktlint hooks, and bundled-Java-facade source set wiring.
+//! vanniktech maven-publish, ktlint hooks, bundled-Java-facade source set wiring,
+//! and optional host JNI binary build for JVM unit tests.
 
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::template_versions::{maven, toolchain};
 
 use crate::backends::kotlin_android::naming::{
-    aar_artifact_id, aar_group_id, compile_sdk, jvm_target, min_sdk, namespace,
+    aar_artifact_id, aar_group_id, compile_sdk, host_platform_dir, jvm_target, min_sdk, namespace,
 };
 use crate::scaffold::{parse_author, scaffold_meta, xml_escape};
 
@@ -39,6 +40,9 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let artifact_id = aar_artifact_id(config);
     let resolved_version = config.resolved_version().unwrap_or_else(|| "0.0.0".to_string());
     let version_placeholder = resolved_version.as_str();
+    let host_platform = host_platform_dir();
+    let jni_crate_path = config.jni_crate_path();
+    let jni_lib_name = config.jni_lib_name();
 
     // Build pom metadata from config.scaffold
     let meta = scaffold_meta(config);
@@ -167,6 +171,67 @@ dependencies {{
     androidTestImplementation("androidx.test.espresso:espresso-core:{espresso_core}")
 }}
 
+// Build host JNI library for JVM unit tests (macOS/Linux/Windows).
+// The generated Kotlin Bridge object calls System.loadLibrary("{jni_lib_name}") for JVM
+// unit tests running on developer machines. This task builds the host-platform binary
+// and stages it into src/test/resources/host-jni/<platform>/ for the test loader.
+// Set alef.skipHostJni=true to disable this (e.g., in publish-only builds).
+tasks.register("buildHostJni", Exec::class) {{
+    if (project.properties["alef.skipHostJni"] != "true") {{
+        val jniCargoPath = "{jni_crate_path}/Cargo.toml"
+        description = "Build host-platform JNI library from {jni_crate_path}"
+        commandLine("cargo", "build", "--release", "--manifest-path", jniCargoPath)
+        errorOutput = System.err
+    }} else {{
+        description = "Build host JNI (disabled via alef.skipHostJni=true)"
+        commandLine("true")
+    }}
+}}
+
+tasks.register("copyHostJni", Copy::class) {{
+    if (project.properties["alef.skipHostJni"] != "true") {{
+        description = "Copy host JNI library to test resources"
+        dependsOn("buildHostJni")
+
+        val hostPlatform = "{host_platform}"
+        val jniCratePath = file("{jni_crate_path}")
+        val buildDir = jniCratePath.resolve("target/release")
+
+        // Map host platform to library filename
+        val libName = when (hostPlatform) {{
+            "darwin" -> "lib{jni_lib_name}.dylib"
+            "windows" -> "{jni_lib_name}.dll"
+            else -> "lib{jni_lib_name}.so"  // linux
+        }}
+
+        from(buildDir) {{
+            include(libName)
+        }}
+        into(layout.projectDirectory.dir("src/test/resources/host-jni/$hostPlatform"))
+    }}
+}}
+
+tasks.withType<Test> {{
+    if (project.properties["alef.skipHostJni"] != "true") {{
+        val hostPlatform = "{host_platform}"
+        systemProperty(
+            "java.library.path",
+            project.layout.projectDirectory.dir("src/test/resources/host-jni/$hostPlatform").asFile.absolutePath
+        )
+        dependsOn("copyHostJni")
+    }}
+}}
+
+// `processDebugUnitTestJavaRes` and `processReleaseUnitTestJavaRes` package the
+// `src/test/resources` tree into the unit-test runtime classpath. They consume
+// the dylib emitted by `copyHostJni`, so AGP 8.10+ requires an explicit
+// dependency declaration to satisfy Gradle's task-output validation.
+tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("processRelease") }}.configureEach {{
+    if (project.properties["alef.skipHostJni"] != "true" && name.contains("UnitTestJavaRes")) {{
+        dependsOn("copyHostJni")
+    }}
+}}
+
 mavenPublishing {{
     configure(AndroidSingleVariantLibrary(
         variant = "release",
@@ -196,10 +261,76 @@ mavenPublishing {{
     }}
 }}
 "#,
-        xml_escape(&meta.description),
-        xml_escape(repo_url),
-        xml_escape(repo_url),
-        repo_path,
-        repo_path,
+        xml_escape(&meta.description), // description.set({})
+        xml_escape(repo_url),          // url.set({})
+        xml_escape(repo_url),          // url.set({}) in scm block
+        repo_path,                     // connection.set("scm:git:git://github.com/{}.git")
+        repo_path,                     // developerConnection.set("scm:git:ssh://git@github.com:{}.git")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_gradle_includes_host_jni_tasks() {
+        // Create a minimal ResolvedCrateConfig for testing.
+        use crate::core::config::new_config::NewAlefConfig;
+
+        let toml_str = r#"
+[workspace]
+languages = ["kotlin_android"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.kotlin_android]
+package = "dev.example"
+
+[crates.jni]
+
+[crates.scaffold]
+repository = "https://github.com/example/test-lib"
+license = "MIT"
+description = "Test library"
+"#;
+
+        let cfg: NewAlefConfig = toml::from_str(toml_str).unwrap();
+        let resolved = cfg.resolve().unwrap();
+        let config = &resolved[0];
+
+        let gradle = emit(config);
+
+        // Verify the emitted Gradle script contains the host JNI build task.
+        assert!(
+            gradle.contains(r#"tasks.register("buildHostJni", Exec::class)"#),
+            "Gradle should contain buildHostJni task registration"
+        );
+
+        // Verify the copyHostJni task is present.
+        assert!(
+            gradle.contains(r#"tasks.register("copyHostJni", Copy::class)"#),
+            "Gradle should contain copyHostJni task registration"
+        );
+
+        // Verify the Test task configuration is present.
+        assert!(
+            gradle.contains("tasks.withType<Test>"),
+            "Gradle should configure tasks.withType<Test>"
+        );
+
+        // Verify the java.library.path property is set for tests.
+        assert!(
+            gradle.contains("java.library.path"),
+            "Gradle should set java.library.path system property"
+        );
+
+        // Verify the opt-out property is documented.
+        assert!(
+            gradle.contains("alef.skipHostJni"),
+            "Gradle should mention alef.skipHostJni opt-out"
+        );
+    }
 }

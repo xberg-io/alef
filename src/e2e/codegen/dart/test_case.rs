@@ -179,6 +179,11 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                 .and_then(|o| o.client_factory.as_deref())
         });
 
+    // Dart e2e currently emits all args positionally; FRB-direct-call named-arg dispatch
+    // is parked behind this flag until the codegen can distinguish facade vs bridge call
+    // shapes precisely.
+    let is_frb_bridge_call = false;
+
     // Resolve adapter request type for streaming methods.
     let adapter = adapters.iter().find(|a| a.name == call_config.function.as_str());
     let adapter_request_type: Option<String> = adapter
@@ -311,91 +316,116 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                 // `routes_to_source_code` above), so the path string must be
                 // passed verbatim instead of materialised as bytes.
                 if let serde_json::Value::String(file_path) = arg_value {
-                    if arg_def.arg_type == "file_path" && routes_to_source_code {
-                        args.push(format!("'{file_path}'"));
+                    let arg_expr = if arg_def.arg_type == "file_path" && routes_to_source_code {
+                        format!("'{file_path}'")
                     } else {
-                        args.push(format!("File('{}').readAsBytesSync()", file_path));
+                        format!("File('{}').readAsBytesSync()", file_path)
+                    };
+                    if is_frb_bridge_call {
+                        let dart_param_name = snake_to_camel(&arg_def.name);
+                        args.push(format!("{dart_param_name}: {arg_expr}"));
+                    } else {
+                        args.push(arg_expr);
                     }
                 }
             }
             "int" | "integer" | "i64" => {
-                // Scalar integer argument: emit the numeric value as-is (positional required).
+                // Scalar integer argument. Direct FRB calls use named parameters.
+                let dart_param_name = snake_to_camel(&arg_def.name);
                 match arg_value {
                     serde_json::Value::Number(n) => {
-                        args.push(n.to_string());
+                        if is_frb_bridge_call {
+                            args.push(format!("{dart_param_name}: {}", n));
+                        } else {
+                            args.push(n.to_string());
+                        }
                     }
                     serde_json::Value::Null if arg_def.optional => {
                         // Optional int absent: omit it.
                     }
                     _ => {
                         // Required int with no fixture value: emit 0 as default.
-                        args.push("0".to_string());
+                        if is_frb_bridge_call {
+                            args.push(format!("{dart_param_name}: 0"));
+                        } else {
+                            args.push("0".to_string());
+                        }
                     }
                 }
             }
             "float" | "number" => {
-                // Scalar float/number argument: emit the numeric value as-is (positional required).
+                // Scalar float/number argument. Direct FRB calls use named parameters.
+                let dart_param_name = snake_to_camel(&arg_def.name);
                 match arg_value {
                     serde_json::Value::Number(n) => {
-                        args.push(n.to_string());
+                        if is_frb_bridge_call {
+                            args.push(format!("{dart_param_name}: {}", n));
+                        } else {
+                            args.push(n.to_string());
+                        }
                     }
                     serde_json::Value::Null if arg_def.optional => {
                         // Optional float absent: omit it.
                     }
                     _ => {
                         // Required float with no fixture value: emit 0.0 as default.
-                        args.push("0.0".to_string());
+                        if is_frb_bridge_call {
+                            args.push(format!("{dart_param_name}: 0.0"));
+                        } else {
+                            args.push("0.0".to_string());
+                        }
                     }
                 }
             }
             "bool" | "boolean" => {
-                // Scalar boolean argument: emit the boolean value as-is (positional required).
+                // Scalar boolean argument. Direct FRB calls use named parameters.
+                let dart_param_name = snake_to_camel(&arg_def.name);
                 match arg_value {
                     serde_json::Value::Bool(b) => {
-                        args.push(if *b { "true" } else { "false" }.to_string());
+                        let bool_str = if *b { "true" } else { "false" };
+                        if is_frb_bridge_call {
+                            args.push(format!("{dart_param_name}: {bool_str}"));
+                        } else {
+                            args.push(bool_str.to_string());
+                        }
                     }
                     serde_json::Value::Null if arg_def.optional => {
                         // Optional bool absent: omit it.
                     }
                     _ => {
                         // Required bool with no fixture value: emit false as default.
-                        args.push("false".to_string());
+                        if is_frb_bridge_call {
+                            args.push(format!("{dart_param_name}: false"));
+                        } else {
+                            args.push("false".to_string());
+                        }
                     }
                 }
             }
             "string" => {
-                // Polyglot repos expose their Dart surface through a hand-written facade
-                // (e.g. a facade method with required positional args and optional named args)
-                // that wraps the FRB-generated bridge methods. Those facades follow the
-                // Rust idiom: required args are positional, optional args are named with
-                // defaults. The "always emit named" heuristic targets the raw FRB bridge
-                // call site but breaks every hand-written facade.
+                // Dart FRB bridge methods emit all parameters as named-required.
+                // Hand-written facades use positional required and named optional.
+                // Direct FRB bridge calls (is_frb_bridge_call = true) should emit all as named.
+                // Facade methods (extractBytes, extractFile) keep required args positional.
                 //
-                // Mirror the policy used by the `json_object` handler below: required →
-                // positional, optional → named. Request-object calls route through the
-                // `from_json` path (which always emits `req:` named) and client-factory
-                // calls have their own configured arg shape.
+                // The `mime_type` parameter is special: it's positional in facade extract methods
+                // but named in direct FRB bridge calls. The `client_factory` path is for stateful
+                // clients (e.g., demo-client) which always use named parameters.
                 let dart_param_name = snake_to_camel(&arg_def.name);
-                // The `mime_type` parameter is a *positional* parameter in every facade
-                // extract method — both `extractBytes`/`extractBytesSync` (where it is a
-                // required `String mimeType`) and `extractFile`/`extractFileSync` (where
-                // it is a required-but-nullable `String? mimeType`). It always precedes
-                // the trailing optional config slot, so it can never be
-                // a Dart named parameter. The `optional` flag on the call config marks it
-                // optional only because `extract_file`'s Rust signature takes
-                // `Option<&str>`; it does not change the Dart facade's positional shape.
-                // Only the `client_factory` FRB path declares non-`config` params named.
-                let mime_type_is_positional = arg_def.name == "mime_type" && client_factory_for_args.is_none();
+                let mime_type_is_positional =
+                    arg_def.name == "mime_type" && !is_frb_bridge_call && client_factory_for_args.is_none();
                 match arg_value {
                     serde_json::Value::String(s) => {
                         let literal = format!("'{}'", escape_dart(s));
-                        // FRB-generated client methods (the `client_factory` path, e.g.
-                        // demo-client's `retrieveFile({required String fileId})`) declare
-                        // every non-`config` parameter as named-required, so required
-                        // string args must be passed with a `name:` label too. Facade
-                        // methods (no `client_factory`) keep required args positional.
-                        if (arg_def.optional || client_factory_for_args.is_some()) && !mime_type_is_positional {
-                            args.push(format!("{dart_param_name}: {literal}"));
+                        // Direct FRB bridge calls: all parameters are named-required.
+                        // Client factory methods: all non-config parameters are named-required.
+                        // Facade methods: required positional, optional named.
+                        if is_frb_bridge_call || client_factory_for_args.is_some() || arg_def.optional {
+                            if !mime_type_is_positional {
+                                args.push(format!("{dart_param_name}: {literal}"));
+                            } else {
+                                args.push(literal);
+                            }
                         } else {
                             args.push(literal);
                         }
@@ -409,8 +439,8 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                         let inferred = file_path_for_mime
                             .and_then(mime_from_extension)
                             .unwrap_or("application/octet-stream");
-                        // Emit positionally for the facade path (see above); only the
-                        // `client_factory` FRB path uses the `mimeType:` named label.
+                        // Direct FRB bridge calls and client factory use named parameters.
+                        // Facades use positional for mime_type.
                         if mime_type_is_positional {
                             args.push(format!("'{inferred}'"));
                         } else {
@@ -424,11 +454,8 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
             "json_object" => {
                 if let Some(elem_type) = &arg_def.element_type {
                     if elem_type == "String" && arg_value.is_array() {
-                        // Scalar string array. Facades can declare these parameters as required
-                        // positional,
-                        // so the list literal must be passed positionally — matching the
-                        // facade contract rather than the underlying FRB bridge's named-arg
-                        // convention.
+                        // Scalar string array. Direct FRB bridge calls require named parameters.
+                        // Facades can declare these as required positional.
                         let items: Vec<String> = arg_value
                             .as_array()
                             .unwrap()
@@ -436,10 +463,17 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                             .filter_map(|v| v.as_str())
                             .map(|s| format!("'{}'", escape_dart(s)))
                             .collect();
-                        args.push(format!("<String>[{}]", items.join(", ")));
+                        let list_literal = format!("<String>[{}]", items.join(", "));
+                        if is_frb_bridge_call {
+                            let dart_param_name = snake_to_camel(&arg_def.name);
+                            args.push(format!("{dart_param_name}: {list_literal}"));
+                        } else {
+                            args.push(list_literal);
+                        }
                     } else if arg_value.is_array() {
-                        // Generic typed array (e.g. `actions: [PageAction]` for interact).
-                        // Decode via jsonDecode at test-run time and convert to typed instances.
+                        // Generic typed array (e.g. `actions: [PageAction]` for interact,
+                        // or `items: [BatchBytesItem]` for batch). Decode via jsonDecode at
+                        // test-run time and convert to typed instances.
                         let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
                         let var_name = arg_def.name.clone();
                         if elem_type == "PageAction" {
@@ -447,11 +481,22 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                                 "final {var_name} = (jsonDecode(r'{json_str}') as List<dynamic>).map((e) => _parsePageAction(e as Map<String, dynamic>)).toList();"
                             ));
                         } else {
+                            // FRB-generated `create<ElementType>FromJson(json:)` factory
+                            // takes a JSON string per item. Map each map to its typed
+                            // instance and await the futures together so the typed list
+                            // matches the binding's parameter type (e.g. List<BatchBytesItem>).
+                            let dart_fn = type_name_to_create_from_json_dart(elem_type);
                             setup_lines.push(format!(
-                                "final {var_name} = (jsonDecode(r'{json_str}') as List<dynamic>).cast<Map<String, dynamic>>();"
+                                "final {var_name} = await Future.wait((jsonDecode(r'{json_str}') as List<dynamic>).cast<Map<String, dynamic>>().map((m) => {dart_fn}(json: jsonEncode(m))));"
                             ));
                         }
-                        args.push(var_name);
+                        // For generic arrays, emit named parameter if it's a direct FRB call
+                        if is_frb_bridge_call {
+                            let dart_param_name = snake_to_camel(&arg_def.name);
+                            args.push(format!("{dart_param_name}: {var_name}"));
+                        } else {
+                            args.push(var_name);
+                        }
                     }
                 } else if options_via == "from_json" {
                     // `from_json` path: construct a typed mirror-struct via the generated
@@ -482,23 +527,36 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                         let var_name = format!("_{}", arg_def.name);
                         let dart_fn = type_name_to_create_from_json_dart(opts_type);
                         setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
-                        let dart_param_name = snake_to_camel(&arg_def.name);
-                        args.push(format!("{dart_param_name}: {var_name}"));
+                        // Embedding facades (e.g. `embedTextsAsync(List<String>, EmbeddingConfig)`)
+                        // declare `config` as a required positional parameter; extraction
+                        // facades declare it as a named optional. Emit positional when the
+                        // resolved options type is an embedding config.
+                        if opts_type.contains("Embedding") {
+                            args.push(var_name);
+                        } else {
+                            let dart_param_name = snake_to_camel(&arg_def.name);
+                            args.push(format!("{dart_param_name}: {var_name}"));
+                        }
                     }
                 } else if arg_def.name == "config" {
                     if let serde_json::Value::Object(map) = &arg_value {
                         if !map.is_empty() {
                             // Round-trip object config JSON through a generated helper.
-                            // Prefer explicit type metadata; the arg name fallback is only
-                            // a neutral best effort for legacy configs.
+                            // Require explicit type metadata; otherwise the fallback would
+                            // produce a `create<arg_name>FromJson` reference that doesn't
+                            // exist in the binding.
                             let opts_type = options_type.unwrap_or(&arg_def.name);
                             let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
                             let escaped_json = escape_dart(&json_str);
                             let var_name = format!("_{}", arg_def.name);
                             let dart_fn = type_name_to_create_from_json_dart(opts_type);
                             setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
-                            let dart_param_name = snake_to_camel(&arg_def.name);
-                            args.push(format!("{dart_param_name}: {var_name}"));
+                            if opts_type.contains("Embedding") {
+                                args.push(var_name);
+                            } else {
+                                let dart_param_name = snake_to_camel(&arg_def.name);
+                                args.push(format!("{dart_param_name}: {var_name}"));
+                            }
                         } else {
                             // Empty config object: construct a default instance via FRB's
                             // `create<Type>FromJson(json: '{}')` helper (supports all
@@ -509,8 +567,12 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                                 let var_name = format!("_{}", arg_def.name);
                                 let dart_fn = type_name_to_create_from_json_dart(opts_type);
                                 setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
-                                let dart_param_name = snake_to_camel(&arg_def.name);
-                                args.push(format!("{dart_param_name}: {var_name}"));
+                                if opts_type.contains("Embedding") {
+                                    args.push(var_name);
+                                } else {
+                                    let dart_param_name = snake_to_camel(&arg_def.name);
+                                    args.push(format!("{dart_param_name}: {var_name}"));
+                                }
                             }
                         }
                     } else if arg_def.optional {
@@ -539,7 +601,13 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                     setup_lines.push(format!(
                         "final {var_name} = (jsonDecode(r'{json_str}') as List<dynamic>).cast<String>();"
                     ));
-                    args.push(var_name);
+                    // Direct FRB bridge calls use named parameters
+                    if is_frb_bridge_call {
+                        let dart_param_name = snake_to_camel(&arg_def.name);
+                        args.push(format!("{dart_param_name}: {var_name}"));
+                    } else {
+                        args.push(var_name);
+                    }
                 } else if let serde_json::Value::Object(map) = &arg_value {
                     // Generic options-style json_object arg (for APIs whose
                     // a typed options arg). When the

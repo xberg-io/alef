@@ -594,6 +594,11 @@ pub struct GoConfig {
     pub module: Option<String>,
     /// Override the Go package name (default: derived from module path)
     pub package_name: Option<String>,
+    /// Go module major version segment (`/vN`). Required for any v2+ Go module.
+    /// Defaults to no segment when `None` and the Go module path has no version suffix;
+    /// when set, emits `packages/go/v<N>/`.
+    #[serde(default)]
+    pub module_major: Option<u32>,
     #[serde(default)]
     pub features: Option<Vec<String>>,
     /// Types to exclude from Go binding generation.

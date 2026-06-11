@@ -628,7 +628,7 @@ fn build_args_string(
             // `Expected ExternalPtr got List`. The fixtures don't carry the
             // option fields needed to round-trip through the configured type's constructor,
             // so emit `<OptionsType>$default()` whenever a `json_object` arg
-            // resolves to an empty / object-shaped JSON value.
+            // resolves to an empty / object-shaped JSON value or NULL.
             if arg.arg_type == "json_object" && (val.is_null() || val.as_object().is_some_and(|m| m.is_empty())) {
                 let r_value = r_default_for_config_arg(arg_name, options_type);
                 return Some(format!("{arg_name} = {r_value}"));

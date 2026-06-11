@@ -261,7 +261,13 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     // Nested records for each variant
     for variant in &enum_def.variants {
         out.push('\n');
-        if variant.fields.is_empty() {
+        // A single tuple field of type `()` (Rust unit) carries no data — emit a
+        // payload-less record so Java doesn't try to declare a `void value` field,
+        // which fails compilation with "void type not allowed here".
+        let is_unit_tuple = variant.fields.len() == 1
+            && is_tuple_field_name(&variant.fields[0].name)
+            && matches!(&variant.fields[0].ty, TypeRef::Unit);
+        if variant.fields.is_empty() || is_unit_tuple {
             // Unit variant
             emit_javadoc(&mut out, &variant.doc, "    ");
             out.push_str("    record ");
@@ -357,6 +363,10 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         out.push('\n');
         for variant in &enum_def.variants {
             if variant.fields.is_empty() || !is_tuple_field_name(&variant.fields[0].name) {
+                continue;
+            }
+            // Skip accessors for unit-tuple variants — there's no value to return.
+            if matches!(&variant.fields[0].ty, TypeRef::Unit) {
                 continue;
             }
             let method_name = variant.name.to_lower_camel_case();

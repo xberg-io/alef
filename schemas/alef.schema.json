@@ -2365,6 +2365,16 @@
             "null"
           ]
         },
+        "module_major": {
+          "default": null,
+          "description": "Go module major version segment (`/vN`). Required for any v2+ Go module.\nDefaults to no segment when `None` and the Go module path has no version suffix;\nwhen set, emits `packages/go/v<N>/`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "package_name": {
           "description": "Override the Go package name (default: derived from module path)",
           "type": [

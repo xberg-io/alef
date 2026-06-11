@@ -204,7 +204,12 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             ));
         }
 
-        if variant.fields.is_empty() {
+        // A single tuple field of type `()` carries no data — treat it as a unit
+        // variant so we don't emit an illegal `void Value` parameter.
+        let is_unit_tuple = variant.fields.len() == 1
+            && is_tuple_field(&variant.fields[0])
+            && csharp_type(&variant.fields[0].ty).as_ref() == "void";
+        if variant.fields.is_empty() || is_unit_tuple {
             // Unit variant → sealed record with no fields
             out.push_str(&render(
                 "unit_variant_record.jinja",
@@ -318,6 +323,11 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         } else {
             csharp_type(&field.ty).to_string()
         };
+        // Skip accessor for unit `()` payload — C# disallows `void?` and there's
+        // no value to return.
+        if return_type == "void" {
+            continue;
+        }
         let return_type_nullable = format!("{return_type}?");
         out.push_str(&render(
             "variant_accessor_summary.jinja",
@@ -374,7 +384,12 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
                 .serde_rename
                 .clone()
                 .unwrap_or_else(|| wire_variant_value(&v.name, None, enum_def.serde_rename_all.as_deref()));
-            let is_unit = v.fields.is_empty();
+            // Single tuple field of type `()` carries no data — emit it as a
+            // unit variant in the converter switch so we don't reference a
+            // missing `.Value` property.
+            let is_unit_tuple =
+                v.fields.len() == 1 && is_tuple_field(&v.fields[0]) && csharp_type(&v.fields[0].ty).as_ref() == "void";
+            let is_unit = v.fields.is_empty() || is_unit_tuple;
             let is_tuple = !is_unit && v.fields.len() == 1 && is_tuple_field(&v.fields[0]);
             let is_excluded = v.binding_excluded;
             Value::from_serialize(serde_json::json!({

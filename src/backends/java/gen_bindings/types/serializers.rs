@@ -85,7 +85,12 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
         out.push_str(&discriminator);
         out.push_str("\" -> ");
 
-        if variant.fields.is_empty() {
+        // Single tuple field of type `()` is treated as a unit variant in the
+        // Java record (no constructor args) — emit as unit here too.
+        let is_unit_tuple = variant.fields.len() == 1
+            && is_tuple_field_name(&variant.fields[0].name)
+            && matches!(&variant.fields[0].ty, crate::core::ir::TypeRef::Unit);
+        if variant.fields.is_empty() || is_unit_tuple {
             // Unit variant
             out.push_str("new ");
             out.push_str(&enum_def.name);
@@ -186,7 +191,12 @@ pub(super) fn gen_sealed_union_serializer(out: &mut String, _package: &str, enum
                     .map(|strategy| java_apply_rename_all(name, Some(strategy)))
                     .unwrap_or_else(|| java_apply_rename_all(name, None))
             });
-            let is_unit = v.fields.is_empty();
+            // Single tuple field of type `()` is a unit variant in the Java
+            // record (no constructor args, no `value()` accessor).
+            let is_unit_tuple = v.fields.len() == 1
+                && is_tuple_field_name(&v.fields[0].name)
+                && matches!(&v.fields[0].ty, crate::core::ir::TypeRef::Unit);
+            let is_unit = v.fields.is_empty() || is_unit_tuple;
             let is_tuple = !is_unit && v.fields.len() == 1 && is_tuple_field_name(&v.fields[0].name);
             minijinja::context! {
                 name => &v.name,

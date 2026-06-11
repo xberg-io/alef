@@ -196,6 +196,15 @@ impl ResolvedCrateConfig {
         }
         format!("../../crates/{}-wasm/pkg", self.name)
     }
+
+    /// Get the relative path to the JNI crate from the kotlin-android package
+    /// root (packages/kotlin-android/). Used to invoke `cargo build --release`
+    /// for the host JNI library.
+    ///
+    /// Returns `../../crates/{jni_crate_base}-jni`.
+    pub fn jni_crate_path(&self) -> String {
+        format!("../../crates/{}-jni", self.jni_crate_base())
+    }
 }
 
 #[cfg(test)]
