@@ -448,14 +448,13 @@ fn synthesize_multipart_body(props: &serde_json::Map<String, serde_json::Value>)
 
         body.push_str(&format!(
             "--{}\r\nContent-Disposition: form-data; name=\"{}\"",
-            BOUNDARY,
-            escape_ruby_single(prop_name)
+            BOUNDARY, prop_name
         ));
 
         if is_binary {
             body.push_str(&format!(
                 "; filename=\"{}.txt\"\r\nContent-Type: text/plain\r\n\r\n",
-                escape_ruby_single(prop_name)
+                prop_name
             ));
             body.push_str("placeholder content");
         } else {
@@ -467,8 +466,9 @@ fn synthesize_multipart_body(props: &serde_json::Map<String, serde_json::Value>)
 
     body.push_str(&format!("--{}--\r\n", BOUNDARY));
 
-    // Escape as Ruby raw string literal
-    format!("\"{}\"", escape_ruby_single(&body))
+    // Use ruby_string_literal to properly escape the multipart body.
+    // This converts actual \r\n characters to escaped \\r\\n in the string literal.
+    ruby_string_literal(&body)
 }
 
 /// Convert an uppercase HTTP method string to Ruby's Net::HTTP class name.

@@ -969,13 +969,11 @@ impl Backend for NapiBackend {
             tool: "napi",
             crate_suffix: "-node",
             build_dep: BuildDependency::None,
-            post_build: vec![
-                PostBuildStep::PatchFile {
-                    path: "index.d.ts",
-                    find: "export declare const enum",
-                    replace: "export declare enum",
-                },
-            ],
+            post_build: vec![PostBuildStep::PatchFile {
+                path: "index.d.ts",
+                find: "export declare const enum",
+                replace: "export declare enum",
+            }],
         })
     }
 }

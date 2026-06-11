@@ -977,6 +977,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_configurator.swift.jinja"),
     ),
     (
+        "swift_config_method.swift.jinja",
+        include_str!("templates/swift_config_method.swift.jinja"),
+    ),
+    (
         "swift_registration.swift.jinja",
         include_str!("templates/swift_registration.swift.jinja"),
     ),

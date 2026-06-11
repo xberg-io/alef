@@ -91,7 +91,8 @@ for (fixtureId, fixtureDict) in _fixtures {
     }
 }
 
-// Start the server.
+// Configure and start the server.
+try app.config(host: "{{ host }}", port: {{ port }})
 print("Harness listening on {{ host }}:{{ port }}")
 fflush(stdout)
 try app.run()

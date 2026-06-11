@@ -1,0 +1,38 @@
+    /// Configure server host and port.
+    ///
+    /// Creates a ServerConfig with the given host and port,
+    /// and applies it to the server via the FFI layer.
+    @discardableResult
+    public func config(host: String, port: UInt16) throws -> Self {
+        guard let inner = inner else { throw ServiceError.invalidHandle }
+
+        // Build ServerConfig JSON with host and port
+        let configDict: [String: Any] = [
+            "host": host,
+            "port": port
+        ]
+        guard let configData = try? JSONSerialization.data(withJSONObject: configDict, options: []),
+              let configJson = String(data: configData, encoding: .utf8) else {
+            throw ServiceError.runtime("Failed to serialize server config")
+        }
+
+        // Call FFI to create ServerConfig from JSON (null-terminated C string)
+        let serverConfig = configJson.withCString { cStr in
+            _{{ ffi_prefix }}_server_config_from_json(cStr)
+        }
+        guard serverConfig != nil else {
+            throw ServiceError.runtime("Failed to create ServerConfig from JSON")
+        }
+        defer {
+            // Free the ServerConfig after applying it
+            _{{ ffi_prefix }}_server_config_free(serverConfig)
+        }
+
+        // Apply the config to the app via the FFI bridge.
+        // swift-bridge wraps the opaque `App` type; we need its raw pointer.
+        let rawAddr = RustBridge.appRawPtr(inner)
+        var innerPtr = OpaquePointer(bitPattern: rawAddr)!
+        let _ = _{{ ffi_prefix }}_app_config(&innerPtr, serverConfig)
+
+        return self
+    }

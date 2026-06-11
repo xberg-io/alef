@@ -404,7 +404,7 @@ fn gen_rust_callback_c_functions_for_service(api: &ApiSurface, service: &Service
 /// - Configurator methods that chain (return self)
 /// - Registration methods that accept Swift closures and wrap them via @convention(c) trampolines
 /// - A `run(...)` method that calls the swift-bridge entrypoint
-pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> String {
+pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: &ResolvedCrateConfig) -> String {
     let mut out = String::new();
 
     let class_name = &service.name;
@@ -420,6 +420,25 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
     // `RouteBuilder`, etc.). Those types live in a sibling Swift target named
     // `RustBridge`; an explicit `import RustBridge` is required for resolution.
     out.push_str("import RustBridge\n\n");
+
+    // FFI @_silgen_name declarations for server config management.
+    // Get the FFI prefix from config for generating generic symbol names.
+    let ffi_prefix = config
+        .ffi
+        .as_ref()
+        .and_then(|f| f.prefix.as_deref())
+        .unwrap_or(&config.name)
+        .to_string();
+    let ffi_decls = format!(
+        "@_silgen_name(\"{}_server_config_from_json\")\n\
+         private func _{}_server_config_from_json(_ json: UnsafePointer<CChar>) -> UnsafeMutableRawPointer?\n\n\
+         @_silgen_name(\"{}_server_config_free\")\n\
+         private func _{}_server_config_free(_ ptr: UnsafeMutableRawPointer?)\n\n\
+         @_silgen_name(\"{}_app_config\")\n\
+         private func _{}_app_config(_ app: UnsafeMutablePointer<OpaquePointer>, _ config: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?\n\n",
+        ffi_prefix, ffi_prefix, ffi_prefix, ffi_prefix, ffi_prefix, ffi_prefix
+    );
+    out.push_str(&ffi_decls);
 
     // Error type used by every generated entrypoint / registration method. Defined
     // once per service file so the wrapper class methods can `throw` it without
@@ -519,6 +538,23 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
             },
         ));
     }
+
+    // Special config method with host and port parameters (always emitted).
+    // This method constructs a ServerConfig JSON, calls the FFI to create and apply it.
+    // Get the FFI prefix from config (e.g., "spikard") for generating symbol names.
+    let ffi_prefix = config
+        .ffi
+        .as_ref()
+        .and_then(|f| f.prefix.as_deref())
+        .unwrap_or(&config.name)
+        .to_string();
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_config_method.swift.jinja",
+        minijinja::context! {
+            service_snake => &service_snake,
+            ffi_prefix => &ffi_prefix,
+        },
+    ));
 
     // Registration methods
     for reg in &service.registrations {
@@ -828,7 +864,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
                 .join(format!("{}.swift", service.name))
         };
 
-        let content = gen_service_swift(api, service);
+        let content = gen_service_swift(api, service, config);
 
         files.push(GeneratedFile {
             path,
@@ -886,6 +922,13 @@ mod tests {
     use crate::core::ir::{
         EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, RegistrationDef, ServiceDef, TypeRef,
     };
+
+    fn make_test_config() -> ResolvedCrateConfig {
+        ResolvedCrateConfig {
+            name: "test_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        }
+    }
 
     fn make_fixture_surface() -> ApiSurface {
         let constructor = MethodDef {
@@ -1002,7 +1045,8 @@ mod tests {
     fn test_gen_service_swift_contains_class() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         assert!(
             output.contains("public final class TestService"),
@@ -1014,7 +1058,8 @@ mod tests {
     fn test_gen_service_swift_contains_init_and_deinit() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         assert!(
             output.contains("public init()"),
@@ -1031,7 +1076,8 @@ mod tests {
     fn test_gen_service_swift_boxes_handler() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         assert!(
             output.contains("private final class HandlerBox"),
@@ -1055,7 +1101,8 @@ mod tests {
     fn test_gen_service_swift_contains_registration_method() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         assert!(
             output.contains("public func addHandler"),
@@ -1075,7 +1122,8 @@ mod tests {
     fn test_gen_service_swift_contains_context_recovery() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         assert!(
             output.contains("Unmanaged<HandlerBox>.fromOpaque(contextPtr).takeUnretainedValue()"),
@@ -1091,7 +1139,8 @@ mod tests {
     fn test_gen_service_swift_contains_run_method() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         assert!(
             output.contains("public func run"),
@@ -1226,7 +1275,8 @@ mod tests {
     fn test_swift_wrapper_no_dlsym_or_dlopen() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         assert!(
             !output.contains("dlsym"),
@@ -1259,7 +1309,8 @@ mod tests {
     fn test_registration_no_empty_leading_comma() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         // Should not have double comma like "(_ handler: ..., , builder: ...)"
         assert!(
@@ -1272,7 +1323,8 @@ mod tests {
     fn test_switch_case_on_own_lines() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         // switch/case should not collapse onto the same line as preceding code
         assert!(
@@ -1289,7 +1341,8 @@ mod tests {
     fn test_swift_uses_silgen_not_bridge_method() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         // Should use @_silgen_name'd C function, NOT inner.addHandlerViaCallback()
         assert!(
@@ -1306,7 +1359,8 @@ mod tests {
     fn test_swift_contains_silgen_declaration() {
         let api = make_fixture_surface();
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         // Should have @_silgen_name declaration at module scope
         assert!(
@@ -1326,7 +1380,8 @@ mod tests {
         api.services[0].registrations[0].metadata_params[0].ty = TypeRef::Named("RouteBuilder".to_owned());
 
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         // Should use the swift-bridge wrapper `RustBridge.RouteBuilder` as the type
         // (Named metadata params are owned by the bridge module and must be qualified).
@@ -1351,7 +1406,8 @@ mod tests {
         });
 
         let service = &api.services[0];
-        let output = gen_service_swift(&api, service);
+        let config = make_test_config();
+        let output = gen_service_swift(&api, service, &config);
 
         // Should not contain intoRouter method
         assert!(
