@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **NAPI service-API base registration: round-trip wrapper classes through napi-rs instead of bare core types.** The base registration methods (e.g. `route`) accepted parameters of the bare core type (`spikard::RouteBuilder`), which napi-rs cannot synthesize `FromNapiValue` for, producing `the trait bound RouteBuilder: FromNapiValue is not satisfied`. The fix: accept `&JsRouteBuilder` (the wrapper class) and unwrap to the core type inside the method body via `let name = (*name.inner).clone();`. The impl block emits `use crate::{Js...};` for each wrapper type referenced. TS wrappers now call `this._app.method(arg1, arg2, fn)` positionally instead of wrapping metadata in `[array]` (the previous shape mismatched the napi method's positional signature). Multi-line rustdoc for the base registration method now correctly prefixes every line with `///` instead of emitting bare text under the doc-comment scope.
+
+- **CLI `all` pipeline: run service-API generation before post-build.** The `all` command ran the language post-build steps before service-API files were written. For backends whose post-build invokes `cargo build` (e.g. swift), that build failed when `lib.rs` declared `pub mod service;` but `service.rs` had not been generated yet (specifically on `--clean` runs where the file from a prior run was deleted). Service-API generation now runs immediately after binding generation and before post-build, so the crate compiles cleanly during post-build steps. (The `generate` command already ordered these correctly.)
+
 ## [0.24.6] - 2026-06-11
 
 ### Fixed

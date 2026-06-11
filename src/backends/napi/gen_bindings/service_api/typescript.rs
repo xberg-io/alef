@@ -348,13 +348,13 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
     // Decorator-factory form: supports @app.register(meta1, meta2) decorator syntax
     let meta_sig = meta_params.join(", ");
 
-    // Closure that collects metadata and the callback
+    // Positional metadata params forwarded to the underlying napi method.
+    // The base registration emits a Rust signature with one positional param
+    // per metadata entry plus `handler`, so the TS wrapper must call
+    // `this._app.method(meta1, meta2, ..., fn)` — not an array.
     let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
-    let meta_array = if meta_names.is_empty() {
-        "[]".to_owned()
-    } else {
-        format!("[{}]", meta_names.join(", "))
-    };
+    let has_meta = !meta_names.is_empty();
+    let meta_args = meta_names.join(", ");
 
     let doc = reg.doc.trim().replace('\n', "\n   * ");
     out.push_str(&render(
@@ -363,7 +363,8 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
             doc,
             method_name,
             meta_sig,
-            meta_array,
+            meta_args,
+            has_meta,
         },
     ));
 
@@ -382,7 +383,8 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
                 method_name,
                 direct_name,
                 full_sig,
-                meta_array,
+                meta_args,
+                has_meta,
             },
         ));
     }

@@ -5,7 +5,11 @@
    */
   {{ method_name }}({{ meta_sig }}): (fn: (...args: any[]) => any) => (...args: any[]) => any {
     return (fn: (...args: any[]) => any) => {
-      this._app.{{ method_name }}({{ meta_array }}, fn);
+{% if has_meta %}
+      this._app.{{ method_name }}({{ meta_args }}, fn);
+{% else %}
+      this._app.{{ method_name }}(fn);
+{% endif %}
       return fn;
     };
   }

@@ -1,4 +1,7 @@
 use crate::{{ app_type_name }};
+{% if has_wrapper_imports %}
+use crate::{ {{- wrapper_use_items -}} };
+{% endif %}
 
 #[napi]
 impl {{ app_type_name }} {

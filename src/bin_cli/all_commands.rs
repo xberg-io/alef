@@ -114,6 +114,27 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     let _ = cache::write_generation_hashes(&cache_key, &hashes);
                 }
 
+                // Generate service API (idiomatic app/handler bridge) for backends
+                // that support it — only runs when surface.services is non-empty.
+                // Must run BEFORE post-build because some backends (e.g. swift) invoke
+                // `cargo build` during post-build, and lib.rs may declare `pub mod service;`
+                // — the service.rs file must exist on disk by that point.
+                if !api.services.is_empty() {
+                    let svc_files = pipeline::generate_service_api(&api, resolved_cfg, &languages)?;
+                    if !svc_files.is_empty() {
+                        for (_, files) in &svc_files {
+                            for file in files {
+                                current_gen_paths.insert(base_dir.join(&file.path));
+                            }
+                        }
+                        let svc_count = pipeline::write_files(&svc_files, &base_dir)?;
+                        eprintln!("Generated {svc_count} service API files");
+                        for (lang, _) in &svc_files {
+                            changed_languages.insert(*lang);
+                        }
+                    }
+                }
+
                 // Run post-build processing (e.g., FRB codegen, post-processing rewrites).
                 // Emit a "starting" line BEFORE each step so silent backends (post_build
                 // empty) and long-running subprocess steps (FRB codegen) are visible to
@@ -178,24 +199,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 for (_, files) in &stubs {
                     for file in files {
                         current_gen_paths.insert(base_dir.join(&file.path));
-                    }
-                }
-
-                // Generate service API (idiomatic app/handler bridge) for backends
-                // that support it — only runs when surface.services is non-empty.
-                if !api.services.is_empty() {
-                    let svc_files = pipeline::generate_service_api(&api, resolved_cfg, &languages)?;
-                    if !svc_files.is_empty() {
-                        for (_, files) in &svc_files {
-                            for file in files {
-                                current_gen_paths.insert(base_dir.join(&file.path));
-                            }
-                        }
-                        let svc_count = pipeline::write_files(&svc_files, &base_dir)?;
-                        eprintln!("Generated {svc_count} service API files");
-                        for (lang, _) in &svc_files {
-                            changed_languages.insert(*lang);
-                        }
                     }
                 }
 

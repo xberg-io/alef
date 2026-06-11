@@ -67,6 +67,18 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
         let app_type_name = format!("{prefix}{}", service.name);
         let mut impl_methods = String::new();
 
+        // Collect wrapper type names referenced as base-registration metadata
+        // params so we can emit `use crate::JsXxx;` imports for them.
+        let mut wrapper_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for reg in &service.registrations {
+            for p in &reg.metadata_params {
+                let rust_ty = typeref_to_rust_type(&p.ty, &core_import);
+                let bare_name = rust_ty.rsplit("::").next().unwrap_or(&rust_ty);
+                wrapper_imports.insert(format!("{prefix}{bare_name}"));
+            }
+        }
+        let wrapper_use_items = wrapper_imports.into_iter().collect::<Vec<_>>().join(", ");
+
         // Emit base registration methods (route, etc.) so TS can call them directly
         // with already-constructed wrapper objects (JsRouteBuilder, etc.)
         for reg in &service.registrations {
@@ -122,6 +134,8 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
                 context! {
                     app_type_name,
                     impl_methods,
+                    wrapper_use_items => wrapper_use_items.clone(),
+                    has_wrapper_imports => !wrapper_use_items.is_empty(),
                 },
             ));
         }
@@ -370,13 +384,23 @@ fn gen_base_registration_napi_method(
         .map(|s| s.to_owned())
         .unwrap_or_else(|| "self".to_owned());
 
-    // Build method signature from registration's metadata_params (the wrapper types)
+    // Build method signature from registration's metadata_params.
+    //
+    // napi-rs cannot synthesize `FromNapiValue` for bare core types (e.g.
+    // `spikard::RouteBuilder`), so the public-facing param uses the wrapper
+    // class (e.g. `&JsRouteBuilder`) and is unwrapped into the core type
+    // inside the function body before being forwarded to `inner.method(..)`.
+    let prefix = config.node_type_prefix();
     let mut rust_params = vec!["&self".to_owned()];
+    let mut unwrap_lines = String::new();
     for p in &reg.metadata_params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
-        // For wrapper types from TS, we expect them as napi-exposed classes
-        // The type is already qualified, just use it as-is for now
-        rust_params.push(format!("{}: {}", p.name, rust_ty));
+        let bare_name = rust_ty.rsplit("::").next().unwrap_or(&rust_ty);
+        let wrapper_ty = format!("{prefix}{bare_name}");
+        rust_params.push(format!("{}: &{wrapper_ty}", p.name));
+        // Wrappers are emitted with shape `struct {wrapper} { inner: Arc<T> }`,
+        // so `(*name.inner).clone()` produces a fresh `T`.
+        unwrap_lines.push_str(&format!("        let {0} = (*{0}.inner).clone();\n", p.name));
     }
     rust_params.push("handler: ThreadsafeFunction<serde_json::Value, serde_json::Value>".to_string());
     let param_sig = rust_params.join(", ");
@@ -402,6 +426,9 @@ fn gen_base_registration_napi_method(
             param_sig,
         },
     ));
+
+    // Unwrap wrapper params into core types before forwarding.
+    out.push_str(&unwrap_lines);
 
     // Create the handler bridge
     if let Some(contract) = find_contract(api, contract_name) {

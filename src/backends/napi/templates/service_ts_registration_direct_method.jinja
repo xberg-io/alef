@@ -2,6 +2,10 @@
    * Register a {{ method_name }} callback directly.
    */
   {{ direct_name }}({{ full_sig }}): this {
-    this._app.{{ method_name }}({{ meta_array }}, handler);
+{% if has_meta %}
+    this._app.{{ method_name }}({{ meta_args }}, handler);
+{% else %}
+    this._app.{{ method_name }}(handler);
+{% endif %}
     return this;
   }
