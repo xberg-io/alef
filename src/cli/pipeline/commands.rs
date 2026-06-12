@@ -7,6 +7,8 @@ use std::path::Path;
 use tracing::{debug, info, warn};
 
 use crate::cli::registry;
+use crate::publish::ffi_stage;
+use crate::publish::platform::RustTarget;
 
 use super::helpers::{
     check_precondition, check_precondition_named, run_before, run_command, run_command_captured, run_command_streamed,
@@ -296,6 +298,46 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
                 return Err(e).with_context(|| format!("post-build failed for {lang}"));
             }
         }
+
+        // Stage FFI artifacts for FFI-dependent languages before e2e tests
+        let host_target = get_host_target().context("failed to detect host target for FFI staging")?;
+        for &lang in &langs_to_test {
+            let lang_test = config.test_config_for_language(lang);
+            if lang_test.e2e.is_none() {
+                continue;
+            }
+            // Only stage for Go, Java, C# (FFI-dependent languages)
+            if !matches!(lang, Language::Go | Language::Java | Language::Csharp) {
+                continue;
+            }
+            let workspace_root = std::env::current_dir().ok().and_then(|cwd| {
+                // Walk up to workspace root (directory containing target/ and alef.toml)
+                let mut current = cwd;
+                loop {
+                    if current.join("target").exists() && current.join("alef.toml").exists() {
+                        return Some(current);
+                    }
+                    if !current.pop() {
+                        return None;
+                    }
+                }
+            });
+            if let Some(workspace_root) = workspace_root {
+                match ffi_stage::stage_ffi(config, lang, &host_target, &workspace_root) {
+                    Ok(dest) => {
+                        info!("[{lang}] staged FFI artifacts to {}", dest.display());
+                    }
+                    Err(e) => {
+                        // Log as warning but don't fail — FFI may not be built yet
+                        warn!("[{lang}] failed to stage FFI artifacts: {e}");
+                    }
+                }
+                // Optionally stage the header
+                if let Ok(Some(header)) = ffi_stage::stage_header(config, lang, &host_target, &workspace_root) {
+                    info!("[{lang}] staged FFI header to {}", header.display());
+                }
+            }
+        }
     }
 
     // Phase 2 (parallel): run per-language test commands.
@@ -392,6 +434,35 @@ fn compute_pdfium_dir() -> Option<String> {
     }
 
     None
+}
+
+/// Get the current host Rust target triple by parsing rustc output.
+///
+/// Parses `rustc --version --verbose` to extract the `host:` line,
+/// returning the target triple (e.g. `aarch64-apple-darwin`).
+fn get_host_target() -> anyhow::Result<RustTarget> {
+    use std::process::Command;
+
+    let output = Command::new("rustc")
+        .arg("--version")
+        .arg("--verbose")
+        .output()
+        .context("failed to run rustc --version --verbose")?;
+
+    if !output.status.success() {
+        anyhow::bail!("rustc --version --verbose exited with non-zero status");
+    }
+
+    let stdout = String::from_utf8(output.stdout).context("rustc output is not valid UTF-8")?;
+
+    for line in stdout.lines() {
+        if let Some(triple) = line.strip_prefix("host:") {
+            let triple = triple.trim();
+            return RustTarget::parse(triple).with_context(|| format!("failed to parse host target triple: {triple}"));
+        }
+    }
+
+    anyhow::bail!("rustc --version --verbose did not output a 'host:' line")
 }
 
 /// Install dependencies for each language.
