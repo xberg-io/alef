@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.10] - 2026-06-12
+
 ### Fixed
 
 - **Zig test-app run command: populate `.hash` fields via Python instead of `zig fetch --save`.** The previous shell pipeline called `zig fetch --save=<dep> <url>` for every dependency, but Zig 0.16 silently no-ops that command when the dependency already exists in `build.zig.zon` (the warning `overwriting existing dependency named X` is misleading — no file rewrite actually happens). As a result, the freshly-regenerated `build.zig.zon` retained empty `.hash` fields and `zig build test` failed with `dependency is missing hash field` for every release-mode tarball. The replacement is a small Python heredoc that parses `(dep_name, url)` pairs from the file, runs plain `zig fetch <url>` (which prints the computed hash to stdout), and rewrites each dependency block to inject `.hash = "..."` next to its `.url`. Verified end-to-end against tslp `v1.9.0-rc.33`.
