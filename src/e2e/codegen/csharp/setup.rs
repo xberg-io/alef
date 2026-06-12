@@ -554,23 +554,25 @@ fn csharp_object_initializer(
                         .unwrap_or_else(|| "null".to_string());
                     format!("{enum_type}.{member}")
                 }
-            } else if let Some(nested_type) = nested_types
-                .get(key.as_str())
-                .or_else(|| nested_types.get(camel_key.as_str()))
-            {
-                // Nested type: deserialize via JsonSerializer using the binding's custom converters.
-                // This handles sealed records, custom JsonConverters, and sealed unions correctly.
-                let normalized = normalize_csharp_enum_values(val, enum_fields);
-                let json_str = serde_json::to_string(&normalized).unwrap_or_default();
-                let escaped = escape_csharp(&json_str);
-                format!("JsonSerializer.Deserialize<{nested_type}>(\"{escaped}\", ConfigOptions)!")
             } else if let Some(field_type) = resolve_csharp_field_type_from_struct(type_name, key, type_defs) {
                 // Field type resolved from struct definition: deserialize using that type.
                 // This handles model fields (e.g., RerankerConfig.model → RerankerModelType).
+                // Check this BEFORE nested_types to ensure accurate field types take precedence.
                 let normalized = normalize_csharp_enum_values(val, enum_fields);
                 let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                 let escaped = escape_csharp(&json_str);
                 format!("JsonSerializer.Deserialize<{field_type}>(\"{escaped}\", ConfigOptions)!")
+            } else if let Some(nested_type) = nested_types
+                .get(key.as_str())
+                .or_else(|| nested_types.get(camel_key.as_str()))
+            {
+                // Explicit nested type mapping: deserialize via JsonSerializer using the binding's custom converters.
+                // This handles sealed records, custom JsonConverters, and sealed unions correctly.
+                // Only used when field type lookup didn't find a match.
+                let normalized = normalize_csharp_enum_values(val, enum_fields);
+                let json_str = serde_json::to_string(&normalized).unwrap_or_default();
+                let escaped = escape_csharp(&json_str);
+                format!("JsonSerializer.Deserialize<{nested_type}>(\"{escaped}\", ConfigOptions)!")
             } else if let Some(arr) = val.as_array() {
                 // Array: List<string>
                 let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
