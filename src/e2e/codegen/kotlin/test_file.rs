@@ -38,18 +38,33 @@ pub(super) fn resolve_handle_config_type(
             return Some(candidate);
         }
 
-        // For generic "config" field, look for any available config type in type_defs
-        // that ends with "Config" and use the first match (alphabetically sorted for stability).
+        // For generic "config" field, look for a config type in type_defs.
+        // Prefer types without underscores (e.g., "ExtractionConfig" over "Extraction_Config"),
+        // then fall back to any available config type (alphabetically sorted for stability).
         if field_name == "config" {
+            // Find all available config types
             let mut config_types: Vec<_> = type_defs
                 .iter()
                 .filter(|ty| ty.name.ends_with("Config"))
                 .map(|ty| ty.name.clone())
                 .collect();
-            config_types.sort();
-            if let Some(found) = config_types.first() {
-                return Some(found.clone());
+
+            if config_types.is_empty() {
+                return None;
             }
+
+            // Sort: types without underscores first, then alphabetically
+            config_types.sort_by(|a, b| {
+                let a_has_underscore = a.contains('_');
+                let b_has_underscore = b.contains('_');
+                if a_has_underscore != b_has_underscore {
+                    a_has_underscore.cmp(&b_has_underscore)
+                } else {
+                    a.cmp(b)
+                }
+            });
+
+            return config_types.first().cloned();
         }
     }
 

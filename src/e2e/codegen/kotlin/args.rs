@@ -189,12 +189,31 @@ pub(super) fn build_args_and_setup(
                             format!("{}.builder().build()", opts_type)
                         }
                     } else {
-                        let candidate = format!("{}Config", arg.name.to_upper_camel_case());
-                        let inferred_type = if type_defs.iter().any(|t| t.name == candidate) {
-                            candidate
-                        } else {
-                            arg.name.to_upper_camel_case()
-                        };
+                        // Infer the type from available config types in type_defs.
+                        let inferred_type = super::test_file::resolve_handle_config_type(
+                            &crate::e2e::config::ArgMapping {
+                                name: arg.name.clone(),
+                                field: arg.field.clone(),
+                                arg_type: "handle".to_string(),
+                                optional: arg.optional,
+                                owned: false,
+                                element_type: None,
+                                go_type: None,
+                                vec_inner_is_ref: false,
+                                trait_name: None,
+                            },
+                            None,
+                            type_defs,
+                        )
+                        .unwrap_or_else(|| {
+                            // Fallback: try the pattern "{field}Config"
+                            let candidate = format!("{}Config", arg.name.to_upper_camel_case());
+                            if type_defs.iter().any(|t| t.name == candidate) {
+                                candidate
+                            } else {
+                                arg.name.to_upper_camel_case()
+                            }
+                        });
                         format!("{}()", inferred_type)
                     };
                     parts.push(default_constructor);
@@ -260,9 +279,47 @@ pub(super) fn build_args_and_setup(
                     parts.push(format!("listOf({})", items.join(", ")));
                     continue;
                 }
-                // For json_object args with options_type, use the pre-deserialized variable.
-                if arg.arg_type == "json_object" && options_type.is_some() {
-                    parts.push(arg.name.clone());
+                // For json_object args, deserialize via Jackson or use pre-deserialized variable.
+                if arg.arg_type == "json_object" {
+                    if options_type.is_some() {
+                        // Pre-deserialized variable via options_type
+                        parts.push(arg.name.clone());
+                    } else {
+                        // Infer the config type and deserialize
+                        let config_type = super::test_file::resolve_handle_config_type(
+                            &crate::e2e::config::ArgMapping {
+                                name: arg.name.clone(),
+                                field: arg.field.clone(),
+                                arg_type: "handle".to_string(),
+                                optional: arg.optional,
+                                owned: false,
+                                element_type: None,
+                                go_type: None,
+                                vec_inner_is_ref: false,
+                                trait_name: None,
+                            },
+                            None,
+                            type_defs,
+                        )
+                        .unwrap_or_else(|| {
+                            // Fallback to derived type
+                            let candidate = format!("{}Config", arg.name.to_upper_camel_case());
+                            if type_defs.iter().any(|t| t.name == candidate) {
+                                candidate
+                            } else {
+                                arg.name.to_upper_camel_case()
+                            }
+                        });
+
+                        // Setup deserialization
+                        let json_str = serde_json::to_string(v).unwrap_or_default();
+                        let var_name = format!("{}_Config", arg.name);
+                        setup_lines.push(format!(
+                            "val {var_name} = MAPPER.readValue(\"{}\", {config_type}::class.java)",
+                            crate::e2e::escape::escape_kotlin(&json_str)
+                        ));
+                        parts.push(var_name);
+                    }
                     continue;
                 }
                 // bytes args in Kotlin binding carry a relative file path (e.g. "docx/fake.docx")
