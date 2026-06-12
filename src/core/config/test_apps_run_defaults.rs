@@ -387,7 +387,10 @@ mod tests {
             StringOrVec::Single(s) => s,
             _ => panic!("JNI run should be a single command"),
         };
-        assert!(cmd.contains("kotlin_android"), "JNI should run via kotlin_android: {cmd}");
+        assert!(
+            cmd.contains("kotlin_android"),
+            "JNI should run via kotlin_android: {cmd}"
+        );
         assert!(cmd.contains("gradle test"), "JNI should run gradle test: {cmd}");
         assert!(c.precondition.is_some(), "JNI should require gradle");
     }

@@ -27,11 +27,7 @@ pub(crate) fn emit_type_with_imports(
     // Include all fields, including those marked as binding_excluded.
     // binding_excluded fields are generated as nullable with null defaults so JSON
     // deserialization tolerates missing fields (Rust carries Default::skip for them).
-    let visible_fields: Vec<(usize, &crate::core::ir::FieldDef)> = ty
-        .fields
-        .iter()
-        .enumerate()
-        .collect();
+    let visible_fields: Vec<(usize, &crate::core::ir::FieldDef)> = ty.fields.iter().enumerate().collect();
 
     // Pre-compute the per-field JsonSerialize annotation needed when the
     // declared field type references a sealed class.  Jackson dispatches

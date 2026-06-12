@@ -5,24 +5,6 @@ use crate::core::config::AdapterConfig;
 use crate::core::ir::{ApiSurface, MethodDef};
 use heck::ToLowerCamelCase;
 
-/// Skip methods that take opaque handle FFI pointers as first arg but operate on non-opaque types.
-/// These are validation/property functions that shouldn't be exposed as static methods.
-/// Examples: header_metadata_is_valid, conversion_options_default (Rust naming, snake_case
-pub(super) fn sanitize_doc_for_csharp(doc: &str) -> String {
-    doc.lines()
-        .filter_map(|line| {
-            if line.trim().starts_with("use ") && line.contains("::") {
-                return None;
-            }
-            // Preserve the line as-is — don't strip backticks or blank lines.
-            // The emit_csharp_doc function will handle proper sanitization
-            // of Rust idioms, intra-doc links, and XML escaping.
-            Some(line.to_string())
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 /// Generate a static wrapper method for a streaming method on an opaque type.
 /// Delegates to the instance method on the opaque handle class.
 pub(super) fn gen_opaque_streaming_static_wrapper(

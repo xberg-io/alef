@@ -5,8 +5,6 @@ use std::collections::HashSet;
 
 use super::*;
 
-use super::*;
-
 fn create_test_opaque_types() -> AHashSet<String> {
     AHashSet::new()
 }

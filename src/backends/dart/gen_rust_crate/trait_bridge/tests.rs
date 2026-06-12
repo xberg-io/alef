@@ -1,6 +1,6 @@
 use super::methods::emit_trait_bridge_method;
 use super::*;
-use crate::core::ir::{ApiSurface, ReceiverKind, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, MethodDef, ReceiverKind, TypeDef, TypeRef};
 
 fn empty_type_def(name: &str, is_trait: bool) -> TypeDef {
     TypeDef {
