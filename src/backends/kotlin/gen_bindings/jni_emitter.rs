@@ -935,7 +935,10 @@ fn jni_param_type_for_function(ty: &TypeRef, opaque_type_names: &std::collection
 
 fn jni_param_type(ty: &TypeRef) -> &'static str {
     if is_binary_param_type(ty) {
-        return "ByteArray";
+        // Binary data (ByteArray/Vec<u8>) is Base64-encoded to String on the
+        // Kotlin wrapper side and decoded on the FFI Rust side. The external fun
+        // signature takes String, not ByteArray, to enable this conversion.
+        return "String";
     }
     match ty {
         TypeRef::Primitive(p) => {

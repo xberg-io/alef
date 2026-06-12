@@ -266,6 +266,21 @@ pub(super) fn emit_module_kt(
             // Non-opaque Named: expose the real Kotlin type.
             return n.clone();
         }
+        // Binary data (ByteArray/Vec<u8>) → ByteArray in the public API.
+        // The wrapper encodes to Base64 String before calling the JNI external fun.
+        let is_binary = match inner {
+            crate::core::ir::TypeRef::Bytes => true,
+            crate::core::ir::TypeRef::Vec(iv) => {
+                matches!(
+                    iv.as_ref(),
+                    crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::U8)
+                )
+            }
+            _ => false,
+        };
+        if is_binary {
+            return "ByteArray".to_string();
+        }
         if matches!(
             inner,
             crate::core::ir::TypeRef::Vec(_) | crate::core::ir::TypeRef::Map(_, _)
@@ -482,6 +497,26 @@ pub(super) fn emit_module_kt(
                         return format!("{name}?.let {{ mapper.writeValueAsString(it) }} ?: \"\"");
                     }
                     return format!("mapper.writeValueAsString({name})");
+                }
+                // Binary data (ByteArray/Vec<u8>): Base64 encode to String for JNI.
+                // JNI cannot pass ByteArray directly across the FFI boundary without
+                // conversion; the FFI layer expects a Base64-encoded string that it
+                // decodes. Kotlin's java.util.Base64.Encoder handles the conversion.
+                let is_binary = match inner {
+                    crate::core::ir::TypeRef::Bytes => true,
+                    crate::core::ir::TypeRef::Vec(inner_ty) => {
+                        matches!(
+                            inner_ty.as_ref(),
+                            crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::U8)
+                        )
+                    }
+                    _ => false,
+                };
+                if is_binary {
+                    if p.optional {
+                        return format!("{name}?.let {{ java.util.Base64.getEncoder().encodeToString(it) }} ?: \"\"");
+                    }
+                    return format!("java.util.Base64.getEncoder().encodeToString({name})");
                 }
                 // Generic container (Vec<_> or HashMap<_,_>): serialize to JSON.
                 if matches!(
@@ -841,10 +876,13 @@ fn jni_param_type_str(ty: &crate::core::ir::TypeRef) -> &'static str {
             PrimitiveType::Usize | PrimitiveType::Isize => "Long",
         },
         TypeRef::String => "String",
-        TypeRef::Bytes => "ByteArray",
+        // Binary data (ByteArray/Vec<u8>) → String in external fun signature.
+        // The Kotlin wrapper Base64-encodes ByteArray to String before calling
+        // the external fun; the FFI Rust side Base64-decodes the String.
+        TypeRef::Bytes => "String",
         TypeRef::Vec(inner) => {
             if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) {
-                "ByteArray"
+                "String"
             } else {
                 "String"
             }

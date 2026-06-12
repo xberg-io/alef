@@ -206,7 +206,7 @@ match rx.await {
     (
         "trait_unregistration_fn.rs.jinja",
         r#"#[rustler::nif(schedule = "DirtyCpu")]
-pub fn {{ unregister_fn }}(_env: rustler::Env<'_>, name: String) -> rustler::Atom {
+pub fn {{ unregister_fn }}(env: rustler::Env<'_>, name: String) -> rustler::Atom {
     match {{ host_path }}(&name) {
         Ok(_) => rustler::atoms::ok(),
         Err(_) => rustler::atoms::error(),
@@ -217,7 +217,7 @@ pub fn {{ unregister_fn }}(_env: rustler::Env<'_>, name: String) -> rustler::Ato
     (
         "trait_clear_fn.rs.jinja",
         r#"#[rustler::nif(schedule = "DirtyCpu")]
-pub fn {{ clear_fn }}(_env: rustler::Env<'_>) -> rustler::Atom {
+pub fn {{ clear_fn }}(env: rustler::Env<'_>) -> rustler::Atom {
     match {{ host_path }}() {
         Ok(_) => rustler::atoms::ok(),
         Err(_) => rustler::atoms::error(),
@@ -228,7 +228,7 @@ pub fn {{ clear_fn }}(_env: rustler::Env<'_>) -> rustler::Atom {
     (
         "trait_registration_fn.rs.jinja",
         r#"#[rustler::nif(schedule = "DirtyCpu")]
-pub fn {{ register_fn }}(_env: rustler::Env<'_>, genserver_pid: rustler::LocalPid, plugin_name: String) -> rustler::Atom {
+pub fn {{ register_fn }}(env: rustler::Env<'_>, genserver_pid: rustler::LocalPid, plugin_name: String) -> rustler::Atom {
     let wrapper = {{ wrapper_name }}::new(genserver_pid, plugin_name);
     let arc: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(wrapper);
 

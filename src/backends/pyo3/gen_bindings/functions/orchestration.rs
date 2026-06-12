@@ -35,10 +35,11 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     let bridge_param_names: ahash::AHashSet<&str> =
         trait_bridges.iter().filter_map(|b| b.param_name.as_deref()).collect();
 
-    // Build lookup for options-field bridges: options_type_name → (visitor_kwarg_name, field_name, type_alias).
+    // Build lookup for options-field bridges: options_type_name → (visitor_kwarg_name, field_name, handle_type).
     // When a function parameter's type matches an options-field bridge's `options_type`, we add
-    // a `visitor: {type_alias} | None = None` convenience kwarg to the Python wrapper.
-    // The type_alias (e.g. "VisitorHandle") is the handle type exported from the native module.
+    // a `visitor: {handle_type} | None = None` convenience kwarg to the Python wrapper.
+    // Prefer the user-facing trait name (e.g. "HtmlVisitor") over the opaque handle alias
+    // (e.g. "VisitorHandle") to match the .pyi Protocol surface emitted by gen_stubs.
     let options_field_bridges: AHashMap<&str, (&str, &str, Option<&str>)> = trait_bridges
         .iter()
         .filter(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField)
@@ -46,8 +47,13 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
             let options_type = b.options_type.as_deref()?;
             let param_name = b.param_name.as_deref()?;
             let field_name = b.resolved_options_field()?;
-            let type_alias = b.type_alias.as_deref();
-            Some((options_type, (param_name, field_name, type_alias)))
+            let trait_present = api.types.iter().any(|t| t.name == b.trait_name);
+            let handle_type = if trait_present {
+                Some(b.trait_name.as_str())
+            } else {
+                b.type_alias.as_deref()
+            };
+            Some((options_type, (param_name, field_name, handle_type)))
         })
         .collect();
 
@@ -161,10 +167,15 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
             }
         }
     }
-    // Also collect type_alias names from options-field bridges so they can be used in
-    // function signature annotations for visitor parameters.
+    // Also collect handle type names from options-field bridges so they can be used in
+    // function signature annotations for visitor parameters. Prefer the trait name
+    // (e.g. "HtmlVisitor") when it exists in `api.types` to match the .pyi Protocol
+    // surface; otherwise fall back to the opaque handle alias.
     for bridge in trait_bridges {
-        if let Some(alias) = &bridge.type_alias {
+        let trait_present = api.types.iter().any(|t| t.name == bridge.trait_name);
+        if trait_present {
+            all_type_imports.insert(bridge.trait_name.clone());
+        } else if let Some(alias) = &bridge.type_alias {
             all_type_imports.insert(alias.clone());
         }
     }

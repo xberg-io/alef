@@ -1,5 +1,5 @@
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn {{ clear_fn }}(_env: rustler::Env<'_>) -> rustler::Atom {
+pub fn {{ clear_fn }}(env: rustler::Env<'_>) -> rustler::Atom {
     match {{ host_path }}() {
         Ok(_) => rustler::atoms::ok(),
         Err(_) => rustler::atoms::error(),
