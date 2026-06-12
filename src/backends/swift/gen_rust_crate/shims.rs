@@ -456,11 +456,14 @@ pub(crate) fn emit_function_shim(
     // supported by swift-bridge 0.1.59 (nested generics, HashMap). Named return
     // types must be wrapped in their swift-bridge newtype (`pub struct T(pub SourceT)`).
     // Async fns must `.await` before mapping; sync fns can chain directly.
-    // Additionally, async functions returning Vec<Named> must JSON-encode to cross
-    // the Task.detached boundary on the Swift side (opaque types are not Sendable,
-    // but first-class DTOs are Codable + Sendable when JSON-encoded).
-    let json_wrap_ok = needs_json_bridge_with_handles(&f.return_type, handle_returned_types)
-        || (f.is_async && matches!(&f.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_))));
+    //
+    // Note on async + Vec<Named>: opaque swift-bridge classes are not Sendable, so
+    // crossing `Task.detached.value` with `[OpaqueDTO]` would fail Swift type-check.
+    // The forwarder side handles this by emitting `@unchecked Sendable` extensions
+    // for opaque DTO classes (see emit_opaque_dto_sendable_extensions). JSON-encoding
+    // here only fires when the bridge surface itself cannot represent the type
+    // (nested Vec / HashMap), which is what `needs_json_bridge_with_handles` checks.
+    let json_wrap_ok = needs_json_bridge_with_handles(&f.return_type, handle_returned_types);
 
     // Build a wrapper expression for a Named type `t`.
     // Enum wrappers implement From<SourceT> — use T::from(val) or val.map(T::from).
