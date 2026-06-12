@@ -529,11 +529,17 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                         let var_name = format!("_{}", arg_def.name);
                         let dart_fn = type_name_to_create_from_json_dart(opts_type);
                         setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
-                        // Embedding facades (e.g. `embedTextsAsync(List<String>, EmbeddingConfig)`)
-                        // declare `config` as a required positional parameter; extraction
+                        // Facade methods (e.g. `embedTextsAsync`, `rerankAsync`, `classifyText`)
+                        // declare config as a required positional parameter; extraction
                         // facades declare it as a named optional. Emit positional when the
-                        // resolved options type is an embedding config.
-                        if opts_type.contains("Embedding") {
+                        // resolved options type indicates a required positional config.
+                        let is_config_positional = opts_type.contains("Embedding")
+                            || opts_type.contains("Reranker")
+                            || opts_type.contains("Classification")
+                            || opts_type.contains("Translation")
+                            || opts_type.contains("Keyword")
+                            || opts_type.contains("Redaction");
+                        if is_config_positional {
                             args.push(var_name);
                         } else {
                             let dart_param_name = snake_to_camel(&arg_def.name);
@@ -541,6 +547,19 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                         }
                     }
                 } else if arg_def.name == "config" {
+                    // Helper to check if a config type should be emitted as positional in Dart.
+                    // Config parameters are positional-required in facades like rerankAsync,
+                    // embedTextsAsync, classifyText, etc. They are named-optional in extraction facades
+                    // like extractBytes which declare { ExtractionConfig? config }.
+                    let is_config_positional = |opts_type: &str| -> bool {
+                        opts_type.contains("Embedding")
+                            || opts_type.contains("Reranker")
+                            || opts_type.contains("Classification")
+                            || opts_type.contains("Translation")
+                            || opts_type.contains("Keyword")
+                            || opts_type.contains("Redaction")
+                    };
+
                     if let serde_json::Value::Object(map) = &arg_value {
                         if !map.is_empty() {
                             // Round-trip object config JSON through a generated helper.
@@ -553,7 +572,7 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                             let var_name = format!("_{}", arg_def.name);
                             let dart_fn = type_name_to_create_from_json_dart(opts_type);
                             setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{escaped_json}');"));
-                            if opts_type.contains("Embedding") {
+                            if is_config_positional(opts_type) {
                                 args.push(var_name);
                             } else {
                                 let dart_param_name = snake_to_camel(&arg_def.name);
@@ -569,7 +588,7 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                                 let var_name = format!("_{}", arg_def.name);
                                 let dart_fn = type_name_to_create_from_json_dart(opts_type);
                                 setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
-                                if opts_type.contains("Embedding") {
+                                if is_config_positional(opts_type) {
                                     args.push(var_name);
                                 } else {
                                     let dart_param_name = snake_to_camel(&arg_def.name);
@@ -591,8 +610,12 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                             let var_name = format!("_{}", arg_def.name);
                             let dart_fn = type_name_to_create_from_json_dart(opts_type);
                             setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
-                            let dart_param_name = snake_to_camel(&arg_def.name);
-                            args.push(format!("{dart_param_name}: {var_name}"));
+                            if is_config_positional(opts_type) {
+                                args.push(var_name);
+                            } else {
+                                let dart_param_name = snake_to_camel(&arg_def.name);
+                                args.push(format!("{dart_param_name}: {var_name}"));
+                            }
                         }
                     }
                 } else if arg_value.is_array() {
