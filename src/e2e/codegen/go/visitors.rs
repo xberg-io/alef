@@ -172,27 +172,28 @@ fn emit_go_visitor_method(
         let _ = writeln!(out, "}}");
         return;
     }
-    if result_type_name != "WalkDecision" {
-        let _ = writeln!(
-            out,
-            "\tpanic(\"go visitor fixture '{method_name}' requires explicit e2e result-action metadata for result type '{result_type_name}'\")"
-        );
-        let _ = writeln!(out, "}}");
-        return;
-    }
+    // Derive factory function names from the configured result_type. The binding
+    // emits `{ResultType}Skip()`, `{ResultType}Continue()`, `{ResultType}Custom(value)`,
+    // and `{ResultType}PreserveHTML()` for any discriminated union with that record
+    // shape — see the C# / Java fix in 0.24.9 which generalised the same pattern
+    // out of the WalkDecision-only special case.
+    let factory_skip = format!("{result_type_name}Skip");
+    let factory_continue = format!("{result_type_name}Continue");
+    let factory_preserve = format!("{result_type_name}PreserveHTML");
+    let factory_custom = format!("{result_type_name}Custom");
     match action {
         CallbackAction::Skip => {
-            let _ = writeln!(out, "\treturn {import_alias}.WalkDecisionSkip()");
+            let _ = writeln!(out, "\treturn {import_alias}.{factory_skip}()");
         }
         CallbackAction::Continue => {
-            let _ = writeln!(out, "\treturn {import_alias}.WalkDecisionContinue()");
+            let _ = writeln!(out, "\treturn {import_alias}.{factory_continue}()");
         }
         CallbackAction::PreserveHtml => {
-            let _ = writeln!(out, "\treturn {import_alias}.WalkDecisionPreserveHTML()");
+            let _ = writeln!(out, "\treturn {import_alias}.{factory_preserve}()");
         }
         CallbackAction::Custom { output } => {
             let escaped = go_string_literal(output);
-            let _ = writeln!(out, "\treturn {import_alias}.WalkDecisionCustom({escaped})");
+            let _ = writeln!(out, "\treturn {import_alias}.{factory_custom}({escaped})");
         }
         CallbackAction::CustomTemplate { template, .. } => {
             // Convert {var} placeholders to %s format verbs and collect arg names.
@@ -207,12 +208,12 @@ fn emit_go_visitor_method(
             let (fmt_str, fmt_args) = template_to_sprintf(template, &ptr_params);
             let escaped_fmt = go_string_literal(&fmt_str);
             if fmt_args.is_empty() {
-                let _ = writeln!(out, "\treturn {import_alias}.WalkDecisionCustom({escaped_fmt})");
+                let _ = writeln!(out, "\treturn {import_alias}.{factory_custom}({escaped_fmt})");
             } else {
                 let args_str = fmt_args.join(", ");
                 let _ = writeln!(
                     out,
-                    "\treturn {import_alias}.WalkDecisionCustom(fmt.Sprintf({escaped_fmt}, {args_str}))"
+                    "\treturn {import_alias}.{factory_custom}(fmt.Sprintf({escaped_fmt}, {args_str}))"
                 );
             }
         }
