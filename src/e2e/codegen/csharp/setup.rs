@@ -319,7 +319,13 @@ pub(super) fn build_args_and_setup(
                     // Object value with known type: generate idiomatic C# object initializer.
                     if let Some(opts_type) = options_type {
                         if let Some(obj) = v.as_object() {
-                            parts.push(csharp_object_initializer(obj, opts_type, enum_fields, nested_types));
+                            parts.push(csharp_object_initializer(
+                                obj,
+                                opts_type,
+                                enum_fields,
+                                nested_types,
+                                type_defs,
+                            ));
                             continue;
                         }
                     }
@@ -502,6 +508,7 @@ fn sort_discriminator_first(value: serde_json::Value) -> serde_json::Value {
 /// - camelCase fixture keys → PascalCase C# property names
 /// - Enum fields (from `enum_fields`) → `EnumType.Member`
 /// - Nested objects with known type (from `nested_types`) → `JsonSerializer.Deserialize<T>(...)`
+/// - Field types resolved from struct definitions → `JsonSerializer.Deserialize<ActualFieldType>(...)`
 /// - Arrays → `new List<string> { ... }`
 /// - Primitives → C# literals via `json_to_csharp`
 fn csharp_object_initializer(
@@ -509,6 +516,7 @@ fn csharp_object_initializer(
     type_name: &str,
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     if obj.is_empty() {
         return format!("new {type_name}()");
@@ -556,6 +564,13 @@ fn csharp_object_initializer(
                 let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                 let escaped = escape_csharp(&json_str);
                 format!("JsonSerializer.Deserialize<{nested_type}>(\"{escaped}\", ConfigOptions)!")
+            } else if let Some(field_type) = resolve_csharp_field_type_from_struct(type_name, key, type_defs) {
+                // Field type resolved from struct definition: deserialize using that type.
+                // This handles model fields (e.g., RerankerConfig.model → RerankerModelType).
+                let normalized = normalize_csharp_enum_values(val, enum_fields);
+                let json_str = serde_json::to_string(&normalized).unwrap_or_default();
+                let escaped = escape_csharp(&json_str);
+                format!("JsonSerializer.Deserialize<{field_type}>(\"{escaped}\", ConfigOptions)!")
             } else if let Some(arr) = val.as_array() {
                 // Array: List<string>
                 let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
@@ -567,6 +582,36 @@ fn csharp_object_initializer(
         })
         .collect();
     format!("new {} {{ {} }}", type_name, props.join(", "))
+}
+
+/// Resolve the actual C# field type from a struct definition in type_defs.
+///
+/// Given a struct name and a field key (in snake_case), looks up the struct in type_defs
+/// and returns the C# type name of that field. For sealed unions (discriminated unions),
+/// returns the correct variant type (e.g., RerankerModelType for RerankerConfig.model).
+fn resolve_csharp_field_type_from_struct(
+    struct_name: &str,
+    field_key: &str,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> Option<String> {
+    // Find the struct definition
+    let struct_def = type_defs.iter().find(|td| td.name == struct_name)?;
+
+    // field_key is snake_case from fixture JSON and matches Rust field names
+    let field_name = field_key;
+
+    // Find the field in the struct
+    let field = struct_def.fields.iter().find(|f| f.name == field_name)?;
+
+    // Extract type name from TypeRef
+    match &field.ty {
+        crate::core::ir::TypeRef::Named(name) => Some(name.clone()),
+        crate::core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
+            crate::core::ir::TypeRef::Named(name) => Some(name.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Convert enum values in a JSON object to lowercase to match C# [JsonPropertyName] attributes.

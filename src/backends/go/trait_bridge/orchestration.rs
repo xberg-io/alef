@@ -159,8 +159,10 @@ pub fn gen_trait_bridges_file(
                     .iter()
                     .filter(|m| !bridge_cfg.ffi_skip_methods.contains(&m.name))
                     .collect();
-                let method_field_names: Vec<String> =
-                    vtable_methods.iter().map(|method| method.name.to_lowercase()).collect();
+                let method_field_names: Vec<String> = vtable_methods
+                    .iter()
+                    .map(|method| heck::AsSnakeCase(&method.name).to_string())
+                    .collect();
                 let method_pascal_names: Vec<String> = vtable_methods
                     .iter()
                     .map(|method| method.name.to_pascal_case())
