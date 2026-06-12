@@ -104,7 +104,16 @@ impl E2eCodegen for TypeScriptCodegen {
                 &pkg_version,
                 e2e_config.dep_mode,
                 has_http_fixtures,
-                e2e_config.harness_extras.get(self.language_name()),
+                // `harness_extras` deps support the alef-generated e2e harness code under
+                // `e2e/{lang}/tests/` (Local dep mode). Registry mode emits the published-package
+                // test_apps at `test_apps/{lang}/` whose tests only import the under-test package
+                // and never need harness-specific dev deps. Injecting harness_extras here drags
+                // unused native deps (e.g. upstream `tree-sitter`) into pnpm install, which can
+                // break on newer Node SDKs that the unrelated native build doesn't support yet.
+                match e2e_config.dep_mode {
+                    crate::e2e::config::DependencyMode::Local => e2e_config.harness_extras.get(self.language_name()),
+                    crate::e2e::config::DependencyMode::Registry => None,
+                },
             ),
             generated_header: false,
         });

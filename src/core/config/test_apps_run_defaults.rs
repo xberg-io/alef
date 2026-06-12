@@ -195,10 +195,28 @@ pub fn default_test_apps_run_config(
             ))),
         },
         Language::Dart => TestAppRunConfig {
+            // Pub.dev does not ship native libraries inside a Dart package — they live on
+            // GitHub release assets, and the published package ships a `bin/download_libs.dart`
+            // helper (exposed as an `executables:` entry in pubspec.yaml) that fetches the
+            // platform-specific dylib/so/dll into the pub-cache's `lib/src/native/<rid>/`
+            // directory where the FRB loader resolves it via `Isolate.resolvePackageUri`.
+            // Without invoking that executable between `pub get` and `dart test`, the loader
+            // cannot find the native lib and falls back to a relative-path candidate that
+            // hardened-runtime `dart` rejects with "relative path not allowed".
+            //
+            // We extract the first dependency name from the test_app's pubspec.yaml (which is
+            // the under-test package, per alef's test_apps codegen convention) and invoke
+            // `dart run <pkg>:download_libs`. The `|| true` lets dart packages without a
+            // `download_libs` executable continue — `dart test` then fails with a clear
+            // missing-library diagnostic instead of a confusing dart-run error.
             precondition: Some(require_tool("dart")),
             before: None,
             run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/dart && dart pub get && dart test"
+                "cd {test_apps_dir}/dart && \
+                dart pub get && \
+                DART_PKG=$(awk '/^dependencies:$/{{f=1;next}} f && /^  [a-z]/{{sub(/:.*/,\"\");sub(/^  /,\"\");print;exit}}' pubspec.yaml) && \
+                (dart run \"${{DART_PKG}}:download_libs\" 2>/dev/null || true) && \
+                dart test"
             ))),
         },
         Language::Swift => TestAppRunConfig {
@@ -536,15 +554,15 @@ mod tests {
         let run = c.run.unwrap().commands().join(" ");
         assert!(run.contains("cd test_apps/zig"), "got: {run}");
         assert!(run.contains("python3"), "got: {run}");
-        assert!(run.contains("zig fetch"), "got: {run}");
+        assert!(run.contains("'zig', 'fetch'"), "got: {run}");
         assert!(run.contains("zig build test"), "got: {run}");
-        // `zig fetch` (hash population via Python injection) must precede `zig build test`
-        // so the placeholder hash in build.zig.zon is resolved before the build runs.
-        let fetch_idx = run.find("zig fetch").unwrap();
+        // The Python hash-population step must precede `zig build test` so the placeholder
+        // `.hash` fields in build.zig.zon are filled in before the build runs.
+        let python_idx = run.find("python3").unwrap();
         let build_idx = run.find("zig build test").unwrap();
         assert!(
-            fetch_idx < build_idx,
-            "zig fetch must run before zig build test, got: {run}"
+            python_idx < build_idx,
+            "python3 hash-population must run before zig build test, got: {run}"
         );
     }
 
