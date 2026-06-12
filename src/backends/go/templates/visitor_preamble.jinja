@@ -1,7 +1,7 @@
 package {{ pkg_name }}
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/include -Wno-incompatible-function-pointer-types
+#cgo CFLAGS: -I${SRCDIR}/include -Wno-incompatible-function-pointer-types -Wno-incompatible-pointer-types
 #include "{{ ffi_header }}"
 #include <stdlib.h>
 #include <string.h>
@@ -10,13 +10,14 @@ package {{ pkg_name }}
 extern int32_t {{ spec.export_name }}({{ spec.c_sig }});
 {% endfor -%}
 
-static {{ vtable_c_type }} makeVisitorVTable(void) {
-    {{ vtable_c_type }} vtbl;
-    memset(&vtbl, 0, sizeof(vtbl));
+static {{ callbacks_c_type }} makeVisitorCallbacks(void* userData) {
+    {{ callbacks_c_type }} cb;
+    memset(&cb, 0, sizeof(cb));
+    cb.user_data = userData;
 {% for spec in callbacks -%}
-    vtbl.{{ spec.c_field }} = {{ spec.export_name }};
+    cb.{{ spec.c_field }} = {{ spec.export_name }};
 {% endfor -%}
-    return vtbl;
+    return cb;
 }
 */
 import "C"

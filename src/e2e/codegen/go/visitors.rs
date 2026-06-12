@@ -105,12 +105,20 @@ fn go_visitor_method(method: &crate::core::ir::MethodDef, result_type: &str, imp
         .iter()
         .map(|param| {
             let name = go_param_name(&param.name);
-            let ty = stub_go_type_with_context(
+            let base_ty = stub_go_type_with_context(
                 &param.ty,
                 &std::collections::HashSet::new(),
                 import_alias,
                 &std::collections::HashSet::new(),
             );
+            // Honour `param.optional` so the stub signature matches the binding's
+            // Visitor interface, which exposes optional params as pointers
+            // (e.g. `src *string`).
+            let ty = if param.optional && !base_ty.starts_with('*') && base_ty != "json.RawMessage" {
+                format!("*{base_ty}")
+            } else {
+                base_ty
+            };
             if ty.starts_with('*') {
                 pointer_params.insert(name.clone());
             }

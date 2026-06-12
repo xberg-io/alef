@@ -1,27 +1,29 @@
-func encodeVisitResult(r {{ result_type }}, outResult **C.char) C.int32_t {
-	// Encode the result as serde-native JSON so the Rust trait bridge's
-	// serde_json deserialiser can decode it correctly.
-	var jsonStr string
+// encodeVisitResult forwards a Go VisitResult to the FFI's HtmVisitorCallbacks
+// out_custom/out_len protocol. For payload-bearing variants the visitor's
+// string payload is heap-allocated via C.CString; the Rust side takes
+// ownership and frees it with free().
+func encodeVisitResult(r {{ result_type }}, outCustom **C.char, outLen *C.uintptr_t) C.int32_t {
 	switch r.Code {
 {% for variant in result_variants %}
 	case {{ variant.code }}:
 {% if variant.has_payload %}
+		var payload string
 		if r.Value != nil {
-			b, err := json.Marshal(*r.Value)
-			if err != nil {
-				b = []byte(`""`)
-			}
-			jsonStr = `{"{{ variant.wire_name }}":` + string(b) + `}`
-		} else {
-			jsonStr = `{"{{ variant.wire_name }}":""}`
+			payload = *r.Value
 		}
+		if outCustom != nil {
+			cStr := C.CString(payload)
+			*outCustom = cStr
+			if outLen != nil {
+				*outLen = C.uintptr_t(len(payload))
+			}
+		}
+		return {{ variant.code }}
 {% else %}
-		jsonStr = `"{{ variant.wire_name }}"`
+		return {{ variant.code }}
 {% endif %}
 {% endfor %}
 	default:
-		jsonStr = `"{{ default_result_wire_name }}"`
+		return C.int32_t(r.Code)
 	}
-	*outResult = C.CString(jsonStr)
-	return C.int32_t(r.Code)
 }

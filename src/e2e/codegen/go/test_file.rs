@@ -245,6 +245,10 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
     let needs_assert = body.contains("assert.");
     let needs_strings = needs_strings || body.contains("strings.");
     let needs_pkg = needs_pkg && body.contains(&format!("{import_alias}."));
+    // Even when a fixture *could* need fmt (a CustomTemplate), it might be
+    // emitted as a panic stub instead. Require the body to actually reference
+    // the package before importing it.
+    let needs_fmt = needs_fmt && body.contains("fmt.");
 
     let _ = writeln!(out, "// E2e tests for category: {category}");
     let _ = writeln!(out, "package e2e_test");

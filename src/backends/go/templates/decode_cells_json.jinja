@@ -1,8 +1,21 @@
-func decodeCellsJSON(cells *C.char) []string {
-	if cells == nil {
+// decodeCellsSlice reads `count` C strings from `cells` and returns them as a
+// Go []string. Each element is copied via C.GoString — the underlying C array
+// is only valid for the duration of the callback.
+func decodeCellsSlice(cells **C.char, count C.uintptr_t) []string {
+	if cells == nil || count == 0 {
 		return nil
 	}
-	var result []string
-	_ = json.Unmarshal([]byte(C.GoString(cells)), &result)
+	n := uint(count)
+	result := make([]string, 0, n)
+	// CGo represents `const char* const*` as `**C.char`. Index by offsetting
+	// via unsafe.Slice (Go 1.17+) so each element is read as a C string.
+	slice := unsafe.Slice(cells, n)
+	for i := range slice {
+		if slice[i] == nil {
+			result = append(result, "")
+		} else {
+			result = append(result, C.GoString(slice[i]))
+		}
+	}
 	return result
 }

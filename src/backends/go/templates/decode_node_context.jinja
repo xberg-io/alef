@@ -1,8 +1,30 @@
-func decodeNodeContext(ctxJSON *C.char) {{ context_type }} {
-	var ctx {{ context_type }}
-	if ctxJSON == nil {
-		return ctx
+// decodeNodeContext maps the C-side {{ context_c_type }} struct into the Go
+// {{ context_type }}. Fields without a corresponding scalar C field
+// (e.g. a typed alias enum that the FFI does not expose) stay at their
+// zero value; callers receive the type information implicitly from the
+// dispatched callback method and `tag_name`.
+func decodeNodeContext(ctx *C.{{ context_c_type }}) {{ context_type }} {
+	var nc {{ context_type }}
+	if ctx == nil {
+		return nc
 	}
-	_ = json.Unmarshal([]byte(C.GoString(ctxJSON)), &ctx)
-	return ctx
+{% for f in context_fields -%}
+{% if f.kind == "string" -%}
+	if ctx.{{ f.json_name }} != nil {
+		nc.{{ f.go_name }} = C.GoString(ctx.{{ f.json_name }})
+	}
+{% elif f.kind == "optional_string" -%}
+	if ctx.{{ f.json_name }} != nil {
+		_v := C.GoString(ctx.{{ f.json_name }})
+		nc.{{ f.go_name }} = &_v
+	}
+{% elif f.kind == "uint" -%}
+	nc.{{ f.go_name }} = uint(ctx.{{ f.json_name }})
+{% elif f.kind == "uint32" -%}
+	nc.{{ f.go_name }} = uint32(ctx.{{ f.json_name }})
+{% elif f.kind == "bool" -%}
+	nc.{{ f.go_name }} = ctx.{{ f.json_name }} != 0
+{% endif -%}
+{% endfor -%}
+	return nc
 }

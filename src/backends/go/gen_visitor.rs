@@ -263,7 +263,7 @@ fn callback_specs_from_trait(
                 }
                 (TypeRef::Vec(inner), false) => match inner.as_ref() {
                     TypeRef::String => {
-                        let decode = format!("decodeCellsJSON({param_name})");
+                        let decode = format!("decodeCellsSlice({param_name}, cellCount)");
                         extra.push(ExtraParam {
                             c_name: param_name.clone(),
                             c_type: "*C.char".to_string(),
@@ -369,19 +369,20 @@ pub fn gen_visitor_file(
         }
     };
     let prefix_upper = ffi_prefix.to_uppercase();
-    let vtable_rust_name = format!("{pascal_prefix}{vtable_trait_name}VTable");
-    let bridge_rust_name = format!("{pascal_prefix}{vtable_trait_name}Bridge");
-    let vtable_c_type = ffi_c_type_name(ffi_prefix, &vtable_rust_name);
-    let bridge_c_type = ffi_c_type_name(ffi_prefix, &bridge_rust_name);
-    // {prefix}_options_set_{field} now accepts the {pascal_prefix}Visitor handle produced by
-    // gen_visitor (instead of the trait-bridge handle) so strict-typed C consumers such as Zig
-    // can pass `{prefix}_visitor_create` results directly. Go still constructs a bridge handle
-    // (its VTable shape differs from VisitorCallbacks), and casts the pointer at the call site.
-    // NOTE: at runtime, dispatching the trait through the visitor handle would interpret the
-    // bridge's memory layout under the visitor's layout, which is unsafe — Go visitor invocation
-    // remains a known follow-up (Go must switch to {prefix}_visitor_create + VisitorCallbacks).
+    let _ = vtable_trait_name; // retained for backwards-compatibility of the public signature
+    // Go uses the canonical VisitorCallbacks ABI: `{prefix}_visitor_create(&callbacks)`
+    // returns a `{pascal_prefix}Visitor*` handle whose memory layout matches what
+    // `{prefix}_convert` dispatches against. The callbacks struct (`{pascal_prefix}VisitorCallbacks`)
+    // carries `user_data` as a field plus one C function pointer per visitor trait method.
     let visitor_handle_rust_name = format!("{pascal_prefix}Visitor");
     let visitor_handle_c_type = ffi_c_type_name(ffi_prefix, &visitor_handle_rust_name);
+    let callbacks_rust_name = format!("{pascal_prefix}VisitorCallbacks");
+    let callbacks_c_type = ffi_c_type_name(ffi_prefix, &callbacks_rust_name);
+    // Visitor context FFI struct: `{prefix_upper}{pascal_prefix}Context` is the cbindgen-
+    // generated repr(C) struct the C callbacks receive, mirroring the Rust core's NodeContext
+    // but with only the FFI-exposed scalar fields (tag_name, depth, etc.).
+    let context_rust_name = format!("{pascal_prefix}Context");
+    let context_c_type = ffi_c_type_name(ffi_prefix, &context_rust_name);
     let options_type = bridge_cfg
         .options_type
         .as_deref()
@@ -392,11 +393,10 @@ pub fn gen_visitor_file(
     let return_type_snake = go_visitor_bridge_function_component(return_type);
     let conversion_options_type = format!("{prefix_upper}{options_type}");
 
-    // Derive bridge_snake from bridge_rust_name for fn names.
-    // e.g. "AbcRendererBridge" → "abc_renderer_bridge"
-    let bridge_snake = go_visitor_bridge_function_component(&bridge_rust_name);
-    let fn_bridge_new = format!("{ffi_prefix}_{bridge_snake}_new");
-    let fn_bridge_free = format!("{ffi_prefix}_{bridge_snake}_free");
+    // Canonical visitor handle constructor / destructor: `{prefix}_visitor_create` and
+    // `{prefix}_visitor_free` — the same symbols used by Zig and dynamic-binding consumers.
+    let fn_visitor_create = format!("{ffi_prefix}_visitor_create");
+    let fn_visitor_free = format!("{ffi_prefix}_visitor_free");
     let fn_options_set_visitor = format!("{ffi_prefix}_options_set_{options_field}");
     let fn_options_free = format!("{ffi_prefix}_{options_type_snake}_free");
     let fn_options_from_json = format!("{ffi_prefix}_{options_type_snake}_from_json");
@@ -414,7 +414,7 @@ pub fn gen_visitor_file(
         .map(|spec| {
             minijinja::Value::from_serialize(serde_json::json!({
                 "export_name": spec.export_name,
-                "c_sig": c_signature(spec),
+                "c_sig": c_signature(spec, &context_c_type),
                 "c_field": spec.c_field,
             }))
         })
@@ -428,7 +428,7 @@ pub fn gen_visitor_file(
             ffi_crate_dir => ffi_crate_dir,
             ffi_header => ffi_header,
             callbacks => callbacks,
-            vtable_c_type => vtable_c_type.clone(),
+            callbacks_c_type => callbacks_c_type.clone(),
         },
     ));
 
@@ -509,11 +509,18 @@ pub fn gen_visitor_file(
     // Shared helpers
     // -------------------------------------------------------------------------
 
-    // Decode the configured context type from JSON passed by the C vtable ABI.
+    // Decode the configured context type from the C `{context_c_type}` struct.
+    // Only fields whose Go type is a scalar with a corresponding C field are
+    // decoded; typed-alias fields (e.g. NodeType) stay zero-valued because the
+    // FFI struct does not expose them — the dispatched visitor method conveys
+    // that information implicitly via the callback signature.
+    let context_fields_for_decode = context_fields_for_decode(&codec_metadata.context_fields);
     out.push_str(&crate::backends::go::template_env::render(
         "decode_node_context.jinja",
         minijinja::context! {
             context_type => associated_types.context_type.as_str(),
+            context_c_type => context_c_type.clone(),
+            context_fields => context_fields_for_decode,
         },
     ));
     out.push('\n');
@@ -549,7 +556,7 @@ pub fn gen_visitor_file(
     // //export trampolines
     // -------------------------------------------------------------------------
     for spec in &specs {
-        gen_trampoline(&mut out, spec);
+        gen_trampoline(&mut out, spec, &context_c_type);
     }
 
     // -----------------------------------------------------------------------
@@ -584,10 +591,9 @@ pub fn gen_visitor_file(
             conversion_options_type => conversion_options_type,
             fn_options_from_json => fn_options_from_json,
             fn_options_free => fn_options_free,
-            fn_bridge_new => fn_bridge_new,
-            fn_bridge_free => fn_bridge_free,
+            fn_visitor_create => fn_visitor_create,
+            fn_visitor_free => fn_visitor_free,
             fn_options_set_visitor => fn_options_set_visitor,
-            bridge_c_type => bridge_c_type,
             visitor_handle_c_type => visitor_handle_c_type.clone(),
             fn_convert => fn_convert,
             fn_result_to_json => fn_result_to_json,
@@ -603,10 +609,30 @@ pub fn gen_visitor_file(
 
 /// Build the C parameter list string for the extern declaration of an exported Go function.
 ///
-/// VTable ABI: `(void* user_data, char* ctx, ...extras..., int32_t isHeader?, char** out_result)`
-fn c_signature(spec: &CallbackSpec) -> String {
-    let mut parts = vec!["void* user_data".to_string(), "char* ctx".to_string()];
+/// VisitorCallbacks ABI: `(const HtmContext* ctx, void* user_data, ...extras..., int32_t isHeader?, char** out_custom, uintptr_t* out_len)`
+///
+/// For the `visit_table_row` case the cells parameter is emitted as
+/// `const char* const* cells, uintptr_t cell_count` (matching the FFI struct)
+/// instead of the JSON-encoded single-string form used by the old VTable ABI.
+fn c_signature(spec: &CallbackSpec, context_c_type: &str) -> String {
+    // Note: the extern declarations must match the C prototypes cgo synthesises
+    // from //export markers — cgo emits Go `*C.HTMHtmContext` params as
+    // `HTMHtmContext*` (no `const`), so we drop the `const` qualifier from
+    // every param even though the FFI struct signature is "const".
+    let mut parts = vec![format!("{context_c_type}* ctx"), "void* user_data".to_string()];
     for ep in &spec.extra {
+        // has_is_header is set only for the table-row case, where the Vec<String>
+        // param expands to a (char**, uintptr_t) pair in the FFI ABI.
+        //
+        // The extern declarations here must match the C prototypes that cgo
+        // synthesises from the //export markers. cgo emits Go `*C.char`
+        // params as `char*` (no `const`), so we mirror that here even though
+        // the C-level callback contract is "const char* const*".
+        if spec.has_is_header && ep.c_type == "*C.char" {
+            parts.push(format!("char** {}", ep.c_name));
+            parts.push("uintptr_t cell_count".to_string());
+            continue;
+        }
         let ctype = match ep.c_type.as_str() {
             "*C.char" => "char*",
             "C.int32_t" => "int32_t",
@@ -619,7 +645,8 @@ fn c_signature(spec: &CallbackSpec) -> String {
     if spec.has_is_header {
         parts.push("int32_t isHeader".to_string());
     }
-    parts.push("char** out_result".to_string());
+    parts.push("char** out_custom".to_string());
+    parts.push("uintptr_t* out_len".to_string());
     parts.join(", ")
 }
 
@@ -647,20 +674,31 @@ fn iface_param_names(spec: &CallbackSpec) -> Vec<String> {
     names
 }
 
-/// Generate one `//export goVisit*` C callback trampoline for the VTable ABI.
+/// Generate one `//export goVisit*` C callback trampoline for the VisitorCallbacks ABI.
 ///
-/// VTable ABI signature: `(user_data unsafe.Pointer, ctx *C.char, ...extras..., outResult **C.char) C.int32_t`
-fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
+/// VisitorCallbacks ABI signature: `(ctx *C.{{ context_c_type }}, userData unsafe.Pointer, ...extras..., outCustom **C.char, outLen *C.uintptr_t) C.int32_t`
+fn gen_trampoline(out: &mut String, spec: &CallbackSpec, context_c_type: &str) {
     // Build Go function parameter list (CGo types).
-    // VTable ABI: user_data first, then ctx (JSON string), then extras, then out_result.
-    let mut go_params = vec!["userData unsafe.Pointer".to_string(), "ctx *C.char".to_string()];
+    // VisitorCallbacks ABI: ctx first (typed context struct), then user_data, then
+    // typed extras, then out_custom + out_len pair.
+    let mut go_params = vec![
+        format!("ctx *C.{context_c_type}"),
+        "userData unsafe.Pointer".to_string(),
+    ];
     for ep in &spec.extra {
-        go_params.push(format!("{} {}", ep.c_name, ep.c_type));
+        if spec.has_is_header && ep.c_type == "*C.char" {
+            // Table-row cells: (const char* const*, uintptr_t)
+            go_params.push(format!("{} **C.char", ep.c_name));
+            go_params.push("cellCount C.uintptr_t".to_string());
+        } else {
+            go_params.push(format!("{} {}", ep.c_name, ep.c_type));
+        }
     }
     if spec.has_is_header {
         go_params.push("isHeader C.int32_t".to_string());
     }
-    go_params.push("outResult **C.char".to_string());
+    go_params.push("outCustom **C.char".to_string());
+    go_params.push("outLen *C.uintptr_t".to_string());
 
     out.push_str(&crate::backends::go::template_env::render(
         "export_marker.jinja",
@@ -796,6 +834,38 @@ fn visitor_codec_metadata(api: &ApiSurface, associated_types: &VisitorAssociated
         default_result_wire_name,
         result_variants,
     })
+}
+
+/// Project context fields to the form the decode template needs: a `kind` tag plus
+/// the JSON / Go names. Fields whose Go type does not correspond to a scalar C
+/// field (e.g. a typed-alias enum) are tagged `"unsupported"` so the template
+/// can skip them — those stay at their zero value after decoding.
+#[derive(Clone, serde::Serialize)]
+struct ContextFieldDecode {
+    json_name: String,
+    go_name: String,
+    kind: &'static str,
+}
+
+fn context_fields_for_decode(fields: &[ContextFieldMetadata]) -> Vec<ContextFieldDecode> {
+    fields
+        .iter()
+        .map(|f| {
+            let kind = match f.go_type.as_str() {
+                "string" => "string",
+                "*string" => "optional_string",
+                "uint" => "uint",
+                "uint32" => "uint32",
+                "bool" => "bool",
+                _ => "unsupported",
+            };
+            ContextFieldDecode {
+                json_name: f.json_name.clone(),
+                go_name: f.go_name.clone(),
+                kind,
+            }
+        })
+        .collect()
 }
 
 fn context_fields_from_type(type_def: &TypeDef) -> Vec<ContextFieldMetadata> {

@@ -33,20 +33,24 @@ func {{ helper_name }}({{ helper_params }}) (*{{ result_type }}, error) {
 		defer C.{{ fn_options_free }}(cOptions)
 	}
 
-	// Register visitor and build the C VTable via the static C helper.
+	// Register visitor and build the C callbacks struct via the static C helper.
+	// The visitor ID is forwarded as user_data to every callback so the
+	// trampolines can look the visitor up at dispatch time.
 	id := registerVisitor(visitor)
 	defer unregisterVisitor(id)
-	vtbl := C.makeVisitorVTable()
+	cb := C.makeVisitorCallbacks(unsafe.Pointer(id))
 
-	// Create a bridge that holds the VTable and the visitor ID as user_data.
-	bridge := C.{{ fn_bridge_new }}(&vtbl, unsafe.Pointer(id))
-	if bridge == nil {
-		return nil, fmt.Errorf("failed to create visitor bridge")
+	// {{ fn_visitor_create }} copies the callbacks struct into an opaque handle
+	// whose memory layout matches what {{ fn_convert }} dispatches against. No
+	// pointer cast — this is the canonical visitor-handle ABI.
+	visitorHandle := C.{{ fn_visitor_create }}(&cb)
+	if visitorHandle == nil {
+		return nil, fmt.Errorf("failed to create visitor handle")
 	}
-	defer C.{{ fn_bridge_free }}(bridge)
+	defer C.{{ fn_visitor_free }}(visitorHandle)
 
-	// Attach the bridge to the options struct so convert() picks it up.
-	C.{{ fn_options_set_visitor }}(cOptions, (*C.{{ visitor_handle_c_type }})(unsafe.Pointer(bridge)))
+	// Attach the visitor handle to the options struct so convert() picks it up.
+	C.{{ fn_options_set_visitor }}(cOptions, visitorHandle)
 
 	ptr := C.{{ fn_convert }}({{ helper_call_args }})
 	if ptr == nil {

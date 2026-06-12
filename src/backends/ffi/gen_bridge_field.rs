@@ -37,7 +37,6 @@ use crate::core::ir::{MethodDef, ReceiverKind};
 /// - `prefix`: the FFI symbol prefix.
 /// - `core_import`: the Rust crate name for the core library.
 /// - `trait_def`: the IR definition of the trait whose bridge is being attached.
-/// - `trait_name`: the Rust trait name.
 /// - `field_name`: the field on the options struct.
 /// - `options_type_name`: the IR type name of the options struct.
 /// - `type_paths`: map of IR type name → fully-qualified Rust path for signature generation.
@@ -50,13 +49,13 @@ pub fn gen_options_set_bridge(
     prefix: &str,
     core_import: &str,
     trait_def: &TypeDef,
-    trait_name: &str,
     field_name: &str,
     options_type_name: &str,
     type_paths: &HashMap<String, String>,
     use_callbacks_visitor: bool,
 ) -> String {
     let pascal_prefix = to_class_name(prefix);
+    let trait_name = &trait_def.name;
     // Bridge handle type: when visitor_callbacks is enabled we accept the {PascalPrefix}Visitor
     // produced by gen_visitor (its `htm_visitor_create` returns *mut {PascalPrefix}Visitor and
     // strict C consumers like Zig cannot implicitly cast between opaque pointer types).
