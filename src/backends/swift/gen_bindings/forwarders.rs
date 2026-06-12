@@ -493,71 +493,55 @@ pub(super) fn emit_async_free_function_forwarder(
             },
         ));
     } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_))) {
-        // Check if Vec<FirstClassDTO> — if so, use JSON-based return path for async boundary crossing
-        let is_vec_of_dto = if let TypeRef::Vec(inner) = &func.return_type {
-            if let TypeRef::Named(name) = inner.as_ref() {
-                known_dto_names.contains(name)
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-
-        if is_vec_of_dto && func.error_type.is_some() {
-            // Vec<FirstClassDTO> with error — use JSON-based return from Rust side
-            let decode_ty = forwarder_return_type(&func.return_type);
-            body.push_str(&crate::backends::swift::template_env::render(
-                "swift_forwarder_decode_json_body.swift.jinja",
-                minijinja::context! {
-                    bridge_call => &format!("try RustBridge.{swift_name}({args}).toString()"),
-                    decode_type => &decode_ty,
-                },
-            ));
-        } else {
-            body.push_str(&crate::backends::swift::template_env::render(
-                "swift_forwarder_conversion_line.swift.jinja",
-                minijinja::context! {
-                    line => format!("let result = {bridge_call}"),
-                },
-            ));
-            if func.error_type.is_some() {
-                if let TypeRef::Vec(inner) = &func.return_type {
-                    if let TypeRef::Named(name) = inner.as_ref() {
-                        let struct_name = swift_ident(name);
-                        body.push_str("        var items: [");
+        // Vec<Named> async forwarder: iterate opaque results regardless of first-class
+        // status. The Rust shim returns `RustVec<Named>`; the Swift wrapper wraps each
+        // element via either the first-class DTO `init(ref)` or the opaque
+        // `RustBridge.T(ptr: ref.ptr)` constructor. Sendable across the `Task.detached`
+        // boundary is handled by the second-pass `@unchecked Sendable` emitter in
+        // mod.rs::generate_bindings — see "swift-bridge opaque type referenced in async
+        // forwarder return" comments there.
+        body.push_str(&crate::backends::swift::template_env::render(
+            "swift_forwarder_conversion_line.swift.jinja",
+            minijinja::context! {
+                line => format!("let result = {bridge_call}"),
+            },
+        ));
+        if func.error_type.is_some() {
+            if let TypeRef::Vec(inner) = &func.return_type {
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    let struct_name = swift_ident(name);
+                    body.push_str("        var items: [");
+                    body.push_str(&struct_name);
+                    body.push_str("] = []\n");
+                    body.push_str("        for ref in result {\n");
+                    if known_dto_names.contains(name) {
+                        body.push_str("            items.append(try ");
                         body.push_str(&struct_name);
-                        body.push_str("] = []\n");
-                        body.push_str("        for ref in result {\n");
-                        if known_dto_names.contains(name) {
-                            body.push_str("            items.append(try ");
-                            body.push_str(&struct_name);
-                            body.push_str("(ref))\n");
-                        } else {
-                            body.push_str("            var item = try RustBridge.");
-                            body.push_str(&struct_name);
-                            body.push_str("(ptr: ref.ptr)\n");
-                            body.push_str("            item.isOwned = false\n");
-                        }
-                        body.push_str("            items.append(item)\n");
-                        body.push_str("        }\n");
-                        body.push_str("        return items\n");
+                        body.push_str("(ref))\n");
                     } else {
-                        let suffix =
-                            forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, true);
-                        body.push_str(&crate::backends::swift::template_env::render(
-                            "swift_forwarder_result_return_body.swift.jinja",
-                            minijinja::context! { suffix => &suffix, },
-                        ));
+                        body.push_str("            var item = try RustBridge.");
+                        body.push_str(&struct_name);
+                        body.push_str("(ptr: ref.ptr)\n");
+                        body.push_str("            item.isOwned = false\n");
+                        body.push_str("            items.append(item)\n");
                     }
+                    body.push_str("        }\n");
+                    body.push_str("        return items\n");
+                } else {
+                    let suffix =
+                        forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, true);
+                    body.push_str(&crate::backends::swift::template_env::render(
+                        "swift_forwarder_result_return_body.swift.jinja",
+                        minijinja::context! { suffix => &suffix, },
+                    ));
                 }
-            } else {
-                let suffix = forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, false);
-                body.push_str(&crate::backends::swift::template_env::render(
-                    "swift_forwarder_result_return_body.swift.jinja",
-                    minijinja::context! { suffix => &suffix, },
-                ));
             }
+        } else {
+            let suffix = forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, false);
+            body.push_str(&crate::backends::swift::template_env::render(
+                "swift_forwarder_result_return_body.swift.jinja",
+                minijinja::context! { suffix => &suffix, },
+            ));
         }
     } else if matches!(&func.return_type, TypeRef::Unit) {
         body.push_str(&crate::backends::swift::template_env::render(
