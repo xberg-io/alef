@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.14] - 2026-06-12
+
 ### Fixed
 
 - **C# scaffold + e2e csproj emit `UseRuntimeIdentifier` and platform `RuntimeIdentifier` blocks for P/Invoke native asset resolution.** On macOS, .NET P/Invoke does not search `runtimes/{rid}/native/` unless `<UseRuntimeIdentifier>true</UseRuntimeIdentifier>` and a matching `<RuntimeIdentifier>` are set. Without them, the FFI shared library staged under `packages/csharp/<Namespace>/runtimes/osx-arm64/native/` was invisible to the loader and every e2e test failed with `DllNotFoundException`. Fix: both the package csproj (`scaffold/languages/csharp.rs`) and the e2e test csproj (`e2e/templates/csharp/csproj.jinja`) now emit `UseRuntimeIdentifier=true` plus a `<RuntimeIdentifier Condition="...">` per supported platform (osx-arm64 / linux-x64 / win-x64). The e2e csproj additionally adds platform-conditional `<None Include="../../packages/csharp/<Namespace>/runtimes/{rid}/native/*">` items so native libs are copied to the test output directory. Restores a downstream-applied fix that had been getting wiped on every regen.
