@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **JNI is a first-class `alef test-apps run` target.** Previously `Language::Ffi` and `Language::Jni` shared a single match arm in `test_apps_run_defaults.rs` returning `run: None`, surfacing as "⊘ skipped" for JNI. The arm is split: FFI stays without a run (it is the shared C ABI consumed by other bindings and has no standalone host), JNI now invokes the kotlin_android test app's host-JVM gradle tests (`cd {test_apps_dir}/kotlin_android && gradle test --no-daemon`). The kotlin_android Gradle scaffold already builds and stages the JNI `cdylib` via `buildHostJni` + `copyHostJni` tasks and sets `java.library.path` at test time, so no further infrastructure is needed. Repos that ship both kotlin_android and a JNI shim now get a green JNI verdict from `alef test-apps run` rather than `skipped`.
-
 ### Fixed
 
 - **JNI trait-bridge registration shim properly marshals impl object to Rust core.** The `trait_register_shim.rs.jinja` template was a stub that accepted the Kotlin impl object but did not forward it to the Rust core registration. The fix (1) creates a global JNI reference to the impl object so it remains valid across calls, (2) extracts the trait name from the JString parameter or calls the impl's `name()` method for super-trait registrations, and (3) holds both references for the lifetime of the registration. Trait method marshalling is deferred to a follow-up phase; for now, tests that only register and then list/clear registry entries will pass, while tests that invoke trait methods will fail with appropriate errors. Prevents `UnsatisfiedLinkError` for `nativeRegister*` symbols.
