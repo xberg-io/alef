@@ -53,15 +53,24 @@ pub(super) fn resolve_handle_config_type(
                 return None;
             }
 
-            // Sort: types without underscores first, then alphabetically
+            // Sort: prefer types without underscores and containing primary keywords like "Extraction",
+            // then alphabetically for stability.
             config_types.sort_by(|a, b| {
                 let a_has_underscore = a.contains('_');
                 let b_has_underscore = b.contains('_');
+                let a_has_extraction = a.to_lowercase().contains("extraction");
+                let b_has_extraction = b.to_lowercase().contains("extraction");
+
+                // Prefer types without underscores
                 if a_has_underscore != b_has_underscore {
-                    a_has_underscore.cmp(&b_has_underscore)
-                } else {
-                    a.cmp(b)
+                    return a_has_underscore.cmp(&b_has_underscore);
                 }
+                // Prefer types with "extraction" keyword
+                if a_has_extraction != b_has_extraction {
+                    return b_has_extraction.cmp(&a_has_extraction); // b first if it has extraction
+                }
+                // Finally, alphabetical order
+                a.cmp(b)
             });
 
             return config_types.first().cloned();
