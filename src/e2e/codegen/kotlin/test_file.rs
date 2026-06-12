@@ -515,7 +515,11 @@ pub(super) fn render_test_file_inner(
             );
             let _ = writeln!(
                 out,
-                "                System.err.println(\"java.library.path: ${{System.getProperty(\\\"java.library.path\\\")}}\")"
+                "                val libPath = System.getProperty(\"java.library.path\")"
+            );
+            let _ = writeln!(
+                out,
+                "                System.err.println(\"java.library.path: $libPath\")"
             );
             let _ = writeln!(out, "                throw e");
             let _ = writeln!(out, "            }}");

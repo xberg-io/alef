@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.12] - 2026-06-12
+
 ### Fixed
 
+- **`alef generate` no longer deletes umbrella binding-crate manifests during the orphan-cleanup pass.** `bin_cli/core_commands.rs::generate` builds `current_gen_paths` from generator outputs only (bindings, service API, public API, stubs). Scaffold outputs — `crates/<name>-{ffi,jni,php,...}/Cargo.toml`, `composer.json`, `<crate>.gemspec`, etc. — are owned by `alef scaffold`, but they carry `alef:hash:` headers, so `cleanup_orphaned_files` treated them as orphans and removed every umbrella `Cargo.toml` on every plain `alef generate`. Cargo workspaces that listed the umbrella as a member then failed to load (`failed to load manifest for workspace member crates/<name>-jni`) until the consumer re-ran `alef scaffold`. Fix: call `pipeline::scaffold(...)` from inside `generate`, register each emitted file's destination in `current_gen_paths`, and only then run cleanup. Scaffold output remains write-controlled by `alef scaffold` — `generate` only consults the path list so cleanup respects scaffold-owned files.
+
+- **Restore `README.md` accidentally removed in `b1704c588` (`fix(go): include usize/isize in trait-bridge simple-primitive detection`).** Without the README at the package root, `cargo publish` failed in CI with `error: readme README.md does not appear to exist (relative to /home/runner/_work/alef/alef)`, blocking the v0.24.11 crates.io release. Restored from the parent commit so the v0.24.12 publish workflow can finish the crates.io step.
+
 - **Kotlin Android e2e codegen: add explicit JNI library loading in test companion objects.** Generated Kotlin Android unit tests were failing at runtime with `java.lang.UnsatisfiedLinkError: kreuzberg_jni` because the test classes never explicitly called `System.loadLibrary("kreuzberg_jni")`. The Gradle config set `java.library.path`, but without an explicit load call in the test itself, the JVM could not find or load the native library. The fix adds an `init` block in the companion object of all kotlin_android e2e test classes that calls `System.loadLibrary("kreuzberg_jni")` with proper error handling and diagnostic output (`java.library.path` dump on failure). Now kotlin_android e2e tests load the native JNI library at class initialization time, before any test runs. Fixes all ~110 Kotlin Android unit tests failing with `UnsatisfiedLinkError` in `task kotlin-android:e2e`.
+
+- **Dart codegen: map binding-excluded enum variants to safe default at runtime.** Carries the post-v0.24.11 fix `ac9ec5cbb`: `FormatMetadata::Code` and similar `#[cfg_attr(alef, alef(skip))]` Rust variants no longer trigger panics when they surface in deserialised binding payloads.
 
 ## [0.24.11] - 2026-06-12
 
