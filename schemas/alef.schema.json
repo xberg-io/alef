@@ -4303,6 +4303,22 @@
           },
           "type": "array"
         },
+        "extra_makevars_prelude": {
+          "default": [],
+          "description": "Extra Makefile fragments injected before `PKG_LIBS` in `Makevars`/`Makevars.in`.\nEach entry becomes its own line (e.g. `HEIF_LIBS = $(shell pkg-config --libs libheif)`).\nUseful for system libraries dynamically linked by Rust deps that R's `R CMD INSTALL`\nmust also link against.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "extra_pkg_libs": {
+          "default": [],
+          "description": "Extra tokens appended to the `PKG_LIBS` variable in `Makevars`/`Makevars.in`,\nafter the staticlib link. Combined with `extra_makevars_prelude` to inject\ndownstream-managed link flags (e.g. `$(HEIF_LIBS)`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "features": {
           "default": null,
           "items": {
@@ -6807,7 +6823,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.24.11/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.24.12/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -6917,6 +6933,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.24.11",
-  "x-alef-version": "0.24.11"
+  "version": "0.24.12",
+  "x-alef-version": "0.24.12"
 }

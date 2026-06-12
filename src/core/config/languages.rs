@@ -1284,6 +1284,17 @@ pub struct RConfig {
     /// Extra paths to append to default lint commands (format, check, typecheck).
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Extra Makefile fragments injected before `PKG_LIBS` in `Makevars`/`Makevars.in`.
+    /// Each entry becomes its own line (e.g. `HEIF_LIBS = $(shell pkg-config --libs libheif)`).
+    /// Useful for system libraries dynamically linked by Rust deps that R's `R CMD INSTALL`
+    /// must also link against.
+    #[serde(default)]
+    pub extra_makevars_prelude: Vec<String>,
+    /// Extra tokens appended to the `PKG_LIBS` variable in `Makevars`/`Makevars.in`,
+    /// after the staticlib link. Combined with `extra_makevars_prelude` to inject
+    /// downstream-managed link flags (e.g. `$(HEIF_LIBS)`).
+    #[serde(default)]
+    pub extra_pkg_libs: Vec<String>,
 }
 
 /// Custom modules that alef should declare (mod X;) but not generate.

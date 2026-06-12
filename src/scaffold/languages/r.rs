@@ -175,9 +175,36 @@ crate-type = ["staticlib", "lib"]
 
     // Makevars — tells R CMD INSTALL how to build the staticlib and link it.
     // Includes a binary-package target for CI: `make binary` produces {pkg_name}_{version}_{platform}.tgz
+    //
+    // Downstream consumers (kreuzberg, etc.) may inject extra link flags via
+    // `[crates.r] extra_makevars_prelude` and `extra_pkg_libs` — used when the
+    // staticlib transitively dlopens a system library (e.g. libheif) that R CMD
+    // INSTALL must also link against.
+    let prelude = config
+        .r
+        .as_ref()
+        .map(|r| r.extra_makevars_prelude.clone())
+        .unwrap_or_default();
+    let extra_libs = config
+        .r
+        .as_ref()
+        .map(|r| r.extra_pkg_libs.clone())
+        .unwrap_or_default();
+    let prelude_block = if prelude.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", prelude.join("\n"))
+    };
+    let extra_libs_str = if extra_libs.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", extra_libs.join(" "))
+    };
     let makevars_content = format!(
-        "CARGO_BUILD_ARGS = --release\nSTATLIB = ./rust/target/release/lib{rust_lib_name}.a\nPKG_LIBS = -L./rust/target/release -l{rust_lib_name} $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)\n\nall: $(SHLIB)\n\n$(STATLIB):\n\tcargo build --manifest-path ./rust/Cargo.toml $(CARGO_BUILD_ARGS)\n\n$(SHLIB): $(STATLIB)\n\nbinary:\n\tcd .. && R CMD INSTALL --build .\n\nclean:\n\trm -f $(SHLIB) $(STATLIB)\n\tcargo clean --manifest-path ./rust/Cargo.toml\n",
+        "CARGO_BUILD_ARGS = --release\nSTATLIB = ./rust/target/release/lib{rust_lib_name}.a\n{prelude_block}PKG_LIBS = -L./rust/target/release -l{rust_lib_name}{extra_libs_str} $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)\n\nall: $(SHLIB)\n\n$(STATLIB):\n\tcargo build --manifest-path ./rust/Cargo.toml $(CARGO_BUILD_ARGS)\n\n$(SHLIB): $(STATLIB)\n\nbinary:\n\tcd .. && R CMD INSTALL --build .\n\nclean:\n\trm -f $(SHLIB) $(STATLIB)\n\tcargo clean --manifest-path ./rust/Cargo.toml\n",
         rust_lib_name = rust_lib_name,
+        prelude_block = prelude_block,
+        extra_libs_str = extra_libs_str,
     );
 
     // Makevars.in — autoconf variant; same content.
