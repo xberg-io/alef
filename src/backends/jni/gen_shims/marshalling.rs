@@ -212,6 +212,28 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
                 },
             ));
         }
+        // Return raw `String` as a jstring without JSON marshalling. JSON-encoding
+        // a `String` wraps the value in literal `"…"` (e.g. `Some("python")` →
+        // `"\"python\""`), which the Kotlin layer surfaces verbatim because the
+        // bridge signature is `external fun foo(...): String?`. Tests then see
+        // `"python"` instead of `python` and fail with `expected: <python> but
+        // was: <"python">`.
+        TypeRef::String => {
+            out.push_str(&template_env::render(
+                "return_string.rs.jinja",
+                context! { indent => indent },
+            ));
+        }
+        // Same fix for `Option<String>`: emit a raw jstring on `Some`, null on
+        // `None`. Without this arm the JSON path encodes `None` as the literal
+        // string `"null"`, which Kotlin sees as a non-null `String` containing
+        // the four characters `n`, `u`, `l`, `l`.
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
+            out.push_str(&template_env::render(
+                "return_optional_string.rs.jinja",
+                context! { indent => indent },
+            ));
+        }
         _ => {
             out.push_str(&template_env::render(
                 "return_json.rs.jinja",

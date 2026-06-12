@@ -156,6 +156,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "return_primitive.rs.jinja",
         include_str!("templates/return_primitive.rs.jinja"),
     ),
+    (
+        "return_string.rs.jinja",
+        include_str!("templates/return_string.rs.jinja"),
+    ),
+    (
+        "return_optional_string.rs.jinja",
+        include_str!("templates/return_optional_string.rs.jinja"),
+    ),
     ("return_json.rs.jinja", include_str!("templates/return_json.rs.jinja")),
 ];
 

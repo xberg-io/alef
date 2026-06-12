@@ -154,8 +154,14 @@ pub(super) fn render_assertion(
                     "contains" => {
                         if let Some(serde_json::Value::String(s)) = &assertion.value {
                             let escaped = escape_kotlin(s);
+                            // Use `.toString().lowercase().contains(...)` to mirror the Java
+                            // emitter — `(list as List<String>)` is an unchecked cast that
+                            // succeeds at runtime via erasure but `.contains("Module")` then
+                            // compares `StructureItem`s against a `String` and always returns
+                            // `false`. Stringifying the collection lets the assertion match
+                            // both `List<String>` and `List<ComplexType>` cases uniformly.
                             format!(
-                                "        assertTrue(({expr} as List<String>).contains(\"{escaped}\"), \"expected to contain: {escaped}\")\n"
+                                "        assertTrue({expr}.toString().lowercase().contains(\"{escaped}\".lowercase()), \"expected to contain: {escaped}\")\n"
                             )
                         } else {
                             String::new()
@@ -349,9 +355,15 @@ pub(super) fn render_assertion(
             if let Some(expected) = &assertion.value {
                 let kotlin_val = super::values::json_to_kotlin(expected);
                 if field_is_collection {
+                    // `(list as List<String>)` is an unchecked erasure cast that
+                    // succeeds at runtime even for `List<StructureItem>` etc.
+                    // `.contains("Module")` then compares records against a
+                    // String and always fails. Stringifying the collection
+                    // mirrors the Java emitter (`toString().toLowerCase().contains(...)`)
+                    // and matches both `List<String>` and `List<ComplexType>`.
                     let _ = writeln!(
                         out,
-                        "        assertTrue(({string_expr} as List<String>).contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
+                        "        assertTrue({string_expr}.toString().lowercase().contains({kotlin_val}.toString().lowercase()), \"expected to contain: \" + {kotlin_val})"
                     );
                 } else {
                     // String substring check. Use the field expression directly so
@@ -370,7 +382,7 @@ pub(super) fn render_assertion(
                     if field_is_collection {
                         let _ = writeln!(
                             out,
-                            "        assertTrue(({string_expr} as List<String>).contains({kotlin_val}), \"expected to contain: \" + {kotlin_val})"
+                            "        assertTrue({string_expr}.toString().lowercase().contains({kotlin_val}.toString().lowercase()), \"expected to contain: \" + {kotlin_val})"
                         );
                     } else {
                         let _ = writeln!(
@@ -387,7 +399,7 @@ pub(super) fn render_assertion(
                 if field_is_collection {
                     let _ = writeln!(
                         out,
-                        "        assertFalse(({string_expr} as List<String>).contains({kotlin_val}), \"expected NOT to contain: \" + {kotlin_val})"
+                        "        assertFalse({string_expr}.toString().lowercase().contains({kotlin_val}.toString().lowercase()), \"expected NOT to contain: \" + {kotlin_val})"
                     );
                 } else {
                     let _ = writeln!(

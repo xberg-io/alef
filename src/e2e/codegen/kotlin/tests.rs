@@ -779,3 +779,87 @@ fn kotlin_android_batch_bytes_item_wraps_paths() {
         "kotlin_android batch must emit listOf(...), got: {args_android}"
     );
 }
+
+/// Regression: emitted `System.loadLibrary(...)` must use the resolved
+/// `jni_lib_name()` (`{ffi_prefix}_jni`) so it stays in sync with the cdylib
+/// emitted by the generated JNI `Cargo.toml` `[lib] name`. Hard-coding
+/// `{crate_name}_jni` breaks for crates that override `[crates.ffi] prefix`
+/// (e.g. tslp: name `tree-sitter-language-pack`, prefix `ts_pack`, cdylib
+/// `ts_pack_jni`).
+#[test]
+fn kotlin_android_test_file_loads_resolved_jni_lib_name_not_crate_name() {
+    use crate::core::config::e2e::CallConfig;
+    use crate::core::config::{FfiConfig, ResolvedCrateConfig};
+    use crate::e2e::fixture::MockResponse;
+
+    let fixture = Fixture {
+        id: "smoke_one".to_string(),
+        category: None,
+        description: "smoke".to_string(),
+        tags: vec![],
+        skip: None,
+        env: None,
+        setup: Vec::new(),
+        call: None,
+        input: serde_json::json!({}),
+        mock_response: Some(MockResponse {
+            status: 200,
+            body: None,
+            stream_chunks: None,
+            headers: BTreeMap::new(),
+        }),
+        visitor: None,
+        args: vec![],
+        assertion_recipes: vec![],
+        assertions: vec![],
+        source: String::new(),
+        http: None,
+    };
+    let e2e_config = E2eConfig {
+        call: CallConfig::default(),
+        ..E2eConfig::default()
+    };
+    let mut config = ResolvedCrateConfig {
+        name: "tree-sitter-language-pack".to_string(),
+        ..ResolvedCrateConfig::default()
+    };
+    config.ffi = Some(FfiConfig {
+        prefix: Some("ts_pack".to_string()),
+        error_style: "last_error".to_string(),
+        header_name: None,
+        lib_name: None,
+        visitor_callbacks: false,
+        features: None,
+        serde_rename_all: None,
+        exclude_functions: Vec::new(),
+        exclude_types: Vec::new(),
+        rename_fields: HashMap::new(),
+        plugin_error_constructor: None,
+        target_dep_overrides: Vec::new(),
+    });
+    let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+    let out = render_test_file_inner(
+        "smoke",
+        &[&fixture],
+        "Bridge",
+        "doThing",
+        "dev.sample_crate.sampleapp.android",
+        "result",
+        &[],
+        None,
+        false,
+        &e2e_config,
+        &HashMap::new(),
+        true,
+        &config,
+        &type_defs,
+    );
+    assert!(
+        out.contains("System.loadLibrary(\"ts_pack_jni\")"),
+        "kotlin_android test must loadLibrary the resolved jni_lib_name (`ts_pack_jni`), got:\n{out}"
+    );
+    assert!(
+        !out.contains("tree-sitter-language-pack_jni"),
+        "kotlin_android test must NOT loadLibrary the raw crate name, got:\n{out}"
+    );
+}
