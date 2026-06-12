@@ -57,6 +57,8 @@ pub(super) fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> 
             | TypeRef::Primitive(crate::core::ir::PrimitiveType::U32)
             | TypeRef::Primitive(crate::core::ir::PrimitiveType::I64)
             | TypeRef::Primitive(crate::core::ir::PrimitiveType::U64)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::Isize)
     );
 
     if is_simple_primitive {
@@ -85,6 +87,8 @@ pub(super) fn c_callback_return_type(method: &MethodDef) -> String {
             | TypeRef::Primitive(crate::core::ir::PrimitiveType::U32)
             | TypeRef::Primitive(crate::core::ir::PrimitiveType::I64)
             | TypeRef::Primitive(crate::core::ir::PrimitiveType::U64)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::Isize)
     );
 
     if is_simple_primitive {
@@ -95,6 +99,8 @@ pub(super) fn c_callback_return_type(method: &MethodDef) -> String {
             TypeRef::Primitive(crate::core::ir::PrimitiveType::U32) => "uint32_t".to_string(),
             TypeRef::Primitive(crate::core::ir::PrimitiveType::I64) => "int64_t".to_string(),
             TypeRef::Primitive(crate::core::ir::PrimitiveType::U64) => "uint64_t".to_string(),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize) => "size_t".to_string(),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Isize) => "intptr_t".to_string(),
             _ => "int32_t".to_string(),
         }
     } else {

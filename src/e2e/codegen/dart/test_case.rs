@@ -234,12 +234,21 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                 } else {
                     let json_str = serde_json::to_string(&config_value).unwrap_or_default();
                     let config_var = format!("{name}Config");
-                    // FRB-generated free function: `createCrawlConfigFromJson(json: '...')` — async,
-                    // deserializes the JSON into the mirror struct via the Rust `create_<type>_from_json`
+                    // Derive the createFromJson function name: "config" → "createConfigFromJson",
+                    // "engine" → "createEngineFromJson", etc. FRB-generated free function
+                    // deserializes JSON into the config struct via the Rust `create_<type>_from_json`
                     // helper emitted by the dart backend. This avoids relying on a Dart-side `fromJson`
                     // constructor (FRB classes don't expose one).
+                    let create_from_json_fn = {
+                        let mut chars = name.chars();
+                        let pascal = match chars.next() {
+                            None => String::new(),
+                            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                        };
+                        format!("create{pascal}FromJson")
+                    };
                     setup_lines.push(format!(
-                        "final {config_var} = await createCrawlConfigFromJson(json: r'{json_str}');"
+                        "final {config_var} = await {create_from_json_fn}(json: r'{json_str}');"
                     ));
                     // Dart wrapper exposes config parameter as a named optional `{ConfigType? config}`
                     // (more idiomatic Dart than positional optional). Emit named-argument syntax.

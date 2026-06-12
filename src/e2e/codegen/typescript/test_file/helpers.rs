@@ -66,8 +66,6 @@ pub(in crate::e2e::codegen::typescript::test_file) fn extract_bridge_cleanup(set
             // Unregister expects the plugin name string, not the bridge object.
             let unregister_fn = format!("unregister{}", trait_name);
             cleanup_lines.push(format!("await {}({}.name());", unregister_fn, var_name));
-            // Then dispose the JS stub to release TSFN references
-            cleanup_lines.push(format!("await {}.dispose();", var_name));
         }
     }
     cleanup_lines.join("\n\t\t")

@@ -190,6 +190,22 @@ pub(super) fn emit_dart_default_for_type(
     ty: &crate::core::ir::TypeRef,
     enums: &[crate::core::ir::EnumDef],
 ) -> String {
+    // Special case: Named(Float64List) and similar typed-list types need
+    // explicit Dart construction. Return Float64List.fromList([]) for the default.
+    if let TypeRef::Named(name) = ty {
+        if name == "Float64List" {
+            return "Float64List.fromList([])".to_string();
+        }
+    }
+    // Special case: Vec<Float64List> should return an empty list of Float64Lists.
+    if let TypeRef::Vec(inner) = ty {
+        if let TypeRef::Named(name) = inner.as_ref() {
+            if name == "Float64List" {
+                return "[]".to_string(); // Dart infers as List<Float64List>
+            }
+        }
+    }
+
     // Map internal-only types to the opaque bridge carrier for default generation.
     let effective_ty = match ty {
         TypeRef::Named(name) if name.contains("Internal") => TypeRef::Named(format!("{name}Bridge")),

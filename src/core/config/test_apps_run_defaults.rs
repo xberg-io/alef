@@ -206,16 +206,18 @@ pub fn default_test_apps_run_config(
             //
             // We extract the first dependency name from the test_app's pubspec.yaml (which is
             // the under-test package, per alef's test_apps codegen convention) and invoke
-            // `dart run <pkg>:download_libs`. The `|| true` lets dart packages without a
-            // `download_libs` executable continue — `dart test` then fails with a clear
-            // missing-library diagnostic instead of a confusing dart-run error.
+            // `dart run <pkg>:download_libs`. The `|| echo` lets dart packages without a
+            // `download_libs` executable continue, while keeping stderr attached so any real
+            // failure (HTTP 404, network, asset-name mismatch) is visible in the test output —
+            // silently dropping stderr just defers the failure to a confusing `dlopen` rejection
+            // inside `dart test`.
             precondition: Some(require_tool("dart")),
             before: None,
             run: Some(StringOrVec::Single(format!(
                 "cd {test_apps_dir}/dart && \
                 dart pub get && \
                 DART_PKG=$(awk '/^dependencies:$/{{f=1;next}} f && /^  [a-z]/{{sub(/:.*/,\"\");sub(/^  /,\"\");print;exit}}' pubspec.yaml) && \
-                (dart run \"${{DART_PKG}}:download_libs\" 2>/dev/null || true) && \
+                (dart run \"${{DART_PKG}}:download_libs\" || echo \"WARN: download_libs failed or unavailable for ${{DART_PKG}}\") && \
                 dart test"
             ))),
         },
