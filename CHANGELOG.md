@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.11] - 2026-06-12
+
 ### Fixed
 
 - **Dart e2e codegen: emit `Float64List.fromList([])` for `Vec<f32>`/`Vec<f64>` stub defaults.** Plugin trait-bridge stubs (e.g., `RerankerBackend.rerank`) returning `Future<Float64List>` were still emitting `[]` because the underlying Rust IR type is `TypeRef::Vec(Primitive(F32))`, not `TypeRef::Named("Float64List")` — the prior Float64List handling only covered the Named-type path. Added an explicit `Vec(Primitive(F32 | F64)) → Float64List.fromList([])` branch in `emit_dart_default_for_type` (stubs.rs). Fixes the persistent "A value of type 'List<dynamic>' can't be returned from an async function with return type 'Future<Float64List>'" error in `e2e/dart/test/plugin_api_test.dart`.
