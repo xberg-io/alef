@@ -118,9 +118,8 @@ fn extract_trait_from_fixture_id(fixture_id: &str) -> Option<String> {
 
     // Validate that it's a known trait name
     match trait_name.as_str() {
-        "DocumentExtractor" | "EmbeddingBackend" | "OcrBackend" | "PostProcessor" | "Validator" | "Renderer" => {
-            Some(trait_name)
-        }
+        "DocumentExtractor" | "EmbeddingBackend" | "OcrBackend" | "PostProcessor" | "Validator" | "Renderer"
+        | "RerankerBackend" => Some(trait_name),
         _ => None,
     }
 }
