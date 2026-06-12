@@ -176,7 +176,7 @@ crate-type = ["staticlib", "lib"]
     // Makevars — tells R CMD INSTALL how to build the staticlib and link it.
     // Includes a binary-package target for CI: `make binary` produces {pkg_name}_{version}_{platform}.tgz
     //
-    // Downstream consumers (kreuzberg, etc.) may inject extra link flags via
+    // Downstream consumers may inject extra link flags via
     // `[crates.r] extra_makevars_prelude` and `extra_pkg_libs` — used when the
     // staticlib transitively dlopens a system library (e.g. libheif) that R CMD
     // INSTALL must also link against.

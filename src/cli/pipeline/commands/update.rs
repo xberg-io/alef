@@ -74,9 +74,6 @@ pub fn update(config: &ResolvedCrateConfig, languages: &[Language], latest: bool
     Ok(())
 }
 
-/// Run configured test commands for each language.
-///
-
 #[cfg(test)]
 mod dedupe_tests {
     use super::*;

@@ -148,7 +148,7 @@ pub(super) fn try_template_readme(
     ctx.insert("language", Value::from(lang_code.to_string()));
 
     // Expose the C# wrapper class name so templates can reference the actual class emitted
-    // by the C# backend (e.g. `HtmlToMarkdownRs.Convert(...)`) instead of hardcoding a
+    // by the C# backend (e.g. `SampleRs.Convert(...)`) instead of hardcoding a
     // crate-specific guess that drifts away from the generated bindings. Computed for every
     // language so multi-language templates that include C# examples work uniformly.
     ctx.insert(

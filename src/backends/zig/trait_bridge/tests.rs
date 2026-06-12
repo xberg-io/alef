@@ -171,16 +171,16 @@ fn single_method_trait_emits_vtable_and_register() {
 #[test]
 fn emit_trait_bridge_emits_clear_fn_when_configured() {
     let trait_def = make_trait_def(
-        "OcrBackend",
+        "PluginBackend",
         vec![make_method(
             "process",
             vec![make_param("input", TypeRef::String)],
             TypeRef::String,
-            Some("OcrError"),
+            Some("PluginError"),
         )],
     );
-    let mut bridge_cfg = make_bridge_cfg("OcrBackend", Some("sample_crate::plugins::Plugin"));
-    bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
+    let mut bridge_cfg = make_bridge_cfg("PluginBackend", Some("sample_crate::plugins::Plugin"));
+    bridge_cfg.clear_fn = Some("clear_plugin_backends".to_string());
 
     let mut out = String::new();
     emit_trait_bridge(
@@ -193,17 +193,17 @@ fn emit_trait_bridge_emits_clear_fn_when_configured() {
     );
 
     assert!(
-        out.contains("pub fn clear_ocr_backends() SampleCrateError!void"),
-        "missing clear_ocr_backends signature: {out}"
+        out.contains("pub fn clear_plugin_backends() SampleCrateError!void"),
+        "missing clear_plugin_backends signature: {out}"
     );
     // C symbol uses the singular trait-snake suffix to match sample_core-ffi naming.
     assert!(
-        out.contains("c.sample_crate_clear_ocr_backend(&_out_error)"),
+        out.contains("c.sample_crate_clear_plugin_backend(&_out_error)"),
         "wrong C symbol target for clear wrapper: {out}"
     );
     // Doc comment present.
     assert!(
-        out.contains("/// Remove ALL registered `OcrBackend` plugins"),
+        out.contains("/// Remove ALL registered `PluginBackend` plugins"),
         "missing clear doc comment: {out}"
     );
 }
@@ -211,15 +211,15 @@ fn emit_trait_bridge_emits_clear_fn_when_configured() {
 #[test]
 fn emit_trait_bridge_omits_clear_fn_when_not_configured() {
     let trait_def = make_trait_def(
-        "OcrBackend",
+        "PluginBackend",
         vec![make_method(
             "process",
             vec![make_param("input", TypeRef::String)],
             TypeRef::String,
-            Some("OcrError"),
+            Some("PluginError"),
         )],
     );
-    let bridge_cfg = make_bridge_cfg("OcrBackend", Some("sample_crate::plugins::Plugin"));
+    let bridge_cfg = make_bridge_cfg("PluginBackend", Some("sample_crate::plugins::Plugin"));
     // clear_fn left as None.
 
     let mut out = String::new();
@@ -241,26 +241,26 @@ fn emit_trait_bridge_omits_clear_fn_when_not_configured() {
 #[test]
 fn multi_method_trait_with_super_trait_emits_lifecycle_slots() {
     let trait_def = make_trait_def(
-        "OcrBackend",
+        "PluginBackend",
         vec![
             make_method(
-                "process_image",
+                "process_payload",
                 vec![
-                    make_param("image_bytes", TypeRef::Bytes),
+                    make_param("payload_bytes", TypeRef::Bytes),
                     make_param("config", TypeRef::String),
                 ],
                 TypeRef::String,
-                Some("OcrError"),
+                Some("PluginError"),
             ),
             make_method(
-                "supports_language",
-                vec![make_param("lang", TypeRef::String)],
+                "supports_mode",
+                vec![make_param("mode", TypeRef::String)],
                 TypeRef::Primitive(PrimitiveType::Bool),
                 None,
             ),
         ],
     );
-    let bridge_cfg = make_bridge_cfg("OcrBackend", Some("sample_crate::plugins::Plugin"));
+    let bridge_cfg = make_bridge_cfg("PluginBackend", Some("sample_crate::plugins::Plugin"));
 
     let mut out = String::new();
     emit_trait_bridge(
@@ -274,7 +274,7 @@ fn multi_method_trait_with_super_trait_emits_lifecycle_slots() {
 
     // Struct name
     assert!(
-        out.contains("pub const IOcrBackend = extern struct {"),
+        out.contains("pub const IPluginBackend = extern struct {"),
         "missing vtable: {out}"
     );
     // Plugin lifecycle slots emitted
@@ -283,14 +283,11 @@ fn multi_method_trait_with_super_trait_emits_lifecycle_slots() {
     assert!(out.contains("initialize_fn:"), "missing initialize_fn: {out}");
     assert!(out.contains("shutdown_fn:"), "missing shutdown_fn: {out}");
     // Trait method slots
-    assert!(out.contains("process_image:"), "missing process_image slot: {out}");
-    assert!(
-        out.contains("supports_language:"),
-        "missing supports_language slot: {out}"
-    );
+    assert!(out.contains("process_payload:"), "missing process_payload slot: {out}");
+    assert!(out.contains("supports_mode:"), "missing supports_mode slot: {out}");
     // Bytes param expands to ptr + len
-    assert!(out.contains("image_bytes_ptr:"), "missing bytes ptr expansion: {out}");
-    assert!(out.contains("image_bytes_len:"), "missing bytes len expansion: {out}");
+    assert!(out.contains("payload_bytes_ptr:"), "missing bytes ptr expansion: {out}");
+    assert!(out.contains("payload_bytes_len:"), "missing bytes len expansion: {out}");
     // Fallible method gets out_error
     assert!(
         out.contains("out_error:"),
@@ -298,17 +295,17 @@ fn multi_method_trait_with_super_trait_emits_lifecycle_slots() {
     );
     // C symbols use sample_core prefix
     assert!(
-        out.contains("c.sample_crate_register_ocr_backend("),
+        out.contains("c.sample_crate_register_plugin_backend("),
         "wrong register symbol: {out}"
     );
     assert!(
-        out.contains("c.sample_crate_unregister_ocr_backend("),
+        out.contains("c.sample_crate_unregister_plugin_backend("),
         "wrong unregister symbol: {out}"
     );
     // Registration shim signature
     assert!(
-        out.contains("pub fn register_ocr_backend("),
-        "missing register_ocr_backend fn: {out}"
+        out.contains("pub fn register_plugin_backend("),
+        "missing register_plugin_backend fn: {out}"
     );
 }
 
@@ -366,8 +363,8 @@ fn make_vtable_emits_comptime_function_and_thunk() {
 
 #[test]
 fn make_vtable_with_super_trait_emits_lifecycle_stubs() {
-    let trait_def = make_trait_def("OcrBackend", vec![]);
-    let bridge_cfg = make_bridge_cfg("OcrBackend", Some("sample_crate::Plugin"));
+    let trait_def = make_trait_def("PluginBackend", vec![]);
+    let bridge_cfg = make_bridge_cfg("PluginBackend", Some("sample_crate::Plugin"));
 
     let mut out = String::new();
     emit_trait_bridge(
@@ -380,8 +377,8 @@ fn make_vtable_with_super_trait_emits_lifecycle_stubs() {
     );
 
     assert!(
-        out.contains("pub fn make_ocr_backend_vtable(comptime T: type, instance: *T)"),
-        "missing make_ocr_backend_vtable: {out}"
+        out.contains("pub fn make_plugin_backend_vtable(comptime T: type, instance: *T)"),
+        "missing make_plugin_backend_vtable: {out}"
     );
     assert!(out.contains(".name_fn ="), "missing .name_fn stub: {out}");
     assert!(out.contains(".version_fn ="), "missing .version_fn stub: {out}");
@@ -505,9 +502,9 @@ fn make_spec<'a>(trait_def: &'a TypeDef, bridge_cfg: &'a TraitBridgeConfig) -> T
 
 #[test]
 fn gen_unregistration_fn_emits_wrapper_when_configured() {
-    let trait_def = make_trait_def("OcrBackend", vec![]);
-    let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
-    bridge_cfg.unregister_fn = Some("unregister_ocr_backend".to_string());
+    let trait_def = make_trait_def("PluginBackend", vec![]);
+    let mut bridge_cfg = make_bridge_cfg("PluginBackend", None);
+    bridge_cfg.unregister_fn = Some("unregister_plugin_backend".to_string());
 
     let generator = ZigTraitBridgeGenerator::new("sample_crate");
     let spec = make_spec(&trait_def, &bridge_cfg);
@@ -515,11 +512,11 @@ fn gen_unregistration_fn_emits_wrapper_when_configured() {
 
     assert!(!out.is_empty(), "expected non-empty output when unregister_fn is set");
     assert!(
-        out.contains("pub fn unregister_ocr_backend("),
+        out.contains("pub fn unregister_plugin_backend("),
         "wrong function name: {out}"
     );
     assert!(
-        out.contains("c.sample_crate_unregister_ocr_backend("),
+        out.contains("c.sample_crate_unregister_plugin_backend("),
         "wrong C symbol: {out}"
     );
     assert!(
@@ -532,8 +529,8 @@ fn gen_unregistration_fn_emits_wrapper_when_configured() {
 
 #[test]
 fn gen_unregistration_fn_returns_empty_when_not_configured() {
-    let trait_def = make_trait_def("OcrBackend", vec![]);
-    let bridge_cfg = make_bridge_cfg("OcrBackend", None); // unregister_fn is None
+    let trait_def = make_trait_def("PluginBackend", vec![]);
+    let bridge_cfg = make_bridge_cfg("PluginBackend", None); // unregister_fn is None
 
     let generator = ZigTraitBridgeGenerator::new("sample_crate");
     let spec = make_spec(&trait_def, &bridge_cfg);
@@ -547,18 +544,21 @@ fn gen_unregistration_fn_returns_empty_when_not_configured() {
 
 #[test]
 fn gen_clear_fn_emits_wrapper_when_configured() {
-    let trait_def = make_trait_def("OcrBackend", vec![]);
-    let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
-    bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
+    let trait_def = make_trait_def("PluginBackend", vec![]);
+    let mut bridge_cfg = make_bridge_cfg("PluginBackend", None);
+    bridge_cfg.clear_fn = Some("clear_plugin_backends".to_string());
 
     let generator = ZigTraitBridgeGenerator::new("sample_crate");
     let spec = make_spec(&trait_def, &bridge_cfg);
     let out = generator.gen_clear_fn(&spec);
 
     assert!(!out.is_empty(), "expected non-empty output when clear_fn is set");
-    assert!(out.contains("pub fn clear_ocr_backends("), "wrong function name: {out}");
     assert!(
-        out.contains("c.sample_crate_clear_ocr_backends("),
+        out.contains("pub fn clear_plugin_backends("),
+        "wrong function name: {out}"
+    );
+    assert!(
+        out.contains("c.sample_crate_clear_plugin_backends("),
         "wrong C symbol: {out}"
     );
     assert!(
@@ -571,8 +571,8 @@ fn gen_clear_fn_emits_wrapper_when_configured() {
 
 #[test]
 fn gen_clear_fn_returns_empty_when_not_configured() {
-    let trait_def = make_trait_def("OcrBackend", vec![]);
-    let bridge_cfg = make_bridge_cfg("OcrBackend", None); // clear_fn is None
+    let trait_def = make_trait_def("PluginBackend", vec![]);
+    let bridge_cfg = make_bridge_cfg("PluginBackend", None); // clear_fn is None
 
     let generator = ZigTraitBridgeGenerator::new("sample_crate");
     let spec = make_spec(&trait_def, &bridge_cfg);

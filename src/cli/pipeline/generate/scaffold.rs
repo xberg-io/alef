@@ -33,7 +33,7 @@ pub fn readme(
 /// Pass `overwrite = true` (e.g. via `--clean`) to force-write all files.
 ///
 /// Files that carry the alef header marker (regenerated bindings, READMEs)
-/// will receive their `alef:hash:` line later via [`finalize_hashes`] —
+/// will receive their `alef:hash:` line later via [`super::write::finalize_hashes`] —
 /// scaffold files without the marker (Cargo.toml templates, composer.json,
 /// gemspec) pass through unchanged.
 pub fn write_scaffold_files(files: &[GeneratedFile], base_dir: &Path) -> anyhow::Result<usize> {

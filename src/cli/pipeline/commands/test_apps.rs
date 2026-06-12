@@ -291,10 +291,6 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
     Ok(())
 }
 
-/// Build language bindings using configured build commands.
-///
-/// Uses configurable per-language build commands from `[build_commands.<lang>]`
-
 #[cfg(all(test, unix))]
 mod test_apps_run_tests {
     // POSIX-only: relies on the shell builtins `true`/`false` to drive

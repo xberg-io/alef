@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 /// Configuration for the dedicated Kotlin/Android backend (`alef-backend-kotlin-android`).
 ///
-/// Distinct from [`KotlinConfig`] (Kotlin/JVM). When a crate targets the
+/// Distinct from [`crate::core::config::languages::KotlinConfig`] (Kotlin/JVM). When a crate targets the
 /// `kotlin_android` language slug, this struct controls the emitted
 /// `build.gradle.kts`, `AndroidManifest.xml`, namespace, Maven publish
 /// coordinates, ABI list, and the bundled Java facade emitted into

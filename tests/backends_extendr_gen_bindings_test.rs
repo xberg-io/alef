@@ -1675,6 +1675,8 @@ mod trait_bridge {
             rename_fields: Default::default(),
             run_wrapper: None,
             extra_lint_paths: vec![],
+            extra_makevars_prelude: vec![],
+            extra_pkg_libs: vec![],
         });
 
         let generated_bindings = backend.generate_bindings(&api, &config).unwrap();

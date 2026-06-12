@@ -118,10 +118,6 @@ pub fn fmt_post_generate(config: &ResolvedCrateConfig, languages: &[Language]) {
     }
 }
 
-/// Deduplicate command strings across language plans, preserving within-language order.
-///
-/// The first language claiming a command owns it; subsequent languages with the same
-
 #[cfg(all(test, unix))]
 mod fmt_post_generate_tests {
     // Tests in this module rely on `sh -c` and the POSIX `true`/`false`
