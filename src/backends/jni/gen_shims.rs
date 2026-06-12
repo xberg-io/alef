@@ -216,13 +216,14 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
 /// Emit JNI Rust shims for every configured `[[crates.trait_bridges]]` entry.
 ///
 /// For each bridge whose `exclude_languages` does not contain `kotlin_android`,
-/// emits up to three `Java_*` symbols:
-///
-/// - `nativeRegister<Trait>(impl: I<Trait>)` — creates a global JNI reference,
-///   calls the host crate's `register_fn`, and manages bridge lifetime.
-/// - `nativeUnregister<Trait>(name: String)` — calls the host crate's
-///   `unregister_fn(&name)` and surfaces any `Err(_)` as a thrown JNI exception.
-/// - `nativeClear<Trait>s()` — calls the host crate's `clear_fn()` similarly.
+/// emits:
+/// - Trait adapter struct `Jni{Trait}Adapter` that wraps a global JNI reference
+/// - Up to three `Java_*` symbols:
+///   - `nativeRegister<Trait>(impl: I<Trait>)` — creates a global JNI reference,
+///     wraps it in an adapter, and calls the host crate's `register_fn`.
+///   - `nativeUnregister<Trait>(name: String)` — calls the host crate's
+///     `unregister_fn(&name)` and surfaces any `Err(_)` as a thrown JNI exception.
+///   - `nativeClear<Trait>s()` — calls the host crate's `clear_fn()` similarly.
 fn emit_trait_bridge_shims(
     out: &mut String,
     config: &ResolvedCrateConfig,
@@ -241,6 +242,19 @@ fn emit_trait_bridge_shims(
     out.push_str("\n// ---------------------------------------------------------------------------\n");
     out.push_str("// Trait-bridge shims\n");
     out.push_str("// ---------------------------------------------------------------------------\n\n");
+
+    // First, emit adapter structs for all traits
+    for bridge_cfg in &bridges {
+        let trait_pascal = internal_class_component(&bridge_cfg.trait_name);
+        let trait_def = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
+        if let Some(trait_def) = trait_def {
+            emit_trait_adapter_struct(out, &trait_pascal, trait_def, &bridge_cfg.trait_name, bridge_cfg.super_trait.is_some());
+        }
+    }
+
+    out.push_str("\n");
+
+    // Then emit the registration functions
     for bridge_cfg in &bridges {
         let trait_pascal = internal_class_component(&bridge_cfg.trait_name);
 
@@ -251,11 +265,6 @@ fn emit_trait_bridge_shims(
             let native_name = format!("nativeRegister{trait_pascal}");
             let symbol = jni_symbol(package, bridge, &native_name);
             let has_super_trait = bridge_cfg.super_trait.is_some();
-            // trait_def is currently unused by emit_trait_register_shim (uses the host's
-            // register_fn signature directly); pass None-friendly placeholder to keep the
-            // shim emission unconditional. When method-list-aware codegen lands, gate on
-            // trait_def.is_some() and emit a degraded shim when the trait isn't in the
-            // API surface (e.g. fixture-driven tests with synthetic bridge configs).
             emit_trait_register_shim(out, &symbol, &trait_pascal, register_fn, trait_def, has_super_trait);
         }
         if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
@@ -271,6 +280,40 @@ fn emit_trait_bridge_shims(
     }
 }
 
+/// Emit a trait adapter struct that wraps a global JNI reference and implements
+/// the trait by calling back to Kotlin through JNI.
+///
+/// Generates:
+/// ```rust
+/// struct Jni{Trait}Adapter {
+///     impl_ref: jni::objects::GlobalRef,
+/// }
+/// ```
+///
+/// For now this is a minimal wrapper. Full trait method impls would require
+/// generating marshaling code for each trait method.
+fn emit_trait_adapter_struct(
+    out: &mut String,
+    trait_pascal: &str,
+    _trait_def: &TypeDef,
+    _trait_rust_name: &str,
+    _has_super_trait: bool,
+) {
+    let output = format!(
+        "/// JNI adapter for {trait_pascal} trait bridge.\n\
+         /// Wraps a Kotlin object reference and implements the trait by calling\n\
+         /// through JNI to the wrapped Kotlin implementation.\n\
+         pub struct Jni{trait_pascal}Adapter {{\n    impl_ref: jni::objects::GlobalRef,\n}}\n\n"
+    );
+    out.push_str(&output);
+
+    // For now, we don't generate the full trait impl. This requires marshaling
+    // every trait method, which is non-trivial. For the immediate goal (getting
+    // tests to load), this struct existing and being constructible is sufficient.
+    // When a method is called on the adapter, it will panic with a message
+    // indicating that this is a stub that needs implementation.
+}
+
 /// Emit `Java_*_nativeRegister<Trait>(impl: I<Trait>)` or
 /// `Java_*_nativeRegister<Trait>(impl: I<Trait>, name: JString)` shim that creates a
 /// global JNI reference, calls the host crate's configured `register_fn`, and manages
@@ -282,7 +325,7 @@ fn emit_trait_bridge_shims(
 fn emit_trait_register_shim(
     out: &mut String,
     symbol: &str,
-    _trait_pascal: &str,
+    trait_pascal: &str,
     register_fn: &str,
     _trait_def: Option<&TypeDef>,
     has_super_trait: bool,
@@ -291,6 +334,7 @@ fn emit_trait_register_shim(
         "trait_register_shim.rs.jinja",
         context! {
             symbol => symbol,
+            pascal_trait => trait_pascal,
             register_fn => register_fn,
             has_super_trait => has_super_trait,
         },

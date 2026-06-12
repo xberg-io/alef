@@ -24,6 +24,15 @@ pub(crate) fn emit_type_with_imports(
         return;
     }
 
+    // Filter out fields marked as binding_excluded (e.g., #[cfg_attr(alef, alef(skip))]).
+    // These fields should not appear in the generated Kotlin data class.
+    let visible_fields: Vec<(usize, &crate::core::ir::FieldDef)> = ty
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.binding_excluded)
+        .collect();
+
     // Pre-compute the per-field JsonSerialize annotation needed when the
     // declared field type references a sealed class.  Jackson dispatches
     // serializers by RUNTIME type, so a `data class Parent(val foo: Sealed)`
@@ -40,19 +49,19 @@ pub(crate) fn emit_type_with_imports(
     // constructor parameter) because Kotlin defaults annotations on primary
     // constructor parameters to the parameter use-site, but Jackson reads
     // field-level annotations.  Hence the `@field:` site target.
-    let field_sealed_annotations: Vec<Option<String>> = ty
-        .fields
+    // Only compute for visible fields.
+    let field_sealed_annotations: Vec<Option<String>> = visible_fields
         .iter()
-        .map(|f| sealed_class_field_annotation(&f.ty, sealed_class_names))
+        .map(|(_, f)| sealed_class_field_annotation(&f.ty, sealed_class_names))
         .collect();
 
     // Pre-build field strings so we can apply the ktfmt single-line heuristic
     // before committing to an emission style. Field-level KDoc or @JsonProperty
     // annotations force multi-line because they cannot be inlined inside a
     // constructor parameter list.
-    let has_field_docs = ty.fields.iter().any(|f| !f.doc.is_empty());
-    let has_field_annotations =
-        ty.fields.iter().any(|f| f.serde_rename.is_some()) || field_sealed_annotations.iter().any(Option::is_some);
+    let has_field_docs = visible_fields.iter().any(|(_, f)| !f.doc.is_empty());
+    let has_field_annotations = visible_fields.iter().any(|(_, f)| f.serde_rename.is_some())
+        || field_sealed_annotations.iter().any(Option::is_some);
     // Detect `#[serde(flatten)]` fields. In Rust these collect all unknown
     // wire fields into a value (often `serde_json::Value` or `HashMap`); Kotlin
     // has no native equivalent. As a pragmatic mitigation, treat the flatten
@@ -61,12 +70,12 @@ pub(crate) fn emit_type_with_imports(
     // tolerates the unknown sibling keys that Rust would have absorbed.
     // Note: this is lossy — the flatten contents aren't actually captured in
     // the Kotlin struct, but the deserialiser no longer fails outright.
-    let has_flatten_field = ty.fields.iter().any(|f| f.serde_flatten);
+    let has_flatten_field = visible_fields.iter().any(|(_, f)| f.serde_flatten);
 
-    let mut field_strings: Vec<String> = Vec::with_capacity(ty.fields.len());
-    for (idx, field) in ty.fields.iter().enumerate() {
+    let mut field_strings: Vec<String> = Vec::with_capacity(visible_fields.len());
+    for (original_idx, field) in visible_fields.iter() {
         let ty_str = kotlin_type_with_string_imports(&field.ty, field.optional, imports);
-        let name = kotlin_field_name(&field.name, idx);
+        let name = kotlin_field_name(&field.name, *original_idx);
         // Append a Kotlin default for fields whose underlying Rust type has a
         // natural empty value. Rust serializers commonly skip Default-valued
         // collections (`#[serde(skip_serializing_if = "...")]`) or skip a
@@ -125,7 +134,7 @@ pub(crate) fn emit_type_with_imports(
                 prefix => prefix,
             },
         ));
-        for (idx, (field, field_str)) in ty.fields.iter().zip(field_strings.iter()).enumerate() {
+        for (idx, ((_, field), field_str)) in visible_fields.iter().zip(field_strings.iter()).enumerate() {
             emit_cleaned_kdoc(out, &field.doc, "    ");
             // Emit @JsonProperty when the Rust field carries #[serde(rename = "...")]
             // so Jackson maps the wire key to the Kotlin camelCase property name.
