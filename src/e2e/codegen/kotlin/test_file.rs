@@ -15,10 +15,45 @@ pub(super) fn resolve_handle_config_type(
     if arg.arg_type != "handle" {
         return None;
     }
-    options_type.map(str::to_string).or_else(|| {
-        let candidate = format!("{}Config", arg.name.to_upper_camel_case());
-        type_defs.iter().any(|ty| ty.name == candidate).then_some(candidate)
-    })
+    // Explicit options_type override takes priority.
+    if let Some(opts) = options_type {
+        return Some(opts.to_string());
+    }
+
+    // Fallback: try to match the arg.field (e.g., "input.config") against known type names.
+    // This handles cases where the parameter name is "config" but the actual type is different.
+    let field_name = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+
+    // Try exact match first (e.g., "ExtractionConfig" if field is "extraction_config")
+    let candidate_from_field = field_name.to_upper_camel_case();
+    if type_defs.iter().any(|ty| ty.name == candidate_from_field) {
+        return Some(candidate_from_field);
+    }
+
+    // For fields containing "config", check for "{prefix}Config" pattern.
+    if field_name.contains("config") {
+        // First try the derived "{field}Config" pattern
+        let candidate = format!("{}Config", field_name.to_upper_camel_case());
+        if type_defs.iter().any(|ty| ty.name == candidate) {
+            return Some(candidate);
+        }
+
+        // For generic "config" field, look for any available config type in type_defs
+        // that ends with "Config" and use the first match (alphabetically sorted for stability).
+        if field_name == "config" {
+            let mut config_types: Vec<_> = type_defs
+                .iter()
+                .filter(|ty| ty.name.ends_with("Config"))
+                .map(|ty| ty.name.clone())
+                .collect();
+            config_types.sort();
+            if let Some(found) = config_types.first() {
+                return Some(found.clone());
+            }
+        }
+    }
+
+    None
 }
 
 #[allow(clippy::too_many_arguments)]
