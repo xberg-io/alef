@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`alef generate` no longer deletes umbrella binding-crate manifests during the orphan-cleanup pass.** `bin_cli/core_commands.rs::generate` was building `current_gen_paths` from generator outputs only (bindings, service API, public API, stubs). Scaffold outputs — `crates/<name>-{ffi,jni,php,...}/Cargo.toml`, `composer.json`, `<crate>.gemspec`, etc. — are owned by `alef scaffold`, but they carry `alef:hash:` headers, so `cleanup_orphaned_files` treated them as orphans and removed every umbrella `Cargo.toml` on every plain `alef generate`. Cargo workspaces that listed the umbrella as a member then failed to load (`failed to load manifest for workspace member crates/<name>-jni`) until the consumer re-ran `alef scaffold`. Fix: call `pipeline::scaffold(...)` from inside `generate`, register each emitted file's destination in `current_gen_paths`, and only then run cleanup. Scaffold output remains write-controlled by `alef scaffold` — `generate` only consults the path list so cleanup respects scaffold-owned files. (This was described in the v0.24.12 release notes but not actually shipped.)
+
 ## [0.24.12] - 2026-06-12
 
 ### Fixed

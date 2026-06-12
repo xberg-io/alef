@@ -248,6 +248,24 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     }
                 }
 
+                // Register scaffold output paths as expected outputs so the orphan
+                // cleanup pass below does not delete files emitted by `alef scaffold`
+                // (Cargo.toml/composer.json/gemspec/...). Scaffold is owned by its own
+                // command, but its outputs carry `alef:hash:` headers — without this
+                // registration the cleanup walker treats them as orphans and deletes
+                // them on every `alef generate`, breaking `cargo metadata` for umbrella
+                // crates like `crates/<name>-jni/` until the next `alef scaffold` run.
+                match pipeline::scaffold(&api, resolved_cfg, &languages) {
+                    Ok(scaffold_files) => {
+                        for file in &scaffold_files {
+                            current_gen_paths.insert(base_dir.join(&file.path));
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("warning: failed to enumerate scaffold paths for cleanup safety: {err}");
+                    }
+                }
+
                 if let Ok(removed) = pipeline::cleanup_orphaned_files(&current_gen_paths) {
                     if removed > 0 {
                         eprintln!("Removed {removed} stale alef-generated file(s)");
