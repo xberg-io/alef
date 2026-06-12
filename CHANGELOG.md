@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Swift backend: async functions returning Vec<FirstClassDTO> now JSON-encode to cross Task.detached boundary.** When an async free function or method returns `Vec<FirstClassDTO>` (where FirstClassDTO is a Codable, Sendable struct), the return type cannot cross the `Task.detached` boundary as an opaque handle because opaque swift-bridge classes are not Sendable. The fix: (1) on the Rust side, JSON-encode `Vec<Named>` returns from async functions (via `needs_json_bridge`), and (2) on the Swift side, detect first-class DTO vectors and emit JSON-decode paths instead of opaque-handle iteration. The async forwarder now checks if the return is `Vec<FirstClassDTO>` and decodes from JSON; the Rust wrapper always JSON-encodes `Vec<Named>` in async functions. Fixes "type 'RerankedDocument' does not conform to the 'Sendable' protocol" error in Swift e2e tests for `rerankAsync`, `listEmbeddingPresetsAsync`, and other async functions returning dto vectors.
+
 ## [0.24.9] - 2026-06-12
 
 ### Fixed

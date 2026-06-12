@@ -218,10 +218,14 @@ pub fn default_test_apps_run_config(
         Language::Zig => TestAppRunConfig {
             // At release time, build.zig.zon is generated with `.url` but no `.hash` field
             // because the network fetch fails (published tarballs don't yet exist). After
-            // release, the tarballs are live on GitHub. This command runs `zig fetch --save=<dep_name>`
-            // for each dependency to populate the `.hash` field, then runs `zig build test`.
-            // We extract (dep_name, url) pairs by normalizing the file to single lines per block,
-            // then parse each dependency section for its .url field.
+            // release, the tarballs are live on GitHub. We need to populate the `.hash`
+            // field of each dependency.
+            //
+            // `zig fetch --save=<dep>` silently no-ops when the dep entry already exists
+            // (it warns "overwriting existing dependency named X" but does NOT actually
+            // overwrite the file). So we use plain `zig fetch <url>` (no --save) which
+            // prints the computed hash to stdout, and we inject it into build.zig.zon
+            // ourselves via Python.
             //
             // Cache cleanup: `zig-pkg/` (per-test-app global cache) and `.zig-cache/`
             // (per-build cache) carry stale per-version directories from prior rcs whose
@@ -231,15 +235,18 @@ pub fn default_test_apps_run_config(
             precondition: Some(require_tool("zig")),
             before: None,
             run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/zig && \
-                rm -rf zig-pkg .zig-cache && \
-                cat build.zig.zon | tr '\\n' ' ' | sed 's/}}, */}}\\n/g' | \
-                while read block; do \
-                  dep=$(echo \"$block\" | sed -n 's/.*\\.\\([a-z_0-9]*\\) *= *\\.{{.*/\\1/p'); \
-                  url=$(echo \"$block\" | sed -n 's/.*\\.url *= *\"\\([^\"]*\\)\".*/\\1/p'); \
-                  [ -n \"$dep\" ] && [ -n \"$url\" ] && zig fetch --save=\"$dep\" \"$url\" 2>&1 | grep -v 'overwriting' || true; \
-                done && \
-                zig build test"
+                r#"cd {test_apps_dir}/zig && rm -rf zig-pkg .zig-cache && python3 - <<'PYEOF'
+import pathlib, re, subprocess
+zon = pathlib.Path('build.zig.zon')
+content = zon.read_text()
+deps = re.findall(r'\.([a-z_0-9]+)\s*=\s*\.\{{[^}}]*?\.url\s*=\s*"([^"]+)"', content, re.DOTALL)
+for name, url in deps:
+    h = subprocess.run(['zig', 'fetch', url], capture_output=True, text=True, check=True).stdout.strip()
+    pat = re.compile(r'(\.' + re.escape(name) + r'\s*=\s*\.\{{[^}}]*?\.url\s*=\s*"' + re.escape(url) + r'",)(\s*\n)(\s*)', re.DOTALL)
+    content = pat.sub(lambda m: m.group(1) + m.group(2) + m.group(3) + '.hash = "' + h + '",\n' + m.group(3), content, count=1)
+zon.write_text(content)
+PYEOF
+zig build test"#
             ))),
         },
         Language::Gleam => TestAppRunConfig {
@@ -528,15 +535,16 @@ mod tests {
         let c = cfg(Language::Zig, "test_apps");
         let run = c.run.unwrap().commands().join(" ");
         assert!(run.contains("cd test_apps/zig"), "got: {run}");
-        assert!(run.contains("zig fetch --save"), "got: {run}");
+        assert!(run.contains("python3"), "got: {run}");
+        assert!(run.contains("zig fetch"), "got: {run}");
         assert!(run.contains("zig build test"), "got: {run}");
-        // `zig fetch --save` must precede `zig build test` so the placeholder hash
-        // in build.zig.zon is resolved before the build runs.
-        let fetch_idx = run.find("zig fetch --save").unwrap();
+        // `zig fetch` (hash population via Python injection) must precede `zig build test`
+        // so the placeholder hash in build.zig.zon is resolved before the build runs.
+        let fetch_idx = run.find("zig fetch").unwrap();
         let build_idx = run.find("zig build test").unwrap();
         assert!(
             fetch_idx < build_idx,
-            "zig fetch --save must run before zig build test, got: {run}"
+            "zig fetch must run before zig build test, got: {run}"
         );
     }
 
