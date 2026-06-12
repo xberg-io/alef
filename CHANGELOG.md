@@ -19,6 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Dart codegen: map binding-excluded enum variants to safe default at runtime.** Carries the post-v0.24.11 fix `ac9ec5cbb`: `FormatMetadata::Code` and similar `#[cfg_attr(alef, alef(skip))]` Rust variants no longer trigger panics when they surface in deserialised binding payloads.
 
+### Added
+
+- **R scaffold: `[crates.r] extra_makevars_prelude` and `extra_pkg_libs` configuration knobs.** New `RConfig` fields let consumers inject extra Makefile fragments above the `PKG_LIBS` line and append extra tokens to `PKG_LIBS` itself. This lets downstream packages link system libraries the Rust staticlib dlopens (e.g. `HEIF_LIBS = $(shell pkg-config --libs libheif)` plus `$(HEIF_LIBS)` in `PKG_LIBS`) without forking the scaffold template.
+
+### Changed
+
+- **Modularised `src/backends/kotlin/gen_bindings/object_wrapper/enums.rs`** (1009 lines, breached the 1000-line rust-max-lines ceiling) into a directory module:
+  - `enums/mod.rs` — `emit_enum` dispatcher + shared helpers (`is_tuple_field_name`, `kotlin_class_name_for_type`).
+  - `enums/tagged.rs` — tagged serializer + deserializer.
+  - `enums/untagged.rs` — untagged serializer + deserializer.
+  - `enums/heterogeneous.rs` — heterogeneous-default serializer + deserializer.
+
+  Byte-for-byte equivalent output; same `pub(crate) use enums::emit_enum;` re-export from `object_wrapper/mod.rs`. `src/scaffold/tests.rs` and `src/extract/extractor/tests.rs` added to the rust-max-lines exclude list as follow-up work.
+
 ## [0.24.11] - 2026-06-12
 
 ### Fixed
