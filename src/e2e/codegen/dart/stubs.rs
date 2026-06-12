@@ -205,6 +205,14 @@ pub(super) fn emit_dart_default_for_type(
             }
         }
     }
+    // When return type is Optional<Float64List>, unwrap and return Float64List.fromList([])
+    if let TypeRef::Optional(inner) = ty {
+        if let TypeRef::Named(name) = inner.as_ref() {
+            if name == "Float64List" {
+                return "Float64List.fromList([])".to_string();
+            }
+        }
+    }
 
     // Map internal-only types to the opaque bridge carrier for default generation.
     let effective_ty = match ty {

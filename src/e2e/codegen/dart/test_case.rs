@@ -234,19 +234,14 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                 } else {
                     let json_str = serde_json::to_string(&config_value).unwrap_or_default();
                     let config_var = format!("{name}Config");
-                    // Derive the createFromJson function name: "config" → "createConfigFromJson",
-                    // "engine" → "createEngineFromJson", etc. FRB-generated free function
-                    // deserializes JSON into the config struct via the Rust `create_<type>_from_json`
-                    // helper emitted by the dart backend. This avoids relying on a Dart-side `fromJson`
-                    // constructor (FRB classes don't expose one).
-                    let create_from_json_fn = {
-                        let mut chars = name.chars();
-                        let pascal = match chars.next() {
-                            None => String::new(),
-                            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                        };
-                        format!("create{pascal}FromJson")
-                    };
+                    // Derive the createFromJson function name from the config TYPE, not the handle name.
+                    // E.g., for ExtractionConfig → "createExtractionConfigFromJson",
+                    // for RerankerConfig → "createRerankerConfigFromJson", etc.
+                    // FRB-generated free function deserializes JSON into the config struct via the
+                    // Rust `create_<type>_from_json` helper emitted by the dart backend.
+                    // This avoids relying on a Dart-side `fromJson` constructor (FRB classes don't expose one).
+                    let config_type_name = call_recipe.handle_config_type(arg_def).unwrap_or(&arg_def.name);
+                    let create_from_json_fn = type_name_to_create_from_json_dart(config_type_name);
                     setup_lines.push(format!(
                         "final {config_var} = await {create_from_json_fn}(json: r'{json_str}');"
                     ));

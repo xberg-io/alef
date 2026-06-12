@@ -410,6 +410,15 @@ pub(super) fn emit_module_kt(
         body.push_str("        .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)\n\n");
     }
 
+    // Pre-compute all method names to detect potential async-naming collisions.
+    // If a sync method's suspend wrapper would be named the same as an async method,
+    // we'll skip the wrapper to avoid overload conflicts.
+    let all_async_method_names: std::collections::HashSet<String> = visible_functions
+        .iter()
+        .filter(|f| f.name.ends_with("_async"))
+        .map(|f| to_lower_camel(&f.name))
+        .collect();
+
     for f in &visible_functions {
         emit_kdoc_pub(&mut body, &f.doc, "    ");
         let method_name = to_lower_camel(&f.name);
@@ -510,9 +519,14 @@ pub(super) fn emit_module_kt(
             matches!(&f.return_type, crate::core::ir::TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
 
         // Detect if the method name already indicates async (e.g. rerankAsync from
-        // Rust's rerank_async). Skip suspend wrapper generation in this case to avoid
-        // the awkward rerankAsyncAsync name and overload conflict with the sync version.
+        // Rust's rerank_async). For these, emit only as suspend function to avoid
+        // overload conflicts; the Rust function is already async, so no sync wrapper.
         let method_name_already_async = method_name.ends_with("Async");
+        // Also check if a sync method's suspend wrapper would collide with an async method.
+        // E.g. sync rerank's wrapper would be rerankAsync, which collides with rerank_async.
+        let suspend_wrapper_name = format!("{}Async", method_name);
+        let suspend_wrapper_would_collide =
+            !method_name_already_async && all_async_method_names.contains(&suspend_wrapper_name);
 
         if returns_dto || returns_generic_container || returns_opaque || needs_jackson {
             // Suppress unused-warning on the legacy DTO-list flag — it remains
@@ -525,29 +539,51 @@ pub(super) fn emit_module_kt(
                     crate::core::ir::TypeRef::Named(n) => n.clone(),
                     _ => unreachable!(),
                 };
-                body.push_str(&template_env::render(
-                    "android_facade_dto_method.jinja",
-                    minijinja::context! {
-                        method_name => method_name,
-                        params => params_str,
-                        return_type => return_ty,
-                        bridge_call => bridge_call,
-                        return_class => return_class,
-                    },
-                ));
-                // Emit the suspend companion variant only if the method name doesn't
-                // already indicate async (no rerankAsyncAsync).
+                // Only emit the sync wrapper if the method name doesn't already
+                // indicate async. For async-named methods, emit only the suspend variant.
                 if !method_name_already_async {
-                    emit_kdoc_pub(&mut body, &f.doc, "    ");
                     body.push_str(&template_env::render(
-                        "android_facade_async_method.jinja",
+                        "android_facade_dto_method.jinja",
                         minijinja::context! {
                             method_name => method_name,
                             params => params_str,
                             return_type => return_ty,
-                            args => call_args,
+                            bridge_call => bridge_call,
+                            return_class => return_class,
                         },
                     ));
+                }
+                // Emit the suspend variant. For async-named functions, it's the only
+                // method; for sync-named functions, it wraps the sync version above
+                // (unless the wrapper name would collide).
+                if !suspend_wrapper_would_collide {
+                    emit_kdoc_pub(&mut body, &f.doc, "    ");
+                    if method_name_already_async {
+                        // For async-named functions, emit suspend with direct JNI call
+                        body.push_str("    suspend fun ");
+                        body.push_str(&method_name);
+                        body.push('(');
+                        body.push_str(&params_str);
+                        body.push_str("): ");
+                        body.push_str(&return_ty);
+                        body.push_str(" = withContext(Dispatchers.IO) { ");
+                        body.push_str("val resultJson = ");
+                        body.push_str(&bridge_call);
+                        body.push_str("; mapper.readValue(resultJson, ");
+                        body.push_str(&return_class);
+                        body.push_str("::class.java) }\n");
+                    } else {
+                        // For sync-named functions, emit suspend wrapper around sync version
+                        body.push_str(&template_env::render(
+                            "android_facade_async_method.jinja",
+                            minijinja::context! {
+                                method_name => method_name,
+                                params => params_str,
+                                return_type => return_ty,
+                                args => call_args,
+                            },
+                        ));
+                    }
                 }
             } else if returns_generic_container {
                 // Generic container return: Kotlin disallows generic type
@@ -557,29 +593,49 @@ pub(super) fn emit_module_kt(
                 // `List<MyDto>?` — `render_kotlin_type` handles every Vec /
                 // Map / Option permutation recursively).
                 let type_ref_body = render_kotlin_type(&f.return_type, &opaque_type_names);
-                body.push_str(&template_env::render(
-                    "android_facade_generic_method.jinja",
-                    minijinja::context! {
-                        method_name => method_name,
-                        params => params_str,
-                        return_type => return_ty,
-                        bridge_call => bridge_call,
-                        type_ref_body => type_ref_body,
-                    },
-                ));
-                // Emit the suspend companion variant only if the method name doesn't
-                // already indicate async.
+                // Only emit the sync wrapper if the method name doesn't already
+                // indicate async.
                 if !method_name_already_async {
-                    emit_kdoc_pub(&mut body, &f.doc, "    ");
                     body.push_str(&template_env::render(
-                        "android_facade_async_method.jinja",
+                        "android_facade_generic_method.jinja",
                         minijinja::context! {
                             method_name => method_name,
                             params => params_str,
                             return_type => return_ty,
-                            args => call_args,
+                            bridge_call => bridge_call,
+                            type_ref_body => type_ref_body,
                         },
                     ));
+                }
+                // Emit the suspend variant (unless the wrapper name would collide).
+                if !suspend_wrapper_would_collide {
+                    emit_kdoc_pub(&mut body, &f.doc, "    ");
+                    if method_name_already_async {
+                        // For async-named functions, emit suspend with direct JNI call
+                        body.push_str("    suspend fun ");
+                        body.push_str(&method_name);
+                        body.push('(');
+                        body.push_str(&params_str);
+                        body.push_str("): ");
+                        body.push_str(&return_ty);
+                        body.push_str(" = withContext(Dispatchers.IO) { ");
+                        body.push_str("val resultJson = ");
+                        body.push_str(&bridge_call);
+                        body.push_str("; mapper.readValue(resultJson, object : TypeReference<");
+                        body.push_str(&type_ref_body);
+                        body.push_str(">() {}) }\n");
+                    } else {
+                        // For sync-named functions, emit suspend wrapper around sync version
+                        body.push_str(&template_env::render(
+                            "android_facade_async_method.jinja",
+                            minijinja::context! {
+                                method_name => method_name,
+                                params => params_str,
+                                return_type => return_ty,
+                                args => call_args,
+                            },
+                        ));
+                    }
                 }
             } else if returns_opaque {
                 let opaque_class = match &f.return_type {

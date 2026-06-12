@@ -300,6 +300,11 @@ pub(super) fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, bod
         "CyclomaticComplexMethod",
         "LongMethod",
         "MagicNumber",
+        // Jackson deserializer for heterogeneous-default sealed enums nests
+        // when-blocks past detekt's NestedBlockDepth threshold (introduced in
+        // the deserializer added by 2bdbb0db8). Generated code; restructuring
+        // would obscure the readNode → match → readNode flow.
+        "NestedBlockDepth",
     ];
     let imports = imports.iter().cloned().collect::<Vec<_>>();
     template_env::render(
