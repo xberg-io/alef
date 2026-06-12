@@ -2839,7 +2839,7 @@
       "type": "object"
     },
     "KotlinAndroidConfig": {
-      "description": "Configuration for the dedicated Kotlin/Android backend (`alef-backend-kotlin-android`).\n\nDistinct from [`KotlinConfig`] (Kotlin/JVM). When a crate targets the\n`kotlin_android` language slug, this struct controls the emitted\n`build.gradle.kts`, `AndroidManifest.xml`, namespace, Maven publish\ncoordinates, ABI list, and the bundled Java facade emitted into\n`src/main/java/` so the AAR is self-contained.",
+      "description": "Configuration for the dedicated Kotlin/Android backend (`alef-backend-kotlin-android`).\n\nDistinct from [`crate::core::config::languages::KotlinConfig`] (Kotlin/JVM). When a crate targets the\n`kotlin_android` language slug, this struct controls the emitted\n`build.gradle.kts`, `AndroidManifest.xml`, namespace, Maven publish\ncoordinates, ABI list, and the bundled Java facade emitted into\n`src/main/java/` so the AAR is self-contained.",
       "properties": {
         "abis": {
           "default": null,
@@ -4248,7 +4248,6 @@
           ]
         },
         "sdist_include": {
-          "default": [],
           "description": "Extra paths to include in the maturin source distribution (sdist), emitted\nas `sdist-include` under `[tool.maturin]` in the scaffold-generated\n`pyproject.toml`. Entries are workspace-relative glob patterns such as\n`\"../../crates/sample-markdown/**/*\"` and pass through verbatim. Use this\nto bundle path-dependent workspace crates into the sdist so source builds\n(e.g. Alpine/musl PyPI installs) can compile from the published archive.\nEmpty by default.",
           "items": {
             "type": "string"
