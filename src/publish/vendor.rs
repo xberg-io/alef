@@ -471,7 +471,14 @@ fn strip_path_set_version(existing: &Item, version: &str) -> Item {
 /// rewritten to registry deps.
 ///
 /// When `regenerate` is true, runs `cargo generate-lockfile` so the lock resolves
-/// the (now registry-only) graph immediately.
+/// the (now registry-only) graph immediately. If `workspace_lock` is supplied and
+/// the file exists, it is copied to `manifest_dir/Cargo.lock` before the regen
+/// runs so cargo treats the regen as an incremental update — only the rewritten
+/// path→registry edge re-resolves and every other transitive dep stays pinned
+/// at the workspace version. Without this seed, `cargo generate-lockfile`
+/// resolves from scratch and picks up any version that landed on the registry
+/// between when the workspace lock was last updated and when this runs, which
+/// caused a cookie/time E0119 break when `time 0.3.48` shipped during a release.
 ///
 /// On a `cargo generate-lockfile` failure the behavior depends on `strict`:
 /// - `strict == false` (lenient, the default for local/pre-release dev): the
@@ -484,10 +491,21 @@ fn strip_path_set_version(existing: &Item, version: &str) -> Item {
 /// When `regenerate` is false the lock is simply deleted (the `strict` flag is
 /// only consulted on the regenerate path). The `regenerate` flag lets tests force
 /// the offline delete path.
-pub(crate) fn scrub_or_regenerate_lock(manifest_dir: &Path, regenerate: bool, strict: bool) -> Result<()> {
+pub(crate) fn scrub_or_regenerate_lock(
+    manifest_dir: &Path,
+    regenerate: bool,
+    strict: bool,
+    workspace_lock: Option<&Path>,
+) -> Result<()> {
     let lock_path = manifest_dir.join("Cargo.lock");
 
     if regenerate {
+        if let Some(ws_lock) = workspace_lock
+            && ws_lock.exists()
+        {
+            fs::copy(ws_lock, &lock_path)
+                .with_context(|| format!("seeding {} from {}", lock_path.display(), ws_lock.display()))?;
+        }
         let manifest = manifest_dir.join("Cargo.toml");
         let status = std::process::Command::new("cargo")
             .arg("generate-lockfile")

@@ -609,8 +609,15 @@ fn rewrite_binding_path_deps(
     if let Some(manifest_dir) = manifest_abs.parent() {
         // In require_registry (CI/release) mode, regenerate the lock and fail
         // hard if a member version is not yet on the registry. Otherwise,
-        // delete the lock (lenient default).
-        vendor::scrub_or_regenerate_lock(manifest_dir, require_registry, require_registry)?;
+        // delete the lock (lenient default). The workspace Cargo.lock seeds
+        // the regen so transitive deps stay pinned at workspace versions.
+        let ws_lock = ws_root.join("Cargo.lock");
+        vendor::scrub_or_regenerate_lock(
+            manifest_dir,
+            require_registry,
+            require_registry,
+            Some(&ws_lock),
+        )?;
     }
     eprintln!("  rewrote {}", manifest_abs.display());
     Ok(())
