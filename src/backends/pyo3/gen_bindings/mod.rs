@@ -688,6 +688,19 @@ impl Backend for Pyo3Backend {
             }
         }
 
+        // Trait marker classes — emit empty #[pyclass] structs for plugin traits so they can be imported
+        // and used as type annotations in Python. Users subclass these to implement custom plugins.
+        for bridge_cfg in &config.trait_bridges {
+            let trait_name = &bridge_cfg.trait_name;
+            // Skip if the trait name was already emitted as a regular type or type alias
+            if !emitted_pyclass_names.insert(trait_name) {
+                continue;
+            }
+            // Emit an empty marker class: #[pyclass] pub struct TraitName;
+            let marker_class = format!("#[pyclass(name = \"{}\")]\npub struct {};\n", trait_name, trait_name);
+            builder.add_item(&marker_class);
+        }
+
         // Trait bridge wrappers — generate PyO3 bridge structs that delegate to Python objects
         if !config.trait_bridges.is_empty() {
             // async_trait is only needed for plugin-style bridges (those with async methods).

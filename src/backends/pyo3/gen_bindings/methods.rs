@@ -109,6 +109,14 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         }
     }
 
+    // Register trait marker classes — empty structs that represent plugin trait interfaces
+    for bridge_cfg in &config.trait_bridges {
+        let trait_name = &bridge_cfg.trait_name;
+        if registered.insert(trait_name.clone()) {
+            lines.push(format!("    m.add_class::<{}>()?;", trait_name));
+        }
+    }
+
     for func in &api.functions {
         if mod_exclude_functions.contains(&func.name) {
             continue;
