@@ -108,6 +108,11 @@ pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_req
         for service in &api.services {
             gen_service_class(&mut out, service, api, native_module_name);
         }
+        // Trim trailing blank line emitted by the final class so the module's
+        // closing `end` sits flush against it (Layout/EmptyLinesAroundModuleBody).
+        while out.ends_with("\n\n") {
+            out.pop();
+        }
         out.push_str("end\n");
     }
 
@@ -252,6 +257,11 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
         }
     }
 
+    // Trim trailing whitespace so the final method def emitted above does not
+    // leave a blank line before the class `end` (rubocop Layout/EmptyLinesAroundClassBody).
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
     out.push_str("  end\n\n");
 }
 
