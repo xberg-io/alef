@@ -6,16 +6,26 @@ use alef::core::ir::{
     PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
+fn rust_bridge_c_header_path() -> std::path::PathBuf {
+    std::path::Path::new("Sources")
+        .join("RustBridgeC")
+        .join("RustBridgeC.h")
+}
+
+fn snapshot_path_suffix(path: &std::path::Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("__")
+}
+
 fn assert_swift_snapshots(prefix: &str, files: &[GeneratedFile]) {
+    let rust_bridge_c_header = rust_bridge_c_header_path();
     for file in files {
-        let path = file.path.to_string_lossy();
-        if path.ends_with("Sources/RustBridgeC/RustBridgeC.h") {
+        if file.path.ends_with(&rust_bridge_c_header) {
             continue;
         }
-        insta::assert_snapshot!(
-            format!("{prefix}__{}", file.path.display().to_string().replace('/', "__")),
-            &file.content
-        );
+        insta::assert_snapshot!(format!("{prefix}__{}", snapshot_path_suffix(&file.path)), &file.content);
     }
 }
 
