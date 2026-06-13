@@ -62,8 +62,12 @@ extension_name = "test_lib"
     cfg.resolve().expect("test config must resolve").remove(0)
 }
 
+fn toml_basic_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 fn make_config_with_php_output(output_path: &std::path::Path) -> ResolvedCrateConfig {
-    let output = output_path.to_string_lossy();
+    let output = toml_basic_string(&output_path.to_string_lossy());
     let toml = format!(
         r#"
 [workspace]
@@ -74,7 +78,7 @@ name = "test-lib"
 sources = ["src/lib.rs"]
 
 [crates.output]
-php = "{output}"
+php = {output}
 
 [crates.php]
 extension_name = "test_lib"

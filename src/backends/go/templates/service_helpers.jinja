@@ -4,7 +4,7 @@
 // It looks up the parameter by name from the request context.
 func PathParam(r *http.Request, name string) string {
 	// chi stores path parameters in the request context.
-	// This is a placeholder; actual implementation depends on chi integration.
+	// chi.URLParam reads the value by name.
 	return chi.URLParam(r, name)
 }
 
