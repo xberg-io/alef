@@ -43,7 +43,12 @@ pub(super) fn emit_module_kt(
     use crate::backends::kotlin::to_lower_camel;
 
     let module_name = kotlin_android_wrapper_object_name(&config.name);
-    let bridge_name = format!("{module_name}Bridge");
+    // The bridge object is emitted by `gen_bindings::jni_emitter` as
+    // `<Crate>Bridge` via `crate::core::jni::bridge_class_name(&config.name)`.
+    // Use the same helper here so the facade's `Bridge.nativeXxx(...)` calls
+    // resolve — concatenating `{module_name}Bridge` produced
+    // `<Crate>ConverterBridge`, which never matches the on-disk bridge object.
+    let bridge_name = crate::core::jni::bridge_class_name(&config.name);
 
     // Set of all opaque (non-trait) type names.
     let opaque_type_names: std::collections::HashSet<&str> = api
