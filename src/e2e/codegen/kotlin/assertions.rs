@@ -203,10 +203,7 @@ pub(super) fn render_assertion(
                     out,
                     "        when (val {variant_var} = {result_var}.metadata.format) {{"
                 );
-                let _ = writeln!(
-                    out,
-                    "            is dev.kreuzberg.FormatMetadata.{variant_pascal} -> {{"
-                );
+                let _ = writeln!(out, "            is FormatMetadata.{variant_pascal} -> {{");
                 super::discriminated::render_discriminated_union_assertion(out, assertion, &variant_var, &inner_field);
                 let _ = writeln!(out, "            }}");
                 let _ = writeln!(out, "            else -> {{}}");

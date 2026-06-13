@@ -75,7 +75,12 @@ pub(super) fn render_discriminated_union_assertion(
     }
 
     let field_camel = inner_field.to_lower_camel_case();
-    let field_expr = format!("{variant_var}.metadata.{field_camel}");
+    // The variant payload field (`variant.metadata.<inner>`) is frequently Optional in the
+    // alef-generated Kotlin types (e.g. `ExcelMetadata.sheetCount: Int?`).  The fixture
+    // assertion only fires when the variant matched, so a null inner field would itself be
+    // a test failure — assert non-null with `!!.` before the comparison so kotlinc accepts
+    // arithmetic and ordering operators (`>=`, `>`, etc.) on the receiver.
+    let field_expr = format!("{variant_var}.metadata.{field_camel}!!");
 
     match assertion.assertion_type.as_str() {
         "equals" => {

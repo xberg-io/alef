@@ -420,6 +420,17 @@ pub(super) fn render_test_file_inner(
             let _ = writeln!(out, "import {binding_pkg_for_imports}.{class_name}");
         }
     }
+    let needs_format_metadata_import = fixtures.iter().any(|fixture| {
+        fixture.assertions.iter().any(|assertion| {
+            assertion
+                .field
+                .as_deref()
+                .is_some_and(|field| super::discriminated::parse_discriminated_union_access(field).is_some())
+        })
+    });
+    if has_call_fixtures && needs_format_metadata_import {
+        let _ = writeln!(out, "import {binding_pkg_for_imports}.FormatMetadata");
+    }
     if needs_object_mapper {
         let _ = writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper");
         let _ = writeln!(out, "import com.fasterxml.jackson.datatype.jdk8.Jdk8Module");

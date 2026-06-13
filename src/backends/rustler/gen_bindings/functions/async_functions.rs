@@ -43,6 +43,16 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                     return format!("{}: Option<{}>", p.name, n);
                 }
             }
+            // Vec<Named> parameters (batch items like Vec<BatchBytesItem>) are
+            // marshalled via JSON to avoid Rustler's limitation on decoding
+            // complex struct lists.  Mirrors the sync_functions.rs path.
+            if let TypeRef::Vec(inner) = &p.ty {
+                if let TypeRef::Named(inner_name) = inner.as_ref() {
+                    if !opaque_types.contains(inner_name.as_str()) {
+                        return format!("{}: Option<String>", p.name);
+                    }
+                }
+            }
             // Rustler 0.37 cannot marshal Vec<u8> from Erlang binaries;
             // use rustler::Binary for NIF function parameters.
             if matches!(&p.ty, TypeRef::Bytes) {
@@ -73,7 +83,17 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
         .iter()
         .any(|p| matches!(&p.ty, TypeRef::Named(n) if default_types.contains(n)));
 
-    let can_delegate = shared::can_auto_delegate_function(func, opaque_types) || has_default_params;
+    let has_batch_vec_params = func.params.iter().any(|p| {
+        if let TypeRef::Vec(inner) = &p.ty {
+            if let TypeRef::Named(inner_name) = inner.as_ref() {
+                return !opaque_types.contains(inner_name.as_str());
+            }
+        }
+        false
+    });
+
+    let can_delegate =
+        shared::can_auto_delegate_function(func, opaque_types) || has_default_params || has_batch_vec_params;
 
     let body = if can_delegate {
         let mut deser_lines: Vec<String> = Vec::new();
@@ -115,6 +135,34 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                         } else {
                             // Core expects T → unwrap or use default
                             return format!("{}_core.unwrap_or_default()", p.name);
+                        }
+                    }
+                }
+                // Vec<Named> (batch items): the NIF receives an Option<String> of JSON
+                // — deserialize to Vec<core_ty> with an empty-vec fallback so the async
+                // closure can move the owned Vec into the spawned task.  Mirrors the
+                // sync_functions.rs preamble.
+                if let TypeRef::Vec(inner) = &p.ty {
+                    if let TypeRef::Named(inner_name) = inner.as_ref() {
+                        if !opaque_types.contains(inner_name.as_str()) {
+                            let inner_ty = resolve_core_type_path(inner_name, types_by_name, core_import);
+                            let core_ty = format!("Vec<{inner_ty}>");
+                            deser_lines.push(if func.error_type.is_some() {
+                                format!(
+                                    "let {pname}_core: {core_ty} = {pname}.map(|s| serde_json::from_str::<{core_ty}>(&s).map_err(|e| e.to_string())).transpose()?.unwrap_or_default();",
+                                    pname = p.name,
+                                )
+                            } else {
+                                format!(
+                                    "let {pname}_core: {core_ty} = {pname}.and_then(|s| serde_json::from_str::<{core_ty}>(&s).ok()).unwrap_or_default();",
+                                    pname = p.name,
+                                )
+                            });
+                            return if p.is_ref {
+                                format!("&{}_core", p.name)
+                            } else {
+                                format!("{}_core", p.name)
+                            };
                         }
                     }
                 }

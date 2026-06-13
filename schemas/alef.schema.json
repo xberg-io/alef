@@ -1056,7 +1056,7 @@
         },
         "date-released": {
           "default": null,
-          "description": "Release date in `YYYY-MM-DD` form (`date-released:`). Optional.",
+          "description": "Release date in `YYYY-MM-DD` form (`date-released:`). Optional override.\n\nWhen omitted (the recommended default), `alef sync-versions` stamps the\ncurrent system date on every regen so consumers do not need to hand-edit\nalef.toml per release. Set this explicitly only when you need to replay\na historical release date (e.g. backports, CFF reproducibility audits).",
           "type": [
             "string",
             "null"
@@ -6830,7 +6830,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.24.15/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.24.16/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -6940,6 +6940,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.24.15",
-  "x-alef-version": "0.24.15"
+  "version": "0.24.16",
+  "x-alef-version": "0.24.16"
 }

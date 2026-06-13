@@ -24,10 +24,27 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
         .unwrap_or_default();
 
+    // Trait-bridge register / unregister / clear functions are also emitted by
+    // `emit_trait_bridge_shims` below; iterating them again as plain top-level
+    // functions would emit duplicate `Java_*_native…` symbols and break linking.
+    let trait_bridge_fn_names: std::collections::HashSet<&str> = config
+        .trait_bridges
+        .iter()
+        .flat_map(|b| {
+            [&b.register_fn, &b.unregister_fn, &b.clear_fn]
+                .into_iter()
+                .filter_map(|opt| opt.as_deref())
+        })
+        .collect();
+
     let visible_functions: Vec<_> = api
         .functions
         .iter()
-        .filter(|f| !f.sanitized && !exclude_functions.contains(f.name.as_str()))
+        .filter(|f| {
+            !f.sanitized
+                && !exclude_functions.contains(f.name.as_str())
+                && !trait_bridge_fn_names.contains(f.name.as_str())
+        })
         .collect();
 
     // Collect opaque type names for handle-vs-JSON dispatch.

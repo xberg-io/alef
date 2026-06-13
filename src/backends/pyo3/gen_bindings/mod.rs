@@ -690,9 +690,9 @@ impl Backend for Pyo3Backend {
 
         // Trait marker classes — emit empty #[pyclass] structs for plugin traits so they can be
         // imported and subclassed in Python.  The Rust struct is named `Py<TraitName>Marker` to
-        // avoid shadowing the trait import (e.g. `use kreuzberg::Validator;` would otherwise
+        // avoid shadowing the trait import (e.g. `use core_crate::Validator;` would otherwise
         // collide with a `pub struct Validator;`); the PyO3-exposed name still matches the trait
-        // so `from ._kreuzberg import Validator` resolves correctly on the Python side.
+        // so native-module imports resolve correctly on the Python side.
         for bridge_cfg in &config.trait_bridges {
             let trait_name = &bridge_cfg.trait_name;
             // Skip if the trait name was already emitted as a regular type or type alias

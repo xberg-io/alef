@@ -112,7 +112,7 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
     // Register trait marker classes — empty structs that represent plugin trait interfaces.
     // The Rust struct is named `Py<Trait>Marker` to avoid shadowing the trait import; the PyO3
     // name (declared via `#[pyclass(name = "<Trait>")]` in mod.rs) still matches the trait so
-    // Python `from ._kreuzberg import <Trait>` resolves to the marker class.
+    // Python imports from the generated native module resolve to the marker class.
     for bridge_cfg in &config.trait_bridges {
         let trait_name = &bridge_cfg.trait_name;
         if registered.insert(trait_name.clone()) {

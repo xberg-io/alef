@@ -86,9 +86,27 @@ pub(super) fn gen_nif_init(
         }
     }
 
+    // Add trait-bridge support NIFs (emitted by trait_support_nifs.rs.jinja).
+    // These two are needed whenever any trait bridge is active for elixir/rustler:
+    // they let the Elixir GenServer reply through the oneshot stored in
+    // TRAIT_REPLY_CHANNELS. Without them every bridge method call hangs forever.
+    let has_trait_bridges = config
+        .trait_bridges
+        .iter()
+        .any(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"));
+    if has_trait_bridges {
+        exports.push("complete_trait_call".to_string());
+        exports.push("fail_trait_call".to_string());
+    }
+
     // Add service NIFs (emitted by service_api.rs)
     if !api.services.is_empty() {
-        exports.push("complete_trait_call".to_string());
+        // `complete_trait_call` is also re-used by services; emit only if not already
+        // pushed by the trait-bridge branch above (the dedup pass at the bottom of
+        // this function would handle a double-push, but keep the intent explicit).
+        if !has_trait_bridges {
+            exports.push("complete_trait_call".to_string());
+        }
         exports.push("app_run".to_string());
         exports.push("app_into_router".to_string());
         for http_method in &[

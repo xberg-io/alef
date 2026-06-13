@@ -128,7 +128,10 @@ pub(super) fn generate_public_api(
             .take_while(|(p, type_str)| p.optional || type_str.contains("| nil"))
             .count();
 
-        let json_encode_params = json_encode_param_indices(&func.params, &default_types);
+        // Mirror the NIF-side detection: every Vec<Named> over a non-opaque struct
+        // crosses the boundary as Option<String> JSON, regardless of whether the
+        // inner type has a Default impl.
+        let json_encode_params = json_encode_param_indices(&func.params, &opaque_types);
 
         // Detect if this function has a visitor bridge param.
         let visitor_bridge_param_idx: Option<usize> = func.params.iter().position(|p| {
