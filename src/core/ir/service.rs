@@ -346,6 +346,30 @@ pub struct RegistrationVariantLanguageOverride {
     pub method_prefix: Option<String>,
 }
 
+/// Resolved surface attributes for one registration variant in the context of a specific backend.
+///
+/// Produced by [`RegistrationVariant::resolved_for`]. Backends read these three fields
+/// instead of accessing `variant.style`, `base_reg.handler_shape`, and manually
+/// constructing the method name — the resolver applies per-language overrides consistently.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedVariant<'a> {
+    /// The emission style to use for this backend.
+    ///
+    /// This is the per-language override's `style` when an entry exists for the
+    /// requested language and it sets a style; otherwise the variant-global `style`.
+    pub style: RegistrationVariantStyle,
+    /// The handler shape to use for this backend.
+    ///
+    /// This is the per-language override's `handler_shape` when an entry exists and it
+    /// sets a shape; otherwise the base registration's `handler_shape`.
+    pub handler_shape: HandlerShape,
+    /// Optional language-specific prefix prepended to the verb method name.
+    ///
+    /// Example: `"Map"` for C# produces `MapGet`, `MapPost`, `MapPut`. `None` means no
+    /// prefix is added and the variant's own `name` is used verbatim.
+    pub method_prefix: Option<&'a str>,
+}
+
 /// A named shortcut over a [`RegistrationDef`] with one or more pinned
 /// parameter values resolved at extract time.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -390,6 +414,92 @@ pub struct RegistrationVariant {
     /// Missing keys fall through to the variant-global defaults transparently.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub language_overrides: std::collections::HashMap<String, RegistrationVariantLanguageOverride>,
+}
+
+impl RegistrationVariant {
+    /// Resolve the effective `(style, handler_shape, method_prefix)` tuple for `language`.
+    ///
+    /// Looks up `language` in [`Self::language_overrides`]. When an override entry is
+    /// found, each of its three optional fields wins over the corresponding variant-level
+    /// or registration-level default:
+    ///
+    /// | field | per-language override | fallback |
+    /// |---|---|---|
+    /// | `style` | `override.style` | `self.style` |
+    /// | `handler_shape` | `override.handler_shape` | `base_handler_shape` |
+    /// | `method_prefix` | `override.method_prefix.as_deref()` | `None` |
+    ///
+    /// The `base_handler_shape` argument is the `handler_shape` field on the parent
+    /// [`RegistrationDef`] — pass it as `&reg.handler_shape`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use alef::core::ir::{
+    ///     HandlerShape, RegistrationVariant, RegistrationVariantLanguageOverride,
+    ///     RegistrationVariantStyle,
+    /// };
+    /// use std::collections::HashMap;
+    ///
+    /// let mut overrides = HashMap::new();
+    /// overrides.insert(
+    ///     "csharp".to_owned(),
+    ///     RegistrationVariantLanguageOverride {
+    ///         style: Some(RegistrationVariantStyle::Attribute),
+    ///         handler_shape: None,
+    ///         method_prefix: Some("Map".to_owned()),
+    ///     },
+    /// );
+    /// let variant = RegistrationVariant {
+    ///     name: "get".to_owned(),
+    ///     style: RegistrationVariantStyle::Hybrid,
+    ///     language_overrides: overrides,
+    ///     ..RegistrationVariant::default()
+    /// };
+    ///
+    /// let resolved = variant.resolved_for("csharp", HandlerShape::BareCallable);
+    /// assert_eq!(resolved.style, RegistrationVariantStyle::Attribute);
+    /// assert_eq!(resolved.handler_shape, HandlerShape::BareCallable);
+    /// assert_eq!(resolved.method_prefix, Some("Map"));
+    ///
+    /// // Language with no override falls back to variant-level defaults.
+    /// let resolved = variant.resolved_for("python", HandlerShape::IntrospectParams);
+    /// assert_eq!(resolved.style, RegistrationVariantStyle::Hybrid);
+    /// assert_eq!(resolved.handler_shape, HandlerShape::IntrospectParams);
+    /// assert_eq!(resolved.method_prefix, None);
+    /// ```
+    pub fn resolved_for(&self, language: &str, base_handler_shape: HandlerShape) -> ResolvedVariant<'_> {
+        if let Some(lang_override) = self.language_overrides.get(language) {
+            ResolvedVariant {
+                style: lang_override.style.unwrap_or(self.style),
+                handler_shape: lang_override.handler_shape.unwrap_or(base_handler_shape),
+                method_prefix: lang_override.method_prefix.as_deref(),
+            }
+        } else {
+            ResolvedVariant {
+                style: self.style,
+                handler_shape: base_handler_shape,
+                method_prefix: None,
+            }
+        }
+    }
+
+    /// Return the idiomatic method name for this variant in `language`.
+    ///
+    /// When the language override declares a `method_prefix`, it is prepended to
+    /// [`Self::name`] (e.g. `prefix="Map"` + `name="get"` → `"Mapget"`). Callers are
+    /// responsible for applying language-specific casing on top (e.g. `to_upper_camel_case`
+    /// for the Go/Java/C# convention of capitalising the verb: `"MapGet"`).
+    ///
+    /// When no prefix is configured the variant name is returned as-is.
+    pub fn method_name_for<'a>(&'a self, language: &str) -> std::borrow::Cow<'a, str> {
+        if let Some(lang_override) = self.language_overrides.get(language) {
+            if let Some(prefix) = &lang_override.method_prefix {
+                return std::borrow::Cow::Owned(format!("{}{}", prefix, self.name));
+            }
+        }
+        std::borrow::Cow::Borrowed(&self.name)
+    }
 }
 
 /// A resolved pin: the param being overridden and the expression to substitute
@@ -509,4 +619,185 @@ pub struct HandlerContractDef {
     pub response_adapter: Option<String>,
     /// Documentation extracted from the trait.
     pub doc: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────── tests ──
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn make_variant(style: RegistrationVariantStyle) -> RegistrationVariant {
+        RegistrationVariant {
+            name: "get".to_owned(),
+            style,
+            ..RegistrationVariant::default()
+        }
+    }
+
+    // ── resolved_for: no override path ───────────────────────────────────────
+
+    #[test]
+    fn resolved_for_no_override_returns_variant_defaults() {
+        let variant = make_variant(RegistrationVariantStyle::VerbDecorator);
+        let resolved = variant.resolved_for("python", HandlerShape::BareCallable);
+        assert_eq!(resolved.style, RegistrationVariantStyle::VerbDecorator);
+        assert_eq!(resolved.handler_shape, HandlerShape::BareCallable);
+        assert_eq!(resolved.method_prefix, None);
+    }
+
+    #[test]
+    fn resolved_for_no_override_propagates_base_handler_shape() {
+        let variant = make_variant(RegistrationVariantStyle::Hybrid);
+        let resolved = variant.resolved_for("napi", HandlerShape::ContextObject);
+        assert_eq!(resolved.handler_shape, HandlerShape::ContextObject);
+        assert_eq!(resolved.style, RegistrationVariantStyle::Hybrid);
+    }
+
+    // ── resolved_for: per-language override path ──────────────────────────────
+
+    #[test]
+    fn resolved_for_language_override_wins_over_variant_style() {
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "csharp".to_owned(),
+            RegistrationVariantLanguageOverride {
+                style: Some(RegistrationVariantStyle::Attribute),
+                handler_shape: None,
+                method_prefix: Some("Map".to_owned()),
+            },
+        );
+        let variant = RegistrationVariant {
+            name: "get".to_owned(),
+            style: RegistrationVariantStyle::Hybrid,
+            language_overrides: overrides,
+            ..RegistrationVariant::default()
+        };
+
+        let resolved = variant.resolved_for("csharp", HandlerShape::BareCallable);
+        assert_eq!(
+            resolved.style,
+            RegistrationVariantStyle::Attribute,
+            "override style should win"
+        );
+        assert_eq!(
+            resolved.handler_shape,
+            HandlerShape::BareCallable,
+            "base shape should be kept"
+        );
+        assert_eq!(resolved.method_prefix, Some("Map"), "prefix from override");
+    }
+
+    #[test]
+    fn resolved_for_language_override_handler_shape_wins() {
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "kotlin".to_owned(),
+            RegistrationVariantLanguageOverride {
+                style: Some(RegistrationVariantStyle::Dsl),
+                handler_shape: Some(HandlerShape::ContextObject),
+                method_prefix: None,
+            },
+        );
+        let variant = RegistrationVariant {
+            name: "get".to_owned(),
+            style: RegistrationVariantStyle::Builder,
+            language_overrides: overrides,
+            ..RegistrationVariant::default()
+        };
+
+        let resolved = variant.resolved_for("kotlin", HandlerShape::BareCallable);
+        assert_eq!(resolved.style, RegistrationVariantStyle::Dsl);
+        assert_eq!(
+            resolved.handler_shape,
+            HandlerShape::ContextObject,
+            "override shape should win"
+        );
+        assert_eq!(resolved.method_prefix, None);
+    }
+
+    #[test]
+    fn resolved_for_unrelated_language_falls_back_to_defaults() {
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "csharp".to_owned(),
+            RegistrationVariantLanguageOverride {
+                style: Some(RegistrationVariantStyle::Attribute),
+                handler_shape: Some(HandlerShape::ContextObject),
+                method_prefix: Some("Map".to_owned()),
+            },
+        );
+        let variant = RegistrationVariant {
+            name: "get".to_owned(),
+            style: RegistrationVariantStyle::Hybrid,
+            language_overrides: overrides,
+            ..RegistrationVariant::default()
+        };
+
+        // Python has no override → falls through to variant-global defaults
+        let resolved = variant.resolved_for("python", HandlerShape::IntrospectParams);
+        assert_eq!(resolved.style, RegistrationVariantStyle::Hybrid);
+        assert_eq!(resolved.handler_shape, HandlerShape::IntrospectParams);
+        assert_eq!(resolved.method_prefix, None);
+    }
+
+    #[test]
+    fn resolved_for_partial_override_only_style_no_shape() {
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "python".to_owned(),
+            RegistrationVariantLanguageOverride {
+                style: Some(RegistrationVariantStyle::Decorator),
+                handler_shape: None,
+                method_prefix: None,
+            },
+        );
+        let variant = RegistrationVariant {
+            name: "get".to_owned(),
+            style: RegistrationVariantStyle::Hybrid,
+            language_overrides: overrides,
+            ..RegistrationVariant::default()
+        };
+
+        let resolved = variant.resolved_for("python", HandlerShape::RequestResponse);
+        assert_eq!(
+            resolved.style,
+            RegistrationVariantStyle::Decorator,
+            "style override applies"
+        );
+        assert_eq!(
+            resolved.handler_shape,
+            HandlerShape::RequestResponse,
+            "shape falls back to base"
+        );
+    }
+
+    // ── method_name_for ───────────────────────────────────────────────────────
+
+    #[test]
+    fn method_name_for_no_override_returns_variant_name() {
+        let variant = make_variant(RegistrationVariantStyle::Hybrid);
+        assert_eq!(variant.method_name_for("go").as_ref(), "get");
+    }
+
+    #[test]
+    fn method_name_for_prefix_override_prepends_prefix() {
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "csharp".to_owned(),
+            RegistrationVariantLanguageOverride {
+                style: None,
+                handler_shape: None,
+                method_prefix: Some("Map".to_owned()),
+            },
+        );
+        let variant = RegistrationVariant {
+            name: "get".to_owned(),
+            style: RegistrationVariantStyle::Hybrid,
+            language_overrides: overrides,
+            ..RegistrationVariant::default()
+        };
+        assert_eq!(variant.method_name_for("csharp").as_ref(), "Mapget");
+    }
 }

@@ -690,16 +690,17 @@ pub fn csharp_wrapper_class_name(crate_name: &str, _namespace: &str) -> String {
 
 /// Derive the Kotlin Android wrapper object name emitted by the `KotlinAndroidBackend`.
 ///
-/// Converts the crate name to PascalCase, strips the Rust binding crate suffix "-rs",
-/// and appends the idiomatic Kotlin "Converter" suffix. For example:
-/// - `sample-parser-rs` -> `SampleParser` -> `SampleParserConverter`
-/// - `document_tools` -> `DocumentTools` -> `DocumentToolsConverter`
+/// Converts the crate name to PascalCase and strips the Rust binding crate
+/// suffix "-rs".  The bare PascalCase name keeps the call site idiomatic
+/// (`Kreuzberg.extractFile(...)` rather than `KreuzbergConverter.extractFile(...)`)
+/// and matches the bridge object emitted at `<Crate>Bridge` by
+/// `crate::core::jni::bridge_class_name`.  For example:
+/// - `sample-parser-rs` -> `SampleParser`
+/// - `document_tools` -> `DocumentTools`
 pub fn kotlin_android_wrapper_object_name(crate_name: &str) -> String {
-    // Convert to PascalCase via the standard public type naming function.
     let base = public_type_name(Language::KotlinAndroid, crate_name);
-    // Strip Rust-binding "Rs" suffix (from "-rs" crate suffix) and append idiomatic Converter suffix.
     let stem = base.strip_suffix("Rs").unwrap_or(&base);
-    format!("{stem}Converter")
+    stem.to_string()
 }
 
 /// Normalize 3+ letter acronyms at the start of a name to PascalCase.

@@ -182,6 +182,26 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_rb_registration_variant.rb.jinja"),
     ),
     (
+        "service_rb_lifecycle_hook.rb.jinja",
+        include_str!("templates/service_rb_lifecycle_hook.rb.jinja"),
+    ),
+    (
+        "service_rb_error_base_class.rb.jinja",
+        include_str!("templates/service_rb_error_base_class.rb.jinja"),
+    ),
+    (
+        "service_rb_error_subclass.rb.jinja",
+        include_str!("templates/service_rb_error_subclass.rb.jinja"),
+    ),
+    (
+        "service_rb_websocket_method.rb.jinja",
+        include_str!("templates/service_rb_websocket_method.rb.jinja"),
+    ),
+    (
+        "service_rb_sse_method.rb.jinja",
+        include_str!("templates/service_rb_sse_method.rb.jinja"),
+    ),
+    (
         "service_rs_header.rs.jinja",
         include_str!("templates/service_rs_header.rs.jinja"),
     ),

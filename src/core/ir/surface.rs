@@ -88,6 +88,103 @@ pub struct ApiSurface {
     pub unsupported_public_items: Vec<UnsupportedPublicItem>,
 }
 
+impl ApiSurface {
+    /// Returns `true` when the surface declares at least one lifecycle hook.
+    ///
+    /// Backends gate lifecycle-hook emission code behind this predicate so they
+    /// produce a minimal output when no hooks are configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use alef::core::ir::{ApiSurface, LifecycleHookDef};
+    ///
+    /// let mut surface = ApiSurface::default();
+    /// assert!(!surface.has_lifecycle_hooks());
+    ///
+    /// surface.lifecycle_hooks.push(LifecycleHookDef {
+    ///     name: "on_request".to_owned(),
+    ///     callback_contract: "RequestHook".to_owned(),
+    ///     doc: String::new(),
+    ///     is_async: false,
+    /// });
+    /// assert!(surface.has_lifecycle_hooks());
+    /// ```
+    pub fn has_lifecycle_hooks(&self) -> bool {
+        !self.lifecycle_hooks.is_empty()
+    }
+
+    /// Returns `true` when the surface declares at least one WebSocket route.
+    ///
+    /// Backends gate WebSocket-route emission behind this predicate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use alef::core::ir::{ApiSurface, WebSocketRouteDef};
+    ///
+    /// let mut surface = ApiSurface::default();
+    /// assert!(!surface.has_websocket_routes());
+    ///
+    /// surface.websocket_routes.push(WebSocketRouteDef {
+    ///     handler_wrapper_type: "WsHandler".to_owned(),
+    ///     socket_type: "WsSocket".to_owned(),
+    ///     doc: String::new(),
+    /// });
+    /// assert!(surface.has_websocket_routes());
+    /// ```
+    pub fn has_websocket_routes(&self) -> bool {
+        !self.websocket_routes.is_empty()
+    }
+
+    /// Returns `true` when the surface declares at least one SSE route.
+    ///
+    /// Backends gate SSE-route emission behind this predicate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use alef::core::ir::{ApiSurface, SseRouteDef};
+    ///
+    /// let mut surface = ApiSurface::default();
+    /// assert!(!surface.has_sse_routes());
+    ///
+    /// surface.sse_routes.push(SseRouteDef {
+    ///     producer_wrapper_type: "SseProducer".to_owned(),
+    ///     event_type: "SseEvent".to_owned(),
+    ///     doc: String::new(),
+    /// });
+    /// assert!(surface.has_sse_routes());
+    /// ```
+    pub fn has_sse_routes(&self) -> bool {
+        !self.sse_routes.is_empty()
+    }
+
+    /// Returns `true` when the surface declares at least one cross-binding error type.
+    ///
+    /// Backends gate error-class emission behind this predicate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use alef::core::ir::{ApiSurface, ErrorTypeDef, HttpStatus};
+    ///
+    /// let mut surface = ApiSurface::default();
+    /// assert!(!surface.has_error_types());
+    ///
+    /// surface.error_types.push(ErrorTypeDef {
+    ///     name: "NotFoundError".to_owned(),
+    ///     http_status: HttpStatus::NotFound,
+    ///     problem_details_type: None,
+    ///     doc: String::new(),
+    /// });
+    /// assert!(surface.has_error_types());
+    /// ```
+    pub fn has_error_types(&self) -> bool {
+        !self.error_types.is_empty()
+    }
+}
+
 /// A public item that was discovered but not extracted into binding IR.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UnsupportedPublicItem {
@@ -95,4 +192,88 @@ pub struct UnsupportedPublicItem {
     pub item_path: String,
     pub reason: String,
     pub suggested_fix: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────── tests ──
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{ErrorTypeDef, HttpStatus, LifecycleHookDef, SseRouteDef, WebSocketRouteDef};
+
+    #[test]
+    fn empty_surface_has_no_lifecycle_hooks() {
+        assert!(!ApiSurface::default().has_lifecycle_hooks());
+    }
+
+    #[test]
+    fn surface_with_lifecycle_hook_returns_true() {
+        let mut s = ApiSurface::default();
+        s.lifecycle_hooks.push(LifecycleHookDef {
+            name: "on_request".to_owned(),
+            callback_contract: "RequestHook".to_owned(),
+            doc: String::new(),
+            is_async: false,
+        });
+        assert!(s.has_lifecycle_hooks());
+    }
+
+    #[test]
+    fn empty_surface_has_no_websocket_routes() {
+        assert!(!ApiSurface::default().has_websocket_routes());
+    }
+
+    #[test]
+    fn surface_with_websocket_route_returns_true() {
+        let mut s = ApiSurface::default();
+        s.websocket_routes.push(WebSocketRouteDef {
+            handler_wrapper_type: "WsWrapper".to_owned(),
+            socket_type: "WsSocket".to_owned(),
+            doc: String::new(),
+        });
+        assert!(s.has_websocket_routes());
+    }
+
+    #[test]
+    fn empty_surface_has_no_sse_routes() {
+        assert!(!ApiSurface::default().has_sse_routes());
+    }
+
+    #[test]
+    fn surface_with_sse_route_returns_true() {
+        let mut s = ApiSurface::default();
+        s.sse_routes.push(SseRouteDef {
+            producer_wrapper_type: "SseProducer".to_owned(),
+            event_type: "SseEvent".to_owned(),
+            doc: String::new(),
+        });
+        assert!(s.has_sse_routes());
+    }
+
+    #[test]
+    fn empty_surface_has_no_error_types() {
+        assert!(!ApiSurface::default().has_error_types());
+    }
+
+    #[test]
+    fn surface_with_error_type_returns_true() {
+        let mut s = ApiSurface::default();
+        s.error_types.push(ErrorTypeDef {
+            name: "NotFoundError".to_owned(),
+            http_status: HttpStatus::NotFound,
+            problem_details_type: None,
+            doc: String::new(),
+        });
+        assert!(s.has_error_types());
+    }
+
+    #[test]
+    fn stub_emit_fns_return_empty_for_empty_collections() {
+        // Verify the stub aggregate function produces empty output for an empty surface.
+        let surface = ApiSurface::default();
+        assert!(!surface.has_lifecycle_hooks());
+        assert!(!surface.has_websocket_routes());
+        assert!(!surface.has_sse_routes());
+        assert!(!surface.has_error_types());
+    }
 }

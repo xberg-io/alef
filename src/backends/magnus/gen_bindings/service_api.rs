@@ -16,6 +16,7 @@
 //! All names are derived entirely from the [`ApiSurface`] IR — no transport-
 //! or domain-specific assumptions are made anywhere in this module.
 
+use super::lifecycle_error_ws_sse;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
@@ -109,6 +110,10 @@ pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_req
         out.push_str("end\n");
     }
 
+    // Emit error classes
+    out.push('\n');
+    out.push_str(&lifecycle_error_ws_sse::gen_error_classes(api));
+
     out
 }
 
@@ -188,6 +193,15 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
     for reg in &service.registrations {
         gen_registration_method(out, reg, service, api, native_module_name);
     }
+
+    // Lifecycle hook registration methods
+    lifecycle_error_ws_sse::gen_lifecycle_hooks_for_class(out, &api.lifecycle_hooks);
+
+    // WebSocket registration
+    lifecycle_error_ws_sse::gen_websocket_methods_for_class(out, &api.websocket_routes);
+
+    // SSE registration
+    lifecycle_error_ws_sse::gen_sse_methods_for_class(out, &api.sse_routes);
 
     // Entrypoint methods — positional params for direct invocation.
     for ep in &service.entrypoints {
@@ -966,6 +980,79 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
             generated_header: true,
         },
     ])
+}
+
+// ───────────────────────── Phase-C emission stubs (new IR sections) ──────────
+
+/// Emit Magnus/Ruby lifecycle-hook registration methods.
+///
+/// Stub: walks the collection, logs once when non-empty, returns `""`.
+/// Replace this body with Jinja-driven generation in the Magnus Phase-C pass.
+pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) -> String {
+    if hooks.is_empty() {
+        return String::new();
+    }
+    tracing::debug!(
+        "lifecycle hook emission not implemented for magnus ({} hooks)",
+        hooks.len()
+    );
+    for _hook in hooks {}
+    String::new()
+}
+
+/// Emit Magnus/Ruby WebSocket route registration methods.
+///
+/// Stub — returns `""` until the Magnus Phase-C specialist implements
+/// `app.websocket(path) { |socket| … }` generation.
+pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef]) -> String {
+    if routes.is_empty() {
+        return String::new();
+    }
+    tracing::debug!(
+        "WebSocket route emission not implemented for magnus ({} routes)",
+        routes.len()
+    );
+    for _route in routes {}
+    String::new()
+}
+
+/// Emit Magnus/Ruby SSE route registration methods.
+///
+/// Stub — returns `""` until the Magnus Phase-C specialist implements
+/// `app.sse(path) { … }` generation.
+pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String {
+    if routes.is_empty() {
+        return String::new();
+    }
+    tracing::debug!(
+        "SSE route emission not implemented for magnus ({} routes)",
+        routes.len()
+    );
+    for _route in routes {}
+    String::new()
+}
+
+/// Emit Magnus/Ruby native error classes.
+///
+/// Stub — returns `""` until the Magnus Phase-C specialist implements
+/// Ruby `StandardError` subclass generation.
+pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> String {
+    if types.is_empty() {
+        return String::new();
+    }
+    tracing::debug!("error type emission not implemented for magnus ({} types)", types.len());
+    for _ty in types {}
+    String::new()
+}
+
+/// Aggregate stub — forwards all four new IR sections for the Magnus backend.
+pub(super) fn emit_new_ir_sections(api: &crate::core::ir::ApiSurface) -> String {
+    let mut out = String::new();
+    out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));
+    out.push_str(&emit_websocket_routes(&api.websocket_routes));
+    out.push_str(&emit_sse_routes(&api.sse_routes));
+    out.push_str(&emit_error_types(&api.error_types));
+    out
 }
 
 // ───────────────────────────────────────────────────────────────────── tests ──

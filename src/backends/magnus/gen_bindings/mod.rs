@@ -2,6 +2,7 @@
 
 mod classes;
 pub mod functions;
+mod lifecycle_error_ws_sse;
 pub mod service_api;
 mod streaming;
 mod tagged_enums;

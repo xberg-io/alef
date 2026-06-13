@@ -914,6 +914,64 @@ fn qualify_rust_type(type_name: &str, source_crate: &str) -> String {
     }
 }
 
+// ───────────────────────── Phase-C emission stubs (new IR sections) ──────────
+
+/// Emit Swift lifecycle-hook registration methods. Stub.
+pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) -> String {
+    if hooks.is_empty() {
+        return String::new();
+    }
+    tracing::debug!(
+        "lifecycle hook emission not implemented for swift ({} hooks)",
+        hooks.len()
+    );
+    for _hook in hooks {}
+    String::new()
+}
+
+/// Emit Swift WebSocket route registration methods. Stub.
+pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef]) -> String {
+    if routes.is_empty() {
+        return String::new();
+    }
+    tracing::debug!(
+        "WebSocket route emission not implemented for swift ({} routes)",
+        routes.len()
+    );
+    for _route in routes {}
+    String::new()
+}
+
+/// Emit Swift SSE route registration methods. Stub.
+pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String {
+    if routes.is_empty() {
+        return String::new();
+    }
+    tracing::debug!("SSE route emission not implemented for swift ({} routes)", routes.len());
+    for _route in routes {}
+    String::new()
+}
+
+/// Emit Swift native error types. Stub.
+pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> String {
+    if types.is_empty() {
+        return String::new();
+    }
+    tracing::debug!("error type emission not implemented for swift ({} types)", types.len());
+    for _ty in types {}
+    String::new()
+}
+
+/// Aggregate stub — forwards all four new IR sections for the Swift backend.
+pub(super) fn emit_new_ir_sections(api: &crate::core::ir::ApiSurface) -> String {
+    let mut out = String::new();
+    out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));
+    out.push_str(&emit_websocket_routes(&api.websocket_routes));
+    out.push_str(&emit_sse_routes(&api.sse_routes));
+    out.push_str(&emit_error_types(&api.error_types));
+    out
+}
+
 // ───────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]

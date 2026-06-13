@@ -1,4 +1,5 @@
 mod application;
+pub mod codegen_hooks;
 mod items;
 mod metadata;
 mod service;
@@ -13,7 +14,7 @@ pub use metadata::{CoreWrapper, DefaultValue, DeprecationInfo, VersionAnnotation
 pub use service::{
     EntrypointDef, EntrypointKind, HandlerContractDef, HandlerShape, PathConstraint, RegistrationDef,
     RegistrationVariant, RegistrationVariantLanguageOverride, RegistrationVariantOverride, RegistrationVariantStyle,
-    ServiceDef, WrapperConstructorArg, WrapperConstructorCall,
+    ResolvedVariant, ServiceDef, WrapperConstructorArg, WrapperConstructorCall,
 };
 pub use surface::{ApiSurface, UnsupportedPublicItem};
 pub use type_ref::{PrimitiveType, TypeRef};

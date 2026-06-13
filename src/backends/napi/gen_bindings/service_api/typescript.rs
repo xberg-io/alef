@@ -459,12 +459,16 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
 
 /// Emit a TypeScript shortcut method for one registration variant.
 ///
-/// The emission style depends on [`RegistrationVariant::style`]:
+/// The emission style is resolved via [`RegistrationVariant::resolved_for`] for the
+/// `"napi"` language. Per-language overrides in `variant.language_overrides["napi"]`
+/// take precedence over the variant-global `style`:
+///
 /// - [`RegistrationVariantStyle::VerbDecorator`] — only the direct method form
 ///   (`app.get(path, handler)` returning `this` for chaining).
 /// - [`RegistrationVariantStyle::Builder`] — only the decorator-factory form
 ///   (`app.get(path)` returning a function that accepts the handler).
-/// - [`RegistrationVariantStyle::Hybrid`] — both forms (overloaded).
+/// - [`RegistrationVariantStyle::Hybrid`] / `Decorator` / `Attribute` / `Dsl` — both
+///   forms as TypeScript method overloads.
 fn gen_registration_variant_method_ts(
     out: &mut String,
     variant: &crate::core::ir::RegistrationVariant,
@@ -546,7 +550,10 @@ fn gen_registration_variant_method_ts(
         ("".to_owned(), metadata_expr)
     };
 
-    match variant.style {
+    // Resolve the effective style (and handler_shape) for the napi/TypeScript backend.
+    let resolved = variant.resolved_for("napi", reg.handler_shape);
+
+    match resolved.style {
         RegistrationVariantStyle::VerbDecorator => {
             // Direct method form only: `app.get(path, handler): this`
             emit_variant_direct_method(

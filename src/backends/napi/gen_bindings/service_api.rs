@@ -5,6 +5,7 @@
 
 mod assembly;
 mod helpers;
+mod new_ir_stubs;
 mod rust_glue;
 mod typescript;
 

@@ -254,12 +254,18 @@ fn emit_decorator_overload(
 
 /// Emit a registration variant (shortcut method) for the given variant definition.
 ///
-/// Which forms are emitted depends on [`RegistrationVariant::style`]:
+/// Which forms are emitted depends on the style resolved via
+/// [`RegistrationVariant::resolved_for`] for the `"python"` language. Per-language
+/// overrides in `variant.language_overrides["python"]` take precedence over the
+/// variant-global `style`:
+///
 /// - [`RegistrationVariantStyle::VerbDecorator`] — only the direct method form
 ///   (`def get(self, path, handler)`).
 /// - [`RegistrationVariantStyle::Builder`] — only the decorator-factory form
 ///   (`def get_decorator(self, path) -> Callable`).
-/// - [`RegistrationVariantStyle::Hybrid`] (default) — both forms.
+/// - [`RegistrationVariantStyle::Decorator`] — overloaded method acts as both.
+/// - [`RegistrationVariantStyle::Hybrid`] (default) — both forms emitted separately.
+/// - `Attribute` / `Dsl` — not idiomatic in Python; fall back to `Hybrid`.
 fn gen_registration_variant(
     out: &mut String,
     variant: &crate::core::ir::RegistrationVariant,
@@ -280,7 +286,10 @@ fn gen_registration_variant(
 
     let (_base_method, meta_tuple) = variant_meta_tuple(variant, base_reg);
 
-    match variant.style {
+    // Resolve style (and handler_shape/method_prefix) for the Python backend.
+    let resolved = variant.resolved_for("python", base_reg.handler_shape);
+
+    match resolved.style {
         RegistrationVariantStyle::VerbDecorator => {
             emit_direct_method(out, variant, base_reg, class_name, &free_params_sig, &meta_tuple);
         }
