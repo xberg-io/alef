@@ -188,6 +188,31 @@ pub(super) fn render_assertion(
         }
     }
 
+    // Discriminated-union navigation (sealed `FormatMetadata` in Kotlin).
+    // Field paths like `metadata.format.excel.sheet_count` cannot be expressed as
+    // a flat property chain because `FormatMetadata` is a sealed class with
+    // variant subclasses (`FormatMetadata.Excel`, `FormatMetadata.Pdf`, …); each
+    // variant exposes its payload through a `.metadata` property of the variant
+    // type.  Emit an `is`-pattern `when` block that binds the variant, then
+    // delegate the leaf assertion to `render_discriminated_union_assertion`.
+    if kotlin_android_style {
+        if let Some(f) = assertion.field.as_deref().filter(|f| !f.is_empty()) {
+            if let Some((variant_pascal, inner_field)) = super::discriminated::parse_discriminated_union_access(f) {
+                let variant_var = format!("format{variant_pascal}");
+                let _ = writeln!(
+                    out,
+                    "        when (val {variant_var} = {result_var}.metadata.format) {{"
+                );
+                let _ = writeln!(out, "            is FormatMetadata.{variant_pascal} -> {{");
+                super::discriminated::render_discriminated_union_assertion(out, assertion, &variant_var, &inner_field);
+                let _ = writeln!(out, "            }}");
+                let _ = writeln!(out, "            else -> {{}}");
+                let _ = writeln!(out, "        }}");
+                return;
+            }
+        }
+    }
+
     // Determine if this field is an enum type.
     let field_is_enum = assertion
         .field

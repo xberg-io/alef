@@ -17,6 +17,7 @@ use super::E2eCodegen;
 
 mod args;
 mod assertions;
+mod discriminated;
 mod http;
 mod project;
 mod stubs;
