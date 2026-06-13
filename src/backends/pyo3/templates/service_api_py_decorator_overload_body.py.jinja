@@ -1,0 +1,10 @@
+
+        if handler is None:
+            def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+                self._registrations.append(("{{ base_method }}", {{ meta_tuple }}, fn))
+                return fn
+
+            return _decorator
+        else:
+            self._registrations.append(("{{ base_method }}", {{ meta_tuple }}, handler))
+            return self

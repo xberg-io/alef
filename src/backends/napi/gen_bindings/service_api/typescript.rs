@@ -135,6 +135,9 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_ts(
         out.push_str(&format!("\nexport {{ {} }};\n", service_names.join(", ")));
     }
 
+    // Framework alias export is configured via alef.toml service.framework_alias
+    // or deferred to Phase C per-backend emission. Skipped for now.
+
     out
 }
 
@@ -239,21 +242,36 @@ fn gen_service_class_ts(
         }
 
         let param_sig = params.join(", ");
-        let store_block = method
-            .params
-            .iter()
-            .map(|p| {
-                render(
-                    "service_ts_configurator_store.jinja",
-                    context! {
-                        field_name => &p.name,
-                        param_name => &p.name,
-                    },
-                )
-            })
-            .collect::<String>();
         let method_name = &method.name;
         let doc = method.doc.trim().replace('\n', "\n   * ");
+
+        // For the config method, emit a native forward call in addition to storing.
+        // All other configurators just store.
+        let store_block = if method_name == "config" && method.params.len() == 1 {
+            // Special case: config(config: ServerConfig)
+            // Store locally and forward to native via JSON serialization.
+            render(
+                "service_ts_configurator_config_forward.jinja",
+                context! {
+                    param_name => &method.params[0].name,
+                },
+            )
+        } else {
+            method
+                .params
+                .iter()
+                .map(|p| {
+                    render(
+                        "service_ts_configurator_store.jinja",
+                        context! {
+                            field_name => &p.name,
+                            param_name => &p.name,
+                        },
+                    )
+                })
+                .collect::<String>()
+        };
+
         out.push_str(&render(
             "service_ts_configurator.jinja",
             context! {
@@ -329,6 +347,12 @@ fn gen_service_class_ts(
                 ));
             }
         }
+    }
+
+    // Lifecycle hook registration methods
+    for hook in &api.lifecycle_hooks {
+        let hook_ts = gen_lifecycle_hook_ts(hook);
+        out.push_str(&hook_ts);
     }
 
     while out.ends_with("\n\n") {
@@ -704,6 +728,25 @@ fn emit_variant_hybrid_overloaded(
             native_args,
         },
     ));
+}
+
+/// Emit a lifecycle hook registration method.
+/// Hook name is converted to camelCase for TypeScript idiom.
+fn gen_lifecycle_hook_ts(hook: &crate::core::ir::LifecycleHookDef) -> String {
+    let method_name = hook.name.to_lower_camel_case();
+    let doc = hook.doc.trim().replace('\n', "\n   * ");
+    let callback_contract = &hook.callback_contract;
+    let is_async = hook.is_async;
+
+    render(
+        "service_ts_lifecycle_hook.jinja",
+        context! {
+            doc,
+            method_name,
+            callback_contract,
+            is_async,
+        },
+    )
 }
 
 #[cfg(test)]

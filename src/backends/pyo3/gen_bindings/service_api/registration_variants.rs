@@ -193,6 +193,65 @@ fn emit_decorator_factory(
     ));
 }
 
+/// Emit a single overloaded method that acts as both direct registration and decorator factory.
+/// This is the "Decorator" style: `def get(self, path, handler=None)`.
+///
+/// When `handler` is provided, registers directly and returns `self` (chainable).
+/// When `handler` is `None`, returns a decorator function.
+///
+/// Used when `style` is `Decorator`.
+fn emit_decorator_overload(
+    out: &mut String,
+    variant: &crate::core::ir::RegistrationVariant,
+    base_reg: &RegistrationDef,
+    class_name: &str,
+    free_params_sig: &[String],
+    meta_tuple: &str,
+) {
+    let variant_name = &variant.name;
+    let base_method = &base_reg.method;
+
+    let params_sig = if free_params_sig.is_empty() {
+        "self, handler: Callable[..., Any] | None = None".to_owned()
+    } else {
+        format!(
+            "self, {}, handler: Callable[..., Any] | None = None",
+            free_params_sig.join(", ")
+        )
+    };
+
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_decorator_overload_header.py.jinja",
+        context! { variant_name => variant_name, params_sig => params_sig, class_name => class_name },
+    ));
+
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format_docstring(doc, 8));
+    } else {
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_direct_variant_doc.py.jinja",
+            context! { variant_name => variant_name },
+        ));
+    }
+
+    if let Some(wrapper_expr) = build_wrapper_constructor_expr(variant) {
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "service_api_py_statement.py.jinja",
+            context! { statement => wrapper_expr },
+        ));
+    }
+
+    // Render the overload body: if handler is None, return decorator; else register + return self
+    out.push_str(&crate::backends::pyo3::template_env::render(
+        "service_api_py_decorator_overload_body.py.jinja",
+        context! {
+            base_method => base_method,
+            meta_tuple => meta_tuple,
+            callback => "handler",
+        },
+    ));
+}
+
 /// Emit a registration variant (shortcut method) for the given variant definition.
 ///
 /// Which forms are emitted depends on [`RegistrationVariant::style`]:
@@ -228,12 +287,12 @@ fn gen_registration_variant(
         RegistrationVariantStyle::Builder => {
             emit_decorator_factory(out, variant, base_reg, &free_params_sig, &meta_tuple);
         }
-        // Decorator, Attribute, Dsl and Hybrid all fall through to the hybrid form.
-        // Per-backend specialization for the new styles is a Phase C concern.
-        RegistrationVariantStyle::Hybrid
-        | RegistrationVariantStyle::Decorator
-        | RegistrationVariantStyle::Attribute
-        | RegistrationVariantStyle::Dsl => {
+        RegistrationVariantStyle::Decorator => {
+            // Python-specific: overloaded method acts as both direct and decorator factory.
+            emit_decorator_overload(out, variant, base_reg, class_name, &free_params_sig, &meta_tuple);
+        }
+        // Attribute and Dsl are not applicable to Python; fall through to Hybrid.
+        RegistrationVariantStyle::Hybrid | RegistrationVariantStyle::Attribute | RegistrationVariantStyle::Dsl => {
             emit_direct_method(out, variant, base_reg, class_name, &free_params_sig, &meta_tuple);
             emit_decorator_factory(out, variant, base_reg, &free_params_sig, &meta_tuple);
         }

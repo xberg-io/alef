@@ -135,6 +135,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_ts_configurator_store.jinja"),
     ),
     (
+        "service_ts_configurator_config_forward.jinja",
+        include_str!("templates/service_ts_configurator_config_forward.jinja"),
+    ),
+    (
+        "service_ts_lifecycle_hook.jinja",
+        include_str!("templates/service_ts_lifecycle_hook.jinja"),
+    ),
+    (
         "service_ts_entrypoint_run.jinja",
         include_str!("templates/service_ts_entrypoint_run.jinja"),
     ),

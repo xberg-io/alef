@@ -69,10 +69,19 @@ fn emit_function_shim(
                 // signatures cannot express nullability.  Treat empty as
                 // None so the Rust callee receives the correct Option<_>.
                 if p.optional {
+                    // Optional `&str` callers (`Option<&str>` in the core) need a borrowed
+                    // payload; `Some(mime_type)` would supply an owned String and fail with
+                    // E0308.  Emit `Some(&mime_type)` when the core wants a reference,
+                    // and `Some(mime_type)` only for owned `Option<String>` slots.
+                    let some_payload = if p.is_ref {
+                        format!("&{rust_name}")
+                    } else {
+                        rust_name.clone()
+                    };
                     call_args.push_str("if ");
                     call_args.push_str(&rust_name);
                     call_args.push_str(".is_empty() { None } else { Some(");
-                    call_args.push_str(&rust_name);
+                    call_args.push_str(&some_payload);
                     call_args.push_str(") }");
                 } else if p.is_ref {
                     call_args.push('&');
@@ -204,15 +213,12 @@ fn emit_function_shim(
                     if p.is_ref && p.is_mut {
                         unmarshal.push_str(&format!("    let mut {rust_name} = {rust_name};\n"));
                     }
-                    // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
-                    let is_vec_string_ref =
-                        p.is_ref && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
-                    if is_vec_string_ref {
-                        let refs_name = format!("{rust_name}_refs");
-                        unmarshal.push_str(&render_vec_string_refs(&refs_name, &rust_name));
-                        call_args.push('&');
-                        call_args.push_str(&refs_name);
-                    } else if p.is_ref {
+                    // `&Vec<String>` coerces to `&[String]` so plain `&<name>` covers
+                    // every Vec<String> call site we currently emit. The previous
+                    // special-case that converted to `Vec<&str>` would have produced
+                    // `&[&str]` which is incompatible with core fns that take `&[String]`
+                    // (e.g. `LlmBackend::detect_with_custom`).
+                    if p.is_ref {
                         // Match the borrow mode declared by the core function: `&mut T`
                         // params receive an exclusive borrow, plain `&T` an immutable one.
                         // Without this distinction the JNI shim emits `&result` for a
