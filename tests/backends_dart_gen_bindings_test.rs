@@ -1842,6 +1842,7 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
             PostBuildStep::RunCommand { .. } => "RunCommand",
             PostBuildStep::PostProcessFile { .. } => "PostProcessFile",
             PostBuildStep::PatchFile { .. } => "PatchFile",
+            PostBuildStep::StageDartNatives { .. } => "StageDartNatives",
         })
         .collect();
 
@@ -1853,7 +1854,8 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
             "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",
-            "PostProcessFile"
+            "PostProcessFile",
+            "StageDartNatives"
         ],
         "RunCommand must come before all PostProcessFile steps in post_build steps"
     );
@@ -1966,6 +1968,9 @@ skip_frb = true
                 PostBuildStep::RunCommand { cmd, .. } => format!("RunCommand({cmd})"),
                 PostBuildStep::PostProcessFile { .. } => "PostProcessFile".to_string(),
                 PostBuildStep::PatchFile { .. } => "PatchFile".to_string(),
+                PostBuildStep::StageDartNatives { lib_stem } => {
+                    format!("StageDartNatives({lib_stem})")
+                }
             })
             .collect::<Vec<_>>()
     );

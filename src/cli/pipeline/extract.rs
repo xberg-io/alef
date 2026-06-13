@@ -41,7 +41,7 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // without this the cache would hand back stale IR and downstream stages
     // (notably READMEs) would render the previous version's badges/snippets.
     let version_for_hash = config.resolved_version().unwrap_or_default();
-    let config_hash = extraction_config_hash(config)?;
+    let config_hash = extraction_config_hash(config, config_path)?;
     let cache_key = format!("{IR_CACHE_SCHEMA_VERSION}:{source_hash}:{version_for_hash}:{config_hash}");
 
     if !clean && cache::is_ir_cached(&config.name, &cache_key) {
@@ -97,12 +97,14 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     run_service_extraction(&mut api, config)?;
 
     // Let registered extensions augment the API surface (e.g. inject HTTP-domain IR).
+    // Each extension receives its own `[extensions.<name>]` section from alef.toml
+    // so it can read per-project configuration without coupling to the core config schema.
     crate::with_extensions(|exts| {
         for ext in exts {
-            // Extensions receive None config here; per-extension TOML sections
-            // are a future enhancement (tracked in CHANGELOG [Unreleased]).
+            let raw = crate::core::extension::read_extension_config(config_path, ext.name())
+                .with_context(|| format!("extension `{}`: failed to read config from alef.toml", ext.name()))?;
             let cfg = ext
-                .parse_config(None)
+                .parse_config(raw.as_ref())
                 .with_context(|| format!("extension `{}`: failed to parse config", ext.name()))?;
             ext.augment_surface(&mut api, &cfg)
                 .with_context(|| format!("extension `{}`: augment_surface failed", ext.name()))?;
@@ -145,7 +147,11 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
 
     Ok(api)
 }
-fn extraction_config_hash(config: &ResolvedCrateConfig) -> anyhow::Result<String> {
+fn extraction_config_hash(config: &ResolvedCrateConfig, config_path: &Path) -> anyhow::Result<String> {
     let config_toml = toml::to_string(config).context("failed to serialize resolved config for IR cache key")?;
-    Ok(blake3::hash(config_toml.as_bytes()).to_hex().to_string())
+    let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(config_toml.as_bytes());
+    hasher.update(&alef_toml_bytes);
+    Ok(hasher.finalize().to_hex().to_string())
 }

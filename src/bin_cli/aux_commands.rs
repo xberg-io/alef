@@ -31,7 +31,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
             // Generate bindings
             eprintln!("  Generating bindings...");
-            let bindings = pipeline::generate(&api, resolved_cfg, &languages, false)?;
+            let bindings = pipeline::generate(&api, resolved_cfg, &languages, false, config_path)?;
             let mut binding_count: usize = 0;
             let mut all_paths = std::collections::HashSet::new();
             for (lang_key, lang_files) in &bindings {

@@ -69,13 +69,34 @@ pub fn create_tar_gz(staging_dir: &Path, output_path: &Path) -> Result<()> {
 /// archive is a precompiled binary with neither, so PIE never unfolds and the
 /// install fails with "extension not found". Archive contents directly so the
 /// `.so` lands at the archive root.
+///
+/// Entries are enumerated explicitly rather than passing `.` to `tar`, because
+/// `tar czf out.tgz -C dir .` emits a leading `./` directory entry that PIE's
+/// Phar-based `TarDownloader` rejects with `Cannot extract ".", internal error`.
+/// Passing each top-level entry by name produces a flat archive with no
+/// directory entries at all.
 pub fn create_tar_gz_flat(staging_dir: &Path, output_path: &Path) -> Result<()> {
+    let mut entries: Vec<String> = std::fs::read_dir(staging_dir)
+        .with_context(|| format!("reading staging dir {}", staging_dir.display()))?
+        .map(|res| {
+            res.map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .map_err(anyhow::Error::from)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if entries.is_empty() {
+        anyhow::bail!(
+            "staging dir {} is empty; refusing to create empty archive",
+            staging_dir.display()
+        );
+    }
+    entries.sort();
+
     let status = std::process::Command::new("tar")
         .arg("czf")
         .arg(output_path)
         .arg("-C")
         .arg(staging_dir)
-        .arg(".")
+        .args(&entries)
         .status()?;
 
     if !status.success() {

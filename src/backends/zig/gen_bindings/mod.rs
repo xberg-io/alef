@@ -359,6 +359,9 @@ impl Backend for ZigBackend {
     fn generate_scaffold(&self, _api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let module_name = zig_module_name(&config.name);
         let ffi_lib_name = config.ffi_lib_name();
+        let ffi_crate_path = config.ffi_crate_path();
+        let ffi_crate_root = ffi_crate_path.strip_prefix("../../").unwrap_or(&ffi_crate_path);
+        let ffi_include_default = format!("../../{ffi_crate_root}/include");
 
         // Render build.zig from template with module and library names.
         let build_zig_content = crate::backends::zig::template_env::render(
@@ -366,6 +369,7 @@ impl Backend for ZigBackend {
             minijinja::context! {
                 module_name => &module_name,
                 ffi_lib_name => &ffi_lib_name,
+                ffi_include_default => &ffi_include_default,
             },
         );
 
@@ -375,8 +379,6 @@ impl Backend for ZigBackend {
 
         // Read FFI header from the workspace crate and emit it to packages/zig/include/.
         let header_name = config.ffi_header_name();
-        let ffi_crate_path = config.ffi_crate_path();
-        let ffi_crate_root = ffi_crate_path.strip_prefix("../../").unwrap_or(&ffi_crate_path);
         let ffi_crate_header_path = PathBuf::from(ffi_crate_root)
             .join("include")
             .join(format!("{}.h", header_name));

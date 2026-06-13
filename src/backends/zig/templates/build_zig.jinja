@@ -1,30 +1,23 @@
 const std = @import("std");
-
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Resolve FFI paths. When published via zig fetch, prebuilt lib/<rid>/ and
-    // include/ directories are bundled in the tarball. For local development,
-    // paths are resolved to the workspace build artifacts and FFI crate headers.
-    //
+    // Default library/include search paths follow the conventional Cargo workspace
+    // layout. `alef publish package --lang zig` rewrites this file for the
+    // distributed tarball so consumers link the bundled lib/ and include/ dirs.
     // Override with -Dffi_path=... and -Dffi_include_path=... if your layout differs.
     const ffi_path = b.option(
         []const u8,
         "ffi_path",
         "Path to directory containing lib{{ ffi_lib_name }}.{dylib,so,dll,a}"
-    ) orelse blk: {
-        // Published distribution: resolve bundled lib/<rid>/ subdir by compile-time target.
-        // Local development: use workspace target/release (passed via -Dffi_path=...).
-        const rid = ridDir(target);
-        break :blk b.fmt("lib/{s}", .{rid});
-    };
+    ) orelse "../../target/release";
 
     const ffi_include = b.option(
         []const u8,
         "ffi_include_path",
         "Path to directory containing the FFI C header"
-    ) orelse "include";
+    ) orelse "{{ ffi_include_default }}";
 
     const module = b.addModule("{{ module_name }}", .{
         .root_source_file = b.path("src/{{ module_name }}.zig"),
@@ -32,8 +25,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
-    module.addLibraryPath(b.path(ffi_path));
-    module.addIncludePath(b.path(ffi_include));
+    module.addLibraryPath(.{ .cwd_relative = ffi_path });
+    module.addIncludePath(.{ .cwd_relative = ffi_include });
     module.linkSystemLibrary("{{ ffi_lib_name }}", .{});
 
     const test_module = b.createModule(.{
@@ -42,8 +35,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
-    test_module.addLibraryPath(b.path(ffi_path));
-    test_module.addIncludePath(b.path(ffi_include));
+    test_module.addLibraryPath(.{ .cwd_relative = ffi_path });
+    test_module.addIncludePath(.{ .cwd_relative = ffi_include });
     test_module.linkSystemLibrary("{{ ffi_lib_name }}", .{});
 
     const tests = b.addTest(.{
@@ -53,24 +46,4 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
-}
-
-fn ridDir(target: std.Build.ResolvedTarget) []const u8 {
-    return switch (target.result.os.tag) {
-        .linux => switch (target.result.cpu.arch) {
-            .x86_64 => "x86_64-linux-gnu",
-            .aarch64 => "aarch64-linux-gnu",
-            else => @panic("unsupported linux arch for this package"),
-        },
-        .macos => switch (target.result.cpu.arch) {
-            .aarch64 => "aarch64-darwin",
-            .x86_64 => "x86_64-darwin",
-            else => @panic("unsupported macos arch for this package"),
-        },
-        .windows => switch (target.result.cpu.arch) {
-            .x86_64 => "x86_64-windows-msvc",
-            else => @panic("unsupported windows arch for this package"),
-        },
-        else => @panic("unsupported os for this package"),
-    };
 }

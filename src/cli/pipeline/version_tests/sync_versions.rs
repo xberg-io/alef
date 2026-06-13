@@ -600,3 +600,160 @@ fn sync_versions_without_release_date_override_preserves_configured_date() {
         "configured date must be preserved when no override is supplied, got:\n{citation}"
     );
 }
+
+// -----------------------------------------------------------------------
+// [patch.crates-io] version sync tests
+// -----------------------------------------------------------------------
+
+/// `sync_versions` must update the `version =` pin inside a `[patch.crates-io]`
+/// entry when the entry's key matches the configured crate name.
+///
+/// Regression test for a release where the workspace version moved forward but
+/// the patch block stayed on an older prerelease, breaking binding CI.
+#[test]
+fn sync_versions_patches_crates_io_patch_block_version() {
+    use crate::core::config::NewAlefConfig;
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    // Workspace Cargo.toml at the new version with a stale [patch.crates-io] pin.
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace.package]\nversion = \"3.6.3\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n\n[patch.crates-io]\nmy-lib-rs = { path = \"crates/my-lib\", version = \"3.6.0-rc.14\" }\n",
+    )
+    .expect("write Cargo.toml");
+
+    let alef_toml = format!(
+        "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"my-lib-rs\"\nsources = []\nversion_from = \"{}\"\n",
+        root.join("Cargo.toml").display().to_string().replace('\\', "/")
+    );
+    let alef_toml_path = root.join("alef.toml");
+    std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+    let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+    let mut resolved = cfg.resolve().expect("resolve config");
+    let resolved_cfg = resolved.remove(0);
+
+    std::env::set_current_dir(root).expect("set_current_dir");
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
+    let _ = std::env::set_current_dir(&original_cwd);
+    sync_result.expect("sync_versions ok");
+
+    let cargo_toml = std::fs::read_to_string(root.join("Cargo.toml")).expect("read Cargo.toml");
+    assert!(
+        cargo_toml.contains(r#"my-lib-rs = { path = "crates/my-lib", version = "3.6.3" }"#),
+        "[patch.crates-io] version must be bumped to workspace version, got:\n{cargo_toml}"
+    );
+    assert!(
+        !cargo_toml.contains("3.6.0-rc.14"),
+        "stale patch version must be gone, got:\n{cargo_toml}"
+    );
+}
+
+/// `sync_versions` must leave path-only `[patch.crates-io]` entries untouched —
+/// entries without a `version =` key have no pin to drift.
+#[test]
+fn sync_versions_skips_path_only_crates_io_patch_entries() {
+    use crate::core::config::NewAlefConfig;
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    let cargo_toml_content = "[workspace.package]\nversion = \"2.0.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n\n[patch.crates-io]\npath-only-lib = { path = \"crates/path-only\" }\n";
+    std::fs::write(root.join("Cargo.toml"), cargo_toml_content).expect("write Cargo.toml");
+
+    let alef_toml = format!(
+        "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"path-only-lib\"\nsources = []\nversion_from = \"{}\"\n",
+        root.join("Cargo.toml").display().to_string().replace('\\', "/")
+    );
+    let alef_toml_path = root.join("alef.toml");
+    std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+    let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+    let mut resolved = cfg.resolve().expect("resolve config");
+    let resolved_cfg = resolved.remove(0);
+
+    std::env::set_current_dir(root).expect("set_current_dir");
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
+    let _ = std::env::set_current_dir(&original_cwd);
+    sync_result.expect("sync_versions ok");
+
+    let cargo_toml = std::fs::read_to_string(root.join("Cargo.toml")).expect("read Cargo.toml");
+    // Entry must survive intact — no version key inserted.
+    assert!(
+        cargo_toml.contains(r#"path-only-lib = { path = "crates/path-only" }"#),
+        "path-only patch entry must be untouched, got:\n{cargo_toml}"
+    );
+    assert!(
+        !cargo_toml.contains(r#"version = "2.0.0""#)
+            || cargo_toml
+                .lines()
+                .all(|l| !l.contains("path-only-lib") || !l.contains("version")),
+        "no version key must be inserted into path-only entry, got:\n{cargo_toml}"
+    );
+}
+
+/// `patch_cargo_crates_io_version` unit test: returns false when no
+/// `[patch.crates-io]` block exists.
+#[test]
+fn patch_cargo_crates_io_version_noop_when_no_patch_block() {
+    use crate::cli::pipeline::version_core::patch_cargo_crates_io_version;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("Cargo.toml");
+    std::fs::write(
+        &path,
+        "[workspace.package]\nversion = \"1.0.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+    )
+    .expect("write");
+
+    let changed = patch_cargo_crates_io_version(path.to_str().unwrap(), "my-lib", "1.0.0").expect("no error");
+    assert!(!changed, "must return false when [patch.crates-io] is absent");
+}
+
+/// `patch_cargo_crates_io_version` unit test: returns false when the named
+/// crate is not present in the patch block.
+#[test]
+fn patch_cargo_crates_io_version_noop_when_crate_absent() {
+    use crate::cli::pipeline::version_core::patch_cargo_crates_io_version;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("Cargo.toml");
+    std::fs::write(
+        &path,
+        "[workspace.package]\nversion = \"1.0.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n\n[patch.crates-io]\nother-crate = { path = \"crates/other\", version = \"0.9.0\" }\n",
+    )
+    .expect("write");
+
+    let changed = patch_cargo_crates_io_version(path.to_str().unwrap(), "my-lib", "1.0.0").expect("no error");
+    assert!(!changed, "must return false when crate is absent from patch block");
+
+    // other-crate must be untouched.
+    let content = std::fs::read_to_string(&path).expect("read");
+    assert!(
+        content.contains(r#"other-crate = { path = "crates/other", version = "0.9.0" }"#),
+        "unrelated patch entry must be untouched:\n{content}"
+    );
+}
+
+/// `patch_cargo_crates_io_version` unit test: is idempotent.
+#[test]
+fn patch_cargo_crates_io_version_is_idempotent() {
+    use crate::cli::pipeline::version_core::patch_cargo_crates_io_version;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("Cargo.toml");
+    std::fs::write(
+        &path,
+        "[workspace.package]\nversion = \"3.6.3\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n\n[patch.crates-io]\nmy-lib-rs = { path = \"crates/my-lib\", version = \"3.6.3\" }\n",
+    )
+    .expect("write");
+
+    let changed = patch_cargo_crates_io_version(path.to_str().unwrap(), "my-lib-rs", "3.6.3").expect("no error");
+    assert!(!changed, "must return false when version already matches");
+}

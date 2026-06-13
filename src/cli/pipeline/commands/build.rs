@@ -574,6 +574,14 @@ pub fn run_post_build(
                     debug!("PostProcessFile target not found: {}", file_path.display());
                 }
             }
+            PostBuildStep::StageDartNatives { lib_stem } => {
+                // Stage native libraries from build output into the Dart package.
+                // workspace_root is base_dir; packages/dart is the package directory.
+                let package_root = base_dir.join("packages/dart");
+                crate::publish::dart_native::stage_dart_native_libraries(base_dir, &package_root, lib_stem)
+                    .with_context(|| format!("failed to stage Dart native libraries for stem '{lib_stem}'"))?;
+                info!("Staged native libraries for Dart package from build output (stem: '{lib_stem}')");
+            }
         }
     }
 

@@ -78,7 +78,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     std::collections::HashSet::new();
 
                 eprintln!("Generating bindings...");
-                let bindings = pipeline::generate(&api, resolved_cfg, &languages, clean)?;
+                let bindings = pipeline::generate(&api, resolved_cfg, &languages, clean, config_path)?;
 
                 // Per-language: hash content, skip writing if all hashes match.
                 let mut binding_count: usize = 0;

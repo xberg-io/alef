@@ -78,6 +78,13 @@ pub enum PostBuildStep {
         /// In-process processor to apply.
         processor: PostProcessor,
     },
+    /// Stage Dart native libraries from build artifacts into the package directory.
+    /// Searches `{workspace}/target/{rust_target}/release/` for built libraries
+    /// and copies them to `{package_root}/lib/src/native/{rid}/`.
+    StageDartNatives {
+        /// The library stem (e.g., "sample_lib_dart" for libsample_lib_dart.dylib).
+        lib_stem: String,
+    },
 }
 
 /// A generated file to write to disk.

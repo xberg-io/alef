@@ -1,10 +1,15 @@
 # Extending Alef
 
-Alef is designed as an opinionated codegen engine: it handles extraction, language backend dispatch, and scaffolding. Domain-specific logic (HTTP service APIs, plugin systems, GraphQL schema validation) lives outside alef as extensions, so multiple consumers can reuse the engine without coupling.
+Alef works as an opinionated codegen engine: it handles extraction, language backend dispatch,
+and scaffolding. Domain-specific logic (HTTP service APIs, plugin systems, GraphQL schema validation)
+lives outside alef as extensions, so consumers can reuse the engine without coupling.
 
 ## Why Extensions
 
-Early alef bundled HTTP-domain concerns directly: `LifecycleHookDef`, `WebSocketRouteDef`, `SseRouteDef`, `ErrorTypeDef`, RFC 9457 error mappings. This prevented libraries without service declarations (data-binding libraries, document processors) from using alef cleanly. The Extension trait extracts this: one trait, three deployment modes, same interface.
+Previous alef versions bundled HTTP-domain concerns directly: `LifecycleHookDef`, `WebSocketRouteDef`,
+`SseRouteDef`, `ErrorTypeDef`, RFC 9457 error mappings. This prevented libraries without service
+declarations (data-binding libraries, document processors) from using alef cleanly. The Extension
+trait extracts this: one trait, three deployment modes, same interface.
 
 ## The Extension Trait
 
@@ -33,15 +38,28 @@ pub trait Extension: Send + Sync {
     ) -> Result<Vec<GeneratedFile>> {
         Ok(vec![])
     }
+
+    fn transform_emitted_files(
+        &self,
+        _api: &ApiSurface,
+        _cfg: &ExtensionConfig,
+        _language: Language,
+        _files: &mut Vec<GeneratedFile>,
+        _env: &TemplateEnv,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 ```
 
-Three methods, all with default no-op impls. Override what you need:
+Four methods, all with default no-op impls. Override what you need:
 
-- **`name()`** — identifier string (required). Called before extraction; use this to validate config format early.
-- **`parse_config(raw)`** — parse the extension's TOML section into typed `ExtensionConfig`. Default: empty config. Called once at startup.
-- **`augment_surface(api, cfg)`** — mutate `ApiSurface` after extraction (add fields, validate constraints, transform IR). Default: no-op. Called once per generation after the core extraction step.
-- **`emit_for_language(api, cfg, language, env)`** — return extra `GeneratedFile`s for one language target. Default: empty vec. Called once per enabled language after backend emission completes.
+- **`name()`** — identifier string (required). Used as the TOML config key: `[extensions.<name>]`.
+- **`parse_config(raw)`** — parse TOML into typed `ExtensionConfig`. Receives the
+  `[extensions.<name>]` section from `alef.toml`, or `None` when that section is absent.
+- **`augment_surface(api, cfg)`** — mutate `ApiSurface` after extraction. Default: no-op.
+- **`emit_for_language(api, cfg, language, env)`** — return extra `GeneratedFile`s for one language.
+- **`transform_emitted_files(...)`** — rewrite emitted files after backend and extension generation.
 
 ## ExtensionConfig
 
@@ -196,11 +214,12 @@ alef generate --load-extension path/to/libmy_extension.so
 
 ### Security
 
-Loaded dylibs run with full process privileges. Only load from trusted sources.
+Loaded dylibs run with full process privileges. Load them from trusted sources.
 
 ## Mode 3: Template-only Extension
 
-Declare `[[extensions.template]]` blocks in `alef.toml`. Alef's built-in `TemplateExtension` renders them — no custom Rust code required.
+Declare `[[extensions.template]]` blocks in `alef.toml`. Alef's built-in `TemplateExtension` renders
+them — no custom Rust code required.
 
 ### Alef.toml
 
@@ -228,10 +247,10 @@ Templates receive a JSON context with the full `ApiSurface` and can introspect t
 {% endfor %}
 ```
 
-### When to Use
+### Template-only Use Cases
 
 - Adding extra output files without modifying alef
-- Simple template rendering (no custom logic)
+- Template rendering without custom logic
 - Extension author and framework consumer can collaborate on templates
 
 ## Choosing a Mode
@@ -259,6 +278,8 @@ setting_2 = 123
 name = "item1"
 ```
 
-The entire `[extensions.my_domain]` (or `extensions.my_domain.*`) section is passed to `MyExtension::parse_config()`. Use your favorite TOML deserializer (serde, toml-rs, manual parsing) to extract typed config.
+Alef passes the entire `[extensions.my_domain]` (or `extensions.my_domain.*`) section to
+`MyExtension::parse_config()`. Use your favorite TOML deserializer (serde, toml-rs, manual parsing)
+to extract typed config.
 
-For template-only extensions, blocks use `[[extensions.template]]` as a reserved list.
+For template extensions, blocks use `[[extensions.template]]` as a reserved list.

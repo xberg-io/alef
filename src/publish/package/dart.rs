@@ -3,6 +3,7 @@
 use super::PackageArtifact;
 use super::util::{copy_dir_recursive, copy_optional_file};
 use crate::core::config::ResolvedCrateConfig;
+use crate::publish::dart_native::stage_dart_native_libraries;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -12,6 +13,7 @@ use std::path::Path;
 /// Produces: `{pubspec_name}-{version}.tar.gz` containing:
 /// - `pubspec.yaml` — copied from `packages/dart/pubspec.yaml`
 /// - `lib/` — Dart wrappers (including `lib/src/` for FRB bridge code)
+/// - `lib/src/native/{rid}/` — prebuilt native libraries (if available)
 /// - `rust/` — Rust-side FRB crate
 /// - `README.md`, `CHANGELOG.md`, `LICENSE` if present in workspace root
 ///
@@ -41,6 +43,12 @@ pub fn package_dart(
         anyhow::bail!("Dart package directory not found: {}", pkg_dir);
     }
     copy_dir_recursive(&pkg_src, &staging).context("copying Dart package directory")?;
+
+    // Stage prebuilt native libraries if available.
+    // This allows published packages to work without requiring consumers to build Rust code.
+    let lib_stem = format!("{}_dart", pubspec_name.replace('-', "_"));
+    stage_dart_native_libraries(workspace_root, &staging, &lib_stem)
+        .context("staging native libraries for Dart package")?;
 
     // Copy optional top-level docs into the staging root.
     for filename in ["README.md", "CHANGELOG.md", "LICENSE"] {

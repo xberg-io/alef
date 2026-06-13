@@ -81,7 +81,7 @@ pub fn sync_versions(
     // Workspace Cargo.toml files: sync [package] version in both members and excluded crates.
     // After updating [package] version, also patch intra-workspace dep version pins so that
     // entries like `sample_core = { path = "...", version = "X.Y.Z" }` get bumped to match.
-    sync_workspace_cargo_toml_versions(&version, &mut updated, &mut any_cargo_toml_modified);
+    sync_workspace_cargo_toml_versions(&config.name, &version, &mut updated, &mut any_cargo_toml_modified);
 
     // Python: pyproject.toml — convert semver pre-release to PEP 440 format
     // e.g., "0.1.0-rc.1" → "0.1.0rc1", "0.1.0-alpha.2" → "0.1.0a2", "0.1.0-beta.3" → "0.1.0b3"

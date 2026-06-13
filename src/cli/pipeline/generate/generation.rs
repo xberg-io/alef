@@ -5,6 +5,7 @@ use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 use anyhow::Context as _;
 use rayon::prelude::*;
+use std::path::Path;
 use tracing::{debug, info};
 
 pub fn generate(
@@ -12,6 +13,7 @@ pub fn generate(
     config: &ResolvedCrateConfig,
     languages: &[Language],
     clean: bool,
+    config_path: &Path,
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
     let validated_api = validate_generation_api(api, config, languages)?;
 
@@ -27,8 +29,11 @@ pub fn generate(
     }
 
     let ir_json = serde_json::to_string(api)?;
-    let config_toml =
+    let mut config_toml =
         toml::to_string(config).with_context(|| "failed to serialize resolved crate config for cache key")?;
+    let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
+    config_toml.push_str("\n# raw alef.toml\n");
+    config_toml.push_str(&String::from_utf8_lossy(&alef_toml_bytes));
 
     let to_generate: Vec<_> = languages
         .par_iter()
@@ -55,22 +60,28 @@ pub fn generate(
                 .generate_bindings_checked(validated_api, config)
                 .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
 
-            // Collect additional files from registered extensions for this language.
-            let ext_files = crate::with_extensions(|exts| {
+            // Collect additional files from registered extensions, then let each
+            // extension transform the full file list. Both hooks receive the
+            // per-extension config from the `[extensions.<name>]` alef.toml section.
+            crate::with_extensions(|exts| {
                 let env = crate::core::template_env::TemplateEnv::new();
-                let mut all = Vec::new();
                 for ext in exts {
+                    let raw = crate::core::extension::read_extension_config(config_path, ext.name())
+                        .with_context(|| format!("extension `{}`: failed to read config from alef.toml", ext.name()))?;
                     let cfg = ext
-                        .parse_config(None)
+                        .parse_config(raw.as_ref())
                         .with_context(|| format!("extension `{}`: failed to parse config", ext.name()))?;
                     let extra = ext
                         .emit_for_language(validated_api.api(), &cfg, *lang, &env)
                         .with_context(|| format!("extension `{}`: emit_for_language({lang_str}) failed", ext.name()))?;
-                    all.extend(extra);
+                    files.extend(extra);
+                    ext.transform_emitted_files(validated_api.api(), &cfg, *lang, &mut files, &env)
+                        .with_context(|| {
+                            format!("extension `{}`: transform_emitted_files({lang_str}) failed", ext.name())
+                        })?;
                 }
-                Ok::<Vec<GeneratedFile>, anyhow::Error>(all)
+                Ok::<(), anyhow::Error>(())
             })?;
-            files.extend(ext_files);
 
             let base_dir = std::env::current_dir().unwrap_or_default();
             let output_paths: Vec<std::path::PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();

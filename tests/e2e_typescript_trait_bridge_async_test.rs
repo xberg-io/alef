@@ -99,10 +99,10 @@ fn trait_bridge_tests_are_async_and_await_calls() {
         .generate(&fixtures, &e2e_config, &resolved_config, &[], &[])
         .expect("generates without error");
 
-    // Find the test file among generated files
+    // Find the test file among generated files.
     let test_file = generated
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("tests/"))
+        .find(|f| f.path.components().any(|component| component.as_os_str() == "tests"))
         .expect("test file exists");
 
     let content = &test_file.content;

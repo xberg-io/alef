@@ -3,7 +3,7 @@
 //! # Status
 //!
 //! The public surface (config block, feature flag) is stable.
-//! The concrete loader is deferred — see CHANGELOG.md [Unreleased].
+//! The concrete loader is deferred; see the Unreleased section in `CHANGELOG.md`.
 
 use crate::core::extension::Extension;
 use anyhow::Result;

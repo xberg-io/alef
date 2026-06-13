@@ -263,8 +263,11 @@ mod tests {
     #[test]
     fn test_func_name_conventions() {
         assert_eq!(func_name("convert", Language::Python, TEST_PREFIX), "convert");
-        assert_eq!(func_name("convert_html", Language::Node, TEST_PREFIX), "convertHtml");
-        assert_eq!(func_name("convert_html", Language::Go, TEST_PREFIX), "ConvertHtml");
+        assert_eq!(
+            func_name("parse_document", Language::Node, TEST_PREFIX),
+            "parseDocument"
+        );
+        assert_eq!(func_name("parse_document", Language::Go, TEST_PREFIX), "ParseDocument");
         assert_eq!(func_name("convert", Language::Ffi, TEST_PREFIX), "htm_convert");
     }
 

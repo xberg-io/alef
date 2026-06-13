@@ -22,9 +22,6 @@ pkg-fmt = "zip"
 
 [package.metadata.cargo-machete]
 ignored = ["tracing"]
-
-[features]
-dylib-loader = []
 [lib]
 name = "alef"
 path = "src/lib.rs"
@@ -32,6 +29,9 @@ path = "src/lib.rs"
 [[bin]]
 name = "alef"
 path = "src/main.rs"
+
+[features]
+dylib-loader = []
 
 [dependencies]
 ahash = "0.8"

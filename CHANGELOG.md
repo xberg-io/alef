@@ -7,7 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Extension API: per-extension TOML config and `transform_emitted_files` hook.**
+  Two new capabilities on the `Extension` trait:
+  (1) `parse_config` now receives the actual `[extensions.<name>]` section from `alef.toml` instead
+  of always `None`. The pipeline reads the raw TOML at extract time (`extract.rs`) and generation
+  time (`generation.rs`) and passes the matching sub-table keyed by `extension.name()`. Backwards
+  compatible: extensions with no `[extensions.<name>]` block in `alef.toml` continue to receive
+  `None`. The extraction and per-language generation cache keys now include the raw `alef.toml`
+  bytes so extension config changes invalidate stale output. Helper
+  `read_extension_config(config_path, name) -> Result<Option<toml::Value>>` is public in
+  `alef::core::extension` for consumers that call the pipeline directly.
+  (2) New `transform_emitted_files(&self, api, cfg, language, files: &mut Vec<GeneratedFile>, env)`
+  method with a default no-op implementation. Called in `generation.rs` after backend generation and
+  after `emit_for_language`, giving extensions a chance to rewrite, filter, or patch backend-emitted
+  files before they are written to disk. (`src/core/extension.rs`,
+  `src/cli/pipeline/extract.rs`, `src/cli/pipeline/generate/generation.rs`)
+
 ### Fixed
+
+- **Dart pubspec.yaml pub.dev validation errors.** Fixed two pub.dev publishing validation failures:
+  (1) `flutter_rust_bridge` dependency now uses caret constraint syntax (`^2.12.0`) instead of exact
+  pinning (`2.12.0`) to allow consumer dependency resolution flexibility. (2) `executables` section
+  with `download_libs` entry now correctly appears in generated pubspec.yaml, referencing the
+  platform-native library download script auto-generated in `bin/download_libs.dart`.
+
+- **Windows CI: fix path-separator mismatch in TypeScript trait-bridge test.** The regression test
+  `trait_bridge_tests_are_async_and_await_calls` was finding generated files by
+  `.to_string_lossy().contains("tests/")`, which fails on Windows where `PathBuf` uses `\`.
+  Changed to use `Path::components()` for a platform-portable check.
 
 - **Dart framework loading on hardened runtime:** Fix `dlopen() relative path rejected` error on
   macOS by loading framework bundles by directory only (`{stem}.framework`) instead of
@@ -35,21 +64,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   enumerates top-level staging entries explicitly, producing archives accepted
   by PIE's Phar downloader and refusing to publish an empty staging directory.
 
-- **Dart pub.dev archives stage prebuilt native libraries generically.** Dart
-  packaging now looks for platform-specific native library names derived from
-  the package stem and copies matches into `lib/src/native/{rid}/`, avoiding
-  consumer-specific library names while supporting macOS, Linux, and Windows
-  targets.
+- **Dart build and pub.dev packaging stage prebuilt native libraries
+  generically.** Dart post-build and package steps now look for
+  platform-specific native library names derived from the package stem and copy
+  matches into `lib/src/native/{rid}/`, avoiding consumer-specific library
+  names while supporting macOS, Linux, and Windows targets.
 
 - **Dart FRB runtime opens native libraries by absolute path.** Generated Dart
   loader code now normalizes discovered native library paths before calling
   `ExternalLibrary.open`, avoiding hardened-runtime failures from relative
   paths while preserving the fallback search order.
 
+- **Dart scaffold accepts compatible FRB patch releases.** Generated
+  `pubspec.yaml` files now use a caret constraint for `flutter_rust_bridge`
+  instead of pinning the exact patch version, while keeping generated support
+  package versions explicit.
+
 - **Zig error messages are now logged on FFI failure.** Generated Zig bindings now call
   `_error_with_message()` which captures and logs the error context from
   `_last_error()` via `std.debug.print` before returning the typed error. Previously,
   error messages set by the C FFI were silently discarded.
+
+- **Zig build files keep local FFI defaults and link libc explicitly.** In-tree
+  generated Zig build files default to the workspace `target/release` directory
+  and the generated FFI crate include directory, while publish packaging still
+  rewrites archives to bundled `lib/` and `include/` paths for fetched
+  consumers. The generated module and test module now also set `.link_libc =
+  true`.
+
+- **Version sync updates `[patch.crates-io]` version pins.** The workspace
+  version-sync pipeline now updates an existing version field for the
+  configured crate inside the root Cargo.toml `[patch.crates-io]` table, while
+  leaving path-only patch entries unchanged.
 
 ### Breaking Changes
 
@@ -68,7 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     magnus/lifecycle_error_ws_sse, and `new_ir_stubs.rs` stubs across napi,
     php, csharp, dart, kotlin, kotlin_android, rustler, swift, zig
   Consumers who need these types should implement `Extension` and supply
-  domain-specific codegen from their own `spikard-alef` thin CLI.
+  domain-specific codegen from their own extension-enabled thin CLI.
 
 - **`alef-core` workspace crate collapsed into `alef`.** The separate
   `alef-core` crate is removed. All extension types are now inlined directly
@@ -127,9 +173,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deferred
 
-- Per-extension TOML section parsing: extensions currently receive `None` as
-  their raw config. Full `[extensions.<name>]` TOML section support is tracked
-  as a follow-up.
 - Concrete `libloading`-based dylib loader implementation.
 
 

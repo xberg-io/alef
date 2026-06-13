@@ -17,7 +17,7 @@ pub struct PhpConfig {
     ///
     /// When set, this value is used verbatim as the PHP namespace (e.g. `"SampleMarkdown"`).
     /// When absent, the namespace is derived from `extension_name` by splitting on `_` and
-    /// converting each segment to PascalCase (e.g. `sample_markdown` → `Html\To\Markdown`).
+    /// converting each segment to PascalCase (e.g. `sample_markup` → `Sample\Markup`).
     #[serde(default)]
     pub namespace: Option<String>,
     /// Feature gate for ext-php-rs (default: "extension-module").

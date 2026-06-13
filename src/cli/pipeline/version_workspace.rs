@@ -2,9 +2,10 @@ use std::collections::HashSet;
 use std::path::Path;
 use tracing::debug;
 
-use super::version_core::{patch_workspace_dep_versions, write_version_to_cargo_toml};
+use super::version_core::{patch_cargo_crates_io_version, patch_workspace_dep_versions, write_version_to_cargo_toml};
 
 pub(super) fn sync_workspace_cargo_toml_versions(
+    crate_name: &str,
     version: &str,
     updated: &mut Vec<String>,
     any_cargo_toml_modified: &mut bool,
@@ -37,11 +38,27 @@ pub(super) fn sync_workspace_cargo_toml_versions(
         }
     }
 
-    if workspace_member_names.is_empty() {
-        return;
+    if !workspace_member_names.is_empty() {
+        match patch_workspace_dep_versions("Cargo.toml", version, &workspace_member_names) {
+            Ok(true) => {
+                if !updated.contains(&"Cargo.toml".to_string()) {
+                    updated.push("Cargo.toml".to_string());
+                    *any_cargo_toml_modified = true;
+                }
+            }
+            Ok(false) => {}
+            Err(e) => {
+                debug!("Could not patch workspace dep versions in root Cargo.toml: {e}");
+            }
+        }
     }
 
-    match patch_workspace_dep_versions("Cargo.toml", version, &workspace_member_names) {
+    // Patch [patch.crates-io] entry for the named crate so the version pin
+    // inside the patch block stays in sync with the workspace version.
+    // Path-only entries (no `version =` key) are left untouched.
+    // This runs unconditionally — the patch block exists independently of
+    // whether any workspace members are declared.
+    match patch_cargo_crates_io_version("Cargo.toml", crate_name, version) {
         Ok(true) => {
             if !updated.contains(&"Cargo.toml".to_string()) {
                 updated.push("Cargo.toml".to_string());
@@ -50,7 +67,7 @@ pub(super) fn sync_workspace_cargo_toml_versions(
         }
         Ok(false) => {}
         Err(e) => {
-            debug!("Could not patch workspace dep versions in root Cargo.toml: {e}");
+            debug!("Could not patch [patch.crates-io] version in root Cargo.toml: {e}");
         }
     }
 }

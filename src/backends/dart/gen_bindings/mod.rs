@@ -406,6 +406,12 @@ impl DartBackend {
                     processor: PostProcessor::FrbDartFixHandlerExecutorCalls,
                 });
 
+                // Stage prebuilt native libraries from the build output into the Dart package.
+                // This allows flutter_rust_bridge to find the native library at runtime
+                // without requiring a local Rust build by the consumer.
+                let lib_stem = format!("{}_dart", config.name.replace('-', "_"));
+                post_build_steps.push(PostBuildStep::StageDartNatives { lib_stem });
+
                 Some(BuildConfig {
                     tool: "cargo",
                     crate_suffix: "-dart",

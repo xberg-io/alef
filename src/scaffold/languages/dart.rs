@@ -28,11 +28,14 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let dependency_block = match style {
         DartStyle::Frb => format!(
             r#"  # FRB runtime is pure-Dart; works in both Flutter and server-Dart contexts.
-  flutter_rust_bridge: '{flutter_rust_bridge}'
+  flutter_rust_bridge: ^{flutter_rust_bridge}
   # FRB codegen-2.x emits `@freezed` sealed classes annotated with these.
   freezed_annotation: '{freezed_annotation}'
   json_annotation: '{json_annotation}'
-"#
+"#,
+            flutter_rust_bridge = flutter_rust_bridge,
+            freezed_annotation = freezed_annotation,
+            json_annotation = json_annotation,
         ),
         DartStyle::Ffi => format!(
             r#"  # Raw dart:ffi bindings use package:ffi for native memory helpers.
@@ -42,7 +45,11 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   # Product-type DTOs use @freezed annotation for code generation.
   freezed_annotation: '{freezed_annotation}'
   json_annotation: '{json_annotation}'
-"#
+"#,
+            ffi_package = ffi_package,
+            native_assets_cli = native_assets_cli,
+            freezed_annotation = freezed_annotation,
+            json_annotation = json_annotation,
         ),
     };
     let dev_dependency_block = match style {
@@ -51,14 +58,20 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   freezed: '{freezed}'
   build_runner: '{build_runner}'
   json_serializable: '{json_serializable}'
-"#
+"#,
+            freezed = freezed,
+            build_runner = build_runner,
+            json_serializable = json_serializable,
         ),
         DartStyle::Ffi => format!(
             r#"  # Required for product-type DTO code generation (@freezed annotation).
   freezed: '{freezed}'
   build_runner: '{build_runner}'
   json_serializable: '{json_serializable}'
-"#
+"#,
+            freezed = freezed,
+            build_runner = build_runner,
+            json_serializable = json_serializable,
         ),
     };
 

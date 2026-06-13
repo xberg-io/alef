@@ -90,7 +90,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     eprintln!("Generating bindings for: {}", format_languages(&languages));
                 }
                 let api = pipeline::extract(resolved_cfg, config_path, clean)?;
-                let files = pipeline::generate(&api, resolved_cfg, &languages, clean)?;
+                let files = pipeline::generate(&api, resolved_cfg, &languages, clean, config_path)?;
                 // Pure source-only fingerprint. The embedded `alef:hash:` line in
                 // every generated file combines this with the file's own (post-format)
                 // content, so the hash stays stable across alef CLI bumps as long as
@@ -812,7 +812,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_languages(resolved_cfg, None)?;
                 let api = pipeline::extract(resolved_cfg, config_path, false)?;
-                let bindings = pipeline::generate(&api, resolved_cfg, &languages, true)?;
+                let bindings = pipeline::generate(&api, resolved_cfg, &languages, true, config_path)?;
                 let stubs = pipeline::generate_stubs(&api, resolved_cfg, &languages)?;
                 all_diffs.extend(pipeline::diff_files(&bindings, &base_dir)?);
                 all_diffs.extend(pipeline::diff_files(&stubs, &base_dir)?);

@@ -96,12 +96,29 @@ pub(super) fn render_not_empty_assertion(
                 "    assert!({accessor}.as_ref().is_some_and(|v| !v.is_empty()), \"expected {f} to be present and non-empty\");"
             );
         } else if is_opt {
-            // Non-collection optional field (e.g., Option<Struct>): use is_some().
+            // `is_optional` registers ANY path that crosses an Option<...> on the
+            // way down, even when the leaf itself is concrete. For e.g. summary.text
+            // (`Option<Summary>`, leaf String), the accessor already auto-unwraps the
+            // parent — `result.summary.as_ref().unwrap().text` — so the final
+            // expression has type String. Emitting `.is_some()` against that is a
+            // compile error. Detect "leaf is post-unwrap concrete" by checking that
+            // the accessor contains `.as_ref().unwrap().` (the trailing dot is the
+            // marker that more field access follows the unwrap) and fall through to
+            // the is_empty() form. If the accessor ENDS with `.as_ref().unwrap()`
+            // (i.e. the Option itself IS the leaf), keep the is_some() form.
             let accessor = field_resolver.accessor(f, "rust", result_var);
-            let _ = writeln!(
-                out,
-                "    assert!({accessor}.is_some(), \"expected {f} to be present\");"
-            );
+            let leaf_is_concrete = accessor.contains(".as_ref().unwrap().");
+            if leaf_is_concrete {
+                let _ = writeln!(
+                    out,
+                    "    assert!(!{accessor}.is_empty(), \"expected {f} to be non-empty\");"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "    assert!({accessor}.is_some(), \"expected {f} to be present\");"
+                );
+            }
         } else {
             let _ = writeln!(
                 out,

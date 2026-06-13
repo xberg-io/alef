@@ -8,14 +8,14 @@ fn test_generate_docs_with_function_renders_signature_and_params() {
         version: "0.1.0".to_string(),
         types: vec![],
         functions: vec![FunctionDef {
-            name: "convert_html".to_string(),
-            rust_path: "mylib::convert_html".to_string(),
+            name: "parse_document".to_string(),
+            rust_path: "mylib::parse_document".to_string(),
             original_rust_path: String::new(),
-            params: vec![make_param("html", TypeRef::String, false)],
+            params: vec![make_param("input", TypeRef::String, false)],
             return_type: TypeRef::String,
             is_async: false,
             error_type: None,
-            doc: "Converts HTML to plain text.".to_string(),
+            doc: "Parses a document into plain text.".to_string(),
             cfg: None,
             sanitized: false,
             return_sanitized: false,
@@ -41,8 +41,8 @@ fn test_generate_docs_with_function_renders_signature_and_params() {
         .iter()
         .find(|f| f.path.to_str().unwrap().contains("api-python"))
         .unwrap();
-    assert!(lang_file.content.contains("convert_html()"));
-    assert!(lang_file.content.contains("Converts HTML to plain text."));
+    assert!(lang_file.content.contains("parse_document()"));
+    assert!(lang_file.content.contains("Parses a document into plain text."));
     assert!(lang_file.content.contains("**Signature:**"));
     assert!(lang_file.content.contains("**Parameters:**"));
 }

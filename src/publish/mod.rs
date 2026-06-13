@@ -5,6 +5,7 @@
 //! `alef publish build`, and `alef publish package`. It does NOT handle
 //! registry authentication or publishing — those remain in CI actions.
 
+pub mod dart_native;
 pub mod ffi_stage;
 pub mod package;
 pub mod platform;

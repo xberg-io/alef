@@ -50,7 +50,6 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
 {repository}{authors}    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <!-- Enable native asset resolution for P/Invoke. Detect platform at build time. -->
     <UseRuntimeIdentifier>true</UseRuntimeIdentifier>
     <RuntimeIdentifier Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">osx-arm64</RuntimeIdentifier>

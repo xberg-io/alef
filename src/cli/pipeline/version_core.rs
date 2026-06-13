@@ -228,6 +228,58 @@ pub(crate) fn patch_workspace_dep_versions(
     Ok(changed)
 }
 
+/// Patch the `version = "..."` field inside a `[patch.crates-io]` entry in a
+/// root `Cargo.toml`, when the entry belongs to the named crate.
+///
+/// Only entries that already carry a `version =` key are touched — path-only
+/// entries (e.g. `sample_lib = { path = "crates/sample-lib" }`) are left intact.
+///
+/// Returns `true` when the version was updated, `false` when it was already
+/// correct or no matching entry was found.
+pub(crate) fn patch_cargo_crates_io_version(
+    cargo_toml_path: &str,
+    crate_name: &str,
+    new_version: &str,
+) -> anyhow::Result<bool> {
+    use toml_edit::DocumentMut;
+
+    let content =
+        std::fs::read_to_string(cargo_toml_path).with_context(|| format!("failed to read {cargo_toml_path}"))?;
+    let mut doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("failed to parse TOML in {cargo_toml_path}"))?;
+
+    let Some(patch) = doc.get_mut("patch") else {
+        return Ok(false);
+    };
+    let Some(patch_table) = patch.as_table_like_mut() else {
+        return Ok(false);
+    };
+    let Some(crates_io) = patch_table.get_mut("crates-io") else {
+        return Ok(false);
+    };
+    let Some(crates_io_table) = crates_io.as_table_like_mut() else {
+        return Ok(false);
+    };
+    let Some(entry) = crates_io_table.get_mut(crate_name) else {
+        return Ok(false);
+    };
+    let Some(entry_table) = entry.as_table_like_mut() else {
+        return Ok(false);
+    };
+    let Some(ver_item) = entry_table.get_mut("version") else {
+        // Path-only entry — nothing to update.
+        return Ok(false);
+    };
+    if ver_item.as_str() == Some(new_version) {
+        return Ok(false);
+    }
+    *ver_item = toml_edit::value(new_version);
+    std::fs::write(cargo_toml_path, doc.to_string())
+        .with_context(|| format!("failed to write updated patch version to {cargo_toml_path}"))?;
+    Ok(true)
+}
+
 /// Verify that all package manifest versions match the Cargo.toml source of truth.
 /// Returns a list of mismatches (empty = all consistent).
 pub fn verify_versions(config: &ResolvedCrateConfig) -> anyhow::Result<Vec<String>> {

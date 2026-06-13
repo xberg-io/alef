@@ -643,7 +643,18 @@ impl FieldResolver {
             // accessible under the `_`-prefixed name if an assertion does use it.
             format!("_{}", collapsed.trim_matches('_'))
         };
-        let accessor = render_accessor(&segments, "rust", result_var);
+        // Use the optional-aware Rust renderer so intermediate `Option<T>`
+        // segments produce `.as_ref().unwrap()` instead of bare field access.
+        // For e.g. `summary.strategy` with `summary` in `optional_fields`, the
+        // basic `render_accessor` would emit `result.summary.strategy`, which
+        // is a compile error because `Option<Summary>` has no `strategy` field.
+        let accessor = render_rust_with_optionals(
+            &segments,
+            result_var,
+            &self.optional_fields,
+            &self.method_calls,
+            &self.result_fields,
+        );
         let has_map_access = segments.iter().any(|s| {
             if let PathSegment::MapAccess { key, .. } = s {
                 !key.chars().all(|c| c.is_ascii_digit())

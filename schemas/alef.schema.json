@@ -1914,43 +1914,6 @@
       ],
       "type": "object"
     },
-    "ErrorTypeConfig": {
-      "description": "Configuration for one cross-binding error type in `[[crates.error_types]]`.\n\nEach entry causes backends to emit a native exception/error class whose\n`status_code()` returns the mapped HTTP status and whose serialization\nproduces an RFC 9457 ProblemDetails JSON body.\n\n```toml\n[[crates.error_types]]\nname = \"NotFoundError\"\nhttp_status = 404\ndoc = \"Raised when the requested resource does not exist.\"\n\n[[crates.error_types]]\nname = \"ValidationError\"\nhttp_status = 422\nproblem_details_type = \"https://example.com/problems/validation\"\ndoc = \"Raised when input validation fails.\"\n```",
-      "properties": {
-        "doc": {
-          "default": null,
-          "description": "Documentation for the generated error class.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "http_status": {
-          "description": "HTTP status code this error maps to (e.g. `404`, `422`, `500`).",
-          "format": "uint16",
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "name": {
-          "description": "PascalCase error class name emitted in every binding language\n(e.g. `\"NotFoundError\"`, `\"ValidationError\"`).",
-          "type": "string"
-        },
-        "problem_details_type": {
-          "default": null,
-          "description": "Optional RFC 9457 ProblemDetails `type` URI.\n\nWhen absent, backends derive a generic type URI from the error name.",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "name",
-        "http_status"
-      ],
-      "type": "object"
-    },
     "ExcludeConfig": {
       "properties": {
         "functions": {
@@ -3151,37 +3114,6 @@
           "type": "string"
         }
       ]
-    },
-    "LifecycleHookConfig": {
-      "description": "Configuration for one lifecycle hook in `[[crates.lifecycle_hooks]]`.\n\nEach entry declares one named callback slot that backends emit as an\n`app.on_<name>(fn)` registration method (or its language-idiomatic equivalent).\n\n```toml\n[[crates.lifecycle_hooks]]\nname = \"on_request\"\ncallback_contract = \"RequestHook\"\ndoc = \"Called once before any other processing for each inbound request.\"\n\n[[crates.lifecycle_hooks]]\nname = \"on_error\"\ncallback_contract = \"ErrorHook\"\nis_async = true\ndoc = \"Called when a handler returns an error.\"\n```",
-      "properties": {
-        "callback_contract": {
-          "description": "Name of the callback contract trait/interface this hook must satisfy.\nReferences a `[[crates.handler_contracts]]` `trait_name`.",
-          "type": "string"
-        },
-        "doc": {
-          "default": null,
-          "description": "Documentation for the generated registration method.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "is_async": {
-          "default": false,
-          "description": "Whether the hook callback is async.\n\nWhen `true`, async-first backends emit awaitable callback types. Default: `false`.",
-          "type": "boolean"
-        },
-        "name": {
-          "description": "Canonical hook name (e.g. `\"on_request\"`, `\"pre_handler\"`, `\"on_response\"`,\n`\"on_error\"`). Used to derive the host-language registration method name.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "callback_contract"
-      ],
-      "type": "object"
     },
     "LintConfig": {
       "properties": {
@@ -4594,14 +4526,6 @@
             "null"
           ]
         },
-        "error_types": {
-          "default": [],
-          "description": "Cross-binding error types emitted as native exception classes.\n\nEach entry causes backends to emit an exception/error class that maps to the\nspecified HTTP status and serializes as RFC 9457 ProblemDetails JSON.\n\n```toml\n[[crates.error_types]]\nname = \"NotFoundError\"\nhttp_status = 404\n```",
-          "items": {
-            "$ref": "#/$defs/ErrorTypeConfig"
-          },
-          "type": "array"
-        },
         "exclude": {
           "$ref": "#/$defs/ExcludeConfig",
           "default": {
@@ -4765,14 +4689,6 @@
             "array",
             "null"
           ]
-        },
-        "lifecycle_hooks": {
-          "default": [],
-          "description": "Lifecycle hook contracts registered on the service owner.\n\nEach entry declares one named callback slot (e.g. `on_request`, `pre_handler`,\n`on_response`, `on_error`) that backends emit as `app.on_<name>(fn)` methods.\n\n```toml\n[[crates.lifecycle_hooks]]\nname = \"on_request\"\ncallback_contract = \"RequestHook\"\n```",
-          "items": {
-            "$ref": "#/$defs/LifecycleHookConfig"
-          },
-          "type": "array"
         },
         "lint": {
           "additionalProperties": {
@@ -4950,14 +4866,6 @@
           },
           "type": "array"
         },
-        "sse_routes": {
-          "default": [],
-          "description": "SSE route registration contracts.\n\nEach entry causes backends to emit `app.sse(path, producer_fn)`.\n\n```toml\n[[crates.sse_routes]]\nproducer_wrapper_type = \"SseProducerWrapper\"\nevent_type = \"SseEvent\"\n```",
-          "items": {
-            "$ref": "#/$defs/SseRouteConfig"
-          },
-          "type": "array"
-        },
         "suppress_validation_codes": {
           "default": [],
           "description": "Validation diagnostic codes that are downgraded from errors to warnings\nfor this crate, allowing generation to proceed despite pre-existing surface\nissues. Each entry is the string form of a [`crate::core::validation::ValidationCode`] (e.g.\n`\"lossy_sanitized_surface\"`, `\"unknown_named_type\"`).\n\nUse this to opt out of specific validation gates while you work toward full\ncompliance; remove entries once the underlying surface issues are fixed.",
@@ -5016,14 +4924,6 @@
             }
           ],
           "default": null
-        },
-        "websocket_routes": {
-          "default": [],
-          "description": "WebSocket route registration contracts.\n\nEach entry causes backends to emit `app.websocket(path, handler_fn)`.\n\n```toml\n[[crates.websocket_routes]]\nhandler_wrapper_type = \"WebSocketHandlerWrapper\"\nsocket_type = \"WebSocketConnection\"\n```",
-          "items": {
-            "$ref": "#/$defs/WebSocketRouteConfig"
-          },
-          "type": "array"
         },
         "workspace_root": {
           "default": null,
@@ -5656,32 +5556,6 @@
       "required": [
         "name",
         "sources"
-      ],
-      "type": "object"
-    },
-    "SseRouteConfig": {
-      "description": "Configuration for one SSE route in `[[crates.sse_routes]]`.\n\nBackends emit `app.sse(path, producer_fn)` from this entry. Uses a concrete\nwrapper struct to avoid `Arc<dyn Trait>` RPITIT incompatibility.\n\n```toml\n[[crates.sse_routes]]\nproducer_wrapper_type = \"SseProducerWrapper\"\nevent_type = \"SseEvent\"\ndoc = \"Register an SSE event producer at the given path.\"\n```",
-      "properties": {
-        "doc": {
-          "default": null,
-          "description": "Documentation for the generated `app.sse(...)` method.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "event_type": {
-          "description": "Name of the SSE event type yielded by the producer (e.g. `\"SseEvent\"`).",
-          "type": "string"
-        },
-        "producer_wrapper_type": {
-          "description": "Name of the concrete Rust wrapper struct that wraps the host-language SSE\nproducer callable (e.g. `\"SseProducerWrapper\"`).",
-          "type": "string"
-        }
-      },
-      "required": [
-        "producer_wrapper_type",
-        "event_type"
       ],
       "type": "object"
     },
@@ -6415,32 +6289,6 @@
           ]
         }
       },
-      "type": "object"
-    },
-    "WebSocketRouteConfig": {
-      "description": "Configuration for one WebSocket route in `[[crates.websocket_routes]]`.\n\nBackends emit `app.websocket(path, handler_fn)` from this entry. Uses a\nconcrete wrapper struct to avoid `Arc<dyn Trait>` RPITIT incompatibility.\n\n```toml\n[[crates.websocket_routes]]\nhandler_wrapper_type = \"WebSocketHandlerWrapper\"\nsocket_type = \"WebSocketConnection\"\ndoc = \"Register a WebSocket upgrade handler at the given path.\"\n```",
-      "properties": {
-        "doc": {
-          "default": null,
-          "description": "Documentation for the generated `app.websocket(...)` method.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "handler_wrapper_type": {
-          "description": "Name of the concrete Rust wrapper struct that wraps the host-language\nWebSocket handler callable (e.g. `\"WebSocketHandlerWrapper\"`).",
-          "type": "string"
-        },
-        "socket_type": {
-          "description": "Name of the WebSocket connection type passed to the handler per connection\n(e.g. `\"WebSocketConnection\"`).",
-          "type": "string"
-        }
-      },
-      "required": [
-        "handler_wrapper_type",
-        "socket_type"
-      ],
       "type": "object"
     },
     "WorkspaceConfig": {
