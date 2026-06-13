@@ -156,9 +156,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -194,9 +192,7 @@ fn make_simple_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -234,9 +230,7 @@ fn make_top_level_bytes_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -594,9 +588,7 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -732,9 +724,7 @@ fn make_api_with_speech_method() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -943,9 +933,7 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 

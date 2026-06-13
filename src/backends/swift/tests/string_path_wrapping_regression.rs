@@ -64,10 +64,7 @@ mod string_path_wrapping_regression {
         // This ensures all String-like parameters are uniformly wrapped,
         // preventing generic type conflicts at call sites.
 
-        assert!(
-            true,
-            "String/Path parameters must wrap consistently as RustString"
-        );
+        assert!(true, "String/Path parameters must wrap consistently as RustString");
     }
 
     /// Enum parameters serialized to JSON must also be wrapped as RustString.
@@ -101,9 +98,6 @@ mod string_path_wrapping_regression {
         // This prevents conflicting generic parameter errors when mixing
         // enum-derived RustString with other RustString parameters.
 
-        assert!(
-            true,
-            "Enum JSON-serialized strings must wrap as RustString"
-        );
+        assert!(true, "Enum JSON-serialized strings must wrap as RustString");
     }
 }

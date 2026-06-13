@@ -235,7 +235,7 @@ fn make_demo_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
         ..Default::default()
-    }..Default::default()
+    }
 }
 
 fn make_demo_config() -> ResolvedCrateConfig {
@@ -1781,7 +1781,7 @@ fn empty_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
         ..Default::default()
-    }..Default::default()
+    }
 }
 
 /// For every `[[crates.trait_bridges]]` entry the JNI backend must emit

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::{MethodDef, ParamDef, ReceiverKind, TypeRef};
+use super::items::{MethodDef, ParamDef, ReceiverKind};
+use super::type_ref::TypeRef;
 
 /// Describes an owner/builder type that acts as a service configurator and runner.
 ///
@@ -115,10 +116,10 @@ impl PathConstraint {
                     normalized.push_str(&name);
                     normalized.push('}');
                 }
-            } else if ch == ':' && chars.peek().map_or(false, |c| c.is_alphabetic() || *c == '_') {
+            } else if ch == ':' && chars.peek().is_some_and(|c| c.is_alphabetic() || *c == '_') {
                 // Colon-prefix syntax (Express/Sinatra/chi style).
                 let mut name = String::new();
-                while chars.peek().map_or(false, |c| c.is_alphanumeric() || *c == '_') {
+                while chars.peek().is_some_and(|c| c.is_alphanumeric() || *c == '_') {
                     name.push(chars.next().unwrap());
                 }
                 if !name.is_empty() {
@@ -475,8 +476,8 @@ pub enum EntrypointKind {
 
 /// An async trait that registered service callbacks must satisfy.
 ///
-/// Does **not** duplicate the trait's [`TypeDef`] already in [`crate::core::ir::ApiSurface::types`];
-/// instead it cross-references by name and adds service-specific metadata:
+/// Does **not** duplicate the trait's [`crate::core::ir::TypeDef`] already in
+/// [`crate::core::ir::ApiSurface::types`]; instead it cross-references by name and adds service-specific metadata:
 /// the dispatch method, optional overrides, and the wire DTO names.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandlerContractDef {

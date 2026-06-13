@@ -279,6 +279,7 @@ fn free_function_javadoc_uses_generated_exception_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &make_config()).unwrap();

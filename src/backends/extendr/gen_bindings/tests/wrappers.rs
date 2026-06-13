@@ -302,6 +302,7 @@ fn extendr_wrappers_default_required_config_objects_in_r() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let files = backend.generate_public_api(&api, &config).unwrap();
     let wrappers = files

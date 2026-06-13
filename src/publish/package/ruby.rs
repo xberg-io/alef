@@ -218,8 +218,7 @@ end
 /// regex fails — callers should treat absence as "no constraint".
 fn read_required_ruby_version(pkg_dir: &Path) -> Option<String> {
     let entries = fs::read_dir(pkg_dir).ok()?;
-    let re =
-        regex::Regex::new(r#"(?m)^\s*\w+\.required_ruby_version\s*=\s*(\[[^\]]+\]|['"][^'"]+['"])"#).ok()?;
+    let re = regex::Regex::new(r#"(?m)^\s*\w+\.required_ruby_version\s*=\s*(\[[^\]]+\]|['"][^'"]+['"])"#).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().is_none_or(|e| e != "gemspec") {
@@ -291,8 +290,7 @@ mod tests {
     #[test]
     fn generate_platform_gemspec_includes_required_ruby_version_when_some() {
         let files = vec!["lib/mylib.rb".to_string()];
-        let spec =
-            generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", &files, Some(r#"">= 3.2.0""#)).unwrap();
+        let spec = generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", &files, Some(r#"">= 3.2.0""#)).unwrap();
         assert!(
             spec.contains(r#"spec.required_ruby_version = ">= 3.2.0""#),
             "required_ruby_version line present: {spec}",
@@ -331,7 +329,10 @@ mod tests {
             "# frozen_string_literal: true\nGem::Specification.new do |spec|\n  spec.required_ruby_version = \">= 3.2.0\"\nend\n",
         )
         .unwrap();
-        assert_eq!(read_required_ruby_version(tmp.path()), Some(r#"">= 3.2.0""#.to_string()));
+        assert_eq!(
+            read_required_ruby_version(tmp.path()),
+            Some(r#"">= 3.2.0""#.to_string())
+        );
     }
 
     #[test]

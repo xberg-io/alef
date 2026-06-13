@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use super::{
-    EnumDef, ErrorDef, ErrorTypeDef, FunctionDef, HandlerContractDef, LifecycleHookDef, ServiceDef, SseRouteDef,
-    TypeDef, WebSocketRouteDef,
-};
+use super::application::{ErrorTypeDef, LifecycleHookDef, SseRouteDef, WebSocketRouteDef};
+use super::items::{EnumDef, ErrorDef, FunctionDef, TypeDef};
+use super::service::{HandlerContractDef, ServiceDef};
 
 /// Complete API surface extracted from a Rust crate's public interface.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

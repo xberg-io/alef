@@ -147,9 +147,7 @@ fn make_streaming_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -241,9 +239,7 @@ fn make_trait_carrier_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -478,9 +474,7 @@ fn make_opaque_factory_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -639,9 +633,7 @@ fn make_handle_only_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -877,9 +869,7 @@ fn make_optional_params_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -1059,9 +1049,7 @@ fn make_nullable_primitives_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -1248,9 +1236,7 @@ fn make_sealed_variants_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -1436,9 +1422,7 @@ fn make_tuple_error_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -1618,9 +1602,7 @@ fn make_convert_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -1793,9 +1775,7 @@ fn make_batch_function_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -1964,9 +1944,7 @@ fn make_generic_container_api(return_ty: TypeRef, fn_name: &str) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -2269,9 +2247,7 @@ fn make_exclude_types_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -2388,9 +2364,7 @@ fn make_trait_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 
@@ -2924,9 +2898,7 @@ fn make_long_signature_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 

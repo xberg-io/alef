@@ -70,9 +70,7 @@ fn empty_api(crate_name: &str) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 

@@ -1212,9 +1212,7 @@ mod trait_bridge {
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
-        }
-        ..Default::default()
-    }            ..Default::default()
+            ..Default::default()
         }
     }
 
@@ -3646,9 +3644,7 @@ fn test_registration_variant_styles_emit_unified_block_form() {
             }],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
-        }
-        ..Default::default()
-    }            ..Default::default()
+            ..Default::default()
         }
     };
 

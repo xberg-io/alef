@@ -1781,9 +1781,7 @@ fn make_streaming_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 

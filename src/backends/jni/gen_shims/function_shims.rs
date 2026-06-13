@@ -198,6 +198,12 @@ fn emit_function_shim(
                     call_args.push_str(&rust_name);
                 } else {
                     unmarshal.push_str(&render_complex_unmarshal(&rust_name, &type_path, err_null, false));
+                    // `&mut <name>` requires the binding to be mutable. The shared
+                    // complex-unmarshal template emits an immutable `let <name>: T`
+                    // so re-bind here when the call site needs exclusive access.
+                    if p.is_ref && p.is_mut {
+                        unmarshal.push_str(&format!("    let mut {rust_name} = {rust_name};\n"));
+                    }
                     // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
                     let is_vec_string_ref =
                         p.is_ref && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
@@ -207,7 +213,16 @@ fn emit_function_shim(
                         call_args.push('&');
                         call_args.push_str(&refs_name);
                     } else if p.is_ref {
-                        call_args.push('&');
+                        // Match the borrow mode declared by the core function: `&mut T`
+                        // params receive an exclusive borrow, plain `&T` an immutable one.
+                        // Without this distinction the JNI shim emits `&result` for a
+                        // `result: &mut ExtractionResult` slot and the call fails with
+                        // E0308 "found reference `&T`, expected `&mut T`".
+                        if p.is_mut {
+                            call_args.push_str("&mut ");
+                        } else {
+                            call_args.push('&');
+                        }
                         call_args.push_str(&rust_name);
                     } else {
                         call_args.push_str(&rust_name);

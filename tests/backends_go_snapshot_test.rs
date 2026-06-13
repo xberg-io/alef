@@ -92,9 +92,7 @@ fn surface_for_type(typ: TypeDef) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
-    ..Default::default()
-}        ..Default::default()
+        ..Default::default()
     }
 }
 

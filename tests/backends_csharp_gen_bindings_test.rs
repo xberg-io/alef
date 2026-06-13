@@ -1630,6 +1630,7 @@ fn wrapper_functions_cleanup_owned_handles_only_in_finally() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2768,6 +2769,7 @@ fn test_required_config_param_stays_required() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();

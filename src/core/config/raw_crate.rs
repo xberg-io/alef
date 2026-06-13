@@ -28,7 +28,9 @@ use super::output::{
 };
 use super::package_metadata::PackageMetadataConfig;
 use super::publish::PublishConfig;
-use super::service::{ErrorTypeConfig, HandlerContractConfig, LifecycleHookConfig, ServiceConfig, SseRouteConfig, WebSocketRouteConfig};
+use super::service::{
+    ErrorTypeConfig, HandlerContractConfig, LifecycleHookConfig, ServiceConfig, SseRouteConfig, WebSocketRouteConfig,
+};
 use super::trait_bridge::TraitBridgeConfig;
 
 /// One `[[crates]]` entry — an independently published Rust facade plus its

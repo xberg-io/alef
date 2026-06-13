@@ -119,6 +119,7 @@ fn cargo_toml_emits_passthrough_features_for_type_cfg_attrs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config();
     let cargo_toml = gen_cargo_toml(&api, &config);
@@ -202,6 +203,7 @@ features = ["wasm-target"]
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let cargo_toml = gen_cargo_toml(&api, &config);
     assert!(

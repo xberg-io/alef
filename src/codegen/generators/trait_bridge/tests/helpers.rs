@@ -85,7 +85,7 @@ pub(super) fn make_method(
         has_default_impl,
         binding_excluded: false,
         binding_exclusion_reason: None,
-            version: Default::default(),
+        version: Default::default(),
     }
 }
 
@@ -107,7 +107,7 @@ pub(super) fn make_func(name: &str, params: Vec<ParamDef>) -> FunctionDef {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
-            version: Default::default(),
+        version: Default::default(),
     }
 }
 

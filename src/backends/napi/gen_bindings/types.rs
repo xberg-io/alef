@@ -199,7 +199,10 @@ pub(super) fn gen_struct(
         let sanitized_field_doc = if field.doc.is_empty() {
             String::new()
         } else {
-            crate::codegen::doc_emission::sanitize_rust_idioms(&field.doc, crate::codegen::doc_emission::DocTarget::TsDoc)
+            crate::codegen::doc_emission::sanitize_rust_idioms(
+                &field.doc,
+                crate::codegen::doc_emission::DocTarget::TsDoc,
+            )
         };
         struct_builder.add_field_with_doc(&field.name, &field_type, attrs, &sanitized_field_doc);
     }

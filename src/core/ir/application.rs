@@ -37,7 +37,8 @@ pub struct LifecycleHookDef {
     pub name: String,
     /// Name of the callback contract (trait/interface) that the hook function must satisfy.
     ///
-    /// References a [`HandlerContractDef::trait_name`] entry in the same [`ApiSurface`].
+    /// References a [`crate::core::ir::HandlerContractDef::trait_name`] entry in the
+    /// same [`crate::core::ir::ApiSurface`].
     /// Backends use this to generate the correct type annotation for the callback parameter.
     pub callback_contract: String,
     /// Documentation extracted from the hook definition.
