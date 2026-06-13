@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [UNRELEASED]
+## [Unreleased]
 
 ### Fixed
 
@@ -44,6 +44,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Swift e2e harness template: Jinja whitespace control no longer collapses the `_FIXTURES_JSON` declaration into the preceding comment line.** The `app_harness.swift.jinja` template used `{%- set json = fixtures_json %}` and `{%- set chunk_size = 30000 %}` with trailing whitespace-trim markers (`-`). These markers ate the newline before `let _FIXTURES_JSON = """`, generating `// ...literals.let _FIXTURES_JSON = """` on one line. Swift parsed the `let` as part of the comment, leaving the constant undefined when referenced later, failing compilation with `cannot find '_FIXTURES_JSON' in scope`. The fix removes the trailing `-` from both set statements so the newline is preserved and `let _FIXTURES_JSON` starts on its own code line.
 
 - **Native package classifier and visitor callback codegen aligned with runtime ABI.** Java native library resolution now uses the classifier names published by the release matrix (`osx-aarch64`, `linux-aarch64`, `windows-x86_64`, etc.), and C/Zig e2e visitor callbacks now return the discriminants expected by the FFI visitor ABI (`Custom = 1`, `Skip = 2`, `PreserveHtml = 3`). The extendr visitor template also avoids a redundant string conversion when matching visitor result tags.
+
+- **PHP PIE archive layout: ship `{ext_name}.so` at the tarball root instead of nested under the staging directory.** The PHP packager was wrapping the prebuilt `.so` inside the alef staging dir name (`_pie_stage_{ext_name}_{triple}/{ext_name}.so`) — produced by the shared `create_tar_gz` helper which uses the staging-dir basename as the single top-level entry. PIE's `UnixBuild` (https://github.com/php/pie/blob/1.4.x/src/Building/UnixBuild.php) probes the extracted-source root for `{ext}.so` and only "unfolds" a single subdirectory if that subdir contains a `config.m4` / `config.w32` autotools marker. A prebuilt PIE archive has neither, so `pie install` failed every time with `error: extension not found at /opt/homebrew/lib/php/pecl/<api>/{ext}.so` on macOS (and the equivalent path on Linux). New `create_tar_gz_flat` helper archives the staging-dir _contents_ at root (`tar czf -C staging .`); PHP is the sole caller. Other consumers (CLI, C FFI, Go, Dart, Swift, Zig, Elixir) keep the existing wrapper-dir layout because their consumers expect it (Homebrew auto-cd, etc.). (`src/publish/package/mod.rs`, `src/publish/package/php.rs`)
+
+## [0.24.15] - 2026-06-13
+
+### Fixed
+
+- **Java NativeLib RID alignment with publish-workflow classifier names.** Native library resolution now uses Java/Maven Central classifier names such as `osx-aarch64`, `linux-aarch64`, and `windows-aarch64`.
+- **extendr visitor result decoder builds on stable Rust.** The visitor decoder now matches the `&str` returned by `Robj::as_str()` directly instead of calling unstable `str::as_str`.
+- **Zig and C e2e visitor result codes match the current FFI contract.** Generated callbacks now emit `Custom = 1`, `Skip = 2`, and `PreserveHtml = 3`.
+- **Kotlin, Rustler, and PyO3 generation fixes carried from the release branch.** Includes Kotlin Android binary bridge and sealed-class e2e fixes, Rustler batch extraction JSON marshalling, and PyO3 trait marker classes for plugin trait bridges.
 
 ## [0.24.14] - 2026-06-12
 

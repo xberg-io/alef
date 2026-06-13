@@ -147,7 +147,11 @@ pub fn package_php(
         let lib_src = find_php_ext(workspace_root, target, &cargo_lib_file)?;
         let staged_name = format!("{ext_name}.so");
         fs::copy(&lib_src, staging.join(&staged_name))?;
-        super::create_tar_gz(&staging, &archive_path)?;
+        // PIE's UnixBuild probes the extracted-source root for `{ext}.so` and
+        // only unfolds a single subdirectory if it contains `config.m4` /
+        // `config.w32` — our prebuilt archive has neither, so the `.so` must
+        // sit at the archive root, not nested under the staging-dir name.
+        super::create_tar_gz_flat(&staging, &archive_path)?;
     }
 
     fs::remove_dir_all(&staging).ok();
