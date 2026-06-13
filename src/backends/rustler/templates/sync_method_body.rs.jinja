@@ -30,7 +30,7 @@ let result = if tokio::runtime::Handle::try_current().is_err() {
             });
         }).await.ok();
 
-        rx.recv().await
+        rx.await
     })
 } else {
     tokio::task::spawn_blocking(move || {

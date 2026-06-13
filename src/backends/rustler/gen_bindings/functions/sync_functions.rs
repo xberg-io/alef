@@ -135,11 +135,20 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                 if let TypeRef::Vec(inner) = &p.ty {
                     if let TypeRef::Named(inner_name) = inner.as_ref() {
                         if !opaque_types.contains(inner_name.as_str()) {
-                            let core_ty = resolve_core_type_path(&format!("Vec<{}>", inner_name), types_by_name, core_import);
+                            let inner_ty = resolve_core_type_path(inner_name, types_by_name, core_import);
+                            let core_ty = format!("Vec<{}>", inner_ty);
+                            // Batch parameters are marshalled as Option<String> (from Rustler) but the core
+                            // expects Vec<T> (not optional). Deserialize and default to empty vec on None.
                             let deser_line = if func.error_type.is_some() {
-                                render_deser_line("default_deser_with_error.rs.jinja", &p.name, &core_ty)
+                                format!(
+                                    "let {}_core: {} = {}.map(|s| serde_json::from_str::<{}>(&s).map_err(|e| e.to_string())).transpose()?.unwrap_or_default();",
+                                    p.name, core_ty, p.name, core_ty
+                                )
                             } else {
-                                render_deser_line("default_deser_without_error.rs.jinja", &p.name, &core_ty)
+                                format!(
+                                    "let {}_core: {} = {}.and_then(|s| serde_json::from_str::<{}>(&s).ok()).unwrap_or_default();",
+                                    p.name, core_ty, p.name, core_ty
+                                )
                             };
                             deser_lines.push(deser_line);
                             // Batch parameters are always required (not optional); pass the deserialized vec
@@ -254,7 +263,13 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     TypeRef::Vec(_) => {
                         if p.is_ref {
                             // &Vec<T> derefs to &[T] which matches sample_core core in all known sites.
-                            format!("&{}", p.name)
+                            // If the param is optional, the deserialized value is Option<Vec<T>>, so we need
+                            // to unwrap or use as_ref() to get Option<&Vec<T>>.
+                            if p.optional {
+                                format!("{}_core.as_ref().map(|v| v.as_slice()).unwrap_or(&[])", p.name)
+                            } else {
+                                format!("&{}_core", p.name)
+                            }
                         } else {
                             p.name.to_string()
                         }

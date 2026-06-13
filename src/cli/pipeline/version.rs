@@ -544,7 +544,8 @@ pub fn sync_versions(
     //      top-level `version:` scalar.
     if let Some(citation_config) = config.citation.as_ref() {
         let fallback_license = read_workspace_license(&config.version_from);
-        let rendered = render_citation_cff(citation_config, &version, fallback_license.as_deref());
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let rendered = render_citation_cff(citation_config, &version, fallback_license.as_deref(), &today);
         let needs_write = match std::fs::read_to_string("CITATION.cff") {
             Ok(current) => current != rendered,
             Err(_) => true,

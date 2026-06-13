@@ -3,7 +3,7 @@ impl {{ wrapper_name }} {
     ///
     /// The PID is stored directly (it is Copy + Send + Sync).
     /// Messages are dispatched via the trait methods using channels for sync/async dispatch.
-    pub fn new(pid: rustler::LocalPid) -> Self {
-        Self { inner: pid }
+    pub fn new(pid: rustler::LocalPid, name: String) -> Self {
+        Self { inner: pid, cached_name: name }
     }
 }

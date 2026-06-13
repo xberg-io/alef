@@ -561,7 +561,12 @@ pub struct CitationConfig {
     /// back to `Cargo.toml [workspace.package].license`.
     #[serde(default)]
     pub license: Option<String>,
-    /// Release date in `YYYY-MM-DD` form (`date-released:`). Optional.
+    /// Release date in `YYYY-MM-DD` form (`date-released:`). Optional override.
+    ///
+    /// When omitted (the recommended default), `alef sync-versions` stamps the
+    /// current system date on every regen so consumers do not need to hand-edit
+    /// alef.toml per release. Set this explicitly only when you need to replay
+    /// a historical release date (e.g. backports, CFF reproducibility audits).
     #[serde(default, rename = "date-released", alias = "date_released")]
     pub date_released: Option<String>,
     /// Persistent DOI for the cited release (`doi:`). Optional.
