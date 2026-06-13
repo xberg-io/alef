@@ -85,7 +85,11 @@ fn options_field_bridge_body_injects_visitor_handle() {
         "sample_core",
     );
 
-    assert!(code.contains("let visitor_handle: Option<sample_core::VisitorHandle> = visitor.and_then(|v|"));
+    assert!(
+        code.contains(
+            "let visitor_handle: Option<sample_core::VisitorHandle> = options.as_ref().and_then(|o| o.visitor.as_ref()).and_then(|v|"
+        )
+    );
     assert!(code.contains("let mut result: sample_core::RenderOptions = o.into();"));
     assert!(code.contains("result.visitor = visitor_handle.clone();"));
     assert!(code.contains("visitor: visitor_handle.clone(),"));

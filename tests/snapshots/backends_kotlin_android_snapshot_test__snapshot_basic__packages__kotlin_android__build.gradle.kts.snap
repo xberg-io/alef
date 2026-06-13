@@ -94,7 +94,11 @@ tasks.register("copyHostJni", Copy::class) {
         description = "Copy host JNI library to test resources"
         dependsOn("buildHostJni")
 
-        val hostPlatform = "darwin"
+        val hostPlatform = when {
+            System.getProperty("os.name").lowercase().contains("mac") -> "darwin"
+            System.getProperty("os.name").lowercase().contains("win") -> "windows"
+            else -> "linux"
+        }
         val jniCratePath = file("../../crates/demo-jni")
         val buildDir = jniCratePath.resolve("target/release")
 
@@ -114,7 +118,11 @@ tasks.register("copyHostJni", Copy::class) {
 
 tasks.withType<Test> {
     if (project.properties["alef.skipHostJni"] != "true") {
-        val hostPlatform = "darwin"
+        val hostPlatform = when {
+            System.getProperty("os.name").lowercase().contains("mac") -> "darwin"
+            System.getProperty("os.name").lowercase().contains("win") -> "windows"
+            else -> "linux"
+        }
         systemProperty(
             "java.library.path",
             project.layout.projectDirectory.dir("src/test/resources/host-jni/$hostPlatform").asFile.absolutePath

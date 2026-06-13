@@ -6,7 +6,7 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::template_versions::{maven, toolchain};
 
 use crate::backends::kotlin_android::naming::{
-    aar_artifact_id, aar_group_id, compile_sdk, host_platform_dir, jvm_target, min_sdk, namespace,
+    aar_artifact_id, aar_group_id, compile_sdk, jvm_target, min_sdk, namespace,
 };
 use crate::scaffold::{parse_author, scaffold_meta, xml_escape};
 
@@ -40,7 +40,6 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let artifact_id = aar_artifact_id(config);
     let resolved_version = config.resolved_version().unwrap_or_else(|| "0.0.0".to_string());
     let version_placeholder = resolved_version.as_str();
-    let host_platform = host_platform_dir();
     let jni_crate_path = config.jni_crate_path();
     let jni_lib_name = config.jni_lib_name();
 
@@ -193,7 +192,11 @@ tasks.register("copyHostJni", Copy::class) {{
         description = "Copy host JNI library to test resources"
         dependsOn("buildHostJni")
 
-        val hostPlatform = "{host_platform}"
+        val hostPlatform = when {{
+            System.getProperty("os.name").lowercase().contains("mac") -> "darwin"
+            System.getProperty("os.name").lowercase().contains("win") -> "windows"
+            else -> "linux"
+        }}
         val jniCratePath = file("{jni_crate_path}")
         val buildDir = jniCratePath.resolve("target/release")
 
@@ -213,7 +216,11 @@ tasks.register("copyHostJni", Copy::class) {{
 
 tasks.withType<Test> {{
     if (project.properties["alef.skipHostJni"] != "true") {{
-        val hostPlatform = "{host_platform}"
+        val hostPlatform = when {{
+            System.getProperty("os.name").lowercase().contains("mac") -> "darwin"
+            System.getProperty("os.name").lowercase().contains("win") -> "windows"
+            else -> "linux"
+        }}
         systemProperty(
             "java.library.path",
             project.layout.projectDirectory.dir("src/test/resources/host-jni/$hostPlatform").asFile.absolutePath
