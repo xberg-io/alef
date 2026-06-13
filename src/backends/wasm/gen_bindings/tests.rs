@@ -37,6 +37,7 @@ fn generate_bindings_empty_api_produces_files() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config();
     let files = WasmBackend.generate_bindings(&api, &config).unwrap();
@@ -76,6 +77,7 @@ serde = { version = "1", features = ["derive", "rc"] }
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let cargo_toml = gen_cargo_toml(&api, &config);
 
@@ -147,6 +149,7 @@ fn cargo_toml_omits_features_block_when_no_cfg_attrs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config();
     let cargo_toml = gen_cargo_toml(&api, &config);
@@ -238,6 +241,7 @@ fn cargo_toml_has_no_issues_docs_line_and_getrandom_deps_are_alphabetical() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config();
     let cargo_toml = gen_cargo_toml(&api, &config);

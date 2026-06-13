@@ -490,6 +490,7 @@ mod tests {
                     }],
                     doc: Some("Register a GET handler.".to_owned()),
                     style: Default::default(),
+                    ..Default::default()
                 },
                 crate::core::ir::RegistrationVariant {
                     name: "post".to_owned(),
@@ -504,8 +505,10 @@ mod tests {
                     }],
                     doc: None,
                     style: Default::default(),
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         };
 
         let run_entrypoint = EntrypointDef {

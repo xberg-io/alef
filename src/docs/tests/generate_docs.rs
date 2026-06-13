@@ -14,6 +14,7 @@ fn test_generate_docs_empty_api() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_test_config();
 

@@ -33,6 +33,12 @@ use crate::core::ir::{
 /// Returns a list of service extraction errors (e.g. referenced method not found).
 /// Callers that perform generation must treat these as fatal.
 pub(crate) fn extract_services(surface: &mut ApiSurface, config: &ResolvedCrateConfig) -> Vec<String> {
+    // Extract the new IR sections that don't require surface-level lookups first.
+    extract_lifecycle_hooks(surface, config);
+    extract_websocket_routes(surface, config);
+    extract_sse_routes(surface, config);
+    extract_error_types(surface, config);
+
     if config.services.is_empty() && config.handler_contracts.is_empty() {
         return vec![];
     }
@@ -386,6 +392,10 @@ fn build_service_def(surface: &ApiSurface, cfg: &ServiceConfig) -> Result<Servic
             error_type: method.error_type.clone(),
             doc: method.doc.clone(),
             variants,
+            // path_param_constraints and handler_shape default to empty/BareCallable;
+            // consumers populate these via alef.toml language overrides in Phase C.
+            path_param_constraints: Vec::new(),
+            handler_shape: Default::default(),
         });
     }
 
@@ -602,6 +612,7 @@ fn resolve_via_wrapper(
                 svc_cfg.owner_type, reg_spec.method, v_spec.name
             )
         })?,
+        language_overrides: Default::default(),
     })
 }
 
@@ -656,6 +667,7 @@ fn resolve_via_direct(
                 svc_cfg.owner_type, reg_spec.method, v_spec.name
             )
         })?,
+        language_overrides: Default::default(),
     })
 }
 
@@ -694,6 +706,75 @@ fn resolve_enum_override(surface: &ApiSurface, ty: &TypeRef, raw_value: &str) ->
         EnumResolution::Resolved(format!("{base}::{raw_value}"))
     } else {
         EnumResolution::UnknownVariant(enum_def.name.clone())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// New IR section extractors — config → IR (no surface lookup required)
+// ---------------------------------------------------------------------------
+
+/// Populate [`ApiSurface::lifecycle_hooks`] from `[[crates.lifecycle_hooks]]` config.
+///
+/// Each config entry maps 1:1 to a [`crate::core::ir::LifecycleHookDef`].  No validation against
+/// the extracted surface is performed here; backends that need to cross-check
+/// against handler contracts should do so at generation time.
+fn extract_lifecycle_hooks(surface: &mut ApiSurface, config: &ResolvedCrateConfig) {
+    for hook_cfg in &config.lifecycle_hooks {
+        surface.lifecycle_hooks.push(crate::core::ir::LifecycleHookDef {
+            name: hook_cfg.name.clone(),
+            callback_contract: hook_cfg.callback_contract.clone(),
+            doc: hook_cfg.doc.clone().unwrap_or_default(),
+            is_async: hook_cfg.is_async,
+        });
+    }
+}
+
+/// Populate [`ApiSurface::websocket_routes`] from `[[crates.websocket_routes]]` config.
+fn extract_websocket_routes(surface: &mut ApiSurface, config: &ResolvedCrateConfig) {
+    for ws_cfg in &config.websocket_routes {
+        surface.websocket_routes.push(crate::core::ir::WebSocketRouteDef {
+            handler_wrapper_type: ws_cfg.handler_wrapper_type.clone(),
+            socket_type: ws_cfg.socket_type.clone(),
+            doc: ws_cfg.doc.clone().unwrap_or_default(),
+        });
+    }
+}
+
+/// Populate [`ApiSurface::sse_routes`] from `[[crates.sse_routes]]` config.
+fn extract_sse_routes(surface: &mut ApiSurface, config: &ResolvedCrateConfig) {
+    for sse_cfg in &config.sse_routes {
+        surface.sse_routes.push(crate::core::ir::SseRouteDef {
+            producer_wrapper_type: sse_cfg.producer_wrapper_type.clone(),
+            event_type: sse_cfg.event_type.clone(),
+            doc: sse_cfg.doc.clone().unwrap_or_default(),
+        });
+    }
+}
+
+/// Populate [`ApiSurface::error_types`] from `[[crates.error_types]]` config.
+///
+/// The numeric `http_status` field in the config is converted to a typed
+/// [`crate::core::ir::HttpStatus`] variant.  Numeric codes that match a named variant are
+/// promoted; all others fall through to `HttpStatus::Custom(code)`.
+fn extract_error_types(surface: &mut ApiSurface, config: &ResolvedCrateConfig) {
+    for err_cfg in &config.error_types {
+        let http_status = match err_cfg.http_status {
+            400 => crate::core::ir::HttpStatus::BadRequest,
+            401 => crate::core::ir::HttpStatus::Unauthorized,
+            403 => crate::core::ir::HttpStatus::Forbidden,
+            404 => crate::core::ir::HttpStatus::NotFound,
+            409 => crate::core::ir::HttpStatus::Conflict,
+            422 => crate::core::ir::HttpStatus::UnprocessableEntity,
+            429 => crate::core::ir::HttpStatus::TooManyRequests,
+            500 => crate::core::ir::HttpStatus::InternalServerError,
+            other => crate::core::ir::HttpStatus::Custom(other),
+        };
+        surface.error_types.push(crate::core::ir::ErrorTypeDef {
+            name: err_cfg.name.clone(),
+            http_status,
+            problem_details_type: err_cfg.problem_details_type.clone(),
+            doc: err_cfg.doc.clone().unwrap_or_default(),
+        });
     }
 }
 

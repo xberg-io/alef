@@ -143,6 +143,31 @@ fn emit_function_shim(
                     }
                 }
             }
+            TypeRef::Path => {
+                // Path params: receive a JString, unmarshal directly to PathBuf without
+                // a JSON parse step.  Without this arm, the fallback `_` branch wraps
+                // the raw string as a `serde_json::Value`, which doesn't impl
+                // `AsRef<Path>` and fails with E0277 at the call site.
+                param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
+                unmarshal.push_str(&render_string_unmarshal(&rust_name, err_null));
+                // Convert the unmarshalled String into a PathBuf so the call site
+                // receives a real path value rather than a generic JSON Value.
+                unmarshal.push_str(&format!(
+                    "    let {rust_name} = std::path::PathBuf::from({rust_name});\n"
+                ));
+                if p.optional {
+                    call_args.push_str("if ");
+                    call_args.push_str(&rust_name);
+                    call_args.push_str(".as_os_str().is_empty() { None } else { Some(");
+                    call_args.push_str(&rust_name);
+                    call_args.push_str(") }");
+                } else if p.is_ref {
+                    call_args.push('&');
+                    call_args.push_str(&rust_name);
+                } else {
+                    call_args.push_str(&rust_name);
+                }
+            }
             TypeRef::Named(type_name) if opaque_type_names.contains(type_name.as_str()) => {
                 // Opaque handle param: receive as jlong, dereference via raw pointer.
                 // SAFETY: the Kotlin caller holds a Long obtained from the matching

@@ -33,6 +33,24 @@ fn extract_from_source(source: &str) -> ApiSurface {
     .unwrap();
     resolve_newtypes(&mut surface);
     surface
+    ..Default::default()
+}        ..Default::default()
+    };
+    let mut visited = Vec::new();
+    let mut rwa = ahash::AHashSet::new();
+    extract_items(
+        &file.items,
+        Path::new("test.rs"),
+        "test_crate",
+        "",
+        &mut surface,
+        None,
+        &mut visited,
+        &mut rwa,
+    )
+    .unwrap();
+    resolve_newtypes(&mut surface);
+    surface
 }
 
 mod defaults;

@@ -50,6 +50,7 @@ fn test_zig_doc_emitted_for_function() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();

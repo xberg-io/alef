@@ -112,6 +112,7 @@ fn struct_fields_emit_zig_doc_comments_above_declaration() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let content = render(api);
@@ -189,6 +190,7 @@ fn unit_enum_variants_emit_zig_doc_comments_above_tag() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let content = render(api);
@@ -263,6 +265,7 @@ fn tagged_enum_variants_emit_zig_doc_comments() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let content = render(api);

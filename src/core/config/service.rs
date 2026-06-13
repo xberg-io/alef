@@ -241,6 +241,157 @@ fn default_true() -> bool {
     true
 }
 
+// ---------------------------------------------------------------------------
+// Lifecycle hook config
+// ---------------------------------------------------------------------------
+
+/// Configuration for one lifecycle hook in `[[crates.lifecycle_hooks]]`.
+///
+/// Each entry declares one named callback slot that backends emit as an
+/// `app.on_<name>(fn)` registration method (or its language-idiomatic equivalent).
+///
+/// ```toml
+/// [[crates.lifecycle_hooks]]
+/// name = "on_request"
+/// callback_contract = "RequestHook"
+/// doc = "Called once before any other processing for each inbound request."
+///
+/// [[crates.lifecycle_hooks]]
+/// name = "on_error"
+/// callback_contract = "ErrorHook"
+/// is_async = true
+/// doc = "Called when a handler returns an error."
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct LifecycleHookConfig {
+    /// Canonical hook name (e.g. `"on_request"`, `"pre_handler"`, `"on_response"`,
+    /// `"on_error"`). Used to derive the host-language registration method name.
+    pub name: String,
+    /// Name of the callback contract trait/interface this hook must satisfy.
+    /// References a `[[crates.handler_contracts]]` `trait_name`.
+    pub callback_contract: String,
+    /// Documentation for the generated registration method.
+    #[serde(default)]
+    pub doc: Option<String>,
+    /// Whether the hook callback is async.
+    ///
+    /// When `true`, async-first backends emit awaitable callback types. Default: `false`.
+    #[serde(default)]
+    pub is_async: bool,
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket / SSE route config
+// ---------------------------------------------------------------------------
+
+/// Configuration for one WebSocket route in `[[crates.websocket_routes]]`.
+///
+/// Backends emit `app.websocket(path, handler_fn)` from this entry. Uses a
+/// concrete wrapper struct to avoid `Arc<dyn Trait>` RPITIT incompatibility.
+///
+/// ```toml
+/// [[crates.websocket_routes]]
+/// handler_wrapper_type = "WebSocketHandlerWrapper"
+/// socket_type = "WebSocketConnection"
+/// doc = "Register a WebSocket upgrade handler at the given path."
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WebSocketRouteConfig {
+    /// Name of the concrete Rust wrapper struct that wraps the host-language
+    /// WebSocket handler callable (e.g. `"WebSocketHandlerWrapper"`).
+    pub handler_wrapper_type: String,
+    /// Name of the WebSocket connection type passed to the handler per connection
+    /// (e.g. `"WebSocketConnection"`).
+    pub socket_type: String,
+    /// Documentation for the generated `app.websocket(...)` method.
+    #[serde(default)]
+    pub doc: Option<String>,
+}
+
+/// Configuration for one SSE route in `[[crates.sse_routes]]`.
+///
+/// Backends emit `app.sse(path, producer_fn)` from this entry. Uses a concrete
+/// wrapper struct to avoid `Arc<dyn Trait>` RPITIT incompatibility.
+///
+/// ```toml
+/// [[crates.sse_routes]]
+/// producer_wrapper_type = "SseProducerWrapper"
+/// event_type = "SseEvent"
+/// doc = "Register an SSE event producer at the given path."
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SseRouteConfig {
+    /// Name of the concrete Rust wrapper struct that wraps the host-language SSE
+    /// producer callable (e.g. `"SseProducerWrapper"`).
+    pub producer_wrapper_type: String,
+    /// Name of the SSE event type yielded by the producer (e.g. `"SseEvent"`).
+    pub event_type: String,
+    /// Documentation for the generated `app.sse(...)` method.
+    #[serde(default)]
+    pub doc: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Cross-binding error type config
+// ---------------------------------------------------------------------------
+
+/// Configuration for one cross-binding error type in `[[crates.error_types]]`.
+///
+/// Each entry causes backends to emit a native exception/error class whose
+/// `status_code()` returns the mapped HTTP status and whose serialization
+/// produces an RFC 9457 ProblemDetails JSON body.
+///
+/// ```toml
+/// [[crates.error_types]]
+/// name = "NotFoundError"
+/// http_status = 404
+/// doc = "Raised when the requested resource does not exist."
+///
+/// [[crates.error_types]]
+/// name = "ValidationError"
+/// http_status = 422
+/// problem_details_type = "https://example.com/problems/validation"
+/// doc = "Raised when input validation fails."
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ErrorTypeConfig {
+    /// PascalCase error class name emitted in every binding language
+    /// (e.g. `"NotFoundError"`, `"ValidationError"`).
+    pub name: String,
+    /// HTTP status code this error maps to (e.g. `404`, `422`, `500`).
+    pub http_status: u16,
+    /// Optional RFC 9457 ProblemDetails `type` URI.
+    ///
+    /// When absent, backends derive a generic type URI from the error name.
+    #[serde(default)]
+    pub problem_details_type: Option<String>,
+    /// Documentation for the generated error class.
+    #[serde(default)]
+    pub doc: Option<String>,
+}
+
+/// Config entry for a per-language style override on a registration variant.
+///
+/// Placed in `alef.toml` as:
+///
+/// ```toml
+/// [crates.services.registrations.variants.languages.csharp]
+/// style = "attribute"
+/// method_prefix = "Map"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+pub struct RegistrationVariantLanguageOverrideSpec {
+    /// Override for the emission style.
+    #[serde(default)]
+    pub style: Option<String>,
+    /// Override for the handler shape.
+    #[serde(default)]
+    pub handler_shape: Option<String>,
+    /// Language-specific prefix for the verb method name (e.g. `"Map"` → `MapGet`).
+    #[serde(default)]
+    pub method_prefix: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

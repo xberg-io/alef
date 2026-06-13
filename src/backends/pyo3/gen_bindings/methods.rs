@@ -212,6 +212,7 @@ module_name = "_test_lib"
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
+            ..Default::default()
         };
         let config = make_config();
         let result = gen_module_init("_test_lib", &api, &config);

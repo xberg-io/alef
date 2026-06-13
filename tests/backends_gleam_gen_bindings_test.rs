@@ -128,6 +128,7 @@ fn struct_emits_record_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -171,6 +172,7 @@ fn function_emits_external_binding() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -238,6 +240,7 @@ fn enum_emits_custom_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -264,6 +267,7 @@ fn optional_field_imports_option() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -317,6 +321,7 @@ fn error_emits_custom_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -378,6 +383,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -424,6 +430,7 @@ fn nif_module_override_uses_custom_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_nif("custom_nif_atom");
@@ -585,6 +592,7 @@ fn trait_bridge_single_method_emits_register_and_support_nifs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -646,6 +654,7 @@ fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![ocr_bridge, embedding_bridge]);
@@ -698,6 +707,7 @@ fn trait_bridge_emits_per_method_response_shim() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -749,6 +759,7 @@ fn trait_bridge_response_shim_uses_typed_return_and_error() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -793,6 +804,7 @@ fn trait_bridge_response_shim_unit_return_emits_nil() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -829,6 +841,7 @@ fn trait_bridge_multiple_methods_emit_one_shim_each() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -875,6 +888,7 @@ fn trait_bridge_response_shim_includes_doc_comment() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -913,6 +927,7 @@ fn trait_bridge_emits_unregistration_fn_when_configured() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -946,6 +961,7 @@ fn trait_bridge_omits_unregistration_fn_when_not_configured() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -979,6 +995,7 @@ fn trait_bridge_emits_clear_fn_when_configured() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -1012,6 +1029,7 @@ fn trait_bridge_omits_clear_fn_when_not_configured() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -1046,6 +1064,7 @@ fn trait_bridge_emits_all_three_fns_when_fully_configured() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);
@@ -1089,6 +1108,7 @@ fn non_trait_type_with_methods_emits_opaque_resource_only_once() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config_with_nif("Elixir.Demo.Native");

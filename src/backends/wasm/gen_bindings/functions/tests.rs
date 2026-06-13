@@ -118,6 +118,7 @@ fn async_vec_named_params_convert_to_core_vec() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let out = gen_function_with_emitted_dtos(
@@ -531,6 +532,7 @@ fn type_has_default_lookup_returns_correct_value() {
         handler_contracts: vec![],
         services: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     // type_has_default should return false for unknown types

@@ -798,6 +798,7 @@ mod tests {
             }],
             handler_contracts: vec![],
             unsupported_public_items: vec![],
+            ..Default::default()
         };
         let dts = gen_dts(
             &api,

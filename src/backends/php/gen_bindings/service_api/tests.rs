@@ -80,6 +80,7 @@ fn make_fixture_surface() -> ApiSurface {
         error_type: None,
         doc: "Register a request handler for a path and method.".to_owned(),
         variants: vec![],
+        ..Default::default()
     };
 
     let run_ep = EntrypointDef {
@@ -293,7 +294,9 @@ fn php_output_contains_registration_variants() {
             }],
             doc: Some("Register a GET route.".to_owned()),
             style: Default::default(),
+            ..Default::default()
         }],
+        ..Default::default()
     };
 
     let service = ServiceDef {
@@ -391,7 +394,9 @@ fn php_output_verb_decorator_style_direct_method_only() {
             }],
             doc: Some("Register a GET route.".to_owned()),
             style: RegistrationVariantStyle::VerbDecorator,
+            ..Default::default()
         }],
+        ..Default::default()
     };
 
     let service = ServiceDef {
@@ -493,7 +498,9 @@ fn php_output_builder_style_factory_only() {
             }],
             doc: Some("Register a GET route.".to_owned()),
             style: RegistrationVariantStyle::Builder,
+            ..Default::default()
         }],
+        ..Default::default()
     };
 
     let service = ServiceDef {
@@ -595,7 +602,9 @@ fn php_output_hybrid_style_both_forms() {
             }],
             doc: Some("Register a GET route.".to_owned()),
             style: RegistrationVariantStyle::Hybrid,
+            ..Default::default()
         }],
+        ..Default::default()
     };
 
     let service = ServiceDef {
@@ -894,7 +903,9 @@ fn php_output_wrapper_call_delegates_to_base_method() {
             }],
             doc: Some("Register a GET route.".to_owned()),
             style: RegistrationVariantStyle::Hybrid,
+            ..Default::default()
         }],
+        ..Default::default()
     };
 
     let service = ServiceDef {

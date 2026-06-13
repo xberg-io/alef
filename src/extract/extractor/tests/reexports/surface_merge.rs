@@ -37,6 +37,7 @@ fn test_merge_surface_no_duplicates() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let src = ApiSurface {
@@ -100,6 +101,7 @@ fn test_merge_surface_no_duplicates() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     merge_surface(&mut dst, src, None);
@@ -122,6 +124,7 @@ fn test_merge_surface_filtered() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let src = ApiSurface {
@@ -185,6 +188,7 @@ fn test_merge_surface_filtered() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     merge_surface_filtered(&mut dst, src, &["Wanted".to_string()], None);
@@ -207,6 +211,7 @@ fn test_merge_surface_includes_functions_and_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let src = ApiSurface {
@@ -255,6 +260,7 @@ fn test_merge_surface_includes_functions_and_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     super::reexports::merge_surface(&mut dst, src, None);
@@ -279,6 +285,7 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let src = ApiSurface {
@@ -367,6 +374,7 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let names = vec!["wanted_fn".to_string(), "WantedEnum".to_string()];

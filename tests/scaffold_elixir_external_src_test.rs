@@ -21,6 +21,7 @@ fn scaffold_elixir_mix_exs_omits_missing_native_src_directory() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
+        ..Default::default()
     };
 
     let config = ResolvedCrateConfig {

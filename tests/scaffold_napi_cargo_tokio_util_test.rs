@@ -43,6 +43,7 @@ fn scaffold_napi_cargo_includes_tokio_util_with_rt_feature_when_trait_bridges_pr
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
+        ..Default::default()
     };
 
     let config = ResolvedCrateConfig {
@@ -104,6 +105,7 @@ fn scaffold_napi_cargo_excludes_tokio_util_when_no_trait_bridges() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
+        ..Default::default()
     };
 
     let config = ResolvedCrateConfig {

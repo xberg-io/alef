@@ -547,7 +547,13 @@ fn gen_registration_variant_method_ts(
                 variant,
             );
         }
-        RegistrationVariantStyle::Hybrid => {
+        // Decorator, Attribute, Dsl and Hybrid all fall through to the hybrid overloaded form.
+        // Per-backend specialization for the new styles is a Phase C concern; until then
+        // the hybrid overload is a safe, correct baseline.
+        RegistrationVariantStyle::Hybrid
+        | RegistrationVariantStyle::Decorator
+        | RegistrationVariantStyle::Attribute
+        | RegistrationVariantStyle::Dsl => {
             // Both forms — emit as TypeScript method overloads (two declaration
             // signatures + one implementation that branches on the optional
             // `handler` argument). Emitting them as two separate method bodies
@@ -778,6 +784,7 @@ mod classify_service_imports_tests {
             signature_params: vec![named_param("path", "Path")],
             doc: None,
             style: RegistrationVariantStyle::Hybrid,
+            ..Default::default()
         }
     }
 
@@ -800,6 +807,7 @@ mod classify_service_imports_tests {
                 error_type: None,
                 doc: String::new(),
                 variants: vec![route_variant()],
+                ..Default::default()
             }],
             entrypoints: vec![
                 EntrypointDef {

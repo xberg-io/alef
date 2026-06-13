@@ -196,6 +196,7 @@ fn test_generated_code_example() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_sample_crate_config();

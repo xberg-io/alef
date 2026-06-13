@@ -99,6 +99,7 @@ fn test_skips_method_with_generic_type_parameter() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = sample_config();
     let backend = FfiBackend;
@@ -190,6 +191,7 @@ fn test_skips_method_with_receiver_reference_return() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = sample_config();
     let backend = FfiBackend;

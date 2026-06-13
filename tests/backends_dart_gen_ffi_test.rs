@@ -61,6 +61,9 @@ fn make_empty_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {

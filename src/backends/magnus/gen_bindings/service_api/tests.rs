@@ -114,7 +114,9 @@ fn make_fixture_surface() -> ApiSurface {
             }],
             doc: Some("Register a GET handler for a path.".to_owned()),
             style: crate::core::ir::RegistrationVariantStyle::Hybrid,
+            ..Default::default()
         }],
+        ..Default::default()
     };
 
     let run_ep = EntrypointDef {

@@ -64,6 +64,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -194,6 +195,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();

@@ -83,6 +83,7 @@ fn make_fixture_surface() -> ApiSurface {
         error_type: None,
         doc: "Register a request handler for a path and method.".to_owned(),
         variants: vec![],
+        ..Default::default()
     };
 
     let run_ep = EntrypointDef {
@@ -517,6 +518,7 @@ fn registration_variant_style_hybrid_emits_both_forms() {
             }],
             doc: None,
             style: RegistrationVariantStyle::Hybrid,
+            ..Default::default()
         });
 
     let elixir_output = gen_service_ex(&surface, "");

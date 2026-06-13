@@ -154,7 +154,12 @@ fn gen_registration_variant_js(out: &mut String, variant: &RegistrationVariant, 
         RegistrationVariantStyle::Builder => {
             emit_variant_decorator_factory_js(out, variant_name, &variant_params_no_handler, variant);
         }
-        RegistrationVariantStyle::Hybrid => {
+        // Decorator, Attribute, Dsl and Hybrid all fall through to the hybrid form.
+        // Per-backend specialization for the new styles is a Phase C concern.
+        RegistrationVariantStyle::Hybrid
+        | RegistrationVariantStyle::Decorator
+        | RegistrationVariantStyle::Attribute
+        | RegistrationVariantStyle::Dsl => {
             emit_variant_direct_method_js(out, variant_name, &variant_params_no_handler, variant);
             emit_variant_decorator_factory_js(out, variant_name, &variant_params_no_handler, variant);
         }
@@ -328,6 +333,7 @@ mod tests {
             signature_params: vec![],
             doc: Some("Register a get handler".to_owned()),
             style: RegistrationVariantStyle::VerbDecorator,
+            ..Default::default()
         };
 
         emit_variant_direct_method_js(&mut out, "get", &[], &variant);
@@ -348,6 +354,7 @@ mod tests {
             signature_params: vec![],
             doc: Some("Register a get handler".to_owned()),
             style: RegistrationVariantStyle::Builder,
+            ..Default::default()
         };
 
         emit_variant_decorator_factory_js(&mut out, "get", &[], &variant);
@@ -367,6 +374,7 @@ mod tests {
             signature_params: vec![],
             doc: Some("Register a get handler".to_owned()),
             style: RegistrationVariantStyle::Hybrid,
+            ..Default::default()
         };
 
         // Hybrid emission calls both direct and decorator-factory

@@ -52,6 +52,7 @@ fn test_type_stubs_documented_field_emits_var_phpdoc_with_description() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -126,6 +127,7 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -194,6 +196,7 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    ..Default::default()
 };
 
     let config = make_config();
@@ -275,6 +278,7 @@ fn test_duration_field_on_default_struct_getter_returns_option() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();

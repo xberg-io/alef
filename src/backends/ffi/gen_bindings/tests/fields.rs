@@ -64,6 +64,7 @@ fn test_option_option_primitive_getter_returns_primitive_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = sample_config();
     let backend = FfiBackend;
@@ -179,6 +180,7 @@ fn api_with_named_field(field_type: &str, is_clone: bool) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     }
 }
 

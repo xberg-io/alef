@@ -563,6 +563,7 @@ mod tests {
             error_type: None,
             doc: "Register a request handler.".to_owned(),
             variants: vec![],
+            ..Default::default()
         };
 
         let run_ep = EntrypointDef {
@@ -657,6 +658,7 @@ mod tests {
                     signature_params: vec![],
                     doc: Some("Register a GET handler.".to_owned()),
                     style: Default::default(),
+                    ..Default::default()
                 });
             }
         }

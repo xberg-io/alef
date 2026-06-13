@@ -69,6 +69,7 @@ fn bug1_excluded_type_is_fully_qualified_in_trait_impl() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let code = gen_trait_bridge(
@@ -412,6 +413,7 @@ fn bug6_async_excluded_type_return_signature_and_deserialization() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let code = gen_trait_bridge(
@@ -642,6 +644,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let code = gen_trait_bridge(
@@ -699,6 +702,7 @@ fn vtable_registration_signature_takes_const_pointer() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let code = gen_trait_bridge(

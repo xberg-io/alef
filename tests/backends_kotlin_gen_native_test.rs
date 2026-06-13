@@ -172,6 +172,7 @@ fn native_emits_three_files() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -199,6 +200,7 @@ fn native_struct_emits_data_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -288,6 +290,7 @@ fn native_unit_enum_emits_enum_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -325,6 +328,7 @@ fn native_function_uses_mem_scoped() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -379,6 +383,7 @@ fn native_fallible_function_checks_error_code() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -414,6 +419,7 @@ fn native_def_file_has_correct_fields() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -449,6 +455,7 @@ fn native_kt_file_is_at_correct_path() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_native_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();

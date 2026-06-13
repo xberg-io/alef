@@ -98,6 +98,7 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let backend = RustlerBackend;
@@ -220,6 +221,7 @@ fn test_struct_module_defstruct_defaults_align_with_typespec() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let backend = RustlerBackend;
@@ -326,6 +328,7 @@ fn test_struct_module_with_named_type_field() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let backend = RustlerBackend;
@@ -407,6 +410,7 @@ fn test_struct_module_with_vec_fields() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let backend = RustlerBackend;

@@ -33,6 +33,7 @@ fn test_generate_docs_with_function_renders_signature_and_params() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -102,6 +103,7 @@ fn test_generate_docs_with_enum_renders_python_screaming_case_variants() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -174,6 +176,7 @@ fn test_generate_docs_with_type_renders_fields_and_doc() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -231,6 +234,7 @@ fn test_generate_docs_with_error_appears_in_lang_page_and_errors_md() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -285,6 +289,7 @@ fn test_function_with_since_renders_version_badge() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -337,6 +342,7 @@ fn test_function_deprecated_renders_warning_admonition() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -428,6 +434,7 @@ fn test_enum_variant_with_since_renders_inline_in_table() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();

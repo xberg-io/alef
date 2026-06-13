@@ -47,6 +47,7 @@ fn make_fixture_surface() -> ApiSurface {
         error_type: None,
         doc: "Register a request handler.".to_owned(),
         variants: vec![],
+        ..Default::default()
     };
 
     let run_entrypoint = EntrypointDef {

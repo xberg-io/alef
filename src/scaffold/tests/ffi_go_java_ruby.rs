@@ -556,6 +556,7 @@ gem_name = "test_lib"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let result = crate::scaffold::languages::scaffold_ruby_cargo(&api, &config);

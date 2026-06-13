@@ -288,6 +288,10 @@ impl NewAlefConfig {
             trait_bridges: krate.trait_bridges.clone(),
             services: krate.services.clone(),
             handler_contracts: krate.handler_contracts.clone(),
+            lifecycle_hooks: krate.lifecycle_hooks.clone(),
+            websocket_routes: krate.websocket_routes.clone(),
+            sse_routes: krate.sse_routes.clone(),
+            error_types: krate.error_types.clone(),
             scaffold: merge_scaffold(
                 ws.scaffold.as_ref(),
                 krate.scaffold.as_ref(),

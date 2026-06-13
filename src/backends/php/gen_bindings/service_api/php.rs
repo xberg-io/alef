@@ -426,7 +426,12 @@ fn gen_registration_variant(
             out.push_str("    }\n\n");
         }
 
-        RegistrationVariantStyle::Hybrid => {
+        // Decorator, Attribute, Dsl and Hybrid all fall through to the hybrid form.
+        // Per-backend specialization for the new styles is a Phase C concern.
+        RegistrationVariantStyle::Hybrid
+        | RegistrationVariantStyle::Decorator
+        | RegistrationVariantStyle::Attribute
+        | RegistrationVariantStyle::Dsl => {
             // 1. Direct method: $app->get(path, handler): App
             out.push_str(&render(
                 "php_service_method_start.jinja",

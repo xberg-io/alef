@@ -1,8 +1,23 @@
 use crate::codegen::builder::StructBuilder;
+use crate::codegen::doc_emission::{DocTarget, sanitize_rust_idioms};
 use crate::codegen::generators::RustBindingConfig;
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{CoreWrapper, TypeDef, TypeRef};
+
+/// Sanitize a struct-field docstring before propagating into a binding Rust
+/// crate so explicit-link targets `[`X`](crate::X)` collapse to `` `X` ``.
+/// The `crate::` path resolves in the originating crate but not here, and
+/// without sanitization rustdoc raises `broken_intra_doc_links` /
+/// `redundant_explicit_links` on the binding. `DocTarget::TsDoc` is used as
+/// a target-agnostic sentinel — the prose pipeline only varies post-link
+/// behaviour by target, and the link rewrite is identical for every target.
+fn sanitize_field_doc(doc: &str) -> String {
+    if doc.is_empty() {
+        return String::new();
+    }
+    sanitize_rust_idioms(doc, DocTarget::TsDoc)
+}
 
 /// Check if a type's fields can all be safely defaulted.
 /// Primitives, strings, collections, Options, and Duration all have Default impls.
@@ -161,7 +176,7 @@ pub fn gen_struct_with_per_field_attrs(
         {
             attrs.push("serde(skip)".to_string());
         }
-        sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
+        sb.add_field_with_doc(&field.name, &ty, attrs, &sanitize_field_doc(&field.doc));
     }
     let mut result = sb.build();
     if suppress_default_derive {
@@ -275,7 +290,7 @@ pub fn gen_struct_with_rename(
             }
         }
         let emit_name = name_override.unwrap_or_else(|| field.name.clone());
-        sb.add_field_with_doc(&emit_name, &ty, attrs, &field.doc);
+        sb.add_field_with_doc(&emit_name, &ty, attrs, &sanitize_field_doc(&field.doc));
     }
     let mut result = sb.build();
     if suppress_default_derive {
@@ -351,7 +366,7 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
                 attrs.push(format!("serde(rename = \"{rename}\")"));
             }
         }
-        sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
+        sb.add_field_with_doc(&field.name, &ty, attrs, &sanitize_field_doc(&field.doc));
     }
     let mut result = sb.build();
     if suppress_default_derive {

@@ -456,6 +456,7 @@ mod tests {
                     signature_params: vec![],
                     doc: Some("Register a GET handler.".to_owned()),
                     style: Default::default(),
+                    ..Default::default()
                 },
                 crate::core::ir::RegistrationVariant {
                     name: "post".to_owned(),
@@ -464,8 +465,10 @@ mod tests {
                     signature_params: vec![],
                     doc: Some("Register a POST handler.".to_owned()),
                     style: Default::default(),
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         };
 
         let run_ep = EntrypointDef {

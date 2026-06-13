@@ -40,6 +40,7 @@ fn make_fixture_surface() -> ApiSurface {
         error_type: Some("HandlerError".to_owned()),
         doc: "Register a request handler.".to_owned(),
         variants: vec![],
+        ..Default::default()
     };
 
     let run_entrypoint = EntrypointDef {
@@ -276,6 +277,7 @@ fn make_surface_with_variant() -> ApiSurface {
         }],
         doc: Some("Register a GET handler.".to_owned()),
         style: Default::default(),
+        ..Default::default()
     };
 
     let registration = RegistrationDef {
@@ -294,6 +296,7 @@ fn make_surface_with_variant() -> ApiSurface {
         error_type: Some("HandlerError".to_owned()),
         doc: "Register a route.".to_owned(),
         variants: vec![get_variant],
+        ..Default::default()
     };
 
     let handler_contract = HandlerContractDef {
@@ -471,6 +474,7 @@ fn test_variant_without_wrapper_call_is_not_emitted() {
         signature_params: vec![],
         doc: None,
         style: Default::default(),
+        ..Default::default()
     };
 
     let registration = RegistrationDef {
@@ -489,6 +493,7 @@ fn test_variant_without_wrapper_call_is_not_emitted() {
         error_type: None,
         doc: String::new(),
         variants: vec![plain_variant],
+        ..Default::default()
     };
 
     let handler_contract = HandlerContractDef {

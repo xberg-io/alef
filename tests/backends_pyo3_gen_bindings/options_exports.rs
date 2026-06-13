@@ -113,6 +113,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let mut config = make_config();
@@ -382,6 +383,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let mut config = make_config();

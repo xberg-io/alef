@@ -183,6 +183,9 @@ fn make_basic_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 fn make_basic_config() -> ResolvedCrateConfig {

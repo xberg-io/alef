@@ -181,6 +181,7 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     // Create test config
@@ -345,6 +346,7 @@ fn test_enum_doc_summary_emits_separate_lines_for_class_and_variants() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("testlib", Some("Testlib"), true);
@@ -485,6 +487,7 @@ fn test_ffi_excluded_types_are_not_generated_for_pinvoke() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -570,6 +573,7 @@ fn test_opaque_method_return_wraps_handle_without_to_json() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -665,6 +669,7 @@ fn test_bool_param_call_site_matches_pinvoke_bool_decl() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -767,6 +772,7 @@ fn test_fallible_unit_opaque_method_checks_last_error_code() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -815,6 +821,7 @@ fn test_error_helper_preserves_base_error_acronym_class_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -886,6 +893,7 @@ fn test_error_class_doc_strips_rust_idioms_and_sections() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -940,6 +948,7 @@ fn test_namespace_resolution() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my-lib", Some("MyCompany.MyLib"), false);
@@ -973,6 +982,7 @@ fn test_generated_header() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("test", None, false);
@@ -1115,6 +1125,7 @@ fn test_type_mapping() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("test", None, false);
@@ -1222,6 +1233,7 @@ fn test_tuple_struct_fields_skipped() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("test", None, false);
@@ -1322,6 +1334,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("test", None, false);
@@ -1439,6 +1452,7 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).expect("generate ok");
@@ -1706,6 +1720,7 @@ fn test_duration_field_emits_single_nullable_not_double() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = minimal_csharp_config("test");
@@ -1790,6 +1805,7 @@ fn test_optional_ulong_field_emits_single_nullable() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = minimal_csharp_config("test");
@@ -1902,6 +1918,7 @@ fn test_plain_enum_with_default_emits_single_nullable() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = minimal_csharp_config("test");
@@ -1980,6 +1997,7 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("sample_crate", Some("SampleCrate"), true);
@@ -2123,6 +2141,7 @@ fn test_non_nullable_string_field_emits_required() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = minimal_csharp_config("test");
@@ -2206,6 +2225,7 @@ fn test_nullable_field_does_not_emit_required() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = minimal_csharp_config("test");
@@ -2289,6 +2309,7 @@ fn test_collection_field_does_not_emit_required() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = minimal_csharp_config("test");
@@ -2372,6 +2393,7 @@ fn test_field_with_default_does_not_emit_required() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = minimal_csharp_config("test");
@@ -2455,6 +2477,7 @@ fn test_opaque_handle_wrapper_has_internal_handle() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2493,6 +2516,7 @@ fn test_file_scoped_namespace_emitted() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config("test", Some("MyNs"), false);
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -2625,6 +2649,7 @@ type = "ChatRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let files = backend.generate_bindings(&api, &config).unwrap();
     let client_file = files
@@ -2832,6 +2857,7 @@ fn test_bytes_field_default_uses_collection_expression() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let files = backend.generate_bindings(&api, &config).unwrap();
     let cs_file = files
@@ -2910,6 +2936,7 @@ fn test_using_directives_each_on_own_line() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let files = backend.generate_bindings(&api, &config).unwrap();
     let parser_file = files
@@ -2996,6 +3023,7 @@ type = "*const std::ffi::c_char"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let backend = CsharpBackend;
@@ -3112,6 +3140,7 @@ fn test_record_method_bool_param_passes_bool_directly() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -3279,6 +3308,7 @@ fn test_receiver_selfhandle_freed_on_named_param_failure() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -3410,6 +3440,7 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -3527,6 +3558,7 @@ fn test_bool_param_record_method_compiles_with_dotnet() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -3631,6 +3663,7 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();

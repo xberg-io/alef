@@ -189,6 +189,10 @@ pub fn gen_trait_bridge_object(
         excluded_trait_names: std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
+        lifecycle_hooks: vec![],
+        websocket_routes: vec![],
+        sse_routes: vec![],
+        error_types: vec![],
         unsupported_public_items: vec![],
     };
     let excluded_types = std::collections::HashSet::new();

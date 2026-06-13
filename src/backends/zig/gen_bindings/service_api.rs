@@ -382,6 +382,7 @@ mod tests {
             error_type: Some("HandlerError".to_owned()),
             doc: "Register a request handler.".to_owned(),
             variants: vec![],
+            ..Default::default()
         };
 
         let run_entrypoint = EntrypointDef {
@@ -608,6 +609,7 @@ mod tests {
                 }],
                 doc: Some("Register a GET handler.".to_owned()),
                 style: Default::default(),
+                ..Default::default()
             });
             reg.variants.push(RegistrationVariant {
                 name: "post".to_owned(),
@@ -622,6 +624,7 @@ mod tests {
                 }],
                 doc: Some("Register a POST handler.".to_owned()),
                 style: Default::default(),
+                ..Default::default()
             });
         }
 

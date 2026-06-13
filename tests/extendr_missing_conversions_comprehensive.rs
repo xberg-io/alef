@@ -186,6 +186,7 @@ fn extendr_all_surface_types_get_conversions_comprehensive() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
+        ..Default::default()
     };
 
     let files = ExtendrBackend

@@ -267,6 +267,9 @@ fn make_api_php() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 fn make_plugin_bridge_cfg_php(trait_name: &str) -> alef::core::config::TraitBridgeConfig {

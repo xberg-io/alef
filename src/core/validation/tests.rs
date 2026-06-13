@@ -684,6 +684,7 @@ fn api_surface_validation_checks_service_ir_types() {
                 error_type: None,
                 doc: String::new(),
                 variants: vec![],
+                ..Default::default()
             }],
             entrypoints: vec![EntrypointDef {
                 method: "run".to_string(),

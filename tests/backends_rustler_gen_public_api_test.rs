@@ -260,6 +260,7 @@ fn test_generate_public_api_creates_all_files() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -374,6 +375,7 @@ fn test_native_ex_has_all_nif_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -537,6 +539,7 @@ fn test_struct_module_has_defstruct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -628,6 +631,7 @@ fn test_main_module_has_method_wrappers() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -668,6 +672,7 @@ fn test_trait_bridge_unregister_and_clear_specs_match_atom_returns() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let mut config = make_config("my_lib");
     config.trait_bridges = vec![TraitBridgeConfig {
@@ -746,6 +751,7 @@ fn test_opaque_types_not_get_struct_module() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -832,6 +838,7 @@ fn test_simple_enum_module_has_type_and_accessors() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -928,6 +935,7 @@ fn test_generate_bindings_nif_init_uses_native_module() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -1006,6 +1014,7 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -1051,6 +1060,7 @@ fn test_native_ex_emits_force_build_guard() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -1135,6 +1145,7 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -1234,6 +1245,7 @@ fn test_trailing_optional_params_emit_keyword_opts_function() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -1321,6 +1333,7 @@ fn test_defstruct_string_fields_default_to_nil() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config("my_lib");
@@ -1390,6 +1403,7 @@ fn render_native_ex(functions: Vec<FunctionDef>) -> String {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config("my_lib");
     let files = backend
@@ -1520,6 +1534,7 @@ fn test_wrapper_module_doc_uses_full_first_paragraph_summary() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config("my_lib");
     let files = backend.generate_public_api(&api, &config).unwrap();
@@ -1634,6 +1649,7 @@ fn error_methods_emit_nif_shims_in_lib_rs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config("demo");
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -1671,6 +1687,7 @@ fn error_methods_emit_elixir_spec_and_def_wrappers() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config("demo");
     let files = backend.generate_public_api(&api, &config).unwrap();
@@ -1725,6 +1742,7 @@ fn error_methods_emit_matching_native_ex_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config("demo");
 
@@ -1849,6 +1867,7 @@ fn opaque_static_constructor_wraps_return_in_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_config("demo");
     let files = backend.generate_public_api(&api, &config).unwrap();

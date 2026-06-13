@@ -234,7 +234,8 @@ fn make_demo_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
+        ..Default::default()
+    }..Default::default()
 }
 
 fn make_demo_config() -> ResolvedCrateConfig {
@@ -871,6 +872,7 @@ fn real_ir_shape_optional_ref_result_async() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_demo_config();
@@ -995,6 +997,7 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_demo_config();
@@ -1074,6 +1077,7 @@ fn method_ref_receiver_emits_const_cast() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_demo_config();
@@ -1168,6 +1172,7 @@ fn method_slice_u8_param_receives_jbytearray() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_demo_config();
@@ -1263,6 +1268,7 @@ fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_demo_config();
@@ -1365,6 +1371,7 @@ fn method_pathbuf_param_receives_raw_string() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_demo_config();
@@ -1469,6 +1476,7 @@ fn method_slice_str_param_coerces_to_str_refs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_demo_config();
@@ -1772,7 +1780,8 @@ fn empty_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    }
+        ..Default::default()
+    }..Default::default()
 }
 
 /// For every `[[crates.trait_bridges]]` entry the JNI backend must emit

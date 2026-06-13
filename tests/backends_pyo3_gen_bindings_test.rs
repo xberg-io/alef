@@ -176,6 +176,9 @@ fn make_api_surface() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 #[path = "backends_pyo3_gen_bindings/adapters_and_serde.rs"]
 mod adapters_and_serde;

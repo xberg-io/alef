@@ -40,6 +40,7 @@ fn make_fixture_surface() -> ApiSurface {
         }],
         doc: Some("Register a GET handler.".to_owned()),
         style: Default::default(),
+        ..Default::default()
     };
 
     let registration = RegistrationDef {
@@ -67,6 +68,7 @@ fn make_fixture_surface() -> ApiSurface {
         error_type: Some("HandlerError".to_owned()),
         doc: "Register a request handler.".to_owned(),
         variants: vec![get_variant],
+        ..Default::default()
     };
 
     let run_entrypoint = EntrypointDef {
@@ -357,6 +359,7 @@ fn test_registration_variant_wrapper_call_emits_free_args() {
         }],
         doc: Some("Register a GET handler.".to_owned()),
         style: Default::default(),
+        ..Default::default()
     };
 
     let config = ResolvedCrateConfig {

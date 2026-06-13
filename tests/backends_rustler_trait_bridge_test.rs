@@ -20,6 +20,9 @@ fn make_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 fn make_node_context() -> TypeDef {

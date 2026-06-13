@@ -43,6 +43,7 @@ fn test_opaque_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -134,6 +135,7 @@ fn test_default_config() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -232,6 +234,7 @@ fn test_optional_primitive_uses_cgo_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -314,6 +317,7 @@ fn test_optional_return_type_no_double_pointer() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -416,6 +420,7 @@ fn test_opaque_error_type_uses_value_semantics() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -523,6 +528,7 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -611,6 +617,7 @@ module = "github.com/example/mylib"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let backend = GoBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -674,6 +681,7 @@ fn test_no_duplicate_var_raw_struct_in_unmarshal_json() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let backend = GoBackend;

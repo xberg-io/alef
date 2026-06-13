@@ -160,6 +160,7 @@ mod tests {
             error_type: None,
             doc: "Register a request handler for a path and method.".to_owned(),
             variants: vec![],
+            ..Default::default()
         };
 
         let run_ep = EntrypointDef {
@@ -361,6 +362,7 @@ mod tests {
             }],
             doc: Some("Register a GET handler.".to_owned()),
             style: crate::core::ir::RegistrationVariantStyle::Hybrid,
+            ..Default::default()
         };
         surface.services[0].registrations[0].variants.push(variant);
 

@@ -32,6 +32,7 @@ fn options_field_bridge_renders_visitor_setup_template() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
+        ..Default::default()
     };
     let func = FunctionDef {
         name: "render".to_string(),

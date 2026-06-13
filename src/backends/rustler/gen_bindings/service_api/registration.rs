@@ -62,7 +62,12 @@ fn gen_registration_variant_method(
         RegistrationVariantStyle::Builder => {
             emit_builder_variant(out, variant, base_reg, module_prefix);
         }
-        RegistrationVariantStyle::Hybrid => {
+        // Decorator, Attribute, Dsl and Hybrid all fall through to the hybrid form.
+        // Per-backend specialization for the new styles is a Phase C concern.
+        RegistrationVariantStyle::Hybrid
+        | RegistrationVariantStyle::Decorator
+        | RegistrationVariantStyle::Attribute
+        | RegistrationVariantStyle::Dsl => {
             emit_verb_decorator_variant(out, variant, base_reg, module_prefix);
             emit_builder_variant(out, variant, base_reg, module_prefix);
         }

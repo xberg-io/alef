@@ -71,6 +71,7 @@ fn test_adapter_wrapper_functions() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let mut config = make_config();
@@ -192,6 +193,7 @@ fn test_async_method_adapter_wrapper() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let mut config = make_config();
@@ -298,6 +300,7 @@ fn test_serde_rename_in_constructor_and_properties() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -395,6 +398,7 @@ fn test_cfg_gated_fields_excluded_from_constructor() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -486,6 +490,7 @@ fn test_serde_rename_rust_keyword_emitted_as_raw_ident() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();

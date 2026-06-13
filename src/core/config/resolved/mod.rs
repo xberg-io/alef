@@ -36,7 +36,7 @@ use crate::core::config::output::{
 };
 use crate::core::config::package_metadata::PackageMetadataConfig;
 use crate::core::config::publish::PublishConfig;
-use crate::core::config::service::{HandlerContractConfig, ServiceConfig};
+use crate::core::config::service::{ErrorTypeConfig, HandlerContractConfig, LifecycleHookConfig, ServiceConfig, SseRouteConfig, WebSocketRouteConfig};
 use crate::core::config::tools::ToolsConfig;
 use crate::core::config::trait_bridge::TraitBridgeConfig;
 use crate::core::config::workspace::ClientConstructorConfig;
@@ -152,6 +152,10 @@ pub struct ResolvedCrateConfig {
     pub trait_bridges: Vec<TraitBridgeConfig>,
     pub services: Vec<ServiceConfig>,
     pub handler_contracts: Vec<HandlerContractConfig>,
+    pub lifecycle_hooks: Vec<LifecycleHookConfig>,
+    pub websocket_routes: Vec<WebSocketRouteConfig>,
+    pub sse_routes: Vec<SseRouteConfig>,
+    pub error_types: Vec<ErrorTypeConfig>,
     pub scaffold: Option<ScaffoldConfig>,
     pub package_metadata: Option<PackageMetadataConfig>,
     pub readme: Option<ReadmeConfig>,

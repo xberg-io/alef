@@ -157,6 +157,9 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 fn make_simple_api() -> ApiSurface {
@@ -191,6 +194,9 @@ fn make_simple_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+    ..Default::default()
+}        ..Default::default()
     }
 }
 
@@ -228,6 +234,9 @@ fn make_top_level_bytes_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+    ..Default::default()
+}        ..Default::default()
     }
 }
 
@@ -468,6 +477,7 @@ target = "jvm"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -584,6 +594,9 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+    ..Default::default()
+}        ..Default::default()
     }
 }
 
@@ -720,6 +733,9 @@ fn make_api_with_speech_method() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 /// Snapshot: a method returning `Vec<u8>` produces `ByteArray` in the Bridge and
@@ -831,6 +847,7 @@ fn jni_optional_byte_array_method_uses_nullable_facade_and_empty_array_sentinel(
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = KotlinBackend
@@ -926,6 +943,9 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+    ..Default::default()
+}        ..Default::default()
     }
 }
 

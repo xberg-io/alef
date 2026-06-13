@@ -74,6 +74,9 @@ fn make_api(enums: Vec<EnumDef>, functions: Vec<FunctionDef>) -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 fn make_enum(name: &str, variants: Vec<EnumVariant>) -> EnumDef {

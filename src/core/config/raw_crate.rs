@@ -28,7 +28,7 @@ use super::output::{
 };
 use super::package_metadata::PackageMetadataConfig;
 use super::publish::PublishConfig;
-use super::service::{HandlerContractConfig, ServiceConfig};
+use super::service::{ErrorTypeConfig, HandlerContractConfig, LifecycleHookConfig, ServiceConfig, SseRouteConfig, WebSocketRouteConfig};
 use super::trait_bridge::TraitBridgeConfig;
 
 /// One `[[crates]]` entry — an independently published Rust facade plus its
@@ -230,6 +230,52 @@ pub struct RawCrateConfig {
     pub services: Vec<ServiceConfig>,
     #[serde(default)]
     pub handler_contracts: Vec<HandlerContractConfig>,
+    /// Lifecycle hook contracts registered on the service owner.
+    ///
+    /// Each entry declares one named callback slot (e.g. `on_request`, `pre_handler`,
+    /// `on_response`, `on_error`) that backends emit as `app.on_<name>(fn)` methods.
+    ///
+    /// ```toml
+    /// [[crates.lifecycle_hooks]]
+    /// name = "on_request"
+    /// callback_contract = "RequestHook"
+    /// ```
+    #[serde(default)]
+    pub lifecycle_hooks: Vec<LifecycleHookConfig>,
+    /// WebSocket route registration contracts.
+    ///
+    /// Each entry causes backends to emit `app.websocket(path, handler_fn)`.
+    ///
+    /// ```toml
+    /// [[crates.websocket_routes]]
+    /// handler_wrapper_type = "WebSocketHandlerWrapper"
+    /// socket_type = "WebSocketConnection"
+    /// ```
+    #[serde(default)]
+    pub websocket_routes: Vec<WebSocketRouteConfig>,
+    /// SSE route registration contracts.
+    ///
+    /// Each entry causes backends to emit `app.sse(path, producer_fn)`.
+    ///
+    /// ```toml
+    /// [[crates.sse_routes]]
+    /// producer_wrapper_type = "SseProducerWrapper"
+    /// event_type = "SseEvent"
+    /// ```
+    #[serde(default)]
+    pub sse_routes: Vec<SseRouteConfig>,
+    /// Cross-binding error types emitted as native exception classes.
+    ///
+    /// Each entry causes backends to emit an exception/error class that maps to the
+    /// specified HTTP status and serializes as RFC 9457 ProblemDetails JSON.
+    ///
+    /// ```toml
+    /// [[crates.error_types]]
+    /// name = "NotFoundError"
+    /// http_status = 404
+    /// ```
+    #[serde(default)]
+    pub error_types: Vec<ErrorTypeConfig>,
     #[serde(default)]
     pub scaffold: Option<ScaffoldConfig>,
     #[serde(default)]

@@ -446,6 +446,7 @@ mod tests {
             error_type: None,
             doc: "Register a handler.".to_owned(),
             variants: vec![],
+            ..Default::default()
         };
 
         let run_ep = EntrypointDef {
@@ -728,6 +729,7 @@ mod tests {
             }],
             doc: Some("Register a GET handler.".to_owned()),
             style: Default::default(),
+            ..Default::default()
         });
         let service = &api.services[0];
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
@@ -777,6 +779,7 @@ mod tests {
             }],
             doc: Some("Register a GET route.".to_owned()),
             style: Default::default(),
+            ..Default::default()
         });
         let service = &api.services[0];
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");

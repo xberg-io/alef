@@ -89,6 +89,7 @@ fn make_fixture_surface() -> ApiSurface {
         error_type: None,
         doc: "Register a request handler for a path and method.".to_owned(),
         variants: vec![],
+        ..Default::default()
     };
 
     let run_ep = EntrypointDef {
@@ -395,6 +396,7 @@ fn registration_variants_emit_napi_methods() {
             }],
             doc: Some("Register a GET handler.".to_owned()),
             style: Default::default(),
+            ..Default::default()
         });
     }
 
@@ -496,6 +498,7 @@ fn typescript_variant_verb_decorator_style() {
             }],
             doc: Some("Register a GET handler.".to_owned()),
             style: RegistrationVariantStyle::VerbDecorator,
+            ..Default::default()
         });
     }
 
@@ -543,6 +546,7 @@ fn typescript_variant_builder_style() {
             }],
             doc: Some("Register a GET handler.".to_owned()),
             style: RegistrationVariantStyle::Builder,
+            ..Default::default()
         });
     }
 
@@ -588,6 +592,7 @@ fn typescript_variant_hybrid_style() {
             }],
             doc: Some("Register a GET handler.".to_owned()),
             style: RegistrationVariantStyle::Hybrid,
+            ..Default::default()
         });
     }
 

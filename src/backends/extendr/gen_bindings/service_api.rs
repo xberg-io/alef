@@ -762,6 +762,7 @@ mod tests {
             error_type: None,
             doc: "Register a request handler.".to_owned(),
             variants: vec![],
+            ..Default::default()
         };
 
         let run_ep = EntrypointDef {

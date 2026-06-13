@@ -77,6 +77,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();
@@ -259,6 +260,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_config();

@@ -86,6 +86,7 @@ fn service_surface() -> ApiSurface {
         error_type: Some("HandlerError".to_owned()),
         doc: "Register a request handler.".to_owned(),
         variants: vec![],
+        ..Default::default()
     };
 
     let run_entrypoint = EntrypointDef {

@@ -192,7 +192,16 @@ pub(super) fn gen_struct(
         if has_serde && (is_opaque_field || skip_cfg_bridge_field) {
             attrs.push("serde(skip)".to_string());
         }
-        struct_builder.add_field_with_doc(&field.name, &field_type, attrs, &field.doc);
+        // Sanitize field doc so explicit-link targets `[`X`](crate::X)` collapse
+        // to `` `X` ``. The core-crate path resolves in the originating crate
+        // but not here; without sanitization rustdoc raises
+        // `broken_intra_doc_links` / `redundant_explicit_links` on the binding.
+        let sanitized_field_doc = if field.doc.is_empty() {
+            String::new()
+        } else {
+            crate::codegen::doc_emission::sanitize_rust_idioms(&field.doc, crate::codegen::doc_emission::DocTarget::TsDoc)
+        };
+        struct_builder.add_field_with_doc(&field.name, &field_type, attrs, &sanitized_field_doc);
     }
 
     let body = struct_builder.build();

@@ -64,6 +64,7 @@ fn test_render_type_with_multiple_methods_have_same_heading_level() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -139,6 +140,7 @@ fn test_generated_docs_have_monotonic_heading_increments() {
         services: vec![],
         handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
+    ..Default::default()
 };
 
     let config = make_test_config();
@@ -183,6 +185,7 @@ fn test_function_doc_with_internal_headings_are_demoted() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let config = make_test_config();

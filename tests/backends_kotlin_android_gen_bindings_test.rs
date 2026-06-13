@@ -148,6 +148,9 @@ fn make_streaming_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 fn make_trait_carrier_api() -> ApiSurface {
@@ -238,6 +241,9 @@ fn make_trait_carrier_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+    ..Default::default()
+}        ..Default::default()
     }
 }
 
@@ -473,6 +479,9 @@ fn make_opaque_factory_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 /// Regression test for Bug 1: the `Demo.kt` wrapper facade must emit
@@ -630,6 +639,9 @@ fn make_handle_only_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+    ..Default::default()
+}        ..Default::default()
     }
 }
 
@@ -866,6 +878,9 @@ fn make_optional_params_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 /// Regression test: optional params in the facade must emit Kotlin default
@@ -1044,6 +1059,9 @@ fn make_nullable_primitives_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+    ..Default::default()
+}        ..Default::default()
     }
 }
 
@@ -1231,6 +1249,9 @@ fn make_sealed_variants_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 /// Test that sealed class tuple variants use payload-derived field names instead of `field0`.
@@ -1416,6 +1437,9 @@ fn make_tuple_error_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 /// Track 2.1 regression: `{N}` placeholder tokens in error message templates
@@ -1595,6 +1619,9 @@ fn make_convert_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 /// Track 2.2 regression: when the API surface has functions returning non-opaque
@@ -1767,6 +1794,9 @@ fn make_batch_function_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 /// Defect T1.6 regression: batch functions returning `Vec<DTO>` must:
@@ -1934,6 +1964,9 @@ fn make_generic_container_api(return_ty: TypeRef, fn_name: &str) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+    ..Default::default()
+}        ..Default::default()
     }
 }
 
@@ -2237,6 +2270,9 @@ fn make_exclude_types_api() -> ApiSurface {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+    ..Default::default()
+}        ..Default::default()
+    }
 }
 
 /// Types named in `[crates.kotlin_android].exclude_types` must not produce
@@ -2352,6 +2388,9 @@ fn make_trait_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+    ..Default::default()
+}        ..Default::default()
     }
 }
 
@@ -2685,6 +2724,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
     let config = make_minimal_config();
     let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
@@ -2884,6 +2924,9 @@ fn make_long_signature_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+    ..Default::default()
+}        ..Default::default()
     }
 }
 

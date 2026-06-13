@@ -167,6 +167,7 @@ fn extendr_output_only_enum_gets_both_conversions() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
+        ..Default::default()
     };
 
     let files = ExtendrBackend

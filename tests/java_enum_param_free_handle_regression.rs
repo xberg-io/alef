@@ -114,6 +114,7 @@ fn param_type_with_serde_emits_free_handle_in_native_lib() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        ..Default::default()
     };
 
     let files = JavaBackend
