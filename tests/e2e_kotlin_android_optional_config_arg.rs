@@ -9,6 +9,7 @@ use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::kotlin_android::KotlinAndroidE2eCodegen;
 use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup};
+use std::path::{Path, PathBuf};
 
 fn make_extract_bytes_fixture(id: &str, has_config: bool) -> Fixture {
     let mut input = serde_json::json!({
@@ -108,15 +109,23 @@ fn render_kotlin_android_test(toml: &str, fixture: Fixture) -> String {
     let files = KotlinAndroidE2eCodegen
         .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
+    let async_test_path = kotlin_android_async_test_path();
     files
         .iter()
-        .find(|f| {
-            let p = f.path.to_string_lossy();
-            p.contains("AsyncTest.kt") && p.contains("src/test")
-        })
+        .find(|f| f.path.ends_with(&async_test_path))
         .expect("AsyncTest.kt is emitted")
         .content
         .clone()
+}
+
+fn kotlin_android_async_test_path() -> PathBuf {
+    Path::new("src")
+        .join("test")
+        .join("kotlin")
+        .join("dev")
+        .join("sample_crate")
+        .join("e2e")
+        .join("AsyncTest.kt")
 }
 
 /// Regression: when a fixture omits the optional config argument, kotlin_android
