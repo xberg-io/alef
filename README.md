@@ -50,6 +50,7 @@ tests, and release metadata from one `alef.toml`.
 - **End-to-end fixtures** - Generate cross-language test suites and registry-mode test apps from shared JSON fixtures.
 - **Release-aware packaging** - Sync versions, generate registry metadata, build artifacts, and validate publication state.
 - **Configurable pipelines** - Run setup, update, format, lint, test, clean, build, and publish commands per language.
+- **Pluggable extension surface** - Author domain-specific codegen logic via the `Extension` trait; ship as linked binaries, dynamic libraries, or template-only declarations.
 - **Staleness checks** - Cache inputs, embed generation hashes, and verify whether generated files are up to date.
 
 ## Installation
@@ -147,6 +148,38 @@ Alef uses the current multi-crate schema:
 Generated binding files carry Alef hashes and are overwritten by generation commands. Scaffolded
 package files are generated once unless the command explicitly opts into overwrite behavior; generated
 README and API doc files are owned by `alef readme` and `alef docs`.
+
+## Extending Alef
+
+Alef is opinionated about codegen and neutral about domain. The `Extension` trait lets you ship domain-specific generation logic (HTTP service APIs, plugin registries, custom bindings) without bloat in alef.
+
+### Linked Extension
+
+Consumer crate implements `alef::Extension`, ships a thin CLI binary:
+
+```rust
+fn main() {
+    alef::run_with_extensions(vec![Box::new(MyDomainExtension)])
+}
+```
+
+Full type safety. Recommended for frameworks like spikard's HTTP service API.
+
+### Dynamic Extension
+
+Load a compiled `.so`/`.dylib`/`.dll` declaring a C-ABI factory function. Works when you can't ship a Rust binary.
+
+```rust
+extern "C" fn alef_extension_factory() -> Box<dyn alef::Extension> {
+    Box::new(MyExtension)
+}
+```
+
+### Template-only Extension
+
+Declare `[[extensions.template]]` blocks in `alef.toml` pointing to Jinja templates. Alef's built-in `TemplateExtension` emits them — no Rust required.
+
+For the full walkthrough, trait reference, and per-language emission patterns, see [Extending Alef](docs/extending.md).
 
 ## CLI Reference
 
