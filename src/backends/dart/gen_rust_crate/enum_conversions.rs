@@ -16,6 +16,8 @@ pub(super) fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, sour
         },
     ));
 
+    let has_cfg_variants = en.variants.iter().any(|v| v.cfg.is_some());
+
     for variant in &en.variants {
         let vname = &variant.name;
         let cfg = variant.cfg.as_deref();
@@ -127,6 +129,21 @@ pub(super) fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, sour
                 ));
             }
         }
+    }
+
+    // When any variant carries a `#[cfg(feature = "X")]` attribute, the cfg is
+    // resolved in the context of the *binding* crate (e.g. kreuzberg-dart), which
+    // does not declare the upstream feature. The arm is compiled out, leaving the
+    // match non-exhaustive (E0004). A catch-all makes the match exhaustive under
+    // every feature combination; `#![allow(unreachable_patterns)]` at the crate
+    // root suppresses the redundant-arm warning when the feature IS active.
+    // Option A chosen for rc.13: simple and ships immediately. Option B (forwarding
+    // features through the binding crate's Cargo.toml) is the idiomatic follow-up.
+    if has_cfg_variants {
+        out.push_str(&format!(
+            "            _ => unreachable!(\"cfg-gated variant of {} not active in this build\"),\n",
+            name
+        ));
     }
 
     out.push_str(&crate::backends::dart::template_env::render(
@@ -258,6 +275,8 @@ pub(super) fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_cra
         },
     ));
 
+    let has_cfg_variants = en.variants.iter().any(|v| v.cfg.is_some());
+
     // Variants excluded from the mirror (variant-level binding_excluded) are stored in
     // `en.excluded_variants`. The core type still has them, so emit unreachable!() arms
     // to keep the From<CoreType> match exhaustive.
@@ -363,6 +382,21 @@ pub(super) fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_cra
                 },
             ));
         }
+    }
+
+    // When any variant carries a `#[cfg(feature = "X")]` attribute, the cfg is
+    // resolved in the context of the *binding* crate (e.g. kreuzberg-dart), which
+    // does not declare the upstream feature. The arm is compiled out, leaving the
+    // match non-exhaustive (E0004). A catch-all makes the match exhaustive under
+    // every feature combination; `#![allow(unreachable_patterns)]` at the crate
+    // root suppresses the redundant-arm warning when the feature IS active.
+    // Option A chosen for rc.13: simple and ships immediately. Option B (forwarding
+    // features through the binding crate's Cargo.toml) is the idiomatic follow-up.
+    if has_cfg_variants {
+        out.push_str(&format!(
+            "            _ => unreachable!(\"cfg-gated variant of {} not active in this build\"),\n",
+            name
+        ));
     }
 
     out.push_str(&crate::backends::dart::template_env::render(
@@ -512,5 +546,93 @@ fn enum_variant_field_conv(binding: &str, field: &FieldDef, source_crate_name: &
             }
         }
         _ => binding.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{EnumDef, EnumVariant};
+
+    fn make_unit_variant(name: &str, cfg: Option<&str>) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            cfg: cfg.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    /// A cfg-gated variant on a mirror enum emits a catch-all `_ => unreachable!()`
+    /// arm so the `From<CoreType>` match is exhaustive even when the feature is not
+    /// declared in the binding crate (E0004 guard).
+    #[test]
+    fn cfg_gated_variant_emits_catch_all_in_from_core_impl() {
+        let en = EnumDef {
+            name: "ImageOutputFormat".to_string(),
+            variants: vec![
+                make_unit_variant("Native", None),
+                make_unit_variant("Png", None),
+                make_unit_variant("Svg", Some("feature = \"svg\"")),
+            ],
+            ..Default::default()
+        };
+        let mut out = String::new();
+        emit_from_impl_for_enum(&mut out, &en, "mylib");
+        assert!(
+            out.contains("_ => unreachable!"),
+            "expected catch-all `_ => unreachable!` arm in From<CoreType> impl, got:\n{out}"
+        );
+        assert!(
+            out.contains("cfg-gated variant of ImageOutputFormat"),
+            "expected enum name in catch-all message, got:\n{out}"
+        );
+    }
+
+    /// The same catch-all is emitted in the mirror→core direction.
+    #[test]
+    fn cfg_gated_variant_emits_catch_all_in_from_mirror_impl() {
+        let en = EnumDef {
+            name: "ImageOutputFormat".to_string(),
+            variants: vec![
+                make_unit_variant("Native", None),
+                make_unit_variant("Png", None),
+                make_unit_variant("Svg", Some("feature = \"svg\"")),
+            ],
+            ..Default::default()
+        };
+        let mut out = String::new();
+        emit_from_mirror_to_core_enum(&mut out, &en, "mylib");
+        assert!(
+            out.contains("_ => unreachable!"),
+            "expected catch-all `_ => unreachable!` arm in From<Mirror> impl, got:\n{out}"
+        );
+        assert!(
+            out.contains("cfg-gated variant of ImageOutputFormat"),
+            "expected enum name in catch-all message, got:\n{out}"
+        );
+    }
+
+    /// When no variant has a cfg attribute, no catch-all is emitted (the match
+    /// remains fully exhaustive without it, and we do not want spurious arms).
+    #[test]
+    fn no_cfg_variants_does_not_emit_catch_all() {
+        let en = EnumDef {
+            name: "SimpleEnum".to_string(),
+            variants: vec![make_unit_variant("A", None), make_unit_variant("B", None)],
+            ..Default::default()
+        };
+        let mut out_core = String::new();
+        emit_from_impl_for_enum(&mut out_core, &en, "mylib");
+        let mut out_mirror = String::new();
+        emit_from_mirror_to_core_enum(&mut out_mirror, &en, "mylib");
+
+        assert!(
+            !out_core.contains("_ => unreachable!"),
+            "unexpected catch-all in From<CoreType> impl for no-cfg enum:\n{out_core}"
+        );
+        assert!(
+            !out_mirror.contains("_ => unreachable!"),
+            "unexpected catch-all in From<Mirror> impl for no-cfg enum:\n{out_mirror}"
+        );
     }
 }
