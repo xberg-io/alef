@@ -465,6 +465,19 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 cache::write_stage_hash(&resolved_cfg.name, "scaffold", &stage_hash, &output_paths)?;
                 grand_total += count;
             } // end for resolved_cfg in crates_to_process
+
+            // Patch [workspace.lints.rust] to allowlist the `alef-meta` cfg key so
+            // downstream crates can use `#[cfg_attr(feature = "alef-meta", alef(since = "..."))]`
+            // without declaring it as a real feature (which would cause
+            // `cargo clippy --all-features` to activate it and fail).
+            match pipeline::ensure_workspace_alef_meta_check_cfg() {
+                Ok(true) => eprintln!(
+                    "Patched Cargo.toml: added [workspace.lints.rust] unexpected_cfgs allowlist for alef-meta"
+                ),
+                Ok(false) => {}
+                Err(e) => eprintln!("Warning: could not patch workspace lints for alef-meta: {e}"),
+            }
+
             println!("Generated {grand_total} scaffold files");
             Ok(None)
         }
