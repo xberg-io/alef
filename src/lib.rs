@@ -65,11 +65,11 @@ pub fn run_with_extensions(mut extensions: Vec<Box<dyn Extension>>) -> std::proc
             .ok();
     }
 
-    // Store extensions in thread-local so the pipeline can access them
-    // without threading them through every call site in this release.
-    EXTENSIONS.with(|cell| {
-        *cell.borrow_mut() = extensions;
-    });
+    // Store extensions in a process-global so the pipeline can access them
+    // from rayon worker threads (which have their own thread-locals). A
+    // `thread_local!` here would leave the workers seeing an empty list —
+    // every parallel `generate()` call would then skip extension emission.
+    let _ = EXTENSIONS.set(extensions);
 
     match bin_cli::dispatch::run(cli) {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -80,19 +80,18 @@ pub fn run_with_extensions(mut extensions: Vec<Box<dyn Extension>>) -> std::proc
     }
 }
 
-thread_local! {
-    /// Active extensions for the current pipeline run.
-    ///
-    /// Populated by [`run_with_extensions`] before dispatch; accessed by
-    /// pipeline stages via [`with_extensions`].
-    pub(crate) static EXTENSIONS: std::cell::RefCell<Vec<Box<dyn Extension>>> =
-        const { std::cell::RefCell::new(Vec::new()) };
-}
+/// Active extensions for the current pipeline run.
+///
+/// Populated by [`run_with_extensions`] before dispatch; accessed by
+/// pipeline stages via [`with_extensions`]. Process-global (not
+/// `thread_local!`) so rayon worker threads see the same list.
+pub(crate) static EXTENSIONS: std::sync::OnceLock<Vec<Box<dyn Extension>>> = std::sync::OnceLock::new();
 
 /// Run `f` with an immutable reference to the active extensions list.
 pub(crate) fn with_extensions<F, R>(f: F) -> R
 where
     F: FnOnce(&[Box<dyn Extension>]) -> R,
 {
-    EXTENSIONS.with(|cell| f(&cell.borrow()))
+    static EMPTY: Vec<Box<dyn Extension>> = Vec::new();
+    f(EXTENSIONS.get().unwrap_or(&EMPTY))
 }

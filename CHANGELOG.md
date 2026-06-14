@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Extension API: extensions are now visible to rayon worker threads.**
+  `EXTENSIONS` was a `thread_local!` populated by `run_with_extensions` on the
+  main thread; the pipeline's parallel `generate()` runs on rayon workers,
+  whose thread-locals were empty — `with_extensions(|exts| ...)` always saw
+  zero extensions and `emit_for_language` / `transform_emitted_files` were
+  silently skipped. Switched to a process-global `OnceLock<Vec<…>>` so workers
+  see the same list. (`src/lib.rs`)
+
 - **C# scaffold: emit `<GenerateAssemblyInfo>false</GenerateAssemblyInfo>` in the generated `.csproj`.** Modern .NET SDKs auto-generate an `AssemblyInfo.cs` from `<PropertyGroup>` properties (`<Version>`, `<Description>`, `<Authors>`, etc.) under `obj/Release/<tfm>/<rid>/`. When the consumer repo also ships a hand-checked-in `Properties/AssemblyInfo.cs` (a common legacy carry-over from pre-SDK-style projects), the build fails with `error CS0579: Duplicate 'System.Reflection.AssemblyCompanyAttribute' attribute` for every duplicated attribute, blocking `dotnet pack` and the NuGet publish job. `render_csharp_csproj` now suppresses the SDK auto-generation. Fixes html-to-markdown v3.6.3 Publish run 27488669093 `Publish NuGet package` failure (which had been hand-patched in May 2026 via 4d5eaaa35 and silently lost on the next regen).
 
 - **`alef scaffold` patches `[workspace.lints.rust]` to allowlist the `alef-meta` cfg key.** Adds `unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("alef-meta"))'] }` via a format-preserving `toml_edit` patch so downstream crates can use `#[cfg_attr(feature = "alef-meta", alef(since = "..."))]` without declaring a real Cargo feature — which would cause `cargo clippy --all-features` to activate the feature and fail. Patch is idempotent and skipped on non-workspace manifests.
