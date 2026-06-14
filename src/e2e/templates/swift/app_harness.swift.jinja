@@ -24,9 +24,9 @@ import FoundationNetworking
 {% set json = fixtures_json %}
 {% set chunk_size = 30000 %}
 let _FIXTURES_JSON = """
-{%- for i in range((json|length + chunk_size - 1) // chunk_size) %}
+{% for i in range((json|length + chunk_size - 1) // chunk_size) -%}
 {{ json[i*chunk_size:(i+1)*chunk_size] }}
-{%- endfor %}
+{% endfor -%}
 """
 
 guard let _fixturesData = _FIXTURES_JSON.data(using: .utf8),
