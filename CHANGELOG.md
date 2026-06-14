@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.8] - 2026-06-14
+
+### Fixed
+
+- **Dart mirror-enum codegen: strip variant-level `#[cfg(...)]` attributes from the generated mirror enum body.** Follow-up to 0.25.6: the catch-all `_ => unreachable!()` arm fixed `E0004` non-exhaustive matches in alef-emitted `From<CoreType>` impls, but `flutter_rust_bridge_codegen`'s downstream `frb_generated.rs` still emitted **unconditional** references to mirror variants (e.g. `crate::ImageOutputFormat::Heif { quality }`, `crate::FormatMetadata::Pdf(_)`, `crate::ChunkSizing::Tokenizer`). When the binding crate (`kreuzberg-dart`) doesn't declare the upstream feature (e.g. `heic`, `svg`), the mirror enum's `#[cfg(feature = "heic")] Heif { quality: i64 }` variant compiles out, then frb's unconditional reference fails with `error[E0599]: no variant named 'Heif' found for enum 'ImageOutputFormat'`. Observed as 58 E0599 errors in `packages/dart/rust/src/lib.rs` regenerated against alef 0.25.6 on kreuzberg main. The mirror is a DTO/wire type; it must declare **every** variant the upstream supports unconditionally. The cfg-aware From-impl arms (with the catch-all from 0.25.6) handle runtime safety. Fix: `emit_mirror_enum` in `src/backends/dart/gen_rust_crate/mirror.rs` no longer propagates `variant.cfg` into the mirror enum body. All three call sites updated (unit-only-enum path, binding-excluded-fields unit path, data-variant path). Existing tests still pass; 25 tests in `backends::dart::gen_rust_crate` green.
+
+## [0.25.7] - 2026-06-14
+
+### Maintenance
+
+- Version bump only. See 0.25.6 for the underlying fix series.
+
 ## [0.25.6] - 2026-06-14
 
 ### Fixed

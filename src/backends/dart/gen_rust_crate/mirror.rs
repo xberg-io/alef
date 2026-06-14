@@ -106,7 +106,15 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
     ));
     if all_unit {
         for variant in &en.variants {
-            emit_variant_cfg_open(out, variant.cfg.as_deref());
+            // Do NOT propagate cfg attributes to the mirror enum body.
+            //
+            // The mirror enum is a DTO/wire type used by flutter_rust_bridge to generate
+            // unconditional match arms in `frb_generated.rs`. If a variant is conditionally
+            // compiled out of the mirror, those generated arms reference a missing variant
+            // and produce E0599. The mirror must always declare every variant regardless of
+            // feature flags; the `From<CoreType>` match arms (in `emit_from_impl_for_enum`)
+            // carry the cfg guards on the upstream-referencing arms and a catch-all
+            // `_ => unreachable!()` handles any variant the upstream did not compile.
             emit_rust_doc(&variant.doc, "    ", out);
             out.push_str(&template_env::render(
                 "rust_mirror_enum_unit_variant.jinja",
@@ -114,7 +122,6 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
                     variant_name => variant.name.as_str(),
                 },
             ));
-            emit_variant_cfg_close(out, variant.cfg.as_deref());
         }
     } else {
         for variant in &en.variants {
@@ -122,7 +129,7 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
             let visible_fields: Vec<&_> = variant.fields.iter().filter(|f| !f.binding_excluded).collect();
             if visible_fields.is_empty() {
                 // All fields are binding_excluded (or variant was already unit): emit as unit.
-                emit_variant_cfg_open(out, variant.cfg.as_deref());
+                // No cfg attribute — mirror body is always-complete (see comment above).
                 emit_rust_doc(&variant.doc, "    ", out);
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_unit_variant.jinja",
@@ -130,9 +137,8 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
                         variant_name => variant.name.as_str(),
                     },
                 ));
-                emit_variant_cfg_close(out, variant.cfg.as_deref());
             } else {
-                emit_variant_cfg_open(out, variant.cfg.as_deref());
+                // No cfg attribute — mirror body is always-complete (see comment above).
                 emit_rust_doc(&variant.doc, "    ", out);
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_data_variant_open.jinja",
