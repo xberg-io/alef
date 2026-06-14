@@ -412,7 +412,6 @@ fn crate_sources_hash_differs_across_crates_with_disjoint_sources() {
         custom_modules: Default::default(),
         custom_registrations: Default::default(),
         suppress_validation_codes: Vec::new(),
-        ..Default::default()
     };
 
     let cfg_a = make_cfg("alpha", vec![a]);
@@ -511,7 +510,6 @@ fn crate_sources_hash_includes_source_crates() {
                 custom_modules: Default::default(),
                 custom_registrations: Default::default(),
                 suppress_validation_codes: Vec::new(),
-                ..Default::default()
             }
         };
 
@@ -613,7 +611,6 @@ fn compute_crate_sources_hash_dedupes_overlapping_paths() {
                 custom_modules: Default::default(),
                 custom_registrations: Default::default(),
                 suppress_validation_codes: Vec::new(),
-                ..Default::default()
             }
         };
 
@@ -706,7 +703,6 @@ fn compute_crate_sources_hash_is_order_independent() {
             custom_modules: Default::default(),
             custom_registrations: Default::default(),
             suppress_validation_codes: Vec::new(),
-            ..Default::default()
         }
     };
 

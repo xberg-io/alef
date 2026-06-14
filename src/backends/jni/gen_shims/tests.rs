@@ -60,7 +60,6 @@ namespace = "dev.sample_crate"
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
-            ..Default::default()
         };
         let content = emit_lib_rs(&api, &config);
         // The generated helper must NOT use `let _ = env.throw_new(...)` which

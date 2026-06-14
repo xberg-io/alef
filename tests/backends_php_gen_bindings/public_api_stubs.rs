@@ -151,7 +151,6 @@ fn test_multiple_types_with_shared_error() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -260,7 +259,6 @@ fn test_generate_type_stubs_contains_exception_and_api_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -345,7 +343,6 @@ fn test_generate_public_api_delegates_to_api_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -477,7 +474,6 @@ fn test_opaque_class_promotes_parameters_after_first_optional() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -591,7 +587,6 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();

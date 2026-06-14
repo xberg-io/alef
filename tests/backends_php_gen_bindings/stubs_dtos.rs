@@ -79,7 +79,6 @@ fn test_stubs_non_void_methods_have_return_statements() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -207,7 +206,6 @@ fn test_static_stubs_promote_parameters_after_first_optional() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -297,7 +295,6 @@ fn test_vec_named_struct_parameter() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -387,7 +384,6 @@ fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -472,7 +468,6 @@ fn test_dto_properties_use_camel_case_php_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -581,7 +576,6 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();

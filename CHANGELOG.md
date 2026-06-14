@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-06-14
+
 ### Fixed
 
 - **Swift visitor adapter: emit `UInt(...)` for `usize` params, not `Int(...)`.** `src/backends/swift/gen_bindings/boxes.rs:460-461` collapses `Usize` and `Isize` into one match arm that wraps the parameter in `Int(snake)` before passing it to the inner protocol call. The protocol method takes `UInt` for `usize`, so the call fails to compile with `error: cannot convert value of type 'Int' to expected argument type 'UInt'` (e.g., generated `inner.visitBlockquote(ctxDecoded, content.toString(), Int(depth))` in html-to-markdown's `HtmlToMarkdown.swift:1596`). Split the arm so `Usize → UInt(snake)` and `Isize → Int(snake)`. Add a gen-test asserting the wrapper for `fn visit_blockquote(depth: usize)` produces `inner.visitBlockquote(..., UInt(depth))`. Observed on html-to-markdown v3.6.3 CI E2E run 27488657595 `Test: Swift` and `task test-apps:test:swift` against published v3.6.3.

@@ -74,7 +74,6 @@ fn php_native_and_facade_allow_null_default_config_param() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let lib = files
@@ -315,7 +314,6 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -440,7 +438,6 @@ fn type_stubs_honor_php_excludes_and_enum_wire_values() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let content = backend
@@ -507,7 +504,6 @@ fn test_type_mapping() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -605,7 +601,6 @@ fn test_enum_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -643,7 +638,6 @@ fn test_generated_header() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();

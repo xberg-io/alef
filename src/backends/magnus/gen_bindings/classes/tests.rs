@@ -117,7 +117,6 @@ fn gen_struct_emits_magnus_wrap_attribute() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let code = gen_struct(&typ, &mapper, "TestLib", &api, false, &[]);
     assert!(code.contains("magnus::wrap"), "struct must have magnus::wrap");

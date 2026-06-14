@@ -50,7 +50,6 @@ fn test_php_option_param_emits_nullable_with_default() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -140,7 +139,6 @@ fn test_php_required_str_param_not_nullable_with_optional_tail() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -262,7 +260,6 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -402,7 +399,6 @@ fn facade_emits_nullable_marker_for_non_tail_optional_param() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = backend.generate_public_api(&api, &make_config()).unwrap();
     let facade = files.first().expect("facade file generated");
@@ -442,7 +438,6 @@ fn module_entry_uses_explicit_extension_name_not_cargo_pkg_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_config_with_extension("tree_sitter_language_pack");
     let files = backend.generate_bindings(&api, &config).unwrap();

@@ -111,7 +111,6 @@ fn test_methods_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -204,7 +203,6 @@ fn test_error_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -303,7 +301,6 @@ fn test_async_function() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -401,7 +398,6 @@ fn test_opaque_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -477,7 +473,6 @@ fn test_default_config() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();

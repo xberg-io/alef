@@ -57,7 +57,6 @@ fn test_generate_types_doc_renders_enum_variants() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
@@ -286,7 +285,6 @@ fn test_generate_configuration_doc_renders_referenced_enums_only() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();

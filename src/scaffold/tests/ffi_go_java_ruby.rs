@@ -472,7 +472,9 @@ fn test_scaffold_csharp_csproj_at_package_root() {
         "csproj must enable nullable reference types"
     );
     assert!(
-        csproj.content.contains("<GenerateAssemblyInfo>false</GenerateAssemblyInfo>"),
+        csproj
+            .content
+            .contains("<GenerateAssemblyInfo>false</GenerateAssemblyInfo>"),
         "csproj must suppress SDK auto-generated AssemblyInfo to avoid CS0579 collisions"
     );
     assert!(
@@ -560,7 +562,6 @@ gem_name = "test_lib"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let result = crate::scaffold::languages::scaffold_ruby_cargo(&api, &config);

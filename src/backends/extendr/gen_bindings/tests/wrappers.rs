@@ -179,7 +179,6 @@ fn extendr_wrappers_emits_roxygen_doc_block_for_free_functions() {
             services: vec![],
             handler_contracts: vec![],
                 unsupported_public_items: Vec::new(),
-    ..Default::default()
 };
     let files = backend.generate_public_api(&api, &config).unwrap();
     let wrappers = files
@@ -302,7 +301,6 @@ fn extendr_wrappers_default_required_config_objects_in_r() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = backend.generate_public_api(&api, &config).unwrap();
     let wrappers = files
@@ -440,7 +438,6 @@ fn make_api_with_instance_method() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     }
 }
 
@@ -607,7 +604,6 @@ fn extendr_wrappers_emits_roxygen_class_block_with_field_lines_for_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = backend.generate_public_api(&api, &config).unwrap();
     let wrappers = files
@@ -692,7 +688,6 @@ fn extendr_wrappers_emits_param_doc_from_arguments_section_for_function() {
             services: vec![],
             handler_contracts: vec![],
                 unsupported_public_items: Vec::new(),
-    ..Default::default()
 };
     let files = backend.generate_public_api(&api, &config).unwrap();
     let wrappers = files
@@ -781,7 +776,6 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = backend.generate_public_api(&api, &config).unwrap();
     let wrappers = files

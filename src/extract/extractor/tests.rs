@@ -17,7 +17,6 @@ fn extract_from_source(source: &str) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let mut visited = Vec::new();
     let mut rwa = ahash::AHashSet::new();

@@ -293,7 +293,6 @@ fn r_field_long_descriptions_are_truncated_to_fit_120_char_lines() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = backend.generate_public_api(&api, &config).unwrap();
     let wrappers = files

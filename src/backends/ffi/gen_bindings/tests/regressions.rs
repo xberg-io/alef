@@ -196,7 +196,6 @@ fn test_bytes_result_return_uses_out_params_and_emits_free_bytes() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = sample_config();
     let backend = FfiBackend;
@@ -321,7 +320,6 @@ type = "ChatRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let backend = FfiBackend;
 
@@ -453,7 +451,6 @@ type = "*const std::ffi::c_char"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let backend = FfiBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -556,7 +553,6 @@ fn ahashmap_cow_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     }
 }
 
@@ -649,7 +645,6 @@ fn test_optional_vec_still_uses_as_deref() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = sample_config();
     let backend = FfiBackend;

@@ -61,7 +61,6 @@ fn test_generate_bindings_produces_binding_go_file() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let backend = GoBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();

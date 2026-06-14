@@ -166,7 +166,6 @@ fn opaque_with_constructor_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     }
 }
 
