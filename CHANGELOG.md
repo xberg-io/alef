@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`alef scaffold` patches `[workspace.lints.rust]` to allowlist the `alef-meta` cfg key.** Adds `unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("alef-meta"))'] }` via a format-preserving `toml_edit` patch so downstream crates can use `#[cfg_attr(feature = "alef-meta", alef(since = "..."))]` without declaring a real Cargo feature — which would cause `cargo clippy --all-features` to activate the feature and fail. Patch is idempotent and skipped on non-workspace manifests.
 
+- **Swift backend: allow `clippy::new_without_default` in generated Rust crate.**
+  The swift-bridge App wrapper emits `pub fn new() -> Self` so swift-bridge can
+  expose it as a Swift initializer. Clippy's `new_without_default` (pedantic)
+  suggested deriving `Default`, but Swift can't call `Default::default()` through
+  the bridge, so the suggestion is unactionable. Added the lint to the crate-root
+  `#![allow(...)]` block emitted by `src/backends/swift/gen_rust_crate/mod.rs`.
+
 ## [0.25.0] - 2026-06-14
 
 ### Added

@@ -258,6 +258,10 @@ fn emit_lib_rs(
     // suppress at the crate root.
     out.push_str("    clippy::useless_conversion,\n");
     out.push_str("    clippy::inherent_to_string,\n");
+    // `new_without_default`: the App wrapper exposes `pub fn new() -> Self` so
+    // swift-bridge can map it to a Swift initializer; deriving Default doesn't
+    // help downstream because Swift can't call it through the bridge.
+    out.push_str("    clippy::new_without_default,\n");
     out.push_str(")]\n\n");
 
     // Emit the process-wide tokio runtime accessor. Async swift-bridge wrappers
