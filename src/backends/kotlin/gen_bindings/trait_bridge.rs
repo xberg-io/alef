@@ -327,4 +327,24 @@ mod tests {
         assert!(generator.gen_unregistration_fn(&spec).is_empty());
         assert!(generator.gen_clear_fn(&spec).is_empty());
     }
+
+    // --- Interface conformance in registration parameter type -----------------
+
+    #[test]
+    fn registration_fn_accepts_i_trait_interface_not_raw_impl() {
+        // Regression: the generated Kotlin JVM registration wrapper must accept
+        // `I{TraitName}` (the hand-authored interface) as its parameter type.
+        // Passing a raw object instead of the typed interface would allow
+        // untyped stubs to bypass the bridge.
+        let cfg = make_bridge_config("TextProcessor", Some("register_text_processor"), None, None);
+        let trait_def = make_trait_def("TextProcessor");
+        let spec = make_spec(&trait_def, &cfg);
+        let generator = make_generator();
+
+        let out = generator.gen_registration_fn(&spec);
+        assert!(
+            out.contains("impl: dev.sample_crate.ITextProcessor"),
+            "registration fn must accept I{{TraitName}} interface;\nactual:\n{out}"
+        );
+    }
 }

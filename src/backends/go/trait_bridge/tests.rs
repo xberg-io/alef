@@ -452,3 +452,83 @@ fn register_c_call_passes_vtable_by_value() {
         "register_c_call must not pass &vtable (pointer);\nactual:\n{out}"
     );
 }
+
+#[test]
+fn text_processor_interface_and_bridge_wrapper_emitted() {
+    // Regression: the Go trait bridge must emit both an interface declaration
+    // (`type TextProcessor interface { ... }`) and a `TextProcessorBridge` struct
+    // that satisfies it through method delegation, so user types can implement
+    // the interface and be passed to `RegisterTextProcessor`.
+    let trait_def = TypeDef {
+        name: "TextProcessor".to_string(),
+        rust_path: "sample_crate::TextProcessor".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "TextProcessor".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: None,
+        register_fn: Some("register_text_processor".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: crate::core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+        ffi_skip_methods: vec![],
+    };
+    let mut out = String::new();
+    let excluded = HashSet::new();
+
+    gen_trait_bridge(
+        &mut out,
+        &trait_def,
+        &bridge_cfg,
+        "sample_crate",
+        "sample_crate",
+        &excluded,
+        "text_processor",
+    );
+
+    // Go uses structural typing: the interface declaration is the conformance contract.
+    assert!(
+        out.contains("type TextProcessor interface"),
+        "Go trait bridge must emit interface declaration;\nactual:\n{out}"
+    );
+
+    // A bridge wrapper struct that satisfies TextProcessor is also emitted.
+    assert!(
+        out.contains("type TextProcessorBridge struct"),
+        "Go trait bridge must emit bridge wrapper struct;\nactual:\n{out}"
+    );
+
+    // The registration function accepts TextProcessor (the interface), not a raw pointer.
+    assert!(
+        out.contains("func RegisterTextProcessor(impl TextProcessor)"),
+        "RegisterTextProcessor must accept the TextProcessor interface;\nactual:\n{out}"
+    );
+}

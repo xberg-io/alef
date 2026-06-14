@@ -949,4 +949,29 @@ mod tests {
             "Vec<String> return must map each element, got:\n{content}"
         );
     }
+
+    #[test]
+    fn text_processor_protocol_inherits_swift_plugin_bridge() {
+        // Regression: `SwiftTextProcessorBridge` must inherit `SwiftPluginBridge`
+        // so conforming types satisfy the hand-authored plugin protocol shape.
+        let trait_def = make_trait_def("TextProcessor");
+        let bridge_cfg = make_bridge_cfg("TextProcessor");
+        let bridges = vec![("TextProcessor".to_string(), &bridge_cfg, &trait_def)];
+        let exclude_types = HashSet::new();
+        let files = gen_trait_bridge_files(&bridges, &exclude_types);
+
+        // Should emit SwiftPluginBridge.swift first, then SwiftTextProcessorBridge.swift
+        let protocol_file = files
+            .iter()
+            .find(|(name, _)| name == "SwiftTextProcessorBridge.swift")
+            .expect("SwiftTextProcessorBridge.swift must be emitted");
+
+        assert!(
+            protocol_file
+                .1
+                .contains("protocol SwiftTextProcessorBridge: SwiftPluginBridge"),
+            "TextProcessor protocol must inherit SwiftPluginBridge;\nactual:\n{}",
+            protocol_file.1
+        );
+    }
 }

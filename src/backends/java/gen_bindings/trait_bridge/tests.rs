@@ -566,3 +566,32 @@ fn bridge_handler_emits_primitive_param_as_java_primitive_not_memory_segment() {
         "private int handleLog(MemorySegment userData, byte level, MemorySegment msg_in, MemorySegment outError)"
     ));
 }
+
+#[test]
+fn adapter_bridge_implements_hand_authored_interface_for_text_processor() {
+    // Regression: `TextProcessorAdapter` must declare `implements ITextProcessor` so
+    // consumer code can pass the adapter where the hand-authored interface is expected.
+    let trait_def = make_trait("TextProcessor", vec![]);
+    let visible = all_named_visible(&trait_def.methods);
+    let excluded = HashSet::new();
+    let content = gen_trait_adapter_bridge_file(&trait_def, "dev.sample_crate", &visible, &excluded, &[]);
+
+    assert!(
+        content.contains("public final class TextProcessorAdapter implements ITextProcessor"),
+        "adapter must declare `implements ITextProcessor`;\nactual:\n{content}"
+    );
+}
+
+#[test]
+fn adapter_bridge_implements_hand_authored_interface_for_asset_loader() {
+    // AssetLoader adapter must declare `implements IAssetLoader`.
+    let trait_def = make_trait("AssetLoader", vec![]);
+    let visible = all_named_visible(&trait_def.methods);
+    let excluded = HashSet::new();
+    let content = gen_trait_adapter_bridge_file(&trait_def, "dev.sample_crate", &visible, &excluded, &[]);
+
+    assert!(
+        content.contains("public final class AssetLoaderAdapter implements IAssetLoader"),
+        "adapter must declare `implements IAssetLoader`;\nactual:\n{content}"
+    );
+}

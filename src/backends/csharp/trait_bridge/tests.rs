@@ -458,3 +458,38 @@ fn test_trait_method_enum_return_uses_toffijson_serialization() {
     assert!(content.contains("methodResult.ToFfiJson()"));
     assert!(!content.contains("ToJsonString(methodResult)"));
 }
+
+#[test]
+fn bridge_adapter_implements_hand_authored_interface_for_text_processor() {
+    // Regression: `_TextProcessorBridgeAdapter` must declare conformance to `ITextProcessor`
+    // so consumer code can pass the adapter where the hand-authored interface is expected.
+    let trait_def = make_trait_def("TextProcessor");
+    let bridge_cfg = make_bridge_cfg("TextProcessor", Some("Plugin"));
+    let bridges = vec![("TextProcessor".to_string(), &bridge_cfg, &trait_def)];
+    let visible_types: HashSet<&str> = HashSet::new();
+    let result = gen_bridge_adapters_file("SampleCrate", &bridges, &visible_types);
+    let (filename, content) = result.expect("gen_bridge_adapters_file should return Some for non-empty bridges");
+
+    assert_eq!(filename, "BridgeAdapters.cs");
+    assert!(
+        content.contains("sealed class _TextProcessorBridgeAdapter : ITextProcessor"),
+        "adapter must declare conformance to ITextProcessor;\nactual:\n{content}"
+    );
+}
+
+#[test]
+fn bridge_adapter_delegates_to_inner_impl_for_asset_loader() {
+    // AssetLoader adapter must implement IAssetLoader and delegate calls.
+    let trait_def = make_trait_def("AssetLoader");
+    let bridge_cfg = make_bridge_cfg("AssetLoader", Some("Plugin"));
+    let bridges = vec![("AssetLoader".to_string(), &bridge_cfg, &trait_def)];
+    let visible_types: HashSet<&str> = HashSet::new();
+    let result = gen_bridge_adapters_file("SampleCrate", &bridges, &visible_types);
+    let (filename, content) = result.expect("gen_bridge_adapters_file must return Some");
+
+    assert_eq!(filename, "BridgeAdapters.cs");
+    assert!(
+        content.contains("sealed class _AssetLoaderBridgeAdapter : IAssetLoader"),
+        "adapter must declare conformance to IAssetLoader;\nactual:\n{content}"
+    );
+}

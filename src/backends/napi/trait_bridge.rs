@@ -74,4 +74,88 @@ mod tests {
         crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
         assert!(output.code.contains("displayName"));
     }
+
+    #[test]
+    fn plugin_trait_bridge_emits_dispose_method_on_rust_struct() {
+        // Regression: napi-rs `ThreadsafeFunction` handles held by trait-bridge
+        // wrappers kept the Node event loop alive. The generated Rust bridge
+        // struct must expose `pub async fn dispose()` so TypeScript callers can
+        // release the TSFN and allow test workers to exit.
+        use crate::core::config::{BridgeBinding, TraitBridgeConfig};
+        use crate::core::ir::ApiSurface;
+
+        let trait_def = crate::core::ir::TypeDef {
+            name: "TextProcessor".to_string(),
+            rust_path: "sample_core::TextProcessor".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        };
+
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "TextProcessor".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            registry_getter: Some("sample_core::get_text_processor_registry".to_string()),
+            register_fn: Some("register_text_processor".to_string()),
+            unregister_fn: None,
+            clear_fn: None,
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: vec![],
+            ffi_skip_methods: vec![],
+            bind_via: BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+            context_type: None,
+            result_type: None,
+        };
+
+        let api = ApiSurface {
+            crate_name: "sample-core".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![trait_def.clone()],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: Default::default(),
+            excluded_trait_names: Default::default(),
+            services: vec![],
+            handler_contracts: vec![],
+            unsupported_public_items: vec![],
+        };
+
+        let output = super::gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "sample_core",
+            "SampleCoreError",
+            "SampleCoreError::from({msg})",
+            &api,
+        )
+        .expect("gen_trait_bridge must succeed for TextProcessor");
+
+        assert!(
+            output.code.contains("pub async fn dispose"),
+            "bridge struct must expose `dispose()` to release TSFN and allow vitest workers to exit;\nactual code:\n{}",
+            output.code
+        );
+    }
 }
