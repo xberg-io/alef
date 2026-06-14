@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process;
 
 use crate::cli::{cache, commands, dispatch, pipeline};
+use crate::cli::pipeline::run_optional;
 
 use super::args::*;
 use super::dispatch::DispatchContext;
@@ -347,6 +348,27 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         let sources_hash = cache::sources_hash(&e2e_crate.sources)?;
                         let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                         let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
+
+                        // Regenerate pnpm-lock.yaml for each language's test app if
+                        // package.json was written in registry mode (Node.js ecosystem).
+                        // This ensures the lockfile contains the current version pin and
+                        // won't fail `pnpm install` with ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION
+                        // when the RC is < 24h old (observed on rc.60).
+                        let generated_langs: Vec<String> = languages
+                            .map(|ls| ls.iter().map(|s| s.to_string()).collect())
+                            .unwrap_or_else(|| e2e_ref.languages.clone());
+                        for lang_name in &generated_langs {
+                            if lang_name == "node" || lang_name == "wasm" {
+                                let test_app_dir = output_root.join(lang_name);
+                                let package_json = test_app_dir.join("package.json");
+                                if package_json.exists() {
+                                    eprintln!("Regenerating {}/pnpm-lock.yaml...", lang_name);
+                                    // run_optional gracefully handles missing pnpm and logs on failure.
+                                    // Not all environments have pnpm, but CI and local dev setups do.
+                                    run_optional("pnpm", &["install", "--lockfile-only", "-C", test_app_dir.to_string_lossy().as_ref()]);
+                                }
+                            }
+                        }
 
                         if format {
                             crate::e2e::format::run_formatters(&files, e2e_ref);

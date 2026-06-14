@@ -22,7 +22,7 @@ pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
 /// Logs a warning and returns gracefully if the binary cannot be found or the
 /// command exits with a non-zero status. This allows lockfile refresh to be
 /// best-effort in environments where not all language ecosystems are installed.
-pub(crate) fn run_optional(bin: &str, args: &[&str]) {
+pub fn run_optional(bin: &str, args: &[&str]) {
     let cmd = format!("{} {}", bin, args.join(" "));
     info!("Running (optional): {cmd}");
     match std::process::Command::new(bin).args(args).status() {

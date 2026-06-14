@@ -23,7 +23,7 @@ pub use generate::{
     generate_stubs, normalize_content, readme, scaffold, sweep_orphans, write_files, write_scaffold_files,
     write_scaffold_files_with_overwrite,
 };
-pub use helpers::init;
+pub use helpers::{init, run_optional};
 pub use version::sync_versions;
 pub use version_core::{set_version, verify_versions};
 pub use workspace_lints::ensure_workspace_alef_meta_check_cfg;

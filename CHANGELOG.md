@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Node test_app generator regenerates `pnpm-lock.yaml` against the current version.** Registry-mode test_apps with a bumped version would leave `pnpm-lock.yaml` stale (pinned to the prior RC release), causing `pnpm install` to fail with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` when the new RC is < 24h old. The fix runs `pnpm install --lockfile-only` in each Node/WASM test app directory after writing `package.json`, ensuring the lockfile matches the current version. The command is optional (gracefully handles missing pnpm in minimal environments) and idempotent (safe to run repeatedly). Added regression test `test_node_test_app_regenerates_pnpm_lock_on_version_bump` in `tests/e2e_node_test_app_pnpm_lock_regeneration.rs`. Observed on kreuzcrawl rc.60 with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`.
+
 ## [0.25.5] - 2026-06-14
 
 ### Changed
