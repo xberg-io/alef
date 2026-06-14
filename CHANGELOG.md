@@ -7,11 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.5] - 2026-06-14
+
 ### Changed
 
 - **Test runner: `before` hooks now run for both `command` and `e2e` subcommands.** Previously `before` only fired before `command`; consumers had to duplicate setup steps inline. Most common consequence: the kreuzberg kotlin-android e2e needs the FFI .so symlinked before Gradle runs; users had inlined that as `cargo build && ln -sf && cd ... && gradle test`. After this change, the `before = [...]` array runs once at the start of either invocation.
 
 ### Fixed
+
+- **Trait-bridge adapters now implement hand-authored plugin interfaces across all language bindings.** Previously `_<Trait>BridgeAdapter` stubs for Kotlin/Swift/C#/Java/Go did not declare conformance to the language-native plugin interface (for example, `sample.TextProcessor` in Kotlin or `ITextProcessor` in C#), so consumer code could not pass the stub where a real plugin was expected. Adapters now emit the correct `: Interface` / `implements Interface` clauses. Added unit tests in `backends::csharp::trait_bridge`, `backends::java::gen_bindings::trait_bridge`, `backends::swift::gen_bindings::trait_bridge`, `backends::kotlin::gen_bindings::trait_bridge`, and `backends::go::trait_bridge` asserting the conformance clause is present. (Fixes 18 fixtures tagged `trait-bridge`.)
+
+- **Node trait-bridge: Rust bridge struct exposes `dispose()` to release TSFN and allow vitest workers to exit.** napi-rs `ThreadsafeFunction` handles held by trait-bridge wrappers prevented vitest fork workers from terminating cleanly (the event loop stayed busy). The generated Rust bridge struct exposes `pub async fn dispose()` which cancels the underlying `CancellationToken`, signalling all in-flight callbacks to abort. The TypeScript e2e stubs also emit `async dispose(): Promise<void>` so test harness teardown can call it. Added regression test `plugin_trait_bridge_emits_dispose_method_on_rust_struct` in `backends::napi::trait_bridge`.
 
 - **Dart codegen: per-target feature variations honored.** Bindings that referenced upstream variants gated behind a Cargo feature (e.g., `ImageOutputFormat::Heif` behind `heic`) would unconditionally emit, breaking `cargo check` for targets that disable the feature (Android arm64/x86_64, iOS). Codegen now propagates the upstream `#[cfg(feature = "X")]` attribute so the binding compiles cleanly under any active feature subset.
 
@@ -22,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Elixir Rustler NIF: pin brotli transitive allocator versions in generated Cargo.toml.** The generated `packages/elixir/native/<nif>/Cargo.toml` now emits a `[patch.crates-io]` block unconditionally pinning `alloc-no-stdlib = 2.0.4`, `alloc-stdlib = 0.2.2`, and `brotli-decompressor = 5.0.1`. This resolves a transitive dependency conflict where brotli ≥8.0.3 pulls `alloc-no-stdlib 3.0` while sibling dependencies need `alloc-no-stdlib 2.x`, creating duplicate `Allocator<T>` trait definitions and failing the NIF compile with `error[E0433]: cannot find type 'Allocator' in module 'alloc_no_stdlib'`. The pin strategy matches the workspace-level fix already in place for spikard's main workspace and extends it into alef's NIF scaffold so all downstream consumers inherit the resolution. Observed on spikard CI run 27503128389 `Elixir NIF` job.
 
 - **FFI service-API registration functions no longer double-free builder/config parameters.** Registration functions accepting a builder or config pointer were using `Box::from_raw(param)` to transfer ownership, causing the pointer to be dropped when the function ended. Downstream consumers (cgo, Java/JNI, C#, Swift, Dart, Kotlin Android, Zig) still held the original pointer and called a corresponding `_free()` function or ran a finalizer afterwards, producing `free(): invalid pointer` (glibc/Java), `SIGSEGV` (Go), or a nil URLSession response (Swift). The fix changes the generated code to borrow the pointer as a reference (`let param = unsafe { &*param }`) instead of consuming it. The C caller retains ownership and responsibility for freeing. The parameter binding codegen in `ffi_param_binding` (for `TypeRef::Named` types) now emits the borrow pattern. Registration dispatch templates were already correct (matching on `(*owner).inner.as_mut()`). Added regression test `registration_function_does_not_consume_builder_ownership` asserting no `Box::from_raw` appears on metadata parameters. Observed on spikard CI run 27503128389 `Java` job with `free(): invalid pointer` during `System.load()` of the C FFI library.
+
+- **Go service helper: configure background servers through generated FFI config JSON.** `StartBackground` now builds a complete `ServerConfig`, includes an empty `static_files` value when absent, converts it through the generated `server_config_from_json` export, and applies it with `app_config` before spawning `Run`. This keeps the helper aligned with the generated FFI ownership model and avoids using the high-level wrapper during background startup.
 
 ## [0.25.4] - 2026-06-14
 
