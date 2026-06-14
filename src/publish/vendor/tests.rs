@@ -325,7 +325,7 @@ fn scrub_lock_deletes_existing_when_not_regenerating() {
     let lock = tmp.path().join("Cargo.lock");
     fs::write(&lock, "# lock").unwrap();
 
-    scrub_or_regenerate_lock(tmp.path(), false, false, None).unwrap();
+    scrub_or_regenerate_lock(tmp.path(), false, false, None, &WorkspaceMembers::default()).unwrap();
     assert!(!lock.exists(), "Cargo.lock must be deleted on the offline path");
 }
 
@@ -333,7 +333,7 @@ fn scrub_lock_deletes_existing_when_not_regenerating() {
 fn scrub_lock_no_lock_is_noop() {
     let tmp = TempDir::new().unwrap();
     // No Cargo.lock present — must not error.
-    scrub_or_regenerate_lock(tmp.path(), false, false, None).unwrap();
+    scrub_or_regenerate_lock(tmp.path(), false, false, None, &WorkspaceMembers::default()).unwrap();
 }
 
 // ---------------------------------------------------------------------
@@ -426,11 +426,13 @@ fn write_unresolvable_crate(dir: &Path) {
 }
 
 /// Run `scrub_or_regenerate_lock` in regenerate mode. The crate's single
-/// dependency is an unresolvable path dep, so `cargo generate-lockfile`
-/// fails locally on the missing path with no network access — no process-wide
-/// `CARGO_NET_OFFLINE` mutation (which is racy under parallel tests) is needed.
+/// dependency is an unresolvable path-dep named `ghost`, declared here as a
+/// workspace member so the per-member `cargo update -p ghost` call hits the
+/// broken manifest and surfaces the failure (in strict mode) without any
+/// network access. No process-wide `CARGO_NET_OFFLINE` mutation is needed,
+/// which keeps this test safe under parallel execution.
 fn scrub_regenerate(crate_dir: &Path, strict: bool) -> Result<()> {
-    scrub_or_regenerate_lock(crate_dir, true, strict, None)
+    scrub_or_regenerate_lock(crate_dir, true, strict, None, &members_with(&["ghost"]))
 }
 
 #[test]
@@ -495,7 +497,7 @@ fn scrub_lock_seeds_from_workspace_lock_before_regen() {
 
     // regenerate=false → seed path is NOT taken (binding lock does not exist
     // beforehand and must not be created from the workspace lock).
-    scrub_or_regenerate_lock(&crate_dir, false, false, Some(&ws_lock)).unwrap();
+    scrub_or_regenerate_lock(&crate_dir, false, false, Some(&ws_lock), &WorkspaceMembers::default()).unwrap();
     assert!(
         !crate_dir.join("Cargo.lock").exists(),
         "seed must not run on the offline delete path"
@@ -536,7 +538,7 @@ fn scrub_lock_seed_copy_runs_before_failed_regen() {
     let bind_lock = crate_dir.join("Cargo.lock");
     fs::write(&bind_lock, "# stale lock\n").unwrap();
 
-    scrub_or_regenerate_lock(&crate_dir, true, false, Some(&ws_lock))
+    scrub_or_regenerate_lock(&crate_dir, true, false, Some(&ws_lock), &members_with(&["ghost"]))
         .expect("lenient mode must Ok even when regen fails");
 
     // Lenient post-fail delete: the file is gone. The interesting bit is

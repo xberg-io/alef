@@ -613,7 +613,13 @@ fn rewrite_binding_path_deps(
         // delete the lock (lenient default). The workspace Cargo.lock seeds
         // the regen so transitive deps stay pinned at workspace versions.
         let ws_lock = ws_root.join("Cargo.lock");
-        vendor::scrub_or_regenerate_lock(manifest_dir, require_registry, require_registry, Some(&ws_lock))?;
+        vendor::scrub_or_regenerate_lock(
+            manifest_dir,
+            require_registry,
+            require_registry,
+            Some(&ws_lock),
+            &members,
+        )?;
     }
     eprintln!("  rewrote {}", manifest_abs.display());
     Ok(())

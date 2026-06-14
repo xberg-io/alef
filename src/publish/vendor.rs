@@ -470,32 +470,39 @@ fn strip_path_set_version(existing: &Item, version: &str) -> Item {
 /// Resolve the `Cargo.lock` for a shipped binding crate after path deps have been
 /// rewritten to registry deps.
 ///
-/// When `regenerate` is true, runs `cargo generate-lockfile` so the lock resolves
-/// the (now registry-only) graph immediately. If `workspace_lock` is supplied and
-/// the file exists, it is copied to `manifest_dir/Cargo.lock` before the regen
-/// runs so cargo treats the regen as an incremental update — only the rewritten
-/// path→registry edge re-resolves and every other transitive dep stays pinned
-/// at the workspace version. Without this seed, `cargo generate-lockfile`
-/// resolves from scratch and picks up any version that landed on the registry
-/// between when the workspace lock was last updated and when this runs, which
-/// caused a cookie/time E0119 break when `time 0.3.48` shipped during a release.
+/// When `regenerate` is true and a `workspace_lock` is supplied, the workspace
+/// lockfile is copied to `manifest_dir/Cargo.lock` first to seed the resolver,
+/// then `cargo update --package <name>` is invoked **once per workspace member**.
+/// This refreshes only the entries whose source was just rewritten from `path` to
+/// a registry version — every other transitive dep stays pinned exactly as the
+/// workspace lockfile had it. A member that this particular binding does not
+/// depend on (cargo reports "did not match any packages") is silently skipped.
 ///
-/// On a `cargo generate-lockfile` failure the behavior depends on `strict`:
+/// The previous implementation called `cargo generate-lockfile`, which (despite
+/// the seed) rebuilds the lock from scratch with the latest semver-compatible
+/// version of every package. That defeated the seed and let a fresh upstream
+/// release that shipped between the workspace `cargo update` and this prepare
+/// step quietly substitute itself into the binding's graph — exposing
+/// `brotli-decompressor 5.0.1`'s broken dep graph to downstream macos-arm64
+/// NIF/PHP builds, and `time 0.3.48`'s cookie E0119 to an earlier release.
+///
+/// On a per-member `cargo update -p` failure the behavior depends on `strict`:
 /// - `strict == false` (lenient, the default for local/pre-release dev): the
 ///   failure is logged and any existing `Cargo.lock` in `manifest_dir` is deleted
 ///   so cargo regenerates it at consumer build time.
-/// - `strict == true` (CI/release): the failure is a HARD error — a referenced
+/// - `strict == true` (CI/release): the failure is a HARD error — the referenced
 ///   workspace-member version is likely not yet published to the registry, so the
 ///   core crates must be published before the language packages.
 ///
-/// When `regenerate` is false the lock is simply deleted (the `strict` flag is
-/// only consulted on the regenerate path). The `regenerate` flag lets tests force
-/// the offline delete path.
+/// When `regenerate` is false the lock is simply deleted (the `strict` and
+/// `members` parameters are only consulted on the regenerate path). The
+/// `regenerate` flag lets tests force the offline delete path.
 pub(crate) fn scrub_or_regenerate_lock(
     manifest_dir: &Path,
     regenerate: bool,
     strict: bool,
     workspace_lock: Option<&Path>,
+    members: &crate::publish::workspace::WorkspaceMembers,
 ) -> Result<()> {
     let lock_path = manifest_dir.join("Cargo.lock");
 
@@ -507,41 +514,121 @@ pub(crate) fn scrub_or_regenerate_lock(
                 .with_context(|| format!("seeding {} from {}", lock_path.display(), ws_lock.display()))?;
         }
         let manifest = manifest_dir.join("Cargo.toml");
-        let status = std::process::Command::new("cargo")
-            .arg("generate-lockfile")
-            .arg("--manifest-path")
-            .arg(&manifest)
-            .status();
-        match status {
-            Ok(s) if s.success() => return Ok(()),
-            Ok(s) => {
-                if strict {
-                    bail!(
-                        "cargo generate-lockfile failed (exit code {}) for {} — a referenced \
-                         workspace-member version is likely not yet published to the registry. \
-                         Publish the core crate(s) before the language packages, then retry.",
-                        s.code().unwrap_or(-1),
-                        manifest.display()
-                    );
+
+        // Refresh ONLY the workspace-member entries whose source we just rewrote
+        // from `path` to a registry version (one `cargo update -p NAME` per member,
+        // skipping any that this particular binding crate does not depend on). Every
+        // other transitive dep stays pinned at the version the workspace lockfile
+        // froze, so a fresh upstream release that landed between the workspace
+        // `cargo update` and this prepare step cannot quietly substitute itself
+        // into the binding crate's graph. `cargo generate-lockfile` (the previous
+        // implementation here) rebuilt the lock with the latest semver-compatible
+        // version of every package — defeating the seed entirely — which caused
+        // the broken `brotli-decompressor 5.0.1` release to leak into downstream
+        // macos-arm64 NIF / PHP builds.
+        let mut last_failure: Option<(i32, String, String)> = None;
+        for member in &members.names {
+            let output = std::process::Command::new("cargo")
+                .arg("update")
+                .arg("--manifest-path")
+                .arg(&manifest)
+                .arg("--package")
+                .arg(member)
+                .output();
+            match output {
+                Ok(out) if out.status.success() => {}
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    // `cargo update -p X` errors when X is not a dep of the current
+                    // manifest. Each binding only depends on a subset of workspace
+                    // members, so cargo's exact "package ID specification `X` did
+                    // not match any packages" message is expected and silently
+                    // skipped. The two-phrase check makes sure we do not also
+                    // swallow unrelated resolver failures (broken path deps,
+                    // manifest parse errors, network failures, missing crates on
+                    // the registry) that happen to mention either phrase alone.
+                    if stderr.contains("package ID specification") && stderr.contains("did not match any packages") {
+                        continue;
+                    }
+                    last_failure = Some((out.status.code().unwrap_or(-1), member.clone(), stderr.to_string()));
                 }
-                tracing::warn!(
-                    code = s.code().unwrap_or(-1),
-                    "cargo generate-lockfile failed; deleting Cargo.lock so it regenerates at build time"
+                Err(error) => {
+                    if strict {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "could not run cargo update -p {member} for {} — a referenced \
+                                 workspace-member version is likely not yet published to the \
+                                 registry. Publish the core crate(s) before the language packages, \
+                                 then retry.",
+                                manifest.display()
+                            )
+                        });
+                    }
+                    tracing::warn!(%error, package = %member, "could not run cargo update; deleting Cargo.lock");
+                    last_failure = Some((-1, member.clone(), error.to_string()));
+                    break;
+                }
+            }
+        }
+
+        // Validate the lockfile fully satisfies the rewritten manifest. The
+        // per-member updates above only refresh entries we explicitly named, so a
+        // pre-existing stale seed or a broken path dep elsewhere in the manifest
+        // would otherwise go undetected. `cargo metadata --locked` resolves the
+        // graph without writing anything; it errors iff the lockfile cannot
+        // satisfy the manifest's dependency constraints.
+        if last_failure.is_none() {
+            let validation = std::process::Command::new("cargo")
+                .arg("metadata")
+                .arg("--locked")
+                .arg("--format-version")
+                .arg("1")
+                .arg("--manifest-path")
+                .arg(&manifest)
+                .output();
+            match validation {
+                Ok(out) if out.status.success() => return Ok(()),
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    last_failure = Some((
+                        out.status.code().unwrap_or(-1),
+                        "<lockfile>".to_string(),
+                        stderr.to_string(),
+                    ));
+                }
+                Err(error) => {
+                    if strict {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "could not run cargo metadata --locked for {} to validate the \
+                                 seeded lockfile",
+                                manifest.display()
+                            )
+                        });
+                    }
+                    tracing::warn!(%error, "could not run cargo metadata; deleting Cargo.lock");
+                    last_failure = Some((-1, "<lockfile>".to_string(), error.to_string()));
+                }
+            }
+        }
+
+        if let Some((code, member, stderr)) = last_failure {
+            if strict {
+                bail!(
+                    "cargo update -p {member} (or final cargo metadata validation) failed \
+                     (exit code {code}) for {} — the referenced workspace-member version is \
+                     likely not yet published to the registry. Publish the core crate(s) before \
+                     the language packages, then retry.\n{stderr}",
+                    manifest.display()
                 );
             }
-            Err(error) => {
-                if strict {
-                    return Err(error).with_context(|| {
-                        format!(
-                            "could not run cargo generate-lockfile for {} — a referenced \
-                             workspace-member version is likely not yet published to the registry. \
-                             Publish the core crate(s) before the language packages, then retry.",
-                            manifest.display()
-                        )
-                    });
-                }
-                tracing::warn!(%error, "could not run cargo generate-lockfile; deleting Cargo.lock");
-            }
+            tracing::warn!(
+                code,
+                package = %member,
+                "cargo update -p / metadata validation failed; deleting Cargo.lock so it regenerates at build time"
+            );
+        } else {
+            return Ok(());
         }
     }
 
