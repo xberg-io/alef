@@ -528,12 +528,30 @@ pub(crate) fn scrub_or_regenerate_lock(
         // macos-arm64 NIF / PHP builds.
         let mut last_failure: Option<(i32, String, String)> = None;
         for member in &members.names {
+            // Disambiguate the package spec. The seed Cargo.lock (copied from
+            // the workspace) carries a `source = "path+file:///…"` entry for
+            // every workspace member. The rewritten binding manifest references
+            // the registry source for that same name+version. A bare
+            // `--package NAME` matches BOTH entries and cargo bails with
+            // `specification 'NAME' is ambiguous`. Form `NAME@VERSION` is also
+            // ambiguous because both entries share the version. Use the full
+            // package-id URL — `registry+<index>#NAME@VERSION` — so cargo
+            // resolves to the registry-source entry (the one we just rewrote
+            // and need to refresh). When the member version is unknown
+            // (members.versions missed it) fall back to the bare name; cargo
+            // will either succeed silently or report the ambiguity, which we
+            // then surface verbatim.
+            let registry_spec = members
+                .versions
+                .get(member)
+                .map(|version| format!("registry+https://github.com/rust-lang/crates.io-index#{member}@{version}"));
+            let pkg_arg: &str = registry_spec.as_deref().unwrap_or(member);
             let output = std::process::Command::new("cargo")
                 .arg("update")
                 .arg("--manifest-path")
                 .arg(&manifest)
                 .arg("--package")
-                .arg(member)
+                .arg(pkg_arg)
                 .output();
             match output {
                 Ok(out) if out.status.success() => {}

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`publish prepare`: disambiguate the per-member `cargo update -p` spec from the seed lockfile's path-source entry.** v0.25.1's lockfile-preservation fix calls `cargo update --package <name>` against the seeded `Cargo.lock`. The seed (copied from the workspace) carries a `source = "path+file:///…"` entry for every workspace member; the rewritten binding manifest references the registry source for that same name+version. cargo sees both and bails with `error: specification 'kreuzcrawl' is ambiguous` (exit 101). `NAME@VERSION` doesn't disambiguate either because both entries share the version. Use the full package-id URL `registry+https://github.com/rust-lang/crates.io-index#NAME@VERSION` so cargo resolves to the registry-source entry (the one we just rewrote and need to refresh). Falls back to the bare name when `members.versions` lacks an entry. Observed on kreuzcrawl v0.3.0-rc.61 publish run 27497229082 across `Build PHP extension (php8.2 windows-x86_64)`, `Build Elixir NIF (linux-musl-aarch64 nif-2.17)`, and `Build Elixir NIF (windows-x86_64 nif-2.16)`. (`src/publish/vendor.rs`)
+
 ## [0.25.2] - 2026-06-14
 
 ### Fixed
