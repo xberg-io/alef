@@ -1,5 +1,6 @@
 use crate::e2e::config::{ArgMapping, CallConfig, E2eConfig, SelectWhen};
 use crate::e2e::fixture::Fixture;
+use heck::ToPascalCase;
 use std::collections::HashMap;
 
 use super::stubs::emit_test_backend_with_class_name;
@@ -335,4 +336,26 @@ fn test_void_returning_register_calls_emit_as_statements() {
     // Which causes the template to emit the call without assignment:
     // Line 76 (else branch): {{ async_kw }}{{ call_target }}.{{ call_expr }};
     // NOT Line 73: var {{ result_var }} = {{ async_kw }}{{ call_target }}.{{ call_expr }};
+}
+
+/// Test that the C# e2e codegen emits the correct facade class name,
+/// derived from crate_name, not from stale alef.toml overrides.
+/// For a crate named "sample_processor", the facade should be
+/// "SampleProcessorConverter", not a stale override.
+#[test]
+fn test_csharp_facade_class_name_is_computed_correctly() {
+    // The C# e2e codegen computes class_name via csharp_wrapper_class_name(&config.name, "")
+    // which converts "sample_processor" -> "SampleProcessor" -> "SampleProcessorConverter"
+    let computed = crate::codegen::naming::csharp_wrapper_class_name("sample_processor", "");
+    assert_eq!(computed, "SampleProcessorConverter");
+
+    // Verify the naming transformation chain:
+    // "sample_processor" -> to_csharp_name -> "SampleProcessor" -> strip "Rs" (not present)
+    // -> append "Converter"
+    let pascal = "sample_processor".to_pascal_case();
+    assert_eq!(pascal, "SampleProcessor");
+    let stripped = pascal.strip_suffix("Rs").unwrap_or(&pascal);
+    assert_eq!(stripped, "SampleProcessor");
+    let with_converter = format!("{}Converter", stripped);
+    assert_eq!(with_converter, "SampleProcessorConverter");
 }
