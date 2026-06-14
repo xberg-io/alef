@@ -37,6 +37,12 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
 
     // Phase 1 (sequential): run all per-language `before` hooks.
     //
+    // `before` hooks run before BOTH `command` and `e2e` — any setup step
+    // (building native libraries, creating symlinks, etc.) declared in
+    // `[crates.test.<lang>] before = [...]` is guaranteed to complete before
+    // either the unit-test commands (Phase 2) or the e2e test commands
+    // (also Phase 2) execute.
+    //
     // The test phase used to run before hooks inside the same `par_iter` as the
     // test commands. Most consumer `[crates.test.<lang>] before = ...` entries
     // invoke `cargo build` against the shared `target/` directory, so running
@@ -257,4 +263,73 @@ fn get_host_target() -> anyhow::Result<RustTarget> {
     }
 
     anyhow::bail!("rustc --version --verbose did not output a 'host:' line")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::NewAlefConfig;
+
+    /// Build a ResolvedCrateConfig that has `before` and `e2e` wired for `python`
+    /// using the given shell commands.  `command` is intentionally absent so the
+    /// test exercises the `before` → `e2e` path in isolation (no unit-test phase).
+    fn make_config_with_before_and_e2e(before_cmd: &str, e2e_cmd: &str) -> ResolvedCrateConfig {
+        let toml = format!(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.test.python]
+before = ["{before_cmd}"]
+e2e = "{e2e_cmd}"
+"#
+        );
+        let cfg: NewAlefConfig = toml::from_str(&toml).unwrap();
+        cfg.resolve().unwrap().remove(0)
+    }
+
+    /// Verify that `before` hooks run before `e2e` commands.
+    ///
+    /// Before this fix, `before` entries in `[crates.test.<lang>]` were only
+    /// documented as running prior to `command`; e2e invocations could start
+    /// without the setup steps completing first (e.g. the kreuzberg
+    /// kotlin-android binding needs `cargo build -p kreuzberg-ffi` + a symlink
+    /// before Gradle can load `kreuzberg_jni`).  Phase 1 runs `before`
+    /// sequentially for every language before Phase 2 executes either
+    /// `command` or `e2e`, so both invocation paths receive the same setup.
+    #[cfg(unix)]
+    #[test]
+    fn before_hook_runs_before_e2e_command() {
+        // Write a sentinel file to a temp path and record the append order.
+        let tmp = std::env::temp_dir().join(format!("alef_before_e2e_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create tmp dir");
+        let order_file = tmp.join("order.txt");
+        std::fs::write(&order_file, "").expect("create order file");
+
+        // Escape the path for shell: replace single-quotes with escaped form.
+        let path_str = order_file.display().to_string().replace('\'', "'\\''");
+
+        let before_cmd = format!("printf 'A\\n' >> '{path_str}'");
+        let e2e_cmd = format!("printf 'B\\n' >> '{path_str}'");
+
+        let config = make_config_with_before_and_e2e(&before_cmd, &e2e_cmd);
+
+        test(&config, &[Language::Python], /* e2e= */ true, /* coverage= */ false)
+            .expect("test() should succeed when before and e2e commands exit 0");
+
+        let content = std::fs::read_to_string(&order_file).expect("read order file");
+        let lines: Vec<&str> = content.lines().collect();
+
+        std::fs::remove_dir_all(&tmp).ok();
+
+        assert_eq!(
+            lines,
+            vec!["A", "B"],
+            "before hook must run before e2e command; got order: {lines:?}"
+        );
+    }
 }
