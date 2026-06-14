@@ -175,3 +175,43 @@ fn contains_aggregator_skips_when_only_one_stringy_field() {
         "single-stringy-field types must not trigger the aggregator"
     );
 }
+
+/// Regression: when a chain has multiple optional fields, only the FIRST
+/// optional should emit a `?`. Once we unwrap with one `?`, Swift treats
+/// the result as concrete, so subsequent non-leaf optional fields must NOT
+/// emit additional `?` operators.
+///
+/// Example: `summary()` returns `Optional<SummaryResult>`, then `strategy()`
+/// on SummaryResult returns non-Optional RustString. The emitted accessor
+/// should be `result.summary()?.strategy()` (NOT `summary()?.strategy()?`).
+#[test]
+fn chained_optional_only_emits_question_mark_on_first_optional() {
+    let mut optional = HashSet::new();
+    optional.insert("summary".to_string());
+    let resolver = FieldResolver::new(
+        &HashMap::new(),
+        &optional,
+        &HashSet::new(),
+        &HashSet::new(),
+        &HashSet::new(),
+    );
+
+    let (accessor, has_optional) = swift_build_accessor("summary.strategy", "result", &resolver);
+    // `summary()` is optional, so `?` is correct.
+    assert!(
+        accessor.contains("summary()?"),
+        "expected `summary()?` for optional summary field: {accessor}"
+    );
+    // `strategy()` comes after unwrapping, so it must NOT have `?`.
+    assert!(
+        !accessor.contains("strategy()?"),
+        "must not emit `?` after already-unwrapped optional field: {accessor}"
+    );
+    // Verify the full accessor shape.
+    assert_eq!(
+        accessor, "result.summary()?.strategy()",
+        "expected `result.summary()?.strategy()`, got: {accessor}"
+    );
+    // The expression IS optional overall.
+    assert!(has_optional, "expected has_optional=true for chain with optional root");
+}

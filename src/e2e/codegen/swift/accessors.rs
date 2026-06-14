@@ -63,6 +63,13 @@ pub(super) fn materialise_vec_temporaries(expr: &str, name_suffix: &str) -> (Vec
 
 /// Returns `(accessor_expr, has_optional)` where `has_optional` is true when
 /// at least one `?.` was inserted.
+///
+/// Note: Once we emit a `?` to unwrap an Optional, Swift's type system treats
+/// the result as non-Optional for the remainder of the chain, even if the Rust
+/// IR type annotation says the next field is Optional. We track whether the chain
+/// is already in an "unwrapped" state via `already_unwrapped` — after the first
+/// `?`, subsequent optional fields should NOT emit another `?` because the Swift
+/// expression is already concrete.
 pub(super) fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldResolver) -> (String, bool) {
     let resolved = field_resolver.resolve(field);
     let parts: Vec<&str> = resolved.split('.').collect();
@@ -88,6 +95,12 @@ pub(super) fn swift_build_accessor(field: &str, result_var: &str, field_resolver
 
     let mut out = result_var.to_string();
     let mut has_optional = false;
+    // Once we emit a `?` to unwrap an Optional, subsequent segments should NOT
+    // emit additional `?` operators. In Swift, `.summary()?.strategy()` unwraps
+    // to a concrete `SummaryResult`, so `.strategy()` is called on the unwrapped
+    // value and does not need another `?` even if the full path `summary.strategy`
+    // is marked optional in the fixture config.
+    let mut already_unwrapped = false;
     let mut path_so_far = String::new();
     let total = parts.len();
     for (i, part) in parts.iter().enumerate() {
@@ -136,11 +149,13 @@ pub(super) fn swift_build_accessor(field: &str, result_var: &str, field_resolver
             // When the getter for this subscripted field is itself optional
             // (e.g. tool_calls returns Optional<RustVec<T>>), insert `?` before
             // the subscript so Swift unwraps the Optional before indexing.
+            // Only emit `?` if we haven't already unwrapped in this chain.
             let field_is_optional = field_resolver.is_optional(&base_path);
             let access = if property_syntax { "" } else { "()" };
-            if field_is_optional {
+            if field_is_optional && !already_unwrapped {
                 out.push_str(&format!("{access}?"));
                 has_optional = true;
+                already_unwrapped = true;
             } else {
                 out.push_str(access);
             }
@@ -163,10 +178,12 @@ pub(super) fn swift_build_accessor(field: &str, result_var: &str, field_resolver
                 out.push_str("()");
             }
             // Insert `?` after the accessor for non-leaf optional fields so the
-            // next member access becomes `?.`.
-            if !is_leaf && field_resolver.is_optional(&base_path) {
+            // next member access becomes `?.`. Only emit `?` if we haven't already
+            // unwrapped in this chain with a previous optional chaining operator.
+            if !is_leaf && field_resolver.is_optional(&base_path) && !already_unwrapped {
                 out.push('?');
                 has_optional = true;
+                already_unwrapped = true;
             }
             current_type = field_resolver.swift_advance(current_type.as_deref(), field_name);
         }
