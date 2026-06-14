@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.2] - 2026-06-14
+
 ### Fixed
 
 - **Swift e2e codegen: drop optional chaining on `.toString()` when ancestor chain already propagated `?`.** `swift_string_field_expr` (in `src/e2e/codegen/swift/assertions.rs`) checked `field_is_optional` before `accessor_is_optional`, so a leaf field flagged optional via fixture-config still added `?.toString()` even when the surrounding accessor chain (e.g. `result.summary()?.strategy()`) had already produced `Optional<RustString>`. Swift rejects the resulting `result.summary()?.strategy()?.toString()` with `error: cannot use optional chaining on non-optional value of type 'RustString'`. Reorder to give `accessor_is_optional` precedence (emit `.toString()` only) and similarly split the enum + optional branch into accessor-optional vs leaf-optional. Companion fix to `e263df3ff` which addressed the accessor-segment emitter; the assertion wrapper still incorrectly added the trailing `?`. Confirmed via kreuzberg CI run 27492590406 `E2E (swift)`.
