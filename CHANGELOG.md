@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.4] - 2026-06-14
+
+### Fixed
+
+- **R/extendr codegen: escape Rust reserved keywords in generated struct fields.**
+  Flat data enums using a serde discriminator such as `type` now emit raw Rust
+  identifiers like `r#type` plus `#[serde(rename = "type")]`, preserving the
+  JSON wire format while keeping generated Rust compilable. The same keyword
+  escaping now applies to regular generated struct fields. Added regression
+  coverage for reserved-keyword serde tags in extendr flat data enum
+  conversions.
+
 ## [0.25.3] - 2026-06-14
 
 ### Fixed
