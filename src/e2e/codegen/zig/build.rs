@@ -362,6 +362,7 @@ pub fn build(b: *std.Build) void {
         let _ = writeln!(content);
     }
 
+    let mut prev_run: Option<String> = None;
     for filename in test_filenames {
         // Convert filename like "basic_test.zig" to a test name
         let test_name = filename.trim_end_matches("_test.zig");
@@ -459,7 +460,17 @@ pub fn build(b: *std.Build) void {
             content.push_str("        }\n");
             content.push_str("    }\n");
         }
+
+        // Sequence test runs to prevent cache races. All tests (including download_test)
+        // depend on the previous test, ensuring serial execution rather than parallel.
+        // This prevents download_test's clean_cache() from racing with other tests'
+        // cache lookups.
+        if let Some(prev_name) = &prev_run {
+            // Depend on the previous test to enforce serial execution
+            content.push_str(&format!("    {test_name}_run.step.dependOn(&{prev_name}_run.step);\n"));
+        }
         content.push_str(&format!("    test_step.dependOn(&{test_name}_run.step);\n\n"));
+        prev_run = Some(format!("{test_name}_run"));
     }
 
     content.push_str("}\n");

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(test_apps/zig): sequence test runs to avoid clean_cache race.** Zig test binaries run in parallel by default. When `download_test` calls `dm.clean_cache()` to delete the extracted language libs, this races with other tests' `ensure_languages()` → `REGISTRY.get_language()` cache lookups, causing `FFI error: Language 'X' not found` spuriously on the first test of concurrent suites. Modified the e2e `build.zig` codegen to chain test runs sequentially: non-download tests run in sequence, and if `download_test` exists, it runs LAST after all others complete, eliminating the destructive-write race. Pairs with tslp core defensive retry logic in `lib.rs::get_language`.
+
 - **(test_apps/node): raise smoke timeout for slow grammars (vb).** Tree-sitter grammars with complex scanner.c logic (e.g., Visual Basic) take >30 seconds to load and parse on first invocation. Added `is_slow_grammar()` check in TypeScript codegen; grammars in the slow list receive 90000ms timeout instead of the default 30000ms. Visual Basic (vb) added to initial slow list.
 
 ## [0.25.16] - 2026-06-15
