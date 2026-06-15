@@ -23,7 +23,7 @@ tokio::task::spawn_blocking(move || {
     let _ = env.send_and_clear(&pid, |env| {
         (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(), method, args_json.as_str(), reply_id).encode(env)
     });
-}).await;
+}).await.ok();
 
 match rx.await {
 {%- if has_error %}

@@ -389,6 +389,15 @@ fn emit_lib_rs(
     let enum_names_owned: std::collections::HashSet<String> = enum_names.iter().map(|s| s.to_string()).collect();
     let mut extern_blocks: Vec<String> = Vec::new();
     for ty in &visible_types {
+        // Types with cfg gates are emitted in wrapper code with `#[cfg(...)]` so they
+        // disappear under per-target feature sets (iOS/Android use a narrower kreuzberg
+        // dep than desktop). swift-bridge-build 0.1.59 cannot parse `#[cfg(...)]` inside
+        // `extern "Rust"` blocks, and emitting an extern decl for a wrapper that
+        // disappears under a different feature set leaves a dangling extern. Skip
+        // cfg-gated types from the extern surface entirely.
+        if ty.cfg.is_some() {
+            continue;
+        }
         extern_blocks.push(extern_block::emit_extern_block_for_type(
             ty,
             exclude_fields,
@@ -421,12 +430,23 @@ fn emit_lib_rs(
     for en in &visible_enums {
         // Skip result-type enums from the bridge — they're first-class Swift enums
         // and don't need opaque swift-bridge types. Swift calls JSON decoders locally.
+        // Also skip cfg-gated enums (see comment on the cfg.is_some() skip above).
+        if en.cfg.is_some() {
+            continue;
+        }
         if !result_type_enums.contains(&en.name) {
             extern_blocks.push(extern_block::emit_extern_block_for_enum(en));
         }
     }
     if !visible_functions.is_empty() {
-        let visible: Vec<FunctionDef> = visible_functions.iter().map(|f| (*f).clone()).collect();
+        // Skip cfg-gated functions from the extern block (swift-bridge-build cannot
+        // parse `#[cfg(...)]` inside extern blocks); the function-shim wrapper emits
+        // them with `#[cfg(...)]` so per-target features (iOS/Android) work.
+        let visible: Vec<FunctionDef> = visible_functions
+            .iter()
+            .filter(|f| f.cfg.is_none())
+            .map(|f| (*f).clone())
+            .collect();
         extern_blocks.push(extern_block::emit_extern_block_for_functions(
             &visible,
             &handle_returned_types,

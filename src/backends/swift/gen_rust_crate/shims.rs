@@ -619,13 +619,19 @@ pub(crate) fn emit_function_shim(
         String::new()
     };
 
+    let cfg_prefix = f
+        .cfg
+        .as_deref()
+        .map(|c| format!("#[cfg({c})]\n"))
+        .unwrap_or_default();
+
     if f.is_async {
         format!(
-            "pub fn {fn_name}({params_str}) -> {return_ty} {{\n    \
+            "{cfg_prefix}pub fn {fn_name}({params_str}) -> {return_ty} {{\n    \
             {bindings_str}{ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(async {{ {body} }})\n}}\n"
         )
     } else {
-        format!("pub fn {fn_name}({params_str}) -> {return_ty} {{\n    {bindings_str}{body}\n}}\n")
+        format!("{cfg_prefix}pub fn {fn_name}({params_str}) -> {return_ty} {{\n    {bindings_str}{body}\n}}\n")
     }
 }
 

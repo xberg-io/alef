@@ -326,6 +326,14 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
             } else {
                 "_0.into()".to_string()
             };
+            // The flat struct's only payload fields are the per-tuple-variant `fname`
+            // columns plus the `disc` discriminator. When the enum has exactly one
+            // tuple variant, every arm specifies all of the flat struct's fields and
+            // `..Default::default()` triggers clippy::needless_update. When there are
+            // multiple tuple variants, each arm only specifies its own column plus
+            // the discriminator, so the spread is required to fill the rest with None.
+            let tuple_variant_count = enum_def.variants.iter().filter(|v| v.is_tuple).count();
+            let all_fields_specified = tuple_variant_count == 1;
             out.push_str(&template_env::render(
                 "flat_enum_from_core_variant_tuple.jinja",
                 minijinja::context! {
@@ -335,7 +343,7 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
                     wire => &wire_name,
                     fname => &field_name,
                     expr => &data_expr,
-                    all_fields_specified => true,
+                    all_fields_specified => all_fields_specified,
                 },
             ));
         }

@@ -149,6 +149,24 @@ pub(crate) fn scaffold_elixir_cargo(
         format!("[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n\n")
     };
 
+    // Collect every upstream feature name referenced via `#[cfg(feature = "X")]` in the
+    // generated enum From-impl arms so that rustc's `unexpected_cfgs` lint accepts them
+    // under `-D warnings`. Mirrors the dart 0.25.9 + swift 0.25.11 check-cfg
+    // allow-lists for backends that don't (yet) implement Option B feature forwarding.
+    let referenced_features = crate::codegen::cfg::collect_cfg_features(api);
+    let check_cfg_block = if referenced_features.is_empty() {
+        String::new()
+    } else {
+        let csv = referenced_features
+            .iter()
+            .map(|f| format!("\"{f}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "[lints.rust]\nunexpected_cfgs = {{ level = \"warn\", check-cfg = ['cfg(feature, values({csv}))'] }}\n\n"
+        )
+    };
+
     let content = format!(
         r#"{pkg_header}
 
@@ -159,13 +177,14 @@ name = "{nif_name}"
 {lib_path_line}
 crate-type = ["cdylib"]
 
-[dependencies]
+{check_cfg_block}[dependencies]
 {deps_section}
 "#,
         pkg_header = pkg_header,
         machete_section = machete_section,
         nif_name = nif_name,
         lib_path_line = lib_path_line,
+        check_cfg_block = check_cfg_block,
         deps_section = deps_section,
     );
 

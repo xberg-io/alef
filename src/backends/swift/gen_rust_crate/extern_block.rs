@@ -436,6 +436,9 @@ pub(crate) fn emit_extern_block_for_vec_accessors(visible_types: &[&TypeDef], vi
     block.push_str("        // These declarations are paired with phantom_impl functions below the bridge module.\n");
 
     for ty in visible_types {
+        if ty.cfg.is_some() {
+            continue;
+        }
         let type_snake = ty.name.to_snake_case();
         block.push_str(&crate::backends::swift::template_env::render(
             "rust_phantom_vec_decl.rs.jinja",
@@ -446,6 +449,9 @@ pub(crate) fn emit_extern_block_for_vec_accessors(visible_types: &[&TypeDef], vi
         ));
     }
     for en in visible_enums {
+        if en.cfg.is_some() {
+            continue;
+        }
         let enum_snake = en.name.to_snake_case();
         block.push_str(&crate::backends::swift::template_env::render(
             "rust_phantom_vec_decl.rs.jinja",
@@ -472,6 +478,9 @@ pub(crate) fn emit_phantom_vec_impl(visible_types: &[&TypeDef], visible_enums: &
 
     let mut out = String::new();
     for ty in visible_types {
+        if let Some(cfg) = ty.cfg.as_deref() {
+            out.push_str(&format!("#[cfg({cfg})]\n"));
+        }
         let type_snake = ty.name.to_snake_case();
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_phantom_vec_impl.rs.jinja",
@@ -482,6 +491,9 @@ pub(crate) fn emit_phantom_vec_impl(visible_types: &[&TypeDef], visible_enums: &
         ));
     }
     for en in visible_enums {
+        if let Some(cfg) = en.cfg.as_deref() {
+            out.push_str(&format!("#[cfg({cfg})]\n"));
+        }
         let enum_snake = en.name.to_snake_case();
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_phantom_vec_impl.rs.jinja",

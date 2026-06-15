@@ -33,13 +33,13 @@ let result = if tokio::runtime::Handle::try_current().is_err() {
         rx.await
     })
 } else {
-    tokio::task::spawn_blocking(move || {
+    drop(tokio::task::spawn_blocking(move || {
         let mut env = rustler::OwnedEnv::new();
         let _ = env.send_and_clear(&pid, |env| {
             (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(),
              method, args_json.as_str(), reply_id).encode(env)
         });
-    });
+    }));
     rx.blocking_recv()
 };
 

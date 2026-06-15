@@ -29,6 +29,9 @@ pub(crate) fn emit_type_wrapper(
 ) -> String {
     let mut out = String::new();
     let source_path = resolve_type_path(&ty.name, source_crate, type_paths);
+    if let Some(cfg) = ty.cfg.as_deref() {
+        out.push_str(&format!("#[cfg({cfg})]\n"));
+    }
     out.push_str(&crate::backends::swift::template_env::render(
         "struct_newtype.jinja",
         minijinja::context! {
@@ -39,6 +42,9 @@ pub(crate) fn emit_type_wrapper(
     ));
 
     if !ty.fields.is_empty() {
+        if let Some(cfg) = ty.cfg.as_deref() {
+            out.push_str(&format!("#[cfg({cfg})]\n"));
+        }
         out.push_str(&crate::backends::swift::template_env::render(
             "impl_header.jinja",
             minijinja::context! {
