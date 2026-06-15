@@ -127,9 +127,71 @@ pub(crate) fn unknown_string_result_expr(
     metadata: &VisitorResultMetadata,
     value_expr: &str,
 ) -> String {
+    // When the host returns a bare string that doesn't match any unit variant,
+    // treat it as a custom-output payload. With multiple string-payload
+    // variants (e.g. `Custom(String)` and `Error(String)`) prefer the one
+    // canonically named "Custom" — that's the documented "use this string as
+    // the rendered output" channel; "Error" requires the explicit dict form
+    // because it changes control flow.
     match metadata.string_payload_variants.as_slice() {
+        [] => default_result_expr(return_type, metadata),
         [variant] => format!("{return_type}::{}({value_expr})", variant.name),
-        _ => default_result_expr(return_type, metadata),
+        variants => {
+            let chosen = variants
+                .iter()
+                .find(|v| v.name == "Custom")
+                .unwrap_or(&variants[0]);
+            format!("{return_type}::{}({value_expr})", chosen.name)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn variant(name: &str) -> VisitorResultVariant {
+        VisitorResultVariant {
+            name: name.to_string(),
+            wire_name: name.to_string(),
+            code: 0,
+        }
+    }
+
+    fn metadata_with(string_payloads: Vec<VisitorResultVariant>) -> VisitorResultMetadata {
+        VisitorResultMetadata {
+            default_variant: variant("Continue"),
+            unit_variants: vec![variant("Continue")],
+            string_payload_variants: string_payloads,
+        }
+    }
+
+    /// Two-payload case (`Custom`, `Error`) routes bare strings to `Custom` —
+    /// the documented output channel; `Error` requires the explicit dict form.
+    /// Regression for h2m v3.6.7 Python visitor tests where bare-string return
+    /// was silently dropped to `Continue` (default).
+    #[test]
+    fn unknown_string_result_expr_prefers_custom_when_multiple_string_payloads() {
+        let metadata = metadata_with(vec![variant("Custom"), variant("Error")]);
+        assert_eq!(unknown_string_result_expr("VR", &metadata, "s"), "VR::Custom(s)");
+    }
+
+    #[test]
+    fn unknown_string_result_expr_single_string_payload_uses_it() {
+        let metadata = metadata_with(vec![variant("Replace")]);
+        assert_eq!(unknown_string_result_expr("VR", &metadata, "s"), "VR::Replace(s)");
+    }
+
+    #[test]
+    fn unknown_string_result_expr_no_string_payload_falls_back_to_default() {
+        let metadata = metadata_with(vec![]);
+        assert_eq!(unknown_string_result_expr("VR", &metadata, "s"), "VR::Continue");
+    }
+
+    #[test]
+    fn unknown_string_result_expr_multiple_without_custom_uses_first() {
+        let metadata = metadata_with(vec![variant("Replace"), variant("Warning")]);
+        assert_eq!(unknown_string_result_expr("VR", &metadata, "s"), "VR::Replace(s)");
     }
 }
 
