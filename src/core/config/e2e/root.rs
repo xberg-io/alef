@@ -132,6 +132,31 @@ pub struct E2eConfig {
     /// ```
     #[serde(default)]
     pub fields_enum: HashSet<String>,
+    /// Environment variables every generated e2e suite's setup must set
+    /// before the binding's engine is constructed. Keyed by env-var name;
+    /// values are passed through verbatim.
+    ///
+    /// Each per-language test-harness emitter consumes this map at
+    /// suite-setup time (conftest.py for Python, spec_helper.rb for Ruby,
+    /// TestMain for Go, bootstrap.php for PHP, test_helper.exs for Elixir,
+    /// globalSetup.ts for WASM, assembly fixture for C#, XCTestCase
+    /// classSetUp for Swift, etc.). The injection point sits next to where
+    /// `MOCK_SERVER_URL` is exported so the binding's first call already
+    /// sees the configured environment.
+    ///
+    /// Motivating use case: a binding may require an environment flag to
+    /// allow loopback mock-server calls in e2e tests while keeping production
+    /// URL validation strict by default. The map is intentionally generic so
+    /// consumers can pass any binding-side env-var (feature flags,
+    /// observability toggles, etc.) the same way.
+    ///
+    /// Example:
+    /// ```toml
+    /// [crates.e2e.env]
+    /// ALLOW_PRIVATE_NETWORK = "true"
+    /// ```
+    #[serde(default)]
+    pub env: HashMap<String, String>,
     /// Server-shaped e2e harness configuration for HTTP fixtures.
     /// Knobs for code generation that spawn the SUT app and register handlers.
     #[serde(default)]
@@ -350,6 +375,7 @@ impl Default for E2eConfig {
             exclude_categories: HashSet::new(),
             fields_c_types: HashMap::new(),
             fields_enum: HashSet::new(),
+            env: HashMap::new(),
             harness: HarnessConfig::default(),
             dep_mode: DependencyMode::default(),
             registry: RegistryConfig::default(),
