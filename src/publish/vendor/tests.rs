@@ -609,3 +609,94 @@ fn scrub_lock_seed_copy_runs_before_failed_regen() {
     // content was overwritten by the workspace marker before cargo ran).
     assert!(!bind_lock.exists(), "lenient fallback deletes the post-seed lock");
 }
+
+// ---------------------------------------------------------------------
+// S9: regression — canonicalize of manifest_dir itself
+//
+// Reproduces the CI failure pattern from tslp v1.9.0-rc.48 where
+// `scrub_or_regenerate_lock` received a relative `manifest_dir` (e.g.
+// `./packages/elixir/native/tree_sitter_language_pack_nif`). With
+// `current_dir(manifest_dir)` set on cargo subprocesses, the relative
+// `--manifest-path` (computed as `manifest_dir.join("Cargo.toml")`) was
+// evaluated relative to the NEW cwd (i.e. relative to itself), producing
+// `./packages/elixir/.../packages/elixir/.../Cargo.toml` which does not
+// exist. Cargo then bailed with the confusing "manifest path ... does not
+// exist" / "publish core first" error.
+//
+// The fix canonicalizes `manifest_dir` itself at the top of the regenerate
+// branch so every subsequent `cargo --manifest-path` receives an absolute
+// path regardless of the caller's cwd. These tests validate:
+//
+//   (a) When an absolute `manifest_dir` is passed, the function succeeds
+//       (the canonical existing-path happy path — guards against regression
+//       by ensuring we didn't break the absolute-path callers).
+//   (b) When `manifest_dir` does NOT exist and `strict=true`, the function
+//       returns Err with context naming the directory — not a silent
+//       fallback to a broken relative path.
+//   (c) When `manifest_dir` does NOT exist and `strict=false`, the function
+//       returns Ok (lenient fallback) without panicking.
+// ---------------------------------------------------------------------
+
+/// Build a minimal standalone binding crate in `dir` with `[workspace]`
+/// (no members) so cargo metadata can validate it fully offline.
+fn write_standalone_no_dep_crate(dir: &Path) {
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(dir.join("src/lib.rs"), "// binding crate\n").unwrap();
+    fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"regression-s9\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n[workspace]\n",
+    )
+    .unwrap();
+}
+
+#[test]
+fn scrub_lock_absolute_manifest_dir_succeeds() {
+    // (a) Happy path: manifest_dir is already absolute (the normal case on dev
+    // boxes and after the mod.rs canonicalize fix). The function must succeed
+    // and produce a valid Cargo.lock via cargo metadata.
+    let tmp = TempDir::new().unwrap();
+    let binding_dir = tmp.path().join("binding");
+    write_standalone_no_dep_crate(&binding_dir);
+
+    // binding_dir is absolute (TempDir::path() is always absolute).
+    scrub_or_regenerate_lock(&binding_dir, true, true, None, &WorkspaceMembers::default())
+        .expect("absolute manifest_dir must succeed in strict mode");
+
+    assert!(
+        binding_dir.join("Cargo.lock").exists(),
+        "Cargo.lock must be produced after successful regeneration"
+    );
+}
+
+#[test]
+fn scrub_lock_strict_errors_when_manifest_dir_does_not_exist() {
+    // (b) Regression guard: when manifest_dir does not exist, canonicalize
+    // fails. In strict mode this must be a hard Err with context naming the
+    // path — NOT a silent fallback to a relative path string that then
+    // produces a confusing "publish core first" cargo error downstream.
+    let tmp = TempDir::new().unwrap();
+    let nonexistent = tmp.path().join("does-not-exist");
+    // Confirm the path really does not exist.
+    assert!(!nonexistent.exists(), "test setup: directory must not exist");
+
+    let err = scrub_or_regenerate_lock(&nonexistent, true, true, None, &WorkspaceMembers::default())
+        .expect_err("strict mode must return Err when manifest_dir does not exist");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("does-not-exist") || msg.contains("canonicalize"),
+        "error must name the problematic path; got: {msg}"
+    );
+}
+
+#[test]
+fn scrub_lock_lenient_ok_when_manifest_dir_does_not_exist() {
+    // (c) In lenient mode a missing manifest_dir must return Ok (and fall
+    // through to the lock-deletion path which is a no-op when no lock exists).
+    let tmp = TempDir::new().unwrap();
+    let nonexistent = tmp.path().join("also-does-not-exist");
+    assert!(!nonexistent.exists(), "test setup: directory must not exist");
+
+    scrub_or_regenerate_lock(&nonexistent, true, false, None, &WorkspaceMembers::default())
+        .expect("lenient mode must return Ok even when manifest_dir does not exist");
+}

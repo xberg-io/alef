@@ -588,6 +588,23 @@ fn rewrite_binding_path_deps(
         return Ok(());
     }
 
+    // Canonicalize after the exists() check so we have a guarantee the path
+    // is on disk. This ensures the absolute path passed to
+    // scrub_or_regenerate_lock (and via manifest_dir.parent()) is truly
+    // absolute even when ws_root is "." (the resolve_workspace_root fallback).
+    // CI runners using /github/workspace symlink mounts can trip canonicalize
+    // even for existing paths; fall back to cwd-prefix in that case so the
+    // path is at least absolute.
+    let manifest_abs = manifest_abs
+        .canonicalize()
+        .or_else(|_| std::env::current_dir().map(|cwd| cwd.join(&manifest_abs)))
+        .with_context(|| {
+            format!(
+                "could not make binding manifest path absolute for {lang}: {}",
+                manifest_abs.display()
+            )
+        })?;
+
     let members = workspace::workspace_member_crates(ws_root)?;
     let version = config
         .resolved_version()
