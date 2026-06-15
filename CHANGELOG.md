@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Elixir NIF scaffold: replace no-op `[patch.crates-io]` block with direct `[dependencies]` pins for the brotli 8.0.x allocator family.** alef 0.25.7 emitted an unconditional `[patch.crates-io]` block in the generated Rustler NIF `Cargo.toml` with entries shaped `alloc-no-stdlib = { version = "=2.0.4" }` (no `path`/`git`/`url`). cargo rejects these as `patch for 'alloc-no-stdlib' points to the same source, but patches must point to different sources`, failing every Elixir NIF build matrix cell in any consumer crate that ingests this scaffold (observed on kreuzcrawl rc.63 publish run 27510339610 — all 14 NIF matrix cells + Hex publish failed). Direct `[dependencies]` entries with `=X` constraints are the correct mechanism: cargo's resolver picks the named versions for the whole dep tree without the no-op-patch error. The pin crates (`alloc-no-stdlib`, `alloc-stdlib`, `brotli-decompressor`) are added as direct deps in `scaffold/languages/elixir.rs`; the NIF wrapper does not reference these symbols, so a matching `[package.metadata.cargo-machete] ignored = [...]` extension keeps machete from flagging them as unused. Updated `tests/scaffold_elixir_nif_cargo_patch_test.rs` to pin the new shape with a regression guard asserting NO `[patch.crates-io]` block is ever emitted.
+
 - **Ruby Rakefile template: documented `GEMSPEC` constant for YARD coverage.** YARD's doc-coverage hook reported the `GEMSPEC` constant in the generated Rakefile as undocumented public object, dropping coverage below thresholds. Added a one-line comment above the constant assignment to satisfy YARD's documentation requirements.
 
 ## [0.25.8] - 2026-06-14

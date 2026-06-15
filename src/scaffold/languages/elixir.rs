@@ -99,6 +99,15 @@ pub(crate) fn scaffold_elixir_cargo(
             dep_lines.push(trimmed.to_owned());
         }
     }
+    // Pin transitive crates that conflict in the brotli 8.0.x family. Adding them as
+    // direct dependencies forces cargo's resolver to pick the named versions for the
+    // whole dep tree; a `[patch.crates-io]` entry with only `version` is a no-op
+    // (cargo errors with "patch points to the same source"), so direct deps are the
+    // correct mechanism. The NIF wrapper does not reference these symbols — they are
+    // version-pin markers only, hence the cargo-machete ignore additions below.
+    dep_lines.push("alloc-no-stdlib = \"=2.0.4\"".to_owned());
+    dep_lines.push("alloc-stdlib = \"=0.2.2\"".to_owned());
+    dep_lines.push("brotli-decompressor = \"=5.0.1\"".to_owned());
     dep_lines.sort();
     let deps_section = dep_lines.join("\n");
 
@@ -122,6 +131,11 @@ pub(crate) fn scaffold_elixir_cargo(
     if needs_ahash {
         machete_ignored.push("ahash");
     }
+    // Version-pin direct deps are never referenced from NIF code; mark ignored so
+    // cargo-machete does not flag them.
+    machete_ignored.push("alloc-no-stdlib");
+    machete_ignored.push("alloc-stdlib");
+    machete_ignored.push("brotli-decompressor");
     // cargo-sort places `[package.metadata.*]` immediately after `[package]`,
     // before `[workspace]`, `[lib]`, `[features]`, `[dependencies]`.
     let machete_section = if machete_ignored.is_empty() {
@@ -135,17 +149,6 @@ pub(crate) fn scaffold_elixir_cargo(
         format!("[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n\n")
     };
 
-    // Unconditionally emit a [patch.crates-io] block to pin alloc-no-stdlib
-    // and related transitive dependencies. This resolves the brotli 8.0.x
-    // compatibility issue where brotli-decompressor 5.x pulls alloc-no-stdlib 3.0,
-    // but sibling dependencies may need 2.x, creating duplicate trait definitions.
-    let patch_section = r#"[patch.crates-io]
-alloc-no-stdlib = { version = "=2.0.4" }
-alloc-stdlib = { version = "=0.2.2" }
-brotli-decompressor = { version = "=5.0.1" }
-
-"#;
-
     let content = format!(
         r#"{pkg_header}
 
@@ -158,14 +161,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {deps_section}
-
-{patch_section}"#,
+"#,
         pkg_header = pkg_header,
         machete_section = machete_section,
         nif_name = nif_name,
         lib_path_line = lib_path_line,
         deps_section = deps_section,
-        patch_section = patch_section,
     );
 
     Ok(vec![GeneratedFile {
