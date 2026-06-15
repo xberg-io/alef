@@ -1,6 +1,8 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
-use crate::core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, TypeDef, VersionAnnotation};
+use crate::core::ir::{
+    ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef, VersionAnnotation,
+};
 use heck::ToPascalCase;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -17,6 +19,7 @@ use super::naming::{
 use super::signatures::{render_function_signature, render_method_signature};
 use super::sorting::{is_update_type, type_sort_key};
 use super::{clean_doc, doc_type, template_env, version_labels};
+use crate::docs::examples::{render_function_example, render_method_example};
 
 fn language_excludes(config: &ResolvedCrateConfig, lang: Language) -> (HashSet<String>, HashSet<String>) {
     let mut functions: HashSet<String> = config.exclude.functions.iter().cloned().collect();
@@ -311,54 +314,80 @@ fn render_function(
     // MD031: blank line required after fenced code block.
     out.push('\n');
 
-    // Parameters table
-    if !func.params.is_empty() {
-        out.push_str("**Parameters:**\n\n");
-        out.push_str("| Name | Type | Required | Description |\n");
-        out.push_str("|------|------|----------|-------------|\n");
-        for param in &func.params {
-            let pname = field_name(&param.name, lang);
-            let pty = doc_type_with_optional(&param.ty, lang, param.optional, ffi_prefix);
-            let required = if param.optional { "No" } else { "Yes" };
-            let pdoc = param_docs
-                .get(param.name.as_str())
-                .map(|s| {
-                    // Clean Rust syntax from param descriptions
-                    let s = s.replace("::", ".");
-                    s.replace("ParseOptions.default()", "default options")
-                })
-                .unwrap_or_else(|| generate_param_description(&param.name, &param.ty));
-            out.push_str(&template_env::render(
-                "param_row.jinja",
-                minijinja::context! {
-                    name => escape_table_cell(&pname),
-                    ty => escape_table_cell(&pty),
-                    required => required,
-                    doc => escape_table_cell(&pdoc),
-                },
-            ));
-        }
+    out.push_str(&render_function_example(func, lang, ffi_prefix));
+
+    push_parameters_table(&mut out, &func.params, &param_docs, lang, ffi_prefix);
+
+    push_returns(&mut out, &func.return_type, lang, ffi_prefix);
+    push_errors(&mut out, func.error_type.as_deref(), lang);
+
+    let _ = api; // api is available for future use in function rendering
+    out
+}
+
+fn push_parameters_table(
+    out: &mut String,
+    params: &[ParamDef],
+    param_docs: &std::collections::HashMap<String, String>,
+    lang: Language,
+    ffi_prefix: &str,
+) {
+    if params.is_empty() {
+        return;
+    }
+    out.push_str("**Parameters:**\n\n");
+    out.push_str("| Name | Type | Required | Description |\n");
+    out.push_str("|------|------|----------|-------------|\n");
+    for param in params {
+        let pname = field_name(&param.name, lang);
+        let pty = doc_type_with_optional(&param.ty, lang, param.optional, ffi_prefix);
+        let required = if param.optional { "No" } else { "Yes" };
+        let pdoc = param_docs
+            .get(param.name.as_str())
+            .map(|s| clean_doc_inline(s, lang))
+            .unwrap_or_else(|| generate_param_description(&param.name, &param.ty));
+        out.push_str(&template_env::render(
+            "param_row.jinja",
+            minijinja::context! {
+                name => escape_table_cell(&pname),
+                ty => escape_table_cell(&pty),
+                required => required,
+                doc => escape_table_cell(&pdoc),
+            },
+        ));
+    }
+    out.push('\n');
+}
+
+fn push_returns(out: &mut String, return_type: &TypeRef, lang: Language, ffi_prefix: &str) {
+    if matches!(return_type, TypeRef::Unit) {
+        out.push_str("**Returns:** No return value.\n");
         out.push('\n');
+        return;
     }
 
-    // Return type
-    let ret_ty = doc_type(&func.return_type, lang, ffi_prefix);
-    out.push_str(&template_env::render(
-        "returns.jinja",
-        minijinja::context! { ty => ret_ty },
-    ));
+    let ret_ty = doc_type(return_type, lang, ffi_prefix);
+    if ret_ty.is_empty() {
+        out.push_str("**Returns:** No return value.\n");
+        out.push('\n');
+    } else {
+        out.push_str(&template_env::render(
+            "returns.jinja",
+            minijinja::context! { ty => ret_ty },
+        ));
+        out.push('\n');
+    }
+}
 
-    // Errors
-    if let Some(err) = &func.error_type {
+fn push_errors(out: &mut String, error_type: Option<&str>, lang: Language) {
+    if let Some(err) = error_type {
         let error_phrase = format_error_phrase(err, lang);
         out.push_str(&template_env::render(
             "errors_phrase.jinja",
             minijinja::context! { phrase => error_phrase },
         ));
+        out.push('\n');
     }
-
-    let _ = api; // api is available for future use in function rendering
-    out
 }
 
 fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_prefix: &str) -> String {
@@ -367,15 +396,16 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
 
     out.push_str(&template_env::render(
         "heading.jinja",
-        minijinja::context! { marker => "####", title => format!("{mname}()") },
+        minijinja::context! { marker => "######", title => format!("{mname}()") },
     ));
 
     push_version_annotation(&mut out, &method.version);
 
+    let param_docs = extract_param_docs(&method.doc);
+
     let doc = clean_doc(&method.doc, lang);
-    // Demote any embedded headings in the method documentation by 2 levels
-    // to ensure they stay nested under the method heading (####).
-    let doc = demote_headings(&doc, 2);
+    // Demote embedded headings under the generated method heading (######).
+    let doc = demote_headings(&doc, 4);
     if !doc.is_empty() {
         out.push_str(&doc);
         out.push('\n');
@@ -391,6 +421,11 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
     ));
     // MD031: blank line required after fenced code block.
     out.push('\n');
+
+    out.push_str(&render_method_example(method, type_name_str, lang, ffi_prefix));
+    push_parameters_table(&mut out, &method.params, &param_docs, lang, ffi_prefix);
+    push_returns(&mut out, &method.return_type, lang, ffi_prefix);
+    push_errors(&mut out, method.error_type.as_deref(), lang);
 
     out
 }
@@ -459,7 +494,7 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
         };
         out.push_str(&template_env::render(
             "heading.jinja",
-            minijinja::context! { marker => "###", title => methods_heading },
+            minijinja::context! { marker => "#####", title => methods_heading },
         ));
         for method in &ty.methods {
             out.push_str(&render_method(method, &ty.name, lang, ffi_prefix));

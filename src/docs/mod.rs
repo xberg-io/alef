@@ -10,6 +10,7 @@ use heck::ToPascalCase;
 
 mod descriptions;
 pub mod doc_cleaning;
+mod examples;
 mod formatting;
 mod language_pages;
 mod naming;

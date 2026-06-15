@@ -72,29 +72,28 @@ fn test_render_type_with_multiple_methods_have_same_heading_level() {
         .find(|f| f.path.to_str().unwrap().contains("api-python"))
         .unwrap();
 
-    // All method headings should be at #### level (H4)
+    // Method headings should be nested under the type-level Methods heading.
     assert!(
-        lang_file.content.contains("#### first_method()"),
-        "first method should be H4"
+        lang_file.content.contains("###### first_method()"),
+        "first method should be H6"
     );
     assert!(
-        lang_file.content.contains("#### second_method()"),
-        "second method should be H4"
+        lang_file.content.contains("###### second_method()"),
+        "second method should be H6"
     );
     assert!(
-        lang_file.content.contains("#### third_method()"),
-        "third method should be H4"
+        lang_file.content.contains("###### third_method()"),
+        "third method should be H6"
     );
 
-    // Ensure no methods are at H5 or H6 (##### or ######)
+    // Ensure methods live below the H5 Methods heading.
     let content = &lang_file.content;
-    if let Some(methods_pos) = content.find("### Methods") {
+    if let Some(methods_pos) = content.find("##### Methods") {
         let after_methods = &content[methods_pos..];
-        // Count the heading markers to ensure they're all ####
         let first_method_line = after_methods.lines().find(|l| l.contains("first_method")).unwrap_or("");
         assert!(
-            first_method_line.starts_with("####"),
-            "methods should all be at H4 level"
+            first_method_line.starts_with("######"),
+            "methods should all be at H6 level"
         );
     }
 }

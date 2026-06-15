@@ -420,6 +420,11 @@ pub(crate) fn render_method_signature(
                     format!("{pname}: {pty}")
                 })
                 .collect();
+            let ret = if method.is_async {
+                format!("Promise<{ret}>")
+            } else {
+                ret
+            };
             if method.is_static {
                 format!("static {}({}): {}", name, params.join(", "), ret)
             } else {
@@ -566,19 +571,30 @@ pub(crate) fn render_method_signature(
                     }
                 })
                 .collect();
+            let ret = if let Some(err) = &method.error_type {
+                let err_ty = type_name(err, Language::Rust, ffi_prefix);
+                if ret == "()" {
+                    format!("Result<(), {err_ty}>")
+                } else {
+                    format!("Result<{ret}, {err_ty}>")
+                }
+            } else {
+                ret
+            };
+            let fn_keyword = if method.is_async { "pub async fn" } else { "pub fn" };
             if method.is_static {
                 if ret == "()" {
-                    format!("pub fn {}({})", name, params.join(", "))
+                    format!("{fn_keyword} {}({})", name, params.join(", "))
                 } else {
-                    format!("pub fn {}({}) -> {}", name, params.join(", "), ret)
+                    format!("{fn_keyword} {}({}) -> {}", name, params.join(", "), ret)
                 }
             } else {
                 let mut all_params = vec!["&self".to_string()];
                 all_params.extend(params);
                 if ret == "()" {
-                    format!("pub fn {}({})", name, all_params.join(", "))
+                    format!("{fn_keyword} {}({})", name, all_params.join(", "))
                 } else {
-                    format!("pub fn {}({}) -> {}", name, all_params.join(", "), ret)
+                    format!("{fn_keyword} {}({}) -> {}", name, all_params.join(", "), ret)
                 }
             }
         }

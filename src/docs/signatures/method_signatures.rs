@@ -89,7 +89,7 @@ fn test_render_method_signature_node_sync_with_params_and_return() {
 fn test_render_method_signature_node_async() {
     let method = make_method("process", vec![], TypeRef::String, true, false, None);
     let sig = render_method_signature(&method, "Document", Language::Node, TEST_PREFIX);
-    assert_eq!(sig, "process(): string");
+    assert_eq!(sig, "process(): Promise<string>");
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn test_render_method_signature_rust_sync_with_params_and_return() {
 fn test_render_method_signature_rust_async() {
     let method = make_method("fetch", vec![], TypeRef::String, true, false, None);
     let sig = render_method_signature(&method, "Client", Language::Rust, TEST_PREFIX);
-    assert_eq!(sig, "pub fn fetch(&self) -> String");
+    assert_eq!(sig, "pub async fn fetch(&self) -> String");
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn test_render_method_signature_rust_with_error_type() {
         Some("ParseError"),
     );
     let sig = render_method_signature(&method, "Parser", Language::Rust, TEST_PREFIX);
-    assert_eq!(sig, "pub fn parse(&self, source: &str) -> Ast");
+    assert_eq!(sig, "pub fn parse(&self, source: &str) -> Result<Ast, ParseError>");
 }
 
 // ---------------------------------------------------------------------------

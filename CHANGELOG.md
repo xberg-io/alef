@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **API reference generation: render fuller, language-aware operation docs.** Language API pages now include generated
+  or target-authored examples, method parameter/return/error sections, nested method headings, no-return wording for
+  unit-return APIs, async method signatures for TypeScript/WASM and Rust, Rust `Result` return signatures for fallible
+  methods, and idiomatic C examples for by-value struct parameters and pointer returns.
+
 - **Drop cfg propagation on enum From-impl match arms.** `gen_enum_from_binding_to_core_cfg` / `gen_enum_from_core_to_binding_cfg` previously propagated a core variant's `#[cfg(...)]` to the corresponding match arm in the binding crate's generated `From` impls (introduced in 0.25.11 via 699e699e0 + 38224a726). Binding crates do not declare the gated feature themselves — they pull the core dependency with the feature enabled unconditionally — so emitting `#[cfg(any(test, feature = "testkit"))]` on a binding-side arm produced `unexpected cfg condition value: testkit` warnings → errors under `-D warnings` on h2m py/node binding crates. Arms are now always unconditional; the binding always sees the variant in core because the dep is built with the feature on. The wildcard `_ => Default::default()` catch-all is emitted only when the binding excludes a core variant via `excluded_variants`.
 
 ## [0.25.15] - 2026-06-15
