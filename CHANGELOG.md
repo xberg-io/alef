@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.10] - 2026-06-15
+
 ### Fixed
 
 - **Rustler trait-bridge parameter cloning: skip no-op clones on reference types.** The trait-bridge async/sync method body generators emitted `let param = param.clone()` unconditionally for parameters marked `is_ref` or of `TypeRef::String` type. This triggered clippy warnings (`call to .clone() on a reference in this situation does nothing`) when parameters were borrowed slices `&[u8]` or borrowed strings `&str`, because `.clone()` on a reference copies only the reference, not the data. The issue surfaced across 8+ sites in kreuzberg rc.15 Elixir e2e CI (run 27524114823) with errors like `error: call to .clone() on a reference in this situation does nothing --> src/lib.rs:5447:38 | 5447 | let image_bytes = image_bytes.clone();`. Fix: filter the clone list to only parameters that actually own their data: emit `.clone()` for `String` (owned) and references to `Named` custom types, but skip `Bytes` (`&[u8]`), bare `&str`, and other reference primitives. Iterator elements already drop `.clone()` in favor of `.into()` conversion, which is the idiomatic ownership pattern. Updated filters in `src/backends/rustler/trait_bridge/methods.rs` for both `gen_sync_method_body` and `gen_async_method_body`, and removed unnecessary `.clone()` calls on Vec bindings in `src/backends/rustler/gen_bindings/functions/async_functions.rs` lines 244, 247, 254.
