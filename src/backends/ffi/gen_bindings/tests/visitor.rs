@@ -80,7 +80,7 @@ fn test_visitor_callbacks_enabled() {
 /// Regression: when the visitor context's first field is a Named enum (e.g.
 /// `node_type: NodeType` rather than `node_type: i32`), the FFI emitter must
 /// still emit `node_type: i32` in the C struct. Without this, Java/Kotlin/Swift
-/// CTX_LAYOUTs that hardcode `node_type` at offset 0 read garbage from the
+/// CTX_LAYOUTTs that hardcode `node_type` at offset 0 read garbage from the
 /// shifted `tag_name` pointer and crash with negative-index errors.
 #[test]
 fn test_visitor_callbacks_emit_enum_node_type_as_i32() {

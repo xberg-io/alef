@@ -619,11 +619,7 @@ pub(crate) fn emit_function_shim(
         String::new()
     };
 
-    let cfg_prefix = f
-        .cfg
-        .as_deref()
-        .map(|c| format!("#[cfg({c})]\n"))
-        .unwrap_or_default();
+    let cfg_prefix = f.cfg.as_deref().map(|c| format!("#[cfg({c})]\n")).unwrap_or_default();
 
     if f.is_async {
         format!(

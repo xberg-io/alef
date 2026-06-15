@@ -154,8 +154,13 @@ pub fn stage_dart_native_libraries(workspace_root: &Path, package_root: &Path, s
             }
             // Handle directories (e.g., .framework) separately from files
             if lib_path.is_dir() {
-                copy_dir_recursive(&lib_path, &dest)
-                    .with_context(|| format!("copying native library directory {} to {}", lib_path.display(), dest.display()))?;
+                copy_dir_recursive(&lib_path, &dest).with_context(|| {
+                    format!(
+                        "copying native library directory {} to {}",
+                        lib_path.display(),
+                        dest.display()
+                    )
+                })?;
             } else {
                 fs::copy(&lib_path, &dest)
                     .with_context(|| format!("copying native library {} to {}", lib_path.display(), dest.display()))?;

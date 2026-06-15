@@ -133,6 +133,12 @@ pub fn extract(
     // with the inner type, then remove the newtype TypeDefs from the surface.
     resolve_newtypes(&mut surface);
 
+    // Post-processing: compute cfg unions for types that reference cfg-gated types.
+    // When a struct has no cfg attribute but its fields reference types that are
+    // cfg-gated, the struct must also be cfg-gated with the union of those cfgs.
+    // This prevents FFI bindings from generating dangling type references.
+    postprocess::compute_cfg_from_referenced_types(&mut surface);
+
     // Post-processing: disambiguate types with the same identifier from different
     // source modules. The second+ collisions are renamed by prepending the
     // PascalCase parent module segment (e.g. `testing::SseEvent` → `TestingSseEvent`),

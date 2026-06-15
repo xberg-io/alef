@@ -215,3 +215,100 @@ pub(super) fn resolve_trait_sources(surface: &mut ApiSurface) {
         }
     }
 }
+
+/// Compute cfg attributes for types based on their referenced field types.
+///
+/// When a struct type T references field types that are cfg-gated (e.g., `Option<CfgGatedType>`),
+/// T must also be cfg-gated with the union of those cfgs to prevent FFI bindings from
+/// generating dangling type references. For example:
+///
+/// ```ignore
+/// struct KeywordConfig {
+///     yake_params: Option<YakeParams>,  // #[cfg(feature = "keywords-yake")]
+///     rake_params: Option<RakeParams>,   // #[cfg(feature = "keywords-rake")]
+/// }
+/// // After this pass: KeywordConfig gets #[cfg(any(feature = "keywords-yake", feature = "keywords-rake"))]
+/// ```
+pub(super) fn compute_cfg_from_referenced_types(surface: &mut ApiSurface) {
+    // Build a map of type name -> cfg for quick lookup
+    let type_cfgs: AHashMap<String, String> = surface
+        .types
+        .iter()
+        .filter_map(|t| t.cfg.as_ref().map(|c| (t.name.clone(), c.clone())))
+        .collect();
+
+    let enum_cfgs: AHashMap<String, String> = surface
+        .enums
+        .iter()
+        .filter_map(|e| e.cfg.as_ref().map(|c| (e.name.clone(), c.clone())))
+        .collect();
+
+    // Collect all cfg conditions referenced by each type through its fields
+    let mut type_cfg_unions: AHashMap<String, Vec<String>> = AHashMap::new();
+
+    for typ in &surface.types {
+        // Only compute cfg unions for types that don't already have an explicit cfg
+        if typ.cfg.is_some() {
+            continue;
+        }
+
+        let mut referenced_cfgs = Vec::new();
+
+        for field in &typ.fields {
+            // Extract referenced type names from the field type
+            collect_referenced_type_cfgs(&field.ty, &type_cfgs, &enum_cfgs, &mut referenced_cfgs);
+        }
+
+        if !referenced_cfgs.is_empty() {
+            type_cfg_unions.insert(typ.name.clone(), referenced_cfgs);
+        }
+    }
+
+    // Apply computed cfg unions back to the types
+    for typ in &mut surface.types {
+        if let Some(cfgs) = type_cfg_unions.get(&typ.name) {
+            let union_cfg = if cfgs.len() == 1 {
+                cfgs[0].clone()
+            } else {
+                // Multiple cfgs -> create a union: any(cfg1, cfg2, ...)
+                let cfgs_str = cfgs.iter().map(|c| c.as_str()).collect::<Vec<_>>().join(", ");
+                format!("any({cfgs_str})")
+            };
+            typ.cfg = Some(union_cfg);
+        }
+    }
+}
+
+/// Recursively collect cfg conditions from referenced types in a TypeRef
+fn collect_referenced_type_cfgs(
+    ty: &TypeRef,
+    type_cfgs: &AHashMap<String, String>,
+    enum_cfgs: &AHashMap<String, String>,
+    out: &mut Vec<String>,
+) {
+    match ty {
+        TypeRef::Named(name) => {
+            // Direct reference to a named type
+            if let Some(cfg) = type_cfgs.get(name) {
+                if !out.contains(cfg) {
+                    out.push(cfg.clone());
+                }
+            } else if let Some(cfg) = enum_cfgs.get(name) {
+                if !out.contains(cfg) {
+                    out.push(cfg.clone());
+                }
+            }
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
+            // Recursively check the inner type
+            collect_referenced_type_cfgs(inner, type_cfgs, enum_cfgs, out);
+        }
+        TypeRef::Map(key_ty, val_ty) => {
+            // Check both key and value types
+            collect_referenced_type_cfgs(key_ty, type_cfgs, enum_cfgs, out);
+            collect_referenced_type_cfgs(val_ty, type_cfgs, enum_cfgs, out);
+        }
+        // Primitive types, String, etc. have no cfg
+        _ => {}
+    }
+}
