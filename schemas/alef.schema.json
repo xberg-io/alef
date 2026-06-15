@@ -4987,12 +4987,6 @@
           "description": "Per-language README configuration, keyed by language code\n(e.g. \"python\", \"typescript\", \"ruby\"). Values are flexible JSON objects\nthat map directly to minijinja template context variables.",
           "type": "object"
         },
-        "targets": {
-          "additionalProperties": true,
-          "default": {},
-          "description": "Non-language README targets, keyed by target name\n(e.g. \"root\", \"cli\"). Targets must declare `output_path` or `output`.",
-          "type": "object"
-        },
         "output_pattern": {
           "type": [
             "string",
@@ -5004,6 +4998,12 @@
             "string",
             "null"
           ]
+        },
+        "targets": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Non-language README targets, keyed by target name\n(e.g. \"root\", \"cli\"). Targets must declare `output_path` or `output`.",
+          "type": "object"
         },
         "template_dir": {
           "type": [
@@ -6877,7 +6877,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.11/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.12/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -6987,6 +6987,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.25.11",
-  "x-alef-version": "0.25.11"
+  "version": "0.25.12",
+  "x-alef-version": "0.25.12"
 }

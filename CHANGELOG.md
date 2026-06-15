@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.12] - 2026-06-15
+
 ### Fixed
+
+- **Swift binding codegen: compute cfg unions for wrapper types referencing cfg-gated field types.** When a struct has no explicit cfg attribute but its fields reference types that are cfg-gated (e.g., `KeywordConfig` with `Option<YakeParams>` where `YakeParams` is `#[cfg(feature = "keywords-yake")]` and `Option<RakeParams>` where `RakeParams` is `#[cfg(feature = "keywords-rake")]`), the struct must also be cfg-gated with the union of those referenced cfgs. Without this, FFI bindings (swift-bridge) would attempt to emit opaque type references to cfg-gated types in extern blocks, causing swift-bridge-build to panic with "Type must be declared with `type X`." Added `compute_cfg_from_referenced_types()` postprocessing pass that walks each type's fields, collects cfgs of referenced types, and applies the union cfg to the parent type when the parent lacks an explicit cfg. This ensures swift-bridge extern blocks either skip the cfg-gated types entirely (when they're separately gated) or reference them from equally-gated parent types (preventing dangling references).
 
 - **(dart): copy `.framework` directories recursively when staging native libraries.** The `stage_dart_native_libraries` function in `src/publish/dart_native.rs` now detects when a native library is a directory (e.g., a macOS `.framework` bundle) and recursively copies it with all contents, rather than failing with `fs::copy` which only works for files. This fixes pub.dev publish failures on rc.49+ where macOS builds produce `tree_sitter_language_pack_dart.framework/` that was being silently skipped, resulting in packages missing native binaries.
 
