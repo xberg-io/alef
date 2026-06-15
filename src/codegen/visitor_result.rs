@@ -137,10 +137,7 @@ pub(crate) fn unknown_string_result_expr(
         [] => default_result_expr(return_type, metadata),
         [variant] => format!("{return_type}::{}({value_expr})", variant.name),
         variants => {
-            let chosen = variants
-                .iter()
-                .find(|v| v.name == "Custom")
-                .unwrap_or(&variants[0]);
+            let chosen = variants.iter().find(|v| v.name == "Custom").unwrap_or(&variants[0]);
             format!("{return_type}::{}({value_expr})", chosen.name)
         }
     }

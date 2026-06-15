@@ -28,14 +28,19 @@ pub(super) fn render_spec_file(
         .get("ruby")
         .and_then(|o| o.client_factory.as_deref());
 
-    // Build requires list
-    let require_name = if module_path.is_empty() { gem_name } else { module_path };
-    let mut requires = vec![require_name.replace('-', "_"), "json".to_string()];
-
+    // Build requires list. spec_helper MUST be required before the gem/module
+    // to ensure ENV vars (like KREUZCRAWL_ALLOW_PRIVATE_NETWORK) are set in libc
+    // before the native binding loads and caches the SSRF policy.
     let has_http = fixtures.iter().any(|f| f.is_http_test());
+    let mut requires = Vec::new();
+
     if needs_spec_helper || has_http {
         requires.push("spec_helper".to_string());
     }
+
+    let require_name = if module_path.is_empty() { gem_name } else { module_path };
+    requires.push(require_name.replace('-', "_"));
+    requires.push("json".to_string());
 
     // Build the Ruby module/class qualifier for calls.
     let ruby_module = super::values::ruby_module_name(module_path);

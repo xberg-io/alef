@@ -20,6 +20,7 @@ mod template_env;
 #[cfg(test)]
 mod tests;
 mod type_mapping;
+mod version_labels;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;

@@ -63,6 +63,14 @@ impl E2eCodegen for JavaCodegen {
         let binding_pkg = config.java_package();
         let pkg_version = config.resolved_version().unwrap_or_else(|| "0.1.0".to_string());
 
+        // Prepare environment variables for Surefire configuration.
+        let mut env_entries: Vec<(String, String)> = e2e_config
+            .env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect::<Vec<_>>();
+        env_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
         // Generate pom.xml.
         files.push(GeneratedFile {
             path: output_base.join("pom.xml"),
@@ -73,6 +81,7 @@ impl E2eCodegen for JavaCodegen {
                 e2e_config.dep_mode,
                 &e2e_config.test_documents_relative_from(0),
                 &config.ffi_lib_name(),
+                &env_entries,
             ),
             generated_header: false,
         });

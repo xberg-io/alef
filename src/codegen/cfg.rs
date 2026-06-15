@@ -136,7 +136,10 @@ mod tests {
     #[test]
     fn collect_cfg_feature_names_all_compound() {
         let mut out = BTreeSet::new();
-        collect_cfg_feature_names(r#"all(feature = "layout-types", not(feature = "wasm-target"))"#, &mut out);
+        collect_cfg_feature_names(
+            r#"all(feature = "layout-types", not(feature = "wasm-target"))"#,
+            &mut out,
+        );
         let want: BTreeSet<String> = ["layout-types", "wasm-target"].into_iter().map(String::from).collect();
         assert_eq!(out, want);
     }
@@ -162,7 +165,10 @@ mod tests {
         let mut out = BTreeSet::new();
         collect_cfg_feature_names(r#"feature = "pdf""#, &mut out);
         collect_cfg_feature_names(r#"any(feature = "html", feature = "xml")"#, &mut out);
-        collect_cfg_feature_names(r#"all(feature = "layout-types", not(feature = "wasm-target"))"#, &mut out);
+        collect_cfg_feature_names(
+            r#"all(feature = "layout-types", not(feature = "wasm-target"))"#,
+            &mut out,
+        );
         collect_cfg_feature_names(r#"target_arch = "wasm32""#, &mut out);
         let want: BTreeSet<String> = ["html", "layout-types", "pdf", "wasm-target", "xml"]
             .into_iter()

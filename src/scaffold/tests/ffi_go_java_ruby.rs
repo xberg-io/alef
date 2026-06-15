@@ -573,7 +573,14 @@ fn test_render_csharp_csproj_advertises_all_published_runtime_identifiers() {
     let config = test_config();
     let content = render_csharp_csproj(&config, "1.9.0-rc.48");
 
-    for rid in ["win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64"] {
+    for rid in [
+        "win-x64",
+        "win-arm64",
+        "linux-x64",
+        "linux-arm64",
+        "osx-x64",
+        "osx-arm64",
+    ] {
         assert!(
             content.contains(rid),
             "RuntimeIdentifiers must include {rid}: {content}"

@@ -38,7 +38,6 @@ use crate::core::hash::{self, CommentStyle};
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::FixtureGroup;
 use anyhow::Result;
-use heck::ToUpperCamelCase;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -338,13 +337,14 @@ fn sanitize_var_name(name: &str) -> String {
 
 /// Render `ffi_smoke.c`.
 ///
-/// The smoke test calls a `{ffi_prefix}_version()` function that every FFI
-/// library is expected to expose, validating that the formula is loadable and
-/// the symbol is reachable without assuming any domain-specific API.
+/// The smoke test calls `{ffi_prefix}_version()`, which every FFI library
+/// exposes as `const char *` — a pointer to a static version string.  It
+/// does **not** return the domain-specific `{Prefix}Result` struct, so the
+/// smoke C code must match that exact ABI: declare the return as
+/// `const char *`, check for NULL / empty, and print without freeing (the
+/// string is statically allocated inside the shared library).
 fn render_ffi_smoke_c(ffi_header: &str, ffi_prefix: &str, _ffi_formula: &str) -> String {
     let mut out = String::new();
-    let result_type = format!("{}Result", ffi_prefix.to_upper_camel_case());
-    let free_fn = format!("{ffi_prefix}_result_free");
     let version_fn = format!("{ffi_prefix}_version");
     out.push_str(&hash::header(CommentStyle::Block));
     let _ = writeln!(out, "#include <{ffi_header}>");
@@ -353,32 +353,17 @@ fn render_ffi_smoke_c(ffi_header: &str, ffi_prefix: &str, _ffi_formula: &str) ->
     let _ = writeln!(out, "#include <string.h>");
     let _ = writeln!(out);
     let _ = writeln!(out, "int main(void) {{");
-    let _ = writeln!(out, "  {result_type} result = {version_fn}();");
+    let _ = writeln!(out, "  const char *version = {version_fn}();");
     let _ = writeln!(out);
-    let _ = writeln!(out, "  if (result.error_code != 0) {{");
-    let _ = writeln!(
-        out,
-        "    fprintf(stderr, \"FAIL: {version_fn} returned error %d: %s\\n\","
-    );
-    let _ = writeln!(
-        out,
-        "            result.error_code, result.error_message ? result.error_message : \"\");"
-    );
-    let _ = writeln!(out, "    {free_fn}(result);");
-    let _ = writeln!(out, "    return 1;");
-    let _ = writeln!(out, "  }}");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "  if (!result.content || strlen(result.content) == 0) {{");
+    let _ = writeln!(out, "  if (!version || strlen(version) == 0) {{");
     let _ = writeln!(
         out,
         "    fprintf(stderr, \"FAIL: expected non-empty version string\\n\");"
     );
-    let _ = writeln!(out, "    {free_fn}(result);");
     let _ = writeln!(out, "    return 1;");
     let _ = writeln!(out, "  }}");
     let _ = writeln!(out);
-    let _ = writeln!(out, "  printf(\"PASS: {version_fn} returned: %s\\n\", result.content);");
-    let _ = writeln!(out, "  {free_fn}(result);");
+    let _ = writeln!(out, "  printf(\"PASS: {version_fn} returned: %s\\n\", version);");
     let _ = writeln!(out, "  return 0;");
     let _ = writeln!(out, "}}");
     out
@@ -599,6 +584,13 @@ mod tests {
         assert!(out.contains("mytool_version()"), "must call _version()");
         assert!(!out.contains("_convert("), "must NOT call _convert — domain-neutral");
         assert!(!out.contains("<h1>Hi</h1>"), "must NOT contain HTML test payload");
+        // _version() returns `const char *`, not a Result struct — no HtmResult / error_code pattern.
+        assert!(
+            out.contains("const char *version = mytool_version()"),
+            "must use const char * return, not a Result struct"
+        );
+        assert!(!out.contains("error_code"), "must NOT reference error_code");
+        assert!(!out.contains("mytool_result_free"), "must NOT call result_free");
     }
 
     // --- render_run_tests version substitution ---

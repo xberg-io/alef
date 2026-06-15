@@ -302,8 +302,14 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     // bumps and the test_app would compile against stale symbols.
     let _ = writeln!(out, "MARKER=\"$FFI_DIR/.alef-ffi-version\"");
     let _ = writeln!(out, "EXPECTED=\"${{ASSET_STEM}}\"");
-    let _ = writeln!(out, "if [ -f \"$MARKER\" ] && [ \"$(cat \"$MARKER\")\" = \"$EXPECTED\" ]; then");
-    let _ = writeln!(out, "  echo \"FFI v${{VERSION}} (${{TRIPLE}}) already present; skipping download.\"");
+    let _ = writeln!(
+        out,
+        "if [ -f \"$MARKER\" ] && [ \"$(cat \"$MARKER\")\" = \"$EXPECTED\" ]; then"
+    );
+    let _ = writeln!(
+        out,
+        "  echo \"FFI v${{VERSION}} (${{TRIPLE}}) already present; skipping download.\""
+    );
     let _ = writeln!(out, "  exit 0");
     let _ = writeln!(out, "fi");
     let _ = writeln!(out);
@@ -442,4 +448,3 @@ mod tests {
         );
     }
 }
-

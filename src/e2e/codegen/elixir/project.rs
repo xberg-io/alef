@@ -134,6 +134,9 @@ fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
 }
 
 pub(super) fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_config: &E2eConfig) -> String {
+    // KREUZCRAWL_ALLOW_PRIVATE_NETWORK must be set BEFORE the Rustler NIF loads (at first module init).
+    // Set it unconditionally if not already present, to unblock localhost HTTP mocking.
+    let kreuzcrawl_env = "unless System.get_env(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\") do\n  System.put_env(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\", \"true\")\nend\n\n";
     let env_setup = render_env_setup_block(e2e_config);
 
     if uses_harness {
@@ -141,7 +144,7 @@ pub(super) fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_c
         let host = &e2e_config.harness.host;
         let port = e2e_config.harness.port;
         format!(
-            r#"{env_setup}# Start a named Finch pool before ExUnit configured to use HTTP/1 only.
+            r#"{kreuzcrawl_env}{env_setup}# Start a named Finch pool before ExUnit configured to use HTTP/1 only.
 # Tests pass `finch: AlefE2EFinch` on every Req call; the pool's protocol
 # selection (via `pools.default.protocols: [:http1]`) is the canonical place
 # to pin the wire protocol since Req rejects per-call `:connect_options` when
@@ -224,9 +227,9 @@ ExUnit.start()
 "#;
         let mock_server =
             crate::e2e::template_env::render("elixir/test_helper_mock_server.exs.jinja", minijinja::context!());
-        format!("{}{}{}", env_setup, finch_setup, mock_server)
+        format!("{}{}{}{}", kreuzcrawl_env, env_setup, finch_setup, mock_server)
     } else {
-        format!("{}ExUnit.start()\n", env_setup)
+        format!("{}{}ExUnit.start()\n", kreuzcrawl_env, env_setup)
     }
 }
 

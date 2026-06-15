@@ -566,8 +566,7 @@ mod feature_cfg_tests {
             file.content
         );
         // Output must be valid TOML.
-        toml::from_str::<toml::Value>(&file.content)
-            .expect("generated Cargo.toml must be valid TOML");
+        toml::from_str::<toml::Value>(&file.content).expect("generated Cargo.toml must be valid TOML");
     }
 
     /// When no item has a cfg attribute the `[features]` block must be omitted.
@@ -600,8 +599,7 @@ mod feature_cfg_tests {
             "Cargo.toml must not contain [features] block when no cfg attrs; got:\n{}",
             file.content
         );
-        toml::from_str::<toml::Value>(&file.content)
-            .expect("generated Cargo.toml must be valid TOML");
+        toml::from_str::<toml::Value>(&file.content).expect("generated Cargo.toml must be valid TOML");
     }
 
     /// cfg-gated types (not just variants) must also appear in the forwarding block.
@@ -629,8 +627,7 @@ mod feature_cfg_tests {
             "Cargo.toml must forward `pdf` feature from type-level cfg; got:\n{}",
             file.content
         );
-        toml::from_str::<toml::Value>(&file.content)
-            .expect("generated Cargo.toml must be valid TOML");
+        toml::from_str::<toml::Value>(&file.content).expect("generated Cargo.toml must be valid TOML");
     }
 }
 

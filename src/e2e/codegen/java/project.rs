@@ -10,6 +10,7 @@ pub(super) fn render_pom_xml(
     dep_mode: crate::e2e::config::DependencyMode,
     test_documents_path: &str,
     ffi_lib_name: &str,
+    env_vars: &[(String, String)],
 ) -> String {
     // pkg_name may be in "groupId:artifactId" Maven format; split accordingly.
     let (dep_group_id, dep_artifact_id) = if let Some((g, a)) = pkg_name.split_once(':') {
@@ -58,6 +59,7 @@ pub(super) fn render_pom_xml(
             test_documents_path => test_documents_path,
             include_native_lib_path => include_native_lib_path,
             ffi_lib_name => ffi_lib_name,
+            env_entries => env_vars,
         },
     )
 }

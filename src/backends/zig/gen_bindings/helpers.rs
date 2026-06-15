@@ -84,7 +84,9 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[String], out: &mut S
         out.push_str("    return _first_error(E);\n");
     } else {
         for err_name in declared_errors {
-            out.push_str(&format!("    if (E == {err_name}) return _from_ffi_msg_{err_name}(msg_opt);\n"));
+            out.push_str(&format!(
+                "    if (E == {err_name}) return _from_ffi_msg_{err_name}(msg_opt);\n"
+            ));
         }
         out.push_str("    return _first_error(E);\n");
     }

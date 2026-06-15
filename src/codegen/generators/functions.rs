@@ -363,7 +363,7 @@ pub fn gen_function_with_mutex(
             } else {
                 format!("let result = {core_call}.await;")
             };
-            let (ok_expr, extra_binding) = if is_unit && !func.error_type.is_some() {
+            let (ok_expr, extra_binding) = if is_unit && func.error_type.is_none() {
                 ("()".to_string(), String::new())
             } else if return_wrap.contains(".into()") || return_wrap.contains("::from(") {
                 let wrapped_var = "wrapped_result";
@@ -377,9 +377,7 @@ pub fn gen_function_with_mutex(
                 (return_wrap.to_string(), String::new())
             };
             // Move let_bindings inside the async block
-            let inner_body = format!(
-                "{let_bindings}{result_handling}\n            {extra_binding}Ok({ok_expr})"
-            );
+            let inner_body = format!("{let_bindings}{result_handling}\n            {extra_binding}Ok({ok_expr})");
             format!("pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n{inner_body}\n        }})")
         } else {
             let async_body = gen_async_body(

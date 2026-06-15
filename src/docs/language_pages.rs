@@ -16,7 +16,7 @@ use super::naming::{
 };
 use super::signatures::{render_function_signature, render_method_signature};
 use super::sorting::{is_update_type, type_sort_key};
-use super::{clean_doc, doc_type, template_env};
+use super::{clean_doc, doc_type, template_env, version_labels};
 
 fn language_excludes(config: &ResolvedCrateConfig, lang: Language) -> (HashSet<String>, HashSet<String>) {
     let mut functions: HashSet<String> = config.exclude.functions.iter().cloned().collect();
@@ -240,6 +240,7 @@ pub(super) fn generate_lang_doc(
 
 fn push_version_annotation(out: &mut String, version: &VersionAnnotation) {
     if let Some(ref since) = version.since {
+        let since = version_labels::major_minor(since);
         out.push_str(&template_env::render(
             "since_badge.jinja",
             minijinja::context! { since => since },
@@ -248,10 +249,15 @@ fn push_version_annotation(out: &mut String, version: &VersionAnnotation) {
         out.push('\n');
     }
     if let Some(ref dep) = version.deprecated {
+        let since = dep
+            .since
+            .as_deref()
+            .map(version_labels::major_minor)
+            .unwrap_or_default();
         out.push_str(&template_env::render(
             "deprecated_notice.jinja",
             minijinja::context! {
-                since => dep.since.as_deref().unwrap_or(""),
+                since => since,
                 note => dep.note.as_deref().unwrap_or(""),
             },
         ));
@@ -513,12 +519,13 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
         // Inline version annotations into the description cell (block-level elements
         // cannot appear inside a Markdown table row).
         if let Some(ref since) = variant.version.since {
+            let since = version_labels::major_minor(since);
             vdoc = format!("{vdoc} — **Since:** `v{since}`");
         }
         if let Some(ref dep) = variant.version.deprecated {
             let dep_note = match (&dep.since, &dep.note) {
-                (Some(s), Some(n)) => format!("Deprecated since `v{s}`: {n}"),
-                (Some(s), None) => format!("Deprecated since `v{s}`"),
+                (Some(s), Some(n)) => format!("Deprecated since `v{}`: {n}", version_labels::major_minor(s)),
+                (Some(s), None) => format!("Deprecated since `v{}`", version_labels::major_minor(s)),
                 (None, Some(n)) => format!("Deprecated: {n}"),
                 (None, None) => "Deprecated".to_string(),
             };

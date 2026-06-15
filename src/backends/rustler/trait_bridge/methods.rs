@@ -28,8 +28,8 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
                 // Skip Bytes (&[u8]) and bare references to primitives.
                 match &p.ty {
                     TypeRef::String => !p.is_ref,  // Clone String but not &str
-                    TypeRef::Bytes => false,         // Skip &[u8] and Vec<u8> (handled separately)
-                    TypeRef::Named(_) => p.is_ref,  // Clone references to custom types for thread safety
+                    TypeRef::Bytes => false,       // Skip &[u8] and Vec<u8> (handled separately)
+                    TypeRef::Named(_) => p.is_ref, // Clone references to custom types for thread safety
                     _ => false,
                 }
             })
@@ -89,8 +89,8 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
                 // Skip Bytes (&[u8]) and bare references to primitives.
                 match &p.ty {
                     TypeRef::String => !p.is_ref,  // Clone String but not &str
-                    TypeRef::Bytes => false,         // Skip &[u8] and Vec<u8> (handled separately)
-                    TypeRef::Named(_) => p.is_ref,  // Clone references to custom types for thread safety
+                    TypeRef::Bytes => false,       // Skip &[u8] and Vec<u8> (handled separately)
+                    TypeRef::Named(_) => p.is_ref, // Clone references to custom types for thread safety
                     _ => false,
                 }
             })

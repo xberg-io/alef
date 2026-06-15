@@ -296,7 +296,7 @@ fn test_function_with_since_renders_version_badge() {
         .unwrap()
         .content;
     assert!(
-        content.contains("**Since:** `v0.5.0`"),
+        content.contains("**Since:** `v0.5`"),
         "expected since badge, got:\n{content}"
     );
 }
@@ -356,7 +356,7 @@ fn test_function_deprecated_renders_warning_admonition() {
         "expected Deprecated text, got:\n{content}"
     );
     assert!(
-        content.contains("1.5.0"),
+        content.contains("1.5"),
         "expected deprecated since version, got:\n{content}"
     );
     assert!(
@@ -441,7 +441,7 @@ fn test_enum_variant_with_since_renders_inline_in_table() {
         .unwrap()
         .content;
     assert!(
-        content.contains("Since:") && content.contains("v0.5.0"),
+        content.contains("Since:") && content.contains("v0.5"),
         "variant since badge must appear inline in table, got:\n{content}"
     );
     assert!(

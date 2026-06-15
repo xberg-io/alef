@@ -167,9 +167,18 @@ mod tests {
     #[test]
     fn message_template_prefix_strips_placeholder_tail() {
         assert_eq!(message_template_prefix("Language '{0}' not found"), "Language '");
-        assert_eq!(message_template_prefix("Dynamic library load error: {0}"), "Dynamic library load error:");
-        assert_eq!(message_template_prefix("Parse failed: parsing returned no tree"), "Parse failed: parsing returned no tree");
-        assert_eq!(message_template_prefix("Checksum mismatch for '{file}': expected {expected}, got {actual}"), "Checksum mismatch for '");
+        assert_eq!(
+            message_template_prefix("Dynamic library load error: {0}"),
+            "Dynamic library load error:"
+        );
+        assert_eq!(
+            message_template_prefix("Parse failed: parsing returned no tree"),
+            "Parse failed: parsing returned no tree"
+        );
+        assert_eq!(
+            message_template_prefix("Checksum mismatch for '{file}': expected {expected}, got {actual}"),
+            "Checksum mismatch for '"
+        );
     }
 
     #[test]
@@ -220,7 +229,9 @@ mod tests {
             "missing LanguageNotFound dispatch in:\n{out}"
         );
         assert!(
-            out.contains("if (std.mem.startsWith(u8, msg, \"Parse failed: parsing returned no tree\")) return error.ParseFailed;"),
+            out.contains(
+                "if (std.mem.startsWith(u8, msg, \"Parse failed: parsing returned no tree\")) return error.ParseFailed;"
+            ),
             "missing ParseFailed dispatch in:\n{out}"
         );
         // Variants without a usable literal prefix must NOT appear in the

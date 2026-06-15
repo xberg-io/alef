@@ -184,6 +184,13 @@
                 <configuration>
                     <argLine>--enable-preview --enable-native-access=ALL-UNNAMED{% if include_native_lib_path %} -Djava.library.path=${project.basedir}/../../target/release{% endif %}</argLine>
                     <workingDirectory>${project.basedir}/{{ test_documents_path | safe }}</workingDirectory>
+{% if env_entries %}
+                    <environmentVariables>
+{% for key, val in env_entries %}
+                        <{{ key }}>{{ val }}</{{ key }}>
+{% endfor %}
+                    </environmentVariables>
+{% endif %}
                 </configuration>
             </plugin>
         </plugins>

@@ -629,10 +629,18 @@ impl Backend for ExtendrBackend {
                 // only the variant tag.
                 // Emit binding→core for any enum in the surface (not just input params).
                 if all_surface_types.contains(&e.name) && crate::codegen::conversions::can_generate_enum_conversion(e) {
-                    builder.add_item(&enum_conversions::gen_from_binding_to_core(e, &core_import, &type_paths));
+                    builder.add_item(&enum_conversions::gen_from_binding_to_core(
+                        e,
+                        &core_import,
+                        &type_paths,
+                    ));
                 }
                 if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
-                    builder.add_item(&enum_conversions::gen_from_core_to_binding(e, &core_import, &type_paths));
+                    builder.add_item(&enum_conversions::gen_from_core_to_binding(
+                        e,
+                        &core_import,
+                        &type_paths,
+                    ));
                 }
             }
         }

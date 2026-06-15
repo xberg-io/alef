@@ -10,7 +10,7 @@ use super::doc_cleaning::{clean_doc_inline, demote_headings};
 use super::formatting::{doc_type_with_optional, escape_table_cell, format_field_default};
 use super::naming::to_camel_case;
 use super::sorting::is_update_type;
-use super::{clean_doc, template_env};
+use super::{clean_doc, template_env, version_labels};
 
 pub(super) fn generate_configuration_doc(
     api: &ApiSurface,
@@ -278,6 +278,7 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef) -> String {
 
     // Version annotation
     if let Some(ref since) = en.version.since {
+        let since = version_labels::major_minor(since);
         out.push_str(&template_env::render(
             "since_badge.jinja",
             minijinja::context! { since => since },
@@ -286,10 +287,15 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef) -> String {
         out.push('\n');
     }
     if let Some(ref dep) = en.version.deprecated {
+        let since = dep
+            .since
+            .as_deref()
+            .map(version_labels::major_minor)
+            .unwrap_or_default();
         out.push_str(&template_env::render(
             "deprecated_notice.jinja",
             minijinja::context! {
-                since => dep.since.as_deref().unwrap_or(""),
+                since => since,
                 note => dep.note.as_deref().unwrap_or(""),
             },
         ));

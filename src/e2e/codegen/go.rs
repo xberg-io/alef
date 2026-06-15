@@ -479,10 +479,19 @@ fn render_main_test_go(
         let _ = writeln!(out);
         let _ = writeln!(out, "\tfixturesDir := filepath.Join(dir, \"..\", \"..\", \"fixtures\")");
         let _ = writeln!(out, "\tcmd := exec.Command(mockBin, fixturesDir)");
-        let _ = writeln!(
-            out,
-            "\tcmd.Env = append(os.Environ(), \"MOCK_SERVER_NO_STDIN_WATCH=1\")"
-        );
+        let _ = writeln!(out, "\tcmdEnv := os.Environ()");
+
+        // Append configured environment variables (set via os.Setenv in TestMain earlier).
+        // This is necessary because os.Setenv only affects Go's runtime env, not libc's,
+        // and the mock-server (a C FFI process) reads the libc environment directly.
+        for k in env.keys() {
+            let _ = writeln!(out, "\tif v := os.Getenv(\"{k}\"); v != \"\" {{");
+            let _ = writeln!(out, "\t\tcmdEnv = append(cmdEnv, \"{k}=\" + v)");
+            let _ = writeln!(out, "\t}}");
+        }
+
+        let _ = writeln!(out, "\tcmdEnv = append(cmdEnv, \"MOCK_SERVER_NO_STDIN_WATCH=1\")");
+        let _ = writeln!(out, "\tcmd.Env = cmdEnv");
         let _ = writeln!(out, "\tstdout, err := cmd.StdoutPipe()");
         let _ = writeln!(out, "\tif err != nil {{ panic(err) }}");
         let _ = writeln!(out, "\tcmd.Stderr = os.Stderr");
