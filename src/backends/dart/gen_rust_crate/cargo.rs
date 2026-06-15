@@ -4,29 +4,37 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, TypeRef};
 use std::path::PathBuf;
 
-/// Parse a cfg condition string of the form `feature = "X"` or
-/// `any(feature = "X", feature = "Y", ...)` and return the feature name(s).
+/// Parse a cfg condition string of the form `feature = "X"`,
+/// `any(feature = "X", feature = "Y", ...)`, or `any(test, feature = "X")`
+/// and return the feature name(s).
+///
+/// Whitespace inside the condition is normalized first so that the parser
+/// accepts both compact (`any(feature="X")`) and `syn::TokenStream::to_string`
+/// output (`any (test , feature = "testkit")`).
 ///
 /// Returns an empty Vec when the condition does not reference features.
 fn extract_feature_names_from_cfg(condition: &str) -> Vec<String> {
     let mut features = Vec::new();
-    // Handle the simple `feature = "X"` case.
-    let condition = condition.trim();
-    if let Some(rest) = condition.strip_prefix("feature = \"") {
+    // Normalize whitespace: feature names cannot contain whitespace, and
+    // `syn::TokenStream::to_string()` inserts spaces around punctuation
+    // (e.g. `any (test , feature = "testkit")`). Strip all whitespace so the
+    // canonical form is `any(test,feature="testkit")`.
+    let condition: String = condition.chars().filter(|c| !c.is_whitespace()).collect();
+    // Handle the simple `feature="X"` case.
+    if let Some(rest) = condition.strip_prefix("feature=\"") {
         if let Some(name) = rest.strip_suffix('"') {
             features.push(name.to_string());
             return features;
         }
     }
-    // Handle `any(feature = "X", feature = "Y", ...)`.
+    // Handle `any(feature="X",feature="Y",...)` and `any(test,feature="X")`.
     let inner = if let Some(s) = condition.strip_prefix("any(") {
         s.strip_suffix(')').unwrap_or(s)
     } else {
         return features;
     };
     for part in inner.split(',') {
-        let part = part.trim();
-        if let Some(rest) = part.strip_prefix("feature = \"") {
+        if let Some(rest) = part.strip_prefix("feature=\"") {
             if let Some(name) = rest.strip_suffix('"') {
                 features.push(name.to_string());
             }
@@ -582,6 +590,24 @@ mod feature_cfg_tests {
     fn extract_feature_names_ignores_non_feature_cfg() {
         let names = extract_feature_names_from_cfg("target_os = \"linux\"");
         assert!(names.is_empty());
+    }
+
+    /// Cfg conditions produced by `syn::TokenStream::to_string()` carry
+    /// extra whitespace around punctuation (`any (test , feature = "testkit")`).
+    /// The parser must normalize this form so feature names are still extracted.
+    #[test]
+    fn extract_feature_names_from_syn_token_stream_form() {
+        let names = extract_feature_names_from_cfg("any (test , feature = \"testkit\")");
+        assert_eq!(names, vec!["testkit"]);
+    }
+
+    /// `any(test, feature = "X")` is the canonical form for testkit-gated
+    /// variants in the html-to-markdown core; the `test` sibling must be
+    /// ignored while the feature name is still collected.
+    #[test]
+    fn extract_feature_names_ignores_test_sibling() {
+        let names = extract_feature_names_from_cfg("any(test, feature = \"testkit\")");
+        assert_eq!(names, vec!["testkit"]);
     }
 
     /// `collect_referenced_features` returns sorted, deduplicated feature names
