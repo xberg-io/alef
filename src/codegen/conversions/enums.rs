@@ -34,15 +34,19 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
         .collect();
 
     // The match is on the *binding* enum, which only contains `enum_def.variants`
-    // (excluded variants are absent from the binding type). Each variant in
-    // `enum_def.variants` gets its own arm, so the match is always exhaustive over
-    // the binding type. A wildcard `_ => Default::default()` arm is NEVER needed
-    // here — emitting one when all variants are covered produces an "unreachable
-    // pattern" error under `-D warnings`.
+    // (excluded variants are absent from the binding type). Each variant gets its
+    // own arm, so the match is exhaustive over the binding type.
+    //
+    // EXCEPTION: when a variant is cfg-gated, its arm is emitted with
+    // `#[cfg(...)]` but the binding enum's variant is NOT itself gated, so when
+    // the feature is disabled the variant remains present while the arm is
+    // stripped — leaving the match non-exhaustive. In that case a `_ =>
+    // Default::default()` catch-all is required.
     //
     // Contrast with `gen_enum_from_core_to_binding_cfg` (core → binding), where
     // the match is on the *core* type and excluded variants require a catch-all.
-    let needs_catch_all = false;
+    let has_cfg_variants = enum_def.variants.iter().any(|v| v.cfg.is_some());
+    let needs_catch_all = has_cfg_variants;
 
     crate::codegen::template_env::render(
         "conversions/enum_from_binding_to_core",
