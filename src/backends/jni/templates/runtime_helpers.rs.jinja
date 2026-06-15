@@ -7,8 +7,8 @@ fn jstring_to_string(env: &mut Env<'_>, s: JString) -> std::result::Result<Strin
     s.try_to_string(env)
 }
 
-fn string_to_jstring(env: &mut Env<'_>, s: &str) -> jstring {
-    match env.new_string(s) {
+fn string_to_jstring(env: &mut Env<'_>, s: impl AsRef<str>) -> jstring {
+    match env.new_string(s.as_ref()) {
         Ok(o) => o.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }
