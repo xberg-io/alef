@@ -13,7 +13,14 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
     let core_path = core_enum_path_remapped(enum_def, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, enum_def.name);
 
-    // Pre-compute all arms for the template with optional cfg guards
+    // Arms are emitted unconditionally. The match is on the *binding* enum, which contains
+    // exactly `enum_def.variants` (binding-excluded variants are absent). Each variant gets
+    // its own arm so the match is exhaustive over the binding type.
+    //
+    // A core variant's `cfg` is NOT propagated to the binding-side arm: binding crates
+    // pull the core dependency with all required features enabled, so any cfg-gated core
+    // variant is compiled in when the binding crate is built. Propagating the cfg would
+    // reference features that do not exist on the binding crate itself.
     let arms: Vec<minijinja::value::Value> = enum_def
         .variants
         .iter()
@@ -28,25 +35,10 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
             );
             minijinja::context! {
                 arm => arm,
-                cfg => variant.cfg.as_deref(),
+                cfg => Option::<&str>::None,
             }
         })
         .collect();
-
-    // The match is on the *binding* enum, which only contains `enum_def.variants`
-    // (excluded variants are absent from the binding type). Each variant gets its
-    // own arm, so the match is exhaustive over the binding type.
-    //
-    // EXCEPTION: when a variant is cfg-gated, its arm is emitted with
-    // `#[cfg(...)]` but the binding enum's variant is NOT itself gated, so when
-    // the feature is disabled the variant remains present while the arm is
-    // stripped — leaving the match non-exhaustive. In that case a `_ =>
-    // Default::default()` catch-all is required.
-    //
-    // Contrast with `gen_enum_from_core_to_binding_cfg` (core → binding), where
-    // the match is on the *core* type and excluded variants require a catch-all.
-    let has_cfg_variants = enum_def.variants.iter().any(|v| v.cfg.is_some());
-    let needs_catch_all = has_cfg_variants;
 
     crate::codegen::template_env::render(
         "conversions/enum_from_binding_to_core",
@@ -54,7 +46,7 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
             binding_name => binding_name,
             core_path => core_path,
             arms => arms,
-            has_excluded_variants => needs_catch_all,
+            has_excluded_variants => false,
         },
     )
 }
@@ -69,7 +61,10 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
     let core_path = core_enum_path_remapped(enum_def, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, enum_def.name);
 
-    // Pre-compute all arms for the template with optional cfg guards
+    // Arms are emitted unconditionally. Binding crates pull the core dependency with all
+    // required features enabled, so any cfg-gated core variant is compiled in at the
+    // binding-crate build site. Propagating the cfg to the arm would reference features
+    // that do not exist on the binding crate itself.
     let arms: Vec<minijinja::value::Value> = enum_def
         .variants
         .iter()
@@ -84,29 +79,20 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
             );
             minijinja::context! {
                 arm => arm,
-                cfg => variant.cfg.as_deref(),
+                cfg => Option::<&str>::None,
             }
         })
         .collect();
 
-    // Emit a wildcard arm only when the core enum has cfg-gated variants that are absent
-    // from the IR's `variants` list (stored in `excluded_variants` instead) OR when
-    // some of the included variants are gated behind feature cfg (so they compile out).
-    // In that case the compiler sees those variants at compile time but the match has
-    // no arm for them (when the feature is disabled), so a `_ => Default::default()`
-    // catch-all keeps the match exhaustive.
+    // Emit a `_ => Default::default()` catch-all only when the core enum has variants
+    // that are excluded from the binding (`excluded_variants`). Those variants are
+    // present in the core enum but absent from the binding, so the match needs a
+    // wildcard to remain exhaustive.
     //
-    // When all core variants ARE in `enum_def.variants` and none are cfg-gated,
-    // every variant gets its own explicit arm (unit variants → `Self::V`, tuple
-    // variants → `CoreT::V(..)`, struct variants → `CoreT::V { .. }`). The match
-    // is exhaustive without a wildcard, and emitting `_ => Default::default()` would
-    // produce an "unreachable pattern" error under `-D warnings`.
-    //
-    // In particular, a unit-only binding with core struct variants (e.g. a NAPI
-    // `string_enum` for a core enum that has data) does NOT need a catch-all: each
-    // struct variant is matched by its own `CoreT::Variant { .. } => Self::Variant,` arm.
-    let has_cfg_variants = enum_def.variants.iter().any(|v| v.cfg.is_some());
-    let needs_catch_all = !enum_def.excluded_variants.is_empty() || has_cfg_variants;
+    // When all core variants are in `enum_def.variants`, the per-variant arms make
+    // the match exhaustive and a catch-all would produce an "unreachable pattern"
+    // error under `-D warnings`.
+    let needs_catch_all = !enum_def.excluded_variants.is_empty();
 
     crate::codegen::template_env::render(
         "conversions/enum_from_core_to_binding",
