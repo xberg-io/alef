@@ -44,56 +44,6 @@ pub(super) fn render_kotlin_env_init(env: &HashMap<String, String>) -> String {
     out
 }
 
-#[cfg(test)]
-mod env_init_tests {
-    use super::render_kotlin_env_init;
-    use std::collections::HashMap;
-
-    #[test]
-    fn render_kotlin_env_init_emits_setdefault_with_sorted_keys() {
-        let mut env = HashMap::new();
-        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
-        env.insert("ALEF_FOO".to_string(), "bar".to_string());
-        let block = render_kotlin_env_init(&env);
-        assert!(
-            block.contains("if (System.getProperty(\"ALEF_FOO\") == null) {"),
-            "got: {block}"
-        );
-        assert!(
-            block.contains("System.setProperty(\"ALEF_FOO\", \"bar\")"),
-            "got: {block}"
-        );
-        assert!(
-            block.contains("if (System.getProperty(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\") == null) {"),
-            "got: {block}"
-        );
-        assert!(
-            block.contains("System.setProperty(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\", \"true\")"),
-            "got: {block}"
-        );
-        let alef_pos = block.find("ALEF_FOO").unwrap();
-        let kreuz_pos = block.find("KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
-        assert!(alef_pos < kreuz_pos, "keys must be sorted alphabetically; got: {block}");
-    }
-
-    #[test]
-    fn render_kotlin_env_init_empty_when_no_env_configured() {
-        let env = HashMap::new();
-        assert_eq!(render_kotlin_env_init(&env), "");
-    }
-
-    #[test]
-    fn render_kotlin_env_init_escapes_quotes_and_dollar() {
-        let mut env = HashMap::new();
-        env.insert("Q".to_string(), "a\"b$c\\d".to_string());
-        let block = render_kotlin_env_init(&env);
-        assert!(
-            block.contains("System.setProperty(\"Q\", \"a\\\"b\\$c\\\\d\")"),
-            "got: {block}"
-        );
-    }
-}
-
 pub(super) fn resolve_handle_config_type(
     arg: &crate::e2e::config::ArgMapping,
     options_type: Option<&str>,
@@ -691,5 +641,55 @@ pub(super) fn is_enum_typed(ty: &crate::core::ir::TypeRef, struct_names: &HashSe
             matches!(inner.as_ref(), TypeRef::Named(name) if !struct_names.contains(name.as_str()))
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod env_init_tests {
+    use super::render_kotlin_env_init;
+    use std::collections::HashMap;
+
+    #[test]
+    fn render_kotlin_env_init_emits_setdefault_with_sorted_keys() {
+        let mut env = HashMap::new();
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("ALEF_FOO".to_string(), "bar".to_string());
+        let block = render_kotlin_env_init(&env);
+        assert!(
+            block.contains("if (System.getProperty(\"ALEF_FOO\") == null) {"),
+            "got: {block}"
+        );
+        assert!(
+            block.contains("System.setProperty(\"ALEF_FOO\", \"bar\")"),
+            "got: {block}"
+        );
+        assert!(
+            block.contains("if (System.getProperty(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\") == null) {"),
+            "got: {block}"
+        );
+        assert!(
+            block.contains("System.setProperty(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\", \"true\")"),
+            "got: {block}"
+        );
+        let alef_pos = block.find("ALEF_FOO").unwrap();
+        let kreuz_pos = block.find("KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
+        assert!(alef_pos < kreuz_pos, "keys must be sorted alphabetically; got: {block}");
+    }
+
+    #[test]
+    fn render_kotlin_env_init_empty_when_no_env_configured() {
+        let env = HashMap::new();
+        assert_eq!(render_kotlin_env_init(&env), "");
+    }
+
+    #[test]
+    fn render_kotlin_env_init_escapes_quotes_and_dollar() {
+        let mut env = HashMap::new();
+        env.insert("Q".to_string(), "a\"b$c\\d".to_string());
+        let block = render_kotlin_env_init(&env);
+        assert!(
+            block.contains("System.setProperty(\"Q\", \"a\\\"b\\$c\\\\d\")"),
+            "got: {block}"
+        );
     }
 }

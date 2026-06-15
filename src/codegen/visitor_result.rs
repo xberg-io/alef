@@ -143,6 +143,19 @@ pub(crate) fn unknown_string_result_expr(
     }
 }
 
+pub(crate) fn variant_contexts(variants: &[VisitorResultVariant]) -> Vec<minijinja::Value> {
+    variants
+        .iter()
+        .map(|variant| {
+            minijinja::context! {
+                name => variant.name.clone(),
+                wire_name => variant.wire_name.clone(),
+                code => variant.code,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,17 +203,4 @@ mod tests {
         let metadata = metadata_with(vec![variant("Replace"), variant("Warning")]);
         assert_eq!(unknown_string_result_expr("VR", &metadata, "s"), "VR::Replace(s)");
     }
-}
-
-pub(crate) fn variant_contexts(variants: &[VisitorResultVariant]) -> Vec<minijinja::Value> {
-    variants
-        .iter()
-        .map(|variant| {
-            minijinja::context! {
-                name => variant.name.clone(),
-                wire_name => variant.wire_name.clone(),
-                code => variant.code,
-            }
-        })
-        .collect()
 }
