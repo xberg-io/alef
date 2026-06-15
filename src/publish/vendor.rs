@@ -527,18 +527,43 @@ pub(crate) fn scrub_or_regenerate_lock(
                 tracing::warn!(%error, "could not strip workspace-member entries from seed lockfile");
             }
         }
-        // canonicalize so subsequent `cargo` subprocesses can resolve --manifest-path
-        // independently of the working directory: we set `current_dir(manifest_dir)`
-        // on every cargo subprocess below, which makes the original relative
-        // `manifest_dir.join("Cargo.toml")` no longer resolve from the new cwd
-        // (cargo would emit `manifest path './path/from/repo/root/...' does not
-        // exist`). Fall back to the relative join when canonicalize fails (e.g.
-        // when the manifest is not yet on disk — only the regenerate path uses
-        // this anyway, so it always exists in practice).
-        let manifest = manifest_dir
-            .join("Cargo.toml")
-            .canonicalize()
-            .unwrap_or_else(|_| manifest_dir.join("Cargo.toml"));
+        // Canonicalize `manifest_dir` itself once so that every subsequent
+        // cargo subprocess gets an absolute `--manifest-path` that resolves
+        // correctly even when we also set `current_dir(manifest_dir)`. Without
+        // this, cargo evaluates the relative path under the new cwd and emits
+        // `manifest path './packages/elixir/.../Cargo.toml' does not exist`
+        // because the path is relative to the repo root, not to itself. CI
+        // runners (actions/checkout with `/github/workspace` symlinks) can trip
+        // `canonicalize` even for paths that exist on the dev box; treat that as
+        // a hard error in strict mode so the failure surfaces clearly rather than
+        // silently producing a broken relative path.
+        let manifest_dir: std::borrow::Cow<'_, Path> = match manifest_dir.canonicalize() {
+            Ok(abs) => std::borrow::Cow::Owned(abs),
+            Err(error) => {
+                if strict {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "could not canonicalize binding manifest directory {} — \
+                             ensure the path exists before calling scrub_or_regenerate_lock \
+                             in strict (CI/release) mode",
+                            manifest_dir.display()
+                        )
+                    });
+                }
+                // Lenient fallback: prefix with the process cwd so at least the
+                // path is absolute even if not canonical (symlinks unresolved).
+                tracing::warn!(
+                    %error,
+                    path = %manifest_dir.display(),
+                    "could not canonicalize manifest_dir; falling back to cwd-relative absolute path"
+                );
+                let abs = std::env::current_dir()
+                    .context("could not determine process working directory for manifest path fallback")?
+                    .join(manifest_dir);
+                std::borrow::Cow::Owned(abs)
+            }
+        };
+        let manifest = manifest_dir.join("Cargo.toml");
 
         // Refresh ONLY the workspace-member entries whose source we just rewrote
         // from `path` to a registry version (one `cargo update -p NAME` per member,
@@ -581,7 +606,7 @@ pub(crate) fn scrub_or_regenerate_lock(
             // lockfile can be aligned with the rewritten manifest.
             let output = std::process::Command::new("cargo")
                 .env_remove("CARGO_BUILD_LOCKED")
-                .current_dir(manifest_dir)
+                .current_dir(manifest_dir.as_ref())
                 .arg("update")
                 .arg("--manifest-path")
                 .arg(&manifest)
@@ -644,7 +669,7 @@ pub(crate) fn scrub_or_regenerate_lock(
             // would silently re-enable `--locked` and defeat this; clear it.
             let validation = std::process::Command::new("cargo")
                 .env_remove("CARGO_BUILD_LOCKED")
-                .current_dir(manifest_dir)
+                .current_dir(manifest_dir.as_ref())
                 .arg("metadata")
                 .arg("--format-version")
                 .arg("1")

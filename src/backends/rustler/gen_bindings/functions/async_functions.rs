@@ -241,17 +241,17 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                                     // core call can borrow it mutably without lifetime issues
                                     // from the closure environment.
                                     let mut_name = format!("{}_mut", p.name);
-                                    deser_lines.push(format!("let mut {mut_name} = {}.iter().map(|e| e.clone().into()).collect::<Vec<_>>();", p.name));
+                                    deser_lines.push(format!("let mut {mut_name} = {}.iter().map(|e| e.into()).collect::<Vec<_>>();", p.name));
                                     format!("&mut {mut_name}")
                                 } else if p.is_ref {
-                                    format!("&{}.iter().map(|e| e.clone().into()).collect::<Vec<_>>()", p.name)
+                                    format!("&{}.iter().map(|e| e.into()).collect::<Vec<_>>()", p.name)
                                 } else {
                                     format!("{}.into_iter().map(Into::into).collect()", p.name)
                                 }
                             } else if p.is_ref && p.is_mut {
                                 // Opaque types with &mut: create mutable local binding for iter_mut().
                                 let mut_name = format!("{}_mut", p.name);
-                                deser_lines.push(format!("let mut {mut_name} = {}.clone();", p.name));
+                                deser_lines.push(format!("let mut {mut_name} = {};", p.name));
                                 format!("&mut {mut_name}")
                             } else if p.is_ref {
                                 // Opaque types: reference as-is, derefs to slice.

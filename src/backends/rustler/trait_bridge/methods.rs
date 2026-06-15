@@ -17,11 +17,22 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let has_error = method.error_type.is_some();
 
-        // Build clone_params array
+        // Build clone_params array: only parameters that own their data and need to be moved.
+        // Skip references to primitives like &[u8] or &str (borrowed slices/strings don't clone meaningfully).
+        // Include: String (owned), Vec (owned), custom types passed by reference.
         let clone_params: Vec<minijinja::Value> = method
             .params
             .iter()
-            .filter(|p| p.is_ref || matches!(&p.ty, TypeRef::String))
+            .filter(|p| {
+                // Clone String types (owned) and referenced custom types.
+                // Skip Bytes (&[u8]) and bare references to primitives.
+                match &p.ty {
+                    TypeRef::String => !p.is_ref,  // Clone String but not &str
+                    TypeRef::Bytes => false,         // Skip &[u8] and Vec<u8> (handled separately)
+                    TypeRef::Named(_) => p.is_ref,  // Clone references to custom types for thread safety
+                    _ => false,
+                }
+            })
             .map(|p| {
                 minijinja::context! {
                     name => p.name.clone()
@@ -67,11 +78,22 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let has_error = method.error_type.is_some();
 
-        // Build param_clones array
+        // Build param_clones array: only parameters that own their data and need to be moved.
+        // Skip references to primitives like &[u8] or &str (borrowed slices/strings don't clone meaningfully).
+        // Include: String (owned), Vec (owned), custom types passed by reference.
         let param_clones: Vec<minijinja::Value> = method
             .params
             .iter()
-            .filter(|p| p.is_ref || matches!(&p.ty, TypeRef::String))
+            .filter(|p| {
+                // Clone String types (owned) and referenced custom types.
+                // Skip Bytes (&[u8]) and bare references to primitives.
+                match &p.ty {
+                    TypeRef::String => !p.is_ref,  // Clone String but not &str
+                    TypeRef::Bytes => false,         // Skip &[u8] and Vec<u8> (handled separately)
+                    TypeRef::Named(_) => p.is_ref,  // Clone references to custom types for thread safety
+                    _ => false,
+                }
+            })
             .map(|p| {
                 minijinja::context! {
                     name => p.name.clone()
