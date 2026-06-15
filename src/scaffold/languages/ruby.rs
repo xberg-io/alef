@@ -284,6 +284,7 @@ require "rb_sys/extensiontask"
 require "rspec/core/rake_task"
 
 GEM_ROOT = __dir__
+# Loaded gemspec used by Rake::ExtensionTask to compile the native extension.
 GEMSPEC = Gem::Specification.load(File.expand_path("{gem_name_snake}.gemspec", GEM_ROOT))
 
 # Set of supported platform identifiers for native gem cross-compilation.

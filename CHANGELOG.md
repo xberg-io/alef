@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ruby Rakefile template: documented `GEMSPEC` constant for YARD coverage.** YARD's doc-coverage hook reported the `GEMSPEC` constant in the generated Rakefile as undocumented public object, dropping coverage below thresholds. Added a one-line comment above the constant assignment to satisfy YARD's documentation requirements.
+
 ## [0.25.8] - 2026-06-14
 
 ### Fixed
