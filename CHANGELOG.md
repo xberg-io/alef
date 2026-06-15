@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.14] - 2026-06-15
+
 ### Fixed
 
 - **Swift binding Cargo.toml: emit `default = [<forwarded-features>]` so cfg-gated wrapper types compile on default `cargo build`.** The previous `[features]` table forwarded cfg-features without listing them in `default`, so default builds left `feature = "download"` (and friends) off in the binding crate. Wrapper structs (`pub struct DownloadManager(...)`) were `#[cfg(feature = "download")]`-gated correctly, but alef-emitted free helper functions taking `&DownloadManager` were emitted unconditionally — yielding `error[E0425]: cannot find type 'DownloadManager' in this scope` on regen consumers (tslp v1.9.0-rc.50). `emit_cargo_toml` now lists every forwarded cfg-feature in the `default` array so the binding's default profile matches what its core dep already pulls in via `features = [..., "download"]`.
