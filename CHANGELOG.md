@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Revert cfg-union postprocessing passes from 0.25.12 / 0.25.13.** The `compute_cfg_from_referenced_types{,_for_functions}` passes in `src/extract/extractor/postprocess.rs` propagated the union of referenced-type cfgs upward onto unconditional parent types (e.g., `ExtractionConfig` ended up `#[cfg(any(feature = "pdf", any(feature = "keywords-yake", feature = "keywords-rake"), feature = "html", feature = "layout-types", feature = "transcription-types", feature = "tree-sitter"))]`). On consumer crates without that exact feature union, this caused wholesale wrapper-type loss in regen output: kreuzberg-wasm regen dropped `WasmExtractionConfig` and ~2 500 lines of bindings; kreuzberg-swift (desktop) regen panicked under swift-bridge-build with `Type must be declared with type >` because parent extern blocks still referenced the disappeared wrappers. Reverting both passes restores the prior behaviour where parent types stay unconditional and cfg-gated field handling stays local to the constructor/getter body. The original swift iOS cfg-gated-field propagation issue (task #357 / [[project_swift_adapter_design]]) remains and will be addressed via per-field handling rather than parent-type union cfgs.
+
 ## [0.25.14] - 2026-06-15
 
 ### Fixed

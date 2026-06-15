@@ -25,7 +25,7 @@ use self::helpers::{
     extract_version_annotation, is_pub, is_thiserror_enum,
 };
 use self::paths::{apply_parent_reexport_shortening, derive_module_path};
-use self::postprocess::{resolve_newtypes, resolve_trait_sources, compute_cfg_from_referenced_types_for_functions};
+use self::postprocess::{resolve_newtypes, resolve_trait_sources};
 use self::reexports::{extract_module, resolve_use_tree};
 use self::types::{extract_enum, extract_error_enum, extract_struct};
 
@@ -138,12 +138,6 @@ pub fn extract(
     // cfg-gated, the struct must also be cfg-gated with the union of those cfgs.
     // This prevents FFI bindings from generating dangling type references.
     postprocess::compute_cfg_from_referenced_types(&mut surface);
-
-    // Post-processing: compute cfg unions for functions that reference cfg-gated types.
-    // When a function has no cfg attribute but its parameters or return type reference
-    // cfg-gated types, the function must also be cfg-gated with the union of those cfgs.
-    // This prevents FFI bindings from generating function declarations with undefined types.
-    compute_cfg_from_referenced_types_for_functions(&mut surface);
 
     // Post-processing: disambiguate types with the same identifier from different
     // source modules. The second+ collisions are renamed by prepending the
