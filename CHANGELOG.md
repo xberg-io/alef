@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.17] - 2026-06-15
+
 ### Fixed
+
+- **dart binding: add `unreachable_patterns` to crate-root allow list.** The dart `gen_rust_crate` enum-conversion path emits `_ => unreachable!("cfg-gated variant of {name} not active in this build")` as a catch-all when any variant carries a `#[cfg(feature = "X")]` attribute, so the match remains exhaustive when the feature is compiled out (e.g., `TierStrategy::Tier1` under `feature = "testkit"`). When the binding crate's `[features]` table forwards the feature unconditionally (e.g., h2m's dart binding pulls the core dep with `features = ["full", "testkit"]`), the cfg-gated arm IS compiled in and the catch-all is unreachable — `-D warnings` turns the resulting `unreachable pattern` into an error. The crate-root allow list already silenced `unreachable_code` for the same reason; adding `unreachable_patterns` to that same `#![allow(...)]` line silences the match-arm variant.
 
 - **(test_apps/zig): sequence test runs to avoid clean_cache race.** Zig test binaries run in parallel by default. When `download_test` calls `dm.clean_cache()` to delete the extracted language libs, this races with other tests' `ensure_languages()` → `REGISTRY.get_language()` cache lookups, causing `FFI error: Language 'X' not found` spuriously on the first test of concurrent suites. Modified the e2e `build.zig` codegen to chain test runs sequentially: non-download tests run in sequence, and if `download_test` exists, it runs LAST after all others complete, eliminating the destructive-write race. Pairs with tslp core defensive retry logic in `lib.rs::get_language`.
 
