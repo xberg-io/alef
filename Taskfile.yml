@@ -70,7 +70,7 @@ tasks:
       - prek run --all-files
 
   set-version:
-    desc: "Set package version (usage: task set-version -- 0.18.0)"
+    desc: "Set package version (usage: task set-version -- 0.18.0 or 0.18.0-rc.1)"
     requires:
       vars: [CLI_ARGS]
     cmds:
@@ -78,15 +78,15 @@ tasks:
       - |
         version="{{.CLI_ARGS}}"
         version="${version#v}"
-        case "$version" in
-          [0-9]*.[0-9]*.[0-9]*) ;;
-          *) echo "set-version: expected semver like '0.18.0' (with or without leading 'v'); got '{{.CLI_ARGS}}'" >&2; exit 2 ;;
-        esac
+        if ! printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z._-]+)?$'; then
+          echo "set-version: expected semver like '0.18.0' or '0.18.0-rc.1' (with or without leading 'v'); got '{{.CLI_ARGS}}'" >&2
+          exit 2
+        fi
         sed -i.bak "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
         rm -f Cargo.toml.bak
         sed -i.bak "s/^alef_version = \".*\"/alef_version = \"$version\"/" alef.toml
         rm -f alef.toml.bak
-        sed -i.bak -E "s|pub const ALEF_REV: &str = \"v?[0-9]+\.[0-9]+\.[0-9]+\";|pub const ALEF_REV: \&str = \"v$version\";|" src/core/template_versions.rs
+        sed -i.bak -E "s|pub const ALEF_REV: &str = \"v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z._-]+)?\";|pub const ALEF_REV: \&str = \"v$version\";|" src/core/template_versions.rs
         rm -f src/core/template_versions.rs.bak
         if [ -x target/debug/alef ] && target/debug/alef schema --help | grep -q -- "--schema-version"; then
           target/debug/alef schema --schema-version "$version" --output schemas/alef.schema.json
