@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release task: `task set-version` now regenerates `schemas/alef.schema.json` from current sources.** The task no longer reuses an existing `target/debug/alef` binary, which could be stale after schema-affecting source changes. It now always invokes `cargo run -- schema --schema-version ...` with the isolated `target/schema-task` target directory.
+
 ## [0.25.10] - 2026-06-15
 
 ### Fixed

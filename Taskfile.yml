@@ -88,11 +88,7 @@ tasks:
         rm -f alef.toml.bak
         sed -i.bak -E "s|pub const ALEF_REV: &str = \"v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z._-]+)?\";|pub const ALEF_REV: \&str = \"v$version\";|" src/core/template_versions.rs
         rm -f src/core/template_versions.rs.bak
-        if [ -x target/debug/alef ] && target/debug/alef schema --help | grep -q -- "--schema-version"; then
-          target/debug/alef schema --schema-version "$version" --output schemas/alef.schema.json
-        else
-          CARGO_TARGET_DIR=target/schema-task cargo run --quiet -- schema --schema-version "$version" --output schemas/alef.schema.json
-        fi
+        CARGO_TARGET_DIR=target/schema-task cargo run --quiet -- schema --schema-version "$version" --output schemas/alef.schema.json
       - cargo update
 
   clean:
