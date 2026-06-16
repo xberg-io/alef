@@ -1,5 +1,5 @@
 [workspace]
-alef_version = "0.25.20"
+alef_version = "0.25.21"
 languages = []
 
 [workspace.dto]

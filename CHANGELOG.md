@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.21] - 2026-06-16
+
 ### Fixed
 
 - **(backends/napi): translate TS `import { A as B }` aliases to JS `{ A: B }` rename syntax when converting `service.ts` → `service.cjs`.** `strip_typescript_annotations` in `src/backends/napi/gen_bindings/service_api/assembly.rs` converted `import { ... } from "./m"` into `const { ... } = require("./m")` but left `as`-renames intact, producing invalid CJS like `const { App as NativeApp, Method, RouteBuilder } = require("./index");` — `App as NativeApp` is not valid JS destructuring (JS uses `:` for renames). Downstream `oxfmt` on `crates/spikard-node/service.cjs` aborted with `Expected ',' or '}' but found 'as'`, blocking `task alef:format` for every spikard regen against 0.25.19+. Fix: `.replace(" as ", ": ")` on the imports brace in both the `import type { ... }` and `import { ... }` conversion arms. Regression tests `strip_typescript_annotations_translates_import_alias_to_destructuring_rename` and `..._translates_type_import_alias_to_destructuring_rename` cover the exact input shape and assert no `as` keyword survives in the CJS output.
