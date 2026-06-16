@@ -228,7 +228,6 @@ fn test_basic_rbs_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -346,7 +345,6 @@ fn test_type_mapping_in_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -484,7 +482,6 @@ fn test_enum_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs_and_docs();
@@ -626,7 +623,6 @@ fn test_opaque_type_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -680,7 +676,6 @@ fn test_rbs_stubs_without_config() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     // Create config WITHOUT stubs enabled
@@ -807,7 +802,6 @@ fn test_type_with_methods_and_fields() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs_and_docs();
@@ -926,7 +920,6 @@ fn test_multiline_doc_comment_is_valid_rbs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs_and_docs();
@@ -991,7 +984,6 @@ fn test_module_naming_from_crate_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = resolved_one(
@@ -1052,7 +1044,6 @@ fn test_rbs_includes_trait_registry_functions() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();

@@ -87,7 +87,6 @@ fn test_java_serde_default_tuple_field_uses_nullable_type_and_null_default() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = resolved_one(

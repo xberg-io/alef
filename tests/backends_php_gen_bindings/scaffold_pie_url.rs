@@ -42,7 +42,6 @@ extension_name = "html_to_markdown"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
-        ..Default::default()
     };
 
     let files = scaffold(&api, config, &[Language::Php]).expect("PHP scaffold must succeed");
@@ -100,7 +99,6 @@ extension_name = "html_to_markdown"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
-        ..Default::default()
     };
 
     let files = scaffold(&api, config, &[Language::Php]).expect("PHP scaffold must succeed");

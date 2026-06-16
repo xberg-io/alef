@@ -150,7 +150,6 @@ fn mpp_emits_five_files() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -181,7 +180,6 @@ fn mpp_common_contains_expect_object() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -236,7 +234,6 @@ fn mpp_jvm_contains_actual_object_with_bridge() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -278,7 +275,6 @@ fn mpp_native_contains_actual_object_with_mem_scoped() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -323,7 +319,6 @@ fn mpp_dtos_only_in_common_main() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -373,7 +368,6 @@ fn mpp_def_file_has_correct_fields() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -415,7 +409,6 @@ fn mpp_gradle_uses_multiplatform_plugin() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -506,7 +499,6 @@ fn mpp_sealed_enum_in_common_main() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -557,7 +549,6 @@ fn mpp_error_sealed_class_in_common_main() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_mpp_config("my-crate");
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();

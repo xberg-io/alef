@@ -60,7 +60,6 @@ fn test_pyclass_enum_variants_use_upper_snake_case_pyo3_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_config();
     let files = backend
@@ -131,7 +130,6 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_config();
     let files = backend
@@ -207,7 +205,6 @@ fn test_options_py_escapes_python_keyword_variant_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_config();
     let files = backend
@@ -282,7 +279,6 @@ fn test_api_py_void_function_no_redundant_return() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let mut config = make_config();
@@ -424,7 +420,6 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let mut config = make_config();
@@ -566,7 +561,6 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();

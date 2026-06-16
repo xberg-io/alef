@@ -125,7 +125,6 @@ fn struct_emits_data_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -176,7 +175,6 @@ fn function_emits_object_member() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -250,7 +248,6 @@ fn unit_enum_emits_enum_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -278,7 +275,6 @@ fn optional_field_uses_kotlin_nullable() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -322,7 +318,6 @@ fn async_function_emits_suspend() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -383,7 +378,6 @@ fn unit_error_variant_emits_sealed_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -429,7 +423,6 @@ fn error_variant_with_fields_emits_data_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -533,7 +526,6 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     // emit_error_type_pub is the public re-export of emit_error_type_with_imports.
@@ -587,7 +579,6 @@ fn function_imports_native_facade() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -696,7 +687,6 @@ type = "ChatCompletionRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -855,7 +845,6 @@ type = "ChatCompletionRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -967,7 +956,6 @@ target = "jvm"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -1092,7 +1080,6 @@ target = "jvm"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
@@ -1244,7 +1231,6 @@ target = "jvm"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();

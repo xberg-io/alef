@@ -189,7 +189,6 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -290,7 +289,6 @@ fn test_type_mapping() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -385,7 +383,6 @@ fn test_enum_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -459,7 +456,6 @@ fn test_generated_header() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -582,7 +578,6 @@ fn test_methods_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -699,7 +694,6 @@ fn test_error_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -778,7 +772,6 @@ fn test_async_function() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -886,7 +879,6 @@ fn test_opaque_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -965,7 +957,6 @@ fn test_default_config() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -1088,7 +1079,6 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -1218,7 +1208,6 @@ mod trait_bridge {
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
-            ..Default::default()
         }
     }
 
@@ -1710,7 +1699,6 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -1814,7 +1802,6 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -1885,7 +1872,6 @@ fn test_tuple_variant_bytes_stays_as_vec() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -1979,7 +1965,6 @@ fn test_optional_ref_string_method_returns_owned_option() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2073,7 +2058,6 @@ fn test_opaque_owned_builder_return_rewraps_arc() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2182,7 +2166,6 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2276,7 +2259,6 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2468,7 +2450,6 @@ fn test_visitor_bridge_debug_not_duplicated() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let code = gen_trait_bridge(
@@ -2507,7 +2488,6 @@ fn test_module_init_requires_json_stdlib() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2574,7 +2554,6 @@ fn test_trait_bridge_options_field_error_propagation_in_generated_code() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2701,7 +2680,6 @@ fn tagged_enum_public_api_does_not_emit_method_missing() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2785,7 +2763,6 @@ fn tagged_enum_public_api_emits_sorbet_sig_blocks() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2873,7 +2850,6 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2986,7 +2962,6 @@ fn tagged_enum_dispatcher_uses_serde_wire_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_public_api(&api, &make_config()).unwrap();
@@ -3108,7 +3083,6 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -3245,7 +3219,6 @@ fn test_enum_yard_doc_emission() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -3344,7 +3317,6 @@ fn test_enum_variant_method_yard_docs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -3519,7 +3491,6 @@ fn test_explicit_re_export_list_filters_internal_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = resolved_one(
@@ -3668,7 +3639,6 @@ fn test_registration_variant_styles_emit_unified_block_form() {
             }],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
-            ..Default::default()
         }
     };
 
@@ -3821,7 +3791,6 @@ fn test_async_function_with_vec_named_params() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -4035,7 +4004,6 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();

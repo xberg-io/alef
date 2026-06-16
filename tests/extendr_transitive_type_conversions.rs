@@ -117,7 +117,6 @@ fn extendr_deeply_nested_transitive_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
-        ..Default::default()
     };
 
     let files = ExtendrBackend
@@ -167,7 +166,6 @@ fn extendr_vec_of_vec_nested_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
-        ..Default::default()
     };
 
     let files = ExtendrBackend

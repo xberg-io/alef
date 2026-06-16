@@ -154,7 +154,6 @@ fn trait_bridge_string_return_is_not_json_quoted() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = JavaBackend
@@ -233,7 +232,6 @@ fn trait_bridge_register_downcall_passes_vtable_address() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = JavaBackend
@@ -316,7 +314,6 @@ fn bool_function_uses_i32_ffi_layout_and_boolean_wrapper_result() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = JavaBackend
@@ -398,7 +395,6 @@ fn string_return_uses_len_companion_and_bounded_decode() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = JavaBackend
@@ -530,7 +526,6 @@ fn named_param_from_json_is_checked_before_primary_call() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = JavaBackend
@@ -692,7 +687,6 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = resolved_one(
@@ -883,7 +877,6 @@ package = "dev.example"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -945,7 +938,6 @@ fn test_duplicate_error_variant_exception_classes_are_emitted_once() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -987,7 +979,6 @@ fn test_package_default_when_unconfigured() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     // No java package and no scaffold repository configured
@@ -1217,7 +1208,6 @@ fn test_optional_field_defaults_in_builder() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = resolved_one(
@@ -1382,7 +1372,6 @@ fn test_no_standalone_builder_java_file_emitted() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config("com.example");
@@ -1506,7 +1495,6 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend
@@ -1746,7 +1734,6 @@ type = "ChatCompletionRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let backend = JavaBackend;
@@ -1888,7 +1875,6 @@ fn test_bytes_parameter_expansion_in_ffi_descriptor_and_invoke() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = resolved_one(
@@ -2022,7 +2008,6 @@ fn test_dto_emits_as_record_with_fields_only() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config("com.test");
@@ -2089,7 +2074,6 @@ fn test_opaque_handle_type_remains_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config("com.test");
@@ -2230,7 +2214,6 @@ fn test_sum_type_sealed_interface_with_record_variants() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config("com.test");
@@ -2376,7 +2359,6 @@ type = "EventRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let backend = JavaBackend;
@@ -2500,7 +2482,6 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend
@@ -2620,7 +2601,6 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend
@@ -2837,7 +2817,6 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config("dev.test");
@@ -3024,7 +3003,6 @@ type = "EventRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let backend = JavaBackend;
@@ -3115,7 +3093,6 @@ fn facade_unwraps_optional_string_return_via_or_else_null() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config("dev.test");
@@ -3224,7 +3201,6 @@ fn optional_named_method_body_wraps_via_optional_of() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config("dev.test");
@@ -3342,7 +3318,6 @@ fn builder_optional_fields_use_nullable_not_optional_in_setters() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config_with_builder_always("dev.test");
@@ -3429,7 +3404,6 @@ fn json_util_centralizes_from_json_deserialization() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config("dev.test");
@@ -3514,7 +3488,6 @@ Related: `ConversionOptions::output_format` and `Result::unwrap_or()`."#
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config("dev.test");
@@ -3587,7 +3560,6 @@ fn test_trait_bridge_clear_fn_generates_correct_error_handling() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = resolved_one(
@@ -3899,7 +3871,6 @@ fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = resolved_one(
@@ -4037,7 +4008,6 @@ fn test_facade_no_java_lang_imports() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_test_config("com.example");
@@ -4216,7 +4186,6 @@ type = "CrawlRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let result = backend.generate_bindings(&api, &config);

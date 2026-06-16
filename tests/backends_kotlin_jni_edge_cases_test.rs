@@ -146,7 +146,6 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     }
 }
 

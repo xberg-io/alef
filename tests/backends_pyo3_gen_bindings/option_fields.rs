@@ -46,7 +46,6 @@ fn test_option_fields_in_constructor_signature() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -146,7 +145,6 @@ fn test_option_fields_on_has_default_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -225,7 +223,6 @@ fn test_option_fields_with_serde_rename_on_has_default() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -337,7 +334,6 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -449,7 +445,6 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let mut config = make_config();

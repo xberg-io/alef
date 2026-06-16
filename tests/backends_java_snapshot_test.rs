@@ -357,7 +357,6 @@ fn print_generated_java_code() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = resolved_one(

@@ -101,7 +101,6 @@ fn test_error_method_uses_value_receiver() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -180,7 +179,6 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -263,7 +261,6 @@ fn test_zero_default_dto_skips_functional_options() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -374,7 +371,6 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -486,7 +482,6 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -623,7 +618,6 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
@@ -769,7 +763,6 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();

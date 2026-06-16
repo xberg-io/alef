@@ -153,7 +153,6 @@ fn extendr_emits_from_core_for_types_in_return_values() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
-        ..Default::default()
     };
 
     let files = ExtendrBackend
@@ -198,7 +197,6 @@ fn extendr_emits_conversions_for_vec_named_struct_in_return() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
-        ..Default::default()
     };
 
     let files = ExtendrBackend
@@ -258,7 +256,6 @@ fn extendr_emits_conversions_for_struct_variant_enum_payloads() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
-        ..Default::default()
     };
 
     let files = ExtendrBackend

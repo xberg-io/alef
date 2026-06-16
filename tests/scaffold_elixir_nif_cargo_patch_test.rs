@@ -24,7 +24,6 @@ fn scaffold_elixir_nif_cargo_pins_brotli_allocator_crates_as_direct_deps() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
-        ..Default::default()
     };
 
     let config = ResolvedCrateConfig {

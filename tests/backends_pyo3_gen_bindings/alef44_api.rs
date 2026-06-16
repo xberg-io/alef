@@ -54,7 +54,6 @@ fn test_sanitized_field_gets_serde_skip() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -127,7 +126,6 @@ fn test_sanitized_enum_like_field_gets_serde_skip() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -234,7 +232,6 @@ fn test_api_py_uses_keyword_arguments() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let mut config = make_config();
@@ -341,7 +338,6 @@ fn test_async_function_emits_async_def_and_await() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let mut config = make_config();
@@ -449,7 +445,6 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let mut config = make_config();
@@ -630,7 +625,6 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_config();
     let files = backend.generate_public_api(&api, &config).expect("generate public API");

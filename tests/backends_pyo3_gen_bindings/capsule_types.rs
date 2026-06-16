@@ -166,7 +166,6 @@ fn test_capsule_types_end_to_end() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let mut config = make_config();
@@ -463,7 +462,6 @@ fn test_capsule_types_in_methods() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let mut config = make_config();

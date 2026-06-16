@@ -167,7 +167,6 @@ fn test_basic_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -276,7 +275,6 @@ fn test_optional_field_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -392,7 +390,6 @@ fn test_enum_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -446,7 +443,6 @@ fn test_stubs_with_no_stubs_config() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     // Config WITHOUT stubs configuration
@@ -508,7 +504,6 @@ fn test_type_stubs_with_vec_fields() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -623,7 +618,6 @@ fn test_function_stubs_with_multiple_params() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -732,7 +726,6 @@ fn test_opaque_type_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -775,7 +768,6 @@ fn test_stubs_generated_header_flag() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -835,7 +827,6 @@ fn test_python_keyword_escaping_function_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -927,7 +918,6 @@ fn test_static_method_stubs() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -1168,7 +1158,6 @@ fn test_multiple_types_and_functions() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -1251,7 +1240,6 @@ fn test_builtin_shadowing_params_get_noqa_comment() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -1322,7 +1310,6 @@ fn test_async_function_stub_uses_async_def() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -1408,7 +1395,6 @@ fn test_async_method_stub_uses_async_def() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -1502,7 +1488,6 @@ fn test_pyi_stub_emits_upper_snake_case_enum_variants() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_config_with_stubs();
     let result = backend.generate_type_stubs(&api, &config).unwrap();
@@ -1613,7 +1598,6 @@ fn test_pyi_stub_escapes_python_keyword_variant_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_config_with_stubs();
     let result = backend.generate_type_stubs(&api, &config).unwrap();
@@ -1710,7 +1694,6 @@ fn test_opaque_type_with_constructor_emits_init_stub() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     // Config declares a constructor for DefaultClient with two params.
@@ -1803,7 +1786,6 @@ fn test_opaque_type_without_constructor_omits_init_stub() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_stubs();
@@ -1875,7 +1857,6 @@ fn test_data_enum_typed_dict_literals_use_serde_wire_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let content = backend
@@ -1919,7 +1900,6 @@ fn test_pyi_includes_trait_bridge_registry_functions() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();

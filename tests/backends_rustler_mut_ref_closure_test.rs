@@ -110,7 +110,6 @@ fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let generated = RustlerBackend

@@ -144,7 +144,6 @@ fn cargo_toml_contains_swift_bridge_version() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -181,7 +180,6 @@ fn cargo_toml_contains_crate_name_and_version() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -213,7 +211,6 @@ fn cargo_toml_has_cdylib_and_staticlib() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -245,7 +242,6 @@ fn cargo_toml_contains_swift_extra_dependencies() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let toml = r#"
 [workspace]
@@ -299,7 +295,6 @@ fn lib_rs_contains_bridge_module() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -340,7 +335,6 @@ fn lib_rs_has_extern_rust_block_per_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -383,7 +377,6 @@ fn lib_rs_type_has_constructor_and_getters() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -443,7 +436,6 @@ fn lib_rs_has_free_function_shim() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -498,7 +490,6 @@ fn lib_rs_async_function_blocks_on_tokio_runtime() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -559,7 +550,6 @@ fn lib_rs_result_function_has_map_err_chain() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -593,7 +583,6 @@ fn build_rs_calls_parse_bridges() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -627,7 +616,6 @@ fn emit_returns_three_files() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -665,7 +653,6 @@ fn lib_rs_has_generated_header_comment() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -698,7 +685,6 @@ fn lib_rs_has_wrapper_newtype_for_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -731,7 +717,6 @@ fn lib_rs_enum_extern_block_and_wrapper() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -782,7 +767,6 @@ fn lib_rs_struct_with_enum_field_returns_string() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -927,7 +911,6 @@ fn trait_bridge_sync_unit_methods_emits_box_type_and_trampolines() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let cfg = config_with_bridge("Validator");
@@ -997,7 +980,6 @@ fn trait_bridge_async_method_emits_block_on() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let cfg = config_with_bridge("Processor");
@@ -1049,7 +1031,6 @@ fn inbound_plugin_impl_uses_qualified_super_trait_config_path() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let cfg = config_with_plugin_bridge("TextBackend", "demo::plugin_api::Plugin");
 
@@ -1084,7 +1065,6 @@ fn inbound_plugin_impl_omits_unresolved_simple_super_trait_with_diagnostic() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let cfg = config_with_plugin_bridge("TextBackend", "Plugin");
 
@@ -1133,7 +1113,6 @@ fn cargo_toml_has_license_field() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &config).unwrap();
@@ -1160,7 +1139,6 @@ fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -1191,7 +1169,6 @@ fn cargo_toml_includes_serde_json_dep() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -1265,7 +1242,6 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -1331,7 +1307,6 @@ fn make_minimal_trait_api(trait_name: &str) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     }
 }
 
@@ -1504,7 +1479,6 @@ type = "ChatCompletionRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &config).unwrap();
@@ -1695,7 +1669,6 @@ type = "CompletionRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &config).unwrap();
@@ -1802,7 +1775,6 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -1842,7 +1814,6 @@ fn no_streaming_adapters_emits_no_extra_blocks() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -1951,7 +1922,6 @@ fn option_named_return_on_method_uses_map_not_serde_json() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -2027,7 +1997,6 @@ fn bytes_ref_param_on_method_passes_borrowed_slice() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -2083,7 +2052,6 @@ fn path_param_on_method_converts_to_pathbuf() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -2166,7 +2134,6 @@ fn named_ref_param_on_method_passes_borrow_of_inner() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -2227,7 +2194,6 @@ fn vec_string_ref_param_on_method_converts_to_str_slice() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
@@ -2263,7 +2229,6 @@ fn cargo_toml_two_features_stay_single_line() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let toml = r#"
 [workspace]
@@ -2311,7 +2276,6 @@ fn cargo_toml_three_features_use_multi_line() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let toml = r#"
 [workspace]
@@ -2370,7 +2334,6 @@ fn cargo_toml_multi_line_features_is_valid_toml() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let toml = r#"
 [workspace]
@@ -2519,7 +2482,6 @@ fn function_with_vec_tagged_enum_param_uses_json_deserial() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();

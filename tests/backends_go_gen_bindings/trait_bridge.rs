@@ -118,7 +118,6 @@ fn make_api_with_type(trait_type: TypeDef) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     }
 }
 
@@ -256,7 +255,6 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = GoBackend.generate_bindings(&api, &config).unwrap();
@@ -900,7 +898,6 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config_with_bridges(vec![bridge_cfg]);

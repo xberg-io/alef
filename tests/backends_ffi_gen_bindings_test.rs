@@ -23,7 +23,6 @@ fn make_empty_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     }
 }
 
@@ -166,7 +165,6 @@ fn make_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     }
 }
 
@@ -896,7 +894,6 @@ ffi = "crates/mylib-ffi/src/"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let backend = FfiBackend;
@@ -1065,7 +1062,6 @@ ffi = "crates/mylib-ffi/src/"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let backend = FfiBackend;
@@ -1176,7 +1172,6 @@ ffi = "crates/mylib-ffi/src/"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let backend = FfiBackend;
@@ -1254,7 +1249,6 @@ ffi = "crates/mylib-ffi/src/"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let backend = FfiBackend;
@@ -1325,7 +1319,6 @@ ffi = "crates/mylib-ffi/src/"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let backend = FfiBackend;

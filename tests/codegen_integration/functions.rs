@@ -248,7 +248,6 @@ fn test_collect_trait_imports_empty_when_no_trait_methods() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let result = collect_trait_imports(&api);
@@ -313,7 +312,6 @@ fn test_collect_trait_imports_deduplicates_by_trait_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let result = collect_trait_imports(&api);
@@ -337,7 +335,6 @@ fn test_collect_explicit_core_imports_returns_type_and_enum_names() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let result = collect_explicit_core_imports(&api);
@@ -365,7 +362,6 @@ fn test_collect_explicit_core_imports_is_sorted() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let result = collect_explicit_core_imports(&api);

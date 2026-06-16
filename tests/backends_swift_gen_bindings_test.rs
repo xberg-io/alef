@@ -116,7 +116,6 @@ fn struct_with_primitive_fields_emits_public_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -182,7 +181,6 @@ fn rust_bridge_constructor_omits_binding_excluded_fields() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -242,7 +240,6 @@ fn struct_with_optional_array_and_dict_fields() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -276,7 +273,6 @@ fn struct_with_serde_derives_codable() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -325,7 +321,6 @@ fn primitive_only_serde_struct_without_default_emits_direct_bulk_constructor() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -368,7 +363,6 @@ fn empty_struct_emits_single_line() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -441,7 +435,6 @@ fn unit_only_enum_emits_lower_camel_cases() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -512,7 +505,6 @@ fn data_bearing_enum_emits_associated_values() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -601,7 +593,6 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -695,7 +686,6 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -776,7 +766,6 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -869,7 +858,6 @@ fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -927,7 +915,6 @@ fn sync_function_emits_public_static_func() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -976,7 +963,6 @@ fn async_function_emits_async_keyword() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1021,7 +1007,6 @@ fn error_throwing_function_emits_throws() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1066,7 +1051,6 @@ fn async_throws_function_emits_both_qualifiers() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1126,7 +1110,6 @@ fn error_enum_conforms_to_error_protocol() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1178,7 +1161,6 @@ fn error_enum_named_error_is_renamed_to_module_error() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1302,7 +1284,6 @@ fn error_enum_with_methods_emits_extension_properties() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1407,7 +1388,6 @@ fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1463,7 +1443,6 @@ fn bytes_overload_with_string_return_appends_to_string_for_throws() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1505,7 +1484,6 @@ fn bytes_sync_suffix_stripped_in_wrapper_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1551,7 +1529,6 @@ fn path_first_param_emits_string_path_overload() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1593,7 +1570,6 @@ fn no_bytes_or_path_functions_emits_no_wrapper_section() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1647,7 +1623,6 @@ fn async_bytes_function_emits_async_forwarder() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1683,7 +1658,6 @@ fn output_path_uses_pascal_case_module_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1793,7 +1767,6 @@ fn make_streaming_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     }
 }
 
@@ -1991,7 +1964,6 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let toml = r#"
@@ -2112,7 +2084,6 @@ fn opaque_class_method_emits_doc_comment_above_signature() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let toml = r#"
@@ -2235,7 +2206,6 @@ fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let toml = r#"
@@ -2345,7 +2315,6 @@ fn method_with_dto_param_only_adds_throws_even_without_error_type() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let toml = r#"
@@ -2403,7 +2372,6 @@ fn first_class_struct_field_emits_doc_comment_above_let() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
@@ -2457,7 +2425,6 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2537,7 +2504,6 @@ fn complex_dto_with_named_struct_field_emits_first_class_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2599,7 +2565,6 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2675,7 +2640,6 @@ fn forwarder_optional_string_return_emits_json_decode_body() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -2768,7 +2732,6 @@ fn forwarder_named_dto_param_calls_into_rust_before_bridge_call() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -2843,7 +2806,6 @@ fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -2899,7 +2861,6 @@ fn async_function_with_result_and_opaque_param_emits_forwarder() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -2964,7 +2925,6 @@ fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -3023,7 +2983,6 @@ fn swift_string_param_not_wrapped() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();

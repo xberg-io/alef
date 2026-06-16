@@ -125,7 +125,6 @@ fn generate_lib_rs(enum_def: EnumDef) -> String {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_basic_config();
     let files = DartBackend.generate_bindings(&api, &config).unwrap();

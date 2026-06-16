@@ -157,7 +157,6 @@ fn struct_emits_zig_struct() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -207,7 +206,6 @@ fn trait_bridge_complex_return_is_explicitly_unsupported() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_trait_bridge_config()).unwrap();
@@ -259,7 +257,6 @@ fn string_param_allocates_z_string_and_frees() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -321,7 +318,6 @@ fn bytes_param_passes_ptr_and_len() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -376,7 +372,6 @@ fn vec_param_takes_json_slice() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -448,7 +443,6 @@ fn result_function_checks_last_error_code() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -507,7 +501,6 @@ fn async_function_is_emitted_as_sync() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -540,7 +533,6 @@ fn helpers_are_always_emitted() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -622,7 +614,6 @@ fn enum_emits_zig_enum_or_union() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -649,7 +640,6 @@ fn optional_field_uses_zig_optional_syntax() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -702,7 +692,6 @@ fn error_set_emits_zig_error_with_pascal_case_tags() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -801,7 +790,6 @@ fn opaque_handle_with_no_methods_is_emitted() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -867,7 +855,6 @@ fn bool_return_emits_not_zero_conversion() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -944,7 +931,6 @@ fn bool_return_in_error_union_emits_not_zero_conversion() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1000,7 +986,6 @@ fn string_param_infallible_defers_free_after_c_call() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1091,7 +1076,6 @@ fn error_set_includes_out_of_memory_and_return_type_is_single_error_set() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1167,7 +1151,6 @@ fn string_param_fallible_defers_free_after_c_call() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1229,7 +1212,6 @@ fn string_return_uses_len_companion_and_pointer_slice() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1291,7 +1273,6 @@ fn optional_string_return_uses_len_companion_with_null_guard() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1367,7 +1348,6 @@ fn from_json_params_check_null_and_defer_handle_cleanup() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
@@ -1447,7 +1427,6 @@ type = "*const std::ffi::c_char"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();
@@ -1583,7 +1562,6 @@ type = "CrawlStreamRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();
@@ -1782,7 +1760,6 @@ type = "CrawlStreamRequest"
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();
@@ -1877,7 +1854,6 @@ fn named_json_return_guards_against_null_to_json_pointer() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;

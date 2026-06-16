@@ -144,7 +144,6 @@ fn json_string_overloads_emitted_for_serde_config() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -212,7 +211,6 @@ fn load_bytes_from_path_or_utf8_helper_emitted() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -284,7 +282,6 @@ fn json_string_overloads_emitted_for_async_and_sync_functions() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();

@@ -122,7 +122,6 @@ fn record_components_omit_field_javadoc_in_multi_line_emit() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let dto = files
@@ -224,7 +223,6 @@ fn opaque_handle_instance_method_emits_javadoc_above_signature() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let class = files
@@ -279,7 +277,6 @@ fn free_function_javadoc_uses_generated_exception_name() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
@@ -358,7 +355,6 @@ fn plain_enum_variants_carry_summary_javadoc() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let mode = files
@@ -420,7 +416,6 @@ fn plain_enum_variant_multiline_summary_preserves_every_line() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    ..Default::default()
 };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let region = files
@@ -482,7 +477,6 @@ fn sealed_interface_variant_multiline_summary_preserves_every_line() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-    ..Default::default()
 };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let policy = files
@@ -545,7 +539,6 @@ fn free_function_facade_emits_javadoc_above_static_method() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let files = backend.generate_bindings(&api, &make_config()).unwrap();
     let combined = files.iter().map(|f| f.content.as_str()).collect::<String>();

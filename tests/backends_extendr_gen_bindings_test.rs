@@ -273,7 +273,6 @@ fn test_basic_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -396,7 +395,6 @@ fn options_decoder_uses_configured_type_and_ir_shapes() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_public_api(&api, &make_options_field_config()).unwrap();
@@ -461,7 +459,6 @@ fn test_type_mapping() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -556,7 +553,6 @@ fn test_enum_generation() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -696,7 +692,6 @@ fn test_emits_binding_to_core_from_impls_for_input_types() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation");
@@ -830,7 +825,6 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
     let config = make_config();
     let files = backend.generate_bindings(&api, &config).expect("generation");
@@ -898,7 +892,6 @@ fn test_generated_header() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -1001,7 +994,6 @@ fn r_method_wrappers_bind_self_without_mutating_method_environment() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let files = backend.generate_public_api(&api, &make_config()).unwrap();
@@ -1116,7 +1108,6 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -1193,7 +1184,6 @@ mod trait_bridge {
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
-            ..Default::default()
         }
     }
 
@@ -1680,7 +1670,6 @@ mod trait_bridge {
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
-            ..Default::default()
         };
 
         // Config with exclude_functions for R
@@ -1969,7 +1958,6 @@ fn extendr_underscore_prefix_stripped_from_r_params() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();
@@ -2080,7 +2068,6 @@ fn test_emits_reference_for_named_non_opaque_struct_params() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
-        ..Default::default()
     };
 
     let config = make_config();

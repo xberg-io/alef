@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(tests/benches): drop redundant `..Default::default()` from struct initializers covering every named field.** Rust 1.96 clippy `needless_update` (now `-D warnings` in CI) flagged 561 trailing `..Default::default()` lines in tests and benches where the named field list was already exhaustive (`ApiSurface`, `FunctionDef`, `TypeDef`, `EnumDef`, etc.). Removed the trailing line in-place across 80 files. No semantic change — the struct literals were already complete; the spread was dead code. Restores `cargo clippy --workspace --all-targets -- -D warnings` to clean.
+
 - **(scaffold/ruby): satisfy yard-coverage on generated `Rakefile`.** YARD flagged `GEM_ROOT`, plus the reopened `RbSys`, `RbSys::Cargo`, and `RbSys::Cargo::Metadata` modules/class as undocumented, dragging documentation coverage below the configured threshold and failing the `yard-coverage` prek hook on every consumer regen. Added a one-line doc comment to `GEM_ROOT` and `# @!visibility private` directives to each reopened `RbSys::*` namespace so YARD excludes them from the coverage denominator (they are private monkey-patches of a third-party gem, not public API).
 
 ## [0.25.18] - 2026-06-16
