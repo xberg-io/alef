@@ -108,7 +108,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     // `error: unexpected cfg condition value: X` and, when the cfg'd item is a
     // method inside a `#[php_impl]` block, a fatal E0599. Enable them all by
     // default so `#[cfg(feature = "X")]` arms compile unconditionally.
-    let core_dep_name = &config.name; // e.g. "liter-llm" — the Cargo dep key
+    let core_dep_name = &config.name; // e.g. "sample-core" — the Cargo dep key
     let cfg_forwarding: String = {
         let features = crate::codegen::cfg::collect_cfg_features(api);
         if features.is_empty() {
