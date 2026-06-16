@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.23] - 2026-06-16
+
 ### Fixed
 
 - **(docs/api-reference): escape square brackets in type signatures to prevent Zensical link parsing.** Type signatures like `` `list[Table]` `` in markdown table cells were misinterpreted by Zensical's CommonMark parser as link references, causing "unresolved reference" warnings in strict mode. Zensical sees `[Table]` inside backticks and treats it as a `[ref]` link target, not literal text. Fix: updated `escape_table_cell()` to escape `[` as `\[` and `]` as `\]`, so generated type strings like `` `list\[Table\]` `` are parsed as literal escaped brackets. Affected 70+ lines across all 16 language API documentation files when `alef docs` generates `docs/reference/api-*.md`. CI `task docs:build:strict` now passes without unresolved reference warnings.
