@@ -489,9 +489,14 @@ type = "string"
     );
 }
 
-// -- Bug F: multi-line string literal content must start on new line after """ --
-
+// -- Bug F (obsolete): multi-line `"""` string literal regression --
+// The harness has migrated to chunked `let _FIXTURES_JSON: String = [...].joined()`;
+// the in-repo unit test
+// `app_harness_renders_fixtures_json_chunks_without_multiline_string_syntax_error`
+// in `src/e2e/codegen/swift/tests.rs` covers the current shape. This integration
+// test is left disabled to keep the historical bug list intact.
 #[test]
+#[ignore = "obsolete: harness no longer uses triple-quote multi-line strings"]
 fn harness_fixtures_json_multi_line_string_starts_on_new_line_after_quotes() {
     let toml = r#"
 [workspace]

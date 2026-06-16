@@ -76,6 +76,52 @@ enum AlefE2EMockServer {{
     )
 }
 
+/// Split a string into UTF-8-safe chunks of max ~30000 bytes.
+/// Each chunk is wrapped as a Swift raw string literal with a safe delimiter level.
+fn chunk_fixtures_for_swift(json: &str) -> Vec<String> {
+    const CHUNK_SIZE: usize = 30000;
+
+    // Find the longest consecutive run of `#` characters in the JSON.
+    // Swift raw string delimiters use `#"..."#`, `##"..."##`, etc., where
+    // the number of `#` on both sides must match and exceed any consecutive `#`
+    // run inside the string content.
+    let mut max_hash_run = 0;
+    let mut current_run = 0;
+    for c in json.chars() {
+        if c == '#' {
+            current_run += 1;
+            max_hash_run = max_hash_run.max(current_run);
+        } else {
+            current_run = 0;
+        }
+    }
+    // Use one more `#` than the longest run to guarantee no collision.
+    let delimiter_level = max_hash_run + 1;
+    let delimiter = "#".repeat(delimiter_level);
+
+    let mut chunks = Vec::new();
+
+    // Split at UTF-8 char boundaries (not byte boundaries) to avoid breaking
+    // multi-byte UTF-8 sequences.
+    let mut current_chunk = String::new();
+    for c in json.chars() {
+        // If adding this char would exceed CHUNK_SIZE, save current chunk and start new one.
+        if !current_chunk.is_empty() && current_chunk.len() + c.len_utf8() > CHUNK_SIZE {
+            // Wrap the chunk in a raw string literal.
+            chunks.push(format!("{0}\"{1}\"{0}", delimiter, current_chunk));
+            current_chunk.clear();
+        }
+        current_chunk.push(c);
+    }
+
+    // Don't forget the last chunk.
+    if !current_chunk.is_empty() {
+        chunks.push(format!("{0}\"{1}\"{0}", delimiter, current_chunk));
+    }
+
+    chunks
+}
+
 pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], module_name: &str) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();
@@ -108,6 +154,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     }
 
     let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+    let fixtures_json_chunks = chunk_fixtures_for_swift(&fixtures_json);
 
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
@@ -148,7 +195,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
         response_body_field => e2e_config.harness.response_body_field.as_str(),
         host => host,
         port => port,
-        fixtures_json => fixtures_json,
+        fixtures_json_chunks => fixtures_json_chunks,
     };
 
     crate::e2e::template_env::render("swift/app_harness.swift.jinja", ctx)

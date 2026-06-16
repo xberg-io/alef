@@ -301,3 +301,50 @@ fn test_file_renders_no_env_block_when_env_empty() {
         "empty env should not produce any setenv calls"
     );
 }
+
+/// Regression test: verify that app harness generates valid Swift multi-line
+/// string literals. The bug was that template trim settings ate the newline
+/// between `"""` and the first JSON chunk, producing invalid syntax like
+/// `let _FIXTURES_JSON = """{...` instead of `let _FIXTURES_JSON = [...].joined()`.
+///
+/// The fix moves chunking to Rust and uses raw string literals that Swift
+/// compiles directly without multiline-string issues.
+#[test]
+fn app_harness_renders_fixtures_json_chunks_without_multiline_string_syntax_error() {
+    use crate::e2e::config::E2eConfig;
+    use crate::e2e::fixture::FixtureGroup;
+
+    // Test with an empty fixture group first to check basic structure.
+    let group = FixtureGroup {
+        category: "test".to_string(),
+        fixtures: vec![],
+    };
+
+    let e2e_config = E2eConfig::default();
+    let output = super::project::render_app_harness(&e2e_config, &[group], "TestModule");
+
+    // Verify the output does NOT have the bug signature: `"""` followed immediately by `{`.
+    assert!(
+        !output.contains("\"\"\"{{"),
+        "output must not have multiline string opening followed by JSON object on same line"
+    );
+    assert!(
+        !output.contains("\"\"\" {"),
+        "output must not have multiline string opening followed by space and JSON on same line"
+    );
+
+    // Verify the array-based approach is used.
+    assert!(
+        output.contains("let _FIXTURES_JSON: String = ["),
+        "expected array literal pattern: let _FIXTURES_JSON: String = ["
+    );
+
+    // Verify `.joined()` is present (arrays are concatenated).
+    assert!(
+        output.contains("].joined()"),
+        "expected .joined() call to concatenate chunks"
+    );
+
+    // Verify the output is not empty and contains valid Swift structure.
+    assert!(!output.is_empty(), "rendered output should not be empty");
+}

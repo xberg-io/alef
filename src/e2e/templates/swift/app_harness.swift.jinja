@@ -20,14 +20,12 @@ import FoundationNetworking
 
 // Load fixtures from the JSON payload.
 // The fixtures dict contains per-fixture data with handler route, method, body_schema, etc.
-// Split JSON across multiple lines to work around Swift compiler limits on large string literals.
-{% set json = fixtures_json %}
-{% set chunk_size = 30000 %}
-let _FIXTURES_JSON = """
-{% for i in range((json|length + chunk_size - 1) // chunk_size) -%}
-{{ json[i*chunk_size:(i+1)*chunk_size] }}
-{% endfor -%}
-"""
+// Split JSON across multiple raw string literals (safe delimiters computed in Rust).
+let _FIXTURES_JSON: String = [
+{%- for chunk in fixtures_json_chunks %}
+    {{ chunk }},
+{%- endfor %}
+].joined()
 
 guard let _fixturesData = _FIXTURES_JSON.data(using: .utf8),
       let _fixtures = try? JSONSerialization.jsonObject(with: _fixturesData) as? [String: [String: Any]] else {
