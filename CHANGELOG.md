@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(test_apps/node): extend slow-grammar timeout list (earthfile, perl).** Tree-sitter grammars with heavy lexer/scanner code like `earthfile` and `perl` take >30 seconds to load and parse on slow CI runners, causing smoke tests to timeout at the default 30000ms. Extended `is_slow_grammar()` in TypeScript codegen to include `earthfile` and `perl` alongside `vb`, granting all three a 90000ms timeout.
+
 ## [0.25.17] - 2026-06-15
 
 ### Fixed

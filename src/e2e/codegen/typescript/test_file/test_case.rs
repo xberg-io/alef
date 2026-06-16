@@ -343,7 +343,7 @@ fn is_slow_grammar(input: &serde_json::Value) -> bool {
         .and_then(|lang| lang.as_str());
 
     // Grammars with slow parse times: known slow compilation or heavy scanner logic
-    const SLOW_GRAMMARS: &[&str] = &["vb"];
+    const SLOW_GRAMMARS: &[&str] = &["earthfile", "perl", "vb"];
 
     language.map_or(false, |lang| SLOW_GRAMMARS.contains(&lang))
 }
