@@ -1844,3 +1844,144 @@ fn trait_bridge_exclude_languages_suppresses_jni_shim() {
         "excluded trait bridge must not emit clear shim: {content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Bug 2 regression — trait-method `use` clauses
+// ---------------------------------------------------------------------------
+
+/// When a type has a method whose `trait_source` points to a sub-module trait
+/// (one that isn't re-exported at the crate root), the JNI emitted lib.rs MUST
+/// emit a `use <full_trait_path>;` line so the method call resolves. The
+/// lib_header's blanket `use core_crate::*;` only covers crate-root items.
+///
+/// Without this, the emitted `client.method(...)` fails to compile with
+/// `no method named X found for reference &T`.
+#[test]
+fn lib_rs_emits_use_clauses_for_trait_method_paths() {
+    let mut method = make_method("fetch_batch_for_polling", vec![], TypeRef::String, true);
+    method.trait_source = Some("demo::client::BatchRetriever".to_string());
+    method.receiver = Some(ReceiverKind::Ref);
+
+    let client_type = TypeDef {
+        name: "DefaultClient".to_string(),
+        rust_path: "demo::DefaultClient".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+        ..Default::default()
+    };
+
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("use demo::client::BatchRetriever;"),
+        "lib.rs must emit explicit `use` for the trait path; got:\n{content}"
+    );
+    assert!(
+        content.contains("fetch_batch_for_polling"),
+        "lib.rs must still emit the method shim; got:\n{content}"
+    );
+}
+
+/// When two traits share the same final segment (e.g. `a::Dependency` and
+/// `b::Dependency`), `collect_trait_imports` deduplicates by last segment and
+/// keeps the shortest path. The JNI emitter must therefore not emit duplicate
+/// `use` clauses that would trip Rust's E0252.
+#[test]
+fn lib_rs_dedupes_trait_paths_by_last_segment() {
+    let mut method_a = make_method("fetch_a", vec![], TypeRef::String, false);
+    method_a.trait_source = Some("demo::short::Dependency".to_string());
+    method_a.receiver = Some(ReceiverKind::Ref);
+
+    let mut method_b = make_method("fetch_b", vec![], TypeRef::String, false);
+    method_b.trait_source = Some("demo::very::long::path::Dependency".to_string());
+    method_b.receiver = Some(ReceiverKind::Ref);
+
+    let client_type = TypeDef {
+        name: "DefaultClient".to_string(),
+        rust_path: "demo::DefaultClient".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![method_a, method_b],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+        ..Default::default()
+    };
+
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // Exactly one `use` line should reference Dependency (the shorter path wins).
+    let count = content.matches("::Dependency;").count();
+    assert_eq!(
+        count, 1,
+        "expected exactly one Dependency import, got {count}; lib.rs:\n{content}"
+    );
+    assert!(
+        content.contains("use demo::short::Dependency;"),
+        "shorter path must be picked; got:\n{content}"
+    );
+}

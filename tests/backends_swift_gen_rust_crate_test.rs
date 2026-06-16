@@ -1517,6 +1517,21 @@ type = "ChatCompletionRequest"
         "extern block must declare DefaultClientChatStreamStreamHandle; got:\n{}",
         lib.content
     );
+    // The streaming extern block references `&DefaultClient`, so swift-bridge
+    // requires `type DefaultClient;` to also be declared in this block — but
+    // marked `#[swift_bridge(already_declared)]` so swift-bridge doesn't emit
+    // duplicate `_free` symbols.
+    assert!(
+        lib.content.matches("type DefaultClient;").count() >= 2,
+        "owner type must be declared inside the streaming extern block (≥2 total decls); got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content
+            .contains("#[swift_bridge(already_declared)]\n        type DefaultClient;"),
+        "streaming extern owner decl must use #[swift_bridge(already_declared)]; got:\n{}",
+        lib.content
+    );
     assert!(
         lib.content.contains("fn default_client_chat_stream_start("),
         "extern block must declare default_client_chat_stream_start; got:\n{}",
@@ -1578,6 +1593,133 @@ type = "ChatCompletionRequest"
     assert!(
         lib.content.contains("Ok(String::new())"),
         "next() must return Ok(String::new()) on clean EOF; got:\n{}",
+        lib.content
+    );
+}
+
+/// Two streaming adapters sharing the same `owner_type` must produce exactly
+/// one `type DefaultClient;` declaration in the streaming extern block — not
+/// one per adapter. Duplicate same-block `type` decls are a swift-bridge parse
+/// error.
+#[test]
+fn streaming_adapters_with_shared_owner_emit_single_owner_decl() {
+    use alef::core::ir::ReceiverKind;
+
+    let config = {
+        let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo_lib"
+sources = ["src/lib.rs"]
+
+[[crates.adapters]]
+name = "chat_stream"
+pattern = "streaming"
+core_path = "demo_lib::chat_stream"
+owner_type = "DefaultClient"
+item_type = "ChatCompletionChunk"
+error_type = "DemoError"
+
+[[crates.adapters.params]]
+name = "req"
+type = "ChatCompletionRequest"
+
+[[crates.adapters]]
+name = "completion_stream"
+pattern = "streaming"
+core_path = "demo_lib::completion_stream"
+owner_type = "DefaultClient"
+item_type = "CompletionChunk"
+error_type = "DemoError"
+
+[[crates.adapters.params]]
+name = "req"
+type = "CompletionRequest"
+"#;
+        let cfg: alef::core::config::new_config::NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+        cfg.resolve().expect("test config must resolve").remove(0)
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo_lib".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "DefaultClient".to_string(),
+            rust_path: "demo_lib::DefaultClient".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "chat".to_string(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: true,
+                is_static: false,
+                error_type: Some("DemoError".to_string()),
+                doc: String::new(),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                receiver: Some(ReceiverKind::Ref),
+                trait_source: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+        ..Default::default()
+    };
+
+    let files = gen_rust_crate::emit(&api, &config).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // The streaming extern block must declare `type DefaultClient;` exactly
+    // once even though both adapters share the same owner. (The main extern
+    // block emits the second occurrence of `type DefaultClient;`.)
+    let total_decls = lib.content.matches("type DefaultClient;").count();
+    assert_eq!(
+        total_decls, 2,
+        "expected 2 `type DefaultClient;` decls (1 streaming + 1 main); got {}; lib.rs:\n{}",
+        total_decls, lib.content
+    );
+
+    // Both handle types must be declared in the streaming block.
+    assert!(
+        lib.content.contains("type DefaultClientChatStreamStreamHandle;"),
+        "streaming extern must declare ChatStream handle; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("type DefaultClientCompletionStreamStreamHandle;"),
+        "streaming extern must declare CompletionStream handle; got:\n{}",
         lib.content
     );
 }

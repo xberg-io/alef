@@ -215,4 +215,3 @@ pub(super) fn resolve_trait_sources(surface: &mut ApiSurface) {
         }
     }
 }
-

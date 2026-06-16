@@ -4,6 +4,9 @@
 {% if allow_clippy -%}
 #[allow({{ allow_clippy }})]
 {% endif -%}
+{% if source_cfg -%}
+#[cfg({{ source_cfg }})]
+{% endif -%}
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {{ fn_name }}(
 {% for param in params -%}

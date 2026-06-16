@@ -1,3 +1,6 @@
+{% if source_cfg -%}
+#[cfg({{ source_cfg }})]
+{% endif -%}
 /// Serialize a `{{ type_name }}` to a JSON string. Returns null on failure.
 /// # Safety
 /// `ptr` must be a valid, non-null pointer returned by a `{{ prefix }}` function.

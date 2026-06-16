@@ -182,6 +182,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
             fn_name => fn_name.clone(),
             params => params,
             return_type => return_type,
+            source_cfg => typ.cfg.as_deref().unwrap_or(""),
         },
     );
 
@@ -679,6 +680,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
             fn_name => ffi_name.clone(),
             params => params,
             return_type => return_type,
+            source_cfg => func.cfg.as_deref().unwrap_or(""),
         },
     );
 

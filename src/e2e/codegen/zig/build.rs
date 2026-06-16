@@ -467,7 +467,7 @@ pub fn build(b: *std.Build) void {
         // cache lookups.
         if let Some(prev_name) = &prev_run {
             // Depend on the previous test to enforce serial execution
-            content.push_str(&format!("    {test_name}_run.step.dependOn(&{prev_name}_run.step);\n"));
+            content.push_str(&format!("    {test_name}_run.step.dependOn(&{prev_name}.step);\n"));
         }
         content.push_str(&format!("    test_step.dependOn(&{test_name}_run.step);\n\n"));
         prev_run = Some(format!("{test_name}_run"));
@@ -738,6 +738,41 @@ mod zig_build_tests {
             lines.is_empty(),
             "empty env must not emit unconditional setEnvironmentVariable calls, got: {:?}",
             lines
+        );
+    }
+
+    /// Test step dependency sequencing must not duplicate _run suffix.
+    /// Regression test for bug where prev_run already contains _run, but code appended _run again.
+    #[test]
+    fn test_step_dependencies_do_not_duplicate_run_suffix() {
+        let test_filenames = vec![
+            "first_test.zig".to_string(),
+            "second_test.zig".to_string(),
+            "third_test.zig".to_string(),
+        ];
+        let content = render_build_zig(
+            &test_filenames,
+            "demo_client",
+            "demo_client",
+            "demo_client_ffi",
+            "../../crates/demo-client-ffi",
+            ZigBuildFlags {
+                has_file_fixtures: false,
+                needs_mock_server: false,
+            },
+            "test_documents",
+            DependencyMode::Local,
+            false,
+            &std::collections::HashMap::new(),
+        );
+
+        // Verify no double-_run suffixes in dependOn calls.
+        // This is the critical regression test: prev_run should not have _run appended again.
+        // With the bug, identifiers like "conversion_run_run" would appear.
+        assert!(
+            !content.contains("_run_run"),
+            "test step dependency must not contain '_run_run' (double suffix bug), but found in:\n{}",
+            content
         );
     }
 }

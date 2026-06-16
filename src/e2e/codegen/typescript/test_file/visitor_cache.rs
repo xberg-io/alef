@@ -58,6 +58,59 @@ pub(super) fn apply_wasm_visitor_arg(args_str: &str, visitor_arg: &str, binding:
     }
 }
 
+/// Build the `(html, opts)` argument list for a Node visitor test. The NAPI binding reads
+/// the visitor from `options.visitor`, so we always synthesize an options object with the
+/// visitor merged in. The `as any` cast keeps strict-mode TypeScript happy because the
+/// generated `VisitorHandle` field type is opaque.
+pub(super) fn node_visitor_args(args_str: &str, visitor_arg: &str) -> String {
+    if args_str.is_empty() {
+        return format!("{{ visitor: {visitor_arg} as any }}");
+    }
+    if let Some(head) = args_str.strip_suffix(", undefined") {
+        return format!("{head}, {{ visitor: {visitor_arg} as any }}");
+    }
+    // If args_str contains a comma, the last segment is the existing options literal —
+    // spread it so the visitor merges into the user's options object.
+    if let Some((head, tail)) = split_last_top_level_arg(args_str) {
+        return format!("{head}, {{ ...({tail}), visitor: {visitor_arg} as any }}");
+    }
+    format!("{args_str}, {{ visitor: {visitor_arg} as any }}")
+}
+
+/// Split `args_str` into `(everything-before-last-comma, last-arg)`, respecting nested
+/// brace/bracket/paren depth so we don't split inside an object literal or call expression.
+/// Returns `None` when there's no top-level comma.
+fn split_last_top_level_arg(args_str: &str) -> Option<(String, String)> {
+    let mut depth: i32 = 0;
+    let mut last_split: Option<usize> = None;
+    let bytes = args_str.as_bytes();
+    let mut in_string: Option<u8> = None;
+    let mut escape = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if let Some(quote) = in_string {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == quote {
+                in_string = None;
+            }
+            continue;
+        }
+        match b {
+            b'"' | b'\'' | b'`' => in_string = Some(b),
+            b'{' | b'[' | b'(' => depth += 1,
+            b'}' | b']' | b')' => depth -= 1,
+            b',' if depth == 0 => last_split = Some(i),
+            _ => {}
+        }
+    }
+    let split = last_split?;
+    let head = args_str[..split].trim_end().to_string();
+    let tail = args_str[split + 1..].trim_start().to_string();
+    Some((head, tail))
+}
+
 /// Detect if cache isolation is needed: checks if any fixture calls `cleanCache`
 /// and if a `configure` function is available.
 /// Returns (has_clean_cache, has_configure).

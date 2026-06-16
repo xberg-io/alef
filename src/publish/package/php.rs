@@ -562,9 +562,12 @@ sources = ["src/lib.rs"]
             1,
             "expected exactly one file in macOS archive, got: {entries:?}"
         );
+        // PIE 1.4.5+ probes for `{ext}.so` on macOS as well as Linux, so the macOS archive
+        // ships the renamed `.so` alongside its Linux counterpart even though cargo emitted
+        // a `.dylib`. See `c3f90848f fix(php): always stage PIE extension as .so on Unix`.
         assert!(
-            entries[0].ends_with("demo_render.dylib"),
-            "expected demo_render.dylib on macOS at archive root, got: {}",
+            entries[0].ends_with("demo_render.so"),
+            "expected demo_render.so on macOS at archive root, got: {}",
             entries[0]
         );
     }

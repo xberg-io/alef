@@ -1,3 +1,6 @@
+{% if source_cfg -%}
+#[cfg({{ source_cfg }})]
+{% endif -%}
 /// Create a `{{ type_name }}` from a JSON string. Returns null on failure.
 /// # Safety
 /// JSON string must be valid UTF-8 and null-terminated.

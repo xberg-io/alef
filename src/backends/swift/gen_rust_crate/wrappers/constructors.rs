@@ -176,17 +176,20 @@ pub(crate) fn emit_type_constructor_shim(
     let type_name = &ty.name;
     let source_path = resolve_type_path(type_name, source_crate, type_paths);
 
+    let cfg_prefix = ty.cfg.as_deref().map(|c| format!("#[cfg({c})]\n")).unwrap_or_default();
+
     if let Some(body) = custom_body {
         let interpolated = body
             .replace("{type_name}", type_name)
             .replace("{source_path}", &source_path);
         return format!(
             concat!(
-                "pub fn {fn_name}(api_key: String, base_url: Option<String>)",
+                "{cfg_prefix}pub fn {fn_name}(api_key: String, base_url: Option<String>)",
                 " -> Result<{type_name}, String> {{\n",
                 "{interpolated}\n",
                 "}}\n"
             ),
+            cfg_prefix = cfg_prefix,
             fn_name = fn_name,
             type_name = type_name,
             interpolated = interpolated,
@@ -194,9 +197,10 @@ pub(crate) fn emit_type_constructor_shim(
     }
 
     format!(
-        "pub fn {fn_name}(api_key: String, base_url: Option<String>) -> Result<{type_name}, String> {{\n    \
+        "{cfg_prefix}pub fn {fn_name}(api_key: String, base_url: Option<String>) -> Result<{type_name}, String> {{\n    \
          {source_path}::new(api_key, base_url)\n        \
          .map_err(|e| e.to_string())\n        \
-         .map({type_name})\n}}\n"
+         .map({type_name})\n}}\n",
+        cfg_prefix = cfg_prefix,
     )
 }

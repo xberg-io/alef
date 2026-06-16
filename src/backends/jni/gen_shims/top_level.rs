@@ -14,6 +14,19 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         },
     ));
 
+    // Per-trait `use` clauses for trait-method dispatch. The lib_header glob
+    // `use core_crate::*;` only brings items declared at the crate root, so
+    // traits that live in submodules and are NOT `pub use`-d at the root
+    // (Tier-B Rust-public extension points) need explicit imports here.
+    // Without these, every emitted `client.trait_method(...)` call fails
+    // with `no method named X found for reference &T`.
+    //
+    // Mirrors what extendr / rustler / wasm / php / magnus / ffi / dart /
+    // pyo3 / napi already do via the same shared helper.
+    for trait_path in collect_trait_imports(api) {
+        out.push_str(&format!("use {trait_path};\n"));
+    }
+
     // Shared runtime helpers.
     emit_runtime_helpers(&mut out);
 

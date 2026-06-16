@@ -34,6 +34,11 @@ pub(super) fn resolve_handle_config_type(
     })
 }
 
+fn find_default_options_literal(args_str: &str, opts_type: &str) -> Option<usize> {
+    let needle = format!(", new {opts_type}()");
+    args_str.find(&needle)
+}
+
 pub struct CSharpCodegen;
 
 impl E2eCodegen for CSharpCodegen {
@@ -622,6 +627,16 @@ fn render_test_method(
             // Options parameter is null in the middle; replace it
             setup_lines.push(format!("var options = new {opts_type} {{ Visitor = {visitor_arg} }};"));
             args_str.replace(", null,", ", options,")
+        } else if let Some(idx) = find_default_options_literal(&args_str, opts_type) {
+            // Replace `, new ConversionOptions()` with `, options`
+            setup_lines.push(format!("var options = new {opts_type} {{ Visitor = {visitor_arg} }};"));
+            let mut replaced = args_str[..idx].to_string();
+            replaced.push_str(", options");
+            let rest_start = idx + format!(", new {opts_type}()").len();
+            if let Some(rest) = args_str.get(rest_start..) {
+                replaced.push_str(rest);
+            }
+            replaced
         } else if args_str.is_empty() {
             // No options were provided; create new instance with Visitor
             setup_lines.push(format!("var options = new {opts_type} {{ Visitor = {visitor_arg} }};"));

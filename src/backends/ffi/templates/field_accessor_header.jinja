@@ -1,3 +1,6 @@
+{% if source_cfg -%}
+#[cfg({{ source_cfg }})]
+{% endif -%}
 /// Get the `{{ field_name }}` field from a `{{ type_name }}`.
 /// # Safety
 /// Pointer must be a valid handle returned by this library.

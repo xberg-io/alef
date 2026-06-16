@@ -406,7 +406,6 @@ pub(super) fn swift_adapter_conversions(
     method: &crate::core::ir::MethodDef,
     exclude_types: &HashSet<String>,
 ) -> (Vec<String>, String) {
-    use crate::core::ir::PrimitiveType;
     let mut setup_lines: Vec<String> = Vec::new();
     let call_args: Vec<String> = method
         .params
@@ -457,9 +456,6 @@ pub(super) fn swift_adapter_conversions(
                     }
                     _ => snake,
                 },
-                TypeRef::Primitive(PrimitiveType::Usize) | TypeRef::Primitive(PrimitiveType::Isize) => {
-                    format!("Int({snake})")
-                }
                 _ => snake,
             }
         })

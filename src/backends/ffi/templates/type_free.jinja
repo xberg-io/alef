@@ -1,3 +1,6 @@
+{% if source_cfg -%}
+#[cfg({{ source_cfg }})]
+{% endif -%}
 /// Free a `{{ type_name }}` handle.
 /// # Safety
 /// Pointer must have been returned by this library, or be null.

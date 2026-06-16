@@ -9,7 +9,7 @@ use super::super::assertions::render_assertion;
 use super::super::visitors::build_typescript_visitor;
 use super::args::build_args_and_setup;
 use super::helpers::{canonical_ts_type_name, resolve_node_function_name};
-use super::visitor_cache::{apply_wasm_visitor_arg, wasm_visitor_binding};
+use super::visitor_cache::{apply_wasm_visitor_arg, node_visitor_args, wasm_visitor_binding};
 
 pub(super) fn render_test_case(
     out: &mut String,
@@ -152,19 +152,9 @@ pub(super) fn render_test_case(
             args_str
         }
     } else if lang == "node" {
-        // Node: napi-rs cannot deserialize `Option<Object<'static>>` fields from a JS object
-        // property, so visitors must be passed as the third positional argument to convert.
-        // The generated bridge-aware function reads this kwarg directly and wraps it via
-        // the configured trait bridge.
-        if args_str.is_empty() {
-            format!("undefined, undefined, {visitor_arg}")
-        } else if args_str.contains(", ") {
-            // args_str already includes options (e.g. `html, opts`). Append visitor as 3rd.
-            format!("{args_str}, {visitor_arg}")
-        } else {
-            // Only positional html present; pad options with undefined.
-            format!("{args_str}, undefined, {visitor_arg}")
-        }
+        // Node: visitor is read off `options.visitor` by the NAPI binding. Cast through
+        // `any` so the plain visitor object satisfies the opaque `VisitorHandle` field type.
+        node_visitor_args(&args_str, &visitor_arg)
     } else if args_str.is_empty() {
         format!("{{ visitor: {visitor_arg} }}")
     } else {

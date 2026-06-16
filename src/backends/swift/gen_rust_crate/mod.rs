@@ -389,21 +389,42 @@ fn emit_lib_rs(
     let enum_names_owned: std::collections::HashSet<String> = enum_names.iter().map(|s| s.to_string()).collect();
     let mut extern_blocks: Vec<String> = Vec::new();
     for ty in &visible_types {
-        // Emit extern decls unconditionally, even for cfg-gated wrapper types.
-        // swift-bridge-build 0.1.59 cannot parse `#[cfg(...)]` *inside* extern blocks,
-        // but it parses bare `type T;` decls fine. The wrapper struct itself is
-        // emitted with `#[cfg(...)]` in `wrappers/constructors.rs`, so when the cfg
-        // is satisfied the link target exists; when it isn't, the consumer would
-        // already be missing the upstream feature and hit linker errors regardless.
-        // Skipping the extern decl entirely (the previous behaviour) leaves parent
-        // types referencing the wrapper unresolvable to swift-bridge's parser.
-        extern_blocks.push(extern_block::emit_extern_block_for_type(
+        // Wrap each extern block in `#[cfg(feature = "...")]` when the type carries a
+        // cfg condition.  swift-bridge 0.1.59 cannot parse `#[cfg(...)]` *inside* an
+        // extern block, but `#[cfg(...)] extern "Rust" { ... }` at the module item
+        // level is valid Rust: the Rust compiler strips the cfg-disabled item before
+        // the proc macro expands, so swift-bridge never sees the decl when the feature
+        // is off.  Without this gate the proc macro unconditionally generates Swift
+        // bridging glue for the type, but the underlying `pub struct T(pub CoreT)` is
+        // `#[cfg(feature = "...")]`-gated in the shims — causing "no type named 'T' in
+        // module 'RustBridge'" when the feature is disabled.
+        let cfg_open = ty
+            .cfg
+            .as_deref()
+            .map(|c| format!("    #[cfg({c})]\n"))
+            .unwrap_or_default();
+        let cfg_close = if ty.cfg.is_some() {
+            // The closing brace is already inside the extern block string, so we only
+            // need to close the `#[cfg]` scope at the right nesting level. Because
+            // `#[cfg]` is an attribute on the whole `extern "Rust" { }` item (not a
+            // standalone scope), no extra braces are needed — the attribute applies to
+            // the next item statement.
+            String::new()
+        } else {
+            String::new()
+        };
+        let raw_block = extern_block::emit_extern_block_for_type(
             ty,
             exclude_fields,
             &type_paths,
             &no_serde_names,
             &enum_names_owned,
-        ));
+        );
+        // Indent the raw block by 4 spaces when it is wrapped in a cfg attribute, to
+        // keep the resulting source readable.  The raw block already begins with "    "
+        // (four-space indent inside `mod ffi`), so no additional indent is needed;
+        // we just prepend the attribute on its own line.
+        extern_blocks.push(format!("{cfg_open}{raw_block}{cfg_close}"));
         // For opaque types with methods, also emit constructor + method extern blocks.
         if ty.is_opaque && !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
             // Only emit the `create_<type>` constructor when the user provides an explicit
@@ -417,21 +438,26 @@ fn emit_lib_rs(
                 .as_ref()
                 .is_some_and(|c| c.client_constructor_body.contains_key(&ty.name));
             if has_ctor_override && let Some(ctor_block) = extern_block::emit_extern_block_for_type_constructor(ty) {
-                extern_blocks.push(ctor_block);
+                extern_blocks.push(format!("{cfg_open}{ctor_block}"));
             }
             if let Some(method_block) =
                 extern_block::emit_extern_block_for_type_methods(ty, &handle_returned_types, &enum_names)
             {
-                extern_blocks.push(method_block);
+                extern_blocks.push(format!("{cfg_open}{method_block}"));
             }
         }
     }
     for en in &visible_enums {
         // Skip result-type enums from the bridge — they're first-class Swift enums
         // and don't need opaque swift-bridge types. Swift calls JSON decoders locally.
-        // Emit cfg-gated enums unconditionally (see comment on the type loop above).
+        // Wrap cfg-gated enums in `#[cfg(...)]` for the same reason as types above.
         if !result_type_enums.contains(&en.name) {
-            extern_blocks.push(extern_block::emit_extern_block_for_enum(en));
+            let raw_block = extern_block::emit_extern_block_for_enum(en);
+            if let Some(cfg) = en.cfg.as_deref() {
+                extern_blocks.push(format!("    #[cfg({cfg})]\n{raw_block}"));
+            } else {
+                extern_blocks.push(raw_block);
+            }
         }
     }
     if !visible_functions.is_empty() {
@@ -655,14 +681,37 @@ fn emit_lib_rs(
     // Skip result-type enums — they are never declared in extern blocks, so they
     // cannot be referenced in phantom Vec declarations without triggering a
     // "Type must be declared with `type T`" swift-bridge parser error.
+    //
+    // cfg-gated types are split into per-type `#[cfg(...)] extern "Rust" { }` blocks
+    // so that when the feature is disabled, swift-bridge never sees the phantom Vec
+    // declaration (the proc macro would otherwise generate bridging glue for a type
+    // whose `pub struct T` is absent, causing "no type named 'T'" compile errors).
     let vec_accessible_enums: Vec<&EnumDef> = visible_enums
         .iter()
         .filter(|en| !result_type_enums.contains(&en.name))
         .copied()
         .collect();
-    let vec_accessors_block = extern_block::emit_extern_block_for_vec_accessors(&visible_types, &vec_accessible_enums);
+    // Non-cfg-gated types go into a single aggregate phantom Vec extern block.
+    let non_cfg_types: Vec<&TypeDef> = visible_types.iter().copied().filter(|t| t.cfg.is_none()).collect();
+    let non_cfg_enums: Vec<&EnumDef> = vec_accessible_enums.iter().copied().filter(|e| e.cfg.is_none()).collect();
+    let vec_accessors_block = extern_block::emit_extern_block_for_vec_accessors(&non_cfg_types, &non_cfg_enums);
     if !vec_accessors_block.is_empty() {
         out.push_str(&vec_accessors_block);
+    }
+    // cfg-gated types each get their own `#[cfg(...)] extern "Rust" { }` block.
+    for ty in visible_types.iter().filter(|t| t.cfg.is_some()) {
+        let cfg = ty.cfg.as_deref().unwrap();
+        let block = extern_block::emit_extern_block_for_vec_accessors(&[ty], &[]);
+        if !block.is_empty() {
+            out.push_str(&format!("    #[cfg({cfg})]\n{block}"));
+        }
+    }
+    for en in vec_accessible_enums.iter().filter(|e| e.cfg.is_some()) {
+        let cfg = en.cfg.as_deref().unwrap();
+        let block = extern_block::emit_extern_block_for_vec_accessors(&[], &[en]);
+        if !block.is_empty() {
+            out.push_str(&format!("    #[cfg({cfg})]\n{block}"));
+        }
     }
 
     out.push_str("}\n\n");

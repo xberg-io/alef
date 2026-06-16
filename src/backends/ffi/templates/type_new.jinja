@@ -1,3 +1,6 @@
+{% if source_cfg -%}
+#[cfg({{ source_cfg }})]
+{% endif -%}
 /// Construct a new `{{ type_name }}` handle from the provided parameters.
 ///
 /// Returns a heap-allocated `*mut {{ qualified }}` on success, or `null` on failure.

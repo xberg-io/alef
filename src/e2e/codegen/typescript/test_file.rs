@@ -40,7 +40,9 @@ pub(in crate::e2e::codegen::typescript::test_file) use helpers::{
 };
 pub(in crate::e2e::codegen::typescript::test_file) use http::render_http_test_case;
 pub(in crate::e2e::codegen::typescript::test_file) use test_case::render_test_case;
-pub(in crate::e2e::codegen::typescript::test_file) use visitor::{apply_wasm_visitor_arg, wasm_visitor_binding};
+pub(in crate::e2e::codegen::typescript::test_file) use visitor::{
+    apply_wasm_visitor_arg, node_visitor_args, wasm_visitor_binding,
+};
 pub(in crate::e2e::codegen::typescript::test_file) use wasm::{
     collect_transitive_nested_types_for_wasm, derive_nested_types_for_wasm, wasm_class_name,
 };

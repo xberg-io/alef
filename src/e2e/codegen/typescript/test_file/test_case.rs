@@ -142,19 +142,9 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
             args_str
         }
     } else if lang == "node" {
-        // Node: napi-rs cannot deserialize `Option<Object<'static>>` fields from a JS object
-        // property, so visitors must be passed as the third positional argument to convert.
-        // The generated bridge-aware function reads this kwarg directly and wraps it via
-        // the configured trait bridge.
-        if args_str.is_empty() {
-            format!("undefined, undefined, {visitor_arg}")
-        } else if args_str.contains(", ") {
-            // args_str already includes options (e.g. `html, opts`). Append visitor as 3rd.
-            format!("{args_str}, {visitor_arg}")
-        } else {
-            // Only positional html present; pad options with undefined.
-            format!("{args_str}, undefined, {visitor_arg}")
-        }
+        // Node: visitor is read off `options.visitor` by the NAPI binding. Cast through
+        // `any` so the plain visitor object satisfies the opaque `VisitorHandle` field type.
+        node_visitor_args(&args_str, &visitor_arg)
     } else if args_str.is_empty() {
         format!("{{ visitor: {visitor_arg} }}")
     } else {
@@ -345,5 +335,5 @@ fn is_slow_grammar(input: &serde_json::Value) -> bool {
     // Grammars with slow parse times: known slow compilation or heavy scanner logic
     const SLOW_GRAMMARS: &[&str] = &["earthfile", "perl", "vb"];
 
-    language.map_or(false, |lang| SLOW_GRAMMARS.contains(&lang))
+    language.is_some_and(|lang| SLOW_GRAMMARS.contains(&lang))
 }

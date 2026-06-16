@@ -533,6 +533,29 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
 
+    // 0. Owner-type forward declarations. swift-bridge requires every type
+    //    referenced inside an `extern "Rust"` block to be declared in that
+    //    same block. Each `_start(client: &{OwnerType}, …)` references the
+    //    owner type, so we must declare it here even though it's also declared
+    //    in the main extern block emitted by `emit_extern_block_for_type`.
+    //
+    //    The `#[swift_bridge(already_declared)]` attribute tells swift-bridge
+    //    to treat this as a forward reference and NOT regenerate the
+    //    `_free` / Drop trampolines for the type — those live with the
+    //    primary declaration. Without the attribute, swift-bridge emits
+    //    duplicate `__swift_bridge__{Type}__free` symbols and the binding
+    //    crate fails to compile with E0428.
+    let mut owner_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for adapter in &streaming {
+        if let Some(owner) = adapter.owner_type.as_deref() {
+            owner_types.insert(owner.to_string());
+        }
+    }
+    for owner in &owner_types {
+        block.push_str("        #[swift_bridge(already_declared)]\n");
+        block.push_str(&format!("        type {owner};\n"));
+    }
+
     // 1. Opaque handle type declarations. The methods that take `&mut self`
     //    must appear in the same extern block as the type declaration.
     for adapter in &streaming {

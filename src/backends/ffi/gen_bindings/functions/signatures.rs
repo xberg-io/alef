@@ -121,6 +121,9 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function_len_companion(
             context! { clippy => clippy.clone() },
         ));
     }
+    if let Some(cfg) = func.cfg.as_deref() {
+        out.push_str(&format!("#[cfg({cfg})]\n"));
+    }
     out.push_str("#[unsafe(no_mangle)]\n");
     out.push_str("pub unsafe extern \"C\" fn ");
     out.push_str(&ffi_name);

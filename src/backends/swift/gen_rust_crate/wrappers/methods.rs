@@ -342,6 +342,13 @@ pub(crate) fn emit_type_method_shims(
         } else {
             format!(" -> {return_ty}")
         };
+        // Propagate the type-level cfg gate to each method shim so that when
+        // the feature gating the type is off, the shims (which reference the
+        // type) also vanish — preventing "no type named 'T' in module 'RustBridge'"
+        // compile errors.
+        if let Some(cfg) = ty.cfg.as_deref() {
+            out.push_str(&format!("#[cfg({cfg})]\n"));
+        }
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_wrapper_free_fn.rs.jinja",
             minijinja::context! {
