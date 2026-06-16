@@ -9,6 +9,8 @@ pub(crate) mod cargo;
 pub(crate) mod default_construction;
 pub(crate) mod enums;
 pub(crate) mod extern_block;
+mod feature_gate;
+mod json_bridge;
 pub(crate) mod plugin_inbound;
 pub(crate) mod service_app_wrappers;
 pub(crate) mod shims;
@@ -57,7 +59,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     let mut features_owned: Vec<String>;
     let ocr_active = base_features.iter().any(|f| f == "ocr" || f == "full");
     let ocr_wasm_present = base_features.iter().any(|f| f == "ocr-wasm");
-    let source_has_ocr_wasm = source_crate_has_feature(config, &core_crate_dir, "ocr-wasm");
+    let source_has_ocr_wasm = feature_gate::source_crate_has_feature(config, &core_crate_dir, "ocr-wasm");
     let features: &[String] = if ocr_active && !ocr_wasm_present && source_has_ocr_wasm {
         features_owned = base_features.to_vec();
         features_owned.push("ocr-wasm".to_string());
@@ -192,37 +194,6 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     Ok(files)
 }
 
-/// Check whether the umbrella source crate exposes the given feature name in its
-/// on-disk Cargo.toml.
-fn source_crate_has_feature(config: &ResolvedCrateConfig, core_crate_dir: &str, feature: &str) -> bool {
-    let root = match config.workspace_root.as_deref() {
-        Some(p) => p.to_path_buf(),
-        None => match std::env::current_dir() {
-            Ok(p) => p,
-            Err(_) => return false,
-        },
-    };
-    let cargo_toml = root.join("crates").join(core_crate_dir).join("Cargo.toml");
-    let Ok(content) = std::fs::read_to_string(&cargo_toml) else {
-        return false;
-    };
-    // Naive scan: look for `<feature> = [` or `<feature> = "..."` under [features]. Avoids
-    // pulling in a TOML parser dep — the Cargo.toml format here is predictable.
-    let needle_line_start = format!("{feature} =");
-    let mut in_features = false;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') {
-            in_features = trimmed == "[features]";
-            continue;
-        }
-        if in_features && trimmed.starts_with(&needle_line_start) {
-            return true;
-        }
-    }
-    false
-}
-
 fn emit_lib_rs(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -279,13 +250,13 @@ fn emit_lib_rs(
         .types
         .iter()
         .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait)
-        .filter(|t| cfg_satisfied(t.cfg.as_deref(), configured_features))
+        .filter(|t| feature_gate::cfg_satisfied(t.cfg.as_deref(), configured_features))
         .collect();
     let visible_enums: Vec<&EnumDef> = api
         .enums
         .iter()
         .filter(|e| !exclude_types.contains(&e.name))
-        .filter(|e| cfg_satisfied(e.cfg.as_deref(), configured_features))
+        .filter(|e| feature_gate::cfg_satisfied(e.cfg.as_deref(), configured_features))
         .collect();
 
     // Set of enum names (not struct names) so wrappers can use the correct
@@ -347,7 +318,7 @@ fn emit_lib_rs(
         .functions
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
-        .filter(|f| cfg_satisfied(f.cfg.as_deref(), configured_features))
+        .filter(|f| feature_gate::cfg_satisfied(f.cfg.as_deref(), configured_features))
         .filter(|f| {
             !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
         })
@@ -461,22 +432,34 @@ fn emit_lib_rs(
         }
     }
     if !visible_functions.is_empty() {
-        // Skip cfg-gated functions from the extern block. Unlike types (which are
-        // referenced as field types by other types and so must always be declared),
-        // functions are standalone: when the cfg is unsatisfied at consumer build
-        // time the shim disappears and the extern decl would fail to resolve. The
-        // function-shim wrapper emits the body with `#[cfg(...)]` so per-target
-        // feature sets still work; the extern simply doesn't surface that function.
-        let visible: Vec<FunctionDef> = visible_functions
+        // Non-cfg-gated functions go into the aggregate extern "Rust" block.
+        // cfg-gated functions are emitted into per-cfg `#[cfg(...)] extern "Rust" { }`
+        // blocks so that the Rust compiler strips the declaration before swift-bridge's
+        // proc macro runs when the feature is off.  The shim body is also `#[cfg(...)]`-
+        // gated (emitted below), so Swift never sees either the declaration or the
+        // implementation when the feature is disabled.
+        let non_cfg_fns: Vec<FunctionDef> = visible_functions
             .iter()
             .filter(|f| f.cfg.is_none())
             .map(|f| (*f).clone())
             .collect();
-        extern_blocks.push(extern_block::emit_extern_block_for_functions(
-            &visible,
-            &handle_returned_types,
-            &enum_names_owned,
-        ));
+        if !non_cfg_fns.is_empty() {
+            extern_blocks.push(extern_block::emit_extern_block_for_functions(
+                &non_cfg_fns,
+                &handle_returned_types,
+                &enum_names_owned,
+            ));
+        }
+        // Group cfg-gated functions by their cfg condition, then emit one
+        // `#[cfg(...)] extern "Rust" { }` block per distinct condition.
+        let mut cfg_groups: std::collections::BTreeMap<String, Vec<FunctionDef>> = std::collections::BTreeMap::new();
+        for f in visible_functions.iter().filter(|f| f.cfg.is_some()) {
+            cfg_groups.entry(f.cfg.clone().unwrap()).or_default().push((*f).clone());
+        }
+        for (cfg_cond, fns) in &cfg_groups {
+            let block = extern_block::emit_extern_block_for_functions(fns, &handle_returned_types, &enum_names_owned);
+            extern_blocks.push(format!("    #[cfg({cfg_cond})]\n{block}"));
+        }
     }
     for (_bridge_cfg, trait_def) in &active_bridges {
         extern_blocks.push(trait_bridge::emit_extern_block_for_trait_bridge(
@@ -553,7 +536,7 @@ fn emit_lib_rs(
     // e2e tests can deserialise fixture JSON into the strongly-typed request
     // objects expected by the swift-bridge wrappers.
     let extra_serde_param_types: Vec<&TypeDef> =
-        collect_serde_param_types(api, &visible_types, &visible_functions, &[]);
+        json_bridge::collect_serde_param_types(api, &visible_types, &visible_functions, &[]);
 
     // Collect streaming item types that have serde derives.  The Swift streaming
     // wrapper uses `RustBridge.{itemType}FromJson(json)` — a Rust-side free
@@ -621,7 +604,7 @@ fn emit_lib_rs(
         for ty in &extra_serde_param_types {
             let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
             let type_name = &ty.name;
-            emit_from_json_extern_decl(&mut out, &type_snake, type_name);
+            json_bridge::emit_from_json_extern_decl(&mut out, &type_snake, type_name);
         }
         out.push_str("    }\n");
     }
@@ -633,7 +616,7 @@ fn emit_lib_rs(
         for ty in &streaming_item_types {
             let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
             let type_name = &ty.name;
-            emit_from_json_extern_decl(&mut out, &type_snake, type_name);
+            json_bridge::emit_from_json_extern_decl(&mut out, &type_snake, type_name);
         }
         out.push_str("    }\n");
     }
@@ -646,7 +629,7 @@ fn emit_lib_rs(
         for ty in &json_fallback_types {
             let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
             let type_name = &ty.name;
-            emit_from_json_extern_decl(&mut out, &type_snake, type_name);
+            json_bridge::emit_from_json_extern_decl(&mut out, &type_snake, type_name);
         }
         out.push_str("    }\n");
     }
@@ -671,7 +654,7 @@ fn emit_lib_rs(
         for en in &json_fallback_enums_filtered {
             let enum_snake = AsSnakeCase(en.name.as_str()).to_string();
             let enum_name = &en.name;
-            emit_from_json_extern_decl(&mut out, &enum_snake, enum_name);
+            json_bridge::emit_from_json_extern_decl(&mut out, &enum_snake, enum_name);
         }
         out.push_str("    }\n");
     }
@@ -693,7 +676,11 @@ fn emit_lib_rs(
         .collect();
     // Non-cfg-gated types go into a single aggregate phantom Vec extern block.
     let non_cfg_types: Vec<&TypeDef> = visible_types.iter().copied().filter(|t| t.cfg.is_none()).collect();
-    let non_cfg_enums: Vec<&EnumDef> = vec_accessible_enums.iter().copied().filter(|e| e.cfg.is_none()).collect();
+    let non_cfg_enums: Vec<&EnumDef> = vec_accessible_enums
+        .iter()
+        .copied()
+        .filter(|e| e.cfg.is_none())
+        .collect();
     let vec_accessors_block = extern_block::emit_extern_block_for_vec_accessors(&non_cfg_types, &non_cfg_enums);
     if !vec_accessors_block.is_empty() {
         out.push_str(&vec_accessors_block);
@@ -888,7 +875,7 @@ fn emit_lib_rs(
         } else {
             source_path_base
         };
-        emit_from_json_shim(&mut out, &type_snake, type_name, &source_path, type_name);
+        json_bridge::emit_from_json_shim(&mut out, &type_snake, type_name, &source_path, type_name);
     }
 
     // Emit from_json shim implementations for streaming item types.
@@ -904,7 +891,7 @@ fn emit_lib_rs(
         } else {
             source_path_base
         };
-        emit_from_json_shim(&mut out, &type_snake, type_name, &source_path, type_name);
+        json_bridge::emit_from_json_shim(&mut out, &type_snake, type_name, &source_path, type_name);
     }
 
     // Emit from_json shim implementations for any other DTO that Swift will JSON-encode
@@ -920,7 +907,7 @@ fn emit_lib_rs(
         } else {
             source_path_base
         };
-        emit_from_json_shim(&mut out, &type_snake, type_name, &source_path, type_name);
+        json_bridge::emit_from_json_shim(&mut out, &type_snake, type_name, &source_path, type_name);
     }
 
     // Enum from_json bodies — deserialise the source enum and wrap in the
@@ -932,138 +919,8 @@ fn emit_lib_rs(
         let source_path =
             crate::codegen::generators::type_paths::resolve_type_path(enum_name, &source_crate, &type_paths);
         let map_expr = format!("{enum_name}::from");
-        emit_from_json_shim(&mut out, &enum_snake, enum_name, &source_path, &map_expr);
+        json_bridge::emit_from_json_shim(&mut out, &enum_snake, enum_name, &source_path, &map_expr);
     }
 
     out
-}
-
-fn emit_from_json_extern_decl(out: &mut String, snake_name: &str, wrapper_name: &str) {
-    use heck::ToLowerCamelCase;
-
-    let fn_name = format!("{snake_name}_from_json");
-    out.push_str(&crate::backends::swift::template_env::render(
-        "rust_from_json_extern_decl.rs.jinja",
-        minijinja::context! {
-            swift_name => fn_name.to_lower_camel_case(),
-            fn_name => fn_name,
-            wrapper_name => wrapper_name,
-        },
-    ));
-}
-
-fn emit_from_json_shim(out: &mut String, snake_name: &str, wrapper_name: &str, source_path: &str, map_expr: &str) {
-    let fn_name = format!("{snake_name}_from_json");
-    out.push_str(&crate::backends::swift::template_env::render(
-        "rust_from_json_shim.rs.jinja",
-        minijinja::context! {
-            fn_name => fn_name,
-            wrapper_name => wrapper_name,
-            source_path => source_path,
-            map_expr => map_expr,
-        },
-    ));
-}
-
-/// Returns `true` when the `cfg` condition is satisfied by `configured_features`.
-///
-/// Handles:
-/// - `feature = "foo"` — simple single-feature gate
-/// - `any (feature = "foo" , feature = "bar")` — OR of feature gates (alef IR format)
-///
-/// Returns `true` for `None` (no condition) and for any condition format that cannot
-/// be parsed (safe default: include the type and let the compiler surface the error
-/// only if the feature combination is truly incompatible).
-///
-/// NOTE: the alef IR sometimes records a broader cfg condition from a parent module
-/// rather than the exact gate on the specific item.  When all conditions in an `any()`
-/// are features (not target_arch etc.) we check whether ALL of them are present in
-/// the configured features — not just any one.  This is conservative: it only excludes
-/// types that cannot possibly compile given the configured features.
-fn cfg_satisfied(cfg: Option<&str>, configured_features: &HashSet<&str>) -> bool {
-    let Some(cfg_str) = cfg else {
-        return true; // no condition → always visible
-    };
-
-    // `full` is the all-inclusive aggregate feature: every sub-feature is transitively
-    // enabled when `full` is configured. Skip the cfg check entirely in that case.
-    if configured_features.contains("full") {
-        return true;
-    }
-
-    // Simple `feature = "foo"` form.
-    if let Some(rest) = cfg_str.strip_prefix("feature = \"") {
-        if let Some(feature_name) = rest.strip_suffix('"') {
-            return configured_features.contains(feature_name);
-        }
-    }
-
-    // `any (feature = "foo" , feature = "bar" , ...)` form produced by the alef IR extractor.
-    // Extract the parenthesised content and check every listed feature.
-    // We require ALL of the listed features to be absent before excluding a type — i.e. we
-    // include the type if ANY of the listed features is configured.
-    if let Some(inner) = cfg_str
-        .strip_prefix("any (")
-        .or_else(|| cfg_str.strip_prefix("any("))
-        .and_then(|s| s.strip_suffix(')'))
-    {
-        // Split on `,` and parse each clause as `feature = "..."`.
-        let feature_names: Vec<&str> = inner
-            .split(',')
-            .filter_map(|clause| {
-                let trimmed = clause.trim();
-                trimmed.strip_prefix("feature = \"").and_then(|s| s.strip_suffix('"'))
-            })
-            .collect();
-
-        if !feature_names.is_empty() {
-            // any() → include if at least one required feature is present.
-            return feature_names.iter().any(|f| configured_features.contains(f));
-        }
-    }
-
-    // For unrecognised formats, include the type (conservative default).
-    true
-}
-
-/// Collect serde-enabled, non-opaque types from `visible_types` that appear as
-/// parameters in either free functions or type methods, excluding those already
-/// covered by static e2e shims (`already_covered`).
-///
-/// These types need `{type_snake}_from_json` shims so Swift e2e tests can
-/// deserialise fixture JSON into the strongly-typed request objects required by
-/// swift-bridge wrappers (e.g. `ChatCompletionRequest` on `DefaultClient.chat`).
-fn collect_serde_param_types<'a>(
-    api: &'a ApiSurface,
-    visible_types: &[&'a TypeDef],
-    visible_functions: &[&FunctionDef],
-    already_covered: &[&str],
-) -> Vec<&'a TypeDef> {
-    let covered: std::collections::HashSet<&str> = already_covered.iter().copied().collect();
-
-    /// Return true if any param in `params` references the type named `name`.
-    fn param_uses_type(params: &[crate::core::ir::ParamDef], name: &str) -> bool {
-        params.iter().any(|p| p.ty.references_named(name))
-    }
-
-    visible_types
-        .iter()
-        .copied()
-        .filter(|ty| {
-            // Must be serde-enabled and non-opaque (serde types are the request/response structs).
-            ty.has_serde && !ty.is_opaque && !ty.is_trait
-        })
-        .filter(|ty| !covered.contains(ty.name.as_str()))
-        .filter(|ty| {
-            let name = ty.name.as_str();
-            // Check free-function params.
-            let in_free_fn = visible_functions.iter().any(|f| param_uses_type(&f.params, name));
-            // Check method params on all types in the API surface.
-            let in_method = api
-                .types
-                .iter()
-                .any(|t| t.methods.iter().any(|m| param_uses_type(&m.params, name)));
-            in_free_fn || in_method
-        })
-        .collect()
 }

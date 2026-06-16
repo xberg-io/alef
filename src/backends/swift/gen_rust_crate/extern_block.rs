@@ -627,3 +627,94 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
     block.push_str("    }\n\n");
     Some(block)
 }
+
+#[cfg(test)]
+mod streaming_extern_tests {
+    //! Regression coverage for the `extern "Rust"` block emitted for streaming
+    //! adapters. swift-bridge's `__swift_bridge__{Type}__free` symbol is generated
+    //! once per `type {Type};` declaration. When the same opaque handle (e.g.
+    //! `CrawlEngineHandle`) is declared both in the main bridge block AND in the
+    //! streaming block — without `#[swift_bridge(already_declared)]` on the second
+    //! occurrence — the binding crate fails to compile with E0428:
+    //!
+    //! ```text
+    //! error[E0428]: the name `__swift_bridge__CrawlEngineHandle__free`
+    //!               is defined multiple times
+    //! ```
+    //!
+    //! The streaming emitter MUST reference the owner type inside its own block
+    //! (swift-bridge resolves `client: &Owner` against the enclosing extern block
+    //! only), so the right fix is to forward-declare the owner with the
+    //! `already_declared` attribute that suppresses the duplicate free trampoline.
+
+    use super::emit_extern_block_for_streaming_adapters;
+    use crate::core::config::{AdapterConfig, AdapterParam, AdapterPattern};
+
+    fn streaming_adapter_with_owner(name: &str, owner: &str) -> AdapterConfig {
+        AdapterConfig {
+            name: name.to_string(),
+            pattern: AdapterPattern::Streaming,
+            core_path: format!("sample_crate::{name}"),
+            params: vec![AdapterParam {
+                name: "req".to_string(),
+                ty: "sample_crate::StreamRequest".to_string(),
+                optional: false,
+            }],
+            returns: None,
+            error_type: Some("String".to_string()),
+            owner_type: Some(owner.to_string()),
+            item_type: Some("StreamItem".to_string()),
+            gil_release: false,
+            trait_name: None,
+            trait_method: None,
+            detect_async: false,
+            request_type: Some("sample_crate::StreamRequest".to_string()),
+            skip_languages: vec![],
+        }
+    }
+
+    #[test]
+    fn streaming_extern_block_forward_declares_owner_with_already_declared() {
+        let adapters = vec![streaming_adapter_with_owner("crawl_stream", "CrawlEngineHandle")];
+        let block =
+            emit_extern_block_for_streaming_adapters(&adapters).expect("streaming adapter should produce a block");
+
+        assert!(
+            block.contains("#[swift_bridge(already_declared)]"),
+            "streaming extern block must mark owner forward-decl with already_declared \
+             to avoid duplicate __swift_bridge__{{Owner}}__free symbols:\n{block}"
+        );
+
+        let attr_idx = block
+            .find("#[swift_bridge(already_declared)]")
+            .expect("already_declared attribute must be present");
+        let owner_decl = "type CrawlEngineHandle;";
+        let owner_idx = block
+            .find(owner_decl)
+            .expect("owner forward declaration must be present");
+        assert!(
+            attr_idx < owner_idx,
+            "already_declared attribute must immediately precede the owner `type` declaration:\n{block}"
+        );
+    }
+
+    #[test]
+    fn streaming_extern_block_emits_owner_only_once_per_unique_owner() {
+        // Two streaming adapters that share an owner — the forward declaration
+        // must be emitted exactly once, not duplicated across adapters.
+        let adapters = vec![
+            streaming_adapter_with_owner("crawl_stream", "CrawlEngineHandle"),
+            streaming_adapter_with_owner("batch_crawl_stream", "CrawlEngineHandle"),
+        ];
+        let block =
+            emit_extern_block_for_streaming_adapters(&adapters).expect("streaming adapters should produce a block");
+
+        let occurrences = block.matches("type CrawlEngineHandle;").count();
+        assert_eq!(
+            occurrences, 1,
+            "owner handle `CrawlEngineHandle` must appear exactly once in the streaming \
+             extern block (regardless of how many adapters share the owner); \
+             found {occurrences} occurrences in:\n{block}"
+        );
+    }
+}
