@@ -246,6 +246,27 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     current_gen_paths.insert(base_dir.join(&file.path));
                 }
 
+                // scaffold_swift emits the root Package.swift with the
+                // `v__ALEF_SWIFT_VERSION__` placeholder so the VCS file stays
+                // stable across version bumps. SwiftPM consumers using
+                // `.package(url: ..., from: "X.Y.Z")` read the tag's checked-in
+                // Package.swift, so the placeholder must be substituted before
+                // the release commit — otherwise the .binaryTarget URL still
+                // resolves to `…/releases/download/v__ALEF_SWIFT_VERSION__/…`
+                // and SwiftPM fails with HTTP 404. `alef sync-versions` also
+                // applies this substitution, but `alef all --clean` regenerates
+                // the scaffold after sync, overwriting the substituted file.
+                // Re-apply it here as the final step.
+                if !api.version.is_empty() {
+                    let pkg = base_dir.join("Package.swift");
+                    if let Ok(content) = std::fs::read_to_string(&pkg) {
+                        let updated = content.replace("v__ALEF_SWIFT_VERSION__", &format!("v{}", api.version));
+                        if updated != content {
+                            std::fs::write(&pkg, updated)?;
+                        }
+                    }
+                }
+
                 eprintln!("Generating READMEs...");
                 let readme_languages = crate::readme::expand_configured_readme_languages(resolved_cfg, &languages);
                 let readme_files = pipeline::readme(&api, resolved_cfg, &readme_languages)?;

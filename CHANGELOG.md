@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(backends/go): skip `copyLibraryToBindingPackage` when source and destination paths alias.** `determinePaths` returns the same `moduleRoot/.lib/<rid>` path for both `cacheBase` and `bindingLibDir`, so the post-extract copy iterates over the just-extracted files and calls `os.Create` on each — which truncates the destination first. With `src == dst`, the truncation zeroes the file before `io.Copy` reads from it, leaving a 0-byte `libkreuzcrawl_ffi.dylib`. cgo's link step then fails with `ld: file is empty in '…/.lib/macos-arm64/libkreuzcrawl_ffi.dylib'`. Fix: compare absolute paths and return early when they match. Affects every Go FFI consumer that runs `go generate` against the published module.
+- **(bin_cli/all): re-apply `v__ALEF_SWIFT_VERSION__` substitution in root `Package.swift` after scaffold emission.** `scaffold_swift` emits the manifest with the placeholder so the VCS file stays stable across version bumps. `alef sync-versions` substitutes it correctly, but the Taskfile-driven release flow (`task version:set` → `task sync` → `alef generate --clean`) re-runs `alef all` after the substitution, overwriting the manifest with the placeholder again. The placeholder then lands in the release tag's `Package.swift`, so SwiftPM consumers using `.package(url: ..., from: "X.Y.Z")` resolve the tag and download `https://…/releases/download/v__ALEF_SWIFT_VERSION__/<lib>.artifactbundle.zip` → HTTP 404. Substitute the placeholder using `api.version` immediately after the scaffold write so the published tag carries the resolved URL.
+- **(e2e/codegen/brew): preflight-check the formula-installed CLI in `run_tests.sh`.** Previously, missing the formula install surfaced as a cascade of `command not found` lines from every category test; now `run_tests.sh` aborts with `error: brew test_app requires the Homebrew formula to be installed` and prints the exact `brew install` command.
+
 ## [0.25.21] - 2026-06-16
 
 ### Fixed

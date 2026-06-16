@@ -138,6 +138,18 @@ pub(super) fn render_run_tests(categories: &[String], env: &HashMap<String, Stri
     let _ = writeln!(out, "  exit 1");
     let _ = writeln!(out, "fi");
     let _ = writeln!(out);
+    // The brew test_app exercises the formula-installed CLI binary; emit a
+    // pre-flight check so the failure is reported as "install via brew" rather
+    // than a stream of opaque `command not found` errors from each category
+    // test script. CLI binary name is mirrored from the formula's `bin.install`
+    // — we look for any `kreuzcrawl*` or `kreuzberg*` formula binary on PATH.
+    let _ = writeln!(out, "# Verify the brew-installed CLI is on PATH.");
+    let _ = writeln!(out, "if ! command -v kreuzcrawl &>/dev/null && ! command -v kreuzberg &>/dev/null; then");
+    let _ = writeln!(out, "  echo 'error: brew test_app requires the Homebrew formula to be installed' >&2");
+    let _ = writeln!(out, "  echo '       run: brew install kreuzberg-dev/kreuzcrawl/kreuzcrawl' >&2");
+    let _ = writeln!(out, "  exit 1");
+    let _ = writeln!(out, "fi");
+    let _ = writeln!(out);
     let _ = writeln!(out, "PASS=0");
     let _ = writeln!(out, "FAIL=0");
     let _ = writeln!(out);
@@ -336,6 +348,24 @@ mod tests {
         assert!(
             !script.contains("Suite-level environment defaults"),
             "no env block when env empty; got: {script}"
+        );
+    }
+
+    /// Regression: the brew test_app must check that the formula-installed CLI is
+    /// on PATH before invoking it from category tests. Without this preflight the
+    /// failure surfaces as a cascade of `kreuzcrawl: command not found` lines from
+    /// each test, drowning the actionable signal (run `brew install …`).
+    #[test]
+    fn render_run_tests_emits_brew_cli_preflight_check() {
+        let categories = vec!["smoke".to_string()];
+        let script = render_run_tests(&categories, &HashMap::new());
+        assert!(
+            script.contains("Verify the brew-installed CLI is on PATH"),
+            "expected brew CLI preflight check; got:\n{script}"
+        );
+        assert!(
+            script.contains("brew install kreuzberg-dev/kreuzcrawl/kreuzcrawl"),
+            "expected install instruction in brew CLI preflight; got:\n{script}"
         );
     }
 
