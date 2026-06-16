@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.22] - 2026-06-16
+
 ### Fixed
 
 - **(backends/go): skip `copyLibraryToBindingPackage` when source and destination paths alias.** `determinePaths` returns the same `moduleRoot/.lib/<rid>` path for both `cacheBase` and `bindingLibDir`, so the post-extract copy iterates over the just-extracted files and calls `os.Create` on each — which truncates the destination first. With `src == dst`, the truncation zeroes the file before `io.Copy` reads from it, leaving a 0-byte `libkreuzcrawl_ffi.dylib`. cgo's link step then fails with `ld: file is empty in '…/.lib/macos-arm64/libkreuzcrawl_ffi.dylib'`. Fix: compare absolute paths and return early when they match. Affects every Go FFI consumer that runs `go generate` against the published module.
