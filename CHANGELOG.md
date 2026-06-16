@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(dart): absolutize env and script paths in hardened runtime loader.** Dart native library loader now converts environment variable (`FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR`) and `Platform.script`-derived directory paths to absolute before constructing search paths. Prevents hardened-runtime dlopen rejection when env var or script path is relative (rare but possible in certain test/build configurations). All paths passed to `ExternalLibrary.open()` are now guaranteed absolute via `Directory.absolute.path` normalization, preventing "relative path not allowed in hardened program" dlopen errors on macOS.
+
 - **(test_apps/node): extend slow-grammar timeout list (earthfile, perl).** Tree-sitter grammars with heavy lexer/scanner code like `earthfile` and `perl` take >30 seconds to load and parse on slow CI runners, causing smoke tests to timeout at the default 30000ms. Extended `is_slow_grammar()` in TypeScript codegen to include `earthfile` and `perl` alongside `vb`, granting all three a 90000ms timeout.
 
 ## [0.25.17] - 2026-06-15
