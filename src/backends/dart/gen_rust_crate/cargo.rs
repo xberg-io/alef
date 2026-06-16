@@ -366,11 +366,17 @@ pub(crate) fn emit_cargo_toml(
         if features.is_empty() {
             String::new()
         } else {
-            let lines: Vec<String> = features
-                .iter()
-                .map(|name| format!(r#"{name} = ["{core_dep_key}/{name}"]"#))
-                .collect();
-            format!("[features]\n{}", lines.join("\n"))
+            let mut lines: Vec<String> = Vec::with_capacity(features.len() + 1);
+            // Enable all cfg-forwarded features by default so that
+            // `#[cfg(feature = "X")]` arms emitted by the codegen compile
+            // without requiring the caller to explicitly activate them.
+            // Mirrors the swift backend behaviour (see cargo.rs there).
+            let default_list: Vec<String> = features.iter().map(|name| format!("\"{name}\"")).collect();
+            lines.push(format!("default = [{}]", default_list.join(", ")));
+            for name in &features {
+                lines.push(format!(r#"{name} = ["{core_dep_key}/{name}"]"#));
+            }
+            format!("[features]\n{}\n", lines.join("\n"))
         }
     };
 
@@ -551,6 +557,18 @@ mod feature_cfg_tests {
         assert!(
             file.content.contains("[features]"),
             "Cargo.toml must contain a [features] section; got:\n{}",
+            file.content
+        );
+        // The `default` feature must enable all cfg-forwarded features so
+        // `#[cfg(feature = "X")]` arms compile without explicit activation.
+        assert!(
+            file.content.contains("default = ["),
+            "Cargo.toml must contain a `default` feature list; got:\n{}",
+            file.content
+        );
+        assert!(
+            file.content.contains("\"heic\"") && file.content.contains("\"svg\""),
+            "default feature list must include all cfg-forwarded features; got:\n{}",
             file.content
         );
         // frb_expand must still be declared (FRB-internal cfg key, not a feature).

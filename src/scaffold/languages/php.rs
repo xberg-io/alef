@@ -101,6 +101,29 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     let dep_block = dep_entries.join("\n");
     let _ = extra_deps_section;
 
+    // Collect every feature name referenced by a cfg attribute on any type, field,
+    // enum variant, or function in the API surface and emit forwarding entries so
+    // the binding crate can re-export them to the core dep. Without this,
+    // `#[cfg(feature = "X")]` arms emitted by the codegen produce
+    // `error: unexpected cfg condition value: X` and, when the cfg'd item is a
+    // method inside a `#[php_impl]` block, a fatal E0599. Enable them all by
+    // default so `#[cfg(feature = "X")]` arms compile unconditionally.
+    let core_dep_name = &config.name; // e.g. "liter-llm" — the Cargo dep key
+    let cfg_forwarding: String = {
+        let features = crate::codegen::cfg::collect_cfg_features(api);
+        if features.is_empty() {
+            String::new()
+        } else {
+            let mut lines: Vec<String> = Vec::with_capacity(features.len() + 1);
+            let default_list: Vec<String> = features.iter().map(|name| format!("\"{name}\"")).collect();
+            lines.push(format!("default = [{}]", default_list.join(", ")));
+            for name in &features {
+                lines.push(format!(r#"{name} = ["{core_dep_name}/{name}"]"#));
+            }
+            format!("{}\n", lines.join("\n"))
+        }
+    };
+
     let content = format!(
         r#"{pkg_header}
 
@@ -113,7 +136,7 @@ crate-type = ["cdylib"]
 
 [features]
 extension-module = []
-
+{cfg_forwarding}
 [dependencies]
 {dep_block}
 
@@ -121,6 +144,7 @@ extension-module = []
         pkg_header = pkg_header,
         dep_block = dep_block,
         machete_ignored_str = machete_ignored_str,
+        cfg_forwarding = cfg_forwarding,
     );
 
     Ok(vec![GeneratedFile {
