@@ -1,14 +1,16 @@
 use crate::backends::rustler::gen_bindings::helpers::{
     elixir_return_typespec, elixir_safe_param_name, elixir_typespec,
 };
-use crate::backends::rustler::gen_bindings::public_api_args::{json_encode_param_indices, keyword_nif_arg, nif_arg};
+use crate::backends::rustler::gen_bindings::public_api_args::{
+    emit_tagged_enum_encoder, json_encode_param_indices, keyword_nif_arg, nif_arg, tagged_enum_param_map,
+};
 use crate::backends::rustler::gen_bindings::public_api_delegates::append_trait_bridge_delegates;
 use crate::backends::rustler::gen_bindings::public_files::{self, PublicFileContext};
 use crate::backends::rustler::template_env;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{BridgeBinding, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use heck::{ToPascalCase, ToSnakeCase};
 use std::path::PathBuf;
 
@@ -53,6 +55,16 @@ pub(super) fn generate_public_api(
         .filter(|t| t.has_default && !t.is_opaque)
         .map(|t| t.name.clone())
         .collect();
+
+    // Index serde-tagged enums (`#[serde(tag = "...")]`) by name. The wrapper layer
+    // emits a per-enum `encode_<snake>/1` helper for these so callers can pass
+    // idiomatic Elixir tuples / atoms rather than pre-baked wire-shaped maps.
+    let enum_lookup: AHashMap<String, &crate::core::ir::EnumDef> =
+        api.enums.iter().map(|e| (e.name.clone(), e)).collect();
+
+    // Track which tagged enums end up being referenced by a wrapper param. Only
+    // referenced enums get an encoder emitted, keeping the generated module lean.
+    let mut tagged_enums_used: AHashSet<String> = AHashSet::new();
 
     let (output_dir, mut files) = public_files::generated_module_files(
         api,
@@ -132,6 +144,8 @@ pub(super) fn generate_public_api(
         // crosses the boundary as Option<String> JSON, regardless of whether the
         // inner type has a Default impl.
         let json_encode_params = json_encode_param_indices(&func.params, &opaque_types);
+        let tagged_enum_params = tagged_enum_param_map(&func.params, &enum_lookup);
+        tagged_enums_used.extend(tagged_enum_params.values().map(|param| param.enum_name.clone()));
 
         // Detect if this function has a visitor bridge param.
         let visitor_bridge_param_idx: Option<usize> = func.params.iter().position(|p| {
@@ -260,12 +274,12 @@ pub(super) fn generate_public_api(
             let mut nif_call_parts: Vec<String> = required_params
                 .iter()
                 .enumerate()
-                .map(|(idx, req_param)| nif_arg(idx, req_param, &json_encode_params))
+                .map(|(idx, req_param)| nif_arg(idx, req_param, &json_encode_params, &tagged_enum_params))
                 .collect();
             nif_call_parts.extend(optional_ir_params.iter().enumerate().map(|(param_offset, opt_p)| {
                 let opt_idx = required_count + param_offset;
                 let safe_name = elixir_safe_param_name(&opt_p.name);
-                keyword_nif_arg(opt_idx, &safe_name, &json_encode_params)
+                keyword_nif_arg(opt_idx, &safe_name, &json_encode_params, &tagged_enum_params)
             }));
             let nif_call_str = nif_call_parts.join(",\n      ");
             content.push_str(&template_env::render(
@@ -336,7 +350,7 @@ pub(super) fn generate_public_api(
             let single_arity_nif_args: Vec<String> = all_params
                 .iter()
                 .enumerate()
-                .map(|(i, p)| nif_arg(i, p, &json_encode_params))
+                .map(|(i, p)| nif_arg(i, p, &json_encode_params, &tagged_enum_params))
                 .collect();
             content.push_str(&template_env::render(
                 "elixir_def_nif_call.jinja",
@@ -419,7 +433,7 @@ pub(super) fn generate_public_api(
                 .enumerate()
                 .map(|(i, p)| {
                     if i < *arity {
-                        nif_arg(i, p, &json_encode_params)
+                        nif_arg(i, p, &json_encode_params, &tagged_enum_params)
                     } else {
                         "nil".to_string()
                     }
@@ -944,6 +958,26 @@ pub(super) fn generate_public_api(
     // also be surfaced in the public module for e2e and user code.
     let api_fn_names: AHashSet<String> = api.functions.iter().map(|f| f.name.clone()).collect();
     append_trait_bridge_delegates(&mut content, config, &api_fn_names, &native_mod);
+
+    // Emit per-tagged-enum encoder helpers for any tagged enum referenced as a wrapper
+    // parameter. Each encoder accepts idiomatic Elixir input shapes — bare atoms for
+    // unit variants, `{atom, map}` tuples for struct variants, or pre-shaped maps —
+    // and returns a wire-shaped map that round-trips through `Jason.encode!` into the
+    // serde JSON the NIF decoder expects.
+    if !tagged_enums_used.is_empty() {
+        // Sort by enum name for deterministic output.
+        let mut sorted: Vec<&String> = tagged_enums_used.iter().collect();
+        sorted.sort();
+        for enum_name in sorted {
+            if let Some(enum_def) = enum_lookup.get(enum_name) {
+                // Ensure blank line before the helper for mix-format compatibility.
+                if !content.ends_with("\n\n") {
+                    content.push('\n');
+                }
+                content.push_str(&emit_tagged_enum_encoder(enum_def));
+            }
+        }
+    }
 
     // Trim trailing blank lines so `mix format` doesn't see an extra blank before `end`.
     let trimmed = content.trim_end_matches('\n');
