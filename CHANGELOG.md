@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(backends/dart): absolutize fallback library paths before `dlopen` under hardened runtime.** The Dart external library loader's `Platform.script` fallback branch constructed library paths as `'$root/$candidate'` where `$root` could be relative, then passed them to `ExternalLibrary.open(libPath)`. macOS's hardened-runtime process security policy rejects `dlopen` calls with relative paths (`DYLD_DANGEROUS_LOAD` disabled), failing with "relative path not allowed". The fallback now absolutizes each search root before constructing the path: `final absRoot = Directory(root).absolute.path;` then uses `'$absRoot/$candidate'`. Synchronous Dart `File(path).absolute.path` requires no I/O and is idempotent; pre-absolutized paths are unaffected. Fixes dart test_apps on macOS hardened runtime.
+
 ## [0.25.19] - 2026-06-16
 
 ### Added

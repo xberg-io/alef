@@ -232,8 +232,9 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
             absRootPath,
           ];
           for (final root in searchRoots) {{
+            final absRoot = Directory(root).absolute.path;
             for (final candidate in candidates) {{
-              final libPath = '$root/$candidate';
+              final libPath = '$absRoot/$candidate';
               if (candidateExists(libPath)) {{
                 final result = tryOpenAbsolute(libPath);
                 if (result != null) return result;
