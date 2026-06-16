@@ -283,6 +283,8 @@ Bundler::GemHelper.install_tasks name: "{gem_name_snake}"
 require "rb_sys/extensiontask"
 require "rspec/core/rake_task"
 
+# Absolute path to the gem package directory, used as the anchor for resolving
+# the gemspec and the native extension's Cargo manifest.
 GEM_ROOT = __dir__
 # Loaded gemspec used by Rake::ExtensionTask to compile the native extension.
 GEMSPEC = Gem::Specification.load(File.expand_path("{gem_name_snake}.gemspec", GEM_ROOT))
@@ -309,8 +311,11 @@ CROSS_PLATFORMS = %w[
 # is unambiguous regardless of cwd.
 MANIFEST_PATH = File.expand_path("ext/{ext_name}/native/Cargo.toml", GEM_ROOT)
 
+# @!visibility private
 module RbSys
+  # @!visibility private
   module Cargo
+    # @!visibility private
     class Metadata
       manifest_path = MANIFEST_PATH
       define_method(:cargo_metadata) do

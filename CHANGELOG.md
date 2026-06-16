@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(scaffold/ruby): satisfy yard-coverage on generated `Rakefile`.** YARD flagged `GEM_ROOT`, plus the reopened `RbSys`, `RbSys::Cargo`, and `RbSys::Cargo::Metadata` modules/class as undocumented, dragging documentation coverage below the configured threshold and failing the `yard-coverage` prek hook on every consumer regen. Added a one-line doc comment to `GEM_ROOT` and `# @!visibility private` directives to each reopened `RbSys::*` namespace so YARD excludes them from the coverage denominator (they are private monkey-patches of a third-party gem, not public API).
+
 ## [0.25.18] - 2026-06-16
 
 ### Fixed
