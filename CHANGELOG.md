@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(backends/kotlin/gen_bindings/object_wrapper/dto): emit DTO instance methods as camelCase member stubs, not broken top-level funcs.** Kotlin/Android data classes with inherent instance methods (e.g. `ProcessConfig::with_chunking(self, max_size)`) were emitting instance methods as top-level functions AFTER the closing `)` of the constructor, with snake_case locals (`this_json`, `result_json`) and invalid `this` references in top-level context. These methods also called non-existent native methods (`NativeMethods.ProcessConfig_with_chunking`) that were never declared, causing unresolved-reference compile errors in the generated Kotlin code. Fix: instance methods are now emitted inside the data class body (between the constructor `)` and closing `}`), as proper camelCase members that throw `UnsupportedOperationException` with a graceful error message ("withChunking is not yet bridged via JNI; reconstruct via Builder."), matching the Java backend's behavior. The class-body scope is ensured by adding the ` {` suffix to the constructor close (line 189) when `has_instance_methods` is true, and the method body replaces the invalid native-method call with a proper exception throw. Parameter names remain in their declared Kotlin camelCase form (e.g. `maxSize` not `max_size`). New test `kotlin_android_instance_methods_are_class_members_not_top_level_funcs` asserts that instance methods appear inside the class body and throw the correct exception. Regression vectors: any Kotlin/Android data class with instance methods now compiles without unresolved-reference errors; users see a clear runtime error message instead of a silent fallback. (`src/backends/kotlin/gen_bindings/object_wrapper/dto.rs`)
+
 ## [0.25.36] - 2026-06-17
 
 ### Fixed

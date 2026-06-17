@@ -114,10 +114,21 @@ pub(crate) fn emit_type_with_imports(
         field_strings.push(format!("val {name}: {effective_ty_str}{default_suffix}"));
     }
 
+    // Non-opaque data classes may carry inherent instance methods (e.g. `attributes()`,
+    // `intoOwned()`). Kotlin requires these to live inside a class body `{ ... }` appended
+    // after the primary constructor — emitting them after a bare `)` is a syntax error.
+    // Determine up front whether a body is needed so the constructor close and the single-line
+    // shortcut can account for it.
+    use crate::codegen::shared::partition_methods;
+    let (instance_methods, _) = partition_methods(&ty.methods);
+    let instance_methods: Vec<_> = instance_methods.into_iter().filter(|m| !m.sanitized).collect();
+    let has_instance_methods = !instance_methods.is_empty();
+
     let prefix = format!("data class {}", ty.name);
     let use_single_line = !has_field_docs
         && !has_field_annotations
         && !has_flatten_field
+        && !has_instance_methods
         && fits_single_line("", &prefix, &field_strings, "");
 
     if has_flatten_field {
@@ -173,24 +184,20 @@ pub(crate) fn emit_type_with_imports(
             "data_class_close.jinja",
             minijinja::context! {
                 indent => "",
-                suffix => "",
+                // Open a class body when inherent instance methods follow, so they are
+                // emitted inside `data class Foo(...) { ... }` rather than after a bare `)`.
+                suffix => if has_instance_methods { " {" } else { "" },
             },
         ));
     }
 
     // Emit inherent instance methods for non-opaque data classes.
-    // These serialize `this` to JSON, call the JNI external method, and deserialize the result.
-    use crate::codegen::shared::partition_methods;
-    let (instance_methods, _) = partition_methods(&ty.methods);
-
-    for method in instance_methods {
-        if method.sanitized {
-            continue; // Skip sanitized methods
-        }
-
+    // These are graceful stubs that throw UnsupportedOperationException since
+    // instance method bridging via JNI has not been implemented yet.
+    // They live inside the class body opened by the constructor close above.
+    for method in &instance_methods {
         let method_name = heck::AsLowerCamelCase(method.name.as_str()).to_string();
         let return_type_str = kotlin_type_with_string_imports(&method.return_type, false, imports);
-        let extern_method = format!("{}_{}", ty.name, method.name);
 
         // Build parameter signature
         let params_sig: Vec<String> = method
@@ -202,17 +209,6 @@ pub(crate) fn emit_type_with_imports(
             })
             .collect();
 
-        let params_call = if method.params.is_empty() {
-            "this_json".to_string()
-        } else {
-            let mut args = vec!["this_json".to_string()];
-            for p in &method.params {
-                // For now, emit JSON stringification for all params (mirrors C# approach)
-                args.push(format!("JsonTools.stringify({})", p.name));
-            }
-            args.join(", ")
-        };
-
         out.push_str("\n    fun ");
         out.push_str(&method_name);
         out.push('(');
@@ -220,14 +216,17 @@ pub(crate) fn emit_type_with_imports(
         out.push_str("): ");
         out.push_str(&return_type_str);
         out.push_str(" {\n");
-        out.push_str("        val this_json = JsonTools.stringify(this)\n");
-        out.push_str("        val result_json = NativeMethods.");
-        out.push_str(&extern_method);
-        out.push('(');
-        out.push_str(&params_call);
-        out.push_str(")\n");
-        out.push_str("        return JsonTools.parse(result_json)\n");
+        out.push_str("        throw UnsupportedOperationException(\n");
+        out.push_str("            \"");
+        out.push_str(&method_name);
+        out.push_str(" is not yet bridged via JNI; reconstruct via Builder.\"\n");
+        out.push_str("        )\n");
         out.push_str("    }\n");
+    }
+
+    // Close the class body opened by the constructor `) {` when instance methods were emitted.
+    if has_instance_methods {
+        out.push_str("}\n");
     }
 }
 
