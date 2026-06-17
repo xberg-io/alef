@@ -8,9 +8,12 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
-{% if imports %}
-{% for import in imports %}import {{ import }};
-{% endfor %}{% endif %}
+{% if needs_list %}
+import java.util.List;
+{% endif %}
+{% if needs_map %}
+import java.util.Map;
+{% endif %}
 import java.util.concurrent.ConcurrentHashMap;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -55,9 +58,16 @@ public final class {{ bridge_class }} implements AutoCloseable {
     }
 
     private void initializeStubs() throws ReflectiveOperationException {
-        long offset = 0L;
+        // Each stub is allocated by its own helper to keep this dispatcher and each
+        // helper well under checkstyle's MethodLength cap, even for traits with
+        // many methods (e.g. OcrBackend has ~15 stubs).
+{% for stub in stubs %}
+        initStub{{ stub.pascal_name }}({{ loop.index0 }}L * ValueLayout.ADDRESS.byteSize());
+{% endfor %}
+    }
 
 {% for stub in stubs %}
+    private void initStub{{ stub.pascal_name }}(long offset) throws ReflectiveOperationException {
         var {{ stub.var_name }} = LINKER.upcallStub(LOOKUP.bind(this, "{{ stub.handle_name }}",
             MethodType.methodType({{ stub.return_type }}, {{ stub.method_type_params }})),
 {% if stub.returns_void %}            FunctionDescriptor.ofVoid({{ stub.descriptor_params }}),
@@ -66,10 +76,9 @@ public final class {{ bridge_class }} implements AutoCloseable {
 {% endif %}
             arena);
         vtable.set(ValueLayout.ADDRESS, offset, {{ stub.var_name }});
-        offset += ValueLayout.ADDRESS.byteSize();
+    }
 
 {% endfor %}
-    }
 
     MemorySegment vtableSegment() { return vtable; }
 

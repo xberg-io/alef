@@ -368,33 +368,8 @@ fn gen_interface_file(
     // generated test stubs do not have to implement them.
     let skipped: HashSet<&str> = ffi_skip_methods.iter().map(|s| s.as_str()).collect();
 
-    // Determine which imports are needed based on method signatures
-    let signatures_text: String = trait_def
-        .methods
-        .iter()
-        .filter(|m| !skipped.contains(m.name.as_str()))
-        .map(|m| {
-            let ret = java_type_visible(&m.return_type, visible_type_names, excluded_types);
-            let params = m
-                .params
-                .iter()
-                .map(|p| java_type_visible(&p.ty, visible_type_names, excluded_types))
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("{ret}({params})")
-        })
-        .collect::<Vec<_>>()
-        .join(";");
-
-    let mut imports = vec![];
-    if signatures_text.contains("List<") {
-        imports.push("java.util.List");
-    }
-    if signatures_text.contains("Map<") {
-        imports.push("java.util.Map");
-    }
-
-    // Build method list for template
+    // Build method list for template. Each method's `signature` is the rendered Java
+    // signature (return type + params), which is what the imports scan inspects.
     let methods: Vec<Value> = trait_def
         .methods
         .iter()
@@ -420,9 +395,26 @@ fn gen_interface_file(
         })
         .collect();
 
+    // Render the method signatures (interface body) first, then scan for the
+    // generic-container types that drive conditional imports. This mirrors the
+    // render-body-then-scan-imports pattern in `ffi_class.rs::gen_ffi_class`.
+    // Scanning the rendered signature strings prevents false positives the old
+    // `format!("{ret}({params})")` synthesis produced (it allowed `List<...>` to
+    // appear in concatenated bytes when no method actually used it).
+    let methods_body: String = methods
+        .iter()
+        .filter_map(|m| m.get_attr("signature").ok())
+        .map(|sig| sig.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let needs_list = methods_body.contains("List<");
+    let needs_map = methods_body.contains("Map<");
+
     let ctx = minijinja::context! {
         package => package,
-        imports => imports,
+        needs_list => needs_list,
+        needs_map => needs_map,
         trait_pascal => &trait_pascal,
         has_super_trait => has_super_trait,
         methods => methods,
@@ -460,32 +452,6 @@ fn gen_bridge_file(
         .iter()
         .filter(|m| m.trait_source.is_none() && !skipped.contains(m.name.as_str()))
         .collect();
-
-    // Determine which imports are needed based on method signatures
-    let bridge_signatures: String = trait_def
-        .methods
-        .iter()
-        .filter(|m| m.trait_source.is_none() && !skipped.contains(m.name.as_str()))
-        .map(|m| {
-            let ret = java_type_visible(&m.return_type, visible_type_names, excluded_types);
-            let params = m
-                .params
-                .iter()
-                .map(|p| java_type_visible(&p.ty, visible_type_names, excluded_types))
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("{ret}({params})")
-        })
-        .collect::<Vec<_>>()
-        .join(";");
-
-    let mut imports = vec![];
-    if bridge_signatures.contains("List<") {
-        imports.push("java.util.List");
-    }
-    if bridge_signatures.contains("Map<") {
-        imports.push("java.util.Map");
-    }
 
     // Build lifecycle methods
     let lifecycle_methods: Vec<Value> = if has_super_trait {
@@ -559,6 +525,7 @@ fn gen_bridge_file(
             };
             stubs.push(minijinja::context! {
                 var_name => &var_name,
+                pascal_name => pascal,
                 handle_name => &handle,
                 return_type => return_type,
                 method_type_params => format!("MemorySegment.class{extra_param}"),
@@ -571,8 +538,9 @@ fn gen_bridge_file(
 
     // Build stub allocations for trait methods
     for method in &bridge_methods {
-        let handle_name = format!("handle{}", method.name.to_pascal_case());
-        let stub_name = format!("stub{}", method.name.to_pascal_case());
+        let method_pascal = method.name.to_pascal_case();
+        let handle_name = format!("handle{method_pascal}");
+        let stub_name = format!("stub{method_pascal}");
 
         let mut method_type_params = vec!["MemorySegment.class".to_string()];
         for param in &method.params {
@@ -611,6 +579,7 @@ fn gen_bridge_file(
 
         stubs.push(minijinja::context! {
             var_name => &stub_name,
+            pascal_name => &method_pascal,
             handle_name => &handle_name,
             return_type => "int.class",
             method_type_params => method_type_params.join(", "),
@@ -714,6 +683,7 @@ fn gen_bridge_file(
     let num_super_slots = if has_super_trait { 4usize } else { 0usize };
     stubs.push(minijinja::context! {
         var_name => "stubFreeString",
+        pascal_name => "FreeString",
         handle_name => "freeString",
         return_type => "void.class",
         method_type_params => "MemorySegment.class",
@@ -724,6 +694,7 @@ fn gen_bridge_file(
 
     stubs.push(minijinja::context! {
         var_name => "stubFreeUserData",
+        pascal_name => "FreeUserData",
         handle_name => "freeUserData",
         return_type => "void.class",
         method_type_params => "MemorySegment.class",
@@ -753,9 +724,37 @@ fn gen_bridge_file(
         clear_fn,
     );
 
+    // Render-body-then-scan-imports: the conditional imports (`List`, `Map`) are
+    // driven by what actually appears in the trait-method handler bodies — the
+    // return-type declaration (`{return_type} result = impl.method(...)`) and the
+    // unmarshal expressions (`List<...> {local} = JSON.readValue(...)`). Synthesising
+    // a separate signature string was lossy and produced false positives, so we
+    // scan the already-rendered fragments instead. This mirrors `ffi_class.rs`.
+    let methods_body: String = methods
+        .iter()
+        .flat_map(|m| {
+            let ret = m
+                .get_attr("return_type")
+                .ok()
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            let unmarshal = m
+                .get_attr("unmarshal_params")
+                .ok()
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            [ret, unmarshal]
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let needs_list = methods_body.contains("List<");
+    let needs_map = methods_body.contains("Map<");
+
     let ctx = minijinja::context! {
         package => package,
-        imports => imports,
+        needs_list => needs_list,
+        needs_map => needs_map,
         trait_pascal => &trait_pascal,
         trait_snake_upper => &trait_snake_upper,
         bridge_class => &bridge_class,

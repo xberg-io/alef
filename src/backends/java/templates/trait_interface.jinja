@@ -1,8 +1,11 @@
 package {{ package }};
-{% if imports %}
 
-{% for import in imports %}import {{ import }};
-{% endfor %}{% endif %}
+{% if needs_list %}
+import java.util.List;
+{% endif %}
+{% if needs_map %}
+import java.util.Map;
+{% endif %}
 
 /**
  * Bridge interface for the {{ trait_pascal }} plugin system.

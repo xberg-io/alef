@@ -595,3 +595,308 @@ fn adapter_bridge_implements_hand_authored_interface_for_asset_loader() {
         "adapter must declare `implements IAssetLoader`;\nactual:\n{content}"
     );
 }
+
+// -----------------------------------------------------------------------------
+// Fix 1 (imports): rendered-body-then-scan-imports — no false positives, no
+// false negatives. Regression guard for checkstyle UnusedImports on
+// `IPostProcessor.java` and the trait-bridge classes.
+// -----------------------------------------------------------------------------
+
+/// `String -> String` method must NOT pull in `java.util.List` or `java.util.Map`.
+#[test]
+fn interface_primitive_signatures_emit_no_collection_imports() {
+    let trait_def = make_trait("PostProcessor", vec![make_method("process", TypeRef::String, vec![])]);
+    let visible = all_named_visible(&trait_def.methods);
+    let excluded = HashSet::new();
+    let files = gen_trait_bridge_files(
+        &trait_def,
+        "krz",
+        "dev.sample_crate",
+        true,
+        None,
+        None,
+        &visible,
+        &excluded,
+        &[],
+    );
+    let interface = files.interface_content.as_str();
+    assert!(
+        !interface.contains("import java.util.List;"),
+        "primitive-only interface must not import java.util.List;\nactual:\n{interface}"
+    );
+    assert!(
+        !interface.contains("import java.util.Map;"),
+        "primitive-only interface must not import java.util.Map;\nactual:\n{interface}"
+    );
+}
+
+/// A method returning `Vec<String>` must produce exactly one `import java.util.List;`.
+#[test]
+fn interface_vec_return_emits_list_import_only() {
+    let trait_def = make_trait(
+        "Reader",
+        vec![make_method(
+            "read_lines",
+            TypeRef::Vec(Box::new(TypeRef::String)),
+            vec![],
+        )],
+    );
+    let visible = all_named_visible(&trait_def.methods);
+    let excluded = HashSet::new();
+    let files = gen_trait_bridge_files(
+        &trait_def,
+        "krz",
+        "dev.sample_crate",
+        false,
+        None,
+        None,
+        &visible,
+        &excluded,
+        &[],
+    );
+    let interface = files.interface_content.as_str();
+    assert!(
+        interface.contains("import java.util.List;"),
+        "Vec return must trigger java.util.List import;\nactual:\n{interface}"
+    );
+    assert!(
+        !interface.contains("import java.util.Map;"),
+        "Vec-only return must not import java.util.Map;\nactual:\n{interface}"
+    );
+    // Ensure exactly one List import line.
+    assert_eq!(
+        interface.matches("import java.util.List;").count(),
+        1,
+        "exactly one List import expected;\nactual:\n{interface}"
+    );
+}
+
+/// Bridge file mirrors the same rule: only emit `import java.util.List;` when a
+/// trait method actually uses `List<...>`. Primitive-only signatures must not.
+#[test]
+fn bridge_primitive_signatures_emit_no_collection_imports() {
+    let trait_def = make_trait("PostProcessor", vec![make_method("process", TypeRef::String, vec![])]);
+    let visible = all_named_visible(&trait_def.methods);
+    let excluded = HashSet::new();
+    let files = gen_trait_bridge_files(
+        &trait_def,
+        "krz",
+        "dev.sample_crate",
+        true,
+        None,
+        None,
+        &visible,
+        &excluded,
+        &[],
+    );
+    let bridge = files.bridge_content.as_str();
+    assert!(
+        !bridge.contains("import java.util.List;"),
+        "primitive-only bridge must not import java.util.List;\nactual:\n{bridge}"
+    );
+    assert!(
+        !bridge.contains("import java.util.Map;"),
+        "primitive-only bridge must not import java.util.Map;\nactual:\n{bridge}"
+    );
+}
+
+/// A bridge whose trait method takes a `Vec<String>` parameter must import `List`.
+#[test]
+fn bridge_vec_param_emits_list_import() {
+    let trait_def = make_trait(
+        "Reader",
+        vec![make_method(
+            "read",
+            TypeRef::String,
+            vec![ParamDef {
+                name: "tags".to_string(),
+                ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+                map_is_btree: false,
+                core_wrapper: crate::core::ir::CoreWrapper::None,
+            }],
+        )],
+    );
+    let visible = all_named_visible(&trait_def.methods);
+    let excluded = HashSet::new();
+    let files = gen_trait_bridge_files(
+        &trait_def,
+        "krz",
+        "dev.sample_crate",
+        false,
+        None,
+        None,
+        &visible,
+        &excluded,
+        &[],
+    );
+    let bridge = files.bridge_content.as_str();
+    assert!(
+        bridge.contains("import java.util.List;"),
+        "Vec param must trigger java.util.List import;\nactual:\n{bridge}"
+    );
+}
+
+// -----------------------------------------------------------------------------
+// Fix 2 (initializeStubs split): per-stub helper methods keep every method
+// under checkstyle's MethodLength=150 cap, even when the trait has many stubs.
+// -----------------------------------------------------------------------------
+
+/// Helper: count how many lines (newline-separated) the longest Java method in
+/// `body` spans, scanning between `private void initStub*` headers and the next
+/// dedented `}` at column 4 (typical of the trait_bridge.jinja indentation).
+fn longest_init_stub_helper_line_count(body: &str) -> usize {
+    let mut max_lines = 0usize;
+    let mut current_start: Option<usize> = None;
+    for (idx, line) in body.lines().enumerate() {
+        if line.trim_start().starts_with("private void initStub")
+            || line.trim_start().starts_with("private void initializeStubs")
+        {
+            current_start = Some(idx);
+        } else if let Some(start) = current_start
+            && line == "    }"
+        {
+            let span = idx - start + 1;
+            if span > max_lines {
+                max_lines = span;
+            }
+            current_start = None;
+        }
+    }
+    max_lines
+}
+
+fn make_void_method(name: &str) -> MethodDef {
+    make_method(name, TypeRef::Unit, vec![])
+}
+
+fn assert_dispatcher_calls_every_init_stub_helper(body: &str, stub_pascals: &[&str]) {
+    // The dispatcher `initializeStubs` body must reference every helper exactly once.
+    let dispatcher_start = body
+        .find("private void initializeStubs()")
+        .expect("dispatcher present");
+    let dispatcher_end = body[dispatcher_start..]
+        .find("\n    }")
+        .map(|n| dispatcher_start + n)
+        .expect("dispatcher closes");
+    let dispatcher = &body[dispatcher_start..dispatcher_end];
+    for pascal in stub_pascals {
+        let needle = format!("initStub{pascal}(");
+        assert!(
+            dispatcher.contains(&needle),
+            "dispatcher must call {needle};\ndispatcher:\n{dispatcher}"
+        );
+    }
+}
+
+/// Bridge with N=8 stubs (4 lifecycle + 2 trait + free_string + free_user_data).
+/// Each helper method (incl. dispatcher) must stay well under 80 lines.
+#[test]
+fn bridge_with_eight_stubs_keeps_every_init_method_under_eighty_lines() {
+    let trait_def = make_trait(
+        "OcrBackend",
+        vec![make_void_method("recognize"), make_void_method("recognize_batch")],
+    );
+    let visible = all_named_visible(&trait_def.methods);
+    let excluded = HashSet::new();
+    let files = gen_trait_bridge_files(
+        &trait_def,
+        "krz",
+        "dev.sample_crate",
+        true,
+        None,
+        None,
+        &visible,
+        &excluded,
+        &[],
+    );
+    let bridge = files.bridge_content.as_str();
+    let max_lines = longest_init_stub_helper_line_count(bridge);
+    assert!(
+        max_lines <= 80,
+        "no init method should exceed 80 lines; longest was {max_lines};\nbridge:\n{bridge}"
+    );
+    assert_dispatcher_calls_every_init_stub_helper(
+        bridge,
+        &[
+            "Name",
+            "Version",
+            "Initialize",
+            "Shutdown",
+            "Recognize",
+            "RecognizeBatch",
+            "FreeString",
+            "FreeUserData",
+        ],
+    );
+}
+
+/// Bridge with N=15 stubs (4 lifecycle + 9 trait + 2 frees) — mimics OcrBackend
+/// scale that motivated the MethodLength violation. Confirms the per-stub split
+/// continues to honour the cap.
+#[test]
+fn bridge_with_fifteen_stubs_keeps_every_init_method_under_eighty_lines() {
+    let trait_def = make_trait(
+        "OcrBackend",
+        vec![
+            make_void_method("recognize"),
+            make_void_method("recognize_batch"),
+            make_void_method("detect"),
+            make_void_method("rotate"),
+            make_void_method("preprocess"),
+            make_void_method("classify"),
+            make_void_method("segment"),
+            make_void_method("layout"),
+            make_void_method("export"),
+        ],
+    );
+    let visible = all_named_visible(&trait_def.methods);
+    let excluded = HashSet::new();
+    let files = gen_trait_bridge_files(
+        &trait_def,
+        "krz",
+        "dev.sample_crate",
+        true,
+        None,
+        None,
+        &visible,
+        &excluded,
+        &[],
+    );
+    let bridge = files.bridge_content.as_str();
+    let max_lines = longest_init_stub_helper_line_count(bridge);
+    assert!(
+        max_lines <= 80,
+        "no init method should exceed 80 lines; longest was {max_lines};\nbridge:\n{bridge}"
+    );
+    assert_dispatcher_calls_every_init_stub_helper(
+        bridge,
+        &[
+            "Name",
+            "Version",
+            "Initialize",
+            "Shutdown",
+            "Recognize",
+            "RecognizeBatch",
+            "Detect",
+            "Rotate",
+            "Preprocess",
+            "Classify",
+            "Segment",
+            "Layout",
+            "Export",
+            "FreeString",
+            "FreeUserData",
+        ],
+    );
+}
