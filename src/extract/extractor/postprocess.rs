@@ -1,5 +1,5 @@
-use crate::core::ir::{ApiSurface, TypeRef};
-use ahash::AHashMap;
+use crate::core::ir::{ApiSurface, FunctionDef, TypeRef};
+use ahash::{AHashMap, AHashSet};
 
 /// Returns `true` if the type is a simple leaf type (primitive, String, Bytes, Path, etc.)
 /// rather than a complex Named, collection, or Optional type.
@@ -214,4 +214,133 @@ pub(super) fn resolve_trait_sources(surface: &mut ApiSurface) {
             }
         }
     }
+}
+
+/// Merge duplicate function entries that share the same `name` but carry disjoint cfg gates.
+///
+/// The common pattern in Rust crates is:
+///
+/// ```rust,ignore
+/// #[cfg(feature = "X")]
+/// pub use real_mod::fn;                     // real implementation
+///
+/// #[cfg(all(feature = "X-presets", not(feature = "X")))]
+/// pub fn fn(...) -> ... { Err(...) }        // stub / error fallback
+/// ```
+///
+/// Both blocks are extracted into `surface.functions` as separate `FunctionDef`s with the same
+/// `name`.  The FFI emitter picks whichever entry it encounters first and gates the emitted C
+/// symbol under that entry's (narrow) cfg — so the symbol disappears whenever the other branch's
+/// cfg is active.
+///
+/// This post-pass groups entries by `name`, and for each group with >1 distinct cfg value it:
+///
+/// 1. Selects the *canonical* entry — the one most likely to be the real implementation,
+///    preferring entries whose parameter names do **not** all start with `_` (the stub
+///    convention uses underscore-prefixed names like `_texts`, `_config`).
+/// 2. Computes the OR of all cfgs in the group:
+///    - If any entry has `cfg = None` (unconditional), the merged entry is also unconditional.
+///    - Otherwise the merged cfg is `any(<a>, <b>, ...)`.
+/// 3. Replaces the group with the single canonical entry bearing the merged cfg.
+///
+/// Groups where all entries already have identical cfgs, or where only one entry exists, are
+/// left untouched.
+pub(crate) fn merge_same_named_function_cfgs(surface: &mut ApiSurface) {
+    let groups = collect_function_groups(&surface.functions);
+    let groups_to_merge = groups_to_merge(&groups, &surface.functions);
+    if groups_to_merge.is_empty() {
+        return;
+    }
+
+    let mut canonical_by_first_index: AHashMap<usize, FunctionDef> = AHashMap::new();
+    let mut skipped_indices: AHashSet<usize> = AHashSet::new();
+    for indices in &groups_to_merge {
+        let merged_cfg = merge_cfgs(indices.iter().map(|&i| surface.functions[i].cfg.as_deref()));
+        let canonical_idx = pick_canonical_entry(indices, &surface.functions);
+        let mut canonical = surface.functions[canonical_idx].clone();
+        canonical.cfg = merged_cfg;
+
+        let first_idx = *indices.iter().min().expect("merge group indices are non-empty");
+        canonical_by_first_index.insert(first_idx, canonical);
+
+        for &idx in indices {
+            if idx != first_idx {
+                skipped_indices.insert(idx);
+            }
+        }
+    }
+
+    let mut merged_functions = Vec::with_capacity(surface.functions.len() - skipped_indices.len());
+    for (idx, function) in surface.functions.iter().cloned().enumerate() {
+        if let Some(canonical) = canonical_by_first_index.remove(&idx) {
+            merged_functions.push(canonical);
+        } else if !skipped_indices.contains(&idx) {
+            merged_functions.push(function);
+        }
+    }
+    surface.functions = merged_functions;
+}
+
+fn collect_function_groups(functions: &[FunctionDef]) -> AHashMap<String, Vec<usize>> {
+    let mut name_to_indices: AHashMap<String, Vec<usize>> = AHashMap::new();
+    for (idx, func) in functions.iter().enumerate() {
+        name_to_indices.entry(func.name.clone()).or_default().push(idx);
+    }
+    name_to_indices
+}
+
+fn groups_to_merge(groups: &AHashMap<String, Vec<usize>>, functions: &[FunctionDef]) -> Vec<Vec<usize>> {
+    groups
+        .values()
+        .filter(|indices| should_merge_cfg_group(indices, functions))
+        .cloned()
+        .collect()
+}
+
+fn should_merge_cfg_group(indices: &[usize], functions: &[FunctionDef]) -> bool {
+    if indices.len() <= 1 {
+        return false;
+    }
+    let first_cfg = &functions[indices[0]].cfg;
+    indices.iter().any(|&idx| &functions[idx].cfg != first_cfg)
+}
+
+/// Compute the OR-merge of a set of cfg strings.
+///
+/// - If any cfg is `None` (unconditional), returns `None`.
+/// - If there is exactly one distinct value, returns it unchanged.
+/// - Otherwise wraps all distinct values in `any(...)`.
+fn merge_cfgs<'a>(cfgs: impl Iterator<Item = Option<&'a str>>) -> Option<String> {
+    let mut distinct: Vec<&str> = Vec::new();
+    for cfg in cfgs {
+        match cfg {
+            None => return None, // unconditional wins — no cfg gate at all
+            Some(s) => {
+                if !distinct.contains(&s) {
+                    distinct.push(s);
+                }
+            }
+        }
+    }
+    match distinct.len() {
+        0 => None,
+        1 => Some(distinct[0].to_string()),
+        _ => Some(format!("any({})", distinct.join(", "))),
+    }
+}
+
+/// Pick the index (within `surface.functions`) of the "canonical" (real) entry from a group.
+///
+/// Prefers an entry whose params are NOT all underscore-prefixed (the stub convention).
+/// Falls back to the first entry in the group.
+fn pick_canonical_entry(indices: &[usize], functions: &[FunctionDef]) -> usize {
+    for &idx in indices {
+        let func = &functions[idx];
+        let all_underscore = !func.params.is_empty() && func.params.iter().all(|p| p.name.starts_with('_'));
+        if !all_underscore {
+            return idx;
+        }
+    }
+    // All entries use underscore params (or have no params) — fall back to first.
+    indices[0]
 }

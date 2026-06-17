@@ -25,7 +25,7 @@ use self::helpers::{
     extract_version_annotation, is_pub, is_thiserror_enum,
 };
 use self::paths::{apply_parent_reexport_shortening, derive_module_path};
-use self::postprocess::{resolve_newtypes, resolve_trait_sources};
+use self::postprocess::{merge_same_named_function_cfgs, resolve_newtypes, resolve_trait_sources};
 use self::reexports::{extract_module, resolve_use_tree};
 use self::types::{extract_enum, extract_error_enum, extract_struct};
 
@@ -57,9 +57,7 @@ pub fn extract(
 
         // Skip source files already visited via `pub mod` traversal from an earlier
         // source (typically lib.rs). Re-processing them with module_path="" would
-        // neutral fixture crate/module names.
-        // produce incorrect rust_paths (e.g. `sample_core::CustomProperties` instead
-        // of `sample_core::extraction::CustomProperties`).
+        // produce incorrect rust_paths for nested modules.
         if visited.contains(&canonical) {
             continue;
         }
@@ -120,6 +118,16 @@ pub fn extract(
             }
         }
     }
+
+    // Post-processing: merge function entries that share the same name but carry disjoint
+    // cfg gates.  When a crate exposes a real implementation under `#[cfg(feature = "X")]`
+    // and a stub/fallback under `#[cfg(all(feature = "X-presets", not(feature = "X")))]`,
+    // both are extracted as separate FunctionDefs with identical `name` fields.  The FFI
+    // emitter would otherwise pick one and gate the C symbol under its narrow cfg, making
+    // the symbol disappear whenever the other branch's cfg is satisfied.  This pass
+    // collapses same-named groups into a single canonical entry whose cfg is the OR
+    // (`any(...)`) of all members' cfgs.
+    merge_same_named_function_cfgs(&mut surface);
 
     // Post-processing: resolve unresolved trait sources.
     // When a file containing `impl Trait for Type` is processed before the file defining

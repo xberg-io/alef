@@ -1,3 +1,4 @@
+use super::postprocess::merge_same_named_function_cfgs;
 use super::reexports::{UseFilter, collect_use_names, find_crate_source, merge_surface, merge_surface_filtered};
 use super::*;
 use crate::core::ir::{PrimitiveType, ReceiverKind, TypeRef};
@@ -31,10 +32,12 @@ fn extract_from_source(source: &str) -> ApiSurface {
         &mut rwa,
     )
     .unwrap();
+    merge_same_named_function_cfgs(&mut surface);
     resolve_newtypes(&mut surface);
     surface
 }
 
+mod cfg_merge;
 mod defaults;
 mod exclusions;
 mod extraction_area;
