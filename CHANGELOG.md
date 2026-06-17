@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.31] - 2026-06-17
+
+### Fixed
+
+- **(codegen/binding_helpers/lossy_fields): fall back to per-field `Default::default()` for `binding_excluded` fields when the core type does not impl `Default`.** Companion to the parallel fix in `binding_to_core/render.rs` (096eb298c). The `gen_lossy_binding_to_core_fields` helper unconditionally appended `..Default::default()` whenever any binding-excluded field was skipped — correct when the core type derives Default (preserves bespoke `T::default()` invariants like env-derived policy values), but breaks against no-Default core types with `E0277: the trait bound 'T: Default' is not satisfied`. Concrete case: `spikard::UploadFile` carries an internal `cursor: Cursor<Bytes>` field annotated `#[cfg_attr(alef, alef(skip))]`, but the struct derives only Clone/Debug/Serialize/Deserialize. Method-body delegation (e.g. `pub fn as_bytes(&self)`) emitted a `let core_self = spikard::UploadFile { ..., ..Default::default() }` literal that failed to compile. Fix: when `binding_excluded` field is encountered, check `typ.has_default` — if false, emit `field: Default::default()` per-field; if true, keep the spread trailer. Regression tests `test_gen_lossy_binding_to_core_fields_binding_excluded_no_default_per_field_fallback` and `test_gen_lossy_binding_to_core_fields_binding_excluded_with_default_uses_spread` cover both branches.
+
 ## [0.25.30] - 2026-06-17
 
 ### Fixed
