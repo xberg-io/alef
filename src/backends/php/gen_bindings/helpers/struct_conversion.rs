@@ -5,11 +5,89 @@ use minijinja::context;
 use super::enum_defaults::{gen_string_to_enum_expr, get_direct_enum_named, get_vec_enum_named};
 use super::primitives::{core_prim_str, needs_i64_cast};
 
+/// Detect whether a field's `TypeRef` references an untagged data enum.
+/// The PHP backend maps these to `serde_json::Value` in the binding struct, so
+/// inline `Into::into` cannot be used at the binding→core boundary; callers must
+/// roundtrip via `serde_json::from_value` to recover the typed core enum.
+///
+/// Returns a tuple describing the wrapping shape so the caller can emit the
+/// correct conversion expression: `(direct, optional_named, vec_named, optional_vec_named)`.
+fn untagged_data_enum_shape(
+    ty: &TypeRef,
+    untagged_data_enum_names: &AHashSet<String>,
+) -> Option<UntaggedShape> {
+    let is_untagged = |n: &str| untagged_data_enum_names.contains(n);
+    match ty {
+        TypeRef::Named(n) if is_untagged(n) => Some(UntaggedShape::Direct),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if is_untagged(n) => Some(UntaggedShape::OptionalNamed),
+            TypeRef::Vec(vi) => match vi.as_ref() {
+                TypeRef::Named(n) if is_untagged(n) => Some(UntaggedShape::OptionalVecNamed),
+                _ => None,
+            },
+            _ => None,
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if is_untagged(n) => Some(UntaggedShape::VecNamed),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+#[derive(Clone, Copy)]
+enum UntaggedShape {
+    /// `Named` directly — emit `serde_json::from_value(...).unwrap_or_default()`.
+    Direct,
+    /// `Option<Named>` — emit `.and_then(|v| serde_json::from_value(v).ok())`.
+    OptionalNamed,
+    /// `Vec<Named>` — emit `into_iter().filter_map(... from_value ...).collect()`.
+    VecNamed,
+    /// `Option<Vec<Named>>` — emit `.map(|v| v.into_iter().filter_map(...).collect())`.
+    OptionalVecNamed,
+}
+
+/// Render the binding→core expression for an untagged-data-enum field, mirroring
+/// the dedicated `From` impl emitted by `gen_from_binding_to_core_cfg` for PHP.
+/// The expressions use `self.<name>.clone()` (rather than `val.<name>`) because
+/// accessor delegation runs on `&self` and must not move the wrapper fields.
+fn untagged_data_enum_expr(field_name: &str, shape: UntaggedShape, optional: bool) -> String {
+    match shape {
+        UntaggedShape::Direct => {
+            if optional {
+                format!("self.{field_name}.clone().and_then(|v| serde_json::from_value(v).ok())")
+            } else {
+                format!("serde_json::from_value(self.{field_name}.clone()).unwrap_or_default()")
+            }
+        }
+        UntaggedShape::OptionalNamed => {
+            format!("self.{field_name}.clone().and_then(|v| serde_json::from_value(v).ok())")
+        }
+        UntaggedShape::VecNamed => {
+            if optional {
+                format!(
+                    "self.{field_name}.clone().map(|v| v.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect())"
+                )
+            } else {
+                format!(
+                    "self.{field_name}.clone().into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect()"
+                )
+            }
+        }
+        UntaggedShape::OptionalVecNamed => {
+            format!(
+                "self.{field_name}.clone().map(|v| v.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect())"
+            )
+        }
+    }
+}
+
 /// PHP-specific lossy binding->core struct literal.
 pub(crate) fn gen_php_lossy_binding_to_core_fields(
     typ: &TypeDef,
     core_import: &str,
     enum_names: &AHashSet<String>,
+    untagged_data_enum_names: &AHashSet<String>,
     enums: &[EnumDef],
 ) -> String {
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
@@ -56,7 +134,13 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
         } else {
             // Check if this Named field is an enum (PHP maps enums to String).
             // If so, use string->enum parsing instead of .into().
-            let expr = if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
+            let expr = if let Some(shape) = untagged_data_enum_shape(&field.ty, untagged_data_enum_names) {
+                // Untagged data enum: PHP stores the wire shape as `serde_json::Value` and
+                // `From<serde_json::Value> for CoreEnum` does NOT exist — inline `.map(Into::into)`
+                // would fail E0277. Mirror the dedicated From impl by going through
+                // `serde_json::from_value` (matching `gen_from_binding_to_core_cfg`'s output).
+                untagged_data_enum_expr(name, shape, field.optional)
+            } else if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
                 gen_string_to_enum_expr(&format!("self.{name}"), &enum_name, field.optional, enums, core_import)
             } else if let Some(enum_name) = get_vec_enum_named(&field.ty, enum_names) {
                 let elem_conv = gen_string_to_enum_expr("s", &enum_name, false, enums, core_import);

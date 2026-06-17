@@ -243,7 +243,13 @@ pub(crate) fn gen_instance_method_non_opaque(
 
     let body = if can_delegate {
         let call_args = gen_php_call_args(&method.params, opaque_types);
-        let field_conversions = gen_php_lossy_binding_to_core_fields(typ, core_import, &mapper.enum_names, enums);
+        let field_conversions = gen_php_lossy_binding_to_core_fields(
+            typ,
+            core_import,
+            &mapper.enum_names,
+            &mapper.untagged_data_enum_names,
+            enums,
+        );
         let core_call = format!("core_self.{}({})", method.name, call_args);
 
         // Use php_wrap_return for proper type conversions
