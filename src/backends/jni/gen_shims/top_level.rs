@@ -50,8 +50,13 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         })
         .collect();
 
-    let visible_functions: Vec<_> = api
-        .functions
+    // The JNI shims do not emit `#[cfg]` gates per function, so same-named cfg-variant entries
+    // (real impl + no-ORT stub fallback) would produce two `Java_*_native…` `#[no_mangle]`
+    // symbols — a duplicate-symbol error in the JNI crate. Collapse them to a single shim that
+    // delegates to the one `core_crate::<fn>` path the configured feature set provides.
+    // See codegen::fn_dedup.
+    let deduped_functions = crate::codegen::fn_dedup::dedup_same_name_functions(&api.functions);
+    let visible_functions: Vec<_> = deduped_functions
         .iter()
         .filter(|f| {
             !f.sanitized

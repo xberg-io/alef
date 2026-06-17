@@ -20,6 +20,11 @@ pub(super) fn generate_type_stubs(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
+    // The PHP IDE stub file is a single PHP surface; same-named cfg-variant functions must
+    // collapse to one method declaration to avoid a "Cannot redeclare" error. See codegen::fn_dedup.
+    let deduped_api = api.with_deduped_functions();
+    let api = &deduped_api;
+
     let extension_name = config.php_extension_name();
     let class_name = extension_name.to_pascal_case();
 

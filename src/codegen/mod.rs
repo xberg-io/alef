@@ -11,6 +11,7 @@ pub mod conversions;
 pub mod defaults;
 pub mod doc_emission;
 pub mod error_gen;
+pub mod fn_dedup;
 pub mod generators;
 pub mod keywords;
 pub mod naming;

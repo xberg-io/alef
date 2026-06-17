@@ -615,6 +615,12 @@ impl Backend for MagnusBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
+        // The RBS signature file is a single Ruby surface; same-named cfg-variant functions must
+        // collapse to one `def self.<fn>` to avoid duplicate signature declarations. The Magnus
+        // Rust glue (generate_bindings) keeps the original multi-entry surface. See codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
+
         let stubs_config = match config.ruby.as_ref().and_then(|c| c.stubs.as_ref()) {
             Some(s) => s,
             None => return Ok(vec![]),
@@ -667,6 +673,12 @@ impl Backend for MagnusBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
+        // The Ruby facade module is a single surface; same-named cfg-variant functions must
+        // collapse to one method to avoid redefinition. The Magnus Rust glue (generate_bindings)
+        // keeps the original multi-entry surface. See codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
+
         let gem_name = config.ruby_gem_name();
         let gem_name_snake = gem_name.replace('-', "_");
         let module_name = get_module_name(&gem_name);

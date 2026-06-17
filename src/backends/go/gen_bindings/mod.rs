@@ -50,6 +50,11 @@ impl Backend for GoBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        // Go is a single compiled surface (cgo over the FFI ABI) with no Rust-cfg gating, so
+        // same-named cfg-variant functions must collapse to one func to avoid redeclaration
+        // errors. See codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
         let module_path = config.go_module();
         let pkg_name = config
             .go

@@ -140,6 +140,11 @@ impl Backend for JavaBackend {
             filtered_api = api_without_excluded_types(api, &exclude_types);
             &filtered_api
         };
+        // Java is a single compiled surface with no Rust-cfg gating at the Java-source level, so
+        // same-named cfg-variant functions (real impl + no-ORT stub fallback) must collapse to a
+        // single method to avoid `duplicate method` javac errors. See codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
         let package = config.java_package();
         let prefix = config.ffi_prefix();
         let main_class = Self::resolve_main_class(api);
@@ -531,6 +536,12 @@ impl Backend for JavaBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
+        // The public Java facade (`Kreuzberg.java`) is a single compiled surface, so same-named
+        // cfg-variant functions must collapse to a single method to avoid `duplicate method`
+        // javac errors. See codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
+
         let package = config.java_package();
         let prefix = config.ffi_prefix();
         let main_class = Self::resolve_main_class(api);

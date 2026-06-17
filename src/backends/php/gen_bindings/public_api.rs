@@ -15,6 +15,13 @@ pub(super) fn generate_public_api(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
+    // The PHP facade is a single compiled surface with no Rust-cfg gating, so same-named
+    // cfg-variant functions (real impl + no-ORT stub fallback) must collapse to one method to
+    // avoid a "Cannot redeclare" fatal. The Rust ext-php-rs glue (generate_bindings) keeps the
+    // original multi-entry surface, which it cfg-gates via `prepend_cfg`. See codegen::fn_dedup.
+    let deduped_api = api.with_deduped_functions();
+    let api = &deduped_api;
+
     // Helper: escape `*/` sequences that could close PHPDoc early
     let escape_phpdoc_line = |s: &str| s.replace("*/", "* /");
 

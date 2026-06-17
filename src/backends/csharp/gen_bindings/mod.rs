@@ -167,6 +167,11 @@ impl Backend for CsharpBackend {
             filtered_api = api_without_excluded_types(api, &exclude_types);
             &filtered_api
         };
+        // C# is a single compiled surface (P/Invoke extern + wrapper) with no Rust-cfg gating, so
+        // same-named cfg-variant functions must collapse to one method/extern to avoid duplicate
+        // member errors. See codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
         let namespace = config.csharp_namespace();
         let prefix = config.ffi_prefix();
         let lib_name = config.ffi_lib_name();

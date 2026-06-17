@@ -73,8 +73,12 @@ impl Backend for DartBackend {
             .map(|c| c.exclude_types.iter().map(String::as_str).collect())
             .unwrap_or_default();
 
-        let visible_functions: Vec<&FunctionDef> = api
-            .functions
+        // The Dart host facade is a single compiled surface with no Rust-cfg gating, so same-named
+        // cfg-variant functions (real impl + no-ORT stub fallback) must collapse to a single
+        // forwarder to avoid "already declared in this scope" errors. The frb Rust bridge below
+        // keeps the original multi-entry `api`, which it cfg-filters itself. See codegen::fn_dedup.
+        let deduped_functions = crate::codegen::fn_dedup::dedup_same_name_functions(&api.functions);
+        let visible_functions: Vec<&FunctionDef> = deduped_functions
             .iter()
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
             // Skip trait-bridge-managed names (clear_fn) — `emit_trait_bridge_methods`

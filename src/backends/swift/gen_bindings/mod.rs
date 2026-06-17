@@ -81,6 +81,15 @@ impl Backend for SwiftBackend {
         let module_name = config.swift_module();
         let mapper = SwiftMapper;
 
+        // The Swift host facade is a single compiled surface with no Rust-cfg gating, so
+        // same-named cfg-variant functions (real impl + no-ORT stub fallback) must collapse to a
+        // single forwarder to avoid duplicate-declaration errors. The Rust-side `gen_rust_crate`
+        // bridge keeps the original multi-entry surface because it cfg-filters per configured
+        // feature set itself; we hand it `original_api` below. See codegen::fn_dedup.
+        let original_api = api;
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
+
         // Function-wrapper emission is disabled in this phase (see comment below);
         // `swift.exclude_functions` therefore has no effect on the host wrapper but
         // is still consumed by the Rust-side bridge crate via gen_rust_crate::emit.
@@ -577,7 +586,7 @@ impl Backend for SwiftBackend {
         }];
 
         // Phase 2C: emit the Rust-side swift-bridge crate
-        let rust_crate_files = gen_rust_crate::emit(api, config)?;
+        let rust_crate_files = gen_rust_crate::emit(original_api, config)?;
         files.extend(rust_crate_files);
 
         // Phase 2D: if the swift-bridge build output exists in target/*/out/, emit the
