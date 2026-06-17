@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **(backends/pyo3/gen_stubs): widen the `visitor` kwarg type on `convert()` and `ConversionOptions`/`ConversionOptionsUpdate` `__init__` from `HtmlVisitor | None` to `HtmlVisitor | object | None`.** The Rust dispatch path uses `hasattr(obj, "visit_X")` for every visit method emitted by the trait bridge, so every method is runtime-optional. The strict Protocol-only annotation forced pyright/pylance to reject duck-typed visitor classes that only override the subset of methods they care about (e.g. a class with `visit_image` and `visit_link` failed structural conformance because the Protocol declares ~40 other methods). The `| object` arm matches the hasattr-based semantics — every Python instance satisfies it — while the Protocol name remains in the union so editors still suggest `HtmlVisitor` for callers who annotate locals explicitly. Surfaced by h2m issue [#403](https://github.com/kreuzberg-dev/html-to-markdown/issues/403). (`src/backends/pyo3/gen_stubs/functions.rs`, `src/backends/pyo3/gen_stubs/classes.rs`)
 
+## [0.25.32] - 2026-06-17
+
+### Fixed
+
+- **(scaffold/java): suppress `FinalFieldCouldBeStatic` PMD rule project-wide via the generated `pmd-ruleset.xml`.** Generated Builder-pattern classes carry per-instance final fields with their type-default initializer (e.g. `private final boolean introspectionEnabled = true;`). PMD flags these as candidates for static promotion, but each Builder instance is a mutable assembly point — promoting to static would shadow the field across all builders and break the pattern. Resolves 9 violations on the spikard rc.25 regen (`FullSchemaConfig`, `UploadFile`, `QueryMutationConfig`, `SchemaConfig`, `OpenApiConfig`, `QueryOnlyConfig`, `ServerConfig`).
+
 ## [0.25.31] - 2026-06-17
 
 ### Fixed
