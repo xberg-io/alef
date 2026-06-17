@@ -3,7 +3,11 @@ use crate::backends::swift::type_map::SwiftMapper;
 use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, PrimitiveType, TypeRef};
 use heck::ToLowerCamelCase;
 
-pub(super) fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
+pub(super) fn emit_json_string_overloads(
+    api: &ApiSurface,
+    exclude_types: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
     use heck::AsSnakeCase;
 
     let json_overload_candidates: Vec<(&FunctionDef, usize, &str)> = api
@@ -17,6 +21,13 @@ pub(super) fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
                     .iter()
                     .any(|f| f.is_async && f.name == format!("{}_async", &func.name[..func.name.len() - 5]))
             {
+                return vec![];
+            }
+
+            // Skip functions whose signature references a type filtered out of the
+            // DTO emitter — the matching Rust bridge symbol and Swift type are both
+            // absent, so any forwarder referencing them won't compile.
+            if super::forwarders::function_references_excluded_type(func, exclude_types) {
                 return vec![];
             }
 

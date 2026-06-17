@@ -378,13 +378,13 @@ impl Backend for SwiftBackend {
         // Emit lightweight convenience overloads for functions whose first parameter
         // is TypeRef::Bytes or TypeRef::Path. Discovery is IR-driven: the emitter
         // walks api.functions and detects candidates by signature shape, never by name.
-        client::emit_convenience_wrappers(api, &mut body);
+        client::emit_convenience_wrappers(api, &exclude_types, &mut body);
 
         // Emit JSON-string convenience overloads for functions that take config-like
         // struct parameters. These allow e2e tests to pass JSON strings for config
         // objects, automatically decoding them via the `*FromJson` helpers.
         // Also emit the _loadBytesFromPathOrUtf8 helper for path-or-content resolution.
-        overloads::emit_json_string_overloads(api, &mut body);
+        overloads::emit_json_string_overloads(api, &exclude_types, &mut body);
 
         // Emit public Swift forwarding functions for `*FromJson` helpers.
         // The Rust bridge crate exposes `{type_snake}_from_json` as a swift-bridge
@@ -431,6 +431,7 @@ impl Backend for SwiftBackend {
             &known_dto_names,
             &all_enum_names,
             &client_class_names,
+            &exclude_types,
             &mut body,
         );
 

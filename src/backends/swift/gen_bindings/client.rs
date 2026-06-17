@@ -23,14 +23,21 @@ pub(super) fn first_param_is(func_def: &FunctionDef, ty: &TypeRef) -> bool {
     func_def.params.first().map(|p| &p.ty == ty).unwrap_or(false)
 }
 
-pub(super) fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
+pub(super) fn emit_convenience_wrappers(
+    api: &ApiSurface,
+    exclude_types: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
     let all_names: std::collections::HashSet<&str> = api.functions.iter().map(|f| f.name.as_str()).collect();
 
     let bytes_candidates: Vec<&FunctionDef> = api
         .functions
         .iter()
         .filter(|f| {
-            first_param_is(f, &TypeRef::Bytes) && !f.is_async && !super::overloads::convenience_name_shadows_bridge(f)
+            first_param_is(f, &TypeRef::Bytes)
+                && !f.is_async
+                && !super::overloads::convenience_name_shadows_bridge(f)
+                && !super::forwarders::function_references_excluded_type(f, exclude_types)
         })
         .collect();
 
@@ -38,7 +45,10 @@ pub(super) fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
         .functions
         .iter()
         .filter(|f| {
-            first_param_is(f, &TypeRef::Path) && !f.is_async && !super::overloads::convenience_name_shadows_bridge(f)
+            first_param_is(f, &TypeRef::Path)
+                && !f.is_async
+                && !super::overloads::convenience_name_shadows_bridge(f)
+                && !super::forwarders::function_references_excluded_type(f, exclude_types)
         })
         .collect();
 

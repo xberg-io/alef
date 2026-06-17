@@ -193,12 +193,49 @@ fn forwarder_param_signature(
     }
 }
 
+/// Recursively collect every `TypeRef::Named(...)` reference inside `ty` into `out`.
+///
+/// Mirrors `crate::backends::pyo3::gen_bindings::types::collect_named_types` but is
+/// kept module-local to avoid coupling the swift backend to pyo3 internals.
+fn collect_named_type_refs(ty: &TypeRef, out: &mut HashSet<String>) {
+    match ty {
+        TypeRef::Named(name) => {
+            out.insert(name.clone());
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_named_type_refs(inner, out),
+        TypeRef::Map(k, v) => {
+            collect_named_type_refs(k, out);
+            collect_named_type_refs(v, out);
+        }
+        _ => {}
+    }
+}
+
+/// Returns true when any param type or the return type of `func` references a Named
+/// type whose name appears in `exclude_types`. Walks `Vec<T>`, `Option<T>`, and `Map<K,V>`.
+///
+/// Used by the free-function forwarder and JSON-overload emitters to skip wrappers whose
+/// generated signature would otherwise reference a Swift type the DTO emitter has already
+/// filtered out (e.g. via `[crates.swift].exclude_types` or `binding_excluded`).
+pub(super) fn function_references_excluded_type(func: &FunctionDef, exclude_types: &HashSet<String>) -> bool {
+    if exclude_types.is_empty() {
+        return false;
+    }
+    let mut referenced: HashSet<String> = HashSet::new();
+    for param in &func.params {
+        collect_named_type_refs(&param.ty, &mut referenced);
+    }
+    collect_named_type_refs(&func.return_type, &mut referenced);
+    referenced.iter().any(|name| exclude_types.contains(name))
+}
+
 pub(super) fn emit_free_function_forwarders(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     known_dto_names: &HashSet<String>,
     enum_names: &HashSet<String>,
     client_class_names: &HashSet<String>,
+    exclude_types: &HashSet<String>,
     out: &mut String,
 ) {
     let mut exclude_functions: HashSet<String> = config
@@ -222,6 +259,9 @@ pub(super) fn emit_free_function_forwarders(
             continue;
         }
         if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+            continue;
+        }
+        if function_references_excluded_type(func, exclude_types) {
             continue;
         }
         let swift_name = swift_ident(&func.name.to_lower_camel_case());
@@ -788,5 +828,115 @@ mod tests {
     #[test]
     fn test_swift_type_name_f32_returns_float() {
         assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::F32)), "Float");
+    }
+
+    fn make_function(name: &str, params: Vec<(&str, TypeRef)>, return_type: TypeRef) -> FunctionDef {
+        FunctionDef {
+            name: name.to_string(),
+            rust_path: format!("sample::{name}"),
+            params: params
+                .into_iter()
+                .map(|(pname, ty)| crate::core::ir::ParamDef {
+                    name: pname.to_string(),
+                    ty,
+                    ..crate::core::ir::ParamDef::default()
+                })
+                .collect(),
+            return_type,
+            ..FunctionDef::default()
+        }
+    }
+
+    #[test]
+    fn skips_forwarder_when_param_type_is_excluded() {
+        let func = make_function(
+            "extract_keywords",
+            vec![("config", TypeRef::Named("KeywordConfig".to_string()))],
+            TypeRef::Unit,
+        );
+        let mut exclude: HashSet<String> = HashSet::new();
+        exclude.insert("KeywordConfig".to_string());
+        assert!(function_references_excluded_type(&func, &exclude));
+    }
+
+    #[test]
+    fn skips_forwarder_when_return_type_is_excluded() {
+        let func = make_function(
+            "build_keyword",
+            vec![("text", TypeRef::String)],
+            TypeRef::Named("Keyword".to_string()),
+        );
+        let mut exclude: HashSet<String> = HashSet::new();
+        exclude.insert("Keyword".to_string());
+        assert!(function_references_excluded_type(&func, &exclude));
+    }
+
+    #[test]
+    fn keeps_forwarder_when_only_primitives_are_used() {
+        let func = make_function(
+            "echo_count",
+            vec![("count", TypeRef::Primitive(PrimitiveType::U32))],
+            TypeRef::Primitive(PrimitiveType::U32),
+        );
+        let mut exclude: HashSet<String> = HashSet::new();
+        exclude.insert("KeywordConfig".to_string());
+        exclude.insert("Keyword".to_string());
+        assert!(!function_references_excluded_type(&func, &exclude));
+    }
+
+    #[test]
+    fn skips_forwarder_when_vec_named_param_is_excluded() {
+        let func = make_function(
+            "score_keywords",
+            vec![(
+                "keywords",
+                TypeRef::Vec(Box::new(TypeRef::Named("Keyword".to_string()))),
+            )],
+            TypeRef::Unit,
+        );
+        let mut exclude: HashSet<String> = HashSet::new();
+        exclude.insert("Keyword".to_string());
+        assert!(function_references_excluded_type(&func, &exclude));
+    }
+
+    #[test]
+    fn skips_forwarder_when_optional_named_return_is_excluded() {
+        let func = make_function(
+            "maybe_yake",
+            vec![],
+            TypeRef::Optional(Box::new(TypeRef::Named("YakeParams".to_string()))),
+        );
+        let mut exclude: HashSet<String> = HashSet::new();
+        exclude.insert("YakeParams".to_string());
+        assert!(function_references_excluded_type(&func, &exclude));
+    }
+
+    #[test]
+    fn empty_exclude_set_keeps_every_function() {
+        let func = make_function(
+            "extract_keywords",
+            vec![("config", TypeRef::Named("KeywordConfig".to_string()))],
+            TypeRef::Named("Keyword".to_string()),
+        );
+        let exclude: HashSet<String> = HashSet::new();
+        assert!(!function_references_excluded_type(&func, &exclude));
+    }
+
+    #[test]
+    fn skips_forwarder_when_map_value_is_excluded_type() {
+        let func = make_function(
+            "score_map",
+            vec![(
+                "table",
+                TypeRef::Map(
+                    Box::new(TypeRef::String),
+                    Box::new(TypeRef::Named("Keyword".to_string())),
+                ),
+            )],
+            TypeRef::Unit,
+        );
+        let mut exclude: HashSet<String> = HashSet::new();
+        exclude.insert("Keyword".to_string());
+        assert!(function_references_excluded_type(&func, &exclude));
     }
 }
