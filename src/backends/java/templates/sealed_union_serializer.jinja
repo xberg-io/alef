@@ -1,5 +1,4 @@
 /** Custom serializer for sealed interface with unwrapped variants. Emits the discriminator tag alongside the inner record's fields (flat object). */
-@SuppressWarnings("PMD")
 class {{ class_name }}Serializer extends StdSerializer<{{ class_name }}> {
   private static final long serialVersionUID = 1L;
   private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
@@ -15,6 +14,7 @@ class {{ class_name }}Serializer extends StdSerializer<{{ class_name }}> {
   }
 
   @Override
+  @SuppressWarnings("PMD.CyclomaticComplexity")
   public void serialize({{ class_name }} value, JsonGenerator gen, SerializerProvider provider)
       throws java.io.IOException {
     String tag;

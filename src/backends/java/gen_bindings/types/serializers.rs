@@ -42,12 +42,13 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
     out.push_str("  }\n\n");
 
     out.push_str("  @Override\n");
+    out.push_str("  @SuppressWarnings(\"PMD.CyclomaticComplexity\")\n");
     out.push_str("  public ");
     out.push_str(&enum_def.name);
-    out.push_str(" deserialize(JsonParser parser, DeserializationContext ctx)\n");
+    out.push_str(" deserialize(final JsonParser parser, final DeserializationContext ctx)\n");
     out.push_str("      throws java.io.IOException {\n");
-    out.push_str("    ObjectNode node = parser.getCodec().readTree(parser);\n");
-    out.push_str("    com.fasterxml.jackson.databind.JsonNode tagNode = node.get(\"");
+    out.push_str("    final ObjectNode node = parser.getCodec().readTree(parser);\n");
+    out.push_str("    final com.fasterxml.jackson.databind.JsonNode tagNode = node.get(\"");
     out.push_str(tag_field);
     out.push_str("\");\n");
     out.push_str("    if (tagNode == null || tagNode.isNull()) {\n");
@@ -56,7 +57,7 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
     out.push_str(tag_field);
     out.push_str("\");\n");
     out.push_str("    }\n");
-    out.push_str("    String tagValue = tagNode.asText();\n");
+    out.push_str("    final String tagValue = tagNode.asText();\n");
     // Remove the discriminator field before deserialising the inner type so that
     // the target builder (e.g. TextMetadataBuilder) does not encounter an
     // unrecognised property and throw UnrecognizedPropertyException.

@@ -4,7 +4,6 @@
 {% if builder_type -%}
 @JsonDeserialize(builder = {{ builder_type }}.Builder.class)
 {% endif -%}
-@SuppressWarnings("PMD")
 {% if multiline -%}
 public record {{ type_name }}(
 {{ multiline_fields }}) {

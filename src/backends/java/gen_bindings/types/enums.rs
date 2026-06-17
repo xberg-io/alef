@@ -384,7 +384,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
             out.push_str("() {\n");
             out.push_str("        return this instanceof ");
             out.push_str(variant_name);
-            out.push_str(" e ? e.value() : null;\n");
+            out.push_str(" variant ? variant.value() : null;\n");
             out.push_str("    }\n");
             out.push('\n');
         }
