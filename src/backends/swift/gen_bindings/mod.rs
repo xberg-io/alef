@@ -17,6 +17,7 @@ mod dto;
 mod enums;
 mod errors;
 mod forwarders;
+mod opaque_handles;
 mod overloads;
 pub mod plugin_marshal;
 pub mod service_api;
@@ -616,6 +617,13 @@ impl Backend for SwiftBackend {
         // Emit Swift{Trait}Box.swift and ZSwiftPluginHelpers.swift for every FunctionParam bridge.
         for box_file in boxes::emit_function_param_box_files(api, config, &rust_bridge_sources, &exclude_types) {
             files.push(box_file);
+        }
+
+        // Emit class triples for opaque handle types marked with #[swift_bridge(already_declared)]
+        // in the Rust extern blocks. These are primarily streaming adapter owner types that need
+        // Swift class wrappers since swift-bridge skips generation for already_declared types.
+        if let Some(opaque_file) = opaque_handles::emit_opaque_class_declarations(config, &rust_bridge_sources) {
+            files.push(opaque_file);
         }
 
         // Emit trait bridge protocol and adapter files for outbound plugins.
