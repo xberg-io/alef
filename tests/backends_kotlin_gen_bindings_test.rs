@@ -34,6 +34,26 @@ target = "jvm"
     )
 }
 
+fn make_config_kotlin_native() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin", "ffi"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.kotlin]
+package = "dev.sample_crate"
+target = "native"
+"#,
+    )
+}
+
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
         name: name.to_string(),
@@ -1480,5 +1500,102 @@ fn long_error_variant_emits_multi_line() {
     assert!(
         out.contains("        val requestId: String?,\n    ) : SampleLlmException("),
         "last multi-line error variant field must have trailing comma: {out:?}"
+    );
+}
+
+#[test]
+fn dto_with_instance_methods_emits_member_functions() {
+    use alef::core::ir::ReceiverKind;
+
+    let ty = {
+        let mut t = make_type(
+            "AssistantMessage",
+            vec![
+                make_field("content", TypeRef::String, false),
+                make_field("text", TypeRef::Optional(Box::new(TypeRef::String)), true),
+            ],
+        );
+        t.methods = vec![
+            MethodDef {
+                name: "text".to_string(),
+                params: vec![],
+                return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+                receiver: Some(ReceiverKind::Ref),
+                is_static: false,
+                is_async: false,
+                error_type: None,
+                doc: "Get the text output".to_string(),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            },
+            MethodDef {
+                name: "output_images".to_string(),
+                params: vec![],
+                return_type: TypeRef::Vec(Box::new(TypeRef::Named("ImageUrl".to_string()))),
+                receiver: Some(ReceiverKind::Ref),
+                is_static: false,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            },
+        ];
+        t
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        functions: vec![],
+        types: vec![ty.clone()],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = KotlinBackend
+        .generate_bindings(&api, &make_config_kotlin_native())
+        .unwrap();
+    let content = &files[0].content;
+
+    // Verify data class is emitted for Kotlin native
+    assert!(
+        content.contains("data class AssistantMessage"),
+        "DTO should be a data class for Kotlin native target"
+    );
+
+    // Verify instance methods are emitted
+    assert!(
+        content.contains("fun text(): String?"),
+        "instance method text() should be emitted with return type"
+    );
+    assert!(
+        content.contains("fun outputImages(): List<ImageUrl>"),
+        "instance method outputImages() should be emitted"
+    );
+
+    // Verify methods call external functions via nativeInterop
+    assert!(
+        content.contains("nativeInterop.AssistantMessage_text(this)"),
+        "method should call corresponding external function"
     );
 }

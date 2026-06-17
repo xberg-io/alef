@@ -782,9 +782,7 @@ fn make_void_method(name: &str) -> MethodDef {
 
 fn assert_dispatcher_calls_every_init_stub_helper(body: &str, stub_pascals: &[&str]) {
     // The dispatcher `initializeStubs` body must reference every helper exactly once.
-    let dispatcher_start = body
-        .find("private void initializeStubs()")
-        .expect("dispatcher present");
+    let dispatcher_start = body.find("private void initializeStubs()").expect("dispatcher present");
     let dispatcher_end = body[dispatcher_start..]
         .find("\n    }")
         .map(|n| dispatcher_start + n)

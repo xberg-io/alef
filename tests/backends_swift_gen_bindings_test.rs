@@ -2998,7 +2998,7 @@ fn swift_string_param_not_wrapped() {
 }
 
 #[test]
-fn first_class_struct_with_instance_methods() {
+fn first_class_struct_emits_instance_methods() {
     use alef::core::ir::{MethodDef, ReceiverKind};
 
     fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -3039,79 +3039,15 @@ fn first_class_struct_with_instance_methods() {
             doc: "Get message text".to_string(),
             receiver: Some(ReceiverKind::Ref),
             sanitized: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
             trait_source: None,
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            has_default_impl: false,
+            version: Default::default(),
         }],
-        is_opaque: false,
-        is_clone: true,
-        is_copy: false,
-        doc: String::new(),
-        cfg: None,
-        is_trait: false,
-        has_default: false,
-        has_stripped_cfg_fields: false,
-        is_return_type: false,
-        serde_rename_all: None,
-        has_serde: true,
-        super_traits: vec![],
-        binding_excluded: false,
-
-#[test]
-fn first_class_struct_with_instance_methods() {
-    use alef::core::ir::{MethodDef, ReceiverKind};
-
-    fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
-        FieldDef {
-            name: name.to_string(),
-            ty,
-            optional,
-            default: None,
-            doc: String::new(),
-            sanitized: false,
-            is_boxed: false,
-            type_rust_path: None,
-            cfg: None,
-            typed_default: None,
-            core_wrapper: CoreWrapper::None,
-            vec_inner_core_wrapper: CoreWrapper::None,
-            newtype_wrapper: None,
-            serde_rename: None,
-            serde_flatten: false,
-            binding_excluded: false,
-            binding_exclusion_reason: None,
-            original_type: None,
-        }
-    }
-
-    let ty = TypeDef {
-        name: "Message".to_string(),
-        rust_path: "demo::Message".to_string(),
-        original_rust_path: String::new(),
-        fields: vec![
-            make_field("content", TypeRef::String, false),
-        ],
-        methods: vec![
-            MethodDef {
-                name: "text".to_string(),
-                params: vec![],
-                return_type: TypeRef::Optional(Box::new(TypeRef::String)),
-                is_async: false,
-                is_static: false,
-                error_type: None,
-                doc: "Get message text".to_string(),
-                receiver: Some(ReceiverKind::Ref),
-                sanitized: false,
-                binding_excluded: false,
-                binding_exclusion_reason: None,
-                trait_source: None,
-                returns_ref: false,
-                returns_cow: false,
-                return_newtype_wrapper: None,
-                has_default_impl: false,
-            },
-        ],
         is_opaque: false,
         is_clone: true,
         is_copy: false,
@@ -3149,8 +3085,27 @@ fn first_class_struct_with_instance_methods() {
     let backend = SwiftBackend;
     let files = backend.generate_bindings(&api, &cfg).expect("generation must succeed");
 
-    let bindings_file = files.iter().find(|f| f.path.ends_with("RustBridge.swift")).expect("must have swift file");
+    println!("Generated {} files:", files.len());
+    for f in &files {
+        println!("  - {}", f.path.display());
+    }
+
+    let bindings_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .expect("must have swift file");
     let content = &bindings_file.content;
 
-    println!("Generated content:\n{}", content);
+    println!("Generated Swift content:\n{}", content);
+
+    assert!(
+        content.contains("public func text()"),
+        "missing text() method in:\n{}",
+        content
+    );
+    assert!(
+        content.contains("-> String?"),
+        "missing return type -> String? in:\n{}",
+        content
+    );
 }

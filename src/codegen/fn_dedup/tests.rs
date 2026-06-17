@@ -96,8 +96,8 @@ fn no_op_when_single_function_per_name() {
     assert_eq!(out[0].cfg.as_deref(), Some(r#"feature = "embeddings""#));
 }
 
-/// Three-way groups (e.g. `download_model` / `known_models` / `default_model_name`, which the
-/// kreuzberg surface emits under real + two stub cfgs) must collapse to a single entry.
+/// Three-way groups (e.g. a function emitted under one real cfg plus two disjoint stub
+/// cfgs) must collapse to a single entry.
 #[test]
 fn merges_three_way_cfg_group() {
     let input = vec![

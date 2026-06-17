@@ -48,7 +48,59 @@ pub(super) fn emit_native_type(ty: &TypeDef, out: &mut String) {
             },
         ));
     }
-    out.push_str(")\n");
+
+    // Emit inherent instance methods for Kotlin/Native data classes
+    use crate::codegen::shared::partition_methods;
+    let (instance_methods, _) = partition_methods(&ty.methods);
+
+    if !instance_methods.is_empty() {
+        // Complete the data class constructor without closing braces yet
+        out.push_str(") {\n");
+
+        // Emit instance methods inside the class body
+        for method in instance_methods {
+            if method.sanitized {
+                continue; // Skip sanitized methods
+            }
+
+            let method_name = heck::AsLowerCamelCase(method.name.as_str()).to_string();
+            let return_type_str = native_type_str(&method.return_type, false);
+
+            // Build parameter signature
+            let params_sig: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| {
+                    let ptype = native_type_str(&p.ty, p.optional);
+                    format!("{}: {ptype}", p.name)
+                })
+                .collect();
+
+            out.push_str("    fun ");
+            out.push_str(&method_name);
+            out.push('(');
+            out.push_str(&params_sig.join(", "));
+            out.push_str("): ");
+            out.push_str(&return_type_str);
+            out.push_str(" = nativeInterop.");
+            out.push_str(&ty.name);
+            out.push('_');
+            out.push_str(&method.name);
+            out.push('(');
+            out.push_str("this");
+            for p in &method.params {
+                out.push_str(", ");
+                out.push_str(&p.name);
+            }
+            out.push_str(")\n");
+        }
+
+        // Close the data class body
+        out.push_str("}\n");
+    } else {
+        // No methods - just close the constructor
+        out.push_str(")\n");
+    }
 }
 
 pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {

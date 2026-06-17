@@ -9,7 +9,6 @@
 ///   @Nullable (qualified type):      java.nio.file.@Nullable Path field;
 ///
 /// This matches Java's TYPE_USE annotation semantics and javac compilation rules.
-
 use alef::backends::java::JavaBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
@@ -73,39 +72,37 @@ fn builder_nullable_qualified_type_emits_correct_annotation_position() {
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
-        types: vec![
-            TypeDef {
-                name: "CacheConfig".to_string(),
-                rust_path: "lib::CacheConfig".to_string(),
-                original_rust_path: String::new(),
-                fields: vec![
-                    // Required Path field — no annotation
-                    make_field("base_dir", TypeRef::Path, false, None),
-                    // Optional Path field with #[serde(default)] — should be @Nullable with qualified type
-                    make_field("cache_dir", TypeRef::Path, false, Some("/* serde(default) */")),
-                    // Optional String field — should be @Nullable with simple type
-                    make_field("description", TypeRef::String, true, None),
-                ],
-                methods: vec![],
-                is_opaque: false,
-                is_clone: true,
-                is_copy: false,
-                is_trait: false,
-                has_default: true,
-                has_stripped_cfg_fields: false,
-                is_return_type: false,
-                serde_rename_all: None,
-                has_serde: true,
-                super_traits: vec![],
-                doc: "Cache configuration with optional paths.".to_string(),
-                cfg: None,
-                binding_excluded: false,
-                binding_exclusion_reason: None,
-                is_variant_wrapper: false,
-                has_lifetime_params: false,
-                version: Default::default(),
-            },
-        ],
+        types: vec![TypeDef {
+            name: "CacheConfig".to_string(),
+            rust_path: "lib::CacheConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                // Required Path field — no annotation
+                make_field("base_dir", TypeRef::Path, false, None),
+                // Optional Path field with #[serde(default)] — should be @Nullable with qualified type
+                make_field("cache_dir", TypeRef::Path, false, Some("/* serde(default) */")),
+                // Optional String field — should be @Nullable with simple type
+                make_field("description", TypeRef::String, true, None),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: "Cache configuration with optional paths.".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        }],
         functions: vec![],
         enums: vec![],
         errors: vec![],

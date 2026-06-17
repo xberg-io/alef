@@ -536,9 +536,9 @@ impl Backend for JavaBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        // The public Java facade (`Kreuzberg.java`) is a single compiled surface, so same-named
-        // cfg-variant functions must collapse to a single method to avoid `duplicate method`
-        // javac errors. See codegen::fn_dedup.
+        // The public Java facade is a single compiled surface, so same-named cfg-variant
+        // functions must collapse to a single method to avoid `duplicate method` javac
+        // errors. See codegen::fn_dedup.
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
 

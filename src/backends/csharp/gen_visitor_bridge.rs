@@ -1,9 +1,9 @@
 //! Dedicated C# visitor-bridge generation (callbacks-struct ABI, "Path 1").
 //!
-//! A visitor trait bridge (configured with `context_type` + `result_type`, e.g. the
-//! html-to-markdown `HtmlVisitor`) is wired through the canonical `HtmVisitorCallbacks`
-//! struct shared with the Go and Java bindings — NOT the generic trait-bridge vtable
-//! ("Path 2") that targets `{prefix}_register_{trait}`.
+//! A visitor trait bridge (configured with `context_type` + `result_type`) is wired
+//! through the canonical visitor-callbacks struct shared with the Go and Java bindings
+//! — NOT the generic trait-bridge vtable ("Path 2") that targets
+//! `{prefix}_register_{trait}`.
 //!
 //! The unmanaged block emitted here is `user_data` followed by one function pointer per
 //! visit method. Each callback receives `(ctx, user_data, ...params..., out_custom, out_len)`

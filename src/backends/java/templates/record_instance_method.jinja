@@ -1,0 +1,19 @@
+    public {{ type_name }} {{ method_name }}({{ params_str }}) throws {{ exception_class }} {
+        try {
+            // Serialize this record to JSON
+            String thisJson = ObjectMapper.INSTANCE.writeValueAsString(this);
+            // Call the C FFI method with JSON-encoded parameters and return value
+            MemorySegment result = (MemorySegment) {{ ffi_handle }}.invoke(
+                arena.allocateUtf8String(thisJson){{ comma_params }}
+            );
+            if (result == MemorySegment.NULL) {
+                throw new {{ exception_class }}("{{ method_name }} returned null");
+            }
+            // Deserialize result back to Java record
+            String resultJson = result.reinterpret(resultLen).getUtf8String(0);
+            return JsonUtil.fromJson(resultJson, {{ type_name }}.class);
+        } catch (Throwable e) {
+            if (e instanceof {{ exception_class }}) throw ({{ exception_class }}) e;
+            throw new {{ exception_class }}("{{ method_name }} failed: " + e.getMessage(), e);
+        }
+    }

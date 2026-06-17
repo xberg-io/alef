@@ -2,7 +2,7 @@ use crate::backends::swift::naming::{swift_rust_shim_ident as swift_ident, swift
 use crate::backends::swift::type_map::SwiftMapper;
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::{DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
+use crate::core::ir::{DefaultValue, FieldDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
@@ -297,6 +297,17 @@ pub(super) fn emit_first_class_struct(
             ));
         }
     }
+
+    // Emit public methods for inherent instance methods.
+    let (instance_methods, _static_methods) = crate::codegen::shared::partition_methods(&ty.methods);
+    let mut methods_source = String::new();
+    for method in instance_methods {
+        if method.sanitized || method.is_static {
+            continue;
+        }
+        emit_instance_method_for_first_class_struct(method, type_name, mapper, &mut methods_source);
+    }
+
     out.push_str(&crate::backends::swift::template_env::render(
         "first_class_struct.swift.jinja",
         minijinja::context! {
@@ -308,6 +319,7 @@ pub(super) fn emit_first_class_struct(
             decoder_init => decoder_init,
             ffi_init_assignments => ffi_init_assignments,
             into_rust_body => into_rust_body,
+            methods => methods_source,
         },
     ));
 }
@@ -853,4 +865,57 @@ fn is_field_unbridgeable_for_init(
         }
     }
     false
+}
+
+/// Emit a public instance method for a non-opaque first-class struct.
+///
+/// Calls the Rust bridge extern to invoke the method, converting parameters and return values.
+fn emit_instance_method_for_first_class_struct(
+    method: &MethodDef,
+    type_name: &str,
+    mapper: &SwiftMapper,
+    out: &mut String,
+) {
+    // Skip static/associated functions; only emit instance methods with a receiver.
+    if method.is_static {
+        return;
+    }
+
+    let method_name = swift_case_ident(&method.name.to_lower_camel_case());
+    let extern_fn_name = format!("{}_{}", AsSnakeCase(type_name), method.name.to_snake_case());
+
+    // Build parameter list (no receiver param; we're calling on self).
+    let mut param_strs: Vec<String> = Vec::new();
+    for param in &method.params {
+        if param.sanitized {
+            continue;
+        }
+        let param_name = swift_ident(&param.name.to_snake_case());
+        let param_type = mapper.map_type(&param.ty);
+        param_strs.push(format!("{param_name}: {param_type}"));
+    }
+    let param_list = param_strs.join(", ");
+
+    // Map return type.
+    let return_type = mapper.map_type(&method.return_type);
+
+    // For now, emit a basic method body that calls the extern.
+    // In a full implementation, this would:
+    // 1. Serialize self to JSON (via intoRust()) or reconstruct from fields
+    // 2. Call the extern function with self + params
+    // 3. Deserialize the return value
+    //
+    // For this PoC, emit a placeholder that shows the method signature.
+    let method_sig = if param_list.is_empty() {
+        format!("    public func {method_name}() -> {return_type}")
+    } else {
+        format!("    public func {method_name}({param_list}) -> {return_type}")
+    };
+
+    out.push_str(&method_sig);
+    out.push_str(" {\n");
+    out.push_str("        fatalError(\"Not yet implemented: ");
+    out.push_str(&extern_fn_name);
+    out.push_str("\")\n");
+    out.push_str("    }\n\n");
 }

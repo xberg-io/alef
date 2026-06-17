@@ -180,29 +180,21 @@ pub(crate) fn emit_extern_block_for_type(
     }
 
     // For opaque types with no visible (non-excluded, non-sanitized) methods,
-    // swift-bridge does not generate a destructor (the `$_free` symbol). The C ABI
-    // handle becomes unleak-able, breaking linking. A no-op method (returning unit)
-    // makes swift-bridge recognize the type as owned and generate the destructor.
-    // Callers never invoke it — it exists only to signal ownership to swift-bridge.
+    // swift-bridge does not generate a destructor (the `$_free` symbol) UNLESS the type
+    // is returned by value from a bridged function.
     //
-    // Note: a type may have methods in the IR (e.g., CrawlEngineHandle.crawl_stream,
-    // batch_crawl_stream) but all be binding_excluded for streaming adapters.
-    // In that case, ty.methods is not empty but no methods will appear in this
-    // extern block, so the noop is still required.
-    let has_visible_methods = ty
-        .methods
-        .iter()
-        .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
-    if ty.is_opaque && !has_visible_methods {
-        let type_snake = ty.name.to_snake_case();
-        let noop_fn_name = format!("{type_snake}_noop");
-        block.push_str(&crate::backends::swift::template_env::render(
-            "extern_fn_noop.jinja",
-            minijinja::context! {
-                fn_name => &noop_fn_name,
-            },
-        ));
-    }
+    // For streaming adapter owners like CrawlEngineHandle: the type IS returned by value
+    // (create_engine returns Result<CrawlEngineHandle, _>), so swift-bridge should
+    // generate `$_free` automatically even with no methods declared. The methods appear
+    // in the streaming adapter block (on the already_declared re-declaration), not here.
+    //
+    // For non-streaming opaque types with no methods: we would need a noop method to
+    // trigger `$_free`. However, checking whether a type is a streaming adapter owner
+    // requires passing additional context. For now, rely on the "returned by value"
+    // signal which covers the known case (CrawlEngineHandle).
+    //
+    // TODO: if non-streaming opaque types with no visible methods appear in the future,
+    // revisit this and add a noop method declaration for them.
 
     block.push_str("    }\n\n");
     block

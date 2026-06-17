@@ -382,7 +382,10 @@ mod tests {
             out.contains("internal: Default::default()"),
             "binding-excluded field must be explicitly defaulted when has_default is false; got:\n{out}"
         );
-        assert!(out.contains("name:"), "non-excluded field should still appear; got:\n{out}");
+        assert!(
+            out.contains("name:"),
+            "non-excluded field should still appear; got:\n{out}"
+        );
     }
 
     #[test]

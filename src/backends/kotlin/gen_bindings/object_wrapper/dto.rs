@@ -177,6 +177,58 @@ pub(crate) fn emit_type_with_imports(
             },
         ));
     }
+
+    // Emit inherent instance methods for non-opaque data classes.
+    // These serialize `this` to JSON, call the JNI external method, and deserialize the result.
+    use crate::codegen::shared::partition_methods;
+    let (instance_methods, _) = partition_methods(&ty.methods);
+
+    for method in instance_methods {
+        if method.sanitized {
+            continue; // Skip sanitized methods
+        }
+
+        let method_name = heck::AsLowerCamelCase(method.name.as_str()).to_string();
+        let return_type_str = kotlin_type_with_string_imports(&method.return_type, false, imports);
+        let extern_method = format!("{}_{}", ty.name, method.name);
+
+        // Build parameter signature
+        let params_sig: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let ptype = kotlin_type_with_string_imports(&p.ty, p.optional, imports);
+                format!("{}: {ptype}", p.name)
+            })
+            .collect();
+
+        let params_call = if method.params.is_empty() {
+            "this_json".to_string()
+        } else {
+            let mut args = vec!["this_json".to_string()];
+            for p in &method.params {
+                // For now, emit JSON stringification for all params (mirrors C# approach)
+                args.push(format!("JsonTools.stringify({})", p.name));
+            }
+            args.join(", ")
+        };
+
+        out.push_str("\n    fun ");
+        out.push_str(&method_name);
+        out.push('(');
+        out.push_str(&params_sig.join(", "));
+        out.push_str("): ");
+        out.push_str(&return_type_str);
+        out.push_str(" {\n");
+        out.push_str("        val this_json = JsonTools.stringify(this)\n");
+        out.push_str("        val result_json = NativeMethods.");
+        out.push_str(&extern_method);
+        out.push('(');
+        out.push_str(&params_call);
+        out.push_str(")\n");
+        out.push_str("        return JsonTools.parse(result_json)\n");
+        out.push_str("    }\n");
+    }
 }
 
 /// Return the `@field:JsonSerialize(...)` annotation source needed for a

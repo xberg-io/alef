@@ -7,6 +7,9 @@ public struct {{ type_name }}: Codable, Sendable, Hashable {
 {% endif %}
 {% if decoder_init %}
 {{ decoder_init }}{% endif %}
+{% if methods %}
+    // MARK: - Instance Methods
+{{ methods }}{% endif %}
 }
 
 // MARK: - Internal FFI conversions for {{ type_name }}

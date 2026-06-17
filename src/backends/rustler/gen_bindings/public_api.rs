@@ -18,10 +18,7 @@ pub(super) fn generate_public_api(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
-    // The Elixir facade module is a single surface; same-named cfg-variant functions (real impl +
-    // no-ORT stub fallback) must collapse to one `def` to avoid redefining the same clause. The
-    // Rustler NIF glue (generate_bindings) keeps the original multi-entry surface, which it
-    // cfg-gates per configured feature set. See codegen::fn_dedup.
+    // Elixir facade is a single surface: collapse same-named cfg-variant fns to one `def`. See codegen::fn_dedup.
     let deduped_api = api.with_deduped_functions();
     let api = &deduped_api;
 

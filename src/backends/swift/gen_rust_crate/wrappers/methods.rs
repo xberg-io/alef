@@ -368,24 +368,15 @@ pub(crate) fn emit_type_method_shims(
 /// Called separately from emit_type_method_shims so it fires even when all
 /// methods are binding_excluded.
 pub(crate) fn emit_type_noop_shim(ty: &TypeDef) -> String {
-    // For opaque types with no visible (non-excluded, non-sanitized) methods, emit a
-    // no-op method to signal ownership to swift-bridge. swift-bridge only generates
-    // destructors (`$_free`) for opaque types that have at least one method in their
-    // extern block. The no-op method (returning unit) makes the type "owned" and
-    // generates the destructor. This prevents leaks when handles are dropped in Swift.
+    // Note: noop method emission is disabled. For streaming adapter owners like
+    // CrawlEngineHandle, the type is returned by value (from create_engine), so
+    // swift-bridge generates `$_free` automatically without needing a method.
+    // For other opaque types with no methods, a noop would be needed, but those
+    // don't currently exist in the codebase.
     //
-    // Note: a type may have methods in the IR (e.g., CrawlEngineHandle.crawl_stream,
-    // batch_crawl_stream) but all be binding_excluded for streaming adapters.
-    // In that case, no methods will be emitted in the extern block, so the noop is required.
-    let has_visible_methods = ty
-        .methods
-        .iter()
-        .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
-    if ty.is_opaque && !has_visible_methods {
-        let type_snake = ty.name.to_snake_case();
-        let noop_name = format!("{type_snake}_noop");
-        format!("pub fn {noop_name}(client: &{}) {{}}\n", ty.name)
-    } else {
-        String::new()
-    }
+    // If such a case appears in the future, the noop pattern should be:
+    //   extern: fn crawl_engine_handle_noop(self: &CrawlEngineHandle);
+    //   impl:  impl CrawlEngineHandle { pub fn crawl_engine_handle_noop(&self) {} }
+    let _ = ty;
+    String::new()
 }

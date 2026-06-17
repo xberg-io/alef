@@ -667,17 +667,30 @@ fn configurator_survives_exclude_methods_post_service_pass() {
 /// from every binding whenever the surviving entry's cfg was inactive.
 #[test]
 fn dedup_keeps_same_named_functions_with_disjoint_cfgs() {
-    let mut real = make_funcdef("embed_texts_async", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool), vec![]);
+    let mut real = make_funcdef(
+        "embed_texts_async",
+        TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+        vec![],
+    );
     real.cfg = Some("all (feature = \"embeddings\" , feature = \"tokio-runtime\")".to_string());
-    let mut stub = make_funcdef("embed_texts_async", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool), vec![]);
+    let mut stub = make_funcdef(
+        "embed_texts_async",
+        TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+        vec![],
+    );
     stub.cfg = Some(
-        "all (feature = \"embedding-presets\" , not (feature = \"embeddings\") , feature = \"tokio-runtime\")".to_string(),
+        "all (feature = \"embedding-presets\" , not (feature = \"embeddings\") , feature = \"tokio-runtime\")"
+            .to_string(),
     );
 
     let mut surface = surface_with(vec![], vec![real, stub]);
     super::type_helpers::dedup_api_surface(&mut surface);
 
-    let entries: Vec<_> = surface.functions.iter().filter(|f| f.name == "embed_texts_async").collect();
+    let entries: Vec<_> = surface
+        .functions
+        .iter()
+        .filter(|f| f.name == "embed_texts_async")
+        .collect();
     assert_eq!(
         entries.len(),
         2,
@@ -693,9 +706,17 @@ fn dedup_keeps_same_named_functions_with_disjoint_cfgs() {
 /// entry with the shortest rust_path (closest to crate root).
 #[test]
 fn dedup_collapses_same_named_functions_with_identical_cfg() {
-    let mut near = make_funcdef("clean_text", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool), vec![]);
+    let mut near = make_funcdef(
+        "clean_text",
+        TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+        vec![],
+    );
     near.rust_path = "my_crate::clean_text".to_string();
-    let mut far = make_funcdef("clean_text", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool), vec![]);
+    let mut far = make_funcdef(
+        "clean_text",
+        TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+        vec![],
+    );
     far.rust_path = "my_crate::text::quality::clean_text".to_string();
 
     let mut surface = surface_with(vec![], vec![far, near]);
