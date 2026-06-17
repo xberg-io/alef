@@ -2,6 +2,7 @@
 
 mod classes;
 pub mod functions;
+mod method_result_wrap;
 pub mod service_api;
 mod streaming;
 mod tagged_enums;

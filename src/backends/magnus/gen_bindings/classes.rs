@@ -11,6 +11,7 @@ use ahash::AHashSet;
 use crate::backends::magnus::type_map::MagnusMapper;
 
 use super::functions::gen_magnus_unimplemented_body;
+use super::method_result_wrap::non_opaque_method_result_wrap;
 
 /// Check whether a struct has a `content` field of type `String` or `Option<String>`.
 /// When true, a `to_s` method should be generated so Ruby callers can use `result.to_s`
@@ -657,50 +658,6 @@ fn gen_async_instance_method(
          }}",
         method.name
     )
-}
-
-fn non_opaque_method_result_wrap(method: &MethodDef) -> String {
-    match &method.return_type {
-        TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Path => ".into()".to_string(),
-        // Bytes: when the core returns &Bytes (returns_ref=true), use .to_vec() since
-        // Vec<u8> does not implement From<&Bytes>. For owned Bytes, .into() works.
-        TypeRef::Bytes => {
-            if method.returns_ref {
-                ".to_vec()".to_string()
-            } else {
-                ".into()".to_string()
-            }
-        }
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
-            if method.returns_ref || method.returns_cow {
-                ".map(|v| v.to_owned())".to_string()
-            } else {
-                String::new()
-            }
-        }
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
-            ".map(|v| v.to_string_lossy().to_string())".to_string()
-        }
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes) => {
-            if method.returns_ref {
-                ".map(|v| v.to_vec())".to_string()
-            } else {
-                String::new()
-            }
-        }
-        // Map: when core returns &BTreeMap (returns_ref=true), the binding map type
-        // (e.g. HashMap<String, String>) may differ from the core's. Collect via iter
-        // and clone each entry to coerce the key/value types into the binding's target.
-        // This also handles Cow-keyed maps that ferment into owned String entries.
-        TypeRef::Map(_, _) => {
-            if method.returns_ref || method.returns_cow {
-                ".iter().map(|(k, v)| (k.clone(), v.clone())).collect()".to_string()
-            } else {
-                String::new()
-            }
-        }
-        _ => String::new(),
-    }
 }
 
 /// Generate a Magnus enum definition with IntoValue and TryConvert impls.

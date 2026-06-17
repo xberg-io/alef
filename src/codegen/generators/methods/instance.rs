@@ -359,8 +359,9 @@ pub fn gen_method(
                     }
                 }
                 // Optional<Primitive>: cast inside map when the binding uses a different type.
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Primitive(p) = inner.as_ref() {
+                // Optional<Vec<Named>>: per-element From<core> conversion.
+                TypeRef::Optional(inner) => match inner.as_ref() {
+                    TypeRef::Primitive(p) => {
                         use crate::codegen::conversions::helpers::{needs_f64_cast, needs_i32_cast};
                         if cfg.cast_uints_to_i32 && needs_i32_cast(p) {
                             ".map(|v| v as i32)".to_string()
@@ -369,10 +370,17 @@ pub fn gen_method(
                         } else {
                             String::new()
                         }
-                    } else {
-                        String::new()
                     }
-                }
+                    // Option<Vec<Named>>: convert each inner element through Into::into.
+                    TypeRef::Vec(vec_inner) if matches!(vec_inner.as_ref(), TypeRef::Named(_)) => {
+                        if method.returns_ref {
+                            ".as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect())".to_string()
+                        } else {
+                            ".map(|v| v.into_iter().map(Into::into).collect())".to_string()
+                        }
+                    }
+                    _ => String::new(),
+                },
                 // Map: when core returns &BTreeMap (returns_ref=true), the binding map type
                 // (e.g. HashMap) may differ. Collect via into_iter to coerce to the target type.
                 TypeRef::Map(_, _) => {
@@ -380,6 +388,16 @@ pub fn gen_method(
                         ".iter().map(|(k, v)| (k.clone(), v.clone())).collect()".to_string()
                     } else {
                         String::new()
+                    }
+                }
+                // Vec<Named>: core returns Vec<core::T> but binding expects Vec<wrapper::T>.
+                // Apply the binding's From<core> conversion to each element via Into::into.
+                // For `&[T]` (returns_ref=true) use `.iter()` to avoid clippy::into_iter_on_ref.
+                TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+                    if method.returns_ref {
+                        ".iter().map(|v| v.clone().into()).collect()".to_string()
+                    } else {
+                        ".into_iter().map(Into::into).collect()".to_string()
                     }
                 }
                 _ => String::new(),
