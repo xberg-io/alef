@@ -15,3 +15,14 @@ path = '.ai-rulez/skills/release-procedure'
 [[skills]]
 name = 'binding-audit'
 path = '.ai-rulez/skills/binding-audit'
+
+[[marketplaces]]
+name = "basemind"
+source = "Goldziher/basemind"
+type = "github"
+
+[[plugins]]
+marketplace = "basemind"
+name = "basemind"
+scope = "project"
+enabled = true
