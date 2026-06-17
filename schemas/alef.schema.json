@@ -1411,6 +1411,14 @@
           },
           "type": "array"
         },
+        "excluded_default_features": {
+          "default": [],
+          "description": "Feature names that should be declared as opt-in flags in the wrapper's\n`[features]` table but excluded from the `default = [...]` array.\n\nThe named features are still emitted as forwarding entries\n(`<name> = [\"<core>/<name>\"]`) so `cargo build -p <crate>-dart --features <name>`\ncontinues to work on desktop targets. They are simply not auto-enabled\nby `cargo build` against default features.\n\nUse this to keep native cross-compile targets (iOS, Android NDK) green\nwhen a feature pulls in a system library (e.g. `libheif-sys` via `heic`)\nwhose `build.rs` cannot satisfy `pkg-config` under cross-compilation.\nThe target-conditional `[target.'cfg(...)'.dependencies]` block alone\nis insufficient because cargo unions feature sets across dep instances.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "extra_dependencies": {
           "additionalProperties": true,
           "default": {},
@@ -1846,6 +1854,17 @@
         },
         "features": {
           "default": null,
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "nif_features": {
+          "default": null,
+          "description": "NIF crate [features] to forward to the core crate. If empty or not set,\ndefaults to [\"download\", \"serde\", \"config\"]. Set to an empty list to\ndisable default feature forwarding (e.g., when the core crate does not\nhave these features).",
           "items": {
             "type": "string"
           },
@@ -5688,6 +5707,14 @@
           },
           "type": "array"
         },
+        "excluded_default_features": {
+          "default": [],
+          "description": "Feature names that should be declared as opt-in flags in the wrapper's\n`[features]` table but excluded from the `default = [...]` array.\n\nThe named features are still emitted as forwarding entries\n(`<name> = [\"<core>/<name>\"]`) so `cargo build -p <crate>-swift --features <name>`\ncontinues to work on desktop targets. They are simply not auto-enabled\nby `cargo build` against default features.\n\nUse this to keep native cross-compile targets (iOS, Android NDK) green\nwhen a feature pulls in a system library (e.g. `libheif-sys` via `heic`)\nwhose `build.rs` cannot satisfy `pkg-config` under cross-compilation.\nThe target-conditional `[target.'cfg(...)'.dependencies]` block alone\nis insufficient because cargo unions feature sets across dep instances.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "extra_dependencies": {
           "additionalProperties": true,
           "default": {},
@@ -6877,7 +6904,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.24/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.25/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -6987,6 +7014,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.25.24",
-  "x-alef-version": "0.25.24"
+  "version": "0.25.25",
+  "x-alef-version": "0.25.25"
 }

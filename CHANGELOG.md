@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.25] - 2026-06-17
+
+### Fixed
+
+- **(e2e/codegen/php): emit correct PIE invocation syntax `pie install --version <version> <pkg>` for PIE 1.4.5.** Registry-mode PHP test_apps called `pie install "kreuzberg-dev/html-to-markdown:$VERSION"` which PIE 1.4.5 rejected with "Unable to find an installable package … version 3.6.11" despite the version being available on Packagist. PIE 1.4.5+ requires the positional arguments in a different order: `pie install --version "$VERSION" "vendor/package"`. Fix: reordered the `pie install` invocation in `render_install_sh` to match PIE's expected syntax. Fixes all registry-mode PHP test_app runs.
+
 ### Added
 
 - **(scaffold/dart, scaffold/swift): `[crates.dart] excluded_default_features` and `[crates.swift] excluded_default_features` to keep named features out of the wrapper's `default = [...]` array while still declaring them as opt-in forwarding entries.** The generated `[features]` block in `packages/dart/rust/Cargo.toml` and `packages/swift/rust/Cargo.toml` previously listed every cfg-referenced feature inside `default = [...]`, so cargo activated each forwarding flag (`heic = ["<core>/heic"]`, etc.) on every default build. The target-conditional `[target.'cfg(...)'.dependencies]` block alone is insufficient because cargo unions feature sets across dep instances — so `kreuzberg/heic` still pulled in `libheif-sys` on android/ios cross-compiles, failing with `pkg-config has not been configured to support cross-compilation` (see kreuzberg CI run 27669550996). Listing a feature under `excluded_default_features` keeps the forwarding entry (so `cargo build -p <crate>-dart --features heic` still works on desktop) but drops it from `default`, so cross-compile targets no longer auto-activate it. Gated by new regression tests `cargo_toml_excludes_named_features_from_default_but_keeps_forwarding_entries` in both `src/backends/dart/gen_rust_crate/cargo.rs` and `src/backends/swift/gen_rust_crate/cargo.rs`.
