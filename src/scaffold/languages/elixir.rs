@@ -155,19 +155,30 @@ pub(crate) fn scaffold_elixir_cargo(
     // allow-lists for backends that don't (yet) implement Option B feature forwarding.
     let referenced_features = crate::codegen::cfg::collect_cfg_features(api);
 
+    // Hard-code the canonical core features that the rustler backend uses for
+    // conditional method generation (config, download, serde) even if cfg-only
+    // detection returns empty. The rustler codegen emits #[cfg(feature = "X")]
+    // guards post-hoc during NIF function generation, not as IR-level features,
+    // so collect_cfg_features(api) returns empty. Ensure these are always present
+    // in the [features] block so the NIF crate can forward them to the core crate.
+    let mut always_features: std::collections::BTreeSet<String> =
+        ["download", "serde", "config"].iter().map(|s| s.to_string()).collect();
+    always_features.extend(referenced_features.clone());
+
     // Emit a [features] block with `default = [...]` and forwarding entries like
     // `download = ["<core-pkg>/download"]` so the rustler NIF crate can forward
     // features to the core crate. Without this, #[cfg(feature = "X")] arms fail
     // when the binding crate's Cargo.toml doesn't declare those features.
     // Mirrors the ruby/swift/dart/napi/php pattern (see commit 3b8aa6fc9 for ruby).
-    let features_table = if referenced_features.is_empty() {
-        String::new()
-    } else {
-        let mut lines: Vec<String> = Vec::with_capacity(referenced_features.len() + 1);
-        let default_list: Vec<String> = referenced_features.iter().map(|name| format!("\"{name}\"")).collect();
+    let features_table = {
+        let mut lines: Vec<String> = Vec::with_capacity(always_features.len() + 1);
+        let default_list: Vec<String> = always_features.iter().map(|name| format!("\"{name}\"")).collect();
         lines.push(format!("default = [{}]", default_list.join(", ")));
-        for name in &referenced_features {
-            lines.push(format!(r#"{name} = ["{core_dep_key}/{name}"]"#, core_dep_key = config.name));
+        for name in &always_features {
+            lines.push(format!(
+                r#"{name} = ["{core_dep_key}/{name}"]"#,
+                core_dep_key = config.name
+            ));
         }
         format!("[features]\n{}\n\n", lines.join("\n"))
     };
@@ -177,10 +188,8 @@ pub(crate) fn scaffold_elixir_cargo(
     // matches the template but cargo-sort (run by consumer repos' prek) moves
     // it to the bottom, producing a perpetual diff against the committed file
     // and failing strict version-sync checks in CI.
-    let check_cfg_block = if referenced_features.is_empty() {
-        String::new()
-    } else {
-        let csv = referenced_features
+    let check_cfg_block = {
+        let csv = always_features
             .iter()
             .map(|f| format!("\"{f}\""))
             .collect::<Vec<_>>()

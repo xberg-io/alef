@@ -43,7 +43,7 @@ fn default_formatter(lang: &str) -> Option<&'static str> {
         "rust" => Some("(cd {dir} && cargo fmt --all)"),
         "python" => Some("ruff check --fix {dir} && ruff format {dir}"),
         "node" | "wasm" => Some("pnpm dlx oxfmt {dir}"),
-        "go" => Some("(cd {dir} && go mod tidy)"),
+        "go" => Some("(cd {dir} && go mod tidy && gofmt -s -w . && (command -v goimports >/dev/null 2>&1 && goimports -w . || true))"),
         _ => None,
     }
 }
@@ -220,6 +220,22 @@ mod tests {
         assert!(
             cmd.contains("{dir}"),
             "go formatter must include {{dir}} placeholder: {cmd}"
+        );
+    }
+
+    // Match prek's `go-fmt` hook: `gofmt -s -w` plus optional `goimports -w`.
+    // Without `-s`, simplifications stay; without goimports, import groupings
+    // drift. Both must appear in the rendered command for the e2e Go tree.
+    #[test]
+    fn test_default_formatter_go_matches_prek_go_fmt() {
+        let cmd = default_formatter("go").expect("go must have a default formatter");
+        assert!(
+            cmd.contains("gofmt -s -w"),
+            "go e2e formatter must call `gofmt -s -w` to match prek\'s go-fmt: {cmd}"
+        );
+        assert!(
+            cmd.contains("goimports -w"),
+            "go e2e formatter must call `goimports -w` (guarded by command -v): {cmd}"
         );
     }
 
