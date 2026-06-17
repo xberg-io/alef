@@ -43,10 +43,17 @@ pub(crate) fn emit_bridge_fn(
 
     let has_error = f.error_type.is_some();
     // Return type uses local mirror names so FRB's generated SseEncode impls match.
-    let return_ty = if has_error {
-        format!("Result<{}, String>", frb_rust_type_mirror(&f.return_type, false))
+    // For Unit return type without error_type, we omit the return type annotation
+    // entirely to avoid clippy's `unused_unit` warning.
+    let (return_ty, has_explicit_return) = if has_error {
+        (
+            format!("Result<{}, String>", frb_rust_type_mirror(&f.return_type, false)),
+            true,
+        )
+    } else if matches!(f.return_type, TypeRef::Unit) {
+        (String::new(), false)
     } else {
-        frb_rust_type_mirror(&f.return_type, false)
+        (frb_rust_type_mirror(&f.return_type, false), true)
     };
 
     out.push_str(&crate::backends::dart::template_env::render(
@@ -56,6 +63,7 @@ pub(crate) fn emit_bridge_fn(
             fn_name => fn_name.as_str(),
             params => params.join(", "),
             return_ty => return_ty.as_str(),
+            has_explicit_return => has_explicit_return,
         },
     ));
 
@@ -171,7 +179,14 @@ pub(crate) fn emit_bridge_fn(
         String::new()
     };
 
-    let body = build_body(&call, &result_cast, &ret_transform, has_error, f.is_async);
+    let body = build_body(
+        &call,
+        &result_cast,
+        &ret_transform,
+        has_error,
+        f.is_async,
+        matches!(f.return_type, TypeRef::Unit),
+    );
 
     // Emit pre-call bindings (if any) before the body expression.
     if !pre_call_bindings.is_empty() {
@@ -572,11 +587,18 @@ fn sanitized_return_default(ty: &TypeRef) -> String {
 }
 
 /// Build primitive/string result cast (suffix after the raw value).
+/// Skips the cast if source and target types are identical (e.g., bool -> bool).
 fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
     match ty {
         TypeRef::Primitive(_) => {
             let target = frb_rust_type_inner(ty);
-            format!(" as {target}")
+            let source = frb_rust_type_inner(ty);
+            // Skip redundant cast when source and target types are identical.
+            if source == target {
+                String::new()
+            } else {
+                format!(" as {target}")
+            }
         }
         TypeRef::Path => ".display().to_string()".to_string(),
         TypeRef::String | TypeRef::Char => ".to_string()".to_string(),
@@ -650,7 +672,14 @@ fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
 /// expressions of the form `<call><suffix>` or `<call>.map(<callable>)` — never
 /// `(<closure>)(<call>)` — so the emitted Rust stays clean under clippy 1.95's
 /// `redundant_closure_call` lint.
-fn build_body(call: &str, result_cast: &str, ret_transform: &RetTransform, has_error: bool, is_async: bool) -> String {
+fn build_body(
+    call: &str,
+    result_cast: &str,
+    ret_transform: &RetTransform,
+    has_error: bool,
+    is_async: bool,
+    is_unit_return: bool,
+) -> String {
     match ret_transform {
         RetTransform::Map(callable) => {
             let map_fn = callable.as_str();
@@ -690,6 +719,14 @@ fn build_body(call: &str, result_cast: &str, ret_transform: &RetTransform, has_e
                     return format!("    {call}.await.map(|v| v{result_cast}).map_err(|e| e.to_string())\n");
                 }
                 return format!("    {call}.map(|v| v{result_cast}).map_err(|e| e.to_string())\n");
+            }
+            // For Unit returns without error_type, turn the expression into a statement
+            // to avoid returning the () value implicitly.
+            if is_unit_return {
+                if is_async {
+                    return format!("    {call}.await;\n");
+                }
+                return format!("    {call};\n");
             }
             if is_async {
                 if result_cast.is_empty() {

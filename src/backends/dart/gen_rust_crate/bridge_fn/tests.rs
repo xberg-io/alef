@@ -149,7 +149,7 @@ fn vec_named_return_transform_is_suffix_not_closure_call() {
         }
         other => panic!("expected Suffix, got {other:?}"),
     }
-    let body = build_body("sample_crate::detect(&x)", "", &transform, false, false);
+    let body = build_body("sample_crate::detect(&x)", "", &transform, false, false, false);
     assert!(
         !body.contains("|v: Vec<_>|"),
         "body must not emit closure-literal wrap: {body}"
@@ -193,7 +193,7 @@ fn option_named_return_transform_is_suffix_not_closure_call() {
         }
         other => panic!("expected Suffix, got {other:?}"),
     }
-    let body = build_body("sample_crate::get(&n)", "", &transform, false, false);
+    let body = build_body("sample_crate::get(&n)", "", &transform, false, false, false);
     assert!(
         !body.contains("|v: Option<_>|"),
         "body must not emit closure-literal wrap: {body}"
@@ -213,7 +213,7 @@ fn scalar_named_return_transform_does_not_emit_closure_call() {
 
     // From-conversion path.
     let t = return_transform(&ty_named, "mylib", &std::collections::HashMap::new(), &opaque, false);
-    let body = build_body("sample_crate::foo()", "", &t, false, false);
+    let body = build_body("sample_crate::foo()", "", &t, false, false, false);
     assert!(
         body.contains("Foo::from(sample_crate::foo())"),
         "sync scalar Named must emit direct call, got: {body}"
@@ -223,7 +223,7 @@ fn scalar_named_return_transform_does_not_emit_closure_call() {
     // Opaque-wrap path.
     opaque.insert("Foo".to_string());
     let t = return_transform(&ty_named, "mylib", &std::collections::HashMap::new(), &opaque, false);
-    let body = build_body("sample_crate::foo()", "", &t, false, false);
+    let body = build_body("sample_crate::foo()", "", &t, false, false, false);
     assert!(
         body.contains("Foo { inner: sample_crate::foo() }"),
         "sync scalar opaque Named must emit struct literal, got: {body}"
@@ -276,4 +276,63 @@ fn scalar_path_result_cast_uses_display_not_to_string() {
     let cast = build_primitive_result_cast(&ty, false);
     assert!(cast.contains("display()"), "Path cast must use .display(): {cast}");
     assert!(cast.contains("to_string()"), "Path cast must use to_string(): {cast}");
+}
+
+#[test]
+fn unit_return_no_error_emits_statement_not_expression() {
+    // Bug 1 fix: Unit return without error_type must emit statement (with semicolon),
+    // not expression, to avoid implicit () return. This prevents clippy's `unused_unit` warning.
+    let transform = RetTransform::None;
+    let body_sync = build_body("sample_crate::clear()", "", &transform, false, false, true);
+    let body_async = build_body("sample_crate::clear()", "", &transform, false, true, true);
+
+    // Sync version should have semicolon.
+    assert!(
+        body_sync.contains("sample_crate::clear();"),
+        "unit return without error must emit semicolon in sync fn: {body_sync}"
+    );
+    assert!(
+        !body_sync.contains("sample_crate::clear()\n"),
+        "unit return must NOT have semicolon-less expression: {body_sync}"
+    );
+
+    // Async version should have semicolon after await.
+    assert!(
+        body_async.contains("sample_crate::clear().await;"),
+        "unit return without error must emit semicolon in async fn: {body_async}"
+    );
+}
+
+#[test]
+fn bool_to_bool_cast_skipped_redundant() {
+    // Bug 2 fix: bool -> bool cast should be skipped (redundant cast warning).
+    // build_primitive_result_cast must check if source and target types are identical.
+    let ty = TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool);
+    let cast = build_primitive_result_cast(&ty, false);
+
+    // The cast should be empty because bool -> bool is redundant.
+    assert_eq!(cast, "", "bool->bool cast must be empty (redundant), got: '{cast}'");
+}
+
+#[test]
+fn non_matching_primitive_cast_preserved() {
+    // Verify that casts for non-bool primitives are still emitted when needed.
+    // In FRB, all integers map to i64 and floats map to f64.
+    // A cast is redundant only when source and target types are identical.
+    let ty_i64 = TypeRef::Primitive(crate::core::ir::PrimitiveType::I64);
+    let cast_i64 = build_primitive_result_cast(&ty_i64, false);
+
+    // i64 → i64 is redundant and should be empty.
+    assert_eq!(
+        cast_i64, "",
+        "i64->i64 cast must be empty (redundant), got: '{cast_i64}'"
+    );
+
+    // For F64, FRB maps it to f64, so f64 -> f64 is redundant.
+    let ty_f64 = TypeRef::Primitive(crate::core::ir::PrimitiveType::F64);
+    let cast_f64 = build_primitive_result_cast(&ty_f64, false);
+    assert_eq!(
+        cast_f64, "",
+        "f64->f64 cast must be empty (redundant), got: '{cast_f64}'"
+    );
 }

@@ -1,1 +1,1 @@
-pub {{ async_kw }}fn {{ fn_name }}({{ params }}) -> {{ return_ty }} {
+pub {{ async_kw }}fn {{ fn_name }}({{ params }}){% if has_explicit_return %} -> {{ return_ty }}{% endif %} {
