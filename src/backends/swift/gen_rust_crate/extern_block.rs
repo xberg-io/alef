@@ -179,6 +179,20 @@ pub(crate) fn emit_extern_block_for_type(
         ));
     }
 
+    // For opaque types with no methods, swift-bridge does not generate a destructor
+    // (the `$_free` symbol). The C ABI handle becomes unleak-able, breaking linking.
+    // A no-op method (returning unit) makes swift-bridge recognize the type as owned
+    // and generate the destructor. Callers never invoke it — it exists only to signal
+    // ownership to the swift-bridge codegen.
+    if ty.is_opaque && ty.methods.is_empty() {
+        block.push_str(&crate::backends::swift::template_env::render(
+            "extern_fn_noop.jinja",
+            minijinja::context! {
+                name => &ty.name,
+            },
+        ));
+    }
+
     block.push_str("    }\n\n");
     block
 }

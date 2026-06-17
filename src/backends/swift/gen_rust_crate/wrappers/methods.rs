@@ -359,5 +359,18 @@ pub(crate) fn emit_type_method_shims(
             },
         ));
     }
+
+    // For opaque types with no methods, emit a no-op method to signal ownership
+    // to swift-bridge. swift-bridge only generates destructors (`$_free`) for
+    // opaque types that have at least one method. The no-op method (returning unit)
+    // makes the type "owned" and generates the destructor. This prevents leaks when
+    // handles are dropped in Swift.
+    if ty.is_opaque && ty.methods.is_empty() {
+        let type_snake = ty.name.to_snake_case();
+        let noop_name = format!("{type_snake}_noop");
+        let noop_fn = format!("pub fn {noop_name}(client: &{}) {{}}\n", ty.name);
+        out.push_str(&noop_fn);
+    }
+
     out
 }
