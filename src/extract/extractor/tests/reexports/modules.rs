@@ -280,3 +280,133 @@ fn test_private_module_glob_reexport_exposes_all() {
     assert!(names.contains(&"Alpha"), "Alpha should be exposed via glob re-export");
     assert!(names.contains(&"Beta"), "Beta should be exposed via glob re-export");
 }
+
+#[test]
+fn test_pub_use_clears_binding_excluded_on_skipped_source() {
+    // `#[cfg(feature = "X")] pub use mod::fn` re-exports a concrete-signature
+    // function from a sibling module. The source carries `#[cfg_attr(alef, alef(skip))]`
+    // because it is intended to be reached only through the crate-root re-export.
+    // The re-export must un-exclude the entry so it lands in the binding surface.
+    let tmp = std::env::temp_dir().join("alef_test_pub_use_clears_skip");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+
+    std::fs::write(
+        tmp.join("src/lib.rs"),
+        r#"
+pub mod inner;
+
+#[cfg(feature = "real")]
+pub use inner::do_thing;
+
+#[cfg(not(feature = "real"))]
+pub fn do_thing(input: String) -> Result<String, String> {
+    Err("real feature not enabled".to_string())
+}
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        tmp.join("src/inner.rs"),
+        r#"
+#[cfg(feature = "real")]
+#[cfg_attr(alef, alef(skip))]
+pub fn do_thing(input: String) -> Result<String, String> {
+    Ok(input)
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_rs = tmp.join("src/lib.rs");
+    let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
+    let surface = super::extract(&sources, "demo", "0.1.0", None).unwrap();
+
+    let entries: Vec<&_> = surface.functions.iter().filter(|f| f.name == "do_thing").collect();
+    assert_eq!(
+        entries.len(),
+        2,
+        "expected both the inner source (un-excluded by re-export) and the stub to land in the surface; got {entries:?}"
+    );
+    assert!(
+        entries.iter().all(|f| !f.binding_excluded),
+        "binding_excluded must be cleared by the pub use re-export; got {entries:?}"
+    );
+    let cfgs: Vec<&str> = entries.iter().filter_map(|f| f.cfg.as_deref()).collect();
+    assert!(
+        cfgs.iter().any(|c| c.contains("\"real\"") && !c.contains("not")),
+        "real cfg gate must be present; got cfgs={cfgs:?}"
+    );
+    assert!(
+        cfgs.iter().any(|c| c.contains("not") && c.contains("\"real\"")),
+        "stub cfg gate must be preserved; got cfgs={cfgs:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_pub_use_synthesises_paired_entry_for_generic_source() {
+    // `#[cfg(feature = "X")] pub use mod::fn` re-exports a GENERIC function which
+    // extract_function drops (FFI cannot represent generics). A same-named
+    // concrete stub exists under the disjoint cfg `not(feature = "X")`. The
+    // re-export must synthesise a paired concrete entry under cfg "X" so the
+    // binding has a callable surface in every feature combination.
+    let tmp = std::env::temp_dir().join("alef_test_pub_use_pairs_generic");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+
+    std::fs::write(
+        tmp.join("src/lib.rs"),
+        r#"
+pub mod inner;
+
+#[cfg(feature = "real")]
+pub use inner::do_thing;
+
+#[cfg(not(feature = "real"))]
+pub fn do_thing(input: String) -> Result<String, String> {
+    Err("real feature not enabled".to_string())
+}
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        tmp.join("src/inner.rs"),
+        r#"
+#[cfg(feature = "real")]
+pub fn do_thing<T: AsRef<str>>(input: T) -> Result<String, String> {
+    Ok(input.as_ref().to_string())
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_rs = tmp.join("src/lib.rs");
+    let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
+    let surface = super::extract(&sources, "demo", "0.1.0", None).unwrap();
+
+    let entries: Vec<&_> = surface.functions.iter().filter(|f| f.name == "do_thing").collect();
+    assert_eq!(
+        entries.len(),
+        2,
+        "expected the stub plus a synthesised paired entry under the re-export's cfg, got {entries:?}"
+    );
+    assert!(
+        entries.iter().all(|f| !f.binding_excluded),
+        "neither the stub nor the synthesised paired entry should be binding_excluded"
+    );
+    let cfgs: Vec<&str> = entries.iter().filter_map(|f| f.cfg.as_deref()).collect();
+    assert!(
+        cfgs.iter().any(|c| c.contains("\"real\"") && !c.contains("not")),
+        "paired entry must carry the re-export's cfg gate; got cfgs={cfgs:?}"
+    );
+    assert!(
+        cfgs.iter().any(|c| c.contains("not") && c.contains("\"real\"")),
+        "stub cfg gate must be preserved; got cfgs={cfgs:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
