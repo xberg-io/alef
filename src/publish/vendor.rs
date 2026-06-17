@@ -613,165 +613,166 @@ pub(crate) fn scrub_or_regenerate_lock(
         'retry: for attempt in 0..REGISTRY_PROPAGATION_ATTEMPTS {
             let mut last_failure: Option<(i32, String, String)> = None;
             for member in &members.names {
-            // Disambiguate the package spec. The seed Cargo.lock (copied from
-            // the workspace) carries a `source = "path+file:///…"` entry for
-            // every workspace member. The rewritten binding manifest references
-            // the registry source for that same name+version. A bare
-            // `--package NAME` matches BOTH entries and cargo bails with
-            // `specification 'NAME' is ambiguous`. Form `NAME@VERSION` is also
-            // ambiguous because both entries share the version. Use the full
-            // package-id URL — `registry+<index>#NAME@VERSION` — so cargo
-            // resolves to the registry-source entry (the one we just rewrote
-            // and need to refresh). When the member version is unknown
-            // (members.versions missed it) fall back to the bare name; cargo
-            // will either succeed silently or report the ambiguity, which we
-            // then surface verbatim.
-            let registry_spec = members
-                .versions
-                .get(member)
-                .map(|version| format!("registry+https://github.com/rust-lang/crates.io-index#{member}@{version}"));
-            let pkg_arg: &str = registry_spec.as_deref().unwrap_or(member);
-            // `cargo update -p` is allowed to mutate the lockfile by design — that
-            // is the whole point of this call. Some CI runners export
-            // `CARGO_BUILD_LOCKED=true` globally to guard downstream build steps;
-            // when that env var is set, every cargo invocation (including this
-            // one and the metadata validation below) silently picks up `--locked`
-            // and bails with "cannot update the lock file ... because --locked
-            // was passed". Explicitly clear it for this command so the seeded
-            // lockfile can be aligned with the rewritten manifest.
-            let output = std::process::Command::new("cargo")
-                .env_remove("CARGO_BUILD_LOCKED")
-                .current_dir(manifest_dir.as_ref())
-                .arg("update")
-                .arg("--manifest-path")
-                .arg(&manifest)
-                .arg("--package")
-                .arg(pkg_arg)
-                .output();
-            match output {
-                Ok(out) if out.status.success() => {}
-                Ok(out) => {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    // `cargo update -p X` errors when X is not a dep of the current
-                    // manifest. Each binding only depends on a subset of workspace
-                    // members, so cargo's exact "package ID specification `X` did
-                    // not match any packages" message is expected and silently
-                    // skipped. The two-phrase check makes sure we do not also
-                    // swallow unrelated resolver failures (broken path deps,
-                    // manifest parse errors, network failures, missing crates on
-                    // the registry) that happen to mention either phrase alone.
-                    if stderr.contains("package ID specification") && stderr.contains("did not match any packages") {
-                        continue;
+                // Disambiguate the package spec. The seed Cargo.lock (copied from
+                // the workspace) carries a `source = "path+file:///…"` entry for
+                // every workspace member. The rewritten binding manifest references
+                // the registry source for that same name+version. A bare
+                // `--package NAME` matches BOTH entries and cargo bails with
+                // `specification 'NAME' is ambiguous`. Form `NAME@VERSION` is also
+                // ambiguous because both entries share the version. Use the full
+                // package-id URL — `registry+<index>#NAME@VERSION` — so cargo
+                // resolves to the registry-source entry (the one we just rewrote
+                // and need to refresh). When the member version is unknown
+                // (members.versions missed it) fall back to the bare name; cargo
+                // will either succeed silently or report the ambiguity, which we
+                // then surface verbatim.
+                let registry_spec = members
+                    .versions
+                    .get(member)
+                    .map(|version| format!("registry+https://github.com/rust-lang/crates.io-index#{member}@{version}"));
+                let pkg_arg: &str = registry_spec.as_deref().unwrap_or(member);
+                // `cargo update -p` is allowed to mutate the lockfile by design — that
+                // is the whole point of this call. Some CI runners export
+                // `CARGO_BUILD_LOCKED=true` globally to guard downstream build steps;
+                // when that env var is set, every cargo invocation (including this
+                // one and the metadata validation below) silently picks up `--locked`
+                // and bails with "cannot update the lock file ... because --locked
+                // was passed". Explicitly clear it for this command so the seeded
+                // lockfile can be aligned with the rewritten manifest.
+                let output = std::process::Command::new("cargo")
+                    .env_remove("CARGO_BUILD_LOCKED")
+                    .current_dir(manifest_dir.as_ref())
+                    .arg("update")
+                    .arg("--manifest-path")
+                    .arg(&manifest)
+                    .arg("--package")
+                    .arg(pkg_arg)
+                    .output();
+                match output {
+                    Ok(out) if out.status.success() => {}
+                    Ok(out) => {
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        // `cargo update -p X` errors when X is not a dep of the current
+                        // manifest. Each binding only depends on a subset of workspace
+                        // members, so cargo's exact "package ID specification `X` did
+                        // not match any packages" message is expected and silently
+                        // skipped. The two-phrase check makes sure we do not also
+                        // swallow unrelated resolver failures (broken path deps,
+                        // manifest parse errors, network failures, missing crates on
+                        // the registry) that happen to mention either phrase alone.
+                        if stderr.contains("package ID specification") && stderr.contains("did not match any packages")
+                        {
+                            continue;
+                        }
+                        last_failure = Some((out.status.code().unwrap_or(-1), member.clone(), stderr.to_string()));
                     }
-                    last_failure = Some((out.status.code().unwrap_or(-1), member.clone(), stderr.to_string()));
-                }
-                Err(error) => {
-                    if strict {
-                        return Err(error).with_context(|| {
-                            format!(
-                                "could not run cargo update -p {member} for {} — a referenced \
+                    Err(error) => {
+                        if strict {
+                            return Err(error).with_context(|| {
+                                format!(
+                                    "could not run cargo update -p {member} for {} — a referenced \
                                  workspace-member version is likely not yet published to the \
                                  registry. Publish the core crate(s) before the language packages, \
                                  then retry.",
-                                manifest.display()
-                            )
-                        });
+                                    manifest.display()
+                                )
+                            });
+                        }
+                        tracing::warn!(%error, package = %member, "could not run cargo update; deleting Cargo.lock");
+                        last_failure = Some((-1, member.clone(), error.to_string()));
+                        break;
                     }
-                    tracing::warn!(%error, package = %member, "could not run cargo update; deleting Cargo.lock");
-                    last_failure = Some((-1, member.clone(), error.to_string()));
-                    break;
                 }
             }
-        }
 
-        // Validate and complete the lockfile by running `cargo metadata` (without
-        // `--locked`) against the rewritten manifest. The per-member `cargo update
-        // -p` loop above only refreshes entries we explicitly named; binding crates
-        // that are NOT workspace members of the upstream workspace (e.g. Ruby gem
-        // NIFs, Elixir NIFs) have no `[[package]]` entry in the seeded lock for the
-        // NIF root crate itself. If we ran `cargo metadata --locked`, cargo would
-        // refuse to add that missing entry and bail with "cannot update the lock
-        // file because --locked was passed". Dropping `--locked` lets cargo write
-        // only the entries that are genuinely absent from the seed while leaving all
-        // existing pinned entries untouched — this avoids the brotli-decompressor
-        // 5.0.1 drift that `cargo generate-lockfile` caused (which rebuilt the full
-        // graph at the latest semver-compatible version, defeating the seed).
-        if last_failure.is_none() {
-            // See the matching env_remove on `cargo update -p` above: validation
-            // intentionally drops `--locked` so cargo can write any genuinely
-            // missing transitive entries (NIF root crates, etc.) into the seed
-            // lock. `CARGO_BUILD_LOCKED=true` from the surrounding CI runner
-            // would silently re-enable `--locked` and defeat this; clear it.
-            let validation = std::process::Command::new("cargo")
-                .env_remove("CARGO_BUILD_LOCKED")
-                .current_dir(manifest_dir.as_ref())
-                .arg("metadata")
-                .arg("--format-version")
-                .arg("1")
-                .arg("--manifest-path")
-                .arg(&manifest)
-                .output();
-            match validation {
-                Ok(out) if out.status.success() => return Ok(()),
-                Ok(out) => {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    last_failure = Some((
-                        out.status.code().unwrap_or(-1),
-                        "<lockfile>".to_string(),
-                        stderr.to_string(),
-                    ));
-                }
-                Err(error) => {
-                    if strict {
-                        return Err(error).with_context(|| {
-                            format!(
-                                "could not run cargo metadata for {} to validate and complete the \
+            // Validate and complete the lockfile by running `cargo metadata` (without
+            // `--locked`) against the rewritten manifest. The per-member `cargo update
+            // -p` loop above only refreshes entries we explicitly named; binding crates
+            // that are NOT workspace members of the upstream workspace (e.g. Ruby gem
+            // NIFs, Elixir NIFs) have no `[[package]]` entry in the seeded lock for the
+            // NIF root crate itself. If we ran `cargo metadata --locked`, cargo would
+            // refuse to add that missing entry and bail with "cannot update the lock
+            // file because --locked was passed". Dropping `--locked` lets cargo write
+            // only the entries that are genuinely absent from the seed while leaving all
+            // existing pinned entries untouched — this avoids the brotli-decompressor
+            // 5.0.1 drift that `cargo generate-lockfile` caused (which rebuilt the full
+            // graph at the latest semver-compatible version, defeating the seed).
+            if last_failure.is_none() {
+                // See the matching env_remove on `cargo update -p` above: validation
+                // intentionally drops `--locked` so cargo can write any genuinely
+                // missing transitive entries (NIF root crates, etc.) into the seed
+                // lock. `CARGO_BUILD_LOCKED=true` from the surrounding CI runner
+                // would silently re-enable `--locked` and defeat this; clear it.
+                let validation = std::process::Command::new("cargo")
+                    .env_remove("CARGO_BUILD_LOCKED")
+                    .current_dir(manifest_dir.as_ref())
+                    .arg("metadata")
+                    .arg("--format-version")
+                    .arg("1")
+                    .arg("--manifest-path")
+                    .arg(&manifest)
+                    .output();
+                match validation {
+                    Ok(out) if out.status.success() => return Ok(()),
+                    Ok(out) => {
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        last_failure = Some((
+                            out.status.code().unwrap_or(-1),
+                            "<lockfile>".to_string(),
+                            stderr.to_string(),
+                        ));
+                    }
+                    Err(error) => {
+                        if strict {
+                            return Err(error).with_context(|| {
+                                format!(
+                                    "could not run cargo metadata for {} to validate and complete the \
                                  seeded lockfile",
-                                manifest.display()
-                            )
-                        });
+                                    manifest.display()
+                                )
+                            });
+                        }
+                        tracing::warn!(%error, "could not run cargo metadata; deleting Cargo.lock");
+                        last_failure = Some((-1, "<lockfile>".to_string(), error.to_string()));
                     }
-                    tracing::warn!(%error, "could not run cargo metadata; deleting Cargo.lock");
-                    last_failure = Some((-1, "<lockfile>".to_string(), error.to_string()));
                 }
             }
-        }
 
-        if let Some((_, _, ref stderr)) = last_failure
-            && strict
-            && attempt + 1 < REGISTRY_PROPAGATION_ATTEMPTS
-            && looks_like_registry_propagation_lag(stderr)
-        {
-            tracing::warn!(
-                attempt = attempt + 1,
-                max_attempts = REGISTRY_PROPAGATION_ATTEMPTS,
-                sleep_secs = REGISTRY_PROPAGATION_SLEEP_SECS,
-                "cargo update / metadata failed with apparent crates.io registry-index \
+            if let Some((_, _, ref stderr)) = last_failure
+                && strict
+                && attempt + 1 < REGISTRY_PROPAGATION_ATTEMPTS
+                && looks_like_registry_propagation_lag(stderr)
+            {
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    max_attempts = REGISTRY_PROPAGATION_ATTEMPTS,
+                    sleep_secs = REGISTRY_PROPAGATION_SLEEP_SECS,
+                    "cargo update / metadata failed with apparent crates.io registry-index \
                  propagation lag; sleeping and retrying",
-            );
-            std::thread::sleep(std::time::Duration::from_secs(REGISTRY_PROPAGATION_SLEEP_SECS));
-            continue 'retry;
-        }
+                );
+                std::thread::sleep(std::time::Duration::from_secs(REGISTRY_PROPAGATION_SLEEP_SECS));
+                continue 'retry;
+            }
 
-        if let Some((code, member, stderr)) = last_failure {
-            if strict {
-                bail!(
-                    "cargo update -p {member} (or final cargo metadata validation) failed \
+            if let Some((code, member, stderr)) = last_failure {
+                if strict {
+                    bail!(
+                        "cargo update -p {member} (or final cargo metadata validation) failed \
                      (exit code {code}) for {} — the referenced workspace-member version is \
                      likely not yet published to the registry. Publish the core crate(s) before \
                      the language packages, then retry.\n{stderr}",
-                    manifest.display()
+                        manifest.display()
+                    );
+                }
+                tracing::warn!(
+                    code,
+                    package = %member,
+                    "cargo update -p / metadata validation failed; deleting Cargo.lock so it regenerates at build time"
                 );
+            } else {
+                return Ok(());
             }
-            tracing::warn!(
-                code,
-                package = %member,
-                "cargo update -p / metadata validation failed; deleting Cargo.lock so it regenerates at build time"
-            );
-        } else {
-            return Ok(());
-        }
-        break 'retry;
+            break 'retry;
         }
     }
 

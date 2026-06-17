@@ -192,8 +192,7 @@ pub(crate) fn emit_cargo_toml(
         // `pkg-config` under cross-compilation. The target-conditional
         // `[target.'cfg(...)'.dependencies]` block alone is insufficient
         // because cargo unions feature sets across dep instances.
-        let excluded: std::collections::HashSet<&str> =
-            excluded_default_features.iter().map(String::as_str).collect();
+        let excluded: std::collections::HashSet<&str> = excluded_default_features.iter().map(String::as_str).collect();
         let mut lines: Vec<String> = Vec::with_capacity(cfg_features.len() + 1);
         let default_list: Vec<String> = cfg_features
             .iter()

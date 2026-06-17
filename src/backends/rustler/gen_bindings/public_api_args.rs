@@ -157,13 +157,13 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
         if variant.fields.is_empty() {
             // Unit variant: accept both bare atom and tuple form with an empty/any map.
             if !first_clause {
-                out.push_str("\n");
+                out.push('\n');
             }
             out.push_str(&format!(
                 "  defp {fn_name}(:{atom}), do: %{{\"{tag}\" => \"{wire_escaped}\"}}\n"
             ));
             // Blank line between the two unit variant clauses (atom form vs tuple form).
-            out.push_str("\n");
+            out.push('\n');
             out.push_str(&format!(
                 "  defp {fn_name}({{:{atom}, _}}), do: %{{\"{tag}\" => \"{wire_escaped}\"}}\n"
             ));
@@ -177,7 +177,7 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
         // explicit `#[serde(rename = "...")]` per field is honored. Unknown keys are
         // passed through as their string form, preserving forwards compatibility.
         if !first_clause {
-            out.push_str("\n");
+            out.push('\n');
         }
         out.push_str(&format!("  defp {fn_name}({{:{atom}, %{{}} = data}}) do\n"));
         out.push_str("    data\n");
@@ -208,11 +208,11 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
 
     // Map passthrough: caller already produced a wire-shaped map.
     if !first_clause {
-        out.push_str("\n");
+        out.push('\n');
     }
     out.push_str(&format!("  defp {fn_name}(%{{}} = m), do: m\n"));
     // Error path: anything else is a programming error — be loud about it.
-    out.push_str("\n");
+    out.push('\n');
     out.push_str(&format!(
         "  defp {fn_name}(other),\n    do: raise(ArgumentError, \"expected {} (atom, {{atom, map}}, or map), got: \" <> inspect(other))\n\n",
         enum_def.name

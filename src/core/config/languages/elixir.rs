@@ -8,7 +8,7 @@ pub struct ElixirConfig {
     pub app_name: Option<String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,
-    /// NIF crate [features] to forward to the core crate. If empty or not set,
+    /// NIF crate `[features]` to forward to the core crate. If empty or not set,
     /// defaults to ["download", "serde", "config"]. Set to an empty list to
     /// disable default feature forwarding (e.g., when the core crate does not
     /// have these features).

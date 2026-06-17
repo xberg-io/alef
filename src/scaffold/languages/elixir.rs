@@ -164,8 +164,7 @@ pub(crate) fn scaffold_elixir_cargo(
         .as_ref()
         .and_then(|e| e.nif_features.clone())
         .unwrap_or(default_nif_features);
-    let mut always_features: std::collections::BTreeSet<String> =
-        base_features.into_iter().collect();
+    let mut always_features: std::collections::BTreeSet<String> = base_features.into_iter().collect();
     always_features.extend(referenced_features.clone());
 
     // Emit a [features] block with `default = [...]` and forwarding entries like

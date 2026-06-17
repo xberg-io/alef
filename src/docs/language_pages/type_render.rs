@@ -28,9 +28,13 @@ pub(super) fn render_type(
     push_version_annotation(&mut out, &ty.version);
 
     let doc = clean_doc(&ty.doc, lang);
-    // Demote any embedded headings in the type documentation by 2 levels
-    // to ensure they stay nested under the type heading (####).
-    let doc = demote_headings(&doc, 2);
+    // Demote any embedded headings in the type documentation by 4 levels so
+    // that the doc's top-level `#` lands at `#####` — one step below the type
+    // heading (`####`) and at the same level as the `Methods` heading emitted
+    // below. Demoting by only 2 produced `### Doc Heading` (h3) **above** the
+    // type's `####` heading (h4), triggering MD001 ("heading level skipped")
+    // when the next sibling `##### Methods` appeared.
+    let doc = demote_headings(&doc, 4);
     if !doc.is_empty() {
         out.push_str(&doc);
         out.push('\n');
@@ -94,4 +98,51 @@ pub(super) fn render_type(
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::Language;
+    use crate::core::ir::{ApiSurface, MethodDef, ReceiverKind, TypeRef};
+
+    #[test]
+    fn type_doc_headings_stay_under_type_heading() {
+        let ty = TypeDef {
+            name: "ReportConfig".to_string(),
+            doc: "# Details\n\nConfiguration notes.".to_string(),
+            methods: vec![MethodDef {
+                name: "validate".to_string(),
+                receiver: Some(ReceiverKind::Ref),
+                return_type: TypeRef::Unit,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let rendered = render_type(
+            &ty,
+            Language::Rust,
+            &ResolvedCrateConfig::default(),
+            &ApiSurface::default(),
+            "sample",
+        );
+
+        assert!(
+            rendered.contains("#### ReportConfig"),
+            "type heading should render at h4; got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("##### Details"),
+            "type rustdoc heading should be demoted below h4; got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("##### Methods"),
+            "methods heading should remain at h5; got:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("\n### Details"),
+            "type rustdoc heading must not be promoted above the type heading; got:\n{rendered}"
+        );
+    }
 }

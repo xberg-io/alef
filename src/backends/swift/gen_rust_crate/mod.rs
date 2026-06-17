@@ -705,7 +705,10 @@ fn emit_lib_rs(
         out.push_str(&vec_accessors_block);
     }
     // cfg-gated types each get their own `#[cfg(...)] extern "Rust" { }` block.
-    for ty in visible_types.iter().filter(|t| t.cfg.is_some() && !already_declared.contains(&t.name)) {
+    for ty in visible_types
+        .iter()
+        .filter(|t| t.cfg.is_some() && !already_declared.contains(&t.name))
+    {
         let cfg = ty.cfg.as_deref().unwrap();
         let block = extern_block::emit_extern_block_for_vec_accessors(&[ty], &[]);
         if !block.is_empty() {

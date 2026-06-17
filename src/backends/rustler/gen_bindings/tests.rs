@@ -376,7 +376,11 @@ fn test_tagged_enum_encoder_blank_lines_between_clauses() {
 
     // Count how many distinct defp clauses exist (line starting with "  defp encode_page_action")
     let clause_count = encoder_section.matches("  defp encode_page_action").count();
-    assert!(clause_count >= 2, "test requires at least 2 defp clauses; got {}", clause_count);
+    assert!(
+        clause_count >= 2,
+        "test requires at least 2 defp clauses; got {}",
+        clause_count
+    );
 
     // Verify that unit variant clauses (:scrape and {:scrape, _}) have a blank line between them.
     // Look for the pattern that indicates proper formatting with blank line.
@@ -420,7 +424,12 @@ nif_features = []
 
     // Verify nif_features was parsed as empty list
     assert!(
-        config_empty.elixir.as_ref().and_then(|e| e.nif_features.as_ref()).map(|f| f.is_empty()).unwrap_or(false),
+        config_empty
+            .elixir
+            .as_ref()
+            .and_then(|e| e.nif_features.as_ref())
+            .map(|f| f.is_empty())
+            .unwrap_or(false),
         "nif_features = [] should be parsed as empty list; got: {:?}",
         config_empty.elixir.as_ref().and_then(|e| e.nif_features.as_ref())
     );
@@ -442,7 +451,11 @@ app_name = "my_lib"
 
     // When nif_features is not set, should be None (uses default behavior)
     assert!(
-        config_default.elixir.as_ref().and_then(|e| e.nif_features.as_ref()).is_none(),
+        config_default
+            .elixir
+            .as_ref()
+            .and_then(|e| e.nif_features.as_ref())
+            .is_none(),
         "unset nif_features should be None; got: {:?}",
         config_default.elixir.as_ref().and_then(|e| e.nif_features.as_ref())
     );
@@ -464,7 +477,11 @@ nif_features = ["foo", "bar"]
     let config_custom = cfg_custom.resolve().expect("config must resolve").remove(0);
 
     // Verify custom features were parsed
-    let nif_features = config_custom.elixir.as_ref().and_then(|e| e.nif_features.as_ref()).expect("should parse custom features");
+    let nif_features = config_custom
+        .elixir
+        .as_ref()
+        .and_then(|e| e.nif_features.as_ref())
+        .expect("should parse custom features");
     assert_eq!(nif_features.len(), 2, "should have 2 custom features");
     assert!(nif_features.contains(&"foo".to_string()), "should contain foo");
     assert!(nif_features.contains(&"bar".to_string()), "should contain bar");
