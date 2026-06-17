@@ -90,14 +90,14 @@ fn gen_lossy_binding_to_core_fields_inner(
         ""
     };
     let mut out = format!("{allow}let {mut_kw}core_self = {core_path} {{\n");
+    let has_binding_excluded_fields = typ.fields.iter().any(|f| f.binding_excluded);
     for field in &typ.fields {
         if field.binding_excluded {
-            out.push_str(&crate::codegen::template_env::render(
-                "binding_helpers/struct_field_default.jinja",
-                minijinja::context! {
-                    name => &field.name,
-                },
-            ));
+            // Skip binding_excluded fields entirely; the trailing `..Default::default()`
+            // spread fills them with the CORE type's Default impl, preserving custom
+            // defaults like `kreuzcrawl::CrawlConfig::default().ssrf = SsrfPolicy::from_env()`.
+            // Emitting `<field>: Default::default()` would shadow that with the sub-type's
+            // (often stricter) default value.
             continue;
         }
         // Skip cfg-gated fields — they are absent from the binding struct.
@@ -389,8 +389,9 @@ fn gen_lossy_binding_to_core_fields_inner(
         ));
         out.push('\n');
     }
-    // Use ..Default::default() to fill cfg-gated fields stripped from the IR
-    if typ.has_stripped_cfg_fields {
+    // Use ..Default::default() to fill cfg-gated fields stripped from the IR,
+    // and binding-excluded fields (alef(skip)) so they pick up the core's Default.
+    if typ.has_stripped_cfg_fields || has_binding_excluded_fields {
         out.push_str("            ..Default::default()\n");
     }
     out.push_str("        };\n        ");

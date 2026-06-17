@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(codegen/binding_helpers): skip `binding_excluded` fields in the shared `gen_lossy_binding_to_core_fields_inner` and emit the `..Default::default()` spread when any binding-excluded field exists.** Same bug as the 0.25.26 PHP-backend fix, but in the SHARED method-body lossy helper used by Python/Node/Ruby/WASM/extendr/etc. The shared helper still emitted `<field>: Default::default()` per binding-excluded field inside method bodies (e.g. `pub fn validate(&self)` in `crates/kreuzcrawl-py/src/lib.rs:694`), shadowing the core type's custom `Default` impl (e.g. `CrawlConfig::default()` calls `SsrfPolicy::from_env()` to honor `KREUZCRAWL_ALLOW_PRIVATE_NETWORK`). With this fix, every binding's method-body lossy `let core_self = CoreType { ... }` correctly inherits the core's bespoke defaults via the trailing spread.
+- **(backends/php/enum_defaults): apply the same fix to `gen_enum_tainted_from_binding_to_core`.** The enum-tainted From-impl generator (used for types like `CrawlConfig` that have enum-Named fields) still emitted `<field>: Default::default()` for `binding_excluded` fields, shadowing the core `Default` impl. Skip binding_excluded fields entirely; force the `..Default::default()` spread when any binding-excluded field exists. Without this, the regenerated PHP `From<CrawlConfig> for kreuzcrawl::CrawlConfig` impl in 0.25.26 still hit the bug because CrawlConfig is enum-tainted (browser.mode, content, etc.), so the lossy struct-conversion helper path didn't apply. The combined effect: every binding's `Kreuzcrawl::crawl()` / `validate()` etc. now passes the `KREUZCRAWL_ALLOW_PRIVATE_NETWORK` env var through SSRF policy resolution instead of silently defaulting to `deny_private=true` and rejecting all loopback traffic.
+
 ## [0.25.26] - 2026-06-17
 
 ### Fixed
