@@ -12,6 +12,15 @@ use heck::ToPascalCase;
 use super::functions::{emit_rustdoc, format_param_unused, gen_wasm_unimplemented_body, wasm_wrap_return};
 use super::methods::gen_method;
 
+#[path = "types_unit_enum.rs"]
+mod types_unit_enum;
+
+#[cfg(test)]
+#[path = "types_tests.rs"]
+mod types_tests;
+
+use types_unit_enum::{is_vec_of_unit_enum, vec_unit_enum_inner_name};
+
 /// Returns `true` when `ty` is `Vec<Named>` where `Named` is a tagged-data enum.
 ///
 /// These fields are stored as `JsValue` in the wasm binding struct so that plain JS object
@@ -34,40 +43,6 @@ fn is_bare_tagged_data_enum(ty: &TypeRef, tagged_data_enum_names: &AHashSet<Stri
 /// Optional tagged-data enum fields are stored as `Option<JsValue>` in the wasm binding struct.
 fn is_option_of_tagged_data_enum(ty: &TypeRef, tagged_data_enum_names: &AHashSet<String>) -> bool {
     matches!(ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_data_enum_names.contains(n)))
-}
-
-/// Returns `true` when `ty` is `Vec<Named>` where `Named` is a unit enum (in `enum_names`
-/// but NOT in `tagged_data_enum_names`).
-///
-/// JS callers pass these fields as arrays of serde-wire strings (e.g. `["image", "document"]`);
-/// the setter must convert via `from_api_str` and the getter must emit `to_api_str` so the
-/// JS surface is symmetric. wasm-bindgen does not transparently bridge `Vec<UnitEnum>` with
-/// `Vec<String>` — we have to emit explicit conversions on both sides.
-fn is_vec_of_unit_enum(ty: &TypeRef, enum_names: &AHashSet<String>, tagged_data_enum_names: &AHashSet<String>) -> bool {
-    matches!(
-        ty,
-        TypeRef::Vec(inner)
-            if matches!(inner.as_ref(), TypeRef::Named(n)
-                if enum_names.contains(n) && !tagged_data_enum_names.contains(n))
-    )
-}
-
-/// Resolve the prefixed binding name for a unit-enum element inside a `Vec<UnitEnum>` field.
-/// Returns `Some(WasmFoo)` for `Vec<Foo>` when `Foo` is a unit enum.
-fn vec_unit_enum_inner_name(
-    ty: &TypeRef,
-    enum_names: &AHashSet<String>,
-    tagged_data_enum_names: &AHashSet<String>,
-    prefix: &str,
-) -> Option<String> {
-    if let TypeRef::Vec(inner) = ty {
-        if let TypeRef::Named(n) = inner.as_ref() {
-            if enum_names.contains(n) && !tagged_data_enum_names.contains(n) {
-                return Some(format!("{prefix}{n}"));
-            }
-        }
-    }
-    None
 }
 
 /// Check if a TypeRef is a Copy type that shouldn't be cloned.
@@ -856,7 +831,16 @@ fn gen_getter(
     // Vec<UnitEnum>: return Vec<String> via per-element to_api_str() so JS sees serde-wire strings
     // (matching the setter that accepts Vec<String>). wasm-bindgen does not bridge Vec<UnitEnum>
     // ↔ JS arrays of strings on its own.
-    let is_vec_unit_enum = is_vec_of_unit_enum(&field.ty, enum_names, tagged_data_enum_names);
+    //
+    // Two IR shapes both reach here:
+    //   - required `Vec<UnitEnum>`:  field.optional=false, field.ty=Vec(Named(E))
+    //     → stored as `Vec<WasmE>`,        getter returns `Vec<String>`.
+    //   - optional `Option<Vec<UnitEnum>>`: field.optional=true,  field.ty=Vec(Named(E))
+    //     → stored as `Option<Vec<WasmE>>`, getter returns `Option<Vec<String>>` and must
+    //       flatten the Option before iterating (`.as_ref().map(...)`).
+    let is_vec_unit_enum = !field.optional && is_vec_of_unit_enum(&field.ty, enum_names, tagged_data_enum_names);
+    let is_optional_vec_unit_enum =
+        field.optional && is_vec_of_unit_enum(&field.ty, enum_names, tagged_data_enum_names);
     let is_optional_vec_of_struct = field.optional
         && matches!(
             inner_ty,
@@ -873,6 +857,15 @@ fn gen_getter(
             field.name
         );
         ("Vec<String>".to_string(), expr)
+    } else if is_optional_vec_unit_enum {
+        // Option<Vec<UnitEnum>> stored as Option<Vec<WasmFoo>>: flatten the Option before
+        // iterating, then convert each element via to_api_str(). Iterating the Option directly
+        // would yield a `&Vec<WasmFoo>` element that lacks `to_api_str()` (E0599).
+        let expr = format!(
+            "self.{}.as_ref().map(|v| v.iter().map(|x| x.to_api_str().to_owned()).collect())",
+            field.name
+        );
+        ("Option<Vec<String>>".to_string(), expr)
     } else if is_required_vec_tagged_enum || is_required_bare_tagged_enum {
         // Vec<TaggedDataEnum> or bare TaggedDataEnum stored as JsValue: return the JsValue directly.
         ("JsValue".to_string(), format!("self.{}.clone()", field.name))
@@ -943,7 +936,14 @@ fn gen_setter(
         !is_vec_tagged_enum && !is_option_tagged_enum && is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names);
     // Vec<UnitEnum>: accept Vec<String> and convert each via from_api_str(). Silently drop
     // unknown variants — matches the getter that returns Vec<String> via to_api_str().
-    let is_vec_unit_enum = is_vec_of_unit_enum(&field.ty, enum_names, tagged_data_enum_names);
+    //
+    // Required vs optional has the same IR shape split as the getter:
+    //   - required `Vec<UnitEnum>`:        field.optional=false → storage Vec<WasmE>,        setter takes Vec<String>.
+    //   - optional `Option<Vec<UnitEnum>>`: field.optional=true  → storage Option<Vec<WasmE>>, setter takes Option<Vec<String>>
+    //     and must wrap the collected Vec in `Some(...)` to match the field type.
+    let is_vec_unit_enum = !field.optional && is_vec_of_unit_enum(&field.ty, enum_names, tagged_data_enum_names);
+    let is_optional_vec_unit_enum =
+        field.optional && is_vec_of_unit_enum(&field.ty, enum_names, tagged_data_enum_names);
 
     let js_name = to_node_name(&field.name);
     let js_name_attr = if js_name != field.name {
@@ -958,6 +958,17 @@ fn gen_setter(
         return format!(
             "#[wasm_bindgen(setter{js_name_attr})]\npub fn set_{name}(&mut self, value: Vec<String>) {{\n    \
              self.{name} = value.into_iter().filter_map(|s| {inner}::from_api_str(&s)).collect();\n}}",
+            name = field.name,
+            inner = inner,
+        );
+    }
+
+    if is_optional_vec_unit_enum {
+        let inner = vec_unit_enum_inner_name(&field.ty, enum_names, tagged_data_enum_names, &mapper.prefix)
+            .expect("is_vec_of_unit_enum implied inner is a named unit enum");
+        return format!(
+            "#[wasm_bindgen(setter{js_name_attr})]\npub fn set_{name}(&mut self, value: Option<Vec<String>>) {{\n    \
+             self.{name} = value.map(|v| v.into_iter().filter_map(|s| {inner}::from_api_str(&s)).collect());\n}}",
             name = field.name,
             inner = inner,
         );
