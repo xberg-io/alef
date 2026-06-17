@@ -53,6 +53,16 @@ pub(crate) fn extract_impl_block(
     type_index: &AHashMap<String, usize>,
     result_wrapping_aliases: &ahash::AHashSet<String>,
 ) {
+    // Honor `#[cfg_attr(alef, alef(skip))]` (or bare `#[alef(skip)]`) on the impl block
+    // itself — when present, no methods from this impl reach the binding surface, for any
+    // backend. This is the authoring contract for hiding builder/fluent methods whose
+    // names collide with struct fields (e.g. `fn strict(self, on: bool) -> Self` next to
+    // a `pub strict: Option<bool>` field), which would otherwise produce duplicate symbols
+    // in field-accessor-emitting backends like the C FFI.
+    if extract_binding_exclusion_reason(&item.attrs).is_some() {
+        return;
+    }
+
     if item.trait_.is_some() {
         // Extract trait impl methods and attach to the type if it's in our surface
         extract_trait_impl_methods(item, crate_name, surface, type_index, result_wrapping_aliases);

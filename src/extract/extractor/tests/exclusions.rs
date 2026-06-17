@@ -228,6 +228,87 @@ fn test_extract_binding_excluded_method() {
 }
 
 #[test]
+fn test_extract_skip_attribute_on_impl_block_drops_all_methods() {
+    // Regression: an `impl` block carrying `#[cfg_attr(alef, alef(skip))]` must
+    // contribute zero methods to the binding surface. The motivating case is a
+    // fluent builder whose method names collide with struct fields:
+    //
+    //     pub struct JsonSchemaFormat {
+    //         pub strict: Option<bool>,
+    //         pub description: Option<String>,
+    //         ...
+    //     }
+    //
+    //     #[cfg_attr(alef, alef(skip))]
+    //     impl JsonSchemaFormat {
+    //         pub fn strict(mut self, on: bool) -> Self { ... }
+    //         pub fn description(mut self, d: impl Into<String>) -> Self { ... }
+    //     }
+    //
+    // The C FFI backend emits a field accessor for each public field AND a method
+    // wrapper for each impl method. When the names collide, two
+    // `#[no_mangle] extern "C" fn` definitions with the same symbol are emitted,
+    // breaking compilation with E0428. Honoring `alef(skip)` on the impl block at
+    // the IR-extraction layer means *no* backend sees the builder methods.
+    let source = r#"
+        pub struct JsonSchemaFormat {
+            pub name: String,
+            pub description: Option<String>,
+            pub strict: Option<bool>,
+        }
+
+        #[cfg_attr(alef, alef(skip))]
+        impl JsonSchemaFormat {
+            pub fn strict(mut self, on: bool) -> Self { self.strict = Some(on); self }
+            pub fn description(mut self, d: String) -> Self { self.description = Some(d); self }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let format = surface
+        .types
+        .iter()
+        .find(|t| t.name == "JsonSchemaFormat")
+        .expect("JsonSchemaFormat extracted");
+    assert!(
+        format.methods.is_empty(),
+        "no methods should be lifted from a skipped impl block, got: {:?}",
+        format.methods.iter().map(|m| &m.name).collect::<Vec<_>>()
+    );
+    // Fields must remain — only the impl block is skipped.
+    let field_names: Vec<&str> = format.fields.iter().map(|f| f.name.as_str()).collect();
+    assert!(field_names.contains(&"strict"));
+    assert!(field_names.contains(&"description"));
+}
+
+#[test]
+fn test_extract_skip_attribute_on_bare_alef_impl_block_drops_all_methods() {
+    // Same as above but using bare `#[alef(skip)]` instead of `#[cfg_attr(alef, ...)]`.
+    let source = r#"
+        pub struct Builder {
+            pub value: u32,
+        }
+
+        #[alef(skip)]
+        impl Builder {
+            pub fn value(mut self, v: u32) -> Self { self.value = v; self }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let builder = surface
+        .types
+        .iter()
+        .find(|t| t.name == "Builder")
+        .expect("Builder extracted");
+    assert!(
+        builder.methods.is_empty(),
+        "no methods should be lifted from a skipped impl block, got: {:?}",
+        builder.methods.iter().map(|m| &m.name).collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn test_disambiguation_pass_runs_on_full_extract() {
     // Two structs named `Event` in sibling modules. Without disambiguation, both
     // would survive with the same `name`, and downstream codegen would emit two
