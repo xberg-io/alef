@@ -155,16 +155,36 @@ pub(crate) fn scaffold_elixir_cargo(
     // allow-lists for backends that don't (yet) implement Option B feature forwarding.
     let referenced_features = crate::codegen::cfg::collect_cfg_features(api);
 
-    // Use `nif_features` from config if set (including empty list), otherwise default to
-    // canonical features ["download", "serde", "config"] for backward compatibility.
-    // If the core crate doesn't have these features, set `nif_features = []` in alef.toml.
-    let default_nif_features = vec!["download".to_string(), "serde".to_string(), "config".to_string()];
-    let base_features = config
-        .elixir
-        .as_ref()
-        .and_then(|e| e.nif_features.clone())
-        .unwrap_or(default_nif_features);
-    let mut always_features: std::collections::BTreeSet<String> = base_features.into_iter().collect();
+    // Determine the NIF feature list to forward to the core crate.
+    // Priority: (1) explicit `nif_features` in config (including empty []), (2) derived
+    // from actual core crate features filtering the canonical list, (3) empty set.
+    // Only include legacy defaults that actually exist in the core crate to avoid Cargo
+    // errors from forwarding missing features.
+    let base_features = if let Some(elixir_config) = config.elixir.as_ref() {
+        if let Some(nif_features) = elixir_config.nif_features.clone() {
+            // Explicit config: use as-is
+            nif_features.into_iter().collect()
+        } else {
+            // No explicit config: derive from core crate's actual features
+            let canonical_defaults = vec!["download", "serde", "config"];
+            let core_features = get_core_crate_features(config, &core_crate_dir);
+            canonical_defaults
+                .into_iter()
+                .filter(|f| core_features.contains(*f))
+                .map(|s| s.to_string())
+                .collect()
+        }
+    } else {
+        // No elixir config at all: derive from core crate's actual features
+        let canonical_defaults = vec!["download", "serde", "config"];
+        let core_features = get_core_crate_features(config, &core_crate_dir);
+        canonical_defaults
+            .into_iter()
+            .filter(|f| core_features.contains(*f))
+            .map(|s| s.to_string())
+            .collect()
+    };
+    let mut always_features: std::collections::BTreeSet<String> = base_features;
     always_features.extend(referenced_features.clone());
 
     // Emit a [features] block with `default = [...]` and forwarding entries like
@@ -636,6 +656,37 @@ end
     }
 
     Ok(files)
+}
+
+/// Extract feature names from the core crate's Cargo.toml `[features]` block.
+/// Returns a sorted set of features that actually exist in the core crate.
+fn get_core_crate_features(config: &ResolvedCrateConfig, core_crate_dir: &str) -> std::collections::BTreeSet<String> {
+    let mut features = std::collections::BTreeSet::new();
+
+    let root = match config.workspace_root.as_deref() {
+        Some(p) => p.to_path_buf(),
+        None => match std::env::current_dir() {
+            Ok(p) => p,
+            Err(_) => return features,
+        },
+    };
+
+    let cargo_toml = root.join("crates").join(core_crate_dir).join("Cargo.toml");
+    let Ok(content) = std::fs::read_to_string(&cargo_toml) else {
+        return features;
+    };
+
+    let Ok(manifest) = content.parse::<toml::Value>() else {
+        return features;
+    };
+    let Some(feature_table) = manifest.get("features").and_then(toml::Value::as_table) else {
+        return features;
+    };
+    for name in feature_table.keys() {
+        features.insert(name.to_string());
+    }
+
+    features
 }
 
 fn elixir_nif_targets(config: &ResolvedCrateConfig) -> Vec<String> {

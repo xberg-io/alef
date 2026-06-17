@@ -28,15 +28,15 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
             has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
         },
     );
+    let has_binding_excluded_fields = typ.fields.iter().any(|f| f.binding_excluded);
     for field in &typ.fields {
         if field.binding_excluded {
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_struct_field_assignment.jinja",
-                context! {
-                    field_name => field.name.as_str(),
-                    field_expr => "Default::default()",
-                },
-            ));
+            // Skip binding_excluded fields entirely; the trailing `..Default::default()`
+            // spread fills them with the CORE type's Default impl. Emitting
+            // `<field>: Default::default()` would override that — and is wrong when
+            // the core's Default calls a custom function (e.g. `CrawlConfig::default()`
+            // sets `ssrf: SsrfPolicy::from_env()`, whereas `<SsrfPolicy as Default>`
+            // is the static `deny_private = true` policy).
             continue;
         }
         // Skip cfg-gated fields — they are absent from the binding struct.
@@ -199,8 +199,10 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
             ));
         }
     }
-    // Use ..Default::default() to fill cfg-gated fields stripped from the IR
-    if typ.has_stripped_cfg_fields {
+    // Use ..Default::default() to fill cfg-gated fields stripped from the IR,
+    // and binding-excluded fields (alef(skip)) so they pick up the core's Default,
+    // including custom Default impls that depend on runtime configuration.
+    if typ.has_stripped_cfg_fields || has_binding_excluded_fields {
         out.push_str(&crate::backends::php::template_env::render(
             "php_default_update.jinja",
             minijinja::Value::default(),

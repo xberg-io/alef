@@ -589,3 +589,75 @@ elixir = '{explicit_path}'
         mix_exs.content
     );
 }
+
+/// When a core crate has no config/download/serde features, the derived default
+/// [features] block must not list them, avoiding Cargo "does not have that
+/// feature" errors.
+#[test]
+fn test_scaffold_elixir_cargo_derives_features_from_core_crate() {
+    let tmp = tempfile::tempdir().expect("tempdir must be created");
+    let ws_root = tmp.path();
+    let core_dir = ws_root.join("crates").join("my-lib");
+    std::fs::create_dir_all(&core_dir).expect("create core dir");
+
+    // Create a minimal Cargo.toml with only native-http and opendal-cache features.
+    let cargo_toml_content = r#"
+[package]
+name = "my-lib"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["native-http"]
+native-http = []
+opendal-cache = []
+wasm-http = []
+"#;
+    std::fs::write(core_dir.join("Cargo.toml"), cargo_toml_content).expect("write Cargo.toml");
+
+    // Build a config that points to this workspace root, matching the core crate name.
+    let mut config = test_config();
+    config.workspace_root = Some(ws_root.to_path_buf());
+    // Ensure the config name matches the crate directory name so feature forwarding works.
+    config.name = "my-lib".to_string();
+    // Set sources to match the standard layout so core_crate_dir derives correctly.
+    config.sources = vec![std::path::PathBuf::from("crates/my-lib/src/lib.rs")];
+    let api = test_api();
+
+    // Scaffold Elixir Cargo.toml.
+    let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files
+        .iter()
+        .find(|f| f.path.ends_with("Cargo.toml"))
+        .expect("Cargo.toml must be generated");
+
+    // The [features] block should NOT list config, download, or serde (which don't exist).
+    let features_start = cargo_toml
+        .content
+        .find("[features]")
+        .expect("must have [features] block");
+    let deps_start = cargo_toml
+        .content
+        .find("[dependencies]")
+        .expect("must have [dependencies] block");
+    let features_block = &cargo_toml.content[features_start..deps_start];
+
+    assert!(
+        !features_block.contains("config = [\"my-lib/config\"]"),
+        "Elixir Cargo.toml must not forward non-existent 'config' feature in [features]; content:\n{}",
+        features_block
+    );
+    assert!(
+        !features_block.contains("download = [\"my-lib/download\"]"),
+        "Elixir Cargo.toml must not forward non-existent 'download' feature in [features]; content:\n{}",
+        features_block
+    );
+    // Note: serde is a direct dependency, not a feature of the core crate, so it won't be in [features].
+
+    assert!(
+        features_block.contains("default = []"),
+        "Elixir Cargo.toml must not enable missing legacy defaults; content:\n{}",
+        features_block
+    );
+}
