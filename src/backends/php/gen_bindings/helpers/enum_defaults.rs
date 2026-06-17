@@ -93,6 +93,22 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     let has_binding_excluded_fields = typ.fields.iter().any(|f| f.binding_excluded);
     for field in &typ.fields {
         if field.binding_excluded {
+            if !typ.has_default {
+                // The core type does not derive Default, so the trailing
+                // `..Default::default()` spread would fail with E0277. Emit
+                // `<field>: Default::default()` explicitly for each binding-excluded
+                // field. This loses any custom core-level Default behaviour for
+                // these fields, but is the only way to construct the struct literal
+                // when the core type lacks a Default impl.
+                out.push_str(&crate::backends::php::template_env::render(
+                    "php_struct_field_assignment.jinja",
+                    context! {
+                        field_name => field.name.as_str(),
+                        field_expr => "Default::default()",
+                    },
+                ));
+                continue;
+            }
             // Skip binding_excluded fields entirely; the trailing `..Default::default()`
             // spread fills them with the core type's Default impl. Emitting
             // `<field>: Default::default()` would shadow custom defaults.
@@ -279,10 +295,15 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             ));
         }
     }
+    // Only emit the trailing `..Default::default()` spread when the core type
+    // derives Default — otherwise E0277 blocks compilation. For binding-excluded
+    // fields the loop above already emitted explicit `field: Default::default()`
+    // assignments when `!typ.has_default`.
+    let emit_default_spread = typ.has_default && (typ.has_stripped_cfg_fields || has_binding_excluded_fields);
     out.push_str(&crate::backends::php::template_env::render(
         "php_impl_from_end.jinja",
         context! {
-            has_stripped_cfg_fields => typ.has_stripped_cfg_fields || has_binding_excluded_fields,
+            has_stripped_cfg_fields => emit_default_spread,
         },
     ));
     out
@@ -429,5 +450,113 @@ pub(super) fn gen_string_to_enum_expr(
                 match_arms => &match_arms,
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::conversions::ConversionConfig;
+    use crate::core::ir::{FieldDef, TypeRef};
+
+    fn field(name: &str, binding_excluded: bool) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            binding_excluded,
+            ..Default::default()
+        }
+    }
+
+    fn typ(name: &str, has_default: bool, fields: Vec<FieldDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("crate::{name}"),
+            fields,
+            is_clone: true,
+            has_default,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn enum_tainted_binding_excluded_with_default_uses_spread() {
+        let typ = typ(
+            "DefaultedWithExcluded",
+            true,
+            vec![field("name", false), field("attrs", true)],
+        );
+        let cfg = ConversionConfig::default();
+        let out = gen_enum_tainted_from_binding_to_core(
+            &typ,
+            "crate",
+            &AHashSet::new(),
+            &AHashSet::new(),
+            &cfg,
+            &[],
+            &AHashSet::new(),
+        );
+
+        assert!(
+            out.contains("..Default::default()"),
+            "spread should be emitted when has_default is true; got:\n{out}"
+        );
+        assert!(
+            !out.contains("attrs: Default::default()"),
+            "binding-excluded field should NOT be explicitly emitted when has_default is true; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn enum_tainted_binding_excluded_without_default_emits_explicit_default() {
+        let typ = typ(
+            "NoDefaultEnumTainted",
+            false,
+            vec![field("name", false), field("attrs", true)],
+        );
+        let cfg = ConversionConfig::default();
+        let out = gen_enum_tainted_from_binding_to_core(
+            &typ,
+            "crate",
+            &AHashSet::new(),
+            &AHashSet::new(),
+            &cfg,
+            &[],
+            &AHashSet::new(),
+        );
+
+        assert!(
+            !out.contains("..Default::default()"),
+            "spread must NOT be emitted when has_default is false; got:\n{out}"
+        );
+        assert!(
+            out.contains("attrs: Default::default()"),
+            "binding-excluded field must be explicitly defaulted when has_default is false; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn enum_tainted_no_excluded_fields_no_spread() {
+        let typ = typ(
+            "PlainEnumTainted",
+            true,
+            vec![field("name", false), field("value", false)],
+        );
+        let cfg = ConversionConfig::default();
+        let out = gen_enum_tainted_from_binding_to_core(
+            &typ,
+            "crate",
+            &AHashSet::new(),
+            &AHashSet::new(),
+            &cfg,
+            &[],
+            &AHashSet::new(),
+        );
+
+        assert!(
+            !out.contains("..Default::default()"),
+            "spread must not appear when there are no excluded/stripped fields; got:\n{out}"
+        );
     }
 }

@@ -468,8 +468,10 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
     // When the core struct has cfg-gated fields stripped from the IR, the generated
     // body ends with `..Default::default()` to fill them in. clippy flags this as
     // `needless_update` even though the field list is otherwise complete from the
-    // mirror's perspective — silence it with an allow.
-    if ty.has_stripped_cfg_fields {
+    // mirror's perspective — silence it with an allow. Only emit the allow when
+    // the spread itself is emitted (i.e. core type derives Default); otherwise the
+    // annotation is dead and risks unused_attributes warnings.
+    if ty.has_stripped_cfg_fields && ty.has_default {
         out.push_str("#[allow(clippy::needless_update)]\n");
     }
     out.push_str(&crate::backends::dart::template_env::render(
@@ -519,7 +521,12 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
     // Use ..Default::default() only when the core struct has cfg-gated fields that
     // are absent from the IR (and therefore absent from the mirror struct). Without
     // this guard, types that don't implement Default would fail to compile.
-    if ty.has_stripped_cfg_fields {
+    // Also gate on `has_default` — the spread itself requires the core type to
+    // derive Default, so emitting it for non-Default types produces E0277. When
+    // `!has_default && has_stripped_cfg_fields` the type is fundamentally
+    // unconstructible from the mirror; the struct literal will fail with a more
+    // diagnostic missing-fields error (E0063) instead of a confusing E0277.
+    if ty.has_stripped_cfg_fields && ty.has_default {
         out.push_str("            ..Default::default()\n");
     }
     out.push_str(&crate::backends::dart::template_env::render(
@@ -847,5 +854,112 @@ fn sanitized_field_from_expr(field: &FieldDef) -> String {
             let _ = name;
             String::from("Default::default()")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field(name: &str, binding_excluded: bool) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            binding_excluded,
+            ..Default::default()
+        }
+    }
+
+    fn typ(name: &str, has_default: bool, has_stripped_cfg_fields: bool, fields: Vec<FieldDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("source::{name}"),
+            fields,
+            is_clone: true,
+            has_default,
+            has_stripped_cfg_fields,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn mirror_to_core_binding_excluded_with_default_uses_spread() {
+        let ty = typ(
+            "DefaultedWithExcluded",
+            true,
+            true,
+            vec![field("name", false), field("internal", true)],
+        );
+        let mut out = String::new();
+        emit_from_mirror_to_core_struct(&mut out, &ty, "source");
+
+        assert!(
+            out.contains("..Default::default()"),
+            "spread should be emitted when has_default && has_stripped_cfg_fields; got:\n{out}"
+        );
+        assert!(
+            out.contains("#[allow(clippy::needless_update)]"),
+            "needless_update allow should accompany the emitted spread; got:\n{out}"
+        );
+        // binding_excluded fields are still emitted explicitly by the loop (existing behaviour)
+        assert!(
+            out.contains("internal: Default::default()"),
+            "binding-excluded field is still emitted explicitly; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn mirror_to_core_stripped_cfg_without_default_omits_spread() {
+        let ty = typ(
+            "NoDefaultStripped",
+            false,
+            true,
+            vec![field("name", false)],
+        );
+        let mut out = String::new();
+        emit_from_mirror_to_core_struct(&mut out, &ty, "source");
+
+        assert!(
+            !out.contains("..Default::default()"),
+            "spread must NOT be emitted when has_default is false; got:\n{out}"
+        );
+        assert!(
+            !out.contains("#[allow(clippy::needless_update)]"),
+            "needless_update allow must NOT be emitted when no spread; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn mirror_to_core_binding_excluded_without_default_emits_explicit_only() {
+        let ty = typ(
+            "NoDefaultExcluded",
+            false,
+            false,
+            vec![field("name", false), field("internal", true)],
+        );
+        let mut out = String::new();
+        emit_from_mirror_to_core_struct(&mut out, &ty, "source");
+
+        assert!(
+            !out.contains("..Default::default()"),
+            "spread must NOT be emitted when has_default is false; got:\n{out}"
+        );
+        assert!(
+            out.contains("internal: Default::default()"),
+            "binding-excluded field must be explicitly defaulted; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn mirror_to_core_no_excluded_no_spread() {
+        let ty = typ("Plain", true, false, vec![field("name", false), field("value", false)]);
+        let mut out = String::new();
+        emit_from_mirror_to_core_struct(&mut out, &ty, "source");
+
+        assert!(
+            !out.contains("..Default::default()"),
+            "spread must not appear when there are no stripped cfg fields; got:\n{out}"
+        );
     }
 }

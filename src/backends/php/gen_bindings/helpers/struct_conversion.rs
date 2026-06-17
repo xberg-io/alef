@@ -106,6 +106,22 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
     let has_binding_excluded_fields = typ.fields.iter().any(|f| f.binding_excluded);
     for field in &typ.fields {
         if field.binding_excluded {
+            if !typ.has_default {
+                // The core type does not derive Default, so the trailing
+                // `..Default::default()` spread would fail with E0277. Emit
+                // `<field>: Default::default()` explicitly for each binding-excluded
+                // field. This loses any custom core-level Default behaviour for
+                // these fields, but is the only way to construct the struct literal
+                // when the core type lacks a Default impl.
+                out.push_str(&crate::backends::php::template_env::render(
+                    "php_struct_field_assignment.jinja",
+                    context! {
+                        field_name => field.name.as_str(),
+                        field_expr => "Default::default()",
+                    },
+                ));
+                continue;
+            }
             // Skip binding_excluded fields entirely; the trailing `..Default::default()`
             // spread fills them with the CORE type's Default impl. Emitting
             // `<field>: Default::default()` would override that — and is wrong when
@@ -116,6 +132,10 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
         }
         // Skip cfg-gated fields — they are absent from the binding struct.
         // The ..Default::default() spread below fills them when the feature is enabled.
+        // Note: when `!typ.has_default` and the type also has stripped cfg-gated
+        // fields, the spread will fail E0277 — but those fields aren't in
+        // `typ.fields` so there's no way to emit explicit defaults here. Such
+        // types are inherently unconstructible without a Default impl.
         if field.cfg.is_some() {
             continue;
         }
@@ -282,8 +302,11 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
     }
     // Use ..Default::default() to fill cfg-gated fields stripped from the IR,
     // and binding-excluded fields (alef(skip)) so they pick up the core's Default,
-    // including custom Default impls that depend on runtime configuration.
-    if typ.has_stripped_cfg_fields || has_binding_excluded_fields {
+    // including custom Default impls that depend on runtime configuration. Only
+    // emit when the core type derives Default — otherwise the spread fails E0277.
+    // For binding-excluded fields the loop above already emitted explicit
+    // `field: Default::default()` assignments when `!typ.has_default`.
+    if typ.has_default && (typ.has_stripped_cfg_fields || has_binding_excluded_fields) {
         out.push_str(&crate::backends::php::template_env::render(
             "php_default_update.jinja",
             minijinja::Value::default(),
@@ -294,4 +317,99 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
         minijinja::Value::default(),
     ));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::FieldDef;
+
+    fn field(name: &str, binding_excluded: bool) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            binding_excluded,
+            ..Default::default()
+        }
+    }
+
+    fn typ(name: &str, has_default: bool, fields: Vec<FieldDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("crate::{name}"),
+            fields,
+            is_clone: true,
+            has_default,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn binding_excluded_with_default_uses_spread() {
+        let typ = typ(
+            "ConfigWithDefault",
+            true,
+            vec![field("name", false), field("internal", true)],
+        );
+        let out = gen_php_lossy_binding_to_core_fields(&typ, "crate", &AHashSet::new(), &AHashSet::new(), &[]);
+
+        assert!(
+            out.contains("..Default::default()"),
+            "spread should be emitted when has_default is true; got:\n{out}"
+        );
+        assert!(
+            !out.contains("internal: Default::default()"),
+            "binding-excluded field should not be explicitly emitted when has_default is true; got:\n{out}"
+        );
+        assert!(out.contains("name:"), "non-excluded field should appear; got:\n{out}");
+    }
+
+    #[test]
+    fn binding_excluded_without_default_emits_explicit_default() {
+        let typ = typ(
+            "NoDefaultStruct",
+            false,
+            vec![field("name", false), field("internal", true)],
+        );
+        let out = gen_php_lossy_binding_to_core_fields(&typ, "crate", &AHashSet::new(), &AHashSet::new(), &[]);
+
+        assert!(
+            !out.contains("..Default::default()"),
+            "spread must NOT be emitted when has_default is false; got:\n{out}"
+        );
+        assert!(
+            out.contains("internal: Default::default()"),
+            "binding-excluded field must be explicitly defaulted when has_default is false; got:\n{out}"
+        );
+        assert!(out.contains("name:"), "non-excluded field should still appear; got:\n{out}");
+    }
+
+    #[test]
+    fn no_excluded_fields_no_spread() {
+        let typ = typ("Plain", true, vec![field("name", false), field("value", false)]);
+        let out = gen_php_lossy_binding_to_core_fields(&typ, "crate", &AHashSet::new(), &AHashSet::new(), &[]);
+
+        assert!(
+            !out.contains("..Default::default()"),
+            "spread must not appear when there are no excluded/stripped fields; got:\n{out}"
+        );
+        assert!(out.contains("name:"), "name field should appear; got:\n{out}");
+        assert!(out.contains("value:"), "value field should appear; got:\n{out}");
+    }
+
+    #[test]
+    fn stripped_cfg_without_default_omits_spread() {
+        // When has_stripped_cfg_fields && !has_default, the spread would fail E0277.
+        // The generated literal will be incomplete (E0063) — but that's a clearer
+        // diagnostic than the spread failure. Verify the spread is suppressed.
+        let mut typ = typ("StrippedNoDefault", false, vec![field("kept", false)]);
+        typ.has_stripped_cfg_fields = true;
+        let out = gen_php_lossy_binding_to_core_fields(&typ, "crate", &AHashSet::new(), &AHashSet::new(), &[]);
+
+        assert!(
+            !out.contains("..Default::default()"),
+            "spread must NOT be emitted when has_default is false even with stripped cfg fields; got:\n{out}"
+        );
+    }
 }
