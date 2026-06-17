@@ -111,6 +111,11 @@ pub(super) fn gen_builder_nested_class(
             continue;
         }
 
+        // Emit javadoc for the field to satisfy PMD.CommentRequired
+        body.push_str("        /** ");
+        body.push_str(&field_name);
+        body.push_str(". */\n");
+
         let visitor_trait_name =
             options_field_bridge_trait_name(typ.name.as_str(), field.name.as_str(), &field.ty, trait_bridges);
         let is_visitor_field = visitor_trait_name.is_some();
@@ -327,7 +332,7 @@ pub(super) fn gen_builder_nested_class(
             body.push_str("        @Nullable ");
         }
 
-        body.push_str("private ");
+        body.push_str("        private final ");
         body.push_str(&field_type);
         body.push(' ');
         body.push_str(&field_name);

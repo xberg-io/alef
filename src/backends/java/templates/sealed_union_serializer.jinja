@@ -1,6 +1,7 @@
 /** Custom serializer for sealed interface with unwrapped variants. Emits the discriminator tag alongside the inner record's fields (flat object). */
 class {{ class_name }}Serializer extends StdSerializer<{{ class_name }}> {
   private static final long serialVersionUID = 1L;
+  /** ObjectMapper for serializing inner variant values. */
   private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
       new com.fasterxml.jackson.databind.ObjectMapper()
           .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())

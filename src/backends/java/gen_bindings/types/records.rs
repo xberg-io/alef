@@ -227,6 +227,38 @@ pub(crate) fn gen_record_type(
     };
     emit_javadoc(&mut record_block, &doc_to_emit, "");
 
+    // Auto-generated DTOs have field names from the Rust API, which may be short (id, n) or long
+    // (selfHarmInstructions, harassmentThreatening). PMD violations on field/variable naming are
+    // inherent to the API contract and cannot be changed without breaking compatibility.
+    // Suppress only if the type has fields with names that would trigger these violations.
+    let needs_short_var_suppress = visible_fields.iter().any(|f| {
+        let jname = safe_java_field_name(&f.name);
+        jname.len() <= 3  // Single/double letter names trigger ShortVariable
+    });
+    let needs_long_var_suppress = visible_fields.iter().any(|f| {
+        let jname = safe_java_field_name(&f.name);
+        jname.len() > 17  // PMD LongVariable threshold
+    });
+    if needs_short_var_suppress || needs_long_var_suppress {
+        let mut suppressions = vec![];
+        if needs_short_var_suppress {
+            suppressions.push("PMD.ShortVariable");
+        }
+        if needs_long_var_suppress {
+            suppressions.push("PMD.LongVariable");
+        }
+        record_block.push_str("@SuppressWarnings({");
+        for (i, sup) in suppressions.iter().enumerate() {
+            if i > 0 {
+                record_block.push_str(", ");
+            }
+            record_block.push('"');
+            record_block.push_str(sup);
+            record_block.push('"');
+        }
+        record_block.push_str("})\n");
+    }
+
     // Check if any fields are binding-excluded (marked with #[cfg_attr(alef, alef(skip))]).
     // When excluded fields are present, add @JsonIgnoreProperties(ignoreUnknown = true)
     // to allow Jackson to deserialize JSON containing those fields without error.
@@ -259,10 +291,10 @@ pub(crate) fn gen_record_type(
         let mut multiline_fields = String::new();
         for (i, decl) in field_decls.iter().enumerate() {
             let comma = if i < field_decls.len() - 1 { "," } else { "" };
-            // Note: PMD 7.x does not recognize javadoc preceding annotations as belonging
-            // to a record component (DanglingJavadoc rule). Record components are self-documenting
-            // value types; field-level docs are redundant with the class-level record javadoc.
-            // Omitting field docs in multiline mode satisfies PMD and keeps records concise.
+            // Note: PMD 7.x does not recognize javadoc preceding annotations on record
+            // components (DanglingJavadoc rule). Record components are self-documenting
+            // value types. Omitting field docs in multiline mode satisfies PMD and keeps
+            // records concise. Builder fields have javadoc for better IDE support.
             multiline_fields.push_str("    ");
             multiline_fields.push_str(decl);
             multiline_fields.push_str(comma);
@@ -433,8 +465,13 @@ pub(crate) fn gen_record_type(
             })
             .collect::<Vec<_>>()
             .join(", ");
-        // Javadoc from the IR method doc.
-        emit_javadoc(&mut record_block, &method.doc, "    ");
+        // Javadoc from the IR method doc. If empty, emit a default description based on the method name.
+        let method_doc = if method.doc.is_empty() {
+            format!("Factory method for {java_method_name}.")
+        } else {
+            method.doc.clone()
+        };
+        emit_javadoc(&mut record_block, &method_doc, "    ");
         if is_static_method {
             // Body: delegate via the Jackson ObjectMapper round-trip so the native static
             // method on the core type is invoked.  Use fromJson(toJson(core_result)) to stay
