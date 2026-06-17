@@ -54,7 +54,7 @@ pub(super) fn build_args_and_setup(
         if arg.arg_type == "mock_url" {
             if fixture.has_host_root_route() {
                 setup_lines.push(format!(
-                    "val {} = System.getProperty(\"mockServer.{fixture_id}\", (System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\"",
+                    "val {} = System.getProperty(\"mockServer.{fixture_id}\", (System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\")",
                     arg.name,
                 ));
             } else {
