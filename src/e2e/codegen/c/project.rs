@@ -324,6 +324,56 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     let _ = writeln!(out, "  exit 0");
     let _ = writeln!(out, "fi");
     let _ = writeln!(out);
+    // Auto-detect: when no explicit ALEF_FFI_LOCAL_DIR is set, look for the
+    // standard cargo workspace layout — `../../target/release/lib<pkg>.*` (or
+    // `<pkg>.dll` on Windows) alongside `../../crates/<...>-ffi/include/*.h`.
+    // This catches CI runs that built the FFI crate (or used the build-rust-ffi
+    // composite action) before invoking C e2e tests, and removes the race
+    // where the GitHub release tarball hasn't been published yet — the very
+    // condition the publish race triggers under tag-time CI.
+    let _ = writeln!(out, "LOCAL_TARGET_DIR=\"../../target/release\"");
+    let _ = writeln!(out, "LOCAL_INCLUDE_DIR=\"\"");
+    let _ = writeln!(
+        out,
+        "for candidate in ../../crates/*-ffi/include ../../crates/*ffi*/include; do"
+    );
+    let _ = writeln!(out, "  if [ -d \"$candidate\" ] && ls \"$candidate\"/*.h >/dev/null 2>&1; then");
+    let _ = writeln!(out, "    LOCAL_INCLUDE_DIR=\"$candidate\"");
+    let _ = writeln!(out, "    break");
+    let _ = writeln!(out, "  fi");
+    let _ = writeln!(out, "done");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "if [ -d \"$LOCAL_TARGET_DIR\" ] && [ -n \"$LOCAL_INCLUDE_DIR\" ]; then");
+    let _ = writeln!(out, "  HAS_LIB=\"\"");
+    let _ = writeln!(
+        out,
+        "  for libpat in \"lib${{FFI_PKG_NAME}}.so\" \"lib${{FFI_PKG_NAME}}.dylib\" \"lib${{FFI_PKG_NAME}}.a\" \"${{FFI_PKG_NAME}}.dll\" \"${{FFI_PKG_NAME}}.lib\"; do"
+    );
+    let _ = writeln!(out, "    if [ -f \"$LOCAL_TARGET_DIR/$libpat\" ]; then HAS_LIB=1; break; fi");
+    let _ = writeln!(out, "  done");
+    let _ = writeln!(out, "  if [ -n \"$HAS_LIB\" ]; then");
+    let _ = writeln!(
+        out,
+        "    echo \"Found locally-built FFI in $LOCAL_TARGET_DIR + $LOCAL_INCLUDE_DIR; staging instead of downloading.\""
+    );
+    let _ = writeln!(out, "    rm -rf \"${{FFI_DIR:?}}\"/include \"${{FFI_DIR:?}}\"/lib");
+    let _ = writeln!(out, "    mkdir -p \"$FFI_DIR/lib\" \"$FFI_DIR/include\"");
+    let _ = writeln!(out, "    cp -a \"$LOCAL_INCLUDE_DIR\"/. \"$FFI_DIR/include/\"");
+    let _ = writeln!(
+        out,
+        "    for libpat in \"lib${{FFI_PKG_NAME}}.so\" \"lib${{FFI_PKG_NAME}}.dylib\" \"lib${{FFI_PKG_NAME}}.a\" \"${{FFI_PKG_NAME}}.dll\" \"${{FFI_PKG_NAME}}.dll.a\" \"${{FFI_PKG_NAME}}.lib\"; do"
+    );
+    let _ = writeln!(
+        out,
+        "      if [ -f \"$LOCAL_TARGET_DIR/$libpat\" ]; then cp -a \"$LOCAL_TARGET_DIR/$libpat\" \"$FFI_DIR/lib/\"; fi"
+    );
+    let _ = writeln!(out, "    done");
+    let _ = writeln!(out, "    echo \"$EXPECTED\" > \"$MARKER\"");
+    let _ = writeln!(out, "    echo \"FFI library staged from local cargo build.\"");
+    let _ = writeln!(out, "    exit 0");
+    let _ = writeln!(out, "  fi");
+    let _ = writeln!(out, "fi");
+    let _ = writeln!(out);
     let _ = writeln!(
         out,
         "if [ -f \"$MARKER\" ] && [ \"$(cat \"$MARKER\")\" = \"$EXPECTED\" ]; then"
