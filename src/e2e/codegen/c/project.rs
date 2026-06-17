@@ -302,6 +302,22 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     // bumps and the test_app would compile against stale symbols.
     let _ = writeln!(out, "MARKER=\"$FFI_DIR/.alef-ffi-version\"");
     let _ = writeln!(out, "EXPECTED=\"${{ASSET_STEM}}\"");
+    let _ = writeln!(out);
+    // Override: if TSLP_FFI_LOCAL_DIR is set and contains the FFI structure,
+    // use it instead of downloading from GitHub. This allows CI to reuse
+    // locally-built FFI artifacts (e.g. from a prior build-ffi job) and
+    // avoids the 404 race when the GitHub release hasn't been created yet.
+    let _ = writeln!(out, "if [ -n \"${{TSLP_FFI_LOCAL_DIR:-}}\" ] && [ -d \"${{TSLP_FFI_LOCAL_DIR}}/include\" ] && [ -d \"${{TSLP_FFI_LOCAL_DIR}}/lib\" ]; then");
+    let _ = writeln!(out, "  echo \"Using FFI from TSLP_FFI_LOCAL_DIR=${{TSLP_FFI_LOCAL_DIR}}\"");
+    let _ = writeln!(out, "  rm -rf \"${{FFI_DIR:?}}\"/include \"${{FFI_DIR:?}}\"/lib");
+    let _ = writeln!(out, "  mkdir -p \"$FFI_DIR\"");
+    let _ = writeln!(out, "  cp -R \"${{TSLP_FFI_LOCAL_DIR}}/include\" \"$FFI_DIR/include\"");
+    let _ = writeln!(out, "  cp -R \"${{TSLP_FFI_LOCAL_DIR}}/lib\" \"$FFI_DIR/lib\"");
+    let _ = writeln!(out, "  echo \"$EXPECTED\" > \"$MARKER\"");
+    let _ = writeln!(out, "  echo \"FFI library staged into $FFI_DIR/ from local override.\"");
+    let _ = writeln!(out, "  exit 0");
+    let _ = writeln!(out, "fi");
+    let _ = writeln!(out);
     let _ = writeln!(
         out,
         "if [ -f \"$MARKER\" ] && [ \"$(cat \"$MARKER\")\" = \"$EXPECTED\" ]; then"
