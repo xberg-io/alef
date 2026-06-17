@@ -590,9 +590,9 @@ fn sanitized_return_default(ty: &TypeRef) -> String {
 /// Skips the cast if source and target types are identical (e.g., bool -> bool).
 fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
     match ty {
-        TypeRef::Primitive(_) => {
+        TypeRef::Primitive(prim) => {
+            let source = primitive_name(prim);
             let target = frb_rust_type_inner(ty);
-            let source = frb_rust_type_inner(ty);
             // Skip redundant cast when source and target types are identical.
             if source == target {
                 String::new()

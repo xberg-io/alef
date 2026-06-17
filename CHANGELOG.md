@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(cli/extract): preserve cfg coverage when skipped same-named function siblings are stripped.**
+  Before `strip_binding_excluded` removed skipped entries, a surviving fallback function kept only
+  its own narrow cfg gate, so the FFI symbol could disappear under the real implementation's cfg.
+  The extractor now OR-merges sibling cfgs onto non-excluded survivors before stripping excluded
+  entries.
+
+## [0.25.28] - 2026-06-17
+
+### Fixed
+
+- **(backends/dart): emit type casts for FRB primitive bridge return values when source and target types differ.**
+  Bridge functions wrapping core functions that return primitives (e.g. `usize`) into FRB-compatible types
+  (e.g. `i64`) now correctly emit the type cast (e.g. `.map(|v| v as i64)`). v0.25.25-0.25.27 emitted
+  `.map(|v| v)` instead, causing type mismatch compile errors.
+
 ## [0.25.27] - 2026-06-17
 
 ### Changed
