@@ -618,13 +618,11 @@ impl Backend for Pyo3Backend {
 
         for e in &api.enums {
             if generators::enum_has_data_variants(e) {
-                // Pass the mapper so associated functions on the enum (factory methods)
-                // are emitted as `#[staticmethod]` entries in the `#[pymethods]` impl block.
-                builder.add_item(&generators::gen_pyo3_data_enum_with_mapper(
-                    e,
-                    &core_import,
-                    Some(&mapper),
-                ));
+                // Do not project Rust associated functions (e.g. `ContentPart::text`) as
+                // `#[staticmethod]` factories. They are a Rust idiom; the generated pyo3 enum
+                // already exposes a native, idiomatic constructor (`ContentPart(type=..., **kwargs)`),
+                // so factory methods would be redundant non-idiomatic sugar. Pass `None`.
+                builder.add_item(&generators::gen_pyo3_data_enum_with_mapper(e, &core_import, None));
             } else {
                 builder.add_item(&generators::gen_enum(e, &cfg));
             }
