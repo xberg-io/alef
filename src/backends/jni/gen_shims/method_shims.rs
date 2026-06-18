@@ -142,7 +142,22 @@ fn emit_method_shim(
                 TypeRef::Optional(inner) => inner.as_ref(),
                 other => other,
             };
-            let type_path = type_ref_to_core_path_with_btree(base_ty, "core_crate", p.map_is_btree);
+            // Byte-slice and Path params are not JSON-native at the call site, so the
+            // generic `type_ref_to_core_path_*` (which maps both to its `serde_json::Value`
+            // catch-all) produces a binding that fails E0308: `&Value` is neither `&[u8]`
+            // nor `&Path`. Bind the concrete owned type that derefs to the borrowed core
+            // type instead (`Vec<u8>` → `&[u8]`, `PathBuf` → `&Path`). This mirrors the
+            // single-param path's special `Bytes`/`Path` arms in `emit_single_param_unmarshal`.
+            let is_path = matches!(base_ty, TypeRef::Path);
+            let type_path = if is_byte_slice(base_ty) {
+                "Vec<u8>".to_string()
+            } else if is_path {
+                // The wire value is a JSON-encoded path string; deserialize as `String`
+                // and convert below so the call site sees a real `PathBuf`.
+                "String".to_string()
+            } else {
+                type_ref_to_core_path_with_btree(base_ty, "core_crate", p.map_is_btree)
+            };
             out.push_str(&template_env::render(
                 "request_map_param_unmarshal.rs.jinja",
                 context! {
@@ -151,6 +166,12 @@ fn emit_method_shim(
                     ret_null => ret_null,
                 },
             ));
+            if is_path {
+                // Re-bind the `String` extracted from the request map as a `PathBuf`.
+                // (The `path_unmarshal` template targets the single-param path, where the
+                // raw string lives in `req_str`; here the value is already bound to `name`.)
+                out.push_str(&format!("    let {rust_name} = std::path::PathBuf::from({rust_name});\n"));
+            }
             // `&Vec<String>` coerces to `&[String]`; the previous Vec<&str>
             // special-case produced `&[&str]` incompatible with `&[String]` core
             // method signatures. See the matching branch above.

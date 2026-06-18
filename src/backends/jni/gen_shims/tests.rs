@@ -211,4 +211,114 @@ namespace = "dev.sample_crate"
             "throw_jni_error must fall back to RuntimeException: {content}"
         );
     }
+
+    /// Build an `ApiSurface` whose single opaque client type carries `methods`,
+    /// so `emit_lib_rs` routes them through `emit_method_shim` (the request-map
+    /// multi-param path) rather than the per-param free-function path.
+    fn api_with_client_methods(methods: Vec<crate::core::ir::MethodDef>) -> crate::core::ir::ApiSurface {
+        let client = crate::core::ir::TypeDef {
+            name: "Loader".into(),
+            rust_path: "demo::Loader".into(),
+            is_opaque: true,
+            methods,
+            ..Default::default()
+        };
+        crate::core::ir::ApiSurface {
+            crate_name: "demo".into(),
+            version: "0.1.0".into(),
+            types: vec![client],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: Default::default(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+            unsupported_public_items: Vec::new(),
+        }
+    }
+
+    /// Multi-param method `parse_preset(path: &str, raw: &[u8])` is decoded from the
+    /// request map. The `&[u8]` param must bind `let raw: Vec<u8>` (not the generic
+    /// `serde_json::Value` catch-all) and be passed as `&raw` so `&Vec<u8>` derefs to
+    /// `&[u8]` (E0308 otherwise: `expected &[u8], found &Value`).
+    #[test]
+    fn request_map_byte_slice_param_binds_vec_u8_not_json_value() {
+        let method = crate::core::ir::MethodDef {
+            name: "parse_preset".into(),
+            params: vec![
+                crate::core::ir::ParamDef {
+                    name: "path".into(),
+                    ty: TypeRef::String,
+                    is_ref: true,
+                    ..Default::default()
+                },
+                crate::core::ir::ParamDef {
+                    name: "raw".into(),
+                    ty: TypeRef::Bytes,
+                    is_ref: true,
+                    ..Default::default()
+                },
+            ],
+            return_type: TypeRef::Named("Preset".into()),
+            error_type: Some("LoadError".into()),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            ..Default::default()
+        };
+        let content = emit_lib_rs(&api_with_client_methods(vec![method]), &btree_fixture_config());
+        assert!(
+            content.contains("let raw: Vec<u8> = match req_map.get(\"raw\")"),
+            "request-map &[u8] param must bind Vec<u8>: {content}"
+        );
+        assert!(
+            !content.contains("let raw: serde_json::Value"),
+            "request-map &[u8] param must NOT bind serde_json::Value: {content}"
+        );
+        assert!(
+            content.contains("client.parse_preset(&path, &raw)"),
+            "call site must pass &path and &raw: {content}"
+        );
+    }
+
+    /// Multi-param method `load_at(path: &Path, raw: &[u8])`: a `&Path` param in the
+    /// request-map path must deserialize as `String` then convert to `PathBuf` (so
+    /// `&path` derefs `&PathBuf` → `&Path`), never bind the `serde_json::Value`
+    /// catch-all (E0277: `Value` does not impl `AsRef<Path>`).
+    #[test]
+    fn request_map_path_param_binds_pathbuf_not_json_value() {
+        let method = crate::core::ir::MethodDef {
+            name: "load_at".into(),
+            params: vec![
+                crate::core::ir::ParamDef {
+                    name: "path".into(),
+                    ty: TypeRef::Path,
+                    is_ref: true,
+                    ..Default::default()
+                },
+                crate::core::ir::ParamDef {
+                    name: "raw".into(),
+                    ty: TypeRef::Bytes,
+                    is_ref: true,
+                    ..Default::default()
+                },
+            ],
+            return_type: TypeRef::Named("Preset".into()),
+            error_type: Some("LoadError".into()),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            ..Default::default()
+        };
+        let content = emit_lib_rs(&api_with_client_methods(vec![method]), &btree_fixture_config());
+        assert!(
+            content.contains("let path = std::path::PathBuf::from(path);"),
+            "request-map &Path param must convert to PathBuf: {content}"
+        );
+        assert!(
+            !content.contains("let path: serde_json::Value"),
+            "request-map &Path param must NOT bind serde_json::Value: {content}"
+        );
+        assert!(
+            content.contains("client.load_at(&path, &raw)"),
+            "call site must pass &path and &raw: {content}"
+        );
+    }
 }
