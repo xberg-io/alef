@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.43] - 2026-06-18
+
 ### Fixed
 
 - **(backends/swift/gen_bindings): keep opaque types eligible for free-function forwarders.**
