@@ -492,8 +492,18 @@ pub(super) fn emit_converters(
                 }
             }
 
-            // Vec<Enum> field: convert list[str] -> list[RustEnum]
-            if let TypeRef::Vec(inner) = &field.ty {
+            // Vec<Enum> field: convert list[str] -> list[RustEnum].
+            // Unwrap an optional wrapper so `Option<Vec<Enum>>` (e.g. `modalities`) is also
+            // handled, and remember the optionality so the comprehension is None-guarded.
+            let vec_field = match &field.ty {
+                TypeRef::Vec(inner) => Some((inner, matches!(&field.ty, TypeRef::Optional(_)) || field.optional)),
+                TypeRef::Optional(opt_inner) => match opt_inner.as_ref() {
+                    TypeRef::Vec(inner) => Some((inner, true)),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some((inner, is_optional)) = vec_field {
                 if let TypeRef::Named(enum_name) = inner.as_ref() {
                     if enum_names.contains(&enum_name.as_str()) {
                         let accessor = field_access(&field.name);
@@ -505,6 +515,7 @@ pub(super) fn emit_converters(
                                     name => &field.name,
                                     enum_name => enum_name.as_str(),
                                     accessor => &accessor,
+                                    optional => is_optional,
                                 },
                             ));
                         } else {
@@ -516,6 +527,7 @@ pub(super) fn emit_converters(
                                     name => &field.name,
                                     enum_name => enum_name.as_str(),
                                     accessor => &accessor,
+                                    optional => is_optional,
                                 },
                             ));
                         }

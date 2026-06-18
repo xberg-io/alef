@@ -957,7 +957,11 @@ impl Backend for Pyo3Backend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        public_files::generate_type_stubs(api, config)
+        // Collapse cfg-variant duplicates (e.g. `ensure_crypto_provider`) the same way the
+        // Rust binding does — Python has no `#[cfg]`, so two same-named defs in the `.pyi`
+        // stub are a redefinition error.
+        let deduped_api = api.with_deduped_functions();
+        public_files::generate_type_stubs(&deduped_api, config)
     }
 
     fn generate_public_api(
@@ -965,7 +969,9 @@ impl Backend for Pyo3Backend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        public_files::generate_public_api(api, config)
+        // Same cfg-variant collapse for the `api.py` wrapper functions.
+        let deduped_api = api.with_deduped_functions();
+        public_files::generate_public_api(&deduped_api, config)
     }
 
     fn generate_service_api(
