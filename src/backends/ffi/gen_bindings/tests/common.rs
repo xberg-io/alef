@@ -210,6 +210,7 @@ pub(super) fn sample_api() -> ApiSurface {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Output format.".to_string(),
             cfg: None,
             is_copy: false,

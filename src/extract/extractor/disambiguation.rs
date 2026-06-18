@@ -240,6 +240,7 @@ mod tests {
                 cfg: None,
                 version: Default::default(),
             }],
+            methods: vec![],
             doc: String::new(),
             cfg: None,
             is_copy: false,

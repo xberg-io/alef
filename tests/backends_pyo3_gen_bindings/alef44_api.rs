@@ -607,6 +607,7 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
                 cfg: None,
                 version: Default::default(),
             }],
+            methods: vec![],
             doc: "The kind of structural item.".to_string(),
             cfg: None,
             is_copy: false,

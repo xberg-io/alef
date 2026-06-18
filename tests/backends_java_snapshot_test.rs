@@ -308,6 +308,7 @@ fn print_generated_java_code() {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Available text backends".to_string(),
             cfg: None,
             is_copy: false,

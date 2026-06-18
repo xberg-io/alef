@@ -211,6 +211,7 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
         original_rust_path: String::new(),
         name,
         variants,
+        methods: vec![],
         excluded_variants,
         doc,
         cfg,

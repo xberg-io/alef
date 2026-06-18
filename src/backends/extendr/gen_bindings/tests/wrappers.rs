@@ -760,6 +760,7 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Wire payload variants.".to_string(),
             cfg: None,
             is_copy: false,

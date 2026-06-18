@@ -380,7 +380,11 @@ mod tests {
         let ty = TypeRef::Optional(Box::new(TypeRef::Named("SomeType".to_string())));
         let result = elixir_typespec(&ty, &opaque_types, &default_types);
 
-        assert_eq!(result, "String.t() | nil", "Optional default_type should not produce double nil: got {}", result);
+        assert_eq!(
+            result, "String.t() | nil",
+            "Optional default_type should not produce double nil: got {}",
+            result
+        );
     }
 
     #[test]

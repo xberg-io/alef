@@ -158,6 +158,7 @@ fn make_basic_api() -> ApiSurface {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Processing status.".to_string(),
             cfg: None,
             is_copy: false,
@@ -383,6 +384,7 @@ fn snapshot_conversion_enum_with_data() {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Result enum with data.".to_string(),
             cfg: None,
             is_copy: false,
@@ -1005,14 +1007,14 @@ fn snapshot_trait_bridge_inbound_options_field() {
             // The type alias — a newtype wrapping the inner Arc<Mutex<dyn Trait + Send>> path.
             TypeDef {
                 name: "CallbackHandle".to_string(),
-                rust_path: "demo::visitor::CallbackHandle".to_string(),
+                rust_path: "demo::callbacks::CallbackHandle".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
                 is_opaque: true,
                 is_clone: true,
                 is_copy: false,
-                doc: "Visitor handle type alias.".to_string(),
+                doc: "Callback handle type alias.".to_string(),
                 cfg: None,
                 is_trait: false,
                 has_default: false,
@@ -1027,7 +1029,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 has_lifetime_params: false,
                 version: Default::default(),
             },
-            // The options type that receives the visitor via a field.
+            // The options type that receives the callback via a field.
             TypeDef {
                 name: "RenderOptions".to_string(),
                 rust_path: "demo::options::RenderOptions".to_string(),
@@ -1052,10 +1054,10 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 has_lifetime_params: false,
                 version: Default::default(),
             },
-            // The visitor trait implemented by Swift.
+            // The callback trait implemented by Swift.
             TypeDef {
-                name: "MarkupVisitor".to_string(),
-                rust_path: "demo::visitor::MarkupVisitor".to_string(),
+                name: "MarkupCallback".to_string(),
+                rust_path: "demo::callbacks::MarkupCallback".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![make_method(
@@ -1068,7 +1070,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 is_opaque: false,
                 is_clone: false,
                 is_copy: false,
-                doc: "Visitor trait for markup nodes.".to_string(),
+                doc: "Callback trait for markup nodes.".to_string(),
                 cfg: None,
                 is_trait: true,
                 has_default: false,
@@ -1087,7 +1089,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
         functions: vec![],
         enums: vec![EnumDef {
             name: "FlowDecision".to_string(),
-            rust_path: "demo::visitor::FlowDecision".to_string(),
+            rust_path: "demo::callbacks::FlowDecision".to_string(),
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
@@ -1117,7 +1119,8 @@ fn snapshot_trait_bridge_inbound_options_field() {
                     version: Default::default(),
                 },
             ],
-            doc: "Decision returned by a visitor callback.".to_string(),
+            methods: vec![],
+            doc: "Decision returned by a markup callback.".to_string(),
             cfg: None,
             is_copy: true,
             has_serde: true,
@@ -1146,9 +1149,9 @@ name = "demo"
 sources = ["src/lib.rs"]
 
 [[crates.trait_bridges]]
-trait_name = "MarkupVisitor"
+trait_name = "MarkupCallback"
 type_alias = "CallbackHandle"
-param_name = "visitor"
+param_name = "callback"
 bind_via = "options_field"
 options_type = "RenderOptions"
 result_type = "FlowDecision"
@@ -1167,14 +1170,14 @@ result_type = "FlowDecision"
     assert!(
         lib_rs
             .content
-            .contains("impl From<demo::visitor::CallbackHandle> for CallbackHandle"),
+            .contains("impl From<demo::callbacks::CallbackHandle> for CallbackHandle"),
         "forward From impl (core→wrapper) must be emitted for CallbackHandle:\n{}",
         lib_rs.content
     );
     assert!(
         lib_rs
             .content
-            .contains("impl From<CallbackHandle> for demo::visitor::CallbackHandle"),
+            .contains("impl From<CallbackHandle> for demo::callbacks::CallbackHandle"),
         "reverse From impl (wrapper→core) must be emitted for CallbackHandle:\n{}",
         lib_rs.content
     );
@@ -1725,6 +1728,7 @@ fn snapshot_enum_variant_optional_field() {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Streaming event enum.".to_string(),
             cfg: None,
             is_copy: false,
@@ -1846,6 +1850,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Untagged content enum.".to_string(),
             cfg: None,
             is_copy: false,

@@ -245,6 +245,7 @@ fn make_visit_result_php() -> EnumDef {
                 version: Default::default(),
             },
         ],
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         is_copy: false,

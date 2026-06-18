@@ -218,6 +218,7 @@ gem_name = "my_gem"
                 version: Default::default(),
             },
         ],
+        methods: vec![],
         doc: String::new(),
         serde_tag: None,
         serde_rename_all: None,

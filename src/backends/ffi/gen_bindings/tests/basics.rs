@@ -85,6 +85,7 @@ fn enum_return_api() -> ApiSurface {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Colors.".to_string(),
             cfg: None,
             is_copy: false,

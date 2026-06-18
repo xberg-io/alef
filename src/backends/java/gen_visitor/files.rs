@@ -718,6 +718,7 @@ pub(super) mod tests {
                         ..EnumVariant::default()
                     },
                 ],
+                methods: vec![],
                 doc: String::new(),
                 cfg: None,
                 is_copy: false,

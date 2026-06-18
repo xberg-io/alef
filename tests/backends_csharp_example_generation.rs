@@ -180,6 +180,7 @@ fn test_generated_code_example() {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Available OCR backends".to_string(),
             cfg: None,
             is_copy: false,

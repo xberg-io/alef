@@ -198,6 +198,7 @@ fn make_demo_api() -> ApiSurface {
                 cfg: None,
                 version: Default::default(),
             }],
+            methods: vec![],
             doc: "Available models.".to_string(),
             cfg: None,
             is_copy: false,

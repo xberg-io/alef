@@ -452,6 +452,7 @@ fn mpp_sealed_enum_in_common_main() {
             name: "OutputFormat".to_string(),
             rust_path: "demo::OutputFormat".to_string(),
             original_rust_path: String::new(),
+            methods: vec![],
             doc: String::new(),
             variants: vec![
                 EnumVariant {

@@ -343,6 +343,11 @@ pub struct EnumDef {
     #[serde(default)]
     pub original_rust_path: String,
     pub variants: Vec<EnumVariant>,
+    /// Associated functions (static factory methods) declared in `impl EnumName { ... }`.
+    /// Only associated functions (no `self` receiver, i.e. `is_static = true`) are collected here.
+    /// Instance methods on enums are not expressible across most FFI boundaries and are excluded.
+    #[serde(default)]
+    pub methods: Vec<MethodDef>,
     pub doc: String,
     #[serde(default)]
     pub cfg: Option<String>,

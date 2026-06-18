@@ -64,6 +64,7 @@ fn make_color_enum() -> EnumDef {
                 version: Default::default(),
             },
         ],
+        methods: vec![],
         excluded_variants: vec![],
         doc: String::new(),
         cfg: None,

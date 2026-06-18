@@ -302,6 +302,7 @@ mod tests {
                     make_unit_variant("Svg", Some("feature = \"svg\"")),
                     make_unit_variant("Jpeg", None),
                 ],
+                methods: vec![],
                 excluded_variants: vec![],
                 ..Default::default()
             }],
@@ -362,6 +363,7 @@ mod tests {
             enums: vec![EnumDef {
                 name: "SimpleEnum".to_string(),
                 variants: vec![make_unit_variant("A", None), make_unit_variant("B", None)],
+                methods: vec![],
                 excluded_variants: vec![],
                 ..Default::default()
             }],
@@ -458,6 +460,7 @@ mod tests {
                     make_unit_variant("Heif", Some("feature = \"heic\"")),
                     make_unit_variant("Svg", Some("feature = \"svg\"")),
                 ],
+                methods: vec![],
                 excluded_variants: vec![],
                 ..Default::default()
             }],

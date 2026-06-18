@@ -25,6 +25,7 @@ expression: "&file.content"
     "MagicNumber",
     "NestedBlockDepth",
     "ReturnCount",
+    "UnusedParameter",
 )
 
 package dev.sample_crate

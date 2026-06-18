@@ -26,6 +26,7 @@ fn make_unit_enum_def(name: &str, variants: &[&str]) -> EnumDef {
                 version: Default::default(),
             })
             .collect(),
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         is_copy: false,

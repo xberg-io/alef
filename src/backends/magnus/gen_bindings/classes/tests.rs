@@ -85,6 +85,7 @@ fn gen_enum_unit_variants_emit_ruby_symbols() {
                 version: Default::default(),
             },
         ],
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         is_copy: false,

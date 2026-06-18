@@ -403,6 +403,7 @@ mod tests {
                     fields: vec![sanitized_field("payload", "InternalPayload")],
                     ..EnumVariant::default()
                 }],
+                methods: vec![],
                 doc: String::new(),
                 cfg: None,
                 is_copy: false,
@@ -473,6 +474,7 @@ mod tests {
                 rust_path: "sample::FormatMetadata".to_string(),
                 original_rust_path: String::new(),
                 variants: vec![excluded_variant, public_variant],
+                methods: vec![],
                 doc: String::new(),
                 cfg: None,
                 is_copy: false,

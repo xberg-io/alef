@@ -595,6 +595,7 @@ fn enum_emits_zig_enum_or_union() {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: String::new(),
             cfg: None,
             serde_tag: None,

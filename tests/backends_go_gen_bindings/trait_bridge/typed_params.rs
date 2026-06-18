@@ -196,6 +196,7 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
             cfg: None,
             version: Default::default(),
         }],
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         is_copy: false,

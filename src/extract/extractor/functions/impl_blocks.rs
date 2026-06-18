@@ -181,12 +181,58 @@ pub(crate) fn extract_impl_block(
                 error_def.methods.push(method);
             }
         }
-    } else if surface.enums.iter().any(|e| e.name == type_name) {
+    } else if let Some(enum_def) = surface.enums.iter_mut().find(|e| {
+        if e.name != type_name {
+            return false;
+        }
+        // Guard against module-path mismatches: when two enums share the same short name but
+        // live in different modules (e.g. `types::ContentPart` vs `realtime::ContentPart`), the
+        // one in the API surface has an explicit `rust_path`. Only attach the impl block's
+        // static methods when the impl's module path is consistent with the enum's rust_path.
+        //
+        // `module_path` is a relative path (no crate prefix), derived from the source file:
+        //   crates/sample-core/src/types/common.rs  -> "types::common"
+        //   crates/sample-core/src/realtime/mod.rs  -> "realtime"
+        //
+        // `e.rust_path` is fully-qualified with the crate name:
+        //   "sample_core::types::ContentPart"
+        //
+        // Strip the crate prefix ("sample_core::") from rust_path, then extract the module
+        // component (everything before the last "::TypeName").
+        //
+        // Accept if the relative enum module and the impl module_path share a common ancestor
+        // (one is a prefix of the other), i.e. they live in the same or adjacent sub-modules.
+        let crate_prefix = format!("{crate_name}::");
+        let rel = e.rust_path.strip_prefix(&*crate_prefix).unwrap_or(e.rust_path.as_str());
+        // rel is now e.g. "types::ContentPart"
+        let enum_module_rel = rel.rfind("::").map(|i| &rel[..i]).unwrap_or("");
+        if enum_module_rel.is_empty() {
+            // The enum is defined at the crate root — accept from any file.
+            return true;
+        }
+        if module_path.is_empty() {
+            // The impl block is in the crate root file (lib.rs); the enum is in a sub-module.
+            // Only accept if the enum also lives at the root (handled above).
+            return false;
+        }
+        // Accept when the impl's module_path is a prefix of (or equal to) the enum's relative
+        // module, or vice versa. Examples:
+        //   module_path="types::common", enum_module_rel="types" → "types::common" starts with "types" ✓
+        //   module_path="realtime",      enum_module_rel="types" → neither is a prefix ✗
+        enum_module_rel.starts_with(module_path) || module_path.starts_with(enum_module_rel)
+    }) {
         // This is an impl block on a regular enum (not an error enum).
-        // Regular enums don't support attached methods in bindings — they exist as pure data
-        // with variants only. Methods on enums (like `parse()` helper methods) are skipped.
-        // This is the expected behavior: the enum type is already known and emitted, but its
-        // impl block methods don't affect the binding surface.
+        // Instance methods on enums are not expressible across most FFI boundaries and are
+        // excluded (the original skip behavior is preserved for those).
+        // However, associated functions — static factory methods with no `self` receiver —
+        // ARE expressible: they act as named constructors that return the enum type, and every
+        // binding backend can emit them as static/class-level factory methods.
+        // Collect only the associated functions (is_static == true) from this impl block.
+        for method in &methods {
+            if method.is_static && !enum_def.methods.iter().any(|m| m.name == method.name) {
+                enum_def.methods.push(method.clone());
+            }
+        }
     } else {
         // The impl is for a type we haven't seen as a `pub` struct — create an opaque
         // entry, but flag it `binding_excluded` because the struct's own visibility

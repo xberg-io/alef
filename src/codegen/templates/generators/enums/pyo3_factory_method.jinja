@@ -1,0 +1,15 @@
+{%- for line in doc_lines %}
+    /// {{ line }}
+{% endfor %}
+{%- if has_pyo3_name %}
+    #[pyo3(name = "{{ pyo3_name }}")]
+{%- endif %}
+{%- if has_signature %}
+    #[pyo3(signature = ({{ signature_defaults }}))]
+{%- endif %}
+    #[staticmethod]
+    pub fn {{ rust_fn_name }}({{ params }}) -> Self {
+{%- for body_line in body_lines %}
+        {{ body_line }}
+{%- endfor %}
+    }

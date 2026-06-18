@@ -167,6 +167,7 @@ fn enum_variants_carry_kdoc() {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Execution mode.".into(),
             cfg: None,
             is_copy: false,

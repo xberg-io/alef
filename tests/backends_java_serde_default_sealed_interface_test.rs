@@ -63,6 +63,7 @@ fn make_enum(name: &str, variants: Vec<EnumVariant>, serde_tag: Option<String>) 
         name: name.to_string(),
         rust_path: format!("demo::{name}"),
         original_rust_path: String::new(),
+        methods: vec![],
         doc: String::new(),
         variants,
         cfg: None,

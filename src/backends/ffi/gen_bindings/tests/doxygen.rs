@@ -99,6 +99,7 @@ fn doxygen_sample_api() -> ApiSurface {
                 cfg: None,
                 version: Default::default(),
             }],
+            methods: vec![],
             doc: "Diagnostic severity level.".to_string(),
             cfg: None,
             is_copy: true,

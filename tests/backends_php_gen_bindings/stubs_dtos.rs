@@ -561,6 +561,7 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Output format options".to_string(),
             cfg: None,
             is_copy: false,

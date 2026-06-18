@@ -197,6 +197,7 @@ fn regression_namespace_exports_functions_types_enums() {
                 version: Default::default(),
             },
         ],
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         is_copy: false,

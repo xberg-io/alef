@@ -499,6 +499,7 @@ fn result_enum(name: &str, variants: Vec<EnumVariant>, serde_rename_all: Option<
         rust_path: format!("sample::{name}"),
         original_rust_path: String::new(),
         variants,
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         is_copy: false,

@@ -285,6 +285,7 @@ fn async_functions_emit_todo_comment_in_ffi_mode() {
 fn unit_enum_emits_dart_enum() {
     let en = EnumDef {
         name: "Status".to_string(),
+        methods: vec![],
         doc: String::new(),
         rust_path: "demo::Status".to_string(),
         original_rust_path: String::new(),

@@ -25,6 +25,7 @@ expression: "&client_file.content"
     "MagicNumber",
     "ReturnCount",
     "NestedBlockDepth",
+    "UnusedParameter",
 )
 
 package dev.sample_crate.kt

@@ -100,6 +100,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
                 version: Default::default(),
             })
             .collect(),
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         serde_tag: None,
@@ -2412,6 +2413,7 @@ fn make_tagged_enum(name: &str, variants: Vec<(&str, Vec<&str>)>) -> EnumDef {
                 version: Default::default(),
             })
             .collect(),
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         serde_tag: None,

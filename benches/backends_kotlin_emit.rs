@@ -101,6 +101,7 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
         rust_path: format!("demo::{name}"),
         original_rust_path: String::new(),
         variants,
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         serde_tag: None,

@@ -118,6 +118,7 @@ fn result_enum() -> EnumDef {
                 ..EnumVariant::default()
             },
         ],
+        methods: vec![],
         doc: String::new(),
         is_copy: false,
         has_serde: true,
@@ -437,6 +438,7 @@ fn walk_outcome_enum() -> EnumDef {
             is_default: true,
             ..EnumVariant::default()
         }],
+        methods: vec![],
         doc: String::new(),
         is_copy: false,
         has_serde: true,

@@ -52,6 +52,7 @@ fn make_enum(
         rust_path: format!("crate::{name}"),
         original_rust_path: format!("crate::{name}"),
         variants,
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         is_copy: false,
@@ -603,11 +604,7 @@ fn file_level_suppress_includes_unused_parameter() {
     let imports = std::collections::BTreeSet::new();
     let body = "data class Foo(val x: Int)";
 
-    let result = crate::backends::kotlin::gen_bindings::shared::assemble_kt_file(
-        "com.example",
-        &imports,
-        body,
-    );
+    let result = crate::backends::kotlin::gen_bindings::shared::assemble_kt_file("com.example", &imports, body);
 
     // File-level suppression must include "UnusedParameter"
     assert!(
@@ -653,4 +650,3 @@ fn instance_method_params_camel_case_conversion() {
         );
     }
 }
-

@@ -150,6 +150,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "HTTP method.".to_string(),
             cfg: None,
             is_copy: true,

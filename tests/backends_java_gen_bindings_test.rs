@@ -669,6 +669,7 @@ fn test_basic_generation() {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Processing mode".to_string(),
             cfg: None,
             is_copy: false,
@@ -1429,6 +1430,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
             serde_tag: Some("role".to_string()),
             serde_untagged: false,
             serde_rename_all: Some("snake_case".to_string()),
+            methods: vec![],
             doc: String::new(),
             cfg: None,
             variants: vec![
@@ -2196,6 +2198,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Authentication configuration".to_string(),
             cfg: None,
             is_copy: false,
@@ -2436,6 +2439,7 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
             serde_tag: Some("kind".to_string()),
             serde_untagged: false,
             serde_rename_all: None,
+            methods: vec![],
             doc: "A geometric shape".to_string(),
             cfg: None,
             variants: vec![
@@ -3853,6 +3857,7 @@ fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
                     ..EnumVariant::default()
                 },
             ],
+            methods: vec![],
             doc: String::new(),
             cfg: None,
             is_copy: false,

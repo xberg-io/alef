@@ -140,6 +140,7 @@ fn make_basic_api() -> ApiSurface {
                     version: Default::default(),
                 },
             ],
+            methods: vec![],
             doc: "Processing status.".to_string(),
             cfg: None,
             is_copy: false,

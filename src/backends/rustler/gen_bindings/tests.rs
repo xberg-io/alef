@@ -211,6 +211,7 @@ fn tagged_enum_api_surface() -> ApiSurface {
                 ..Default::default()
             },
         ],
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         is_copy: false,

@@ -161,6 +161,7 @@ mod tests {
                 make_unit_variant("Jpeg", None),
                 make_unit_variant("Heif", Some(r#"feature = "heic""#)),
             ],
+            methods: vec![],
             excluded_variants: vec![],
             ..Default::default()
         };
@@ -183,6 +184,7 @@ mod tests {
         let en = EnumDef {
             name: "SimpleEnum".to_string(),
             variants: vec![make_unit_variant("A", None), make_unit_variant("B", None)],
+            methods: vec![],
             excluded_variants: vec![],
             ..Default::default()
         };
@@ -200,6 +202,7 @@ mod tests {
         let en = EnumDef {
             name: "ImageOutputFormat".to_string(),
             variants: vec![make_unit_variant("Jpeg", None)],
+            methods: vec![],
             excluded_variants: vec![make_unit_variant("ExcludedVariant", None)],
             ..Default::default()
         };

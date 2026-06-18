@@ -41,6 +41,7 @@ fn __alef_tokio_runtime() -> &'static ::tokio::runtime::Runtime {
 mod ffi {
     extern "Rust" {
         type CallbackHandle;
+        fn callback_handle_noop(client: &CallbackHandle);
     }
 
     extern "Rust" {
@@ -52,27 +53,27 @@ mod ffi {
     }
 
     extern "Rust" {
-        type MarkupVisitorBox;
-        fn alef_phantom_vec_markup_visitor() -> Vec<MarkupVisitorBox>;
-        fn markup_visitor_call_visit_node(this: &MarkupVisitorBox, tag: String) -> FlowDecision;
+        type MarkupCallbackBox;
+        fn alef_phantom_vec_markup_callback() -> Vec<MarkupCallbackBox>;
+        fn markup_callback_call_visit_node(this: &MarkupCallbackBox, tag: String) -> FlowDecision;
     }
 
     extern "Swift" {
-        type SwiftMarkupVisitorBox;
+        type SwiftMarkupCallbackBox;
         fn alef_visit_node(&self, tag: String) -> String;
     }
 
     extern "Rust" {
 
-         #[swift_bridge(swift_name = "makeMarkupVisitorHandle")]
-         fn make_markup_visitor_callback_handle(swift_box: SwiftMarkupVisitorBox) -> CallbackHandle;
+         #[swift_bridge(swift_name = "makeMarkupCallbackHandle")]
+         fn make_markup_callback_callback_handle(swift_box: SwiftMarkupCallbackBox) -> CallbackHandle;
 
     }
 
     extern "Rust" {
 
-         #[swift_bridge(swift_name = "renderOptionsFromJsonWithVisitor")]
-         fn render_options_from_json_with_visitor(json: String, visitor: Option<CallbackHandle>) -> Result<RenderOptions, String>;
+         #[swift_bridge(swift_name = "renderOptionsFromJsonWithCallback")]
+         fn render_options_from_json_with_callback(json: String, callback: Option<CallbackHandle>) -> Result<RenderOptions, String>;
 
     }
 
@@ -101,7 +102,7 @@ pub fn __alef_phantom_vec_callback_handle() -> Vec<CallbackHandle> { Vec::new() 
 #[doc(hidden)]
 pub fn __alef_phantom_vec_render_options() -> Vec<RenderOptions> { Vec::new() }
 
-pub struct CallbackHandle(pub demo::visitor::CallbackHandle);
+pub struct CallbackHandle(pub demo::callbacks::CallbackHandle);
 
 pub struct RenderOptions(pub demo::options::RenderOptions);
 impl RenderOptions {
@@ -115,16 +116,20 @@ impl RenderOptions {
     }
 }
 
+pub fn callback_handle_noop(client: &CallbackHandle) -> () {
+    // No-op method for swift-bridge destructor synthesis
+}
+
 pub enum FlowDecision {
     Accept,
     Stop,
 }
 
-impl From<demo::visitor::FlowDecision> for FlowDecision {
-    fn from(val: demo::visitor::FlowDecision) -> Self {
+impl From<demo::callbacks::FlowDecision> for FlowDecision {
+    fn from(val: demo::callbacks::FlowDecision) -> Self {
         match val {
-            demo::visitor::FlowDecision::Accept => Self::Accept,
-            demo::visitor::FlowDecision::Stop => Self::Stop,
+            demo::callbacks::FlowDecision::Accept => Self::Accept,
+            demo::callbacks::FlowDecision::Stop => Self::Stop,
         }
     }
 }
@@ -138,10 +143,10 @@ impl FlowDecision {
     }
 }
 
-pub struct MarkupVisitorBox(pub Box<dyn demo::visitor::MarkupVisitor + Send + Sync>);
+pub struct MarkupCallbackBox(pub Box<dyn demo::callbacks::MarkupCallback + Send + Sync>);
 #[doc(hidden)]
-pub fn alef_phantom_vec_markup_visitor() -> Vec<MarkupVisitorBox> { Vec::new() }
-pub fn markup_visitor_call_visit_node(this: &MarkupVisitorBox, tag: String) -> FlowDecision {
+pub fn alef_phantom_vec_markup_callback() -> Vec<MarkupCallbackBox> { Vec::new() }
+pub fn markup_callback_call_visit_node(this: &MarkupCallbackBox, tag: String) -> FlowDecision {
     FlowDecision::from(this.0.visit_node(tag))
 }
 
@@ -171,57 +176,57 @@ where
         Err(e) => Err(plugin_error_from_string(format!("swift returned malformed envelope: {e}"))),
     }
 }
-/// Rust-side wrapper around a Swift class implementing the `MarkupVisitor` protocol.
+/// Rust-side wrapper around a Swift class implementing the `MarkupCallback` protocol.
 ///
 /// The Swift instance is held via a `swift-bridge` opaque handle that retains
 /// the underlying ARC reference for the lifetime of this struct. Send + Sync are
 /// asserted unsafely: Swift classes used as trait bridges must be thread-safe.
-pub struct SwiftMarkupVisitorWrapper {
-    inner: ffi::SwiftMarkupVisitorBox,
+pub struct SwiftMarkupCallbackWrapper {
+    inner: ffi::SwiftMarkupCallbackBox,
 }
-unsafe impl Send for SwiftMarkupVisitorWrapper {}
-unsafe impl Sync for SwiftMarkupVisitorWrapper {}
+unsafe impl Send for SwiftMarkupCallbackWrapper {}
+unsafe impl Sync for SwiftMarkupCallbackWrapper {}
 
-impl SwiftMarkupVisitorWrapper {
-    /// Construct a new wrapper from a Swift `SwiftMarkupVisitorBox` handle.
-    pub fn new(inner: ffi::SwiftMarkupVisitorBox) -> Self {
+impl SwiftMarkupCallbackWrapper {
+    /// Construct a new wrapper from a Swift `SwiftMarkupCallbackBox` handle.
+    pub fn new(inner: ffi::SwiftMarkupCallbackBox) -> Self {
         Self { inner }
     }
 }
-impl demo::visitor::MarkupVisitor for SwiftMarkupVisitorWrapper {
-    fn visit_node(&self, tag: String) -> demo::visitor::FlowDecision {
+impl demo::callbacks::MarkupCallback for SwiftMarkupCallbackWrapper {
+    fn visit_node(&self, tag: String) -> demo::callbacks::FlowDecision {
         let json = self.inner.alef_visit_node(tag);
-        ::serde_json::from_str::<demo::visitor::FlowDecision>(&json).expect("swift markup_visitor.visit_node returned invalid JSON")
+        ::serde_json::from_str::<demo::callbacks::FlowDecision>(&json).expect("swift markup_callback.visit_node returned invalid JSON")
     }
 
 }
 
 
-impl From<demo::visitor::CallbackHandle> for CallbackHandle {
-    fn from(v: demo::visitor::CallbackHandle) -> Self { Self(v) }
+impl From<demo::callbacks::CallbackHandle> for CallbackHandle {
+    fn from(v: demo::callbacks::CallbackHandle) -> Self { Self(v) }
 }
-impl From<CallbackHandle> for demo::visitor::CallbackHandle {
+impl From<CallbackHandle> for demo::callbacks::CallbackHandle {
     fn from(v: CallbackHandle) -> Self { v.0 }
 }
 impl From<demo::options::RenderOptions> for RenderOptions {
     fn from(v: demo::options::RenderOptions) -> Self { Self(v) }
 }
 
-/// Construct a `CallbackHandle` from a Swift `SwiftMarkupVisitorBox` handle.
-/// Called by Swift e2e tests via `makeMarkupVisitorHandle(...)` to build a
+/// Construct a `CallbackHandle` from a Swift `SwiftMarkupCallbackBox` handle.
+/// Called by Swift e2e tests via `makeMarkupCallbackHandle(...)` to build a
 /// `CallbackHandle` that can be passed to the options-with-visitor helper.
-pub fn make_markup_visitor_callback_handle(swift_box: ffi::SwiftMarkupVisitorBox) -> CallbackHandle {
-    let __wrapper = SwiftMarkupVisitorWrapper::new(swift_box);
-    let __inner: demo::visitor::CallbackHandle = ::std::sync::Arc::new(::std::sync::Mutex::new(__wrapper));
+pub fn make_markup_callback_callback_handle(swift_box: ffi::SwiftMarkupCallbackBox) -> CallbackHandle {
+    let __wrapper = SwiftMarkupCallbackWrapper::new(swift_box);
+    let __inner: demo::callbacks::CallbackHandle = ::std::sync::Arc::new(::std::sync::Mutex::new(__wrapper));
     CallbackHandle::from(__inner)
 }
 
 /// Deserialise a `RenderOptions` from JSON and attach a visitor handle to its
-/// `visitor` field. Used by Swift e2e tests to thread a `CallbackHandle` into the
+/// `callback` field. Used by Swift e2e tests to thread a `CallbackHandle` into the
 /// conversion call without needing a mutable post-construction setter.
-pub fn render_options_from_json_with_visitor(json: String, visitor: Option<CallbackHandle>) -> Result<RenderOptions, String> {
+pub fn render_options_from_json_with_callback(json: String, callback: Option<CallbackHandle>) -> Result<RenderOptions, String> {
     let mut __core: demo::options::RenderOptions = ::serde_json::from_str(&json).map_err(|e| e.to_string())?;
-    __core.visitor = visitor.map(|h| <demo::visitor::CallbackHandle>::from(h));
+    __core.callback = callback.map(|h| <demo::callbacks::CallbackHandle>::from(h));
     Ok(RenderOptions::from(__core))
 }
 

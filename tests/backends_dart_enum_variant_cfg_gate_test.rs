@@ -99,6 +99,7 @@ fn make_image_output_format_enum() -> EnumDef {
             },
         ],
         excluded_variants: vec![],
+        methods: vec![],
         doc: "Output image format for extraction.".to_string(),
         cfg: None,
         is_copy: false,

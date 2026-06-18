@@ -229,6 +229,7 @@ fn simple_enum_def() -> EnumDef {
                 version: Default::default(),
             },
         ],
+        methods: vec![],
         doc: "Output format options.".to_string(),
         cfg: None,
         is_copy: false,

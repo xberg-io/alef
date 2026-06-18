@@ -47,6 +47,9 @@ impl {{ name }} {
 {{ variant_accessors_content }}
 {{ serde_tag_content }}
 {%- endif %}
+{%- if factory_methods_content %}
+{{ factory_methods_content }}
+{%- endif %}
 }
 
 impl From<{{ name }}> for {{ core_path }} {

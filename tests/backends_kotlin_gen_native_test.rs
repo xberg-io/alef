@@ -243,6 +243,7 @@ fn native_unit_enum_emits_enum_class() {
             name: "OutputFormat".to_string(),
             rust_path: "demo::OutputFormat".to_string(),
             original_rust_path: String::new(),
+            methods: vec![],
             doc: String::new(),
             variants: vec![
                 EnumVariant {

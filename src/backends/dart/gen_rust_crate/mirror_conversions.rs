@@ -475,8 +475,7 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
     //      them (e.g. `SsrfPolicy::scheme_allowlist`/`allowlist`).
     // Gating only on (1) left binding-excluded-only types (no cfg-stripped fields)
     // with neither the field nor a spread — a hard E0063. Cover both cases.
-    let omits_core_fields =
-        ty.has_stripped_cfg_fields || ty.fields.iter().any(|field| field.binding_excluded);
+    let omits_core_fields = ty.has_stripped_cfg_fields || ty.fields.iter().any(|field| field.binding_excluded);
     let needs_default_spread = omits_core_fields && ty.has_default;
     // clippy flags the spread as `needless_update` when the field list looks
     // complete from the mirror's perspective; silence it only when the spread is

@@ -83,6 +83,7 @@ fn make_enum(name: &str, variants: Vec<EnumVariant>) -> EnumDef {
         rust_path: format!("test_lib::{name}"),
         original_rust_path: String::new(),
         variants,
+        methods: vec![],
         doc: String::new(),
         cfg: None,
         is_copy: false,

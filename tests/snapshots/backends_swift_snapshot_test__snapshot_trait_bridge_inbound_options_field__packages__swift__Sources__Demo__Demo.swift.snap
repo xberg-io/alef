@@ -7,7 +7,7 @@ expression: "&file.content"
 
 import Foundation
 import RustBridge
-/// Visitor handle type alias.
+/// Callback handle type alias.
 public typealias CallbackHandle = RustBridge.CallbackHandle
 
 /// Options for conversion.
@@ -36,7 +36,7 @@ internal extension RenderOptions {
     }
 }
 
-/// Decision returned by a visitor callback.
+/// Decision returned by a markup callback.
 public enum FlowDecision: String, Codable, Sendable, Hashable {
     /// Accept the event.
     case accept = "Accept"
@@ -59,22 +59,22 @@ public func flowDecisionFromJson(_ json: String) throws -> FlowDecision {
 }
 /// Swift protocol that Swift classes implement to provide visitor callbacks.
 /// Conform to this protocol to intercept configured Rust trait bridge events.
-public protocol MarkupVisitorProtocol: AnyObject {
+public protocol MarkupCallbackProtocol: AnyObject {
     func visitNode(_ tag: String) -> FlowDecision
 }
 
 /// Default implementation: every method returns `.accept` so conforming
 /// types only need to implement the callbacks they care about.
-public extension MarkupVisitorProtocol {
+public extension MarkupCallbackProtocol {
     func visitNode(_ _tag: String) -> FlowDecision { return .accept }
 }
 
-/// Internal adapter: wraps a `MarkupVisitorProtocol` conformer as a `_SwiftMarkupVisitorBoxDelegate`.
+/// Internal adapter: wraps a `MarkupCallbackProtocol` conformer as a `_SwiftMarkupCallbackBoxDelegate`.
 /// Converts swift-bridge raw types (RustString, UInt, etc.) to user-friendly Swift
 /// types before dispatching, then serialises configured return values to JSON.
-private final class _MarkupVisitorProtocolAdapter: _SwiftMarkupVisitorBoxDelegate {
-    private let inner: any MarkupVisitorProtocol
-    init(_ inner: any MarkupVisitorProtocol) { self.inner = inner }
+private final class _MarkupCallbackProtocolAdapter: _SwiftMarkupCallbackBoxDelegate {
+    private let inner: any MarkupCallbackProtocol
+    init(_ inner: any MarkupCallbackProtocol) { self.inner = inner }
     func visitNode(_ tag: RustString) -> String {
         return flow_decision_toJson(inner.visitNode(tag.toString()))
     }
@@ -97,17 +97,17 @@ private func jsonEscapeStr(_ s: String) -> String {
      .replacingOccurrences(of: "\t", with: "\\t")
 }
 
-/// Wrap a `MarkupVisitorProtocol` conformer in an opaque `CallbackHandle` handle
-/// that can be passed to `renderOptionsFromJsonWithVisitor(...)` on the Rust side.
-public func makeMarkupVisitorHandle(_ visitor: any MarkupVisitorProtocol) -> CallbackHandle {
-    return RustBridge.makeMarkupVisitorHandle(SwiftMarkupVisitorBox(_MarkupVisitorProtocolAdapter(visitor)))
+/// Wrap a `MarkupCallbackProtocol` conformer in an opaque `CallbackHandle` handle
+/// that can be passed to `renderOptionsFromJsonWithCallback(...)` on the Rust side.
+public func makeMarkupCallbackHandle(_ visitor: any MarkupCallbackProtocol) -> CallbackHandle {
+    return RustBridge.makeMarkupCallbackHandle(SwiftMarkupCallbackBox(_MarkupCallbackProtocolAdapter(visitor)))
 }
 
 /// Decode `RenderOptions` JSON and attach a `CallbackHandle` visitor handle.
 /// Forwards to the swift-bridge shim emitted in the `RustBridge` module —
 /// re-exposed here so callers do not need `import RustBridge`.
-public func renderOptionsFromJsonWithVisitor(_ json: String, _ visitor: CallbackHandle?) throws -> RenderOptions {
-    return try RustBridge.renderOptionsFromJsonWithVisitor(json, visitor)
+public func renderOptionsFromJsonWithCallback(_ json: String, _ callback: CallbackHandle?) throws -> RenderOptions {
+    return try RustBridge.renderOptionsFromJsonWithCallback(json, callback)
 }
 
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
