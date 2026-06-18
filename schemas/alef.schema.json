@@ -1700,7 +1700,7 @@
         },
         "fields_display_as_text": {
           "default": [],
-          "description": "Optional fields whose inner type carries a text accessor rather than\nbeing a plain `String`.\n\nWhen a `contains` / `equals` assertion targets one of these fields,\nlanguage generators call the language-idiomatic text accessor:\n\n- Go: `field.Text()` instead of `string(*field)`\n- Java: `.map(v -> v.text()).orElse(\"\")` instead of `Objects::toString`\n- C#: `field?.Text()?.Trim()` instead of `field?.ToString()?.Trim()`\n- PHP: `$result->getText()` instead of raw property access\n\nUse this for fields like `content` whose Rust type is `Option<AssistantContent>`\n(a multimodal union) rather than `Option<String>`. The inner type must\nexpose a `text()` / `Text()` method that returns the textual representation.\n\nExample:\n```toml\n[e2e]\nfields_display_as_text = [\"content\", \"choices[0].message.content\"]\n```",
+          "description": "Optional fields whose inner type carries a text accessor rather than\nbeing a plain `String`.\n\nWhen a `contains` / `equals` assertion targets one of these fields,\nlanguage generators call the language-idiomatic text accessor:\n\n- Go: `field.Text()` instead of `string(*field)`\n- Java: `.map(v -> v.text()).orElse(\"\")` instead of `Objects::toString`\n- C#: `field?.Text()?.Trim()` instead of `field?.ToString()?.Trim()`\n- PHP: `$result->getText()` instead of raw property access\n\nUse this for fields like `content` whose Rust type is `Option<RichTextContent>`\n(a multimodal union) rather than `Option<String>`. The inner type must\nexpose a `text()` / `Text()` method that returns the textual representation.\n\nExample:\n```toml\n[e2e]\nfields_display_as_text = [\"content\", \"choices[0].message.content\"]\n```",
           "items": {
             "type": "string"
           },
@@ -6930,7 +6930,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.44/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.45/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7040,6 +7040,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.25.44",
-  "x-alef-version": "0.25.44"
+  "version": "0.25.45",
+  "x-alef-version": "0.25.45"
 }

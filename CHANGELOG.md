@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.45] - 2026-06-18
+
 ### Fixed
 
 - **(e2e/codegen): add `fields_display_as_text` config key for `Option<T>` content-union fields.** The e2e generator assumed all `fields_optional` entries are `Option<String>`, emitting `string(*ptr)` (Go), `Objects::toString` (Java), `.ToString()` (C#), and `.as_deref()` (Rust) for string-valued assertions. These patterns compile only when the inner type is a plain string; they fail or produce wrong output for opaque content-union types like `AssistantContent` that implement `Display` but not `Deref<Target=str>`. The new `fields_display_as_text = ["content"]` set in `[e2e]` or `[e2e.calls.<name>]` opts a field into the correct text-accessor path per language: Go emits `field.Text()`, Java emits `.map(v -> v.text()).orElse("")`, C# passes `field?.Text()` to `Assert.Equal` / `(field?.Text() ?? "")` for substring checks, Rust emits `.as_ref().map(|v| v.to_string()).unwrap_or_default().trim()`. Plain `Option<String>` fields not in `fields_display_as_text` are byte-for-byte unchanged. (`src/core/config/e2e/call.rs`, `src/core/config/e2e/root.rs`, `src/e2e/field_access/types.rs`, `src/e2e/field_access/resolver.rs`, `src/e2e/codegen/rust/assertion_helpers.rs`, `src/e2e/codegen/go/test_function.rs`, `src/e2e/codegen/java/assertions.rs`, `src/e2e/codegen/csharp/assertions.rs`)
