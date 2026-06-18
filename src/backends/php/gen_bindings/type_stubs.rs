@@ -182,6 +182,17 @@ pub(super) fn generate_type_stubs(
             let method_name = method.name.to_lower_camel_case();
             let is_static = method.receiver.is_none();
             let return_type = php_type(&method.return_type);
+            // For array-returning methods (`Vec<T>` / `Map<K,V>`, optionally wrapped in
+            // `Option`), emit an `@return array<T>` PHPDoc so PHPStan sees the iterable
+            // value type — a bare `: array` return triggers `missingType.iterableValue`.
+            let return_inner = match &method.return_type {
+                TypeRef::Optional(inner) => inner.as_ref(),
+                other => other,
+            };
+            if matches!(return_inner, TypeRef::Vec(_) | TypeRef::Map(_, _)) {
+                let return_phpdoc = php_phpdoc_type_fq(&method.return_type, &namespace);
+                content.push_str(&format!("    /** @return {return_phpdoc} */\n"));
+            }
             let first_optional_idx = method.params.iter().position(|p| p.optional);
             let params: Vec<String> = method
                 .params

@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **(backends/php/gen_bindings/rust_bindings): collapse same-named cfg-variant free functions so the generated `#[php_impl]` block stops emitting duplicate associated functions.** The PHP Rust-extension emitter (`rust_bindings::generate_bindings`) iterated the raw `ApiSurface`, unlike the PHP stub path (`public_api.rs`) and the other single-surface backends (java/go), which call `with_deduped_functions()`. A free function exposed through multiple cfg-gated paths plus an unconditional re-export produced duplicate `pub fn` definitions inside one `#[php_impl]` block, failing with `error[E0592]: duplicate definitions with name <function>`. Fix: dedup the surface (`let deduped_api = api.with_deduped_functions(); let api = &deduped_api;`) at the top of `generate_bindings`. (`src/backends/php/gen_bindings/rust_bindings.rs`)
 
+- **(backends/php/gen_bindings/type_stubs): emit an `@return array<T>` PHPDoc for array-returning DTO instance methods.** Instance-method stubs on data structs were rendered as `public function <name>(...): array` with no docblock, so a method returning `Vec<T>`/`Map<K,V>` (e.g. `AssistantMessage::outputImages(): array` returning `array<ImageUrl>`) lost its element type and PHPStan (level max) failed with `missingType.iterableValue` — the static/free-function stub path already emitted the typed `@return`. Fix: when a method's return type is `Vec`/`Map` (optionally wrapped in `Option`), prepend `/** @return <fq-phpdoc> */` via `php_phpdoc_type_fq`, mirroring the static path. (`src/backends/php/gen_bindings/type_stubs.rs`)
+
 ## [0.25.38] - 2026-06-18
 
 ### Added
