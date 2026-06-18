@@ -395,6 +395,19 @@ pub(crate) fn emit_cargo_toml(
             for name in &features {
                 lines.push(format!(r#"{name} = ["{core_dep_key}/{name}"]"#));
             }
+            // Emit an `android-target` aggregate feature when the core crate
+            // defines one, so the bridge crate can be cross-compiled for Android
+            // (ORT-free, libheif-free) with `--no-default-features --features
+            // android-target`. The forwarding entries above are the binding's
+            // passthrough features; intersect them with the core aggregate's
+            // members. Use `core_dep_key` (the cargo dep key for the core crate)
+            // for the `android-target` forward to match the other entries.
+            let passthrough_names: Vec<&str> = features.iter().map(String::as_str).collect();
+            if let Some(line) =
+                crate::scaffold::android_target_feature_line_for_dep(config, &core_dep_key, &passthrough_names)
+            {
+                lines.push(line);
+            }
             format!("[features]\n{}\n", lines.join("\n"))
         }
     };
@@ -697,6 +710,75 @@ mod feature_cfg_tests {
         assert!(
             default_line.contains("\"svg\""),
             "default = [...] must still contain non-excluded `svg`; got: {default_line}"
+        );
+        toml::from_str::<toml::Value>(&file.content).expect("generated Cargo.toml must be valid TOML");
+    }
+
+    /// When the core crate defines an `android-target` aggregate, the dart bridge
+    /// crate's `[features]` block must emit a matching `android-target` that
+    /// forwards to the core dep and enables the cfg-forwarded passthrough features
+    /// that are members of the core aggregate (sorted, `full` and non-members
+    /// excluded). The forward uses the dart `core_dep_key` (rust-ident form).
+    #[test]
+    fn cargo_toml_emits_android_target_aggregate_when_core_defines_it() {
+        use crate::core::config::ResolvedCrateConfig;
+        use crate::core::ir::ApiSurface;
+        use std::fs;
+        use std::path::PathBuf;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nresolver = \"2\"\nmembers = [\"crates/sample-core\"]\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("crates/sample-core/src")).unwrap();
+        fs::write(root.join("crates/sample-core/src/lib.rs"), "pub fn f() {}").unwrap();
+        fs::write(
+            root.join("crates/sample-core/Cargo.toml"),
+            r#"[package]
+name = "sample-core"
+version = "0.1.0"
+
+[features]
+android-target = ["no-ort-target", "ocr"]
+no-ort-target = ["pdf", "html"]
+pdf = []
+html = []
+ocr = []
+embeddings = []
+"#,
+        )
+        .unwrap();
+
+        // cfg-gated variants drive the dart passthrough/forwarding feature set.
+        let api = ApiSurface {
+            enums: vec![EnumDef {
+                name: "Format".to_string(),
+                variants: vec![
+                    make_unit_variant("Pdf", Some("feature = \"pdf\"")),
+                    make_unit_variant("Html", Some("feature = \"html\"")),
+                    make_unit_variant("Ocr", Some("feature = \"ocr\"")),
+                    make_unit_variant("Embeddings", Some("feature = \"embeddings\"")),
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let config = ResolvedCrateConfig {
+            name: "sample-core".to_string(),
+            workspace_root: Some(root.to_path_buf()),
+            sources: vec![PathBuf::from("crates/sample-core/src/lib.rs")],
+            ..Default::default()
+        };
+        let file = emit_cargo_toml("packages/dart/rust", &api, &config, "sample_core");
+        assert!(
+            file.content
+                .contains(r#"android-target = ["sample_core/android-target", "html", "ocr", "pdf"]"#),
+            "dart Cargo.toml must emit the android-target aggregate feature; got:\n{}",
+            file.content
         );
         toml::from_str::<toml::Value>(&file.content).expect("generated Cargo.toml must be valid TOML");
     }

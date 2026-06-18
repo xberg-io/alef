@@ -154,7 +154,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         .map(|f| format!("\"{f}\""))
         .collect::<Vec<_>>()
         .join(", ");
-    let core_features_passthrough_block = if passthrough_feature_names.is_empty() {
+    let mut core_features_passthrough_block = if passthrough_feature_names.is_empty() {
         String::new()
     } else {
         passthrough_feature_names
@@ -163,6 +163,20 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
             .collect::<Vec<_>>()
             .join("\n")
     };
+    // Emit an `android-target` aggregate feature when the core crate defines one,
+    // so consumers can build the FFI crate for Android with
+    // `--no-default-features --features android-target` (ORT-free, libheif-free).
+    // It enables the core dep's `android-target` plus every binding passthrough
+    // feature that is a member of the core aggregate (the FFI exports are gated
+    // by the binding's own passthrough features, not the core dep's).
+    if let Some(line) = crate::scaffold::android_target_feature_line(config, &passthrough_feature_names) {
+        if core_features_passthrough_block.is_empty() {
+            core_features_passthrough_block = line;
+        } else {
+            core_features_passthrough_block.push('\n');
+            core_features_passthrough_block.push_str(&line);
+        }
+    }
     // Separate the main [dependencies] table from any per-target tables.
     let target_blocks_section = if target_blocks.is_empty() {
         String::new()

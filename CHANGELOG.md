@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **(scaffold, backends/dart): emit an `android-target` aggregate feature on the generated ffi and dart binding crates when the core crate defines one.** Binding crates declare `default = ["full", …]` where `full` transitively pulls ORT and `heic`/`libheif-sys` deps that cannot cross-compile for Android, so Android builds must use `--no-default-features --features android-target` — which requires the binding crate to expose that feature. The binding's FFI exports are gated by its own passthrough features (`#[cfg(feature = "ocr")]`), so the emitted feature enables the binding-side passthrough features that are members of the core aggregate, not just a forward to the core dep. The scaffold resolves the core crate's `android-target` aggregate to its transitive feature-name members (BFS over the core `[features]` map, expanding sub-aggregates like `no-ort-target`, skipping `dep:`/`crate/feat` tokens), intersects them with the binding's passthrough feature names (excluding `full`), and emits `android-target = ["<core>/android-target", <sorted members>]` after the passthrough block. Emission is conditional on the core crate actually defining `android-target`, so repos that lack it are unaffected. (`src/scaffold/mod.rs`, `src/scaffold/languages/ffi.rs`, `src/backends/dart/gen_rust_crate/cargo.rs`)
+
 ### Fixed
 
 - **(scaffold/languages/java): use `waitUntil=validated` in central-publishing-maven-plugin to prevent CI job timeout.** The generated `pom.xml` configured `central-publishing-maven-plugin` with `<waitUntil>published</waitUntil>`, which causes `mvn deploy` to block until Maven Central reports the artifact's PUBLISHED state — a process that routinely exceeds GitHub Actions' job timeout. With `<waitUntil>validated</waitUntil>`, mvn returns as soon as validation succeeds (typically a few minutes), and `autoPublish=true` completes the release server-side asynchronously, preventing CI hangs even when Central's publish pipeline is slow. (`src/scaffold/languages/java.rs`)

@@ -220,6 +220,112 @@ fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
 }
 
 #[test]
+fn test_scaffold_ffi_emits_android_target_aggregate_feature() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    // When the core crate defines an `android-target` aggregate feature, the FFI
+    // crate must emit a matching `android-target` that (a) forwards to the core
+    // dep's `android-target` and (b) enables every binding passthrough feature
+    // that is a transitive member of the core aggregate — so consumers can build
+    // the FFI crate for Android with `--no-default-features --features
+    // android-target` and get a clean, ORT-free + libheif-free surface.
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nresolver = \"2\"\nmembers = [\"crates/kreuzberg\"]\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("crates/kreuzberg/src")).unwrap();
+    fs::write(root.join("crates/kreuzberg/src/lib.rs"), "pub fn f() {}").unwrap();
+    // android-target references a sub-aggregate (`no-ort-target`) plus a leaf
+    // (`ocr`); the resolver must transitively expand the sub-aggregate.
+    fs::write(
+        root.join("crates/kreuzberg/Cargo.toml"),
+        r#"[package]
+name = "kreuzberg"
+version = "0.1.0"
+
+[features]
+android-target = ["no-ort-target", "ocr"]
+no-ort-target = ["pdf", "html"]
+pdf = []
+html = []
+ocr = []
+embeddings = []
+"#,
+    )
+    .unwrap();
+
+    let mut config = test_config();
+    config.name = "kreuzberg".to_string();
+    config.workspace_root = Some(root.to_path_buf());
+    config.sources = vec![PathBuf::from("crates/kreuzberg/src/lib.rs")];
+    // The binding's passthrough surface. `embeddings` is NOT in android-target,
+    // and `full` is the umbrella the android target excludes — both must drop out.
+    config.features = vec![
+        "full".to_string(),
+        "pdf".to_string(),
+        "ocr".to_string(),
+        "html".to_string(),
+        "embeddings".to_string(),
+    ];
+
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = &files[0].content;
+
+    // Sorted, `embeddings` excluded (not in android-target), `full` excluded.
+    assert!(
+        cargo_toml.contains(r#"android-target = ["kreuzberg/android-target", "html", "ocr", "pdf"]"#),
+        "FFI manifest must emit the android-target aggregate feature; got:\n{cargo_toml}"
+    );
+    // Output must be valid TOML.
+    toml::from_str::<toml::Value>(cargo_toml).expect("generated Cargo.toml must be valid TOML");
+}
+
+#[test]
+fn test_scaffold_ffi_omits_android_target_when_core_lacks_it() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    // Repos whose core crate has no `android-target` feature must not get a
+    // spurious `android-target` line in their FFI manifest.
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nresolver = \"2\"\nmembers = [\"crates/kreuzberg\"]\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("crates/kreuzberg/src")).unwrap();
+    fs::write(root.join("crates/kreuzberg/src/lib.rs"), "pub fn f() {}").unwrap();
+    fs::write(
+        root.join("crates/kreuzberg/Cargo.toml"),
+        "[package]\nname = \"kreuzberg\"\nversion = \"0.1.0\"\n\n[features]\npdf = []\nocr = []\n",
+    )
+    .unwrap();
+
+    let mut config = test_config();
+    config.name = "kreuzberg".to_string();
+    config.workspace_root = Some(root.to_path_buf());
+    config.sources = vec![PathBuf::from("crates/kreuzberg/src/lib.rs")];
+    config.features = vec!["pdf".to_string(), "ocr".to_string()];
+
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = &files[0].content;
+
+    assert!(
+        !cargo_toml.contains("android-target"),
+        "FFI manifest must not emit android-target when core crate lacks it; got:\n{cargo_toml}"
+    );
+}
+
+#[test]
 fn test_scaffold_go_production_format() {
     let config = test_config();
     let api = test_api();
