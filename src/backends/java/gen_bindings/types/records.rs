@@ -7,9 +7,7 @@ use ahash::AHashSet;
 
 use super::builders::{gen_builder_nested_class, should_emit_builder};
 use super::shared::{options_field_bridge_trait_name, resolve_field_type};
-use crate::backends::java::gen_bindings::helpers::{
-    RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, safe_java_field_name,
-};
+use crate::backends::java::gen_bindings::helpers::{RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, safe_java_field_name};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_record_type(
