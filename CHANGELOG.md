@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.41] - 2026-06-18
+
 ### Fixed
+
+- **(scaffold/languages/java): widen the curated Java PMD ruleset to exclude rules inherent to generated DTOs.** `pmd-ruleset.xml` is the project's PMD policy (consumers point their `pmd` pre-commit hook at it via `-R packages/.../pmd-ruleset.xml`). Generated records mirror their Rust source verbatim, so several full-category PMD rules fire on code codegen cannot change: loopback default literals (`host = "127.0.0.1"` → `AvoidUsingHardCodedIP`), directly-exposed array/byte fields (`ArrayIsStoredDirectly`, `MethodReturnsInternalArray`), inherited field/parameter names (`ShortVariable`, `LongVariable`), wide source structs (`TooManyFields`, `TooManyMethods`), missing per-field Javadoc on generated records (`CommentRequired`), plain-`HashMap` map fields (`UseConcurrentHashMap`), copied numeric literals (`UseUnderscoresInNumericLiterals`), uniform codegen style (`LocalVariableCouldBeFinal`, `MethodArgumentCouldBeFinal`), and defensive `@SuppressWarnings` (`UnnecessaryWarningSuppression`). Suppress these project-wide so generated bindings pass PMD without per-file annotations; defensive copies and deployment addresses remain the consumer's concern. (`src/scaffold/languages/java.rs`)
 
 - **(backends/pyo3/gen_bindings/functions/converters): None-guard the coercion comprehension for optional `Vec<enum>` fields.** The `data_enum_vec_coerce`/`simple_enum_vec_coerce` templates emitted `[_coerce_enum(_rust.E, v) for v in {{ accessor }}]` unconditionally. For an `Optional[list[Enum]]` field (e.g. `modalities`) whose value is `None`, the generated `_to_rust_*` helper iterated `None` → `TypeError` at runtime and a mypy error. Fix: the converter now unwraps `Option<Vec<Enum>>` and threads an `optional` flag into the templates, which wrap the comprehension as `([...] if {{ accessor }} is not None else None)` for optional fields (non-optional fields are unchanged). (`src/backends/pyo3/gen_bindings/functions/converters.rs`, `src/backends/pyo3/gen_bindings/mod.rs`, `src/backends/pyo3/templates/data_enum_vec_coerce.jinja`, `src/backends/pyo3/templates/simple_enum_vec_coerce.jinja`)
 
