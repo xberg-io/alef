@@ -360,31 +360,12 @@ pub(crate) fn emit_type_method_shims(
         ));
     }
 
-    // Emit no-op method shim when no visible methods exist. This signals to
-    // swift-bridge that the type is owned and should generate $_free.
-    // Only emitted here if the type has no visible methods (already checked in extern_block).
-    let has_visible_methods = ty
-        .methods
-        .iter()
-        .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
-    if ty.is_opaque && !has_visible_methods {
-        let type_snake = ty.name.to_snake_case();
-        let noop_fn_name = format!("{type_snake}_noop");
-        let return_clause = " -> ()";
-        // Propagate the type-level cfg gate to the noop shim.
-        if let Some(cfg) = ty.cfg.as_deref() {
-            out.push_str(&format!("#[cfg({cfg})]\n"));
-        }
-        out.push_str(&crate::backends::swift::template_env::render(
-            "rust_wrapper_free_fn.rs.jinja",
-            minijinja::context! {
-                fn_name => &noop_fn_name,
-                params => format!("client: &{type_name}"),
-                return_clause => return_clause,
-                body => "    // No-op method for swift-bridge destructor synthesis",
-            },
-        ));
-    }
+    // No-op shims for opaque types with no visible methods are NOT emitted here.
+    // `deferred_noop::emit_shims` (driven by `mod.rs`'s `noop_def_types`) is the single
+    // emitter for every `<type>_noop` definition — both deferred-handle types and own-block
+    // opaque types (`extern_block::type_needs_own_block_noop`, the same `is_opaque &&
+    // !has_visible_methods` condition this block used). Emitting here as well produced
+    // duplicate `pub fn <type>_noop` definitions (E0428) for own-block opaque types.
 
     out
 }

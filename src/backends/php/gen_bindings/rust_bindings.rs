@@ -69,6 +69,12 @@ fn binding_config(core_import: &str, has_serde: bool) -> RustBindingConfig<'_> {
 }
 
 pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    // PHP is a single-surface backend: collapse same-named cfg-variant free functions to one
+    // host method so the generated `#[php_impl]` block does not emit duplicate associated
+    // functions (E0592). Mirrors java/go/the PHP stub path (`public_api.rs`).
+    let deduped_api = api.with_deduped_functions();
+    let api = &deduped_api;
+
     // Separate unit-variant enums (→ String), tagged data enums (→ flat PHP class),
     // and untagged data enums (→ serde_json::Value, converted via from_value at binding↔core boundary).
     let data_enum_names: AHashSet<String> = api

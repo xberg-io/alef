@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(backends/swift/gen_rust_crate/wrappers/methods): stop emitting a duplicate `<type>_noop` definition for own-block opaque types.** `emit_type_method_shims` emitted a `pub fn <type>_noop` shim for any `is_opaque && !has_visible_methods` type, but `deferred_noop::emit_shims` (driven by `mod.rs`'s `noop_def_types`, which already includes every `extern_block::type_needs_own_block_noop` type — the identical condition) emits one too. Own-block opaque types with feature gates therefore got two gated `pub fn <type>_noop` definitions in the generated Rust crate, failing to compile with `error[E0428]: the name <type>_noop is defined multiple times`. Fix: remove the redundant emission from `wrappers/methods.rs`; `deferred_noop::emit_shims` is now the single source for all noop definitions. (`src/backends/swift/gen_rust_crate/wrappers/methods.rs`)
+
+- **(backends/php/gen_bindings/rust_bindings): collapse same-named cfg-variant free functions so the generated `#[php_impl]` block stops emitting duplicate associated functions.** The PHP Rust-extension emitter (`rust_bindings::generate_bindings`) iterated the raw `ApiSurface`, unlike the PHP stub path (`public_api.rs`) and the other single-surface backends (java/go), which call `with_deduped_functions()`. A free function exposed through multiple cfg-gated paths plus an unconditional re-export produced duplicate `pub fn` definitions inside one `#[php_impl]` block, failing with `error[E0592]: duplicate definitions with name <function>`. Fix: dedup the surface (`let deduped_api = api.with_deduped_functions(); let api = &deduped_api;`) at the top of `generate_bindings`. (`src/backends/php/gen_bindings/rust_bindings.rs`)
+
 ## [0.25.38] - 2026-06-18
 
 ### Added
