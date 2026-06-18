@@ -101,7 +101,7 @@ fn emit_method_shim(
             && (matches!(base_ty, TypeRef::Bytes)
                 || matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)))
                 || !matches!(base_ty, TypeRef::Vec(_) | TypeRef::Path | TypeRef::String));
-        emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null, unmarshal_produces_option);
+        emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null, unmarshal_produces_option, p.map_is_btree);
         // `&Vec<String>` coerces to `&[String]` so plain `&<name>` covers every
         // Vec<String> method call we currently emit. The previous special-case
         // that converted to `Vec<&str>` produced `&[&str]` which is incompatible
@@ -109,8 +109,13 @@ fn emit_method_shim(
         // Exception: core methods declared as `&[&str]` (IR `vec_inner_is_ref = true`
         // on a `Vec<String>` slot) need a materialised `Vec<&str>` borrow.
         if unmarshal_produces_option {
-            // Binding is already `Option<T>` — pass through.
-            rust_name
+            // Binding is already `Option<T>`. For an optional byte slice the core
+            // wants `Option<&[u8]>`; `Option<Vec<u8>>` does not coerce, so deref it.
+            if p.is_ref && is_byte_slice(base_ty) {
+                format!("{rust_name}.as_deref()")
+            } else {
+                rust_name
+            }
         } else if p.optional {
             format!("Some({rust_name})")
         } else if needs_vec_string_refs(p, base_ty) {
@@ -137,7 +142,7 @@ fn emit_method_shim(
                 TypeRef::Optional(inner) => inner.as_ref(),
                 other => other,
             };
-            let type_path = type_ref_to_core_path(base_ty, "core_crate");
+            let type_path = type_ref_to_core_path_with_btree(base_ty, "core_crate", p.map_is_btree);
             out.push_str(&template_env::render(
                 "request_map_param_unmarshal.rs.jinja",
                 context! {
@@ -152,7 +157,13 @@ fn emit_method_shim(
             // Exception: when the core method declares `&[&str]` (IR
             // `vec_inner_is_ref = true`), materialise a `Vec<&str>` and borrow.
             let call_arg = if p.optional {
-                format!("Some({rust_name})")
+                // `request_map_param_unmarshal` binds the unwrapped `T`; an optional
+                // byte slice (`Option<&[u8]>`) needs a borrow inside the `Some`.
+                if p.is_ref && is_byte_slice(base_ty) {
+                    format!("Some(&{rust_name})")
+                } else {
+                    format!("Some({rust_name})")
+                }
             } else if needs_vec_string_refs(p, base_ty) {
                 out.push_str(&render_vec_string_refs_binding(&rust_name));
                 vec_string_refs_arg(&rust_name)

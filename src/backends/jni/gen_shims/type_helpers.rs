@@ -125,18 +125,68 @@ fn primitive_cast(p: &PrimitiveType) -> &'static str {
 
 /// Map a TypeRef to a Rust type path for serde deserialization.
 fn type_ref_to_core_path(ty: &TypeRef, core_prefix: &str) -> String {
+    type_ref_to_core_path_with_btree(ty, core_prefix, false)
+}
+
+/// Like [`type_ref_to_core_path`] but honours the concrete map container declared
+/// by the core function. When `map_is_btree` is true and `ty` is a `Map`, the
+/// outermost (possibly `Option`/`Vec`-wrapped) map is emitted as
+/// `std::collections::BTreeMap` so the deserialization target and the call-site
+/// argument match the core signature (`&BTreeMap<K, V>`). Passing a `HashMap`
+/// where the core expects a `BTreeMap` fails with E0308.
+///
+/// The `TypeRef` IR erases the distinction between `HashMap`/`BTreeMap`, so the
+/// container choice is carried separately on `ParamDef::map_is_btree`.
+fn type_ref_to_core_path_with_btree(ty: &TypeRef, core_prefix: &str, map_is_btree: bool) -> String {
     match ty {
         TypeRef::String => "String".to_string(),
         TypeRef::Primitive(p) => primitive_rust_type(p).to_string(),
         TypeRef::Named(n) => format!("{core_prefix}::{n}"),
-        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_core_path(inner, core_prefix)),
-        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_core_path(inner, core_prefix)),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            type_ref_to_core_path(k, core_prefix),
-            type_ref_to_core_path(v, core_prefix)
-        ),
+        TypeRef::Optional(inner) => {
+            format!("Option<{}>", type_ref_to_core_path_with_btree(inner, core_prefix, map_is_btree))
+        }
+        TypeRef::Vec(inner) => {
+            format!("Vec<{}>", type_ref_to_core_path_with_btree(inner, core_prefix, map_is_btree))
+        }
+        TypeRef::Map(k, v) => {
+            let container = if map_is_btree {
+                "std::collections::BTreeMap"
+            } else {
+                "std::collections::HashMap"
+            };
+            format!(
+                "{container}<{}, {}>",
+                type_ref_to_core_path(k, core_prefix),
+                type_ref_to_core_path(v, core_prefix)
+            )
+        }
         _ => "serde_json::Value".to_string(),
+    }
+}
+
+/// True when `ty` is the byte-slice base type: `bytes::Bytes` (`TypeRef::Bytes`)
+/// or `Vec<u8>` (`TypeRef::Vec(U8)`). The IR has already unwrapped any outer
+/// `Option`, so this checks the inner element type only.
+fn is_byte_slice(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Bytes)
+        || matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)))
+}
+
+/// Build the call-site argument for a byte-slice parameter.
+///
+/// The unmarshal step binds `Vec<u8>` (or `Option<Vec<u8>>` when optional). The
+/// core function may want any of four shapes, distinguished by `optional`/`is_ref`:
+/// - `Option<&[u8]>` (`optional && is_ref`): `name.as_deref()` — `Option<Vec<u8>>`
+///   does not coerce to `Option<&[u8]>`, so the deref-conversion is required (E0308
+///   otherwise).
+/// - `Option<Vec<u8>>` (`optional && !is_ref`): pass the owned `Option` through.
+/// - `&[u8]` (`!optional && is_ref`): `&name` — `&Vec<u8>` coerces to `&[u8]`.
+/// - `Vec<u8>` (`!optional && !is_ref`): pass the owned `Vec` through.
+fn bytes_call_arg(name: &str, optional: bool, is_ref: bool) -> String {
+    match (optional, is_ref) {
+        (true, true) => format!("{name}.as_deref()"),
+        (false, true) => format!("&{name}"),
+        (_, false) => name.to_string(),
     }
 }
 

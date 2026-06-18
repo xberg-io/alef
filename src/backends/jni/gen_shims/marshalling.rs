@@ -74,7 +74,14 @@ fn render_request_string_unmarshal(ret_null: &str, error_prefix: &str) -> String
 /// When `is_optional` is true, the emitted binding has type `Option<T>` and an
 /// empty-string sentinel (from Kotlin's `obj?.let { writeValueAsString(it) } ?: ""`)
 /// is decoded as `None` rather than failing with `EOF while parsing`.
-fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, ret_null: &str, is_optional: bool) {
+fn emit_single_param_unmarshal(
+    out: &mut String,
+    rust_name: &str,
+    ty: &TypeRef,
+    ret_null: &str,
+    is_optional: bool,
+    map_is_btree: bool,
+) {
     match ty {
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
             // jbyteArray → Vec<u8> via env.convert_byte_array.
@@ -122,7 +129,7 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
         }
         _ => {
             out.push_str(&render_request_string_unmarshal(ret_null, ""));
-            let type_path = type_ref_to_core_path(ty, "core_crate");
+            let type_path = type_ref_to_core_path_with_btree(ty, "core_crate", map_is_btree);
             // Kotlin passes "" as the sentinel for None (so we don't have to
             // round-trip a JSON `null` and the wire stays clean for the Some case).
             out.push_str(&template_env::render(

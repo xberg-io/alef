@@ -127,30 +127,12 @@ fn emit_function_shim(
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
                 param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
                 unmarshal.push_str(&render_base64_bytes_unmarshal(&rust_name, err_null, p.optional));
-                if p.optional {
-                    call_args.push_str(&rust_name);
-                } else {
-                    if p.is_ref {
-                        call_args.push('&');
-                        call_args.push_str(&rust_name);
-                    } else {
-                        call_args.push_str(&rust_name);
-                    }
-                }
+                call_args.push_str(&bytes_call_arg(&rust_name, p.optional, p.is_ref));
             }
             TypeRef::Bytes => {
                 param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
                 unmarshal.push_str(&render_base64_bytes_unmarshal(&rust_name, err_null, p.optional));
-                if p.optional {
-                    call_args.push_str(&rust_name);
-                } else {
-                    if p.is_ref {
-                        call_args.push('&');
-                        call_args.push_str(&rust_name);
-                    } else {
-                        call_args.push_str(&rust_name);
-                    }
-                }
+                call_args.push_str(&bytes_call_arg(&rust_name, p.optional, p.is_ref));
             }
             TypeRef::Path => {
                 // Path params: receive a JString, unmarshal directly to PathBuf without
@@ -196,7 +178,7 @@ fn emit_function_shim(
             _ => {
                 // Complex types passed as JSON string from Kotlin side.
                 param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
-                let type_path = type_ref_to_core_path(base_ty, "core_crate");
+                let type_path = type_ref_to_core_path_with_btree(base_ty, "core_crate", p.map_is_btree);
                 // Optional complex params: the Kotlin/Java caller passes an empty
                 // string (`""`) when the host-language value is null, the legacy
                 // sentinel for "no payload" that pairs with `?.let { ... } ?: ""`.
