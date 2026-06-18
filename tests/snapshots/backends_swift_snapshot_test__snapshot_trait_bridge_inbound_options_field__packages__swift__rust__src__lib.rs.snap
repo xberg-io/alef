@@ -116,7 +116,7 @@ impl RenderOptions {
     }
 }
 
-pub fn callback_handle_noop(client: &CallbackHandle) -> () {
+pub fn callback_handle_noop(client: &CallbackHandle) {
     // No-op method for swift-bridge destructor synthesis
 }
 

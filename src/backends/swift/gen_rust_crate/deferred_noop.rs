@@ -23,7 +23,7 @@ pub(super) fn emit_shims(deferred_empty_handle_types: &HashSet<String>, visible_
             minijinja::context! {
                 fn_name => &noop_fn_name,
                 params => format!("client: &{ty_name}"),
-                return_clause => " -> ()",
+                return_clause => "",
                 body => "    // No-op method for swift-bridge destructor synthesis",
             },
         ));
