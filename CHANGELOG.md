@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(backends/swift/gen_bindings): re-emit getLanguage(name:) wrapper dropped in 0.25.38 codegen regression.** The `effective_exclude_types` function was adding `config.opaque_types.keys()` to the exclude set, which then filtered functions returning opaque types from free-function forwarder emission. A 0.25.38 change treated opaque types the same as excluded types, so `get_language(name: &str) -> Result<Language, Error>` was skipped because `Language` is in `[workspace.opaque_types]`. The public wrapper `public func getLanguage(name: String) throws -> Language` disappeared, breaking the Swift e2e test_app and dropping a public API from the shipped package. Fix: do not add `config.opaque_types` to `exclude_types` — opaque types should remain returnable from free functions via forwarders. Opaque types correctly skip DTO/typealias/enum emission but should not prevent function wrappers from being generated. Added regression test `opaque_type_returned_from_free_function_emits_forwarder`. (`src/backends/swift/gen_bindings/mod.rs`, `tests/backends_swift_gen_bindings_test.rs`)
+
 ## [0.25.42] - 2026-06-18
 
 ### Added

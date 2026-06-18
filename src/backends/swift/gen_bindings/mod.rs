@@ -38,9 +38,11 @@ fn effective_exclude_types(config: &ResolvedCrateConfig, api: &ApiSurface) -> st
     exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
     exclude_types.extend(api.enums.iter().filter(|e| e.binding_excluded).map(|e| e.name.clone()));
     exclude_types.extend(api.excluded_type_paths.keys().cloned());
-    // Declared opaque types are external host-runtime references whose actual Rust path
-    // carries generic parameters the injected IR cannot model; skip them.
-    exclude_types.extend(config.opaque_types.keys().cloned());
+    // DO NOT add config.opaque_types here — opaque types should still be returnable
+    // from free functions via forwarders (emit_free_function_forwarders below).
+    // Opaque types do not need DTOs/typealiases/enums emitted, but they must remain
+    // accessible via function forwarders. A 0.25.38 regression added opaque types here,
+    // which caused get_language(name:) to be filtered out because Language is opaque.
     exclude_types
 }
 

@@ -3114,3 +3114,118 @@ fn first_class_struct_emits_instance_methods() {
         content
     );
 }
+
+#[test]
+fn opaque_type_returned_from_free_function_emits_forwarder() {
+    // Regression test for 0.25.38: opaque types should not be excluded
+    // from free-function forwarder emission. A function returning an opaque
+    // type (e.g., `get_language(name: String) -> Language`) must still emit
+    // the public wrapper `public func getLanguage(name: String) throws -> Language`
+    // even though Language is in config.opaque_types.
+    use alef::core::ir::ErrorVariant;
+
+    fn make_function(name: &str, return_type: TypeRef) -> FunctionDef {
+        FunctionDef {
+            name: name.to_string(),
+            rust_path: format!("demo::{name}"),
+            params: vec![make_param("name", TypeRef::String)],
+            return_type,
+            is_async: false,
+            doc: String::new(),
+            error_type: Some("Error".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            original_rust_path: String::new(),
+            return_sanitized: false,
+            version: Default::default(),
+        }
+    }
+
+    let language_type = TypeDef {
+        name: "Language".to_string(),
+        rust_path: "demo::Language".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: true,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+
+    let mut cfg = make_config();
+    // Declare Language as an external opaque type — should not appear
+    // in generated DTOs but should still be accessible via free-function forwarders.
+    cfg.opaque_types
+        .insert("Language".to_string(), "ts_pack_core::Language".to_string());
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![language_type],
+        functions: vec![make_function("get_language", TypeRef::Named("Language".to_string()))],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "Error".to_string(),
+            rust_path: "demo::Error".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Unknown".to_string(),
+                message_template: Some("Unknown error".to_string()),
+                is_unit: true,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_tuple: false,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let backend = SwiftBackend;
+    let files = backend
+        .generate_bindings(&api, &cfg)
+        .expect("generation must succeed");
+
+    let bindings_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .expect("must have swift file");
+    let content = &bindings_file.content;
+
+    // The forwarder function must be emitted despite Language being in opaque_types.
+    // It should be named `getLanguage` (camel-cased from Rust's `get_language`).
+    assert!(
+        content.contains("public func getLanguage(name: String) throws -> Language"),
+        "getLanguage forwarder must be emitted for opaque return type. Content:\n{}",
+        content
+    );
+}
