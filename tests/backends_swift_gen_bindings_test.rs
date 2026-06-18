@@ -3172,10 +3172,10 @@ fn opaque_type_returned_from_free_function_emits_forwarder() {
     };
 
     let mut cfg = make_config();
-    // Declare Language as an external opaque type — should not appear
+    // Declare Language as an external opaque type. It should not appear
     // in generated DTOs but should still be accessible via free-function forwarders.
     cfg.opaque_types
-        .insert("Language".to_string(), "ts_pack_core::Language".to_string());
+        .insert("Language".to_string(), "external_runtime::Language".to_string());
 
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -3211,9 +3211,7 @@ fn opaque_type_returned_from_free_function_emits_forwarder() {
     };
 
     let backend = SwiftBackend;
-    let files = backend
-        .generate_bindings(&api, &cfg)
-        .expect("generation must succeed");
+    let files = backend.generate_bindings(&api, &cfg).expect("generation must succeed");
 
     let bindings_file = files
         .iter()
