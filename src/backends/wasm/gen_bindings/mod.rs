@@ -82,7 +82,15 @@ impl Backend for WasmBackend {
                 .filter(|(_, path)| path.contains('<'))
                 .map(|(name, _)| name.clone()),
         );
-        let type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
+        // Content-union types opted into a display-text binding (crate-level
+        // `untagged_union_text_types`): map them to `String` so the binding struct stores and
+        // returns the display text instead of an opaque discriminant. Empty by default → no-op.
+        let text_field_enum_names: AHashSet<String> =
+            config.untagged_union_text_types.iter().cloned().collect();
+        let mut type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
+        for name in &text_field_enum_names {
+            type_overrides.entry(name.clone()).or_insert_with(|| "String".to_string());
+        }
         let env_shims = wasm_config.map(|c| c.env_shims.clone()).unwrap_or_default();
         let prefix = config.wasm_type_prefix();
 
@@ -354,6 +362,16 @@ impl Backend for WasmBackend {
             .map(|e| e.name.clone())
             .collect();
 
+        // Enums exposed to struct-method generation, excluding text-field content unions: those are
+        // stored as `String` in the binding, so the getter/setter must treat their fields as plain
+        // strings rather than taking the unit-enum `to_api_str()` path.
+        let methods_enums: Vec<_> = api
+            .enums
+            .iter()
+            .filter(|e| !text_field_enum_names.contains(&e.name))
+            .cloned()
+            .collect();
+
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if exclude_types.contains(&typ.name) {
                 continue;
@@ -400,7 +418,7 @@ impl Backend for WasmBackend {
                     &exclude_types,
                     &core_import,
                     &opaque_types,
-                    &api.enums,
+                    &methods_enums,
                     &prefix,
                     &mutex_types,
                     &streaming_item_types,
@@ -594,6 +612,11 @@ impl Backend for WasmBackend {
                 None
             } else {
                 Some(&tagged_data_enum_names)
+            },
+            text_field_enum_names: if text_field_enum_names.is_empty() {
+                None
+            } else {
+                Some(&text_field_enum_names)
             },
             ..Default::default()
         };

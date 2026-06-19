@@ -327,6 +327,30 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
     }
 
+    // Text-field content union (binding holds the display text String, core holds the typed enum):
+    // deserialise the string into the union's text variant via serde (an untagged content union
+    // accepts a bare JSON string).  Handles direct and Optional wrappings.
+    if let Some(text_names) = config.text_field_enum_names {
+        let direct_named = matches!(ty, TypeRef::Named(n) if text_names.contains(n));
+        let optional_named = matches!(ty, TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if text_names.contains(n)));
+        if direct_named {
+            if optional {
+                return format!(
+                    "{name}: val.{name}.map(|s| serde_json::from_value(serde_json::Value::String(s)).unwrap_or_default())"
+                );
+            }
+            return format!(
+                "{name}: serde_json::from_value(serde_json::Value::String(val.{name})).unwrap_or_default()"
+            );
+        }
+        if optional_named {
+            return format!(
+                "{name}: val.{name}.map(|s| serde_json::from_value(serde_json::Value::String(s)).unwrap_or_default())"
+            );
+        }
+    }
+
     // Untagged data enum field (binding holds serde_json::Value, core holds the typed enum):
     // convert via serde_json::from_value.  Handles direct, Optional, and Vec wrappings.
     if let Some(untagged_names) = config.untagged_data_enum_names {

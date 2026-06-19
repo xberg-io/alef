@@ -396,6 +396,23 @@ pub fn field_conversion_from_core_cfg(
         }
     }
 
+    // Text-field content union (core holds the typed enum, binding holds the display text String):
+    // render via the core type's Display impl.  Handles direct and Optional wrappings.
+    if let Some(text_names) = config.text_field_enum_names {
+        let direct_named = matches!(ty, TypeRef::Named(n) if text_names.contains(n));
+        let optional_named = matches!(ty, TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if text_names.contains(n)));
+        if direct_named {
+            if optional {
+                return format!("{name}: val.{name}.as_ref().map(|v| v.to_string())");
+            }
+            return format!("{name}: val.{name}.to_string()");
+        }
+        if optional_named {
+            return format!("{name}: val.{name}.as_ref().map(|v| v.to_string())");
+        }
+    }
+
     // Untagged data enum field (core holds the typed enum, binding holds serde_json::Value):
     // serialize via serde_json::to_value.  Handles direct, Optional, and Vec wrappings.
     if let Some(untagged_names) = config.untagged_data_enum_names {

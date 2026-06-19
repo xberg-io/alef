@@ -98,6 +98,16 @@ pub struct ConversionConfig<'a> {
     ///   - core→binding: `serde_json::to_value(val.<name>).unwrap_or_default()`
     ///   - binding→core: `serde_json::from_value(val.<name>).unwrap_or_default()`
     pub untagged_data_enum_names: Option<&'a AHashSet<String>>,
+    /// Names of content-union types opted into a display-text binding representation (via the
+    /// crate-level `untagged_union_text_types` config). Fields referencing these types are stored
+    /// as `String` (the display text) in the binding struct, mirroring the core type's `Display`
+    /// impl. Used by the WASM backend so `message.content` returns the assistant text directly
+    /// instead of an opaque discriminant. Conversions:
+    ///
+    ///   - core→binding: `val.<name>.to_string()` (or `.as_ref().map(|v| v.to_string())`)
+    ///   - binding→core: `serde_json::from_value(serde_json::Value::String(val.<name>))`
+    ///     (an untagged content union deserialises a JSON string into its text variant)
+    pub text_field_enum_names: Option<&'a AHashSet<String>>,
     /// Names of tagged-data enums (`#[serde(tag = "...")]` with at least one data variant).
     /// Fields referencing these types (or `Vec` of these types) are stored as `JsValue` in the
     /// wasm binding struct so that plain JS objects `{ role: "user", content: "..." }` can be

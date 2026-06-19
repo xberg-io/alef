@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is empty, so a jni-less AAR can never be published green again.
   (`src/backends/kotlin_android/gen_build_gradle.rs`)
 
+- **(backends/wasm): display-text representation for content-union fields.** Fields
+  whose type is in `untagged_union_text_types` (e.g. `AssistantContent`) are now stored
+  and returned as `String` (the display text via the core `Display` impl) instead of a
+  lossy unit-enum discriminant — so `message.content` returns the assistant text in JS.
+  Conversions render core→binding via `to_string()` and binding→core via serde; gated, so
+  other untagged enums (`UserContent`, `StopSequence`, …) are unchanged.
+  (`src/backends/wasm/gen_bindings/mod.rs`, `src/codegen/conversions/{config,core_to_binding/fields,binding_to_core/fields}.rs`)
+
 ### Fixed
 
 - **(e2e/codegen/swift): use the per-call `result_type` override for root-type
