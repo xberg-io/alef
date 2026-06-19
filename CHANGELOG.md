@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.48] - 2026-06-19
+
 ### Added
 
 - **Content-union text-accessor extension to more backends.** The
