@@ -116,7 +116,6 @@ fn gen_passthrough_raw_message_enum(enum_def: &EnumDef, text_types: &[String]) -
     out
 }
 
-
 /// Generate a Go "newtype-tuple" enum as `type X string` with const block.
 ///
 /// Used for Rust enums that have one or more unit variants plus one or more
@@ -619,10 +618,10 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
 
         // Implement the Type() method
         let wire_value = crate::codegen::naming::wire_variant_value(
-                    &variant.name,
-                    variant.serde_rename.as_deref(),
-                    enum_def.serde_rename_all.as_deref(),
-                );
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            enum_def.serde_rename_all.as_deref(),
+        );
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_type_method.jinja",
             minijinja::context! {
@@ -794,10 +793,10 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         ));
         for variant in &enum_def.variants {
             let wire_value = crate::codegen::naming::wire_variant_value(
-                    &variant.name,
-                    variant.serde_rename.as_deref(),
-                    enum_def.serde_rename_all.as_deref(),
-                );
+                &variant.name,
+                variant.serde_rename.as_deref(),
+                enum_def.serde_rename_all.as_deref(),
+            );
             let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
             out.push_str(&crate::backends::go::template_env::render(
                 "data_enum_unmarshal_wire_variant.jinja",
