@@ -462,7 +462,8 @@ fn scrub_lock_strict_errors_when_lockfile_cannot_resolve() {
         "a broken path-dep must not be misattributed to an unpublished registry version; got: {msg}"
     );
     let normalized_msg = normalize_path_text(&msg);
-    let manifest_path = normalize_path_text(&crate_dir.join("Cargo.toml").display().to_string());
+    let temp_dir_name = tmp.path().file_name().unwrap().to_string_lossy();
+    let manifest_path = format!("{temp_dir_name}/clean-room/Cargo.toml");
     assert!(
         normalized_msg.contains(&manifest_path),
         "error must name the manifest {manifest_path}; got: {msg}"
