@@ -187,7 +187,7 @@ fn swift_visitor_params(method: &str, context_type: &str) -> String {
         "visit_table_start" => "_ ctx: {context_type}",
         "visit_table_row" => "_ ctx: {context_type}, _ cells: RustVec<RustString>, _ isHeader: Bool",
         "visit_table_end" => "_ ctx: {context_type}, _ output: String",
-        "visit_blockquote" => "_ ctx: {context_type}, _ content: String, _ depth: Int",
+        "visit_blockquote" => "_ ctx: {context_type}, _ content: String, _ depth: UInt",
         "visit_strong"
         | "visit_emphasis"
         | "visit_strikethrough"

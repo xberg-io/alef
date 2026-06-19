@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   opaque type was not separately declared in an extern block. Now `inbound_bridge_type` handles
   `Optional`, `Vec`, and `Map` by recursing with itself, ensuring all Named types within complex
   generics are converted to String. (`src/backends/swift/gen_rust_crate/plugin_inbound.rs`)
+- **(e2e/swift): emit the correct unsigned type for visitor blockquote depth.** Swift e2e visitor
+  stubs now use `UInt` for `visit_blockquote` depth so callback signatures match the generated
+  Rust bridge boundary. (`src/e2e/codegen/swift_visitors.rs`)
 - **(backends/ffi): keep the opaque handle for a capsule type that is still returned as one by a
   method.** A capsule type's passthrough _function_ returns the host runtime's raw pointer (no opaque
   box), so the FFI backend suppressed that type's opaque `_new`/`_free`/`_to_json` symbols and its
