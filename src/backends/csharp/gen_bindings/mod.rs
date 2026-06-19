@@ -313,6 +313,11 @@ impl Backend for CsharpBackend {
 
         // 3. Generate main wrapper class
         let wrapper_class_name = csharp_wrapper_class_name(&api.crate_name, &namespace);
+        let capsule_types = config
+            .csharp
+            .as_ref()
+            .map(|c| c.capsule_types.clone())
+            .unwrap_or_default();
         files.push(GeneratedFile {
             path: base_path.join(format!("{}.cs", wrapper_class_name)),
             content: strip_trailing_whitespace(&methods::gen_wrapper_class(
@@ -330,6 +335,7 @@ impl Backend for CsharpBackend {
                 &config.trait_bridges,
                 &all_opaque_type_names,
                 &config.adapters,
+                &capsule_types,
             )),
             generated_header: true,
         });

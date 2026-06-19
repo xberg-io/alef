@@ -1,12 +1,12 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use crate::backends::kotlin::{emit_kdoc_pub, to_pascal_case};
 use crate::backends::kotlin_android::template_env;
 use crate::codegen::naming::kotlin_android_wrapper_object_name;
 use crate::core::backend::GeneratedFile;
-use crate::core::config::ResolvedCrateConfig;
-use crate::core::ir::ApiSurface;
+use crate::core::config::{HostCapsuleTypeConfig, ResolvedCrateConfig};
+use crate::core::ir::{ApiSurface, TypeRef};
 
 use super::assemble_kt_content;
 
@@ -441,7 +441,23 @@ pub(super) fn emit_module_kt(
         .map(|f| to_lower_camel(&f.name))
         .collect();
 
+    // Host-native capsule (Language) passthrough configuration from kotlin_android.capsule_types.
+    let kotlin_android_capsule_types: HashMap<String, HostCapsuleTypeConfig> = config
+        .kotlin_android
+        .as_ref()
+        .map(|c| c.capsule_types.clone())
+        .unwrap_or_default();
+
     for f in &visible_functions {
+        // Host-native capsule function detection: if this function returns a capsule type,
+        // emit a specialized wrapper that constructs the host Language from the raw pointer.
+        if let Some(capsule_cfg) = get_capsule_config(f, &kotlin_android_capsule_types) {
+            emit_kdoc_pub(&mut body, &f.doc, "    ");
+            emit_capsule_function_wrapper(&mut body, f, &bridge_name, capsule_cfg);
+            body.push('\n');
+            continue;
+        }
+
         emit_kdoc_pub(&mut body, &f.doc, "    ");
         let method_name = to_lower_camel(&f.name);
         let native_name = format!("native{}", to_pascal_case(&f.name));
@@ -890,4 +906,81 @@ fn jni_param_type_str(ty: &crate::core::ir::TypeRef) -> &'static str {
         TypeRef::Vec(_) => "String",
         _ => "String",
     }
+}
+
+/// Returns a reference to the host capsule config if the function returns a capsule type,
+/// otherwise returns None.
+fn get_capsule_config<'a>(
+    func: &crate::core::ir::FunctionDef,
+    capsule_types: &'a HashMap<String, HostCapsuleTypeConfig>,
+) -> Option<&'a HostCapsuleTypeConfig> {
+    if let TypeRef::Named(name) = &func.return_type {
+        capsule_types.get(name.as_str())
+    } else {
+        None
+    }
+}
+
+/// Emit a Kotlin function wrapper that constructs the host-native Language (capsule type)
+/// from the raw JNI pointer returned by the bridge's external fun.
+///
+/// The wrapper:
+/// 1. Calls the JNI external fun (which returns a Long native pointer)
+/// 2. Guards against null (grammar not found)
+/// 3. Constructs the host Language using the configured construct_expr
+fn emit_capsule_function_wrapper(
+    body: &mut String,
+    func: &crate::core::ir::FunctionDef,
+    bridge_name: &str,
+    capsule_cfg: &HostCapsuleTypeConfig,
+) {
+    use crate::backends::kotlin::to_lower_camel;
+
+    let method_name = to_lower_camel(&func.name);
+    let native_name = format!("native{}", to_pascal_case(&func.name));
+    let host_type = if capsule_cfg.host_type.is_empty() {
+        "io.github.tree_sitter.ktreesitter.Language".to_string()
+    } else {
+        capsule_cfg.host_type.clone()
+    };
+
+    // Build parameter list from function params (capsule functions typically have scalar params).
+    let params: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            let name = to_lower_camel(&p.name);
+            let ty = jni_param_type_str(&p.ty);
+            format!("{name}: {ty}")
+        })
+        .collect();
+    let params_str = params.join(", ");
+
+    // Build the bridge call argument list.
+    let bridge_args: Vec<String> = func.params.iter().map(|p| to_lower_camel(&p.name)).collect();
+    let bridge_call = format!("{bridge_name}.{native_name}({})", bridge_args.join(", "));
+
+    // Default constructor expression: Language(ptr) — the most common pattern.
+    // Falls back to the config-specified expression if provided.
+    let default_construct = "io.github.tree_sitter.ktreesitter.Language({ptr})";
+    let construct_expr = capsule_cfg.construct("cLangPtr", default_construct);
+
+    // Emit function signature and body.
+    body.push_str("    fun ");
+    body.push_str(&method_name);
+    body.push('(');
+    body.push_str(&params_str);
+    body.push_str("): ");
+    body.push_str(&host_type);
+    body.push_str(" {\n");
+    body.push_str("        val cLangPtr = ");
+    body.push_str(&bridge_call);
+    body.push('\n');
+    body.push_str("        if (cLangPtr == 0L) {\n");
+    body.push_str("            throw IllegalArgumentException(\"Grammar not found\")\n");
+    body.push_str("        }\n");
+    body.push_str("        return ");
+    body.push_str(&construct_expr);
+    body.push('\n');
+    body.push_str("    }\n");
 }

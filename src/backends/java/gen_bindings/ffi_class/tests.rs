@@ -1,6 +1,7 @@
-use crate::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{BridgeBinding, HostCapsuleTypeConfig, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 use super::*;
@@ -11,6 +12,10 @@ fn create_test_opaque_types() -> AHashSet<String> {
 
 fn create_test_bridge_sets() -> (HashSet<String>, HashSet<String>) {
     (HashSet::new(), HashSet::new())
+}
+
+fn create_test_capsule_types() -> HashMap<String, HostCapsuleTypeConfig> {
+    HashMap::new()
 }
 
 fn create_test_function(name: &str, return_type: TypeRef) -> FunctionDef {
@@ -53,6 +58,7 @@ fn test_optional_string_return_emits_optional_empty() {
         &bridge_type_aliases,
         false,
         &AHashMap::new(),
+        &create_test_capsule_types(),
     );
 
     assert!(out.contains("return Optional.empty();"));
@@ -80,6 +86,7 @@ fn test_optional_named_return_emits_optional_wrappers() {
         &bridge_type_aliases,
         false,
         &AHashMap::new(),
+        &create_test_capsule_types(),
     );
 
     assert!(out.contains("return Optional.empty();"));
@@ -107,6 +114,7 @@ fn test_optional_vec_return_emits_optional_list() {
         &bridge_type_aliases,
         false,
         &AHashMap::new(),
+        &create_test_capsule_types(),
     );
 
     // Vec returns now go through the readJsonList helper to deduplicate
@@ -154,6 +162,7 @@ fn test_optional_bytes_result_emits_out_param_pattern() {
         &bridge_type_aliases,
         false,
         &AHashMap::new(),
+        &create_test_capsule_types(),
     );
 
     assert!(out.contains("outPtrHolder"), "should allocate outPtrHolder");
@@ -212,6 +221,7 @@ fn test_options_field_visitor_setter_uses_configured_renderer_field() {
         &HashSet::new(),
         &HashSet::new(),
         true,
+        &create_test_capsule_types(),
     );
 
     assert!(
@@ -261,6 +271,7 @@ fn test_bytes_result_emits_out_param_pattern_non_optional() {
         &bridge_type_aliases,
         false,
         &AHashMap::new(),
+        &create_test_capsule_types(),
     );
 
     assert!(out.contains("outPtrHolder"), "should allocate outPtrHolder");
@@ -288,6 +299,7 @@ fn test_non_optional_string_return_no_optional_wrapper() {
         &bridge_type_aliases,
         false,
         &AHashMap::new(),
+        &create_test_capsule_types(),
     );
 
     assert!(out.contains("return null;"));
@@ -314,6 +326,7 @@ fn test_path_return_wraps_with_path_of() {
         &bridge_type_aliases,
         false,
         &AHashMap::new(),
+        &create_test_capsule_types(),
     );
 
     assert!(out.contains("return java.nio.file.Path.of(str);"));
@@ -338,6 +351,7 @@ fn test_optional_path_return_wraps_with_path_of() {
         &bridge_type_aliases,
         false,
         &AHashMap::new(),
+        &create_test_capsule_types(),
     );
 
     assert!(out.contains("return Optional.of(java.nio.file.Path.of(str));"));
@@ -361,6 +375,7 @@ fn test_non_optional_vec_return_no_optional_wrapper() {
         &bridge_type_aliases,
         false,
         &AHashMap::new(),
+        &create_test_capsule_types(),
     );
 
     // The Vec dispatch path now delegates to the readJsonList helper.
@@ -395,6 +410,7 @@ fn vec_return_uses_helper_not_inline_json_deserialize() {
         &bridge_type_aliases,
         false,
         &AHashMap::new(),
+        &create_test_capsule_types(),
     );
 
     // The previously-duplicated JSON-deserialize line must NOT appear at
@@ -432,6 +448,7 @@ fn clear_fn_body_references_singular_native_lib_handle() {
         &bridge_type_aliases,
         false,
         &clear_fn_handles,
+        &create_test_capsule_types(),
     );
 
     // Must use the singular trait-derived handle constant
@@ -483,6 +500,7 @@ fn non_clear_fn_body_derives_handle_from_function_name() {
         &bridge_type_aliases,
         false,
         &clear_fn_handles,
+        &create_test_capsule_types(),
     );
 
     assert!(
@@ -516,11 +534,58 @@ fn clear_fn_error_throws_exception_with_code_and_message() {
         &bridge_type_aliases,
         false,
         &clear_fn_handles,
+        &create_test_capsule_types(),
     );
 
     // Must throw with (int code, String msg) two-argument constructor in the error path
     assert!(
         out.contains("throw new TestClassException(primitiveResult, msg)"),
         "clear_fn error path must throw TestClassException(primitiveResult, msg), got:\n{out}"
+    );
+}
+
+#[test]
+fn capsule_function_returns_host_type() {
+    // Host-native capsule (Language) passthrough: construct the host runtime's
+    // `Language` from the raw C grammar pointer instead of an opaque handle.
+    let func = create_test_function("get_language", TypeRef::Named("Language".to_string()));
+
+    let mut capsule_types = HashMap::new();
+    capsule_types.insert(
+        "Language".to_string(),
+        HostCapsuleTypeConfig {
+            host_type: "io.github.tree_sitter.Language".to_string(),
+            package: "io.github.tree-sitter:jtreesitter".to_string(),
+            package_version: "0.25.0".to_string(),
+            construct_expr: "new Language({ptr})".to_string(),
+        },
+    );
+
+    let mut out = String::new();
+    let opaque_types = create_test_opaque_types();
+    let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+    gen_sync_function_method(
+        &mut out,
+        &func,
+        "krz",
+        "TestClass",
+        &opaque_types,
+        &bridge_param_names,
+        &bridge_type_aliases,
+        false,
+        &AHashMap::new(),
+        &capsule_types,
+    );
+
+    // Must return the host type, not an opaque handle
+    assert!(
+        out.contains("io.github.tree_sitter.Language"),
+        "capsule function must return host type, got:\n{out}"
+    );
+    // Must construct the Language from the raw pointer
+    assert!(
+        out.contains("new Language(resultPtr)"),
+        "capsule function must construct Language from pointer, got:\n{out}"
     );
 }

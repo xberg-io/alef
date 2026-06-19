@@ -7,7 +7,9 @@ use ahash::AHashSet;
 
 use super::builders::{gen_builder_nested_class, should_emit_builder};
 use super::shared::{options_field_bridge_trait_name, resolve_field_type};
-use crate::backends::java::gen_bindings::helpers::{RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, safe_java_field_name};
+use crate::backends::java::gen_bindings::helpers::{
+    RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, is_serde_default_marker, safe_java_field_name,
+};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_record_type(
@@ -52,7 +54,7 @@ pub(crate) fn gen_record_type(
         // at the class level, null values are omitted from JSON sent to Rust, letting
         // serde apply its default. The Builder uses the same boxed type, and build()
         // passes null values directly without unboxing (matching the record parameter).
-        let has_serde_default = f.default == Some("/* serde(default) */".to_string());
+        let has_serde_default = is_serde_default_marker(f.default.as_deref());
 
         // Resolve field type, replacing unknown types with Json (→ JsonNode in Java)
         let resolved_ty = resolve_field_type(&f.ty, visible_type_names);
@@ -317,7 +319,7 @@ pub(crate) fn gen_record_type(
         .filter(|f| !f.optional)
         .filter_map(|f| {
             let jname = safe_java_field_name(&f.name);
-            let has_serde_default = f.default == Some("/* serde(default) */".to_string());
+            let has_serde_default = is_serde_default_marker(f.default.as_deref());
             match &f.typed_default {
                 Some(DefaultValue::IntLiteral(n)) if *n != 0 => {
                     // Apply the Rust-side default when the Java primitive is at its zero value.

@@ -138,6 +138,18 @@ fn emit_method_jni_external_funs(
     }
 }
 
+/// Returns true when this function returns a configured host-native capsule type.
+pub(in crate::backends::kotlin::gen_bindings::jni_emitter) fn is_capsule_function(
+    func: &crate::core::ir::FunctionDef,
+    capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
+) -> bool {
+    if let crate::core::ir::TypeRef::Named(name) = &func.return_type {
+        capsule_types.contains_key(name.as_str())
+    } else {
+        false
+    }
+}
+
 // ---------------------------------------------------------------------------
 // JNI DefaultClient emitter
 // ---------------------------------------------------------------------------

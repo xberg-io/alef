@@ -6,7 +6,9 @@ use crate::core::ir::{DefaultValue, PrimitiveType, TypeDef, TypeRef};
 use ahash::AHashSet;
 
 use super::shared::{is_options_field_bridge, options_field_bridge_trait_name, resolve_field_type};
-use crate::backends::java::gen_bindings::helpers::{format_optional_value, safe_java_field_name};
+use crate::backends::java::gen_bindings::helpers::{
+    format_optional_value, is_serde_default_marker, safe_java_field_name,
+};
 
 pub(super) const BUILDER_AUTO_THRESHOLD: usize = 8;
 
@@ -125,7 +127,7 @@ pub(super) fn gen_builder_nested_class(
         // classes we use boxed `Long` so that `null` can represent "not set".
         // Similarly, non-optional fields with #[serde(default)] use boxed types so that
         // `null` can represent "not set" in the builder, allowing Rust's serde defaults to apply.
-        let has_serde_default = field.default == Some("/* serde(default) */".to_string());
+        let has_serde_default = is_serde_default_marker(field.default.as_deref());
 
         // Resolve field type, replacing unknown types with Json (→ JsonNode in Java)
         let resolved_field_ty = resolve_field_type(&field.ty, visible_type_names);
@@ -170,12 +172,12 @@ pub(super) fn gen_builder_nested_class(
             "null".to_string()
         } else if field.optional {
             // For fields where the TypeRef itself wraps Optional, default Optional.empty() / Optional.of(value).
-            // The "/* serde(default) */" placeholder is a signal value set by the
-            // extractor when a field carries #[serde(default)] but no other explicit
-            // default — it must NOT be emitted as a Java expression. Treat it as
-            // "no real default, use Optional.empty()".
+            // The serde-default markers (bare `/* serde(default) */` or the named
+            // `serde(default = "path")` form) are signal values set by the extractor
+            // when a field carries #[serde(default)] — they must NOT be emitted as a
+            // Java expression. Treat them as "no real default, use Optional.empty()".
             if let Some(default) = &field.default
-                && default != "/* serde(default) */"
+                && !is_serde_default_marker(Some(default))
             {
                 // If there's an explicit default, wrap it in Optional.of()
                 format_optional_value(&field.ty, default)
@@ -185,13 +187,13 @@ pub(super) fn gen_builder_nested_class(
             }
         } else {
             // For non-Optional fields, use regular defaults.
-            // Same placeholder filter as above — fall through to the type-driven
-            // default match arm so Vec emits `List.of()`, Map emits `Map.of()`, etc.
+            // Same serde-default-marker filter as above — fall through to the
+            // type-driven match arm so Vec emits `List.of()`, Map emits `Map.of()`, etc.
             if let Some(default) = &field.default
-                && default != "/* serde(default) */"
+                && !is_serde_default_marker(Some(default))
             {
                 default.clone()
-            } else if field.default == Some("/* serde(default) */".to_string()) {
+            } else if is_serde_default_marker(field.default.as_deref()) {
                 // Field has #[serde(default)]: special handling per type.
                 if matches!(&field.ty, TypeRef::Named(_)) {
                     // Non-optional enum field with #[serde(default)].
@@ -391,7 +393,7 @@ pub(super) fn gen_builder_nested_class(
             options_field_bridge_trait_name(typ.name.as_str(), field.name.as_str(), &field.ty, trait_bridges);
         let is_visitor_field = visitor_trait_name.is_some();
         let is_flattened_json = field.serde_flatten && matches!(&field.ty, TypeRef::Json);
-        let has_serde_default = field.default == Some("/* serde(default) */".to_string());
+        let has_serde_default = is_serde_default_marker(field.default.as_deref());
 
         // Resolve field type, replacing unknown types with Json (→ JsonNode in Java)
         let resolved_field_ty = resolve_field_type(&field.ty, visible_type_names);

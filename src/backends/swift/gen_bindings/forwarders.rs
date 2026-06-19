@@ -251,6 +251,12 @@ pub(super) fn emit_free_function_forwarders(
         }
     }
 
+    let capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig> = config
+        .swift
+        .as_ref()
+        .map(|c| c.capsule_types.clone())
+        .unwrap_or_default();
+
     let already = already_emitted_top_level_names(api);
     let mut emitted_any = false;
 
@@ -277,6 +283,16 @@ pub(super) fn emit_free_function_forwarders(
                  // types and convert to the swift-bridge runtime types internally.\n\n",
             );
             emitted_any = true;
+        }
+        // Host-native capsule (Language) passthrough: construct the host runtime's
+        // `Language` from the raw C grammar pointer instead of an opaque handle.
+        if let Some(capsule_cfg) = swift_capsule_return_config(func, &capsule_types) {
+            if func.is_async {
+                emit_async_capsule_free_function_forwarder(func, &swift_name, capsule_cfg, out);
+            } else {
+                emit_capsule_free_function_forwarder(func, &swift_name, capsule_cfg, out);
+            }
+            continue;
         }
         if func.is_async {
             emit_async_free_function_forwarder(func, &swift_name, known_dto_names, enum_names, out);
@@ -790,153 +806,121 @@ fn swift_type_name(ty: &TypeRef) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::ir::TypeRef;
-
-    #[test]
-    fn test_swift_type_name_bool_returns_bool() {
-        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::Bool)), "Bool");
-    }
-
-    #[test]
-    fn test_swift_type_name_usize_returns_uint() {
-        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::Usize)), "UInt");
-    }
-
-    #[test]
-    fn test_swift_type_name_u8_returns_uint8() {
-        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::U8)), "UInt8");
-    }
-
-    #[test]
-    fn test_swift_type_name_u32_returns_uint32() {
-        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::U32)), "UInt32");
-    }
-
-    #[test]
-    fn test_swift_type_name_u64_returns_uint64() {
-        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::U64)), "UInt64");
-    }
-
-    #[test]
-    fn test_swift_type_name_i32_returns_int32() {
-        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::I32)), "Int32");
-    }
-
-    #[test]
-    fn test_swift_type_name_f32_returns_float() {
-        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::F32)), "Float");
-    }
-
-    fn make_function(name: &str, params: Vec<(&str, TypeRef)>, return_type: TypeRef) -> FunctionDef {
-        FunctionDef {
-            name: name.to_string(),
-            rust_path: format!("sample::{name}"),
-            params: params
-                .into_iter()
-                .map(|(pname, ty)| crate::core::ir::ParamDef {
-                    name: pname.to_string(),
-                    ty,
-                    ..crate::core::ir::ParamDef::default()
-                })
-                .collect(),
-            return_type,
-            ..FunctionDef::default()
-        }
-    }
-
-    #[test]
-    fn skips_forwarder_when_param_type_is_excluded() {
-        let func = make_function(
-            "extract_keywords",
-            vec![("config", TypeRef::Named("KeywordConfig".to_string()))],
-            TypeRef::Unit,
-        );
-        let mut exclude: HashSet<String> = HashSet::new();
-        exclude.insert("KeywordConfig".to_string());
-        assert!(function_references_excluded_type(&func, &exclude));
-    }
-
-    #[test]
-    fn skips_forwarder_when_return_type_is_excluded() {
-        let func = make_function(
-            "build_keyword",
-            vec![("text", TypeRef::String)],
-            TypeRef::Named("Keyword".to_string()),
-        );
-        let mut exclude: HashSet<String> = HashSet::new();
-        exclude.insert("Keyword".to_string());
-        assert!(function_references_excluded_type(&func, &exclude));
-    }
-
-    #[test]
-    fn keeps_forwarder_when_only_primitives_are_used() {
-        let func = make_function(
-            "echo_count",
-            vec![("count", TypeRef::Primitive(PrimitiveType::U32))],
-            TypeRef::Primitive(PrimitiveType::U32),
-        );
-        let mut exclude: HashSet<String> = HashSet::new();
-        exclude.insert("KeywordConfig".to_string());
-        exclude.insert("Keyword".to_string());
-        assert!(!function_references_excluded_type(&func, &exclude));
-    }
-
-    #[test]
-    fn skips_forwarder_when_vec_named_param_is_excluded() {
-        let func = make_function(
-            "score_keywords",
-            vec![(
-                "keywords",
-                TypeRef::Vec(Box::new(TypeRef::Named("Keyword".to_string()))),
-            )],
-            TypeRef::Unit,
-        );
-        let mut exclude: HashSet<String> = HashSet::new();
-        exclude.insert("Keyword".to_string());
-        assert!(function_references_excluded_type(&func, &exclude));
-    }
-
-    #[test]
-    fn skips_forwarder_when_optional_named_return_is_excluded() {
-        let func = make_function(
-            "maybe_yake",
-            vec![],
-            TypeRef::Optional(Box::new(TypeRef::Named("YakeParams".to_string()))),
-        );
-        let mut exclude: HashSet<String> = HashSet::new();
-        exclude.insert("YakeParams".to_string());
-        assert!(function_references_excluded_type(&func, &exclude));
-    }
-
-    #[test]
-    fn empty_exclude_set_keeps_every_function() {
-        let func = make_function(
-            "extract_keywords",
-            vec![("config", TypeRef::Named("KeywordConfig".to_string()))],
-            TypeRef::Named("Keyword".to_string()),
-        );
-        let exclude: HashSet<String> = HashSet::new();
-        assert!(!function_references_excluded_type(&func, &exclude));
-    }
-
-    #[test]
-    fn skips_forwarder_when_map_value_is_excluded_type() {
-        let func = make_function(
-            "score_map",
-            vec![(
-                "table",
-                TypeRef::Map(
-                    Box::new(TypeRef::String),
-                    Box::new(TypeRef::Named("Keyword".to_string())),
-                ),
-            )],
-            TypeRef::Unit,
-        );
-        let mut exclude: HashSet<String> = HashSet::new();
-        exclude.insert("Keyword".to_string());
-        assert!(function_references_excluded_type(&func, &exclude));
+/// Returns the capsule config if this function returns a capsule-eligible type.
+fn swift_capsule_return_config<'a>(
+    func: &FunctionDef,
+    capsule_types: &'a std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
+) -> Option<&'a crate::core::config::HostCapsuleTypeConfig> {
+    if let TypeRef::Named(name) = &func.return_type {
+        capsule_types.get(name.as_str())
+    } else {
+        None
     }
 }
+
+/// Emit a synchronous free function that returns a host-native capsule (Language) type.
+///
+/// The C FFI returns the host runtime's raw grammar pointer (`const TSLanguage *`).
+/// The wrapper constructs the host `Language` (e.g. `SwiftTreeSitter.Language(OpaquePointer(ptr))`)
+/// from the raw pointer instead of an opaque handle.
+fn emit_capsule_free_function_forwarder(
+    func: &FunctionDef,
+    swift_name: &str,
+    capsule_cfg: &crate::core::config::HostCapsuleTypeConfig,
+    out: &mut String,
+) {
+    // Baked default: SwiftTreeSitter.Language(OpaquePointer({ptr}))
+    let default_construct = "SwiftTreeSitter.Language(OpaquePointer({ptr}))";
+    let host_type = if capsule_cfg.host_type.is_empty() {
+        "SwiftTreeSitter.Language".to_string()
+    } else {
+        capsule_cfg.host_type.clone()
+    };
+
+    if !func.doc.is_empty() {
+        emit_doc_comment(&func.doc, "", out);
+    }
+
+    // Build the parameter list. Capsule functions take only plain scalar/string params.
+    let mut sig_params: Vec<String> = Vec::new();
+    let mut c_args: Vec<String> = Vec::new();
+    for param in &func.params {
+        let swift_param_name = swift_ident(&param.name.to_lower_camel_case());
+        let swift_ty = if param.optional { "String?" } else { "String" };
+        let param_default = if param.optional { " = nil" } else { "" };
+        sig_params.push(format!("{swift_param_name}: {swift_ty}{param_default}"));
+        c_args.push(swift_param_name);
+    }
+    let sig = sig_params.join(", ");
+    let return_clause = format!(" -> {host_type}?");
+
+    let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
+    let construct = capsule_cfg.construct("cLang", default_construct);
+    let body =
+        format!("let cLang = {c_call}\n    guard let cLang = cLang else {{ return nil }}\n    return {construct}");
+
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_sync_forwarder.swift.jinja",
+        minijinja::context! {
+            function_name => swift_name,
+            params => &sig,
+            throws_clause => "",
+            return_clause => &return_clause,
+            conversion_lines => "",
+            body => body,
+        },
+    ));
+}
+
+/// Emit an async free function that returns a host-native capsule (Language) type.
+///
+/// The C FFI returns the host runtime's raw grammar pointer. The wrapper constructs
+/// the host `Language` from the raw pointer.
+fn emit_async_capsule_free_function_forwarder(
+    func: &FunctionDef,
+    swift_name: &str,
+    capsule_cfg: &crate::core::config::HostCapsuleTypeConfig,
+    out: &mut String,
+) {
+    let default_construct = "SwiftTreeSitter.Language(OpaquePointer({ptr}))";
+    let host_type = if capsule_cfg.host_type.is_empty() {
+        "SwiftTreeSitter.Language".to_string()
+    } else {
+        capsule_cfg.host_type.clone()
+    };
+
+    if !func.doc.is_empty() {
+        emit_doc_comment(&func.doc, "", out);
+    }
+
+    // Build the parameter list.
+    let mut sig_params: Vec<String> = Vec::new();
+    let mut c_args: Vec<String> = Vec::new();
+    for param in &func.params {
+        let swift_param_name = swift_ident(&param.name.to_lower_camel_case());
+        let swift_ty = if param.optional { "String?" } else { "String" };
+        let param_default = if param.optional { " = nil" } else { "" };
+        sig_params.push(format!("{swift_param_name}: {swift_ty}{param_default}"));
+        c_args.push(swift_param_name);
+    }
+    let sig = sig_params.join(", ");
+    let return_clause = format!(" -> {host_type}?");
+
+    let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
+    let construct = capsule_cfg.construct("cLang", default_construct);
+    let body =
+        format!("let cLang = {c_call}\n    guard let cLang = cLang else {{ return nil }}\n    return {construct}");
+
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_async_forwarder.swift.jinja",
+        minijinja::context! {
+            function_name => swift_name,
+            params => &sig,
+            return_clause => &return_clause,
+            body => body,
+        },
+    ));
+}
+
+#[cfg(test)]
+mod tests;

@@ -4,6 +4,23 @@ use crate::core::ir::{PrimitiveType, TypeRef};
 use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase};
 use std::collections::HashSet;
 
+/// Placeholder the extractor stores in `FieldDef::default` for a bare
+/// `#[serde(default)]` attribute.
+const SERDE_DEFAULT_PLACEHOLDER: &str = "/* serde(default) */";
+
+/// Returns `true` when a field's stored default marks a serde default — either the
+/// bare `#[serde(default)]` placeholder or the named `#[serde(default = "path")]`
+/// form, which the extractor stores verbatim as `serde(default = "...")` so other
+/// backends (e.g. PHP's generated Rust crate) can re-emit the Rust path.
+///
+/// The Java backend treats both forms identically: the field is boxed/nullable and
+/// omitted from JSON via `@JsonInclude(NON_ABSENT)`, letting Rust's serde apply its
+/// own default. The raw marker must never be emitted as a Java initializer — doing so
+/// produces uncompilable source like `boolean denyPrivate = serde(default = "...");`.
+pub(crate) fn is_serde_default_marker(default: Option<&str>) -> bool {
+    matches!(default, Some(s) if s == SERDE_DEFAULT_PLACEHOLDER || s.starts_with("serde(default = \""))
+}
+
 /// Names that conflict with methods on `java.lang.Object` and are therefore
 /// illegal as record component names or method names in generated Java code.
 const JAVA_OBJECT_METHOD_NAMES: &[&str] = &[

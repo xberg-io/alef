@@ -5,7 +5,7 @@
 //!     from the exported C function instead of boxing an opaque `*mut Language` handle,
 //!   - calls `value.into_raw()` (no `Box::into_raw`),
 //!   - suppresses the opaque `_free` / `_to_json` symbols for the capsule type,
-//! and that the generated cbindgen.toml forward-declares the unprefixed pointee type.
+//!     and that the generated cbindgen.toml forward-declares the unprefixed pointee type.
 
 use super::super::FfiBackend;
 use super::common::resolved_one;

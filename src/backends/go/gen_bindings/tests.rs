@@ -160,7 +160,7 @@ fn capsule_config() -> ResolvedCrateConfig {
 [workspace]
 languages = ["ffi", "go"]
 [[crates]]
-name = "ts-pack"
+name = "sample-capsule"
 sources = ["src/lib.rs"]
 [crates.ffi]
 prefix = "tsp"
@@ -168,7 +168,7 @@ prefix = "tsp"
 into_raw_type = "tree_sitter::ffi::TSLanguage"
 c_return_type = "TSLanguage"
 [crates.go]
-module = "github.com/test/ts-pack"
+module = "github.com/test/sample-capsule"
 [crates.go.capsule_types.Language]
 host_type = "*tree_sitter.Language"
 package = "github.com/tree-sitter/go-tree-sitter"
@@ -180,11 +180,11 @@ package_version = "v0.25.0"
 fn capsule_api() -> crate::core::ir::ApiSurface {
     use crate::core::ir::*;
     ApiSurface {
-        crate_name: "ts-pack".to_string(),
+        crate_name: "sample-capsule".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
             name: "Language".to_string(),
-            rust_path: "ts_pack::Language".to_string(),
+            rust_path: "sample_capsule::Language".to_string(),
             original_rust_path: String::new(),
             fields: vec![],
             methods: vec![],
@@ -208,7 +208,7 @@ fn capsule_api() -> crate::core::ir::ApiSurface {
         }],
         functions: vec![FunctionDef {
             name: "get_language".to_string(),
-            rust_path: "ts_pack::get_language".to_string(),
+            rust_path: "sample_capsule::get_language".to_string(),
             original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "name".to_string(),

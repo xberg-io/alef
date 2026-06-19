@@ -132,9 +132,13 @@ pub fn gen_struct_with_per_field_attrs(
         })
         .map(|f| f.name.as_str())
         .collect();
-    // Always derive Default/Serialize/Deserialize. Opaque fields get #[serde(skip)]
-    // so they use Default::default() during deserialization. This is needed for the
-    // serde recovery path where binding types round-trip through JSON.
+    // Derive `Default` only when the CORE type implements `Default` (`typ.has_default`). A binding
+    // struct can only derive `Default` if every field type implements it; the core type's derive
+    // set is the reliable signal for that. Deriving `Default` on a binding whose core lacks it (or
+    // whose field wrappers lack it, e.g. an opaque enum wrapper without `#[default]`) produces
+    // `error[E0277]: the trait bound ...: Default is not satisfied`. Opaque fields still get
+    // `#[serde(skip)]` so the serde round-trip uses the field type's own `Default::default()`,
+    // which is independent of the struct-level derive.
     //
     // EXCEPTION: when `cfg.emit_delegating_default_impl` is enabled AND the core type has a
     // custom `Default` impl (`typ.has_default`), skip the derived `Default`. The caller is
@@ -143,7 +147,7 @@ pub fn gen_struct_with_per_field_attrs(
     // semantic defaults (e.g. `max_redirects: 10`) instead of the primitive zeros the
     // derive would produce.
     let suppress_default_derive = cfg.emit_delegating_default_impl && typ.has_default;
-    if !suppress_default_derive {
+    if typ.has_default && !suppress_default_derive {
         sb.add_derive("Default");
     }
     sb.add_derive("serde::Serialize");
@@ -235,10 +239,10 @@ pub fn gen_struct_with_rename(
         })
         .map(|f| f.name.as_str())
         .collect();
-    // See `gen_struct_with_per_field_attrs` for the rationale on suppressing the derived
-    // `Default` when the caller intends to emit a custom delegating `impl Default`.
+    // See `gen_struct_with_per_field_attrs` for the rationale on deriving `Default` only when the
+    // core type implements it, and on suppressing the derive when emitting a delegating impl.
     let suppress_default_derive = cfg.emit_delegating_default_impl && typ.has_default;
-    if !suppress_default_derive {
+    if typ.has_default && !suppress_default_derive {
         sb.add_derive("Default");
     }
     sb.add_derive("serde::Serialize");
@@ -329,10 +333,10 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         })
         .map(|f| f.name.as_str())
         .collect();
-    // See `gen_struct_with_per_field_attrs` for the rationale on suppressing the derived
-    // `Default` when the caller intends to emit a custom delegating `impl Default`.
+    // See `gen_struct_with_per_field_attrs` for the rationale on deriving `Default` only when the
+    // core type implements it, and on suppressing the derive when emitting a delegating impl.
     let suppress_default_derive = cfg.emit_delegating_default_impl && typ.has_default;
-    if !suppress_default_derive {
+    if typ.has_default && !suppress_default_derive {
         sb.add_derive("Default");
     }
     sb.add_derive("serde::Serialize");

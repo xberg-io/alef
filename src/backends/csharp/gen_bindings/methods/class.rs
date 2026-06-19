@@ -4,9 +4,28 @@ use super::bridge_fields::gen_bridge_field_wrapper_function;
 use super::wrappers::{gen_wrapper_function, gen_wrapper_method};
 use crate::codegen::generators::trait_bridge::find_bridge_field;
 use crate::codegen::naming::{csharp_type_name, to_csharp_name};
-use crate::core::config::AdapterConfig;
-use crate::core::ir::{ApiSurface, FunctionDef};
+use crate::core::config::{AdapterConfig, HostCapsuleTypeConfig};
+use crate::core::ir::{ApiSurface, FunctionDef, TypeRef};
 use std::collections::{HashMap, HashSet};
+
+/// Check if a function returns a capsule type (Language passthrough).
+fn is_capsule_function(func: &FunctionDef, capsule_types: &HashMap<String, HostCapsuleTypeConfig>) -> bool {
+    match &func.return_type {
+        TypeRef::Named(name) => capsule_types.contains_key(name),
+        _ => false,
+    }
+}
+
+/// Get the capsule config for a function's return type, if it is a capsule.
+fn get_capsule_config<'a>(
+    func: &FunctionDef,
+    capsule_types: &'a HashMap<String, HostCapsuleTypeConfig>,
+) -> Option<&'a HostCapsuleTypeConfig> {
+    match &func.return_type {
+        TypeRef::Named(name) => capsule_types.get(name),
+        _ => None,
+    }
+}
 
 /// Skip methods that take opaque handle FFI pointers as first arg but operate on non-opaque types.
 /// These are validation/property functions that shouldn't be exposed as static methods.
@@ -44,6 +63,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
     trait_bridges: &[crate::core::config::TraitBridgeConfig],
     _all_opaque_type_names: &HashSet<String>,
     adapters: &[AdapterConfig],
+    capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
 ) -> String {
     use crate::backends::csharp::template_env::render;
     use minijinja::Value;
@@ -96,6 +116,15 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
                 &true_opaque_types,
                 &handle_returned_types,
             ));
+        } else if is_capsule_function(func, capsule_types) {
+            if let Some(cfg) = get_capsule_config(func, capsule_types) {
+                out.push_str(&super::wrappers::gen_capsule_function_wrapper(
+                    func,
+                    exception_name,
+                    prefix,
+                    cfg,
+                ));
+            }
         } else {
             out.push_str(&gen_wrapper_function(
                 func,

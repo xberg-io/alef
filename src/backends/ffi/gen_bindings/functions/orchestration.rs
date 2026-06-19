@@ -923,23 +923,18 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
             context! {},
         ));
     } else {
-        // When return_newtype_wrapper is set, the core function returns a newtype but IR has the inner type.
         let result_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_))
         {
             "result.0"
         } else {
             "result"
         };
-        // When returns_ref=true and return type is Option<NamedType>, the core returns Option<&T>.
-        // Clone to get owned Option<T> before boxing.
         if func.returns_ref
             && !has_error
             && matches!(&func.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)))
         {
             out.push_str("    let result = result.cloned();\n");
         }
-        // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
-        // Convert to owned by calling .into_owned().
         if func.returns_cow && !has_error {
             out.push_str("    let result = result.into_owned();\n");
         }

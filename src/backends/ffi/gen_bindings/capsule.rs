@@ -8,7 +8,7 @@
 //! #[no_mangle]
 //! pub extern "C" fn TSLP_get_language(name: *const c_char) -> *const tree_sitter::ffi::TSLanguage {
 //!     // ... param conversion ...
-//!     let result = tree_sitter_language_pack::get_language(&name_rs);
+//!     let result = language_registry::get_language(&name_rs);
 //!     result.into_raw() as *const tree_sitter::ffi::TSLanguage
 //! }
 //! ```

@@ -42,6 +42,13 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .map(|t| t.name.as_str())
         .collect();
 
+    // Host-native capsule (Language) passthrough configuration from kotlin_android.capsule_types.
+    let kotlin_android_capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig> = config
+        .kotlin_android
+        .as_ref()
+        .map(|c| c.capsule_types.clone())
+        .unwrap_or_default();
+
     let mut body = String::new();
     // Suppress detekt TooManyFunctions: the bridge object has one external fun
     // per API function; large APIs naturally exceed the default threshold of 11.
@@ -65,7 +72,14 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     for f in &visible_functions {
         let native_name = format!("native{}", to_pascal_case(&f.name));
         emitted_native_names.insert(native_name.clone());
-        let return_ty = jni_return_type_for_function(&f.return_type, &opaque_type_names);
+
+        // Host-native capsule functions return Long (the raw pointer), not the JSON serialization
+        let return_ty = if is_capsule_function(f, &kotlin_android_capsule_types) {
+            "Long"
+        } else {
+            jni_return_type_for_function(&f.return_type, &opaque_type_names)
+        };
+
         let jni_params = jni_params_for_function(f, &opaque_type_names);
         body.push('\n');
         push_jni_external_fun(

@@ -7,6 +7,7 @@ use super::super::{
 use crate::backends::csharp::type_map::csharp_type;
 use crate::codegen::doc_emission;
 use crate::codegen::naming::{csharp_type_name, to_csharp_name};
+use crate::core::config::HostCapsuleTypeConfig;
 use crate::core::ir::{FunctionDef, MethodDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::HashSet;
@@ -27,6 +28,77 @@ pub(super) fn sanitize_doc_for_csharp(doc: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Generate a C# wrapper for a function returning a host-native capsule (Language) type.
+///
+/// The exported C symbol returns the host runtime's raw grammar pointer
+/// (`const TSLanguage *`) as an `IntPtr` for capsule types instead of an opaque alef handle.
+/// The wrapper converts parameters, calls the C function, and constructs the host
+/// `Language` (e.g. `new TreeSitter.Language(intPtr)`) from the raw pointer.
+pub(super) fn gen_capsule_function_wrapper(
+    func: &FunctionDef,
+    exception_name: &str,
+    prefix: &str,
+    cfg: &HostCapsuleTypeConfig,
+) -> String {
+    let mut out = String::with_capacity(1024);
+
+    let func_cs_name = to_csharp_name(&func.name);
+    doc_emission::emit_csharp_doc(&mut out, &func.doc, "        ", exception_name);
+
+    // Return type is the host capsule type (e.g., "TreeSitter.Language")
+    let host_type = if cfg.host_type.is_empty() {
+        "IntPtr".to_string()
+    } else {
+        cfg.host_type.clone()
+    };
+
+    out.push_str(&format!("        public static {host_type} {func_cs_name}("));
+
+    // Parameters (capsule functions typically have only simple scalar/string params)
+    let param_strs: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            let param_type = csharp_type(&p.ty);
+            let param_name = p.name.to_lower_camel_case();
+            format!("{param_type} {param_name}")
+        })
+        .collect();
+    out.push_str(&param_strs.join(", "));
+    out.push_str(")\n        {\n");
+
+    // Call the native P/Invoke function with the C function name
+    let c_func_name = format!("{}_{}", prefix, func.name.to_lowercase());
+    let cs_native_name = csharp_type_name(&c_func_name);
+    let c_params: Vec<String> = func.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
+
+    out.push_str("            var nativeResult = NativeMethods.");
+    out.push_str(&cs_native_name);
+    out.push('(');
+    out.push_str(&c_params.join(", "));
+    out.push_str(");\n");
+
+    // Guard null (grammar not found — return null for Optional, throw for required)
+    out.push_str("            if (nativeResult == IntPtr.Zero)\n");
+    out.push_str("            {\n");
+    if matches!(func.return_type, TypeRef::Optional(_)) {
+        out.push_str("                return null;\n");
+    } else {
+        out.push_str("                throw GetLastError();\n");
+    }
+    out.push_str("            }\n");
+
+    // Construct the host Language from the raw pointer.
+    // The `{ptr}` placeholder is replaced with the variable name holding the IntPtr.
+    let default_construct = "new TreeSitter.Language({ptr})";
+    let construct = cfg.construct("nativeResult", default_construct);
+    out.push_str(&format!("            return {construct};\n"));
+
+    out.push_str("        }\n");
+
+    out
 }
 
 /// Generate a static wrapper method for a streaming method on an opaque type.

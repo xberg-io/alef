@@ -169,7 +169,7 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
     // collapses to three abutting single-backtick spans `` `Vec<``StructuredOutput``>` ``.
     // The doubled backticks at each joint desync CommonMark inline-code parsing
     // (the run no longer matches a length-1 delimiter), which makes downstream
-    // strict link validators mis-parse later `[...]` spans as shortcut reference
+    // strict link validators parse later `[...]` spans as shortcut reference
     // links. Merging the abutting spans into a single span renders identically and
     // removes the ambiguity.
     let doc = collapse_adjacent_code_spans(&doc);
@@ -920,7 +920,7 @@ pub(crate) fn rust_links_to_plain(doc: &str) -> String {
 /// only matches a backtick run against a closing run of equal length, so the
 /// doubled run is no longer parsed as inline code — it desyncs the inline-code
 /// scanner and leaves the bracket characters inside exposed as literal text.
-/// Strict Markdown link validators (e.g. Zensical `--strict`) then mis-detect
+/// Strict Markdown link validators (e.g. Zensical `--strict`) then detect
 /// later `[...]` spans as unresolved shortcut reference links.
 ///
 /// This pass rewrites `` `a``b` `` → `` `ab` `` by dropping the two boundary

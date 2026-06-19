@@ -14,8 +14,8 @@ buildscript {
 }
 
 plugins {
-    id("com.android.library") version "8.13.0"
-    kotlin("android") version "2.2.0"
+    id("com.android.library") version "9.2.0"
+    kotlin("android") version "2.4.0"
     id("com.vanniktech.maven.publish") version "0.36.0"
     id("org.jlleitschuh.gradle.ktlint") version "13.1.0"
     id("com.github.ben-manes.versions") version "0.52.0"
@@ -23,10 +23,10 @@ plugins {
 
 android {
     namespace = "dev.sample_crate"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        minSdk = 21
+        minSdk = 24
         consumerProguardFiles("consumer-rules.pro")
     }
 

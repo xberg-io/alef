@@ -163,6 +163,13 @@ impl Backend for JavaBackend {
             PathBuf::from(&output_dir).join(&package_path)
         };
 
+        // Host-native capsule (Language-passthrough) types configured under `[crates.java.capsule_types]`.
+        let java_capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig> = config
+            .java
+            .as_ref()
+            .map(|c| c.capsule_types.clone())
+            .unwrap_or_default();
+
         // Collect bridge param names and type aliases so we can strip them from generated
         // function signatures and emit convertWithVisitor instead.
         let bridge_param_names: HashSet<String> = config
@@ -213,6 +220,7 @@ impl Backend for JavaBackend {
                 &bridge_param_names,
                 &bridge_type_aliases,
                 has_visitor_pattern,
+                &java_capsule_types,
             ),
             generated_header: true,
         });

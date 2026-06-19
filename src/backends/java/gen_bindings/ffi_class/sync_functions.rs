@@ -1,9 +1,10 @@
 use crate::backends::java::type_map::{java_boxed_type, java_return_type, java_type};
 use crate::codegen::naming::to_java_name;
+use crate::core::config::HostCapsuleTypeConfig;
 use crate::core::ir::{FunctionDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use heck::ToSnakeCase;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::super::helpers::{emit_javadoc_with_throws, is_bridge_param_java, render_nullable_type};
 use super::super::marshal::{
@@ -25,6 +26,7 @@ pub(super) fn gen_sync_function_method(
     bridge_type_aliases: &HashSet<String>,
     has_visitor_bridge: bool,
     clear_fn_handles: &AHashMap<String, String>,
+    capsule_types: &HashMap<String, HostCapsuleTypeConfig>,
 ) {
     gen_sync_function_method_with_visitor(
         out,
@@ -37,6 +39,7 @@ pub(super) fn gen_sync_function_method(
         has_visitor_bridge,
         clear_fn_handles,
         None,
+        capsule_types,
     );
 }
 
@@ -52,6 +55,7 @@ pub(super) fn gen_sync_function_method_with_visitor(
     has_visitor_bridge: bool,
     clear_fn_handles: &AHashMap<String, String>,
     visitor_bridge: Option<&VisitorFunctionBridge>,
+    capsule_types: &HashMap<String, HostCapsuleTypeConfig>,
 ) {
     // Exclude bridge params from the public Java signature. Optional params
     // take the boxed Java type (Integer/Long/Boolean/...) so callers can pass
@@ -70,6 +74,21 @@ pub(super) fn gen_sync_function_method_with_visitor(
             format!("final {annotated} {}", to_java_name(&p.name))
         })
         .collect();
+
+    // Host-native capsule (Language) passthrough: construct the host runtime's
+    // `Language` from the raw C grammar pointer instead of an opaque handle.
+    if let Some(capsule_cfg) = capsule_return_config(func, capsule_types) {
+        return gen_capsule_function_method(
+            out,
+            func,
+            prefix,
+            class_name,
+            opaque_types,
+            bridge_param_names,
+            bridge_type_aliases,
+            capsule_cfg,
+        );
+    }
 
     let return_type = java_return_type(&func.return_type);
     let exception_class_name = format!("{}Exception", class_name);
@@ -566,5 +585,138 @@ pub(super) fn gen_sync_function_method_with_visitor(
         out.push_str("        }\n");
     }
 
+    out.push_str("    }\n");
+}
+
+/// Returns the capsule config for a function's return type if it is a capsule type,
+/// otherwise returns None.
+fn capsule_return_config<'a>(
+    func: &FunctionDef,
+    capsule_types: &'a HashMap<String, HostCapsuleTypeConfig>,
+) -> Option<&'a HostCapsuleTypeConfig> {
+    if let TypeRef::Named(name) = &func.return_type {
+        capsule_types.get(name.as_str())
+    } else {
+        None
+    }
+}
+
+/// Generate a Java wrapper for a function returning a host-native capsule (Language) type.
+///
+/// The exported C symbol returns the host runtime's raw grammar pointer.
+/// The wrapper converts parameters, calls the C function, and constructs the host `Language`
+/// from the raw pointer — never an opaque alef handle.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn gen_capsule_function_method(
+    out: &mut String,
+    func: &FunctionDef,
+    prefix: &str,
+    class_name: &str,
+    opaque_types: &AHashSet<String>,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+    cfg: &HostCapsuleTypeConfig,
+) {
+    // Exclude bridge params from the public Java signature.
+    let params: Vec<String> = func
+        .params
+        .iter()
+        .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
+        .map(|p| {
+            let ptype = if p.optional {
+                java_boxed_type(&p.ty)
+            } else {
+                java_type(&p.ty)
+            };
+            let annotated = render_nullable_type(&ptype, p.optional);
+            format!("final {annotated} {}", to_java_name(&p.name))
+        })
+        .collect();
+
+    let return_type = if cfg.host_type.is_empty() {
+        "Language".to_string()
+    } else {
+        cfg.host_type.clone()
+    };
+
+    let exception_class_name = format!("{}Exception", class_name);
+    emit_javadoc_with_throws(out, &func.doc, "    ", &exception_class_name);
+    let method_sig = crate::backends::java::template_env::render(
+        "ffi_method_signature.jinja",
+        minijinja::context! {
+            return_type => &return_type,
+            method_name => to_java_name(&func.name),
+            params => params.join(", "),
+            exception_class => exception_class_name,
+        },
+    );
+    out.push_str(&method_sig);
+
+    out.push_str(&crate::backends::java::template_env::render(
+        "ffi_try_finally_block_start.jinja",
+        minijinja::context! {},
+    ));
+
+    // Marshal parameters (capsule functions take only scalar/string params in practice).
+    for param in &func.params {
+        if is_bridge_param_java(param, bridge_param_names, bridge_type_aliases) {
+            continue;
+        }
+        let effective_ty = if param.optional && !matches!(param.ty, TypeRef::Optional(_)) {
+            TypeRef::Optional(Box::new(param.ty.clone()))
+        } else {
+            param.ty.clone()
+        };
+        marshal_param_to_ffi(out, &to_java_name(&param.name), &effective_ty, opaque_types, prefix);
+    }
+
+    // Build call args.
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .flat_map(|p| {
+            if is_bridge_param_java(p, bridge_param_names, bridge_type_aliases) {
+                vec!["MemorySegment.NULL".to_string()]
+            } else {
+                let effective_ty = if p.optional && !matches!(p.ty, TypeRef::Optional(_)) {
+                    TypeRef::Optional(Box::new(p.ty.clone()))
+                } else {
+                    p.ty.clone()
+                };
+                ffi_param_args(&to_java_name(&p.name), &effective_ty, opaque_types)
+            }
+        })
+        .collect();
+
+    let ffi_handle = format!("NativeLib.{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
+    out.push_str(&crate::backends::java::template_env::render(
+        "ffi_result_ptr_call.jinja",
+        minijinja::context! {
+            ffi_handle => &ffi_handle,
+            args => call_args.join(", "),
+        },
+    ));
+
+    // Guard null and construct the host Language from the raw pointer.
+    // The `{ptr}` placeholder receives the raw MemorySegment; the default wraps it in `new Language({ptr})`.
+    out.push_str(&crate::backends::java::template_env::render(
+        "ffi_null_check.jinja",
+        minijinja::context! {
+            var => "resultPtr",
+            optional => false,
+        },
+    ));
+
+    let construct = cfg.construct("resultPtr", "new Language({ptr})");
+    out.push_str(&format!("            return {construct};\n"));
+
+    out.push_str("        } catch (Throwable e) {\n");
+    out.push_str(&crate::backends::java::template_env::render(
+        "ffi_throw_exception.jinja",
+        minijinja::context! {
+            exception_class => format!("{}Exception", class_name),
+        },
+    ));
+    out.push_str("        }\n");
     out.push_str("    }\n");
 }

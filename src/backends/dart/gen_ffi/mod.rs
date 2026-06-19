@@ -71,6 +71,13 @@ pub(crate) fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Re
         .map(|c| c.exclude_types.iter().map(String::as_str).collect())
         .unwrap_or_default();
 
+    // Host-native capsule (Language-passthrough) types configured under `[crates.dart.capsule_types]`.
+    let dart_capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig> = config
+        .dart
+        .as_ref()
+        .map(|c| c.capsule_types.clone())
+        .unwrap_or_default();
+
     for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
         emit_type(ty, &mut content);
         content.push('\n');
@@ -86,7 +93,14 @@ pub(crate) fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Re
         .iter()
         .filter(|f| !exclude_functions.contains(f.name.as_str()))
     {
-        emit_function(f, &prefix, &free_symbol, &error_code_symbol, &mut content);
+        emit_function(
+            f,
+            &prefix,
+            &free_symbol,
+            &error_code_symbol,
+            &dart_capsule_types,
+            &mut content,
+        );
         content.push('\n');
     }
 

@@ -13,9 +13,19 @@ pub(super) fn emit_function(
     prefix: &str,
     free_symbol: &str,
     error_code_symbol: &str,
+    capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     out: &mut String,
 ) {
     use crate::backends::dart::template_env;
+
+    // Host-native capsule (Language-passthrough) types: when a function returns a
+    // configured capsule type, emit the passthrough wrapper instead of the standard
+    // opaque-handle wrapper.
+    if let Some(cap) = capsule_return_config(f, capsule_types) {
+        emit_capsule_function(f, prefix, cap, out);
+        return;
+    }
+
     if f.is_async {
         // Unsupported: dart:ffi async requires Isolate plumbing; deferred for Phase 3b.
         out.push_str(&template_env::render(
@@ -177,5 +187,231 @@ fn emit_param_free_all(params: &[ParamDef], out: &mut String) {
             }
             _ => {}
         }
+    }
+}
+
+/// Returns the host capsule config when `func` returns a configured capsule type
+/// (bare `Named` return type).
+fn capsule_return_config<'a>(
+    func: &FunctionDef,
+    capsule_types: &'a std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
+) -> Option<&'a crate::core::config::HostCapsuleTypeConfig> {
+    if let TypeRef::Named(name) = &func.return_type {
+        capsule_types.get(name.as_str())
+    } else {
+        None
+    }
+}
+
+/// Emit a Dart wrapper function for a capsule type that returns the host-native grammar pointer.
+///
+/// The exported C symbol returns the host raw `const TSLanguage *`. The wrapper converts
+/// parameters, calls the C function, and returns the raw `Pointer<Void>` (or the configured
+/// host_type when set) from the pointer without opaque-handle wrapping.
+fn emit_capsule_function(
+    f: &FunctionDef,
+    prefix: &str,
+    cap: &crate::core::config::HostCapsuleTypeConfig,
+    out: &mut String,
+) {
+    use crate::backends::dart::template_env;
+
+    if !f.doc.is_empty() {
+        let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "",
+                lines => doc_lines,
+            },
+        ));
+    }
+
+    let c_symbol = format!("{prefix}_{}", f.name);
+    let fn_name = public_host_identifier(Language::Dart, PublicIdentifierKind::Function, &f.name);
+
+    // Capsule functions return the raw pointer type; no parameters other than scalars/strings
+    // are expected in practice. Build the native and Dart typedef pair.
+    let native_params: Vec<String> = f.params.iter().map(native_param_type).collect();
+    let native_return = "Pointer<Void>".to_string(); // C returns `const TSLanguage *`
+    let dart_params: Vec<String> = f.params.iter().map(dart_callable_type).collect();
+    let dart_return = "Pointer<Void>".to_string();
+
+    let typedef_native = format!("_{fn_name}Native");
+    let typedef_dart = format!("_{fn_name}Dart");
+
+    out.push_str(&template_env::render(
+        "ffi_typedef_native_sig.jinja",
+        minijinja::context! {
+            typedef_native => typedef_native.as_str(),
+            native_return => native_return.as_str(),
+            native_params => native_params.join(", "),
+        },
+    ));
+    out.push_str(&template_env::render(
+        "ffi_typedef_dart_sig.jinja",
+        minijinja::context! {
+            typedef_dart => typedef_dart.as_str(),
+            dart_return => dart_return.as_str(),
+            dart_params => dart_params.join(", "),
+        },
+    ));
+    out.push_str(&template_env::render(
+        "ffi_function_lookup_sig.jinja",
+        minijinja::context! {
+            dart_return => dart_return.as_str(),
+            dart_params => dart_params.join(", "),
+            fn_name => fn_name.as_str(),
+            typedef_native => typedef_native.as_str(),
+            typedef_dart => typedef_dart.as_str(),
+            c_symbol => c_symbol.as_str(),
+        },
+    ));
+
+    // Emit the public wrapper function.
+    let dart_wrapper_params: Vec<String> = f.params.iter().map(dart_wrapper_param).collect();
+
+    // Return type: use the configured host_type, or fall back to Pointer<Void>.
+    let wrapper_return = if cap.host_type.is_empty() {
+        "Pointer<Void>?".to_string()
+    } else {
+        format!("{}?", cap.host_type)
+    };
+
+    out.push_str(&template_env::render(
+        "ffi_wrapper_fn_open.jinja",
+        minijinja::context! {
+            wrapper_return => wrapper_return.as_str(),
+            fn_name => fn_name.as_str(),
+            dart_wrapper_params => dart_wrapper_params.join(", "),
+        },
+    ));
+
+    // Allocate native strings for each string parameter.
+    for p in &f.params {
+        emit_param_alloc(p, out);
+    }
+
+    // Build the C call argument list.
+    let call_args: Vec<String> = f.params.iter().map(call_arg_name).collect();
+    let call_args_str = call_args.join(", ");
+
+    out.push_str(&template_env::render(
+        "ffi_call_result.jinja",
+        minijinja::context! {
+            fn_name => fn_name.as_str(),
+            call_args_str => call_args_str.as_str(),
+        },
+    ));
+
+    emit_param_free_all(&f.params, out);
+
+    // Guard the null pointer (grammar not found) and return the host Language.
+    // The {ptr} placeholder receives the raw C pointer; the default returns it unchanged.
+    let default_construct = "Pointer<Void>.fromAddress(_result.address)";
+    let construct = cap.construct("_result", default_construct);
+    out.push_str("  if (_result == null || _result.address == 0) return null;\n");
+    out.push_str(&format!("  return {construct};\n"));
+
+    out.push_str("}\n");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::HostCapsuleTypeConfig;
+    use std::collections::HashMap;
+
+    fn get_language_fn() -> FunctionDef {
+        FunctionDef {
+            name: "get_language".to_string(),
+            rust_path: "sample_capsule::get_language".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "name".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+                map_is_btree: false,
+                core_wrapper: crate::core::ir::CoreWrapper::None,
+            }],
+            return_type: TypeRef::Named("Language".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }
+    }
+
+    #[test]
+    fn emit_capsule_function_returns_host_language_pointer() {
+        let f = get_language_fn();
+        let mut capsule_types: HashMap<String, HostCapsuleTypeConfig> = HashMap::new();
+        capsule_types.insert(
+            "Language".to_string(),
+            HostCapsuleTypeConfig {
+                host_type: "Pointer<Void>".to_string(),
+                package: String::new(),
+                package_version: String::new(),
+                construct_expr: String::new(),
+            },
+        );
+        let mut out = String::new();
+        emit_function(&f, "tsp", "", "", &capsule_types, &mut out);
+        assert!(
+            out.contains("Pointer<Void>?"),
+            "capsule fn must return Pointer<Void>? type. Got:\n{out}"
+        );
+        assert!(
+            out.contains("tsp_get_language"),
+            "capsule fn must reference the C symbol. Got:\n{out}"
+        );
+        assert!(
+            out.contains("if (_result == null || _result.address == 0) return null;"),
+            "capsule fn must guard null pointer. Got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn emit_capsule_function_uses_default_pointer_construct() {
+        let f = get_language_fn();
+        let mut capsule_types: HashMap<String, HostCapsuleTypeConfig> = HashMap::new();
+        capsule_types.insert(
+            "Language".to_string(),
+            HostCapsuleTypeConfig {
+                host_type: String::new(),
+                package: String::new(),
+                package_version: String::new(),
+                construct_expr: String::new(),
+            },
+        );
+        let mut out = String::new();
+        emit_function(&f, "tsp", "", "", &capsule_types, &mut out);
+        // With empty host_type and construct_expr, should use the default: Pointer<Void>.fromAddress
+        assert!(
+            out.contains("Pointer<Void>?"),
+            "empty host_type should default to Pointer<Void>?"
+        );
+        assert!(
+            out.contains("Pointer<Void>.fromAddress(_result.address)"),
+            "should use default pointer construct when construct_expr is empty"
+        );
     }
 }

@@ -472,7 +472,7 @@ impl Backend for Pyo3Backend {
                 // Emit `impl Default for Type` when the type has a no-arg new() constructor
                 // to satisfy clippy's `new_without_default` lint
                 if opaque_helpers::should_emit_default_impl(typ, &impl_block) {
-                    builder.add_item(&opaque_helpers::emit_default_impl(&typ.name));
+                    builder.add_item(&opaque_helpers::emit_default_impl(typ));
                 }
                 // Client constructor — emit a separate #[pymethods] impl with #[new]
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {

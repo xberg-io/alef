@@ -34,14 +34,18 @@ pub(super) fn variant_wrapper_constructor_body(typ: &crate::core::ir::TypeDef, m
     ))
 }
 
-/// Check if a type has a no-arg `pub fn new() -> Self` method (either static or constructor).
-/// This is used to determine whether we should emit an `impl Default for Type` block.
+/// Whether to emit an `impl Default for Type` block for an opaque wrapper.
 ///
-/// Returns true only when:
-/// - The type has `has_default = true` (indicating it has impl Default in core Rust)
-/// - The type has at least one method named "new"
-/// - That method takes no parameters and is static (receiver.is_none())
-/// - No existing `impl Default` is already present in the impl_block
+/// Returns true when:
+/// - The type has `has_default = true` (indicating it has impl Default in core Rust), and
+/// - No existing `impl Default` is already present in the impl_block.
+///
+/// The body is chosen by [`emit_default_impl`]: a no-arg static `new()` delegates to
+/// `Self::new()` (idiomatic, satisfies clippy's `new_without_default`); otherwise the
+/// core type's own `Default` is forwarded through the `inner` field. The latter case is
+/// required: non-opaque parent structs that derive `Default` and hold this wrapper as a
+/// field (e.g. `OcrRequest { document: OcrDocument }`) will not compile unless the
+/// wrapper also implements `Default`, even when the wrapper has no no-arg constructor.
 pub(super) fn should_emit_default_impl(typ: &crate::core::ir::TypeDef, impl_block: &str) -> bool {
     // Only emit if the core Rust type has impl Default
     if !typ.has_default {
@@ -49,20 +53,29 @@ pub(super) fn should_emit_default_impl(typ: &crate::core::ir::TypeDef, impl_bloc
     }
 
     // Check if Default impl already exists
-    if impl_block.contains("impl Default") {
-        return false;
-    }
-
-    // Check if there's a no-arg static new() method
-    typ.methods.iter().any(|m| {
-        m.name == "new" && m.params.is_empty() && m.receiver.is_none() // static method (not &self or &mut self)
-    })
+    !impl_block.contains("impl Default")
 }
 
-/// Generate an `impl Default for Type { fn default() -> Self { Self::new() } }` block
-/// for a no-arg constructor. This satisfies clippy's `new_without_default` lint.
-pub(super) fn emit_default_impl(type_name: &str) -> String {
-    format!("impl Default for {type_name} {{\n    fn default() -> Self {{\n        Self::new()\n    }}\n}}\n")
+/// True when the type exposes a no-arg static `pub fn new() -> Self`.
+fn has_no_arg_static_new(typ: &crate::core::ir::TypeDef) -> bool {
+    typ.methods
+        .iter()
+        .any(|m| m.name == "new" && m.params.is_empty() && m.receiver.is_none())
+}
+
+/// Generate an `impl Default for Type` block. When the wrapper has a no-arg static
+/// `new()`, delegate to it (`Self::new()`); otherwise forward the core type's `Default`
+/// through the opaque `inner` field (`Self { inner: Default::default() }`).
+pub(super) fn emit_default_impl(typ: &crate::core::ir::TypeDef) -> String {
+    let body = if has_no_arg_static_new(typ) {
+        "Self::new()".to_string()
+    } else {
+        "Self { inner: Default::default() }".to_string()
+    };
+    format!(
+        "impl Default for {} {{\n    fn default() -> Self {{\n        {body}\n    }}\n}}\n",
+        typ.name
+    )
 }
 
 /// Inject a method body into the existing `#[pymethods] impl T { ... }`

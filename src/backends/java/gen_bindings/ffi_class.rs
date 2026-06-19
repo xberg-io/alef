@@ -1,9 +1,9 @@
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{HostCapsuleTypeConfig, ResolvedCrateConfig};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, FunctionDef};
 use ahash::{AHashMap, AHashSet};
 use heck::ToSnakeCase;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::marshal::gen_helper_methods;
 
@@ -40,6 +40,7 @@ pub(crate) fn gen_sync_function_method(
     bridge_type_aliases: &HashSet<String>,
     has_visitor_bridge: bool,
     clear_fn_handles: &AHashMap<String, String>,
+    capsule_types: &HashMap<String, HostCapsuleTypeConfig>,
 ) {
     sync_functions::gen_sync_function_method(
         out,
@@ -51,6 +52,7 @@ pub(crate) fn gen_sync_function_method(
         bridge_type_aliases,
         has_visitor_bridge,
         clear_fn_handles,
+        capsule_types,
     );
 }
 
@@ -64,6 +66,7 @@ pub(crate) fn gen_main_class(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     has_visitor_bridge: bool,
+    capsule_types: &HashMap<String, HostCapsuleTypeConfig>,
 ) -> String {
     // Build the set of opaque type names so we can distinguish opaque handles from records
     let opaque_types: AHashSet<String> = api
@@ -116,6 +119,7 @@ pub(crate) fn gen_main_class(
             has_visitor_bridge,
             &clear_fn_handles,
             visitor_bridge_for_function(func, config).as_ref(),
+            capsule_types,
         );
         body.push('\n');
 
