@@ -69,6 +69,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(backends/kotlin_android): guard release AAR builds against missing JNI libraries.**
+  Generated `build.gradle.kts` now validates that `src/main/jniLibs` is staged
+  before `assembleRelease` or Maven Central publishing runs, preventing
+  publish-time Gradle rebuilds from shipping a jni-less AAR. (`src/backends/kotlin_android/gen_build_gradle.rs`)
 - **(ci): cfg-gate Unix-only test helpers on Windows.** The `before`/`e2e`
   pipeline-order regression test is Unix-only, and its config helper now uses
   the same `#[cfg(unix)]` gate so Windows test builds do not fail dead-code
