@@ -194,9 +194,27 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
     ffi_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()));
-    // Suppress opaque lifecycle symbols for capsule types — the host runtime owns the
-    // returned grammar pointer, so there is no alef opaque box to free or serialize.
-    ffi_exclude_types.extend(ffi_capsule_types.keys().map(|s| s.as_str()));
+    // A capsule type's *passthrough function* returns the host runtime's raw grammar pointer
+    // (no alef opaque box), but the same type may still be returned as an opaque handle by a
+    // *method* (e.g. `LanguageRegistry.get_language`) — method returns are not capsule-eligible.
+    // Only suppress the opaque `_new`/`_free`/`_to_json` lifecycle when the type is never used
+    // as an opaque handle, i.e. it appears as a method return nowhere. Otherwise the registry
+    // method and the binding's `Free()` reference symbols/types the header never declares.
+    let capsule_used_as_opaque: ahash::AHashSet<&str> = api
+        .types
+        .iter()
+        .flat_map(|t| t.methods.iter())
+        .filter_map(|m| match &m.return_type {
+            crate::core::ir::TypeRef::Named(name) if ffi_capsule_types.contains_key(name) => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    ffi_exclude_types.extend(
+        ffi_capsule_types
+            .keys()
+            .map(|s| s.as_str())
+            .filter(|name| !capsule_used_as_opaque.contains(name)),
+    );
     // Exclude workspace-declared opaque types whose `rust_path` carries generic parameters
     // (e.g. `Arc<Mutex<dyn Trait>>`), as the C ABI cannot represent them. Simple newtypes
     // (no generics) are left in so the binding layer emits free functions for them.

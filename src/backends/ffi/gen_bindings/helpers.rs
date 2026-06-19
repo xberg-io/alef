@@ -368,13 +368,24 @@ pub(super) fn gen_cbindgen_toml(
     // declaration in the generated C header. cbindgen renames Rust types using
     // the export prefix, producing e.g. `HTMMetadataConfig` for prefix `HTM`.
     //
-    // Capsule (Language-passthrough) types are skipped here: they are never emitted
-    // as prefixed opaque handles. Their host-native pointee type (e.g. `TSLanguage`)
-    // is forward-declared unprefixed below so `const TSLanguage *` resolves.
+    // Capsule (Language-passthrough) types are skipped here: their passthrough function
+    // returns the host-native pointee (forward-declared unprefixed below). The exception
+    // is a capsule type still returned as an opaque handle by a method (e.g.
+    // `LanguageRegistry.get_language`) — that prefixed handle (`{PREFIX}Language`) must be
+    // forward-declared too, or the method's C declaration references an undefined type.
+    let capsule_used_as_opaque: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .flat_map(|t| t.methods.iter())
+        .filter_map(|m| match &m.return_type {
+            crate::core::ir::TypeRef::Named(name) if capsule_types.contains_key(name) => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
     let mut entries: Vec<(String, String)> = api
         .types
         .iter()
-        .filter(|t| !capsule_types.contains_key(t.name.as_str()))
+        .filter(|t| !capsule_types.contains_key(t.name.as_str()) || capsule_used_as_opaque.contains(t.name.as_str()))
         // Use the IR type name verbatim (it already comes from Rust source as
         // PascalCase). `to_pascal_case` mangles names containing all-caps
         // abbreviations: e.g. `GraphQLError` becomes `GraphQlError`, which

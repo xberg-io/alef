@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(backends/ffi): keep the opaque handle for a capsule type that is still returned as one by a
+  method.** A capsule type's passthrough *function* returns the host runtime's raw pointer (no opaque
+  box), so the FFI backend suppressed that type's opaque `_new`/`_free`/`_to_json` symbols and its
+  cbindgen forward declaration. But the same type can still be returned as an opaque handle by a
+  *method* — `LanguageRegistry.get_language` returns `Language` — and the binding's `Free()` calls
+  `{prefix}_language_free`. Suppressing both left the generated C header referencing an undefined
+  `{PREFIX}Language` type and a missing `_free` symbol, breaking every direct C-header consumer (Go
+  cgo, Zig `@cImport`). The suppression now applies only when the capsule type is never a method
+  return. (`src/backends/ffi/gen_bindings/lib_rs.rs`, `src/backends/ffi/gen_bindings/helpers.rs`)
 - **(backends/ffi): rewrite the prefixed capsule return type in the generated C header so it
   compiles.** cbindgen applies the export prefix to every type it references, so a capsule
   function returning `*const tree_sitter::ffi::TSLanguage` emitted `const {PREFIX}TSLanguage *`
@@ -42,6 +51,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **(backends/napi): use visitor result wire names in payload lookups.** The NAPI visitor bridge
   now reads payload result object properties from each variant's `wire_name` instead of hard-coded
   `Custom`/`Error` fallbacks. (`src/backends/napi/templates/visitor_method.jinja`)
+- **(ci): compare stable manifest path suffixes in vendor lockfile regression tests.** The
+  strict lockfile-regeneration failure test now avoids comparing Windows short-user paths against
+  verbatim long paths while still asserting the error names the generated manifest.
+  (`src/publish/vendor/tests.rs`)
+- **(backends/ffi): keep opaque capsule handles declared when methods return capsule types.**
+  Capsule passthrough functions still return the host-native raw pointee, but methods that return
+  the same type continue to need prefixed opaque handles, lifecycle symbols, and cbindgen forward
+  declarations. (`src/backends/ffi/gen_bindings/helpers.rs`,
+  `src/backends/ffi/gen_bindings/lib_rs.rs`)
+- **(backends/swift): recurse optional and map types in inbound plugin bridges.** Swift's generated
+  Rust bridge crate now maps nested `Option` and `HashMap` trait method types through the inbound
+  bridge type converter instead of falling back to the generic Swift type mapper.
+  (`src/backends/swift/gen_rust_crate/plugin_inbound.rs`)
+- **(e2e/php, e2e/ruby): bind visitor callback parameters for template interpolation.** PHP and
+  Ruby e2e visitor callbacks now mirror the core visitor parameter names, allowing custom templates
+  such as `{text}` or `{href}` to interpolate per-callback values. (`src/e2e/codegen/php/visitor.rs`,
+  `src/e2e/codegen/ruby/visitor.rs`)
 
 ## [0.25.49] - 2026-06-19
 
