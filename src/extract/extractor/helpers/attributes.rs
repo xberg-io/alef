@@ -311,6 +311,37 @@ pub(crate) fn extract_serde_rename(attrs: &[syn::Attribute]) -> Option<String> {
     })
 }
 
+/// Extract the function path from `#[serde(default = "path::to::fn")]` (also
+/// matching `#[cfg_attr(..., serde(default = "..."))]`). Returns `None` for a
+/// bare `#[serde(default)]` with no explicit path. Bindings that mirror the
+/// core's serde behavior need the path to emit an equivalent field-level
+/// default (e.g. `SsrfPolicy::from_env`) instead of falling back to `Default`.
+pub(crate) fn extract_serde_default_path(attrs: &[syn::Attribute]) -> Option<String> {
+    attrs.iter().find_map(|attr| {
+        let attr_str = quote::quote!(#attr).to_string();
+        if !attr_str.contains("serde") {
+            return None;
+        }
+        let needles = ["default =", "default="];
+        for needle in &needles {
+            if let Some(pos) = attr_str.find(needle) {
+                // Anchor on the serde `default` key, not a longer identifier
+                // such as `some_default = ...`.
+                let before = &attr_str[..pos];
+                if before.chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let after = attr_str[pos + needle.len()..].trim_start();
+                let start = after.find('"')?;
+                let value_start = &after[start + 1..];
+                let end = value_start.find('"')?;
+                return Some(value_start[..end].to_string());
+            }
+        }
+        None
+    })
+}
+
 /// Check if a field has `#[serde(default)]` attribute (also matching
 /// `#[cfg_attr(..., serde(default))]`). Fields with this attribute can
 /// be omitted from JSON and use the type's Default implementation.

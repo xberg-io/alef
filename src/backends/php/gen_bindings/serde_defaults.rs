@@ -20,9 +20,15 @@ fn function_path_default_fn(field: &FieldDef) -> Option<(String, String)> {
     let TypeRef::Named(type_name) = &field.ty else {
         return None;
     };
-    let return_type = field.type_rust_path.as_deref().unwrap_or(type_name).to_string();
     let (_, function_name) = path.rsplit_once("::")?;
-    Some((return_type.clone(), format!("{return_type}::{function_name}()")))
+    // The `serde_defaults` module has no imports, so the type must be absolutely
+    // qualified. `type_rust_path` is already absolute (e.g. `core_crate::Policy`);
+    // when absent the type is the binding DTO at the crate root, so prefix `crate::`.
+    let qualified = match field.type_rust_path.as_deref() {
+        Some(path) => path.to_string(),
+        None => format!("crate::{type_name}"),
+    };
+    Some((qualified.clone(), format!("{qualified}::{function_name}()")))
 }
 
 fn typed_default_fn(default: &DefaultValue, ty: &TypeRef) -> Option<(&'static str, String)> {

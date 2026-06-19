@@ -193,6 +193,77 @@ fn php_serde_defaults_are_generated_from_typed_default_metadata() {
 }
 
 #[test]
+fn php_function_path_serde_default_qualifies_crate_local_dto() {
+    // A field whose serde default is a function path (e.g. `SsrfPolicy::from_env`)
+    // but whose type has no `type_rust_path` uses the crate-local binding DTO. The
+    // import-less `serde_defaults` module must qualify it with `crate::` so it
+    // compiles — regression for the php CrawlConfig.ssrf env-honoring default.
+    let backend = PhpBackend;
+    let mut policy = make_field("policy", TypeRef::Named("Policy".to_string()), false);
+    policy.default = Some("serde(default = \"Policy::from_env\")".to_string());
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Limits".to_string(),
+            rust_path: "test_lib::Limits".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![policy],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        }],
+        ..ApiSurface::default()
+    };
+
+    let root = tempfile::tempdir().expect("tempdir");
+    let output_dir = root.path().join("crates/test-lib-php/src");
+    std::fs::create_dir_all(&output_dir).expect("create output dir");
+    std::fs::write(
+        root.path().join("crates/test-lib-php/Cargo.toml"),
+        "[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n",
+    )
+    .expect("write Cargo.toml");
+    let config = make_config_with_php_output(&output_dir);
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("PHP bindings must generate");
+    let lib = files
+        .iter()
+        .find(|file| file.path.ends_with("lib.rs"))
+        .expect("lib.rs generated");
+
+    assert!(
+        lib.content
+            .contains("pub fn limits_policy() -> crate::Policy { crate::Policy::from_env() }"),
+        "crate-local binding DTO default must be crate-qualified:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content
+            .contains("serde(default = \"crate::serde_defaults::limits_policy\")"),
+        "function-path serde default must attach a field serde attribute:\n{}",
+        lib.content
+    );
+}
+
+#[test]
 fn test_basic_generation() {
     let backend = PhpBackend;
 

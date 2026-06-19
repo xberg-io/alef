@@ -3,8 +3,8 @@ use crate::core::ir::FieldDef;
 use crate::extract::type_resolver;
 
 use super::attributes::{
-    extract_cfg_condition, extract_field_binding_exclusion_reason, extract_serde_flatten, extract_serde_rename,
-    has_serde_default,
+    extract_cfg_condition, extract_field_binding_exclusion_reason, extract_serde_default_path, extract_serde_flatten,
+    extract_serde_rename, has_serde_default,
 };
 use super::field_types::{
     detect_core_wrapper, detect_vec_inner_core_wrapper, extract_field_type_rust_path, syn_type_is_boxed,
@@ -38,10 +38,14 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
     // If the field has #[serde(default)], mark it as having a default value.
     // This prevents C# backends from emitting `required` modifier, since the field
     // can be omitted from JSON and will use the type's Default implementation.
-    let default = if has_serde_default_attr {
-        Some("/* serde(default) */".to_string())
-    } else {
-        None
+    // When the attribute carries an explicit function path
+    // (`#[serde(default = "path")]`), preserve it verbatim so bindings can emit an
+    // equivalent field-level default (e.g. `SsrfPolicy::from_env`) rather than
+    // silently falling back to the type's `Default`.
+    let default = match extract_serde_default_path(&field.attrs) {
+        Some(path) => Some(format!("serde(default = \"{path}\")")),
+        None if has_serde_default_attr => Some("/* serde(default) */".to_string()),
+        None => None,
     };
 
     FieldDef {
