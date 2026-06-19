@@ -109,8 +109,8 @@ pub fn emit_type_pub_with_defaults_sealed_and_constructible(
     )
 }
 
-pub fn emit_enum_pub(en: &EnumDef, out: &mut String, package: &str) {
-    object_wrapper::emit_enum(en, out, package)
+pub fn emit_enum_pub(en: &EnumDef, out: &mut String, package: &str, text_types: &[String]) {
+    object_wrapper::emit_enum(en, out, package, text_types)
 }
 
 pub fn emit_error_type_pub(error: &ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {

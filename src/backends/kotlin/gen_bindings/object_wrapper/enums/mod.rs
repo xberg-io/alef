@@ -15,7 +15,7 @@ use heterogeneous::{emit_kotlin_heterogeneous_default_deserializer, emit_kotlin_
 use tagged::{emit_kotlin_tagged_deserializer, emit_kotlin_tagged_serializer};
 use untagged::{emit_kotlin_untagged_deserializer, emit_kotlin_untagged_serializer};
 
-pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
+pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_types: &[String]) {
     emit_cleaned_kdoc(out, &en.doc, "");
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
     if all_unit {
@@ -304,6 +304,13 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                 }
             }
         }
+
+        // Emit text() accessor for untagged unions that are in text_types config
+        let emit_text = en.serde_untagged && text_types.iter().any(|t| t == &en.name);
+        if emit_text {
+            untagged::emit_kotlin_text_accessor(out, en);
+        }
+
         out.push_str("}\n");
 
         // Emit the custom Jackson deserializer immediately after the sealed class.

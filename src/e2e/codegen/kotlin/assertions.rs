@@ -219,6 +219,13 @@ pub(super) fn render_assertion(
         .as_deref()
         .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
 
+    // Determine if this field is a display_as_text field (e.g., AssistantContent).
+    // These fields have a `.text()` accessor that extracts the plain-text representation.
+    let field_is_display_as_text = assertion
+        .field
+        .as_deref()
+        .is_some_and(|f| field_resolver.is_display_as_text(f));
+
     // Raw field accessor — may end with nullable type if field is optional.
     // kotlin_android data classes expose properties (no parens), so use the
     // dedicated "kotlin_android" language key for the accessor renderer.
@@ -286,10 +293,19 @@ pub(super) fn render_assertion(
     // Note: this is only sound when the leaf type is `String?`. For enum-typed
     // optional fields (`T?` where `T` is an enum class), `.orEmpty()` is undefined;
     // the enum branch below handles those by going through `?.getValue()` first.
+    // For display_as_text fields (e.g., AssistantContent), call `.text()` to extract
+    // the textual representation, which returns `String` (non-nullable).
     // Also handle the case where the bare result (no field specified) is nullable
     // due to `result_is_option` being true.
     let bare_result_is_nullable = result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();
-    let string_field_expr = if field_is_optional || bare_result_is_nullable {
+    let string_field_expr = if field_is_display_as_text {
+        // display_as_text fields have a .text() accessor returning String
+        if field_is_optional {
+            format!("{field_expr}?.text().orEmpty()")
+        } else {
+            format!("{field_expr}.text()")
+        }
+    } else if field_is_optional || bare_result_is_nullable {
         format!("{field_expr}.orEmpty()")
     } else {
         field_expr.clone()

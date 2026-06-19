@@ -59,6 +59,7 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
         &HashMap::new(),
         dart_first_class_map.clone(),
     )
+    .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone())
     .with_dart_root_type(super::dart_call_result_type(call_config).or_else(|| dart_first_class_map.root_type.clone()));
     let field_resolver = &call_field_resolver;
     let enum_fields_base = e2e_config.effective_fields_enum(call_config);

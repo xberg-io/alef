@@ -21,7 +21,7 @@ pub(crate) mod type_map;
 mod plugin_trait_stubs_test;
 
 pub use frb_rewrite::{
-    filter_excluded_functions, fix_handler_executor_calls, make_struct_fields_with_defaults_optional,
-    rewrite_frb_sealed_variants,
+    filter_excluded_functions, fix_handler_executor_calls, inject_display_as_text_methods,
+    make_struct_fields_with_defaults_optional, rewrite_frb_sealed_variants,
 };
 pub use gen_bindings::DartBackend;

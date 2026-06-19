@@ -114,8 +114,9 @@ fn emit_common(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
         body.push('\n');
     }
 
+    let text_types = &config.untagged_union_text_types;
     for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-        emit_enum_pub(en, &mut body, &package);
+        emit_enum_pub(en, &mut body, &package, text_types);
         body.push('\n');
     }
 

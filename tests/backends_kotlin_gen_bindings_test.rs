@@ -1378,7 +1378,7 @@ fn short_sealed_class_variant_emits_single_line() {
         version: Default::default(),
     };
     let mut out = String::new();
-    emit_enum_pub(&en, &mut out, "dev.sample_crate");
+    emit_enum_pub(&en, &mut out, "dev.sample_crate", &[]);
     // Variant with 1 Int field: `    data class Value(val value: Int) : MyEnum()\n`
     assert!(
         out.contains("    data class Value(val value: Int) : MyEnum()"),
@@ -1421,7 +1421,7 @@ fn long_sealed_class_variant_emits_multi_line() {
         version: Default::default(),
     };
     let mut out = String::new();
-    emit_enum_pub(&en, &mut out, "dev.sample_crate");
+    emit_enum_pub(&en, &mut out, "dev.sample_crate", &[]);
     assert!(
         out.contains("    data class ProviderError(\n"),
         "long sealed-class variant must be multi-line: {out:?}"

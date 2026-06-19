@@ -52,7 +52,8 @@ pub(super) fn render_test_method(
         &HashSet::new(),
         &HashMap::new(),
         per_call_getter_map,
-    );
+    )
+    .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone());
     let field_resolver = &call_field_resolver;
     let call_overrides = call_config.overrides.get(lang);
     let has_override = call_overrides.is_some_and(|o| o.function.is_some());

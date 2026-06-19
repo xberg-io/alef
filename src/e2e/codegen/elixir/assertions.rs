@@ -303,8 +303,21 @@ pub(super) fn render_assertion(
         .as_deref()
         .filter(|f| !f.is_empty())
         .is_some_and(|f| f == "metadata.format" || f.ends_with(".metadata.format"));
+
+    // Check if this field is configured as display_as_text (e.g., AssistantContent struct
+    // with a .text field). When true, access the .text property and nil-guard to empty string.
+    let field_is_display_as_text = assertion
+        .field
+        .as_deref()
+        .filter(|f| !f.is_empty())
+        .is_some_and(|f| field_resolver.is_display_as_text(f));
+
     let coerced_field_expr = if field_is_format_metadata {
         format!("alef_e2e_format_to_string({field_expr})")
+    } else if field_is_display_as_text {
+        // For display_as_text fields (e.g., content: AssistantContent), access .text
+        // and provide empty string as fallback when nil
+        format!("(({field_expr} && {field_expr}.text) || \"\")")
     } else if field_is_enum {
         format!("to_string({field_expr})")
     } else {
@@ -312,6 +325,10 @@ pub(super) fn render_assertion(
     };
     let trimmed_field_expr = if is_numeric {
         field_expr.clone()
+    } else if field_is_display_as_text {
+        // For display_as_text fields, coerced_field_expr already extracts .text,
+        // so we just trim it without wrapping in String.trim again
+        format!("String.trim({coerced_field_expr})")
     } else {
         format!("String.trim({coerced_field_expr})")
     };
@@ -581,5 +598,88 @@ pub(super) fn build_elixir_method_call(
             format!("{module_path}.run_query({result_var}, \"{language}\", \"{query_source}\", source)")
         }
         _ => format!("{module_path}.{method_name}({result_var})"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::e2e::field_access::FieldResolver;
+    use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn display_as_text_field_accessor_emits_text_property_access() {
+        // Build a field resolver with 'content' configured as display_as_text
+        let mut display_fields = HashSet::new();
+        display_fields.insert("content".to_string());
+
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .with_display_as_text_fields(display_fields);
+
+        // Test that is_display_as_text recognizes the field
+        assert!(
+            resolver.is_display_as_text("content"),
+            "resolver should recognize 'content' as display_as_text"
+        );
+
+        // Build the coerced_field_expr as the assertions code does
+        let field_expr = "result.content";
+        let field_is_display_as_text = resolver.is_display_as_text("content");
+
+        assert!(
+            field_is_display_as_text,
+            "field_is_display_as_text should be true for 'content'"
+        );
+
+        let coerced = if field_is_display_as_text {
+            format!("(({field_expr} && {field_expr}.text) || \"\")")
+        } else {
+            field_expr.to_string()
+        };
+
+        // Verify the coerced expression accesses .text with nil-guard
+        assert_eq!(
+            coerced,
+            "((result.content && result.content.text) || \"\")",
+            "display_as_text field should emit nil-guarded .text accessor"
+        );
+    }
+
+    #[test]
+    fn non_display_as_text_field_accessor_uses_bare_expression() {
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .with_display_as_text_fields(HashSet::new());
+
+        let field_expr = "result.content";
+        let field_is_display_as_text = resolver.is_display_as_text("content");
+
+        assert!(
+            !field_is_display_as_text,
+            "field_is_display_as_text should be false when not in display_as_text set"
+        );
+
+        let coerced = if field_is_display_as_text {
+            format!("(({field_expr} && {field_expr}.text) || \"\")")
+        } else {
+            field_expr.to_string()
+        };
+
+        // Verify the coerced expression does NOT access .text
+        assert_eq!(
+            coerced,
+            "result.content",
+            "non-display_as_text field should use bare expression"
+        );
     }
 }

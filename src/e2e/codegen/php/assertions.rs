@@ -267,12 +267,20 @@ pub(super) fn render_assertion(
             if let Some((var_name, _)) = fields_array_bindings.get(f) {
                 format!("${}", var_name)
             } else {
-                let accessor = field_resolver.accessor(f, "php", &format!("${result_var}"));
-                // For optional fields, wrap with ?? null to handle null-safe access
-                if field_resolver.is_optional(f) {
-                    format!("({accessor} ?? null)")
+                // For display_as_text fields (content unions like AssistantContent),
+                // call the text_from_* accessor to get the textual representation
+                if field_resolver.is_display_as_text(f) {
+                    // Use the first component of the field path as the method suffix
+                    let method_suffix = f.split('.').next().unwrap_or(f);
+                    format!("${result_var}->text_from_{method_suffix}()")
                 } else {
-                    accessor
+                    let accessor = field_resolver.accessor(f, "php", &format!("${result_var}"));
+                    // For optional fields, wrap with ?? null to handle null-safe access
+                    if field_resolver.is_optional(f) {
+                        format!("({accessor} ?? null)")
+                    } else {
+                        accessor
+                    }
                 }
             }
         }

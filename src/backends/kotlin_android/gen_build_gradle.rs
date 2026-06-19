@@ -239,6 +239,33 @@ tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("proc
     }}
 }}
 
+// Guard: fail the build if assembleRelease runs without jniLibs staged.
+// This prevents accidental publication of jni-less AARs when gradle rebuilds
+// during the publish phase. The publish workflow must extract jniLibs from
+// pre-built AARs and stage them into src/main/jniLibs before invoking gradle.
+// This check catches the bug where jniLibs are lost during publish-time rebuild.
+tasks.register("validateJniLibsForRelease") {{
+    doFirst {{
+        if (gradle.taskGraph.hasTask("assembleRelease") || gradle.taskGraph.hasTask("publishAndReleaseToMavenCentral")) {{
+            val jniLibsDir = file("src/main/jniLibs")
+            if (!jniLibsDir.exists() || jniLibsDir.listFiles()?.isEmpty() != false) {{
+                throw GradleException(
+                    "FATAL: jniLibs directory is empty or missing. " +
+                    "The Android AAR must include native .so libraries for ARM64 and x86_64. " +
+                    "Ensure the publish workflow stages jniLibs from pre-built AARs " +
+                    "into src/main/jniLibs/{{arm64-v8a,x86_64}}/ before invoking assembleRelease. " +
+                    "Aborting to prevent shipping a jni-less AAR to Maven Central."
+                )
+            }}
+        }}
+    }}
+}}
+
+// Make assemble and publish tasks depend on the validation.
+tasks.named("preBuild") {{
+    dependsOn("validateJniLibsForRelease")
+}}
+
 mavenPublishing {{
     configure(AndroidSingleVariantLibrary(
         variant = "release",

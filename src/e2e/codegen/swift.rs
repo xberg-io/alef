@@ -146,7 +146,7 @@ impl E2eCodegen for SwiftE2eCodegen {
         // as first-class (Codable struct → property access) when it's not opaque,
         // has serde derives, and every binding field is primitive/optional. This
         // mirrors `can_emit_first_class_struct` in alef-backend-swift.
-        let swift_first_class_map = values::build_swift_first_class_map(type_defs, enums, e2e_config);
+        let swift_first_class_map = values::build_swift_first_class_map(type_defs, enums, e2e_config, call);
 
         let swift_first_class_map_ref = swift_first_class_map;
 

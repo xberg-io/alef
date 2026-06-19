@@ -192,6 +192,16 @@ pub(super) fn render_assertion_dart(
                     })
                     .unwrap_or(false);
 
+                // Check if this field is a display-as-text type (e.g. AssistantContent).
+                let is_display_as_text = assertion
+                    .field
+                    .as_deref()
+                    .map(|f| {
+                        let resolved = field_resolver.resolve(f);
+                        field_resolver.is_display_as_text(f) || field_resolver.is_display_as_text(resolved)
+                    })
+                    .unwrap_or(false);
+
                 // Match the rust codegen's behaviour: trim both sides for string equality
                 // so trailing-newline differences between generated text output and the
                 // fixture's expected value don't produce false positives.
@@ -202,6 +212,14 @@ pub(super) fn render_assertion_dart(
                         let _ = writeln!(
                             out,
                             "    expect(_alefE2eText({field_accessor}).trim(), equals({dart_val}.toString().trim()));"
+                        );
+                    } else if is_display_as_text {
+                        // For display-as-text types (e.g. AssistantContent), use .text() accessor
+                        // to extract the plain-text representation instead of calling .toString()
+                        // which would return the class name.
+                        let _ = writeln!(
+                            out,
+                            "    expect({field_accessor}.text().trim(), equals({dart_val}.toString().trim()));"
                         );
                     } else {
                         // When result_is_simple is true and the field_accessor is nullable (e.g. String?),
@@ -240,11 +258,27 @@ pub(super) fn render_assertion_dart(
                     })
                     .unwrap_or(false);
 
+                // Check if this field is a display-as-text type.
+                let is_display_as_text = assertion
+                    .field
+                    .as_deref()
+                    .map(|f| {
+                        let resolved = field_resolver.resolve(f);
+                        field_resolver.is_display_as_text(f) || field_resolver.is_display_as_text(resolved)
+                    })
+                    .unwrap_or(false);
+
                 if expected.is_string() {
                     if is_enum_field {
                         let _ = writeln!(
                             out,
                             "    expect(_alefE2eText({field_accessor}).trim(), isNot(equals({dart_val}.toString().trim())));"
+                        );
+                    } else if is_display_as_text {
+                        // For display-as-text types, use .text() accessor.
+                        let _ = writeln!(
+                            out,
+                            "    expect({field_accessor}.text().trim(), isNot(equals({dart_val}.toString().trim())));"
                         );
                     } else {
                         // When result_is_simple is true and the field_accessor is nullable (e.g. String?),

@@ -4,6 +4,114 @@ use super::super::types::primitive_type_name;
 use super::is_tuple_field_name;
 use crate::backends::kotlin::gen_bindings::shared::kotlin_field_name_with_type;
 
+/// Emit a `fun text(): String` method on an untagged sealed class that extracts
+/// the plain-text display value.
+///
+/// Semantics mirror Rust's Display trait:
+/// - If the sealed class value is a newtype variant wrapping a JSON string,
+///   return that string verbatim.
+/// - If the value is a newtype variant wrapping a JSON array of objects with
+///   `"type":"text"`, concatenate the `"text"` field of each text-type part.
+/// - Otherwise, return an empty string.
+///
+/// This function is only emitted when `emit_text` is true (i.e., the enum name
+/// is in the config's `untagged_union_text_types` list).
+pub(super) fn emit_kotlin_text_accessor(out: &mut String, en: &EnumDef) {
+    let name = &en.name;
+    out.push_str("    /**\n");
+    out.push_str("     * Returns the plain-text display value of this content.\n");
+    out.push_str("     *\n");
+    out.push_str("     * - If the value is a JSON string, it is returned verbatim.\n");
+    out.push_str("     * - If the value is a JSON array, the `\"text\"` field of every\n");
+    out.push_str("     *   element whose `\"type\"` equals `\"text\"` is concatenated in order;\n");
+    out.push_str("     *   non-text parts (images, audio, refusals, etc.) are skipped.\n");
+    out.push_str("     * - Otherwise (null, object, empty) returns an empty string.\n");
+    out.push_str("     */\n");
+    out.push_str("    fun text(): String = when (this) {\n");
+
+    for variant in &en.variants {
+        if variant.fields.is_empty() {
+            // Unit variant: return empty string
+            out.push_str("        is ");
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str(" -> \"\"\n");
+        } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
+            // Newtype/tuple variant: check the inner type and handle accordingly
+            let field = &variant.fields[0];
+            match &field.ty {
+                TypeRef::String => {
+                    // String variant: return the string directly
+                    out.push_str("        is ");
+                    out.push_str(name);
+                    out.push('.');
+                    out.push_str(&variant.name);
+                    out.push_str(" -> this.field0\n");
+                }
+                TypeRef::Vec(elem_ty) => {
+                    // Vec variant: check if elements are objects with "type" and "text" fields
+                    if let TypeRef::Named(_) | TypeRef::Json = **elem_ty {
+                        // For Vec<Object> or Vec<Json>, iterate and extract text parts
+                        out.push_str("        is ");
+                        out.push_str(name);
+                        out.push('.');
+                        out.push_str(&variant.name);
+                        out.push_str(" -> {\n");
+                        out.push_str("            val sb = StringBuilder()\n");
+                        out.push_str("            for (part in this.field0) {\n");
+                        out.push_str("                if (part is com.fasterxml.jackson.databind.JsonNode) {\n");
+                        out.push_str("                    val typeNode = part.get(\"type\")\n");
+                        out.push_str("                    if (typeNode?.asText() == \"text\") {\n");
+                        out.push_str("                        val textNode = part.get(\"text\")\n");
+                        out.push_str("                        if (textNode != null) {\n");
+                        out.push_str("                            sb.append(textNode.asText())\n");
+                        out.push_str("                        }\n");
+                        out.push_str("                    }\n");
+                        out.push_str("                } else if (part is Map<*, *>) {\n");
+                        out.push_str("                    @Suppress(\"UNCHECKED_CAST\")\n");
+                        out.push_str("                    val partMap = part as? Map<String, Any>\n");
+                        out.push_str("                    if (partMap?.get(\"type\") == \"text\") {\n");
+                        out.push_str("                        val textValue = partMap[\"text\"]\n");
+                        out.push_str("                        if (textValue != null) {\n");
+                        out.push_str("                            sb.append(textValue.toString())\n");
+                        out.push_str("                        }\n");
+                        out.push_str("                    }\n");
+                        out.push_str("                }\n");
+                        out.push_str("            }\n");
+                        out.push_str("            sb.toString()\n");
+                        out.push_str("        }\n");
+                    } else {
+                        // Vec<primitive> or other: return empty string
+                        out.push_str("        is ");
+                        out.push_str(name);
+                        out.push('.');
+                        out.push_str(&variant.name);
+                        out.push_str(" -> \"\"\n");
+                    }
+                }
+                _ => {
+                    // Other types (primitive, named, etc.): return empty string
+                    out.push_str("        is ");
+                    out.push_str(name);
+                    out.push('.');
+                    out.push_str(&variant.name);
+                    out.push_str(" -> \"\"\n");
+                }
+            }
+        } else {
+            // Struct variant with named fields: return empty string
+            out.push_str("        is ");
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str(" -> \"\"\n");
+        }
+    }
+
+    out.push_str("    }\n");
+}
+
 /// Emit a Jackson `StdDeserializer` for an untagged (`#[serde(untagged)]`) sealed
 /// class.  The deserializer inspects the JSON node kind and tries variants in order.
 pub(super) fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {

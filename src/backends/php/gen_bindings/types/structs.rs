@@ -431,6 +431,7 @@ pub(crate) fn gen_struct_methods(
         &AHashSet::new(), // bridge_type_aliases: empty by default
         &[],              // never_skip_cfg_field_names: empty by default
         mutex_types,
+        &[],              // untagged_union_text_types: empty by default
     )
 }
 
@@ -447,6 +448,7 @@ pub fn gen_struct_methods_with_exclude(
     bridge_type_aliases: &AHashSet<String>,
     never_skip_cfg_field_names: &[String],
     mutex_types: &AHashSet<String>,
+    untagged_union_text_types: &[String],
 ) -> String {
     gen_struct_methods_impl(
         typ,
@@ -460,6 +462,7 @@ pub fn gen_struct_methods_with_exclude(
         bridge_type_aliases,
         never_skip_cfg_field_names,
         mutex_types,
+        untagged_union_text_types,
     )
 }
 
@@ -476,6 +479,7 @@ fn gen_struct_methods_impl(
     bridge_type_aliases: &AHashSet<String>,
     _never_skip_cfg_field_names: &[String],
     mutex_types: &AHashSet<String>,
+    untagged_union_text_types: &[String],
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -884,6 +888,71 @@ fn gen_struct_methods_impl(
         // Note: setters for Named/Vec/Map fields are not generated because
         // ext-php-rs doesn't support &T: FromZval for #[php(setter)] parameters.
         // Config types with complex fields should be constructed via fromJson().
+    }
+
+    // Generate text() accessor methods for untagged union fields in `untagged_union_text_types`.
+    // These fields are stored as `Option<serde_json::Value>` and need a helper to extract
+    // the textual representation (string → verbatim; array of {type:text,text:...} → concat; else empty).
+    for field in binding_fields(&typ.fields) {
+        let inner_type = match &field.ty {
+            TypeRef::Optional(inner) => inner.as_ref(),
+            t => t,
+        };
+        if let TypeRef::Named(enum_name) = inner_type {
+            if untagged_union_text_types.contains(&enum_name.to_string())
+                && mapper.untagged_data_enum_names.contains(enum_name.as_str())
+            {
+                let field_name = &field.name;
+                let text_method = format!(
+                    "pub fn text_from_{field_name}(&self) -> String {{\n    \
+                     Self::extract_text_from_value(self.{field_name}.as_ref())\n\
+                     }}"
+                );
+                impl_builder.add_method(&text_method);
+            }
+        }
+    }
+
+    // Helper method to extract text from a serde_json::Value representing content/message unions.
+    // Only emit it once per struct if any text() method was added.
+    let has_text_methods = typ.fields.iter().any(|field| {
+        let inner_type = match &field.ty {
+            TypeRef::Optional(inner) => inner.as_ref(),
+            t => t,
+        };
+        if let TypeRef::Named(enum_name) = inner_type {
+            return untagged_union_text_types.contains(&enum_name.to_string())
+                && mapper.untagged_data_enum_names.contains(enum_name.as_str());
+        }
+        false
+    });
+    if has_text_methods {
+        let helper_method = r#"
+    /// Extract plain-text representation from a JSON value.
+    /// - String → returned verbatim
+    /// - Array of {type:"text", text:...} → concatenate text fields
+    /// - Otherwise → empty string
+    fn extract_text_from_value(value: Option<&serde_json::Value>) -> String {
+        match value {
+            None => String::new(),
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(serde_json::Value::Array(arr)) => {
+                let mut result = String::new();
+                for item in arr {
+                    if let Some(obj) = item.as_object() {
+                        if obj.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            if let Some(serde_json::Value::String(text)) = obj.get("text") {
+                                result.push_str(text);
+                            }
+                        }
+                    }
+                }
+                result
+            }
+            _ => String::new(),
+        }
+    }"#;
+        impl_builder.add_method(helper_method);
     }
 
     // Non-opaque structs don't have adapter bodies — adapters apply to opaque types only.

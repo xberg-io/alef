@@ -46,7 +46,8 @@ pub(super) fn render_test_method(
         e2e_config.effective_result_fields(call_config),
         e2e_config.effective_fields_array(call_config),
         &HashSet::new(),
-    );
+    )
+    .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone());
     let field_resolver = &call_field_resolver;
     let enum_fields = e2e_config.effective_fields_enum(call_config);
     let lang = if kotlin_android_style {

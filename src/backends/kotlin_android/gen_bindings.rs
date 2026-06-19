@@ -234,12 +234,13 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         });
     }
 
+    let text_types = &config.untagged_union_text_types;
     for en in &api.enums {
         if en.binding_excluded {
             continue;
         }
         let mut body = String::new();
-        emit_enum_pub(en, &mut body, &package);
+        emit_enum_pub(en, &mut body, &package, text_types);
         if body.trim().is_empty() {
             continue;
         }

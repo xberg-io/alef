@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Content-union text-accessor extension to more backends.** The
+  `untagged_union_text_types` accessor (v0.25.46, Go/Java/C#) and the
+  `fields_display_as_text` e2e DAT now extend to Kotlin, Dart, PHP, and Elixir so
+  the generated e2e suites can string-assert a content-union field
+  (`AssistantContent`) instead of stringifying the whole union. Kotlin emits
+  `fun text()` on the sealed class; Dart injects a `.text()` extension; PHP emits
+  a `text_from_<field>()` accessor that parses the JSON value; Elixir reads the
+  NIF struct's `.text` field. All gated on `untagged_union_text_types` (empty
+  default → output byte-for-byte unchanged). (`src/backends/kotlin/**`,
+  `src/backends/dart/**`, `src/backends/php/**`, `src/e2e/codegen/{kotlin,dart,php,elixir}/**`)
+- **(kotlin_android): `validateJniLibsForRelease` gradle guard.** Fails
+  `assembleRelease`/`publishAndReleaseToMavenCentral` if `src/main/jniLibs/<abi>/`
+  is empty, so a jni-less AAR can never be published green again.
+  (`src/backends/kotlin_android/gen_build_gradle.rs`)
+
+### Fixed
+
+- **(e2e/codegen/swift): use the per-call `result_type` override for root-type
+  detection** so first-class result structs render property access
+  (`result.choices`) instead of method-call access. (`src/e2e/codegen/swift/values.rs`)
+
 ### Fixed
 
 - **(ci): cfg-gate Unix-only test helpers on Windows.** The `before`/`e2e`

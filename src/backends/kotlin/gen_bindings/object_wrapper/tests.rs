@@ -91,7 +91,7 @@ fn emit_enum_tagged_sealed_class_emits_json_deserialize_annotation() {
         ],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
     assert!(
         out.contains("@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = MessageDeserializer::class)"),
         "missing @JsonDeserialize annotation on tagged sealed class; got:\n{out}",
@@ -148,7 +148,7 @@ fn emit_enum_untagged_sealed_class_emits_json_deserialize_annotation() {
         ],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
     assert!(
         out.contains(
             "@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = EmbeddingInputDeserializer::class)"
@@ -203,7 +203,7 @@ fn tagged_deserializer_named_field_variant_no_double_wrap() {
         ],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
 
     // Must return readTreeAsValue directly on payload (tag-stripped) — no `InputDocument.Base64(...)` wrap.
     // The explicit Kotlin type parameter avoids `Any!` inference.
@@ -236,7 +236,7 @@ fn tagged_deserializer_newtype_variant_no_double_wrap() {
         )],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
 
     // Newtype variant: must wrap the inner-type result in the variant constructor.
     // The variant class (ContentPart.Text) is different from the inner type (TextContent).
@@ -270,7 +270,7 @@ fn untagged_deserializer_list_of_named_type_uses_java_type() {
         ],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
 
     assert!(
         out.contains("ctx.typeFactory.constructCollectionType(List::class.java, ContentPart::class.java)"),
@@ -295,7 +295,7 @@ fn emit_enum_unit_only_does_not_emit_json_deserialize() {
         vec![make_variant("Stop", None, vec![]), make_variant("Length", None, vec![])],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
     assert!(
         !out.contains("@JsonDeserialize") && !out.contains("Deserializer"),
         "unit-only enum must not emit a deserializer; got:\n{out}",
@@ -325,7 +325,7 @@ fn tagged_deserializer_strips_tag_field_from_payload() {
         )],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
 
     // The tag value must be read into a local variable first.
     assert!(
@@ -385,7 +385,7 @@ fn sealed_class_variant_field_type_qualified_when_name_clashes_with_sibling_vari
     );
     let mut out = String::new();
     // Provide a non-empty package so disambiguation can emit the FQN.
-    emit_enum(&en, &mut out, "dev.sample_crate.samplellm.android");
+    emit_enum(&en, &mut out, "dev.sample_crate.samplellm.android", &[]);
 
     // The variant data class must qualify the field type to avoid self-reference.
     assert!(
@@ -416,7 +416,7 @@ fn sealed_class_variant_field_type_unqualified_when_no_clash() {
         )],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "dev.sample_crate.samplellm.android");
+    emit_enum(&en, &mut out, "dev.sample_crate.samplellm.android", &[]);
 
     // Must use the simple name.
     assert!(
@@ -464,7 +464,7 @@ fn sealed_class_variant_data_classes_get_json_deserialize_reset_annotation() {
         ],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
 
     // Named-field struct variants must carry @JsonDeserialize(using = None) and
     // @JsonSerialize(using = None) to reset the inherited custom (de)serializers.
@@ -505,7 +505,7 @@ fn untagged_sealed_class_vec_variant_serializer_uses_declared_type_serializer() 
         ],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
 
     // Newtype variants are NOT given reset annotations (no recursion risk).
     assert!(
@@ -548,7 +548,7 @@ fn untagged_serializer_tuple_variant_uses_payload_derived_field_name() {
         ],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
 
     // Serializer when-branches must reference `value.value`, not `value.field0`.
     assert!(
@@ -580,7 +580,7 @@ fn tagged_serializer_named_field_variant_casts_to_concrete_type() {
         )],
     );
     let mut out = String::new();
-    emit_enum(&en, &mut out, "");
+    emit_enum(&en, &mut out, "", &[]);
 
     // The serializer must cast `value` to `InputDocument.Url` before calling
     // valueToTree so Jackson uses the variant class's serializer (reset to
@@ -649,4 +649,109 @@ fn instance_method_params_camel_case_conversion() {
             camel
         );
     }
+}
+
+/// Untagged sealed class with text_types config emits text() accessor.
+///
+/// When an untagged enum name appears in `config.untagged_union_text_types`,
+/// the generated sealed class should have a `fun text(): String` method that:
+/// - Returns the string directly for a String newtype variant
+/// - Concatenates "text" fields for Vec<Object> array variants with type=="text"
+/// - Returns "" for other variants or types
+#[test]
+fn untagged_union_text_types_emits_text_accessor() {
+    let en = make_enum(
+        "AssistantContent",
+        None,
+        true, // serde_untagged = true
+        None,
+        vec![
+            make_variant("Text", None, vec![make_field("_0", TypeRef::String)]),
+            make_variant(
+                "Parts",
+                None,
+                vec![make_field("_0", TypeRef::Vec(Box::new(TypeRef::Json)))],
+            ),
+        ],
+    );
+    let mut out = String::new();
+    let text_types = vec!["AssistantContent".to_string()];
+    emit_enum(&en, &mut out, "", &text_types);
+
+    // Must emit @JsonDeserialize and @JsonSerialize for untagged
+    assert!(
+        out.contains("@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = AssistantContentDeserializer::class)"),
+        "untagged sealed class must have @JsonDeserialize; got:\n{out}",
+    );
+    assert!(
+        out.contains("@com.fasterxml.jackson.databind.annotation.JsonSerialize(using = AssistantContentSerializer::class)"),
+        "untagged sealed class must have @JsonSerialize; got:\n{out}",
+    );
+
+    // Must emit the text() function
+    assert!(
+        out.contains("fun text(): String ="),
+        "untagged union in text_types must emit text() method; got:\n{out}",
+    );
+
+    // Must handle Text variant: return field0
+    assert!(
+        out.contains("is AssistantContent.Text -> this.field0"),
+        "Text variant must return the string field directly; got:\n{out}",
+    );
+
+    // Must handle Parts variant: extract text parts
+    assert!(
+        out.contains("is AssistantContent.Parts ->"),
+        "Parts variant must be handled in text() method; got:\n{out}",
+    );
+    assert!(
+        out.contains("typeNode?.asText() == \"text\""),
+        "text() must check type field equals 'text'; got:\n{out}",
+    );
+    assert!(
+        out.contains("sb.append(textNode.asText())"),
+        "text() must concatenate text field values; got:\n{out}",
+    );
+}
+
+/// Untagged sealed class WITHOUT text_types config does NOT emit text() accessor.
+///
+/// When an untagged enum is not in `config.untagged_union_text_types`,
+/// the generated sealed class should NOT have a text() method.
+#[test]
+fn untagged_union_without_text_types_config_no_accessor() {
+    let en = make_enum(
+        "AssistantContent",
+        None,
+        true, // serde_untagged = true
+        None,
+        vec![
+            make_variant("Text", None, vec![make_field("_0", TypeRef::String)]),
+            make_variant(
+                "Parts",
+                None,
+                vec![make_field("_0", TypeRef::Vec(Box::new(TypeRef::Json)))],
+            ),
+        ],
+    );
+    let mut out = String::new();
+    let text_types = vec![]; // empty config
+    emit_enum(&en, &mut out, "", &text_types);
+
+    // Must NOT emit the text() function when config is empty
+    assert!(
+        !out.contains("fun text(): String"),
+        "untagged union without text_types config must not emit text() method; got:\n{out}",
+    );
+
+    // Must still emit the sealed class and its variants
+    assert!(
+        out.contains("sealed class AssistantContent"),
+        "sealed class must still be emitted; got:\n{out}",
+    );
+    assert!(
+        out.contains("data class Text(val value: String)"),
+        "Text variant must still be emitted; got:\n{out}",
+    );
 }

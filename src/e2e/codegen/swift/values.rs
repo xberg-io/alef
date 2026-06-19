@@ -184,10 +184,18 @@ pub(super) fn swift_first_class_field_supported(
 /// `field_types` records the next-type that each Named field traverses into,
 /// so the renderer can advance its current-type cursor through nested
 /// `data[0].id` style paths.
+///
+/// `call_config` is used to resolve the explicit `result_type` override via
+/// `swift_call_result_type()`. When available, this override takes precedence
+/// over the fallback heuristic of finding a TypeDef that contains all
+/// `result_fields` (which fails when result_fields is workspace-global across
+/// many call sites with different result types like ChatCompletionResponse,
+/// EmbeddingResponse, ModelsListResponse, etc.).
 pub(super) fn build_swift_first_class_map(
     type_defs: &[crate::core::ir::TypeDef],
     enum_defs: &[crate::core::ir::EnumDef],
     e2e_config: &crate::e2e::config::E2eConfig,
+    call_config: &crate::core::config::e2e::CallConfig,
 ) -> SwiftFirstClassMap {
     use crate::core::ir::TypeRef;
     let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
@@ -312,25 +320,27 @@ pub(super) fn build_swift_first_class_map(
             stringy_fields_by_type.insert(td.name.clone(), td_stringy);
         }
     }
-    // Best-effort root-type detection: pick a unique TypeDef that contains all
-    // `result_fields`. Falls back to `None` (renderer defaults to first-class
-    // property syntax for unknown roots).
-    let root_type = if e2e_config.result_fields.is_empty() {
-        None
-    } else {
-        let matches: Vec<&crate::core::ir::TypeDef> = type_defs
-            .iter()
-            .filter(|td| {
-                let names: HashSet<&str> = td.fields.iter().map(|f| f.name.as_str()).collect();
-                e2e_config.result_fields.iter().all(|rf| names.contains(rf.as_str()))
-            })
-            .collect();
-        if matches.len() == 1 {
-            Some(matches[0].name.clone())
-        } else {
+    // Root-type detection: first check for an explicit `result_type` override
+    // in the call config. If present, use that directly. Otherwise fall back to
+    // picking a unique TypeDef that contains all `result_fields`.
+    let root_type = swift_call_result_type(call_config).or_else(|| {
+        if e2e_config.result_fields.is_empty() {
             None
+        } else {
+            let matches: Vec<&crate::core::ir::TypeDef> = type_defs
+                .iter()
+                .filter(|td| {
+                    let names: HashSet<&str> = td.fields.iter().map(|f| f.name.as_str()).collect();
+                    e2e_config.result_fields.iter().all(|rf| names.contains(rf.as_str()))
+                })
+                .collect();
+            if matches.len() == 1 {
+                Some(matches[0].name.clone())
+            } else {
+                None
+            }
         }
-    };
+    });
     SwiftFirstClassMap {
         first_class_types,
         field_types,
