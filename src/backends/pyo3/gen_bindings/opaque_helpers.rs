@@ -89,7 +89,9 @@ pub(super) fn emit_default_impl(typ: &crate::core::ir::TypeDef) -> String {
 /// For opaque `{ inner: CoreType }` wrappers (notably data-enum wrappers) that forward the core
 /// type's own `Default`. The caller must ensure the core type is `Default`.
 pub(super) fn emit_inner_default_impl(type_name: &str) -> String {
-    format!("impl Default for {type_name} {{\n    fn default() -> Self {{\n        Self {{ inner: Default::default() }}\n    }}\n}}\n")
+    format!(
+        "impl Default for {type_name} {{\n    fn default() -> Self {{\n        Self {{ inner: Default::default() }}\n    }}\n}}\n"
+    )
 }
 
 /// Inject a method body into the existing `#[pymethods] impl T { ... }`

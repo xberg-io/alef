@@ -2,6 +2,7 @@
 
 pub mod capsule;
 mod capsule_methods;
+mod cfg_fields;
 mod config;
 mod config_opaque;
 mod constructors;
@@ -21,7 +22,6 @@ pub mod types;
 use crate::backends::pyo3::type_map::Pyo3Mapper;
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::generators;
-use crate::codegen::shared::binding_fields;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir};
 use crate::core::ir::ApiSurface;
@@ -224,17 +224,7 @@ impl Backend for Pyo3Backend {
         // emitted `#[new]` filters out fields with `f.cfg.is_some()`, but the python
         // `_to_rust_extraction_config` helper always passes pdf_options/keywords/html_*/
         // layout etc. as kwargs and crashes at runtime.
-        let mut never_skip_cfg_field_names: Vec<String> = config
-            .trait_bridges
-            .iter()
-            .filter_map(|b| {
-                if b.bind_via == crate::core::config::BridgeBinding::OptionsField {
-                    b.resolved_options_field().map(|s| s.to_string())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let never_skip_cfg_field_names = cfg_fields::never_skip_cfg_field_names(api, config);
         // Force-restore cfg-gated fields into the constructor when they are present in this
         // binding's compilation unit, so the generated api.py can pass them as kwargs without
         // a runtime TypeError. A field is restored when either:
@@ -245,17 +235,6 @@ impl Backend for Pyo3Backend {
         // Feature gates and other predicates we cannot prove are left out (conservative): the
         // crate may be built without that feature, so the field stays defaulted in the struct
         // literal instead of becoming a parameter that fails to compile.
-        for typ in api.types.iter().filter(|t| t.has_default && !t.is_trait) {
-            for field in binding_fields(&typ.fields) {
-                let Some(cfg) = field.cfg.as_deref() else {
-                    continue;
-                };
-                let present = !typ.has_stripped_cfg_fields || config::cfg_present_for_pyo3(cfg);
-                if present && !never_skip_cfg_field_names.contains(&field.name) {
-                    never_skip_cfg_field_names.push(field.name.clone());
-                }
-            }
-        }
         cfg.never_skip_cfg_field_names = &never_skip_cfg_field_names;
         cfg_unsendable.never_skip_cfg_field_names = &never_skip_cfg_field_names;
         let mutex_types: AHashSet<String> = api
@@ -402,17 +381,7 @@ impl Backend for Pyo3Backend {
         // fields supply their own `Default` (None / empty) and so do not force it. This catches
         // core types whose `impl Default` is `#[alef(skip)]`'d (so `has_default` is false on the
         // type itself) yet are still required to be `Default` by a Default-deriving parent.
-        let default_required_types: AHashSet<&str> = api
-            .types
-            .iter()
-            .filter(|t| t.has_default)
-            .flat_map(|t| t.fields.iter())
-            .filter(|f| !f.optional)
-            .filter_map(|f| match &f.ty {
-                crate::core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                _ => None,
-            })
-            .collect();
+        let default_required_types = cfg_fields::default_required_types(api);
         for typ in api
             .types
             .iter()
@@ -795,16 +764,7 @@ impl Backend for Pyo3Backend {
         let input_types = crate::codegen::conversions::input_type_names(api);
         // Build a rename map for all fields that needed keyword escaping so that From impls
         // use the correct binding struct field names (e.g. `class_` not `class`).
-        let mut py_field_renames = std::collections::HashMap::new();
-        for typ in api.types.iter().filter(|t| !t.is_trait) {
-            for field in binding_fields(&typ.fields) {
-                if let Some(escaped) =
-                    config.resolve_field_name(crate::core::config::Language::Python, &typ.name, &field.name)
-                {
-                    py_field_renames.insert(format!("{}.{}", typ.name, field.name), escaped);
-                }
-            }
-        }
+        let py_field_renames = cfg_fields::py_field_renames(api, config);
         let pyo3_conversion_cfg = crate::codegen::conversions::ConversionConfig {
             option_duration_on_defaults: true,
             binding_field_renames: if py_field_renames.is_empty() {
