@@ -131,8 +131,13 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
         // Set body + Content-Type when a request body is present.
         if let Some(body) = ctx.body {
             let content_type = ctx.content_type.unwrap_or("application/json");
-            let json_str = serde_json::to_string(body).unwrap_or_default();
-            let escaped = escape_csharp(&json_str);
+            // When body is a JSON string, use it directly as the request body content
+            // (no additional serialization). For objects/arrays, serialize to JSON.
+            let body_str = match body {
+                serde_json::Value::String(s) => s.clone(),
+                other => serde_json::to_string(other).unwrap_or_default(),
+            };
+            let escaped = escape_csharp(&body_str);
 
             // For multipart/form-data with boundary, use ByteArrayContent with explicit header
             // because StringContent constructor rejects boundary in MediaType.

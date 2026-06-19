@@ -80,8 +80,13 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
         };
 
         let body_publisher = if let Some(body) = ctx.body {
-            let json = serde_json::to_string(body).unwrap_or_default();
-            let escaped = escape_java(&json);
+            // When body is a JSON string, use it directly as the request body content
+            // (no additional serialization). For objects/arrays, serialize to JSON.
+            let body_str = match body {
+                serde_json::Value::String(s) => s.clone(),
+                other => serde_json::to_string(other).unwrap_or_default(),
+            };
+            let escaped = escape_java(&body_str);
             format!("java.net.http.HttpRequest.BodyPublishers.ofString(\"{escaped}\")")
         } else {
             "java.net.http.HttpRequest.BodyPublishers.noBody()".to_string()
