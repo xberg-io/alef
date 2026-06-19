@@ -61,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropping the explicit `kotlin("android")` plugin line when the centralized Android Gradle
   Plugin version is 9 or newer, matching freshly generated files. (`src/cli/pipeline/version.rs`,
   `src/cli/pipeline/version_text.rs`, `src/cli/pipeline/version_tests/e2e_manifests.rs`)
+- **(codegen): keep derived `Default` on binding structs unless a delegating default is emitted.**
+  Shared struct generation now preserves the normal `#[derive(Default)]` path for defaultable
+  binding DTOs while still suppressing it for PHP-style delegated core defaults.
+  (`src/codegen/generators/structs.rs`)
 - **(backends/dart): match the freezed mixin clause when injecting the content-union `text()` accessor.** FRB emits `sealed class AssistantContent with _$AssistantContent {`, but the v0.25.48 injection regex required the `{` immediately after the type name, so the `.text()` extension was never emitted and the dart binding/e2e failed to compile (`The method 'text' isn't defined for the type 'AssistantContent'`). The pattern now tolerates an optional `with <mixin>` clause up to the declaration's opening brace. (`src/backends/dart/frb_rewrite/text_transformations.rs`)
 
 ## [0.25.48] - 2026-06-19
