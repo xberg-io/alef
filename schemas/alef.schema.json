@@ -4952,6 +4952,14 @@
           },
           "type": "array"
         },
+        "untagged_union_text_types": {
+          "default": [],
+          "description": "Untagged-union type names that should emit a display-text accessor in generated\nbindings.\n\nFor each Rust type name in this list whose generated binding is an\nuntagged-union wrapper (i.e., a `#[serde(untagged)]` enum), alef emits a\nlanguage-idiomatic `text()` / `Text()` method that extracts the plain-text\nrepresentation from the JSON payload:\n\n- Go:   `func (e RichTextContent) Text() string`\n- Java: `public String text()`\n- C#:   `public string Text()`\n\nSemantics (mirrors the Rust `Display` implementation of the same type):\n- JSON string → return it verbatim.\n- JSON array of objects with `\"type\":\"text\"` → concatenate their `\"text\"` fields.\n- Otherwise → return `\"\"`.\n\nThe list is matched against the Rust type name exactly (e.g. `\"RichTextContent\"`).\nWhen the list is empty (the default) no text accessor is emitted and the generated\noutput for all types is identical to what was produced before this feature existed.\n\nExample:\n```toml\n[[crates]]\nname = \"sample-core\"\nuntagged_union_text_types = [\"RichTextContent\"]\n```",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "update": {
           "additionalProperties": {
             "$ref": "#/$defs/UpdateConfig"
@@ -6930,7 +6938,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.45/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.46/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7040,6 +7048,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.25.45",
-  "x-alef-version": "0.25.45"
+  "version": "0.25.46",
+  "x-alef-version": "0.25.46"
 }
