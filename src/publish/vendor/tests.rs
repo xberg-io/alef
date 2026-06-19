@@ -2,6 +2,10 @@ use super::*;
 use std::fs;
 use tempfile::TempDir;
 
+fn normalize_path_text(value: &str) -> String {
+    value.replace("\\\\?\\", "").replace('\\', "/")
+}
+
 fn setup_workspace(root: &Path) {
     fs::write(
         root.join("Cargo.toml"),
@@ -457,9 +461,11 @@ fn scrub_lock_strict_errors_when_lockfile_cannot_resolve() {
         !msg.contains("not yet published to the registry"),
         "a broken path-dep must not be misattributed to an unpublished registry version; got: {msg}"
     );
+    let normalized_msg = normalize_path_text(&msg);
+    let manifest_path = normalize_path_text(&crate_dir.join("Cargo.toml").display().to_string());
     assert!(
-        msg.contains(&crate_dir.join("Cargo.toml").display().to_string()),
-        "error must name the manifest; got: {msg}"
+        normalized_msg.contains(&manifest_path),
+        "error must name the manifest {manifest_path}; got: {msg}"
     );
 }
 
