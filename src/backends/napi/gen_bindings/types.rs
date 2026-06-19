@@ -752,8 +752,16 @@ pub(super) fn gen_dto_method_fns(
         // so the borrow outlives the call (avoids E0716 / a wrong `result.into()` for `&T`).
         let use_let_bindings = generators::has_named_params(&method.params, opaque_types);
         let (call_args_str, dto_let_bindings) = if use_let_bindings {
+            // The generic let-binding generator only converts Named/opaque/ref params (via `_core`
+            // temporaries). Re-apply NAPI's source→core conversions (i64→usize casts, String→Cow,
+            // Option<String>→Option<Cow>) for the remaining by-value simple params it passes through
+            // verbatim — otherwise the core call receives the raw binding types (E0308). Mirrors the
+            // sibling DTO path above.
             (
-                generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types),
+                napi_apply_primitive_casts_to_call_args(
+                    &generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types),
+                    &method.params,
+                ),
                 generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import),
             )
         } else {

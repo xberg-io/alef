@@ -40,6 +40,10 @@ pub(in crate::backends::napi::gen_bindings) fn napi_apply_primitive_casts_to_cal
             if needs_vec_f32_conversion(&p.ty) && p.is_ref {
                 return format!("&{}_f32", p.name);
             }
+            // Only re-apply NAPI's source→core conversions when the generic let-binding generator
+            // passed the argument through verbatim (still the bare parameter name). If it already
+            // produced a `.into()`/`.map(...)`/`_core` temporary/borrow, leave it untouched.
+            let arg_is_bare_name = *arg == p.name;
             match &p.ty {
                 TypeRef::Primitive(prim) if needs_napi_cast(prim) => {
                     let core_ty = core_prim_str(prim);
@@ -54,6 +58,16 @@ pub(in crate::backends::napi::gen_bindings) fn napi_apply_primitive_casts_to_cal
                     } else {
                         // Non-optional: simple cast
                         format!("{} as {}", arg, core_ty)
+                    }
+                }
+                // String/char params whose core type is `Cow<str>`: the NAPI binding receives an
+                // owned `String`, which the generic let-binding path passes through unchanged. Mirror
+                // `napi_gen_call_args` so the value is converted into the core's `Cow`.
+                TypeRef::String | TypeRef::Char if arg_is_bare_name && !p.is_ref && p.core_wrapper == CoreWrapper::Cow => {
+                    if p.optional {
+                        format!("{}.map(std::borrow::Cow::Owned)", arg)
+                    } else {
+                        format!("{}.into()", arg)
                     }
                 }
                 _ => arg.to_string(),
