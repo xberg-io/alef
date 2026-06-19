@@ -32,6 +32,7 @@ pub mod gen_jni_skeleton;
 pub mod gen_manifest;
 pub mod gen_proguard;
 pub mod gen_settings_gradle;
+pub mod gradle_wrapper;
 pub mod naming;
 pub mod template_env;
 pub mod trait_bridge;
@@ -173,6 +174,26 @@ impl Backend for KotlinAndroidBackend {
             GeneratedFile {
                 path: layout.package_root.join("settings.gradle.kts"),
                 content: gen_settings_gradle::emit(config),
+                generated_header: false,
+            },
+            GeneratedFile {
+                path: layout.package_root.join("gradle/wrapper/gradle-wrapper.properties"),
+                content: gradle_wrapper::render_gradle_wrapper_properties(),
+                generated_header: false,
+            },
+            GeneratedFile {
+                path: layout.package_root.join("gradlew"),
+                content: gradle_wrapper::GRADLE_WRAPPER_UNIX.to_string(),
+                generated_header: false,
+            },
+            GeneratedFile {
+                path: layout.package_root.join("gradlew.bat"),
+                content: gradle_wrapper::GRADLE_WRAPPER_WINDOWS.to_string(),
+                generated_header: false,
+            },
+            GeneratedFile {
+                path: layout.package_root.join("gradle/wrapper/gradle-wrapper.jar"),
+                content: gradle_wrapper::get_gradle_wrapper_jar_base64(),
                 generated_header: false,
             },
             GeneratedFile {

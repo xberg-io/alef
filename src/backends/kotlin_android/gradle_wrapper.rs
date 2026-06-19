@@ -1,10 +1,19 @@
+//! Gradle wrapper scripts and properties for Kotlin/Android AAR projects.
+//!
+//! The Gradle wrapper allows a project to build with a specific Gradle version
+//! without requiring a pre-installed Gradle distribution. This module provides
+//! the necessary files: gradle/wrapper/gradle-wrapper.properties, gradlew, gradlew.bat,
+//! and gradle/wrapper/gradle-wrapper.jar (base64-encoded).
+
 /// Return the gradle-wrapper.jar content as base64-encoded string.
 /// This JAR is the official Gradle 8.5 wrapper JAR from the Gradle project.
 /// It is stored as base64 so it can be embedded as a string and decoded at write time.
+/// The wrapper JAR is forward-compatible and will bootstrap any Gradle version
+/// specified in gradle-wrapper.properties, including Gradle 9.6.0.
 pub(super) fn get_gradle_wrapper_jar_base64() -> String {
     // Gradle 8.5 wrapper JAR (42KB) encoded as base64.
     // Source: https://raw.githubusercontent.com/gradle/gradle/v8.5.0/gradle/wrapper/gradle-wrapper.jar
-    include_str!("../../../../assets/gradle-wrapper-8.5.jar.b64")
+    include_str!("../../../assets/gradle-wrapper-8.5.jar.b64")
         .chars()
         .filter(|ch| !ch.is_ascii_whitespace())
         .collect()

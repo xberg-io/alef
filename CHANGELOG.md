@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **(toolchain): modernize the Android/Kotlin build toolchain and centralize Gradle wrapper generation.** Bumped the generated Android toolchain to Gradle `9.6.0` (was `8.13`), Android Gradle Plugin `9.2.0` (was `8.13.0`), Kotlin `2.4.0` (was `2.2.0`), `compileSdk` `36` (was `35`), and `minSdk` `24` (was `21`) — the full-latest triple required to build under JDK 25 daemons. The Gradle wrapper version now derives from a single `template_versions::toolchain::GRADLE_VERSION` constant, and the kotlin-android binding wrapper (`gradlew`, `gradlew.bat`, `gradle-wrapper.properties`, `gradle-wrapper.jar`) is generated from a shared module instead of hand-maintained, so the e2e and binding wrappers stay in lockstep. (`src/core/template_versions.rs`, `src/backends/kotlin_android/gradle_wrapper.rs`, `src/backends/kotlin_android/mod.rs`, `src/e2e/codegen/kotlin_android/gradle_wrapper.rs`)
+
 ## [0.25.48] - 2026-06-19
 
 ### Added
@@ -66,9 +70,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`&serde_json::Value: FromZvalMut` unsatisfied), breaking `liter-llm-php` compilation during a
   full regen. The display text is exposed via the core-derived `text()` accessor instead.
   (`src/backends/php/gen_bindings/types/structs.rs`)
-
 ### Fixed
 
+- **(codegen): auto-delegate `&T` reference params, borrowed returns, and mixed param shapes instead of bailing or emitting wrong conversions.** The shared call-argument/return delegation subsystem previously gave up (`compile_error!` stub) or generated invalid code (E0277/E0308/E0599) for several common shapes exposed across the PyO3/NAPI/shared paths: a non-opaque Named `&T` param on static/associated methods now binds an owned `_core` temporary and passes a borrow of it (matching the existing instance/free-function path); methods returning `&T`/`Option<&T>` clone before the owned `From` conversion; `gen_call_args_with_let_bindings` now converts `Json` params (String→`serde_json::Value`) for String-Json backends via the `*_json_str` variants and collects `&BTreeMap` (incl. promoted/optional) params; the NAPI buffer let-binding maps `Option<Buffer>`→`Option<Vec<u8>>` (no `.to_vec()` on `Option`); and the NAPI primitive-cast post-processor splits only top-level commas so generic args like `collect::<BTreeMap<_, _>>()` survive. (`src/codegen/generators/binding_helpers/call_args.rs`, `src/codegen/shared.rs`, `src/codegen/generators/methods/static_methods.rs`, `src/backends/napi/gen_bindings/types.rs`, `src/backends/napi/gen_bindings/functions/conversion_bindings.rs`, `src/backends/napi/gen_bindings/functions/call_args.rs`)
+- **(codegen/enums): only emit the pyo3 data-enum wrapper `Default` when the core enum implements `Default`.** The `gen_pyo3_data_enum` template unconditionally emitted `impl Default { Self { inner: Default::default() } }`, which fails with `error[E0277]: ... Default is not satisfied` for core enums that do not derive `Default` (e.g. `EnrichStatus`, `ChunkingReason`). The impl is now gated on a variant being marked `#[default]` (IR `EnumVariant::is_default`), so it is omitted when the core type has no `Default`. (`src/codegen/generators/enums.rs`, `src/codegen/templates/generators/enums/pyo3_data_enum.jinja`)
+- **(backends/php): emit Rust line doc-comments in the generated `-php` crate.** Function and method docs in the `#[php_impl]` facade are now emitted as `///` line comments instead of PHPDoc `/** … */` blocks; doc text containing `/*` (e.g. `image/*`) previously opened a nested block comment that left the outer block unterminated (`error[E0758]`). (`src/backends/php/gen_bindings/functions/methods.rs`, `src/backends/php/gen_bindings/functions/async_methods.rs`)
+- **(extract): skip `#[cfg(test)]` items during extraction.** Functions, methods, impl blocks, structs, and enums gated behind a positive `test` cfg (`test`, `all(test, …)`, `any(test, …)`, nested) are excluded from the binding surface so generated bindings never reference test-only symbols absent from release builds. (`src/extract/extractor/helpers/attributes.rs`, `src/extract/extractor/mod.rs`, `src/extract/extractor/functions/impl_blocks.rs`)
 - **(backends/kotlin_android): guard release AAR builds against missing JNI libraries.**
   Generated `build.gradle.kts` now validates that `src/main/jniLibs` is staged
   before `assembleRelease` or Maven Central publishing runs, preventing
