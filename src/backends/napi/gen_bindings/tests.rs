@@ -35,3 +35,87 @@ fn cfg_gated_field_accepted_when_in_never_skip_list() {
         "cfg-gated field 'visitor' should pass filter when in never_skip_cfg_field_names"
     );
 }
+
+/// Test that plain data enums (with data variants, not tagged/untagged) appearing in struct fields
+/// get binding-to-core From impls when the struct is an input type.
+/// Regression: AuthHeaderFormat has data variant ApiKey(String), appears in CustomProviderConfig
+/// field, but binding-to-core impl was not being generated, causing struct conversion to fail.
+#[test]
+fn plain_data_enum_in_input_type_struct_gets_binding_to_core_impl() {
+    use crate::codegen::conversions::{
+        ConversionConfig, can_generate_enum_conversion, can_generate_enum_conversion_from_core,
+        gen_enum_from_binding_to_core_cfg, gen_enum_from_core_to_binding_cfg,
+    };
+    use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
+
+    // Mock: Create an enum with data variants (not tagged, not untagged)
+    let auth_format_enum = EnumDef {
+        name: "AuthHeaderFormat".to_string(),
+        rust_path: "fixture_core::AuthHeaderFormat".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Bearer".to_string(),
+                fields: vec![],
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "ApiKey".to_string(),
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "None".to_string(),
+                fields: vec![],
+                ..Default::default()
+            },
+        ],
+        serde_tag: None,       // NOT tagged
+        serde_untagged: false, // NOT untagged
+        ..Default::default()
+    };
+
+    // Verify the enum has data variants
+    let has_data_variants = auth_format_enum.variants.iter().any(|v| !v.fields.is_empty());
+    assert!(has_data_variants, "AuthHeaderFormat should have data variants");
+
+    // Verify it's not tagged/untagged
+    let is_tagged = auth_format_enum.serde_tag.is_some();
+    let is_untagged = auth_format_enum.serde_untagged;
+    assert!(
+        !(is_tagged && has_data_variants),
+        "AuthHeaderFormat should not be tagged data enum"
+    );
+    assert!(
+        !(is_untagged && has_data_variants),
+        "AuthHeaderFormat should not be untagged data enum"
+    );
+
+    assert!(
+        can_generate_enum_conversion(&auth_format_enum),
+        "plain data enum should be eligible for binding-to-core conversion"
+    );
+    assert!(
+        can_generate_enum_conversion_from_core(&auth_format_enum),
+        "plain data enum should be eligible for core-to-binding conversion"
+    );
+
+    let config = ConversionConfig {
+        type_name_prefix: "Js",
+        ..Default::default()
+    };
+    let binding_to_core = gen_enum_from_binding_to_core_cfg(&auth_format_enum, "fixture_core", &config);
+    assert!(
+        binding_to_core.contains("impl From<JsAuthHeaderFormat> for fixture_core::AuthHeaderFormat"),
+        "should emit binding-to-core impl for plain data enum; got:\n{binding_to_core}"
+    );
+
+    let core_to_binding = gen_enum_from_core_to_binding_cfg(&auth_format_enum, "fixture_core", &config);
+    assert!(
+        core_to_binding.contains("impl From<fixture_core::AuthHeaderFormat> for JsAuthHeaderFormat"),
+        "should emit core-to-binding impl for plain data enum; got:\n{core_to_binding}"
+    );
+}

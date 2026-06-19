@@ -647,6 +647,15 @@ impl Backend for NapiBackend {
                      }}\n"
                 ));
             } else {
+                // Emit binding-to-core for plain data enums that are input types.
+                // Even though NAPI string enums collapse to unit variants in the binding,
+                // losing data-variant payloads, the binding-to-core conversion can still be
+                // generated using `Default::default()` to fill lossy fields. This is needed
+                // when structs containing these enums generate `From<binding>` impls that
+                // call `.into()` on the enum fields (e.g., CustomProviderConfig.auth_header).
+                //
+                // Note: Enums NOT in input_types will be handled by the second enum loop
+                // (lines 738+) which processes enums in fields of types with From impls.
                 if input_types.contains(&e.name) && crate::codegen::conversions::can_generate_enum_conversion(e) {
                     builder.add_item(&crate::codegen::conversions::gen_enum_from_binding_to_core_cfg(
                         e,
@@ -655,6 +664,9 @@ impl Backend for NapiBackend {
                     ));
                     emitted_enum_binding_to_core.insert(e.name.clone());
                 }
+                // Always emit core-to-binding (unit variants 1:1, data variants discard data with `..`).
+                // This ensures both directions are available for all plain enums in the API surface,
+                // whether or not they appear in input types.
                 if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
                     builder.add_item(&crate::codegen::conversions::gen_enum_from_core_to_binding_cfg(
                         e,
@@ -732,9 +744,13 @@ impl Backend for NapiBackend {
             }
         }
 
-        // Emit From impls for unit-variant enums that appear in fields of types we've
-        // already emitted From impls for. These are needed because binding code calls
-        // `.map(Into::into)` on Option<enum> fields (e.g., Option<TextDirection>).
+        // Emit From impls for enums that appear in fields of types we've already emitted
+        // From impls for. These are needed because binding-to-core conversion code calls
+        // `.into()` on enum fields when converting struct fields (e.g., CustomProviderConfig.auth_header).
+        //
+        // Handles both unit-variant enums (direct 1:1 mapping) and plain data enums
+        // (collapses to unit variants in binding, uses Default::default() for lossy fields).
+        // Skips only tagged/untagged data enums which have their own special conversion logic.
         for typ in api
             .types
             .iter()
@@ -756,7 +772,8 @@ impl Backend for NapiBackend {
                 collect_enum_names(&field.ty, &mut field_enums);
                 for enum_name in field_enums {
                     if let Some(enum_def) = api.enums.iter().find(|e| e.name == enum_name) {
-                        // Skip data enums — they have their own conversion logic via tagged enum handling
+                        // Only skip tagged/untagged data enums (they use custom conversion logic).
+                        // Plain data enums (e.g., AuthHeaderFormat) still get binding-to-core impls.
                         let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
                         if enum_def.serde_tag.is_some() && has_data_variants {
                             continue;
@@ -764,7 +781,8 @@ impl Backend for NapiBackend {
                         if enum_def.serde_untagged && has_data_variants {
                             continue;
                         }
-                        // Unit-variant enum: emit From impl for binding→core if not already emitted
+                        // Emit From impl for binding-to-core if not already emitted (handles both
+                        // unit-variant and plain data enums; data enums use Default::default() for lossy fields)
                         if !emitted_enum_binding_to_core.contains(&enum_def.name)
                             && crate::codegen::conversions::can_generate_enum_conversion(enum_def)
                         {
