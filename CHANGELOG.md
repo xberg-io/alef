@@ -53,6 +53,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it now resolves the parent object and calls the existing accessor
   (`$result->getChoices()[0]->getMessage()->text()`), matching the other backends.
   (`src/e2e/codegen/php/assertions.rs`)
+- **(backends/php): drop the `text_from_<field>()` content accessor emission.** It placed a
+  `serde_json::Value`-taking helper inside the `#[php_impl]` block, which ext-php-rs rejects
+  (`&serde_json::Value: FromZvalMut` unsatisfied), breaking `liter-llm-php` compilation during a
+  full regen. The display text is exposed via the core-derived `text()` accessor instead.
+  (`src/backends/php/gen_bindings/types/structs.rs`)
 
 ### Fixed
 
