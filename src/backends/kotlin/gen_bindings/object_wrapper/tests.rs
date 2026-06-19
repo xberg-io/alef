@@ -680,11 +680,15 @@ fn untagged_union_text_types_emits_text_accessor() {
 
     // Must emit @JsonDeserialize and @JsonSerialize for untagged
     assert!(
-        out.contains("@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = AssistantContentDeserializer::class)"),
+        out.contains(
+            "@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = AssistantContentDeserializer::class)"
+        ),
         "untagged sealed class must have @JsonDeserialize; got:\n{out}",
     );
     assert!(
-        out.contains("@com.fasterxml.jackson.databind.annotation.JsonSerialize(using = AssistantContentSerializer::class)"),
+        out.contains(
+            "@com.fasterxml.jackson.databind.annotation.JsonSerialize(using = AssistantContentSerializer::class)"
+        ),
         "untagged sealed class must have @JsonSerialize; got:\n{out}",
     );
 

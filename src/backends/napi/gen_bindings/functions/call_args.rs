@@ -63,7 +63,9 @@ pub(in crate::backends::napi::gen_bindings) fn napi_apply_primitive_casts_to_cal
                 // String/char params whose core type is `Cow<str>`: the NAPI binding receives an
                 // owned `String`, which the generic let-binding path passes through unchanged. Mirror
                 // `napi_gen_call_args` so the value is converted into the core's `Cow`.
-                TypeRef::String | TypeRef::Char if arg_is_bare_name && !p.is_ref && p.core_wrapper == CoreWrapper::Cow => {
+                TypeRef::String | TypeRef::Char
+                    if arg_is_bare_name && !p.is_ref && p.core_wrapper == CoreWrapper::Cow =>
+                {
                     if p.optional {
                         format!("{}.map(std::borrow::Cow::Owned)", arg)
                     } else {

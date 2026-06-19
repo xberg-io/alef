@@ -110,8 +110,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     // via the core crate, so it is not in scope without a direct dependency.
     if let Some(ffi) = config.ffi.as_ref() {
         for capsule in ffi.capsule_types.values() {
-            let (Some(package), Some(version)) = (capsule.package.as_ref(), capsule.package_version.as_ref())
-            else {
+            let (Some(package), Some(version)) = (capsule.package.as_ref(), capsule.package_version.as_ref()) else {
                 continue;
             };
             let dep_prefix = format!("{package} ");

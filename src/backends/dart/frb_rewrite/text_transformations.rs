@@ -559,10 +559,7 @@ pub fn inject_display_as_text_methods(source: &str, text_type_names: &[String]) 
         // tolerate an optional `with <mixin>` clause (anything up to the first `{` on the
         // declaration line). `[^{}\n]*` keeps the match on the declaration line only.
         // regex::escape handles special characters in type_name safely.
-        let pattern = format!(
-            r"sealed\s+class\s+{}\b[^{{}}\n]*\{{",
-            regex::escape(type_name)
-        );
+        let pattern = format!(r"sealed\s+class\s+{}\b[^{{}}\n]*\{{", regex::escape(type_name));
         let sealed_class_regex = Regex::new(&pattern).expect("sealed class regex should be valid");
         let found = sealed_class_regex.is_match(&result);
 

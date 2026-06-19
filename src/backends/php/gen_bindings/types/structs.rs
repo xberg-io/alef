@@ -424,7 +424,7 @@ pub(crate) fn gen_struct_methods(
         &AHashSet::new(), // bridge_type_aliases: empty by default
         &[],              // never_skip_cfg_field_names: empty by default
         mutex_types,
-        &[],              // untagged_union_text_types: empty by default
+        &[], // untagged_union_text_types: empty by default
     )
 }
 

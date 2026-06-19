@@ -644,8 +644,7 @@ mod tests {
 
         // Verify the coerced expression accesses .text with nil-guard
         assert_eq!(
-            coerced,
-            "((result.content && result.content.text) || \"\")",
+            coerced, "((result.content && result.content.text) || \"\")",
             "display_as_text field should emit nil-guarded .text accessor"
         );
     }
@@ -677,8 +676,7 @@ mod tests {
 
         // Verify the coerced expression does NOT access .text
         assert_eq!(
-            coerced,
-            "result.content",
+            coerced, "result.content",
             "non-display_as_text field should use bare expression"
         );
     }

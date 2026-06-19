@@ -24,7 +24,11 @@ pub(super) fn render_build_gradle_kotlin_android(
     // AGP 9.0+ ships built-in Kotlin support and rejects the explicit
     // `kotlin("android")` plugin; emit it only for AGP < 9 (see the package
     // build.gradle emitter for the full rationale).
-    let agp_major: u32 = android_gradle_plugin.split('.').next().and_then(|major| major.parse().ok()).unwrap_or(0);
+    let agp_major: u32 = android_gradle_plugin
+        .split('.')
+        .next()
+        .and_then(|major| major.parse().ok())
+        .unwrap_or(0);
     let kotlin_android_plugin_line = if agp_major >= 9 {
         String::new()
     } else {

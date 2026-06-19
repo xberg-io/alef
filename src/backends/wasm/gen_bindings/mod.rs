@@ -85,11 +85,12 @@ impl Backend for WasmBackend {
         // Content-union types opted into a display-text binding (crate-level
         // `untagged_union_text_types`): map them to `String` so the binding struct stores and
         // returns the display text instead of an opaque discriminant. Empty by default → no-op.
-        let text_field_enum_names: AHashSet<String> =
-            config.untagged_union_text_types.iter().cloned().collect();
+        let text_field_enum_names: AHashSet<String> = config.untagged_union_text_types.iter().cloned().collect();
         let mut type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
         for name in &text_field_enum_names {
-            type_overrides.entry(name.clone()).or_insert_with(|| "String".to_string());
+            type_overrides
+                .entry(name.clone())
+                .or_insert_with(|| "String".to_string());
         }
         let env_shims = wasm_config.map(|c| c.env_shims.clone()).unwrap_or_default();
         let prefix = config.wasm_type_prefix();

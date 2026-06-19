@@ -26,7 +26,11 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     // AGP 9.0+ ships built-in Kotlin support and rejects re-application of the
     // `org.jetbrains.kotlin.android` plugin; AGP 8.x requires the explicit line.
     // Emit it only for AGP < 9 (derived from the pin's major version).
-    let agp_major: u32 = android_gradle_plugin.split('.').next().and_then(|major| major.parse().ok()).unwrap_or(0);
+    let agp_major: u32 = android_gradle_plugin
+        .split('.')
+        .next()
+        .and_then(|major| major.parse().ok())
+        .unwrap_or(0);
     let kotlin_android_plugin_line = if agp_major >= 9 {
         String::new()
     } else {
