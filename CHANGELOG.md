@@ -34,9 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **(e2e/codegen/swift): use the per-call `result_type` override for root-type
-  detection** so first-class result structs render property access
-  (`result.choices`) instead of method-call access. (`src/e2e/codegen/swift/values.rs`)
+- **(e2e/codegen/swift): seed the first-class map with data-variant serde enums**
+  so it matches the binding generator's first-class set. Previously only unit enums
+  were seeded, so a struct with a data-enum field (e.g. `AssistantMessage.content:
+  AssistantContent`) was wrongly demoted to non-first-class, cascading up to
+  `ChatCompletionResponse` and emitting method-call access (`result.choices()`)
+  where the binding exposes a property (`result.choices`). Fixes the multimodal
+  swift e2e compile error. (`src/e2e/codegen/swift/values.rs`)
 
 ### Fixed
 

@@ -215,12 +215,24 @@ pub(super) fn build_swift_first_class_map(
         }
     }
     // Seed with unit serde enum names — Codable on the Swift side and can appear
-    // as leaf fields on struct DTOs (matches gen_bindings.rs unit_serde_enum_names).
-    let mut known_dto_names: HashSet<String> = enum_defs
+    // as leaf fields on struct DTOs. Also seed data-variant enums (tagged + untagged)
+    // that have any fields, matching gen_bindings.rs which seeds both unit + data enums.
+    // This ensures containing structs (like ChatCompletionResponse holding Choice holding
+    // AssistantContent) are classified as first-class when all their fields are supported.
+    let unit_serde_enum_names: HashSet<String> = enum_defs
         .iter()
         .filter(|e| e.has_serde && e.variants.iter().all(|v| v.fields.is_empty()))
         .map(|e| e.name.clone())
         .collect();
+
+    let data_variant_enum_names: HashSet<String> = enum_defs
+        .iter()
+        .filter(|e| e.has_serde && e.variants.iter().any(|v| !v.fields.is_empty()))
+        .map(|e| e.name.clone())
+        .collect();
+
+    let mut known_dto_names: HashSet<String> = unit_serde_enum_names.clone();
+    known_dto_names.extend(data_variant_enum_names.iter().cloned());
 
     // Candidate struct DTOs: non-opaque, has_serde, non-empty fields.
     // Trait types and binding-excluded types are skipped (matches backend semantics
