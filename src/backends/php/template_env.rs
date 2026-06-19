@@ -453,6 +453,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/php_wrapped_body_with_let_bindings.jinja"),
     ),
     (
+        "php_ok_wrapped_body_with_let_bindings.jinja",
+        include_str!("templates/php_ok_wrapped_body_with_let_bindings.jinja"),
+    ),
+    (
         "php_stub_error_body.jinja",
         include_str!("templates/php_stub_error_body.jinja"),
     ),

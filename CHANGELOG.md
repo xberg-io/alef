@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PHP receives map parameters as `HashMap`, but core functions can require `BTreeMap`; the PHP
   call-argument helpers now collect those values into `BTreeMap` before invoking the core API.
   (`src/backends/php/gen_bindings/helpers/params.rs`)
+- **(backends/php): wrap infallible free-function results when parameter conversion can fail.**
+  Free functions with fallible PHP-side parameter conversion, such as `Vec<Struct>` decoded from
+  PHP arrays, now return `PhpResult<T>` and wrap successful core calls in `Ok(...)` so generated
+  Rust source can use conversion errors without a type mismatch. (`src/backends/php/gen_bindings/functions/methods.rs`,
+  `src/backends/php/gen_bindings/helpers/params.rs`, `src/backends/php/template_env.rs`,
+  `src/backends/php/templates/php_ok_wrapped_body_with_let_bindings.jinja`)
 - **(backends/php): serialize string-mapped data-enum returns instead of treating them as DTOs.**
   PHP now distinguishes pure unit string enums from externally-tagged data enums when wrapping
   return values, preserving data-variant payloads as JSON strings while unit enums still return

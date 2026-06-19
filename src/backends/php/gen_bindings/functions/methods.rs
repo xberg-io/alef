@@ -12,7 +12,7 @@ use minijinja::context;
 
 use super::super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params,
-    gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, php_wrap_return,
+    gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, param_conversion_is_fallible, php_wrap_return,
 };
 use super::params::{
     PhpEnumReturnSets, PhpParamTypeSets, apply_bridge_none_substitutions, apply_default_param_substitutions,
@@ -525,7 +525,14 @@ pub(crate) fn gen_function_as_static_method(
     let visible_params = promote_default_params(&visible_params, type_sets.default, type_sets.opaque);
     let params = gen_php_function_params(&visible_params, mapper, type_sets.opaque, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
-    let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+    // A fallible param conversion (e.g. a `Vec<Struct>` decoded element-by-element) emits
+    // `return Err(...)`, so the function must return `PhpResult<T>` even when the core fn is
+    // infallible. `gen_function_body` Ok-wraps the success path in the same condition.
+    let has_fallible_param = func
+        .params
+        .iter()
+        .any(|p| param_conversion_is_fallible(p, type_sets.opaque, type_sets.enums));
+    let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some() || has_fallible_param);
     // For Bytes returns, convert Vec<u8> to String in the type annotation
     if matches!(&func.return_type, TypeRef::Bytes) {
         return_annotation = override_bytes_return_type(&return_annotation);
@@ -576,6 +583,14 @@ fn gen_function_body(
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, type_sets.opaque);
+    // When the core fn is infallible but a param conversion can `return Err(...)`, the binding
+    // signature is still `PhpResult<T>` (see `gen_function_as_static_method`), so the success
+    // path must be `Ok(...)`-wrapped.
+    let force_ok = func.error_type.is_none()
+        && func
+            .params
+            .iter()
+            .any(|p| param_conversion_is_fallible(p, type_sets.opaque, type_sets.enums));
     if can_delegate {
         let promoted_params = promote_default_params(&func.params, type_sets.default, type_sets.opaque);
         let promoted_names = promoted_default_param_names(&func.params, type_sets.default, type_sets.opaque);
@@ -646,8 +661,13 @@ fn gen_function_body(
                 enum_returns.json_string_enum_names,
                 enum_returns.string_enum_names,
             );
+            let body_template = if force_ok {
+                "php_ok_wrapped_body_with_let_bindings.jinja"
+            } else {
+                "php_wrapped_body_with_let_bindings.jinja"
+            };
             crate::backends::php::template_env::render(
-                "php_wrapped_body_with_let_bindings.jinja",
+                body_template,
                 context! {
                     let_bindings => &let_bindings,
                     wrapped_call => &wrapped_call,
@@ -720,8 +740,13 @@ fn gen_function_body(
                 enum_returns.json_string_enum_names,
                 enum_returns.string_enum_names,
             );
+            let body_template = if force_ok {
+                "php_ok_wrapped_body_with_let_bindings.jinja"
+            } else {
+                "php_wrapped_body_with_let_bindings.jinja"
+            };
             crate::backends::php::template_env::render(
-                "php_wrapped_body_with_let_bindings.jinja",
+                body_template,
                 context! {
                     let_bindings => &let_bindings,
                     wrapped_call => &wrapped_call,

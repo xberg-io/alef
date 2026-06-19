@@ -22,6 +22,27 @@ pub(crate) fn references_named_type(ty: &crate::core::ir::TypeRef, names: &AHash
     }
 }
 
+/// True when a param's binding→core conversion can fail (emits `return Err(...)`), which forces
+/// the enclosing function to return `PhpResult<T>` even if the core function is infallible.
+///
+/// This is the case for `Vec<StructType>` params: the PHP array is decoded element-by-element via
+/// `FromZval`, and a non-convertible element triggers `return Err(...)` (see
+/// `php_vec_named_struct_let_binding.jinja`). `Vec<enum>` (string round-trip) and `Vec<opaque>` do
+/// not fail this way.
+pub(crate) fn param_conversion_is_fallible(
+    p: &crate::core::ir::ParamDef,
+    opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
+) -> bool {
+    use crate::core::ir::TypeRef;
+    if let TypeRef::Vec(inner) = &p.ty {
+        if let TypeRef::Named(name) = inner.as_ref() {
+            return !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str());
+        }
+    }
+    false
+}
+
 pub(crate) fn has_enum_named_field(typ: &crate::core::ir::TypeDef, enum_names: &AHashSet<String>) -> bool {
     fn type_ref_has_enum_named(ty: &crate::core::ir::TypeRef, enum_names: &AHashSet<String>) -> bool {
         use crate::core::ir::TypeRef;
