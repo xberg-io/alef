@@ -64,6 +64,7 @@ pub(crate) fn emit_bridge_fn(
             params => params.join(", "),
             return_ty => return_ty.as_str(),
             has_explicit_return => has_explicit_return,
+            source_cfg => f.cfg.as_deref().unwrap_or(""),
         },
     ));
 
@@ -146,6 +147,33 @@ pub(crate) fn emit_bridge_fn(
                         format!("{bound_name}.as_ref()")
                     } else if p.is_ref {
                         format!("{bound_name}.as_ref().unwrap()")
+                    } else {
+                        bound_name
+                    };
+                }
+                // BTreeMap<String, String> params: FRB bridges these as HashMap<String, String>.
+                // We need to convert to BTreeMap for the core call. The named `let` binding owns
+                // the converted map so a `&` reference can borrow it across the call (an inline
+                // `&collect(...)` would drop the temporary before the call returns).
+                if p.map_is_btree {
+                    let bound_name = format!("__{}_btree", p.name);
+                    if p.optional {
+                        pre_call_bindings.push(format!(
+                            "    let {bound_name} = {}.map(|m| m.into_iter().collect::<std::collections::BTreeMap<String, String>>());",
+                            p.name
+                        ));
+                        return if p.is_ref {
+                            format!("{bound_name}.as_ref()")
+                        } else {
+                            bound_name
+                        };
+                    }
+                    pre_call_bindings.push(format!(
+                        "    let {bound_name} = {}.into_iter().collect::<std::collections::BTreeMap<String, String>>();",
+                        p.name
+                    ));
+                    return if p.is_ref {
+                        format!("&{bound_name}")
                     } else {
                         bound_name
                     };
@@ -281,7 +309,10 @@ fn dart_call_arg_with_mirror_transmute(
             return format!("{name}.map(std::path::PathBuf::from)");
         }
         if p.is_ref {
-            return format!("std::path::Path::new(&{name})");
+            // Core function wants &Path. We have a String (dart param), so:
+            // 1. Create a PathBuf from the string
+            // 2. Borrow it as &Path
+            return format!("&std::path::PathBuf::from({name})");
         }
         return format!("std::path::PathBuf::from({name})");
     }
@@ -353,6 +384,17 @@ fn dart_call_arg_with_mirror_transmute(
         return build_named_in_transmute(name, type_name, &core_ty, p.is_ref, p.is_mut, p.optional);
     }
 
+    // Vec<T> to &[T] slice parameters: when core expects a slice but we have an owned Vec,
+    // pass a reference to the Vec (which coerces to &[T]).
+    if let TypeRef::Vec(_inner) = &p.ty {
+        if p.is_ref && !p.optional {
+            // Core param is &[T], mirror param is Vec<T>. Pass reference.
+            // Only emit leading & here; the inner type conversions (if any) are handled
+            // elsewhere and will work with the slice reference.
+            return format!("&{name}");
+        }
+    }
+
     // Vec<Named>: use From or transmute depending on whether the element type has sanitized fields.
     if let TypeRef::Vec(inner) = &p.ty {
         if let TypeRef::Named(type_name) = inner.as_ref() {
@@ -393,6 +435,14 @@ fn dart_call_arg_with_mirror_transmute(
         }
     }
 
+    // Option<Vec<u8>>: convert to Option<&[u8]> via `.as_deref()`.
+    if let TypeRef::Optional(inner) = &p.ty {
+        if matches!(inner.as_ref(), TypeRef::Bytes) && p.is_ref {
+            // Core wants Option<&[u8]>, mirror has Option<Vec<u8>>
+            return format!("{name}.as_deref()");
+        }
+    }
+
     // Option<Named>: use From or transmute depending on whether the type has sanitized fields.
     if let TypeRef::Optional(inner) = &p.ty {
         if let TypeRef::Named(type_name) = inner.as_ref() {
@@ -401,6 +451,15 @@ fn dart_call_arg_with_mirror_transmute(
                 return format!("{name}.map({core_ty}::from)");
             }
             return format!("{name}.map(|v| unsafe {{ std::mem::transmute::<{type_name}, {core_ty}>(v) }})");
+        }
+    }
+
+    // Json: convert String to serde_json::Value.
+    if matches!(p.ty, TypeRef::Json) {
+        if p.optional {
+            return format!("{name}.as_deref().and_then(|s| serde_json::from_str(s).ok())");
+        } else {
+            return format!("serde_json::from_str(&{name}).unwrap_or(serde_json::Value::Null)");
         }
     }
 

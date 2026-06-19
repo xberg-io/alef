@@ -1,1 +1,4 @@
-        ({{ wrap_return }})({{ call }}.await)
+        {
+            let v = {{ call }}.await;
+            {{ wrap_return_impl }}
+        }

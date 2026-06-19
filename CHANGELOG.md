@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(backends/dart): fix the generated `kreuzberg-dart` Rust crate failing to compile on the presets/heuristics surface.** A cluster of codegen defects produced E0282/E0308/E0599 in the FRB mirror crate once opaque accessors returning borrows (`&T`, `&[T]`, `Option<&T>`, `Option<&[u8]>`) and free functions taking slice/`&Path`/`&BTreeMap`/`serde_json::Value` params were exposed:
+
+  - **Opaque return wraps no longer rely on an IIFE.** `build_opaque_return_wrap` emitted `(|v| Mirror::from(v))(call)`, whose un-annotated closure param defeated type inference (E0282). The two `rust_opaque_call_wrap*.jinja` templates now emit a `{ let v = <call>; <body> }` block so `v` takes its concrete type from the call expression, and `emit_opaque_call_return` strips the closure header to recover the body. (`src/backends/dart/gen_rust_crate/opaque.rs`, `src/backends/dart/templates/rust_opaque_call_wrap.rs.jinja`, `src/backends/dart/templates/rust_opaque_call_wrap_await.rs.jinja`)
+  - **Borrowed returns are cloned before the owned `From` conversion.** `&T` accessors (e.g. a `global()` singleton), `Vec<&T>`/`&[T]`, and `Option<&T>` now clone each borrowed element before `Mirror::from`, and `Option<&[u8]>` maps through `.to_vec()` to the declared `Option<Vec<u8>>`. (`src/backends/dart/gen_rust_crate/opaque.rs`)
+  - **`&Path` opaque-method args borrow the constructed `PathBuf`.** When the core method takes `&Path`, the generated code now emits `std::path::Path::new(&name)` (and the optional analogue) instead of passing an owned `PathBuf` (E0308). (`src/backends/dart/gen_rust_crate/opaque.rs`)
+  - **Free-function arg transforms cover slice, optional-bytes, JSON, and `&BTreeMap` params.** `Vec<T>` params bound for `&[T]` slices pass `&name`; `Option<Vec<u8>>` → `Option<&[u8]>` via `.as_deref()`; `serde_json::Value` params parse the bridged JSON `String`; and `&BTreeMap<String, String>` params emit a named `let` binding (`name.into_iter().collect::<BTreeMap<_, _>>()`) borrowed as `&binding` so the owned map outlives the call — branching on `optional` so non-optional maps no longer hit an `Option`-only `.map()`/`.unwrap()` path. `dart_call_arg` also maps `Option<Bytes>` to `.as_deref()`. (`src/backends/dart/gen_rust_crate/bridge_fn.rs`, `src/backends/dart/gen_rust_crate/conversions.rs`)
+
 ## [0.25.46] - 2026-06-19
 
 ### Added

@@ -264,6 +264,7 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
 
     match (&p.ty, p.optional) {
         (TypeRef::Bytes, false) => format!("&{name}"),
+        (TypeRef::Bytes, true) => format!("{name}.as_deref()"),
         (TypeRef::String | TypeRef::Char, false) => format!("&{name}"),
         (TypeRef::String | TypeRef::Char, true) => format!("{name}.as_deref()"),
         (TypeRef::Vec(_), true) => format!("{name}.as_deref()"),

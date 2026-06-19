@@ -515,11 +515,32 @@ fn emit_opaque_call_return(out: &mut String, call: &str, wrap_return: &str, is_a
         (false, false, true) => "rust_opaque_call.rs.jinja",
         (false, false, false) => "rust_opaque_call_wrap.rs.jinja",
     };
+
+    // Convert closure `|v| body` to the implementation body `body`.
+    // The templates will now wrap this in a `let v = call; body` block.
+    let wrap_return_impl = if wrap_return.starts_with("|") {
+        // Strip the leading closure syntax and extract the body.
+        // Pattern: |v| ... or |v: Type| ...
+        if let Some(body_start) = wrap_return.find("|") {
+            if let Some(body_end) = wrap_return[body_start + 1..].find("|") {
+                let body = &wrap_return[body_start + body_end + 2..].trim();
+                body.to_string()
+            } else {
+                wrap_return.to_string()
+            }
+        } else {
+            wrap_return.to_string()
+        }
+    } else {
+        wrap_return.to_string()
+    };
+
     out.push_str(&crate::backends::dart::template_env::render(
         template,
         minijinja::context! {
             call => call,
             wrap_return => wrap_return,
+            wrap_return_impl => wrap_return_impl.as_str(),
         },
     ));
 }
@@ -687,8 +708,15 @@ fn emit_opaque_method_body(
                 }
                 TypeRef::Path => {
                     // FRB bridges PathBuf as String. Convert to PathBuf for the core call.
+                    // If core expects &Path, borrow the constructed PathBuf.
                     if p.optional {
-                        format!("{param_name}.map(::std::path::PathBuf::from)")
+                        if p.is_ref {
+                            format!("{param_name}.as_ref().map(|s| std::path::Path::new(s))")
+                        } else {
+                            format!("{param_name}.map(::std::path::PathBuf::from)")
+                        }
+                    } else if p.is_ref {
+                        format!("std::path::Path::new(&{param_name})")
                     } else {
                         format!("::std::path::PathBuf::from({param_name})")
                     }
@@ -723,7 +751,15 @@ fn build_opaque_return_wrap(ty: &TypeRef, returns_ref: bool) -> String {
     use crate::core::ir::PrimitiveType;
     match ty {
         TypeRef::Named(mirror_name) => {
-            format!("|v| {mirror_name}::from(v)")
+            if returns_ref {
+                // Core returns `&T` (e.g. a `global()` accessor). The generated
+                // `From<core::T> for T` impl takes an owned value, so clone the
+                // borrow before converting. Emit a direct call with turbofish or
+                // a suffix that works with method chains.
+                format!("|v| {mirror_name}::from(v.clone())")
+            } else {
+                format!("|v| {mirror_name}::from(v)")
+            }
         }
         TypeRef::Bytes => {
             // Core returns `bytes::Bytes`, bridge declares `Vec<u8>`.
@@ -742,20 +778,36 @@ fn build_opaque_return_wrap(ty: &TypeRef, returns_ref: bool) -> String {
             }
         }
         TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(mirror_name) if returns_ref => {
+                // Core returns `&[T]` / `Vec<&T>`; iterating borrows each element,
+                // so clone before the owned `From` conversion.
+                format!("|v| v.iter().map(|e| {mirror_name}::from(e.clone())).collect::<Vec<_>>()")
+            }
             TypeRef::Named(mirror_name) => {
-                format!("|v| v.into_iter().map({mirror_name}::from).collect()")
+                format!("|v| v.into_iter().map({mirror_name}::from).collect::<Vec<_>>()")
             }
             TypeRef::String if returns_ref => {
                 // Core returns `&[&str]`, mirror declares `Vec<String>`.
-                "|v: &[&str]| v.iter().map(|s| s.to_string()).collect()".to_string()
+                "|v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>()".to_string()
             }
             _ => String::new(),
         },
         TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(mirror_name) if returns_ref => {
+                // Core returns `Option<&T>` (e.g. a `get()` lookup); clone the
+                // borrowed inner before the owned `From` conversion. Annotate
+                // the closure param to help type inference.
+                format!("|v: Option<_>| v.map(|e| {mirror_name}::from(e.clone()))")
+            }
             TypeRef::Named(mirror_name) => {
-                format!("|v: Option<_>| v.map({mirror_name}::from)")
+                // Annotate to disambiguate when From impls are overloaded.
+                format!("|v: Option<_>| v.map(|e| {mirror_name}::from(e))")
             }
             TypeRef::String if returns_ref => "|v: Option<&str>| v.map(|s| s.to_string())".to_string(),
+            TypeRef::Bytes => {
+                // Core returns `Option<&[u8]>`, mirror declares `Option<Vec<u8>>`.
+                "|v: Option<_>| v.map(|b| b.to_vec())".to_string()
+            }
             _ => String::new(),
         },
         TypeRef::Primitive(prim) => {
@@ -804,6 +856,7 @@ pub(super) fn emit_from_json_fn(out: &mut String, ty: &TypeDef, source_crate_nam
             fn_name => fn_name.as_str(),
             type_name => type_name,
             core_ty => core_ty.as_str(),
+            source_cfg => ty.cfg.as_deref().unwrap_or(""),
         },
     ));
 }
