@@ -707,9 +707,12 @@ impl Backend for SwiftBackend {
             build_dep: BuildDependency::None,
             // Build the Rust bridge crate first so swift-bridge codegen produces
             // the Swift glue files that the Swift Package consumes.
+            // Scope the build to only the Swift crate (via -p) to avoid rebuilding
+            // unrelated binding crates (e.g., Dart's FRB codegen) which can overwrite
+            // their post-build processing (e.g., Dart's text() extension injection).
             post_build: vec![PostBuildStep::RunCommand {
                 cmd: "cargo",
-                args: vec!["build", "--release"],
+                args: vec!["build", "-p", "liter-llm-swift", "--release"],
             }],
         })
     }

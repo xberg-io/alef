@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(backends/swift): scope the swift post-build `cargo build` to `-p liter-llm-swift`.**
+  It previously built the whole workspace, which re-triggered other crates' build scripts —
+  notably liter-llm-dart's frb codegen, which regenerated `lib.dart` and wiped the dart
+  content-union `.text()` extension injected by an earlier post-build step. Scoping the build
+  keeps each backend's post-build output intact across a full `alef all`.
+  (`src/backends/swift/gen_bindings/mod.rs`)
 - **(e2e/codegen/swift): seed the first-class map with data-variant serde enums**
   so it matches the binding generator's first-class set. Previously only unit enums
   were seeded, so a struct with a data-enum field (e.g. `AssistantMessage.content:
