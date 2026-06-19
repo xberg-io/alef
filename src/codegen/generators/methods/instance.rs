@@ -94,12 +94,16 @@ pub fn gen_method(
     // Owned receivers require the type to implement Clone (builder pattern).
     // RefMut receivers normally can't be delegated on Arc<T>, but Arc<Mutex<T>> allows
     // &mut T via .lock().unwrap(), so mutex types CAN delegate RefMut methods.
-    // Trait methods can't be delegated on opaque types (Arc deref doesn't expose trait methods).
+    // Trait methods can't be delegated through an `Arc<dyn Trait>` deref (only the trait's
+    // own vtable is visible). But an `Arc<Mutex<ConcreteType>>` opaque locks to a concrete
+    // `&mut T`, on which every in-scope method — inherent or trait — resolves normally, so
+    // mutex types CAN delegate trait-flagged methods. (This also covers inherent methods the
+    // extractor over-attributes a `trait_source` to.)
     // Async methods are allowed — gen_async_body handles them below.
     let opaque_can_delegate = is_opaque
         && !method.sanitized
         && (!is_ref_mut_receiver || self_needs_mutex)
-        && !is_trait_method
+        && (!is_trait_method || self_needs_mutex)
         && (!is_owned_receiver || typ.is_clone)
         && method
             .params
