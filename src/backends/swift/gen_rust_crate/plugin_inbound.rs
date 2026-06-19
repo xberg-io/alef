@@ -30,11 +30,19 @@ pub(crate) use wrappers::{emit_inbound_wrapper, emit_plugin_error_helper};
 /// callers do; it has to send a JSON payload that Rust deserialises into the source type.
 /// Primitive scalars, `String`, `Vec<u8>`, and `Vec<leaf>` pass through as-is.
 pub(super) fn inbound_bridge_type(ty: &TypeRef) -> String {
-    if needs_inbound_json_bridge(ty) {
-        return "String".to_string();
-    }
     match ty {
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "String".to_string(),
+        TypeRef::Optional(inner) => format!("Option<{}>", inbound_bridge_type(inner)),
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Bytes) => "Vec<u8>".to_string(),
         TypeRef::Vec(inner) => format!("Vec<{}>", inbound_bridge_type(inner)),
+        TypeRef::Map(k, v) => {
+            format!(
+                "std::collections::HashMap<{}, {}>",
+                inbound_bridge_type(k),
+                inbound_bridge_type(v)
+            )
+        }
+        _ if needs_inbound_json_bridge(ty) => "String".to_string(),
         _ => swift_bridge_rust_type(ty),
     }
 }
@@ -56,4 +64,86 @@ pub(super) fn has_plugin_super(bridge_config: &TraitBridgeConfig) -> bool {
         .as_deref()
         .map(|s| s == "Plugin" || s.ends_with("::Plugin"))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inbound_bridge_type_optional_vec_named() {
+        // Optional<Vec<Named>> should become Option<Vec<String>>
+        // because Named types are JSON-bridged (String) at inbound boundaries.
+        let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named(
+            "MyCustomType".to_string(),
+        )))));
+
+        let result = inbound_bridge_type(&ty);
+        assert_eq!(
+            result, "Option<Vec<String>>",
+            "Optional<Vec<Named>> should become Option<Vec<String>> for JSON bridging"
+        );
+    }
+
+    #[test]
+    fn test_inbound_bridge_type_optional_named() {
+        // Option<Named> should become just String due to line 34 special case.
+        let ty = TypeRef::Optional(Box::new(TypeRef::Named("MyStruct".to_string())));
+
+        let result = inbound_bridge_type(&ty);
+        assert_eq!(
+            result, "String",
+            "Optional<Named> should become String for JSON bridging"
+        );
+    }
+
+    #[test]
+    fn test_inbound_bridge_type_vec_string_in_optional() {
+        // Option<Vec<String>> should remain Option<Vec<String>>
+        // because String is a leaf type that's already bridge-safe.
+        let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::String))));
+
+        let result = inbound_bridge_type(&ty);
+        assert_eq!(
+            result, "Option<Vec<String>>",
+            "Optional<Vec<String>> should pass through unchanged"
+        );
+    }
+
+    #[test]
+    fn test_inbound_bridge_type_map_named_string() {
+        // Map<Named, String> should become HashMap<String, String>
+        // because Named keys are JSON-bridged (String).
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::Named("KeyType".to_string())),
+            Box::new(TypeRef::String),
+        );
+
+        let result = inbound_bridge_type(&ty);
+        assert_eq!(
+            result, "std::collections::HashMap<String, String>",
+            "Map<Named, String> should become HashMap<String, String> for JSON bridging"
+        );
+    }
+
+    #[test]
+    fn test_inbound_bridge_type_vec_u8() {
+        // Vec<u8> (Bytes) is a leaf type that passes through unchanged.
+        let ty = TypeRef::Vec(Box::new(TypeRef::Bytes));
+
+        let result = inbound_bridge_type(&ty);
+        assert_eq!(result, "Vec<u8>", "Vec<u8> (Bytes) should remain Vec<u8>");
+    }
+
+    #[test]
+    fn test_inbound_bridge_type_vec_named() {
+        // Vec<Named> should become Vec<String> because the inner Named is JSON-bridged.
+        let ty = TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string())));
+
+        let result = inbound_bridge_type(&ty);
+        assert_eq!(
+            result, "Vec<String>",
+            "Vec<Named> should become Vec<String> for JSON bridging"
+        );
+    }
 }
