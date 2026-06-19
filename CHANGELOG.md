@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.49] - 2026-06-19
+
 ### Changed
 
 - **(toolchain): modernize the Android/Kotlin build toolchain and centralize Gradle wrapper generation.** Bumped the generated Android toolchain to Gradle `9.6.0` (was `8.13`), Android Gradle Plugin `9.2.0` (was `8.13.0`), Kotlin `2.4.0` (was `2.2.0`), `compileSdk` `36` (was `35`), and `minSdk` `24` (was `21`) — the full-latest triple required to build under JDK 25 daemons. The Gradle wrapper version now derives from a single `template_versions::toolchain::GRADLE_VERSION` constant, and the kotlin-android binding wrapper (`gradlew`, `gradlew.bat`, `gradle-wrapper.properties`, `gradle-wrapper.jar`) is generated from a shared module instead of hand-maintained, so the e2e and binding wrappers stay in lockstep. (`src/core/template_versions.rs`, `src/backends/kotlin_android/gradle_wrapper.rs`, `src/backends/kotlin_android/mod.rs`, `src/e2e/codegen/kotlin_android/gradle_wrapper.rs`)
