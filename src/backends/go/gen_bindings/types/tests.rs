@@ -647,7 +647,10 @@ fn gen_newtype_tuple_enum_type_honors_serde_rename_all_lowercase() {
         ],
     );
     let out = gen_newtype_tuple_enum_type(&enum_def);
-    assert!(out.contains("type ChunkerType string"), "must emit string type; got:\n{out}");
+    assert!(
+        out.contains("type ChunkerType string"),
+        "must emit string type; got:\n{out}"
+    );
     assert!(
         out.contains(r#"ChunkerTypeText ChunkerType = "text""#),
         "unit variant wire value must be lowercase; got:\n{out}"
@@ -680,10 +683,7 @@ fn gen_newtype_tuple_enum_type_no_serde_keeps_rust_variant_name() {
     let enum_def = make_newtype_tuple_enum(
         "Format",
         None,
-        vec![
-            make_unit_variant("Json", None),
-            make_tuple_variant("Custom", None),
-        ],
+        vec![make_unit_variant("Json", None), make_tuple_variant("Custom", None)],
     );
     let out = gen_newtype_tuple_enum_type(&enum_def);
     assert!(
