@@ -50,6 +50,9 @@ pub enum PostProcessor {
     /// Fix FRB-generated Dart code that incorrectly calls executeSync/executeNormal
     /// on callback function parameters.
     FrbDartFixHandlerExecutorCalls,
+    /// Inject display-as-text extensions on untagged union types so they can be
+    /// stringified in assertions. Stores the set of type names.
+    FrbDartInjectTextMethods(Vec<String>),
 }
 
 /// A post-build processing step.

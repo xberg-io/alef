@@ -217,10 +217,27 @@ pub(super) fn render_assertion_dart(
                         // For display-as-text types (e.g. AssistantContent), use .text() accessor
                         // to extract the plain-text representation instead of calling .toString()
                         // which would return the class name.
-                        let _ = writeln!(
-                            out,
-                            "    expect({field_accessor}.text().trim(), equals({dart_val}.toString().trim()));"
-                        );
+                        // Check if the field is optional; if so, use safe navigation (?.) and provide fallback.
+                        let is_optional = assertion
+                            .field
+                            .as_deref()
+                            .map(|f| {
+                                let resolved = field_resolver.resolve(f);
+                                field_resolver.is_optional(f) || field_resolver.is_optional(resolved)
+                            })
+                            .unwrap_or(false);
+
+                        if is_optional {
+                            let _ = writeln!(
+                                out,
+                                "    expect(({field_accessor}?.text() ?? '').trim(), equals({dart_val}.toString().trim()));"
+                            );
+                        } else {
+                            let _ = writeln!(
+                                out,
+                                "    expect({field_accessor}.text().trim(), equals({dart_val}.toString().trim()));"
+                            );
+                        }
                     } else {
                         // When result_is_simple is true and the field_accessor is nullable (e.g. String?),
                         // use null-coalescing operator (?? '') to handle null gracefully.
@@ -276,10 +293,27 @@ pub(super) fn render_assertion_dart(
                         );
                     } else if is_display_as_text {
                         // For display-as-text types, use .text() accessor.
-                        let _ = writeln!(
-                            out,
-                            "    expect({field_accessor}.text().trim(), isNot(equals({dart_val}.toString().trim())));"
-                        );
+                        // Check if the field is optional; if so, use safe navigation (?.) and provide fallback.
+                        let is_optional = assertion
+                            .field
+                            .as_deref()
+                            .map(|f| {
+                                let resolved = field_resolver.resolve(f);
+                                field_resolver.is_optional(f) || field_resolver.is_optional(resolved)
+                            })
+                            .unwrap_or(false);
+
+                        if is_optional {
+                            let _ = writeln!(
+                                out,
+                                "    expect(({field_accessor}?.text() ?? '').trim(), isNot(equals({dart_val}.toString().trim())));"
+                            );
+                        } else {
+                            let _ = writeln!(
+                                out,
+                                "    expect({field_accessor}.text().trim(), isNot(equals({dart_val}.toString().trim())));"
+                            );
+                        }
                     } else {
                         // When result_is_simple is true and the field_accessor is nullable (e.g. String?),
                         // use null-coalescing operator (?? '') to handle null gracefully.

@@ -386,6 +386,16 @@ impl DartBackend {
                     processor: PostProcessor::FrbDartSealedVariants,
                 });
 
+                // Inject display-as-text extension methods on untagged union types so they
+                // can be stringified in assertions. This must run after variant rewriting
+                // so parameter names are resolved when the extension accesses them.
+                if !config.untagged_union_text_types.is_empty() {
+                    post_build_steps.push(PostBuildStep::PostProcessFile {
+                        path: lib_dart_path.clone(),
+                        processor: PostProcessor::FrbDartInjectTextMethods(config.untagged_union_text_types.clone()),
+                    });
+                }
+
                 // Filter excluded functions from frb_generated.dart as well, since FRB
                 // generates Rust FFI bridge wrappers there (e.g., `crateCalculateQualityScore`).
                 post_build_steps.push(PostBuildStep::PostProcessFile {

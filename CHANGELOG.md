@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ChatCompletionResponse` and emitting method-call access (`result.choices()`)
   where the binding exposes a property (`result.choices`). Fixes the multimodal
   swift e2e compile error. (`src/e2e/codegen/swift/values.rs`)
+- **(backends/dart): wire the content-union `.text()` injection into the build
+  pipeline.** The `inject_display_as_text_methods` frb-rewrite existed but was never
+  registered as a post-build step, so the `.text()` extension on `AssistantContent`
+  was never emitted; also matched the freezed `sealed class X with _$X` mixin form,
+  and made the dart e2e emit null-safe `content?.text()`. (`src/core/backend.rs`,
+  `src/cli/pipeline/commands/build.rs`, `src/backends/dart/gen_bindings/mod.rs`,
+  `src/backends/dart/frb_rewrite/text_transformations.rs`, `src/e2e/codegen/dart/assertions.rs`)
 
 ### Fixed
 
