@@ -639,15 +639,19 @@ impl Backend for Pyo3Backend {
                 // `#[staticmethod]` factories. They are a Rust idiom; the generated pyo3 enum
                 // already exposes a native, idiomatic constructor (`ContentPart(type=..., **kwargs)`),
                 // so factory methods would be redundant non-idiomatic sugar. Pass `None`.
-                builder.add_item(&generators::gen_pyo3_data_enum_with_mapper(e, &core_import, None));
-                // A data enum is rendered as an opaque `{ inner: CoreEnum }` wrapper with no
-                // `#[derive(Default)]`. When a `Default`-deriving parent struct holds it as a
-                // non-optional field (tracked in `default_required_types`), the wrapper must
-                // implement `Default` or the parent's derive fails to compile. The core enum is
-                // guaranteed `Default` here (the parent could not derive `Default` otherwise),
-                // so forward it through `inner`. This covers core enums whose `impl Default` is
-                // `#[alef(skip)]`'d (e.g. `OcrDocument`, `ModerationInput`).
-                if default_required_types.contains(e.name.as_str()) {
+                let data_enum_code = generators::gen_pyo3_data_enum_with_mapper(e, &core_import, None);
+                // A data enum is rendered as an opaque `{ inner: CoreEnum }` wrapper. The renderer
+                // already emits `impl Default` when the core enum's `has_default` is set. When a
+                // `Default`-deriving parent struct holds the enum as a non-optional field (tracked
+                // in `default_required_types`) but the core `impl Default` is `#[alef(skip)]`'d
+                // (so `has_default` is false and no impl was emitted), forward the core `Default`
+                // through `inner` ourselves — otherwise the parent's derive fails to compile. Guard
+                // against a duplicate impl for enums the renderer already covered (e.g.
+                // `CacheBackend`, whose `impl Default` is not skipped).
+                let needs_default = default_required_types.contains(e.name.as_str())
+                    && !data_enum_code.contains(&format!("impl Default for {}", e.name));
+                builder.add_item(&data_enum_code);
+                if needs_default {
                     builder.add_item(&opaque_helpers::emit_inner_default_impl(&e.name));
                 }
             } else {
