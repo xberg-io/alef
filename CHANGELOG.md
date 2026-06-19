@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capsule functions are unchanged. (`src/backends/csharp/gen_bindings/methods/wrappers.rs`,
   `src/backends/go/gen_bindings/functions.rs`, `src/backends/kotlin_android/gen_bindings/module_facade.rs`,
   `src/backends/swift/gen_bindings/forwarders.rs`, `src/backends/zig/gen_bindings/functions.rs`)
+- **(backends/napi): use visitor result wire names in payload lookups.** The NAPI visitor bridge
+  now reads payload result object properties from each variant's `wire_name` instead of hard-coded
+  `Custom`/`Error` fallbacks. (`src/backends/napi/templates/visitor_method.jinja`)
 
 ## [0.25.49] - 2026-06-19
 

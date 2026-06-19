@@ -33,11 +33,7 @@
                 if val.get_type().ok() == Some(napi::bindgen_prelude::ValueType::Object) {
                     if let Ok(obj) = val.coerce_to_object() {
 {%- for variant in payload_result_variants %}
-                        let prop_name = match "{{ variant.name }}" {
-                            "Custom" => "custom",
-                            "Error" => "error",
-                            _ => "{{ variant.wire_name }}",
-                        };
+                        let prop_name = "{{ variant.wire_name }}";
                         if let Ok(cv) = obj.get_named_property::<napi::bindgen_prelude::Unknown>(prop_name) {
                             if !matches!(cv.get_type().unwrap_or(napi::bindgen_prelude::ValueType::Undefined), napi::bindgen_prelude::ValueType::Undefined | napi::bindgen_prelude::ValueType::Null) {
                                 if let Ok(s) = cv.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {
