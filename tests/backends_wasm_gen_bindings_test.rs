@@ -153,6 +153,7 @@ fn test_basic_generation() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -344,6 +345,7 @@ fn test_enum_generation() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -1539,6 +1541,7 @@ fn make_visit_result_wasm() -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 
@@ -2782,6 +2785,7 @@ fn test_default_factory_emitted_for_required_args_struct() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -2948,6 +2952,7 @@ fn make_enum_def(name: &str, variants: &[&str], serde_rename_all: Option<&str>) 
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 
@@ -3163,6 +3168,7 @@ fn test_vec_of_tagged_data_enum_field_uses_js_value() {
         cfg: None,
         is_copy: false,
         has_serde: true,
+        has_default: false,
         serde_tag: Some("role".to_string()),
         serde_untagged: false,
         serde_rename_all: None,
@@ -3340,6 +3346,7 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
         cfg: None,
         is_copy: false,
         has_serde: true,
+        has_default: false,
         serde_tag: Some("type".to_string()),
         serde_untagged: false,
         serde_rename_all: None,
@@ -3788,6 +3795,7 @@ fn test_wasm_js_name_on_unit_enum() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -4126,6 +4134,7 @@ fn test_sanitized_tuple_vec_field_uses_js_value_in_tagged_enum() {
         cfg: None,
         is_copy: false,
         has_serde: true,
+        has_default: false,
         serde_tag: Some("type".to_string()),
         serde_untagged: false,
         serde_rename_all: Some("snake_case".to_string()),

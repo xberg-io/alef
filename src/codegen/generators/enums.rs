@@ -51,12 +51,16 @@ pub fn gen_pyo3_data_enum_with_mapper(
     let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
     let has_sanitized = enum_has_sanitized_fields(enum_def);
     // A delegating `impl Default` (`Self { inner: Default::default() }`) only compiles when the
-    // CORE enum implements `Default`. For data enums the reliable signal is a variant marked
-    // `#[default]` (only emitted with `#[derive(Default)]`), surfaced in the IR as
-    // `EnumVariant::is_default`. When no variant carries it, the core type has no `Default` and
-    // emitting the wrapper `Default` would produce `error[E0277]: the trait bound
-    // `core::Type: std::default::Default` is not satisfied`. Gate the impl on this signal.
-    let has_default = enum_def.variants.iter().any(|v| v.is_default);
+    // CORE enum implements `Default`. Two signals indicate this:
+    // 1. A variant marked `#[default]` (`is_default = true`) — only emitted with
+    //    `#[derive(Default)]`, surfaced in the IR as `EnumVariant::is_default`.
+    // 2. `enum_def.has_default = true` — set when the extractor finds a manual
+    //    `impl Default for Enum` (no `#[default]` variant). Data enums with
+    //    `impl Default { Self::Custom(String::new()) }` fall into this category.
+    // When neither signal is present, the core type has no `Default` and emitting the
+    // wrapper `Default` would produce `error[E0277]: the trait bound
+    // `core::Type: std::default::Default` is not satisfied`.
+    let has_default = enum_def.has_default || enum_def.variants.iter().any(|v| v.is_default);
     let string_methods_content = crate::codegen::template_env::render(
         "generators/enums/enum_string_methods.jinja",
         minijinja::context! {
@@ -514,6 +518,7 @@ mod tests {
             cfg: None,
             is_copy: false,
             has_serde: true,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -559,6 +564,23 @@ mod tests {
         assert!(
             generated.contains("impl Default for EnrichStatus"),
             "expected delegating Default impl when a variant is #[default]: {generated}"
+        );
+        assert!(generated.contains("Self { inner: Default::default() }"), "{generated}");
+    }
+
+    #[test]
+    fn gen_pyo3_data_enum_emits_default_when_core_has_manual_default() {
+        let mut enum_def = enum_def(
+            "ClassificationMode",
+            vec![variant("Known", vec![]), variant("Custom", vec![field("value")])],
+        );
+        enum_def.has_default = true;
+
+        let generated = gen_pyo3_data_enum(&enum_def, "core");
+
+        assert!(
+            generated.contains("impl Default for ClassificationMode"),
+            "expected delegating Default impl when the core enum has a manual Default impl: {generated}"
         );
         assert!(generated.contains("Self { inner: Default::default() }"), "{generated}");
     }

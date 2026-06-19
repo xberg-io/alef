@@ -241,6 +241,7 @@ fn simple_enum_def() -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 #[path = "codegen_integration/async_unimplemented_lossy.rs"]

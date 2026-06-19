@@ -154,6 +154,7 @@ fn test_basic_stubs() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -378,6 +379,7 @@ fn test_enum_stubs() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -1147,6 +1149,7 @@ fn test_multiple_types_and_functions() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -1473,6 +1476,7 @@ fn make_batch_status_enum_def() -> EnumDef {
         excluded_variants: vec![],
         methods: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 
@@ -1589,6 +1593,7 @@ fn test_pyi_stub_escapes_python_keyword_variant_names() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -1849,6 +1854,7 @@ fn test_data_enum_typed_dict_literals_use_serde_wire_names() {
             cfg: None,
             is_copy: false,
             has_serde: true,
+            has_default: false,
             serde_tag: Some("kind".to_string()),
             serde_untagged: false,
             serde_rename_all: Some("kebab-case".to_string()),

@@ -425,6 +425,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
 
             is_copy: false,
             has_serde: false,
+            has_default: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
@@ -496,6 +497,7 @@ fn data_bearing_enum_emits_associated_values() {
 
             is_copy: false,
             has_serde: false,
+            has_default: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
@@ -585,6 +587,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
             // has_serde: true triggers the native-Swift enum codepath in
             // emit_enum() (instead of the typealias fallback).
             has_serde: true,
+            has_default: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
@@ -679,6 +682,7 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
             serde_rename_all: Some("lowercase".into()),
             is_copy: false,
             has_serde: true,
+            has_default: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
@@ -760,6 +764,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
             serde_rename_all: None,
             is_copy: false,
             has_serde: true,
+            has_default: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],

@@ -34,6 +34,7 @@ fn make_enum(name: &str, variants: &[&str]) -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 
@@ -149,6 +150,7 @@ fn make_tagged_tuple_enum() -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 
@@ -270,6 +272,7 @@ fn gen_tagged_enum_core_to_binding_unit_variants_unchanged() {
         cfg: None,
         is_copy: true,
         has_serde: true,
+        has_default: false,
         serde_tag: Some("state".to_string()),
         serde_untagged: false,
         serde_rename_all: None,
@@ -339,6 +342,7 @@ fn gen_tagged_enum_core_to_binding_struct_variants_unchanged() {
         cfg: None,
         is_copy: false,
         has_serde: true,
+        has_default: false,
         serde_tag: Some("type".to_string()),
         serde_untagged: false,
         serde_rename_all: None,
@@ -407,6 +411,7 @@ fn gen_tagged_enum_struct_variant_preserves_optional_fields() {
         cfg: None,
         is_copy: false,
         has_serde: true,
+        has_default: false,
         serde_tag: Some("type".to_string()),
         serde_untagged: false,
         serde_rename_all: None,

@@ -359,6 +359,14 @@ pub struct EnumDef {
     /// Used by host-language emission (e.g. Swift `Codable`) to gate JSON-bridge conformance.
     #[serde(default)]
     pub has_serde: bool,
+    /// True when the core enum implements `Default` (via `#[derive(Default)]` with a
+    /// `#[default]` variant, OR a manual `impl Default for Enum`). Used by data-enum
+    /// wrapper codegen to decide whether to emit a delegating `impl Default` that calls
+    /// `<core::Enum as Default>::default()`. Without this, enums with a manual `impl
+    /// Default` (no `#[default]` variant) wrongly get no wrapper Default, breaking
+    /// structs that contain them.
+    #[serde(default)]
+    pub has_default: bool,
     /// Serde tag property name for internally tagged enums (from `#[serde(tag = "...")]`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serde_tag: Option<String>,

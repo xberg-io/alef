@@ -126,3 +126,28 @@ fn test_enum_without_default() {
         );
     }
 }
+
+#[test]
+fn test_enum_with_manual_default_impl() {
+    let source = r#"
+        pub enum ClassificationMode {
+            Known,
+            Custom(String),
+        }
+
+        impl Default for ClassificationMode {
+            fn default() -> Self {
+                Self::Custom(String::new())
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let mode = &surface.enums[0];
+
+    assert!(mode.has_default, "manual Default impl should set has_default=true");
+    assert!(
+        mode.variants.iter().all(|variant| !variant.is_default),
+        "manual enum Default impls should not synthesize a default variant"
+    );
+}

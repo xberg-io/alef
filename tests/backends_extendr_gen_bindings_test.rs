@@ -151,6 +151,7 @@ fn make_unit_enum(name: &str, variants: &[&str]) -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 
@@ -261,6 +262,7 @@ fn test_basic_generation() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -542,6 +544,7 @@ fn test_enum_generation() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -815,6 +818,7 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,

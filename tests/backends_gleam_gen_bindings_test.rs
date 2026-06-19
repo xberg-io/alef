@@ -230,6 +230,7 @@ fn enum_emits_custom_type() {
 
             is_copy: false,
             has_serde: false,
+            has_default: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
@@ -372,6 +373,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
 
             is_copy: false,
             has_serde: false,
+            has_default: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],

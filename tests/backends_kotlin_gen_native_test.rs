@@ -280,6 +280,7 @@ fn native_unit_enum_emits_enum_class() {
 
             is_copy: false,
             has_serde: false,
+            has_default: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],

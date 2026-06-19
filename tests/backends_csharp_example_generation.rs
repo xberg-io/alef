@@ -185,6 +185,7 @@ fn test_generated_code_example() {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -353,6 +354,7 @@ fn make_untagged_enum(name: &str) -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 

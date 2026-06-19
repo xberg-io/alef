@@ -612,6 +612,7 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
             cfg: None,
             is_copy: false,
             has_serde: true,
+            has_default: false,
             serde_tag: Some("type".to_string()),
             serde_untagged: false,
             serde_rename_all: None,

@@ -258,6 +258,7 @@ fn unit_enum_emits_enum_class() {
 
             is_copy: false,
             has_serde: false,
+            has_default: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
@@ -1372,6 +1373,7 @@ fn short_sealed_class_variant_emits_single_line() {
         serde_rename_all: None,
         is_copy: false,
         has_serde: false,
+        has_default: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
@@ -1415,6 +1417,7 @@ fn long_sealed_class_variant_emits_multi_line() {
         serde_rename_all: None,
         is_copy: false,
         has_serde: false,
+        has_default: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],

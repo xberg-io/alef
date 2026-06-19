@@ -416,6 +416,7 @@ result_type = "WalkOutcome"
             },
         ],
         has_serde: true,
+        has_default: false,
         ..EnumDef::default()
     });
     api.functions.push(FunctionDef {

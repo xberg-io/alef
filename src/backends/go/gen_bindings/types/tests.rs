@@ -51,6 +51,7 @@ fn test_gen_unit_enum_type_produces_type_string_and_const_block() {
         cfg: None,
         is_copy: false,
         has_serde: false,
+        has_default: false,
         serde_tag: None,
         serde_untagged: false,
         serde_rename_all: None,
@@ -128,6 +129,7 @@ fn test_gen_data_enum_sealed_interface() {
         cfg: None,
         is_copy: false,
         has_serde: true,
+        has_default: false,
         serde_tag: Some("type".to_string()),
         serde_untagged: false,
         serde_rename_all: None,
@@ -453,6 +455,7 @@ fn make_passthrough_enum() -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 

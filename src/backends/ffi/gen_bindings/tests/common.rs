@@ -215,6 +215,7 @@ pub(super) fn sample_api() -> ApiSurface {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,
@@ -794,6 +795,7 @@ pub(super) fn visitor_api() -> ApiSurface {
             },
         ],
         has_serde: true,
+        has_default: false,
         ..EnumDef::default()
     });
     api.functions.push(FunctionDef {

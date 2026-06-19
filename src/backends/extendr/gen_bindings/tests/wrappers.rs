@@ -765,6 +765,7 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,

@@ -64,6 +64,7 @@ fn make_enum(
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 

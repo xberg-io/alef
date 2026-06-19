@@ -145,6 +145,7 @@ fn make_basic_api() -> ApiSurface {
             cfg: None,
             is_copy: false,
             has_serde: false,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,

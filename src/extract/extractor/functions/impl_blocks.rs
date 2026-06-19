@@ -297,6 +297,14 @@ fn extract_trait_impl_methods(
 
     // Use index for O(1) lookup — only attach to types we already know about
     let Some(&idx) = type_index.get(&type_name) else {
+        // Not a struct — it may be an enum with a manual `impl Default for Enum`.
+        if let Some((_, path, _)) = &item.trait_ {
+            if path.segments.last().is_some_and(|s| s.ident == "Default") {
+                if let Some(enum_def) = surface.enums.iter_mut().find(|e| e.name == type_name) {
+                    enum_def.has_default = true;
+                }
+            }
+        }
         return;
     };
 

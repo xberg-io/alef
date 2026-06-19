@@ -511,6 +511,7 @@ fn result_enum(name: &str, variants: Vec<EnumVariant>, serde_rename_all: Option<
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 

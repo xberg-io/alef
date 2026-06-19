@@ -90,6 +90,7 @@ fn enum_return_api() -> ApiSurface {
             cfg: None,
             is_copy: false,
             has_serde: true,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,

@@ -110,6 +110,7 @@ fn make_image_output_format_enum() -> EnumDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         version: Default::default(),
+        has_default: false,
     }
 }
 

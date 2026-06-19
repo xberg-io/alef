@@ -46,6 +46,7 @@ fn unit_enum() -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 
@@ -176,6 +177,7 @@ fn data_enum() -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 
@@ -306,6 +308,7 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
         cfg: None,
         is_copy: false,
         has_serde: false,
+        has_default: false,
         serde_tag: Some("format_type".into()),
         serde_untagged: false,
         serde_rename_all: None,
@@ -439,6 +442,7 @@ fn test_flat_data_enum_from_core_uses_full_rust_path() {
         cfg: None,
         is_copy: false,
         has_serde: false,
+        has_default: false,
         serde_tag: Some("format_type".into()),
         serde_untagged: false,
         serde_rename_all: None,

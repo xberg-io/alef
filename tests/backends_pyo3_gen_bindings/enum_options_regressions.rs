@@ -38,6 +38,7 @@ fn make_unit_enum_def(name: &str, variants: &[&str]) -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        has_default: false,
     }
 }
 

@@ -47,6 +47,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         serde_rename_all: None,
         is_copy: false,
         has_serde: true,
+        has_default: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
@@ -184,6 +185,7 @@ fn enum_default_variants_map_extracts_default_variants() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            has_default: false,
         },
         EnumDef {
             name: "NoDefaultEnum".to_string(),
@@ -229,6 +231,7 @@ fn enum_default_variants_map_extracts_default_variants() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            has_default: false,
         },
     ];
 

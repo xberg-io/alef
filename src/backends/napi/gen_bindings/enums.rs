@@ -460,6 +460,7 @@ mod tests {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            has_default: false,
         }
     }
 
@@ -542,6 +543,7 @@ mod tests {
             cfg: None,
             is_copy: false,
             has_serde: true,
+            has_default: false,
             serde_tag: Some("annotation_type".to_string()),
             serde_untagged: false,
             serde_rename_all: None,
@@ -608,6 +610,7 @@ mod tests {
             cfg: None,
             is_copy: false,
             has_serde: true,
+            has_default: false,
             serde_tag: Some("annotation_type".to_string()),
             serde_untagged: false,
             serde_rename_all: None,
@@ -674,6 +677,7 @@ mod tests {
             cfg: None,
             is_copy: false,
             has_serde: true,
+            has_default: false,
             serde_tag: Some("annotation_type".to_string()),
             serde_untagged: false,
             serde_rename_all: None,
@@ -740,6 +744,7 @@ mod tests {
             cfg: None,
             is_copy: true,
             has_serde: true,
+            has_default: false,
             serde_tag: None,
             serde_untagged: false,
             serde_rename_all: None,

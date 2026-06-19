@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **(ci): normalize manifest path assertions in the vendor lockfile regression test.** The
   strict lockfile-regeneration test now compares normalized path text so Windows verbatim path
   prefixes do not fail the manifest-path assertion. (`src/publish/vendor/tests.rs`)
+- **(codegen): preserve delegating defaults for data enums with manual `Default` impls.** The
+  extractor now records enum-level `Default` support from both derives and manual impls, so PyO3
+  data-enum wrappers can emit `impl Default` for core enums that default to a data variant without
+  a `#[default]` unit variant. (`src/core/ir/items.rs`, `src/extract/extractor/types.rs`,
+  `src/extract/extractor/functions/impl_blocks.rs`, `src/codegen/generators/enums.rs`)
 
 ## [0.25.49] - 2026-06-19
 
