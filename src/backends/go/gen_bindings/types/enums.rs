@@ -116,21 +116,6 @@ fn gen_passthrough_raw_message_enum(enum_def: &EnumDef, text_types: &[String]) -
     out
 }
 
-/// Compute the wire value for a unit enum variant.
-///
-/// Priority order:
-/// 1. Explicit `#[serde(rename = "...")]` on the variant (`serde_rename`).
-/// 2. Enum-level `#[serde(rename_all = "...")]` applied to the variant name.
-/// 3. Default: snake_case of the variant name.
-fn enum_variant_wire_value(variant: &crate::core::ir::EnumVariant, enum_def: &EnumDef) -> String {
-    if let Some(rename) = &variant.serde_rename {
-        return rename.clone();
-    }
-    apply_serde_rename_all(
-        &crate::codegen::naming::pascal_to_snake(&variant.name),
-        enum_def.serde_rename_all.as_deref(),
-    )
-}
 
 /// Generate a Go "newtype-tuple" enum as `type X string` with const block.
 ///
@@ -139,7 +124,7 @@ fn enum_variant_wire_value(variant: &crate::core::ir::EnumVariant, enum_def: &En
 /// The Go type is `type X string` — unit variants become named constants while
 /// Custom/tuple variants are handled automatically because the underlying type
 /// is `string` and any arbitrary string value round-trips through JSON as-is.
-fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
+pub(in crate::backends::go::gen_bindings) fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(1024);
     let go_enum_name = go_type_name(&enum_def.name);
     emit_type_doc(&mut out, &go_enum_name, &enum_def.doc, "is an enumeration type.");
@@ -159,8 +144,11 @@ fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
             continue;
         }
         let const_name = format!("{}{}", go_enum_name, to_go_name(&variant.name));
-        // Go constants use the Rust variant name as-is (PascalCase), not the wire format.
-        let const_value = variant.name.clone();
+        let const_value = crate::codegen::naming::wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            enum_def.serde_rename_all.as_deref(),
+        );
         let doc_lines: Vec<String> = if !variant.doc.is_empty() {
             let mut lines = variant.doc.lines();
             let mut result = Vec::new();
@@ -329,7 +317,11 @@ fn emit_tagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: 
         if let Some(field) = variant.fields.iter().find(|f| is_tuple_field(f)) {
             if let TypeRef::Named(_) = &field.ty {
                 let variant_go_name = to_go_name(&variant.name);
-                let wire_value = enum_variant_wire_value(variant, enum_def);
+                let wire_value = crate::codegen::naming::wire_variant_value(
+                    &variant.name,
+                    variant.serde_rename.as_deref(),
+                    enum_def.serde_rename_all.as_deref(),
+                );
                 out.push_str(&crate::backends::go::template_env::render(
                     "tagged_union_marshal_variant.jinja",
                     context! {
@@ -368,7 +360,11 @@ fn emit_tagged_union_marshalers(out: &mut String, go_enum_name: &str, enum_def: 
             if let TypeRef::Named(struct_type_name) = &field.ty {
                 let go_struct_type = go_type_name(struct_type_name);
                 let variant_go_name = to_go_name(&variant.name);
-                let wire_value = enum_variant_wire_value(variant, enum_def);
+                let wire_value = crate::codegen::naming::wire_variant_value(
+                    &variant.name,
+                    variant.serde_rename.as_deref(),
+                    enum_def.serde_rename_all.as_deref(),
+                );
                 out.push_str(&crate::backends::go::template_env::render(
                     "tagged_union_unmarshal_variant.jinja",
                     context! {
@@ -439,9 +435,11 @@ pub(in crate::backends::go::gen_bindings) fn gen_unit_enum_type(enum_def: &EnumD
         .iter()
         .map(|v| {
             let const_name = format!("{}{}", go_enum_name, to_go_name(&v.name));
-            // Go constants use the Rust variant name as-is (PascalCase), not the wire format.
-            // The FFI function (e.g., crate_prefix_method_from_str) expects the Rust variant name.
-            let const_value = v.name.clone();
+            let const_value = crate::codegen::naming::wire_variant_value(
+                &v.name,
+                v.serde_rename.as_deref(),
+                enum_def.serde_rename_all.as_deref(),
+            );
 
             let mut doc_lines = Vec::new();
             let doc_first_line = if !v.doc.is_empty() {
@@ -620,7 +618,11 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         ));
 
         // Implement the Type() method
-        let wire_value = enum_variant_wire_value(variant, enum_def);
+        let wire_value = crate::codegen::naming::wire_variant_value(
+                    &variant.name,
+                    variant.serde_rename.as_deref(),
+                    enum_def.serde_rename_all.as_deref(),
+                );
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_type_method.jinja",
             minijinja::context! {
@@ -791,7 +793,11 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             },
         ));
         for variant in &enum_def.variants {
-            let wire_value = enum_variant_wire_value(variant, enum_def);
+            let wire_value = crate::codegen::naming::wire_variant_value(
+                    &variant.name,
+                    variant.serde_rename.as_deref(),
+                    enum_def.serde_rename_all.as_deref(),
+                );
             let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
             out.push_str(&crate::backends::go::template_env::render(
                 "data_enum_unmarshal_wire_variant.jinja",
