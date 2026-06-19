@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Plain data enums that are neither tagged nor untagged now get the lossy `From<binding>` impls
   needed by struct-field conversion paths, preventing missing `.into()` conversions for input
   types. (`src/backends/napi/gen_bindings/mod.rs`, `src/backends/napi/gen_bindings/tests.rs`)
+- **(backends/swift): remove the hard-coded Swift bridge crate name from the post-build step.**
+  The Swift backend now builds the bridge crate via `packages/swift/rust/Cargo.toml` instead of
+  `-p <consumer>-swift`, keeping generated bindings project-agnostic. (`src/backends/swift/gen_bindings/mod.rs`)
 - **(backends/dart): match the freezed mixin clause when injecting the content-union `text()` accessor.** FRB emits `sealed class AssistantContent with _$AssistantContent {`, but the v0.25.48 injection regex required the `{` immediately after the type name, so the `.text()` extension was never emitted and the dart binding/e2e failed to compile (`The method 'text' isn't defined for the type 'AssistantContent'`). The pattern now tolerates an optional `with <mixin>` clause up to the declaration's opening brace. (`src/backends/dart/frb_rewrite/text_transformations.rs`)
 
 ## [0.25.48] - 2026-06-19
