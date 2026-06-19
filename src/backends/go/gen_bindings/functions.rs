@@ -520,7 +520,16 @@ pub(super) fn gen_capsule_function_wrapper(
         param_strs.push(format!("{} {}", go_param_name(&p.name), param_type));
     }
     let params_str = param_strs.join(", ");
-    let ret_type_str = format!(" {}", cfg.host_type);
+    // A fallible capsule function (Rust `Result`, e.g. `get_language`) surfaces the
+    // failure as a Go `error` — matching python (raises) / node (throws) and the
+    // e2e fixtures that assert an error for unknown/empty input. An infallible one
+    // returns the bare host type (nil = not found).
+    let is_fallible = func.error_type.is_some();
+    let ret_type_str = if is_fallible {
+        format!(" ({}, error)", cfg.host_type)
+    } else {
+        format!(" {}", cfg.host_type)
+    };
 
     out.push_str(&crate::backends::go::template_env::render(
         "function_signature.jinja",
@@ -531,12 +540,13 @@ pub(super) fn gen_capsule_function_wrapper(
         },
     ));
 
-    // Convert parameters to C. Capsule functions are infallible at the binding boundary
-    // (a nil pointer signals "not found"), so emit a nil-returning prefix on conversion failure.
+    // Convert parameters to C. The conversion-failure prefix returns the zero value:
+    // `nil, ` for the fallible `(T, error)` form, bare `nil` for the infallible form.
+    let conv_fail_prefix = if is_fallible { "nil, " } else { "nil" };
     for param in func.params.iter() {
         out.push_str(&gen_param_to_c(
             param,
-            "nil, ",
+            conv_fail_prefix,
             false,
             ffi_prefix,
             opaque_names,
@@ -558,8 +568,15 @@ pub(super) fn gen_capsule_function_wrapper(
     // The `{ptr}` placeholder receives the raw cgo pointer; the default wraps it via unsafe.Pointer.
     let construct = cfg.construct("cLang", "tree_sitter.NewLanguage(unsafe.Pointer({ptr}))");
     out.push_str(&format!("\tcLang := {c_call}\n"));
-    out.push_str("\tif cLang == nil {\n\t\treturn nil\n\t}\n");
-    out.push_str(&format!("\treturn {construct}\n"));
+    if is_fallible {
+        // The FFI sets last_error and returns null on failure; surface it as a Go error
+        // (mirrors the registry's fallible `GetLanguage`, which checks `lastError()`).
+        out.push_str("\tif err := lastError(); err != nil {\n\t\treturn nil, err\n\t}\n");
+        out.push_str(&format!("\treturn {construct}, nil\n"));
+    } else {
+        out.push_str("\tif cLang == nil {\n\t\treturn nil\n\t}\n");
+        out.push_str(&format!("\treturn {construct}\n"));
+    }
 
     out.push_str(&crate::backends::go::template_env::render(
         "function_body_end.jinja",

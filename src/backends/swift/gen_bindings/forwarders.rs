@@ -852,19 +852,35 @@ fn emit_capsule_free_function_forwarder(
         c_args.push(swift_param_name);
     }
     let sig = sig_params.join(", ");
-    let return_clause = format!(" -> {host_type}?");
+
+    let is_fallible = func.error_type.is_some();
+    let throws_clause = if is_fallible { " throws" } else { "" };
+    let return_clause = if is_fallible {
+        format!(" -> {host_type}")
+    } else {
+        format!(" -> {host_type}?")
+    };
 
     let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
     let construct = capsule_cfg.construct("cLang", default_construct);
-    let body =
-        format!("let cLang = {c_call}\n    guard let cLang = cLang else {{ return nil }}\n    return {construct}");
+    let nil_error = format!(
+        "NSError(domain: \"alef.capsule\", code: 1, userInfo: [NSLocalizedDescriptionKey: \"Capsule function returned nil: {swift_name}\"])"
+    );
+
+    let body = if is_fallible {
+        format!(
+            "let cLang = try {c_call}\n    guard let cLang = cLang else {{ throw {nil_error} }}\n    return {construct}"
+        )
+    } else {
+        format!("let cLang = {c_call}\n    guard let cLang = cLang else {{ return nil }}\n    return {construct}")
+    };
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_sync_forwarder.swift.jinja",
         minijinja::context! {
             function_name => swift_name,
             params => &sig,
-            throws_clause => "",
+            throws_clause => throws_clause,
             return_clause => &return_clause,
             conversion_lines => "",
             body => body,
@@ -904,18 +920,34 @@ fn emit_async_capsule_free_function_forwarder(
         c_args.push(swift_param_name);
     }
     let sig = sig_params.join(", ");
-    let return_clause = format!(" -> {host_type}?");
+    let is_fallible = func.error_type.is_some();
+    let throws_clause = if is_fallible { " throws" } else { "" };
+    let return_clause = if is_fallible {
+        format!(" -> {host_type}")
+    } else {
+        format!(" -> {host_type}?")
+    };
 
     let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
     let construct = capsule_cfg.construct("cLang", default_construct);
-    let body =
-        format!("let cLang = {c_call}\n    guard let cLang = cLang else {{ return nil }}\n    return {construct}");
+    let nil_error = format!(
+        "NSError(domain: \"alef.capsule\", code: 1, userInfo: [NSLocalizedDescriptionKey: \"Capsule function returned nil: {swift_name}\"])"
+    );
+
+    let body = if is_fallible {
+        format!(
+            "let cLang = try {c_call}\n    guard let cLang = cLang else {{ throw {nil_error} }}\n    return {construct}"
+        )
+    } else {
+        format!("let cLang = {c_call}\n    guard let cLang = cLang else {{ return nil }}\n    return {construct}")
+    };
 
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_async_forwarder.swift.jinja",
         minijinja::context! {
             function_name => swift_name,
             params => &sig,
+            throws_clause => throws_clause,
             return_clause => &return_clause,
             body => body,
         },

@@ -965,6 +965,15 @@ fn emit_capsule_function_wrapper(
     let default_construct = "io.github.tree_sitter.ktreesitter.Language({ptr})";
     let construct_expr = capsule_cfg.construct("cLangPtr", default_construct);
 
+    let (exception_type, error_message) = if func.error_type.is_some() {
+        (format!("{}Exception", bridge_name), "\"Function failed\"")
+    } else {
+        (
+            "IllegalArgumentException".to_string(),
+            "\"Unexpected null return from native function\"",
+        )
+    };
+
     // Emit function signature and body.
     body.push_str("    fun ");
     body.push_str(&method_name);
@@ -977,7 +986,11 @@ fn emit_capsule_function_wrapper(
     body.push_str(&bridge_call);
     body.push('\n');
     body.push_str("        if (cLangPtr == 0L) {\n");
-    body.push_str("            throw IllegalArgumentException(\"Grammar not found\")\n");
+    body.push_str("            throw ");
+    body.push_str(&exception_type);
+    body.push('(');
+    body.push_str(error_message);
+    body.push_str(")\n");
     body.push_str("        }\n");
     body.push_str("        return ");
     body.push_str(&construct_expr);

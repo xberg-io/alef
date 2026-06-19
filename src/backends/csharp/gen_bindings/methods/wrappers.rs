@@ -90,6 +90,16 @@ pub(super) fn gen_capsule_function_wrapper(
     }
     out.push_str("            }\n");
 
+    // For fallible capsule functions, check error code after successful pointer return.
+    // This mirrors the error handling pattern used by non-capsule fallible functions,
+    // ensuring that Rust Result<T, E> errors are properly surfaced as exceptions.
+    if func.error_type.is_some() {
+        out.push_str("            if (NativeMethods.LastErrorCode() != 0)\n");
+        out.push_str("            {\n");
+        out.push_str("                throw GetLastError();\n");
+        out.push_str("            }\n");
+    }
+
     // Construct the host Language from the raw pointer.
     // The `{ptr}` placeholder is replaced with the variable name holding the IntPtr.
     let default_construct = "new TreeSitter.Language({ptr})";

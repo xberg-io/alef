@@ -211,3 +211,74 @@ fn test_gen_function_wrapper_bytes_result_emits_out_params() {
     // Must free via krz_free_bytes
     assert!(out.contains("krz_free_bytes"), "missing krz_free_bytes in:\n{out}");
 }
+
+fn make_capsule_func(name: &str, fallible: bool) -> FunctionDef {
+    FunctionDef {
+        name: name.to_string(),
+        rust_path: String::new(),
+        original_rust_path: String::new(),
+        params: vec![make_param("name", TypeRef::String)],
+        return_type: TypeRef::Named("Language".to_string()),
+        is_async: false,
+        error_type: if fallible {
+            Some("SampleCrateError".to_string())
+        } else {
+            None
+        },
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    }
+}
+
+fn capsule_cfg() -> crate::core::config::HostCapsuleTypeConfig {
+    crate::core::config::HostCapsuleTypeConfig {
+        host_type: "*tree_sitter.Language".to_string(),
+        package: "github.com/tree-sitter/go-tree-sitter".to_string(),
+        package_version: "v0.24.0".to_string(),
+        construct_expr: String::new(),
+    }
+}
+
+#[test]
+fn test_capsule_fallible_returns_error_tuple_and_checks_last_error() {
+    let func = make_capsule_func("get_language", true);
+    let empty: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg());
+    assert!(
+        out.contains("(*tree_sitter.Language, error)"),
+        "fallible capsule must return (host, error):\n{out}"
+    );
+    assert!(
+        out.contains("lastError()"),
+        "fallible capsule must check lastError():\n{out}"
+    );
+    assert!(
+        out.contains("return nil, err"),
+        "fallible capsule must propagate the error:\n{out}"
+    );
+}
+
+#[test]
+fn test_capsule_infallible_returns_bare_host_type() {
+    let func = make_capsule_func("builtin_language", false);
+    let empty: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg());
+    assert!(
+        !out.contains(", error)"),
+        "infallible capsule must not return an error:\n{out}"
+    );
+    assert!(
+        !out.contains("lastError()"),
+        "infallible capsule must not check lastError():\n{out}"
+    );
+}

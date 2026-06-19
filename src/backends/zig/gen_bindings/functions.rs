@@ -101,7 +101,7 @@ pub(crate) fn emit_function(
     // are passthrough-eligible.
     if let TypeRef::Named(name) = &f.return_type {
         if let Some(cap) = capsule_types.get(name.as_str()) {
-            emit_capsule_function(f, prefix, struct_names, opaque_creator_map, cap, out);
+            emit_capsule_function(f, prefix, struct_names, opaque_creator_map, cap, declared_errors, out);
             return;
         }
     }
@@ -398,6 +398,7 @@ fn emit_capsule_function(
     struct_names: &std::collections::HashSet<String>,
     opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
     cap: &crate::core::config::HostCapsuleTypeConfig,
+    declared_errors: &[String],
     out: &mut String,
 ) {
     emit_cleaned_zig_doc(out, &f.doc, "");
@@ -415,7 +416,16 @@ fn emit_capsule_function(
     } else {
         cap.host_type.clone()
     };
-    let return_ty = if body_needs_try {
+    // A fallible capsule function (Rust `Result`, e.g. `get_language`) surfaces the
+    // failure through the Zig error set — matching python (raises) / node (throws) and
+    // the e2e fixtures that assert an error for unknown/empty input.
+    let zig_error_type = f
+        .error_type
+        .as_ref()
+        .map(|e| resolve_zig_error_type(e, declared_errors));
+    let return_ty = if let Some(err) = &zig_error_type {
+        format!("{err}!{host_type}")
+    } else if body_needs_try {
         format!("error{{OutOfMemory}}!{host_type}")
     } else {
         host_type.clone()
@@ -456,6 +466,20 @@ fn emit_capsule_function(
 
     for p in &f.params {
         emit_param_free(p, prefix, struct_names, opaque_creator_map, out);
+    }
+
+    // For fallible capsule functions, surface any FFI error before guarding null
+    // (the FFI sets `{prefix}_last_error_code()` and returns null on failure).
+    if let Some(error_type) = &zig_error_type {
+        out.push_str(&crate::backends::zig::template_env::render(
+            "function_error_check.jinja",
+            minijinja::context! { prefix => prefix },
+        ));
+        out.push_str(&crate::backends::zig::template_env::render(
+            "function_error_return.jinja",
+            minijinja::context! { error_type => error_type },
+        ));
+        out.push_str("    }\n");
     }
 
     // Guard the null pointer (grammar not found) and construct the host Language.

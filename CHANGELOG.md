@@ -28,6 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   data-enum wrappers can emit `impl Default` for core enums that default to a data variant without
   a `#[default]` unit variant. (`src/core/ir/items.rs`, `src/extract/extractor/types.rs`,
   `src/extract/extractor/functions/impl_blocks.rs`, `src/codegen/generators/enums.rs`)
+- **(backends/capsule): surface fallible host-capsule errors consistently.** A capsule function
+  whose Rust signature is `Result<HostType, E>` (e.g. `get_language`) was treated as infallible by
+  the C-ABI capsule wrappers — they returned nil/null on failure, silently dropping the error. But
+  PyO3 raises, NAPI throws, and the e2e fixtures assert an error for unknown/empty input, so the
+  generated e2e for these backends did not even compile (e.g. Go's `_, err := GetLanguage(...)`
+  against a value-only signature). The wrappers now honour `error_type` and surface it idiomatically:
+  Go returns `(HostType, error)` and checks `lastError()`; Zig returns `Error!HostType` and checks
+  `{prefix}_last_error_code()`; C#, Kotlin Android, and Swift throw their binding exception. Infallible
+  capsule functions are unchanged. (`src/backends/csharp/gen_bindings/methods/wrappers.rs`,
+  `src/backends/go/gen_bindings/functions.rs`, `src/backends/kotlin_android/gen_bindings/module_facade.rs`,
+  `src/backends/swift/gen_bindings/forwarders.rs`, `src/backends/zig/gen_bindings/functions.rs`)
 
 ## [0.25.49] - 2026-06-19
 
