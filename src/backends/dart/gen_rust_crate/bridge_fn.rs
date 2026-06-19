@@ -386,8 +386,8 @@ fn dart_call_arg_with_mirror_transmute(
 
     // Vec<T> to &[T] slice parameters: when core expects a slice but we have an owned Vec,
     // pass a reference to the Vec (which coerces to &[T]).
-    if let TypeRef::Vec(_inner) = &p.ty {
-        if p.is_ref && !p.optional {
+    if let TypeRef::Vec(inner) = &p.ty {
+        if p.is_ref && !p.optional && !matches!(inner.as_ref(), TypeRef::Named(_)) {
             // Core param is &[T], mirror param is Vec<T>. Pass reference.
             // Only emit leading & here; the inner type conversions (if any) are handled
             // elsewhere and will work with the slice reference.

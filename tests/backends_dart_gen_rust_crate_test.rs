@@ -263,7 +263,9 @@ fn opaque_methods_convert_optional_ref_string_json_params_and_returns() {
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     assert!(
-        lib.contains("(|v: Option<&str>| v.map(|s| s.to_string()))(self.inner.get_description())"),
+        lib.contains("let v = self.inner.get_description();")
+            && lib.contains("v.map(|s| s.to_string())")
+            && !lib.contains("(|v: Option<&str>| v.map(|s| s.to_string()))"),
         "optional borrowed string returns must be owned for FRB: {lib}"
     );
     assert!(

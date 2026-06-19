@@ -106,6 +106,9 @@ fn php_serde_defaults_are_generated_from_typed_default_metadata() {
     max_items.typed_default = Some(DefaultValue::IntLiteral(500));
     let mut enabled = make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false);
     enabled.typed_default = Some(DefaultValue::BoolLiteral(true));
+    let mut policy = make_field("policy", TypeRef::Named("Policy".to_string()), false);
+    policy.default = Some("#[serde(default = \"Policy::from_env\")]".to_string());
+    policy.type_rust_path = Some("test_lib::Policy".to_string());
 
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -114,7 +117,7 @@ fn php_serde_defaults_are_generated_from_typed_default_metadata() {
             name: "Limits".to_string(),
             rust_path: "test_lib::Limits".to_string(),
             original_rust_path: String::new(),
-            fields: vec![max_items, enabled],
+            fields: vec![max_items, enabled, policy],
             methods: vec![],
             is_opaque: false,
             is_clone: true,
@@ -168,6 +171,18 @@ fn php_serde_defaults_are_generated_from_typed_default_metadata() {
     assert!(
         lib.content.contains("pub fn limits_enabled() -> bool { true }"),
         "boolean typed default must emit a matching helper:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content
+            .contains("pub fn limits_policy() -> test_lib::Policy { test_lib::Policy::from_env() }"),
+        "function-path serde default must emit a matching helper:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content
+            .contains("serde(default = \"crate::serde_defaults::limits_policy\")"),
+        "function-path serde default must attach a field serde attribute:\n{}",
         lib.content
     );
     assert!(

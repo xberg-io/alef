@@ -376,10 +376,10 @@ fn patch_workspace_dep_versions_skips_path_only_deps() {
 /// patch_workspace_dep_versions updates aliased deps whose `package = "..."` field
 /// names a workspace member, even when the dep key itself is an underscore alias.
 ///
-/// Regression test for the `packages/swift/rust/Cargo.toml` drift where
-/// `liter_llm = { version = "1.7.0", path = "...", package = "liter-llm" }`
-/// was skipped because the key `liter_llm` was not in workspace_members
-/// (which held `liter-llm` with a hyphen). After the fix, `patch_dep_table`
+/// Regression test for generated binding crates where
+/// `sample_core = { version = "1.7.0", path = "...", package = "sample-core" }`
+/// was skipped because the key `sample_core` was not in workspace_members
+/// (which held `sample-core` with a hyphen). After the fix, `patch_dep_table`
 /// also consults the `package = "..."` field.
 #[test]
 fn patch_workspace_dep_versions_updates_package_alias_dep() {
@@ -387,8 +387,8 @@ fn patch_workspace_dep_versions_updates_package_alias_dep() {
 
     let dir = tempfile::tempdir().expect("tempdir");
 
-    // Mirrors the packages/swift/rust/Cargo.toml pattern: the dep key uses
-    // underscores but `package = "liter-llm"` points at the real crate name.
+    // Mirrors generated binding crates: the dep key uses underscores but
+    // `package = "mylib-core"` points at the real crate name.
     let cargo_toml = r#"[package]
 name = "mylib-swift"
 version = "1.7.0"
@@ -424,7 +424,10 @@ serde = "1"
         "features must be preserved:\n{result}"
     );
     // External crate must be untouched.
-    assert!(result.contains(r#"serde = "1""#), "serde must not be touched:\n{result}");
+    assert!(
+        result.contains(r#"serde = "1""#),
+        "serde must not be touched:\n{result}"
+    );
     // [package] version must not be touched by patch_workspace_dep_versions.
     assert!(
         result.contains("version = \"1.7.0\""),

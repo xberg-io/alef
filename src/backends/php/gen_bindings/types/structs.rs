@@ -47,6 +47,17 @@ fn serde_default_fn_name(type_name: &str, field_name: &str) -> String {
     format!("{}_{}", pascal_to_snake(type_name), pascal_to_snake(field_name))
 }
 
+fn field_has_function_path_default(field: &FieldDef) -> bool {
+    let Some(default) = field.default.as_deref() else {
+        return false;
+    };
+    let marker = "serde(default = \"";
+    let Some(start) = default.find(marker) else {
+        return false;
+    };
+    default[start + marker.len()..].contains("::")
+}
+
 fn supports_serde_default_fn(field: &FieldDef) -> bool {
     use crate::core::ir::DefaultValue;
 
@@ -298,7 +309,11 @@ pub(crate) fn gen_php_struct(
         if cfg.has_serde && matches!(field.ty, TypeRef::Duration) && !field.optional {
             attrs.push("serde(skip_serializing_if = \"Option::is_none\")".to_string());
         }
-        if cfg.has_serde && typ.has_default && !field.optional && supports_serde_default_fn(field) {
+        if cfg.has_serde
+            && typ.has_default
+            && !field.optional
+            && (field_has_function_path_default(field) || supports_serde_default_fn(field))
+        {
             let fn_name = serde_default_fn_name(&typ.name, &field.name);
             attrs.push(format!("serde(default = \"crate::serde_defaults::{fn_name}\")"));
         }

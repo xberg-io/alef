@@ -1,16 +1,19 @@
-{# Opaque wrapper + conversions stay unconditional — see rust_mirror_enum_attribute.jinja for rationale. #}
-#[frb(opaque)]
+{# Opaque wrapper + conversions must be cfg-gated when they reference feature-gated types. #}
+{% if source_cfg %}#[cfg({{ source_cfg }})]
+{% endif %}#[frb(opaque)]
 pub struct {{ name }} {
     pub(crate) inner: {{ inner_path }},
 }
 
-impl From<{{ inner_path }}> for {{ name }} {
+{% if source_cfg %}#[cfg({{ source_cfg }})]
+{% endif %}impl From<{{ inner_path }}> for {{ name }} {
     fn from(inner: {{ inner_path }}) -> Self {
         Self { inner }
     }
 }
 
-impl From<{{ name }}> for {{ inner_path }} {
+{% if source_cfg %}#[cfg({{ source_cfg }})]
+{% endif %}impl From<{{ name }}> for {{ inner_path }} {
     fn from(value: {{ name }}) -> Self {
         value.inner
     }

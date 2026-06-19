@@ -1,4 +1,5 @@
-#[frb]
+{% if source_cfg %}#[cfg({{ source_cfg }})]
+{% endif %}#[frb]
 pub fn {{ fn_name }}(json: String) -> Result<{{ type_name }}, String> {
     serde_json::from_str::<{{ core_ty }}>(&json)
         .map({{ type_name }}::from)

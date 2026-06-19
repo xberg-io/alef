@@ -162,7 +162,7 @@ pub(crate) fn patch_workspace_dep_versions(
         for (key, item) in table.iter_mut() {
             // A dep entry matches if its key is a workspace member name OR if it
             // carries a `package = "..."` field whose value is a workspace member
-            // name (aliased deps like `liter_llm = { package = "liter-llm", ... }`).
+            // name (aliased deps like `sample_core = { package = "sample-core", ... }`).
             let is_member = workspace_members.contains(key.get())
                 || item
                     .as_table_like()

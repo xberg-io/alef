@@ -1,2 +1,3 @@
-{# Mirror declarations stay unconditional — see rust_mirror_enum_attribute.jinja for rationale. #}
-#[frb(mirror({{ name }}))]
+{# Mirror struct declarations must be cfg-gated when they reference feature-gated types. #}
+{% if source_cfg %}#[cfg({{ source_cfg }})]
+{% endif %}#[frb(mirror({{ name }}))]

@@ -1,1 +1,2 @@
-pub {{ async_kw }}fn {{ fn_name }}({{ params }}){% if has_explicit_return %} -> {{ return_ty }}{% endif %} {
+{% if source_cfg %}#[cfg({{ source_cfg }})]
+{% endif %}pub {{ async_kw }}fn {{ fn_name }}({{ params }}){% if has_explicit_return %} -> {{ return_ty }}{% endif %} {

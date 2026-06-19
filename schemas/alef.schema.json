@@ -6938,7 +6938,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.46/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.47/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7048,6 +7048,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.25.46",
-  "x-alef-version": "0.25.46"
+  "version": "0.25.47",
+  "x-alef-version": "0.25.47"
 }
