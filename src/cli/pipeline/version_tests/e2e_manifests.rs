@@ -466,8 +466,8 @@ fn sync_versions_bumps_kotlin_android_gradle_coordinates_version() {
 
     let gradle_content = concat!(
         "plugins {\n",
-        "    id(\"com.android.library\") version \"8.13.0\"\n",
-        "    kotlin(\"android\") version \"2.3.21\"\n",
+        "    id(\"com.android.library\") version \"9.2.0\"\n",
+        "    kotlin(\"android\") version \"2.4.0\"\n",
         "}\n",
         "\n",
         "mavenPublishing {\n",
@@ -505,11 +505,11 @@ fn sync_versions_bumps_kotlin_android_gradle_coordinates_version() {
         "kotlin-android coordinates version must be bumped:\n{gradle}"
     );
     assert!(
-        gradle.contains(r#"kotlin("android") version "2.3.21""#),
+        gradle.contains(r#"kotlin("android") version "2.4.0""#),
         "kotlin plugin version must not change:\n{gradle}"
     );
     assert!(
-        gradle.contains(r#"id("com.android.library") version "8.13.0""#),
+        gradle.contains(r#"id("com.android.library") version "9.2.0""#),
         "android plugin version must not change:\n{gradle}"
     );
     assert!(

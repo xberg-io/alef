@@ -272,10 +272,10 @@ pub mod maven {
     pub const BUILD_HELPER_MAVEN_PLUGIN: &str = "3.6.1";
 
     // renovate: datasource=maven depName=org.jetbrains.kotlin:kotlin-gradle-plugin
-    pub const KOTLIN_JVM_PLUGIN: &str = "2.2.0";
+    pub const KOTLIN_JVM_PLUGIN: &str = "2.4.0";
 
     // renovate: datasource=maven depName=com.android.tools.build:gradle
-    pub const ANDROID_GRADLE_PLUGIN: &str = "8.13.0";
+    pub const ANDROID_GRADLE_PLUGIN: &str = "9.2.0";
 
     // renovate: datasource=maven depName=org.jlleitschuh.gradle:ktlint-gradle
     pub const KTLINT_GRADLE_PLUGIN: &str = "13.1.0";
@@ -413,9 +413,18 @@ pub mod toolchain {
     // minimum iOS deployment target for swift-bridge bindings; manual bump required
     pub const SWIFT_MIN_IOS: &str = "16.0";
 
+    // Gradle distribution version for Android projects. Supports JDK 25/26+ when paired with
+    // AGP 9.2.0+ and Kotlin 2.4.0+. AGP 8.13 caps at Gradle 8.13, so Gradle 9.x requires AGP 9.x.
+    // renovate: datasource=gradle-releases depName=gradle
+    pub const GRADLE_VERSION: &str = "9.6.0";
+
     // Android scaffold defaults; manual bumps required.
-    pub const ANDROID_COMPILE_SDK: &str = "35";
-    pub const ANDROID_MIN_SDK: &str = "21";
+    // AGP 9.2.0 requires compileSdk >= 36 (minimum Android 15 / API 36).
+    // Corresponds to AGP version in template_versions::maven::ANDROID_GRADLE_PLUGIN.
+    pub const ANDROID_COMPILE_SDK: &str = "36";
+    // AGP 9.x raised minimum minSdk to 24 (minimum Android 7.0 / API 24).
+    // Previous value of 21 is no longer compatible with AGP 9.2.0+.
+    pub const ANDROID_MIN_SDK: &str = "24";
     pub const ANDROID_JVM_TARGET: &str = "17";
 }
 
