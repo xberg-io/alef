@@ -268,11 +268,24 @@ pub(super) fn render_assertion(
                 format!("${}", var_name)
             } else {
                 // For display_as_text fields (content unions like AssistantContent),
-                // call the text_from_* accessor to get the textual representation
+                // call the text() accessor to get the textual representation.
+                // For example, for "choices[0].message.content", we call text() on
+                // the parent "choices[0].message" object (AssistantMessage).
                 if field_resolver.is_display_as_text(f) {
-                    // Use the first component of the field path as the method suffix
-                    let method_suffix = f.split('.').next().unwrap_or(f);
-                    format!("${result_var}->text_from_{method_suffix}()")
+                    // Parse the field path to get the parent accessor (without the leaf field).
+                    // For "choices[0].message.content", we want "choices[0].message"
+                    let parent_field = if let Some(last_dot) = f.rfind('.') {
+                        &f[..last_dot]
+                    } else {
+                        f
+                    };
+                    let parent_accessor = field_resolver.accessor(parent_field, "php", &format!("${result_var}"));
+                    // Check if the parent accessor might be optional and needs safe-call syntax
+                    if field_resolver.is_optional(parent_field) {
+                        format!("({parent_accessor}?->text() ?? '')")
+                    } else {
+                        format!("{parent_accessor}->text()")
+                    }
                 } else {
                     let accessor = field_resolver.accessor(f, "php", &format!("${result_var}"));
                     // For optional fields, wrap with ?? null to handle null-safe access

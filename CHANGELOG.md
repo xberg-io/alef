@@ -48,6 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and made the dart e2e emit null-safe `content?.text()`. (`src/core/backend.rs`,
   `src/cli/pipeline/commands/build.rs`, `src/backends/dart/gen_bindings/mod.rs`,
   `src/backends/dart/frb_rewrite/text_transformations.rs`, `src/e2e/codegen/dart/assertions.rs`)
+- **(e2e/codegen/php): call the parent message's `text()` accessor for display-as-text
+  content fields.** Previously the php e2e emitted an invalid `$result->text_from_choices[0]()`;
+  it now resolves the parent object and calls the existing accessor
+  (`$result->getChoices()[0]->getMessage()->text()`), matching the other backends.
+  (`src/e2e/codegen/php/assertions.rs`)
 
 ### Fixed
 
