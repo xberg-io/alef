@@ -66,6 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **(backends/napi): use visitor result wire names in payload lookups.** The NAPI visitor bridge
   now reads payload result object properties from each variant's `wire_name` instead of hard-coded
   `Custom`/`Error` fallbacks. (`src/backends/napi/templates/visitor_method.jinja`)
+- **(backends/rustler): align visitor unit-result matching with wire names.** Rustler visitor
+  result conversion no longer lowercases callback return strings before comparing them with
+  configured unit-result wire names, and generated Elixir atom helpers now use snake_case atom
+  names for those variants. (`src/backends/rustler/templates/visitor_method.rs.jinja`,
+  `src/backends/rustler/gen_bindings/public_api.rs`)
 - **(ci): compare stable manifest path suffixes in vendor lockfile regression tests.** The
   strict lockfile-regeneration failure test now avoids comparing Windows short-user paths against
   verbatim long paths while still asserting the error names the generated manifest.

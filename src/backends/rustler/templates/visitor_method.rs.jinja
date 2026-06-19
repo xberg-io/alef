@@ -8,8 +8,7 @@
         match result {
             None => {{ default_result_expr }},
             Some(s) => {
-                let lower = s.to_lowercase();
-                match lower.as_str() {
+                match s.as_str() {
 {%- for variant in unit_result_variants %}
                     "{{ variant.wire_name }}" => {{ ret_ty }}::{{ variant.name }},
 {%- endfor %}

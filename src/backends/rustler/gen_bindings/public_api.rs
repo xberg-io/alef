@@ -736,7 +736,7 @@ pub(super) fn generate_public_api(
                         .wire_name
                         .chars()
                         .all(|c| c == '_' || c.is_ascii_alphanumeric())
-                        .then(|| variant.wire_name.clone());
+                        .then(|| variant.wire_name.to_snake_case());
                     minijinja::context! {
                         wire_name => variant.wire_name.clone(),
                         atom_name => atom_name,
