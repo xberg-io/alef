@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **test_apps/zig runner**: the zig run command now strips any pre-existing
+  `.hash` lines from `build.zig.zon` before injecting the freshly computed
+  multihash. Previously the generated zon already carried the STALE placeholder
+  hash from `[crates.e2e.registry.packages.zig].hash`, so injection produced two
+  `.hash` keys per dependency and zig honored the last (stale) one, breaking the
+  fetch.
+
 ## [0.25.54] - 2026-06-20
 
 ### Changed
