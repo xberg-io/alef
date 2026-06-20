@@ -171,8 +171,11 @@ impl E2eCodegen for ZigE2eCodegen {
         // Host-capsule passthrough deps (e.g. zig-tree-sitter). In Local mode the e2e
         // rebuilds the binding module from source, so any capsule dependency the binding
         // `@import`s must be re-declared in the e2e manifest. Each tuple is
-        // (module_name, url, hash): the module name is the host_type's prefix before the
-        // dot (`tree_sitter` from `tree_sitter.Language`), matching the package scaffold.
+        // (module_name, url, hash): the module name is the bare Zig import identifier the
+        // binding source `@import`s (`tree_sitter`), which is the trailing identifier of the
+        // host_type's namespace — i.e. the last `[A-Za-z0-9_]` run before the type's `.`.
+        // `?*const tree_sitter.Language` and `*tree_sitter.Language` both yield `tree_sitter`,
+        // matching the import name the package scaffold wires in.
         let zig_capsule_deps: Vec<(String, String, String)> = config
             .zig
             .as_ref()
@@ -182,8 +185,11 @@ impl E2eCodegen for ZigE2eCodegen {
                     .values()
                     .filter(|cap| !cap.package.is_empty())
                     .map(|cap| {
-                        let module_name = cap.host_type.split('.').next().unwrap_or("tree_sitter").to_string();
-                        (module_name, cap.package.clone(), cap.package_version.clone())
+                        (
+                            capsule_import_name(&cap.host_type),
+                            cap.package.clone(),
+                            cap.package_version.clone(),
+                        )
                     })
                     .collect();
                 deps.sort();
@@ -385,5 +391,49 @@ impl E2eCodegen for ZigE2eCodegen {
 
     fn language_name(&self) -> &'static str {
         "zig"
+    }
+}
+
+/// Derive the bare Zig `@import` identifier for a host-capsule type from its
+/// configured `host_type`. The Zig binding source imports the capsule package by
+/// its module name (e.g. `@import("tree_sitter")`), which is the trailing
+/// `[A-Za-z0-9_]` run of the type's namespace — the portion before the type's
+/// final `.`, stripped of pointer/const decoration. `?*const tree_sitter.Language`
+/// and `*tree_sitter.Language` both yield `tree_sitter`. Falls back to
+/// `tree_sitter` when no identifier can be extracted.
+fn capsule_import_name(host_type: &str) -> String {
+    host_type
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .rsplit(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .find(|segment| !segment.is_empty())
+        .unwrap_or("tree_sitter")
+        .to_string()
+}
+
+#[cfg(test)]
+mod capsule_import_name_tests {
+    use super::capsule_import_name;
+
+    #[test]
+    fn strips_zig_pointer_and_const_decoration() {
+        assert_eq!(capsule_import_name("?*const tree_sitter.Language"), "tree_sitter");
+    }
+
+    #[test]
+    fn strips_bare_pointer_decoration() {
+        assert_eq!(capsule_import_name("*tree_sitter.Language"), "tree_sitter");
+    }
+
+    #[test]
+    fn passes_through_plain_namespace() {
+        assert_eq!(capsule_import_name("tree_sitter.Language"), "tree_sitter");
+    }
+
+    #[test]
+    fn falls_back_when_no_identifier() {
+        // Namespace is pure pointer decoration with no identifier run to extract.
+        assert_eq!(capsule_import_name("?*.Language"), "tree_sitter");
     }
 }
