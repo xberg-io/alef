@@ -42,6 +42,9 @@ rust_out.*
 
 *.rlib
 
+
+.basemind/
+
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .ai-rulez/.generated-manifest.json
 .claude/

@@ -7,6 +7,7 @@ pub(super) fn render_build_zig_zon(
     version: &str,
     platform_hashes: &BTreeMap<String, (String, Option<String>)>,
     hash_is_stale: bool,
+    capsule_deps: &[(String, String, String)],
 ) -> String {
     let dep_block = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
@@ -58,7 +59,22 @@ pub(super) fn render_build_zig_zon(
         }
         crate::e2e::config::DependencyMode::Local => {
             // Zig 0.16+ requires named dependencies. Use the package name as the key.
-            format!("        .{pkg_name} = .{{\n            .path = \"{pkg_path}\",\n        }},")
+            // Local mode rebuilds the binding module from source (see `build.zig`), so any
+            // host-capsule dependency (e.g. zig-tree-sitter) the binding `@import`s must be
+            // declared here too — the published-package zon's copy is not consulted.
+            let mut block = format!("        .{pkg_name} = .{{\n            .path = \"{pkg_path}\",\n        }},");
+            for (module_name, url, hash) in capsule_deps {
+                let hash_field = if hash.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n            .hash = \"{hash}\",")
+                };
+                let _ = write!(
+                    block,
+                    "\n        .{module_name} = .{{\n            .url = \"{url}\",{hash_field}\n        }},"
+                );
+            }
+            block
         }
     };
 
@@ -126,6 +142,7 @@ pub(super) fn render_build_zig(
     dep_mode: crate::e2e::config::DependencyMode,
     use_platform_registry_deps: bool,
     env: &std::collections::HashMap<String, String>,
+    capsule_deps: &[(String, String, String)],
 ) -> String {
     let ZigBuildFlags {
         has_file_fixtures,
@@ -347,6 +364,19 @@ pub fn build(b: *std.Build) void {
                 content,
                 "    {module_name}_module.addRPath(.{{ .cwd_relative = ffi_path_abs }});"
             );
+            // Host-capsule passthrough: Local mode rebuilds the binding module from source,
+            // so it must receive the same `tree_sitter` (host-capsule) import the published
+            // package's build.zig wires in. The dependency itself is declared in build.zig.zon.
+            for (capsule_module, _url, _hash) in capsule_deps {
+                let _ = writeln!(
+                    content,
+                    "    const {capsule_module}_dep = b.dependency(\"{capsule_module}\", .{{ .target = target, .optimize = optimize }});"
+                );
+                let _ = writeln!(
+                    content,
+                    "    {module_name}_module.addImport(\"{capsule_module}\", {capsule_module}_dep.module(\"{capsule_module}\"));"
+                );
+            }
             let _ = writeln!(content);
         }
     }
@@ -589,6 +619,7 @@ mod zig_build_tests {
             DependencyMode::Registry,
             false,
             &std::collections::HashMap::new(),
+            &[],
         );
 
         // Must NOT reference the workspace-local target directory.
@@ -635,6 +666,7 @@ mod zig_build_tests {
             DependencyMode::Local,
             false,
             &std::collections::HashMap::new(),
+            &[],
         );
 
         // In local mode, workspace paths are expected for development.
@@ -674,6 +706,7 @@ mod zig_build_tests {
             DependencyMode::Local,
             false,
             &env,
+            &[],
         );
 
         // All three vars must be present.
@@ -723,6 +756,7 @@ mod zig_build_tests {
             DependencyMode::Local,
             false,
             &env,
+            &[],
         );
 
         // With no env, no setEnvironmentVariable calls except the conditional mock-server ones.
@@ -764,6 +798,7 @@ mod zig_build_tests {
             DependencyMode::Local,
             false,
             &std::collections::HashMap::new(),
+            &[],
         );
 
         // Verify no double-_run suffixes in dependOn calls.

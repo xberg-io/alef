@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(e2e/zig): include host-capsule dependencies in local test packages.** Zig e2e local-mode
+  packages now re-declare host-capsule passthrough dependencies in `build.zig.zon` and wire those
+  imports into the rebuilt binding module, so generated tests can resolve imports such as
+  `tree_sitter`. (`src/e2e/codegen/zig/build.rs`, `src/e2e/codegen/zig/mod.rs`)
+
 ## [0.25.50] - 2026-06-20
 
 ### Fixed

@@ -168,6 +168,30 @@ impl E2eCodegen for ZigE2eCodegen {
         };
         let use_platform_registry_deps = uses_platform_registry_deps(&platform_hashes);
 
+        // Host-capsule passthrough deps (e.g. zig-tree-sitter). In Local mode the e2e
+        // rebuilds the binding module from source, so any capsule dependency the binding
+        // `@import`s must be re-declared in the e2e manifest. Each tuple is
+        // (module_name, url, hash): the module name is the host_type's prefix before the
+        // dot (`tree_sitter` from `tree_sitter.Language`), matching the package scaffold.
+        let zig_capsule_deps: Vec<(String, String, String)> = config
+            .zig
+            .as_ref()
+            .map(|z| {
+                let mut deps: Vec<(String, String, String)> = z
+                    .capsule_types
+                    .values()
+                    .filter(|cap| !cap.package.is_empty())
+                    .map(|cap| {
+                        let module_name = cap.host_type.split('.').next().unwrap_or("tree_sitter").to_string();
+                        (module_name, cap.package.clone(), cap.package_version.clone())
+                    })
+                    .collect();
+                deps.sort();
+                deps.dedup();
+                deps
+            })
+            .unwrap_or_default();
+
         // Generate build.zig.zon (Zig package manifest).
         files.push(GeneratedFile {
             path: output_base.join("build.zig.zon"),
@@ -178,6 +202,7 @@ impl E2eCodegen for ZigE2eCodegen {
                 &pkg_version,
                 &platform_hashes,
                 hash_is_stale,
+                &zig_capsule_deps,
             ),
             generated_header: false,
         });
@@ -349,6 +374,7 @@ impl E2eCodegen for ZigE2eCodegen {
                     e2e_config.dep_mode,
                     use_platform_registry_deps,
                     &e2e_config.env,
+                    &zig_capsule_deps,
                 ),
                 generated_header: false,
             },

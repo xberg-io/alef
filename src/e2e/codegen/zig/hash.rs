@@ -242,6 +242,7 @@ mod zig_hash_tests {
             "1.4.0-rc.32",
             &platform_hashes,
             false,
+            &[],
         );
         assert!(
             content.contains(&format!(".hash = \"{hash}\"")),
@@ -285,6 +286,7 @@ mod zig_hash_tests {
             "1.2.3",
             &platform_hashes,
             false,
+            &[],
         );
 
         assert!(content.contains(".sample_lib_x86_64_unknown_linux_gnu"));
@@ -313,6 +315,7 @@ mod zig_hash_tests {
             "1.4.0-rc.32",
             &platform_hashes,
             false,
+            &[],
         );
         assert!(
             !content.contains(".hash"),
@@ -339,6 +342,7 @@ mod zig_hash_tests {
             "3.5.1",
             &platform_hashes,
             false,
+            &[],
         );
         // Verify the generic (no-suffix) URL is present with proper repo segment.
         let expected_url =
@@ -428,6 +432,7 @@ mod detect_stale_zig_hash_tests {
             "1.0.0",
             &platform_hashes,
             false,
+            &[],
         );
 
         // Verify all Rust target triples are present in the emitted URLs
