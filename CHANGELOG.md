@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.52] - 2026-06-20
+
+### Fixed
+
+- **(backends/java): declare host-native capsule return type in facade `getLanguage`.** The Java
+  facade `getLanguage` declared the package-local opaque `Language` return type but its body
+  returned the host capsule type `io.github.treesitter.jtreesitter.Language` from the raw FFI
+  class, causing an incompatible-types compile error. The facade now declares the configured
+  capsule's fully-qualified `host_type` as the return type (e.g. `io.github.treesitter.jtreesitter.Language`)
+  when the return type is a configured capsule type, mirroring the FFI class and Kotlin backends.
+  Facades without capsule config continue to fall back to the opaque local `Language` type.
+  (`src/backends/java/gen_bindings/facade.rs`, `tests/backends_java_capsule_generation.rs`)
+
 ## [0.25.51] - 2026-06-20
 
 ### Fixed

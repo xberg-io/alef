@@ -40,7 +40,31 @@ pub(crate) fn gen_facade_class(
                 })
                 .collect();
 
-            let return_type = if let TypeRef::Optional(inner) = &func.return_type {
+            // Host-native capsule (Language-passthrough): when the return type is a configured
+            // capsule type, the raw FFI class already constructs and returns the host runtime's
+            // `Language` (e.g. `io.github.treesitter.jtreesitter.Language`), not an opaque alef
+            // handle. The facade must declare that same host type or the delegating
+            // `return raw.method(...)` body fails to compile. `host_type` is fully qualified, so
+            // no import is required (matching how the raw FFI class annotates the return).
+            let capsule_host_type = if let TypeRef::Named(name) = &func.return_type {
+                config
+                    .java
+                    .as_ref()
+                    .and_then(|java| java.capsule_types.get(name.as_str()))
+                    .map(|capsule| {
+                        if capsule.host_type.is_empty() {
+                            name.clone()
+                        } else {
+                            capsule.host_type.clone()
+                        }
+                    })
+            } else {
+                None
+            };
+
+            let return_type = if let Some(host_type) = capsule_host_type {
+                host_type
+            } else if let TypeRef::Optional(inner) = &func.return_type {
                 // Unwrap Optional<T> to @Nullable T for cleaner return types
                 let inner_type = java_boxed_type(inner);
                 render_nullable_type(&inner_type, true)
