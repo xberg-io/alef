@@ -53,11 +53,20 @@ pub(super) fn napi_variant_wrapper_constructor(
 
     let struct_name = format!("{prefix}{}", typ.name);
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
-    let body = if call_args.is_empty() {
-        format!("Self {{ inner: std::sync::Arc::new({core_path}::new()) }}")
+    // Mirror the wrapper struct's `inner` field type: a type with `&mut self`
+    // methods is stored as `Arc<Mutex<T>>`, so the constructor must `Mutex::new`-wrap
+    // too — otherwise `Arc::new(T)` mismatches the `Arc<Mutex<T>>` field (E0308).
+    let new_call = if call_args.is_empty() {
+        format!("{core_path}::new()")
     } else {
-        format!("Self {{ inner: std::sync::Arc::new({core_path}::new({call_args})) }}")
+        format!("{core_path}::new({call_args})")
     };
+    let inner_expr = if crate::codegen::generators::type_needs_mutex(typ) {
+        format!("std::sync::Arc::new(std::sync::Mutex::new({new_call}))")
+    } else {
+        format!("std::sync::Arc::new({new_call})")
+    };
+    let body = format!("Self {{ inner: {inner_expr} }}");
     let fn_sig = if sig_params.is_empty() {
         "pub fn new_constructor() -> Self".to_string()
     } else {
@@ -86,9 +95,15 @@ pub(super) fn napi_default_constructor(
 
     let struct_name = format!("{prefix}{}", typ.name);
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
+    // See napi_variant_wrapper_constructor: Mutex-wrap when the field is Arc<Mutex<T>>.
+    let inner_expr = if crate::codegen::generators::type_needs_mutex(typ) {
+        format!("std::sync::Arc::new(std::sync::Mutex::new({core_path}::new()))")
+    } else {
+        format!("std::sync::Arc::new({core_path}::new())")
+    };
 
     let constructor = format!(
-        "#[napi]\nimpl {struct_name} {{\n    #[napi(constructor)]\n    pub fn new_constructor() -> Self {{\n        Self {{ inner: std::sync::Arc::new({core_path}::new()) }}\n    }}\n}}\n"
+        "#[napi]\nimpl {struct_name} {{\n    #[napi(constructor)]\n    pub fn new_constructor() -> Self {{\n        Self {{ inner: {inner_expr} }}\n    }}\n}}\n"
     );
 
     Some(constructor)

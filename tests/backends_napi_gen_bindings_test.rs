@@ -3716,3 +3716,59 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
         "bridge cast must not assume visitor module; content:\n{content}"
     );
 }
+
+/// Regression: the napi `#[napi(constructor)]` for an opaque type with `&mut self`
+/// methods (stored as `Arc<Mutex<T>>`) must `Mutex::new`-wrap the core value.
+/// Previously it emitted `Arc::new(T::new())`, which mismatched the `Arc<Mutex<T>>`
+/// field and failed to compile (E0308 in ts-pack-core-node JsParser).
+#[test]
+fn napi_constructor_mutex_wraps_when_type_has_mut_methods() {
+    let backend = NapiBackend;
+    let counter = TypeDef {
+        name: "Counter".to_string(),
+        rust_path: "test_lib::Counter".to_string(),
+        is_opaque: true,
+        has_default: true,
+        methods: vec![
+            MethodDef {
+                name: "new".to_string(),
+                return_type: TypeRef::Named("Counter".to_string()),
+                receiver: None,
+                ..Default::default()
+            },
+            MethodDef {
+                name: "increment".to_string(),
+                return_type: TypeRef::Unit,
+                receiver: Some(ReceiverKind::RefMut),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![counter],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs generated");
+
+    assert!(
+        lib.content
+            .contains("std::sync::Arc::new(std::sync::Mutex::new(test_lib::Counter::new()))"),
+        "constructor for a Mutex-wrapped opaque type must Mutex::new-wrap the core value. Got:\n{}",
+        lib.content
+    );
+}
