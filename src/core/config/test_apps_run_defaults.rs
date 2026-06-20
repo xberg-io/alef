@@ -172,8 +172,7 @@ pub fn default_test_apps_run_config(
   curl -sSL "$DL_URL" | tar -xz --strip-components=1 -C "$LIB_DIR" && \
   GOWORK=off go mod edit -replace {mod_path}="$DST" && \
   GOWORK=off go mod tidy && \
-  GOWORK=off go test ./... && \
-  git checkout go.mod go.sum; \
+  GOWORK=off go test ./...; rc=$?; git checkout go.mod go.sum; exit $rc; \
 }}"#
                 )
             } else {
