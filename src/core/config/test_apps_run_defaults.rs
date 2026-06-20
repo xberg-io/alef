@@ -146,15 +146,35 @@ pub fn default_test_apps_run_config(
             // adds the package content hashes that `go test` actually checks.
             // `tidy` is idempotent once the sum is complete.
             //
-            // For cgo bindings: `go generate <module-path>` runs on the
-            // live (non-vendored) module to invoke the download_ffi directive,
-            // which fetches FFI tarballs into .lib/ directories. Then `go test`
-            // (without -mod=vendor) links against the live module's FFI artifacts.
-            // Vendoring doesn't work because `go generate ./vendor/...` is a no-op
-            // in dependency modules, so .lib/ stays empty and the linker fails.
+            // For cgo bindings: the published module lives in Go's read-only module
+            // cache (~/.go/pkg/mod). The download_ffi tool (cmd/download_ffi/main.go)
+            // needs to write .lib/ files there, but the cache is immutable. We copy
+            // the module to a writable temp location, download the FFI tarball from
+            // the GitHub release, extract it to .lib/, and replace the module path in
+            // test_apps/go/go.mod so subsequent builds link against the writable copy
+            // with populated .lib/ artifacts. After tests, we restore go.mod and go.sum
+            // to their original state via git checkout.
             let run_cmd = if let Some(mod_path) = go_module_path {
                 format!(
-                    "cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go generate {mod_path} && GOWORK=off go test ./..."
+                    r#"cd {test_apps_dir}/go && GOWORK=off go mod tidy && \
+{{ \
+  SRC="$(GOWORK=off go list -m -f '{{{{.Dir}}}}' {mod_path})" && \
+  DST="$(mktemp -d)/gomod" && \
+  cp -R "$SRC" "$DST" && \
+  chmod -R u+w "$DST" && \
+  MODVER="$(grep '^[[:space:]]*{mod_path} ' go.mod | awk '{{{{print $NF}}}}')" && \
+  OS_NAME="$(uname -s | sed 's/Darwin/macos/; s/Linux/linux/; s/.*Windows.*/windows/')" && \
+  GOARCH="$(go env GOARCH)" && \
+  ARCH_NAME="$([ "$GOARCH" = 'amd64' ] && echo 'x86_64' || ([ "$GOARCH" = 'arm64' ] && ([ "$OS_NAME" = 'macos' ] && echo 'arm64' || echo 'aarch64') || echo "$GOARCH"))" && \
+  DL_URL="https://github.com/kreuzberg-dev/kreuzcrawl/releases/download/$MODVER/kreuzcrawl-go-$OS_NAME-$ARCH_NAME.tar.gz" && \
+  LIB_DIR="$DST/.lib/$OS_NAME-$GOARCH" && \
+  mkdir -p "$LIB_DIR" && \
+  curl -sSL "$DL_URL" | tar -xz --strip-components=1 -C "$LIB_DIR" && \
+  GOWORK=off go mod edit -replace {mod_path}="$DST" && \
+  GOWORK=off go mod tidy && \
+  GOWORK=off go test ./... && \
+  git checkout go.mod go.sum; \
+}}"#
                 )
             } else {
                 format!("cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go test ./...")

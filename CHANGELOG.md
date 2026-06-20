@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **test_apps/go runner**: the go test-app now provisions FFI libraries into a
+  writable temp directory and replaces the module path in go.mod to link against
+  the copy. `go generate` fails in the Go module cache (read-only), and the
+  download_ffi tool cannot write .lib/ artifacts there. The runner copies the
+  module to a temp location, downloads the FFI tarball from the GitHub release,
+  extracts it with --strip-components=1 to .lib/, updates the replace directive,
+  runs tests, and restores go.mod/go.sum via git checkout to keep the test app
+  pristine.
 - **scaffold/swift root Package.swift**: the published binaryTarget manifest now
   declares `linkerSettings` on the `RustBridge` target linking the Apple system
   frameworks (`Security`, `CoreFoundation`, `SystemConfiguration`). The pre-built
