@@ -1,4 +1,4 @@
-/// Convert a `{{ enum_name }}` variant name (C string) to its integer value. Returns -1 on invalid input.
+/// Convert a `{{ enum_name }}` serde wire value (C string) to its integer discriminant. Returns -1 on invalid input.
 /// # Safety
 /// Caller must ensure `ptr` is a valid pointer to a `c_char` or null.
 #[unsafe(no_mangle)]

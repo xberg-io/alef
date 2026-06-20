@@ -1,6 +1,6 @@
 use crate::backends::ffi::type_map::c_return_type_with_paths;
 use crate::codegen::conversions::{core_enum_path, core_type_path};
-use crate::codegen::naming::pascal_to_snake;
+use crate::codegen::naming::{pascal_to_snake, wire_variant_value};
 use crate::core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use minijinja::context;
@@ -458,7 +458,11 @@ pub(super) fn gen_enum_from_i32(enum_def: &EnumDef, prefix: &str, _core_import: 
 pub(super) fn gen_enum_to_i32(enum_def: &EnumDef, prefix: &str, _core_import: &str) -> String {
     let enum_snake = c_symbol_component(&enum_def.name);
     let enum_name = &enum_def.name;
-    let variants: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
+    let variants: Vec<String> = enum_def
+        .variants
+        .iter()
+        .map(|v| wire_variant_value(&v.name, v.serde_rename.as_deref(), enum_def.serde_rename_all.as_deref()))
+        .collect();
 
     crate::backends::ffi::template_env::render(
         "enum_to_i32.jinja",

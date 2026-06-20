@@ -1,4 +1,4 @@
-use super::enums::{gen_data_enum_type, gen_unit_enum_type};
+use super::enums::{gen_data_enum_type, gen_newtype_tuple_enum_type, gen_unit_enum_type};
 use super::*;
 use crate::codegen::naming::apply_serde_rename_all;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeDef, TypeRef};
@@ -500,5 +500,197 @@ fn gen_enum_type_passthrough_with_text_types_emits_text_accessor() {
     assert!(
         out.contains("p.Type == \"text\""),
         "must filter parts by type==\"text\":\n{out}"
+    );
+}
+
+fn make_unit_variant(name: &str, serde_rename: Option<&str>) -> EnumVariant {
+    EnumVariant {
+        name: name.to_string(),
+        doc: String::new(),
+        fields: vec![],
+        is_default: false,
+        serde_rename: serde_rename.map(str::to_string),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_tuple: false,
+        originally_had_data_fields: false,
+        cfg: None,
+        version: Default::default(),
+    }
+}
+
+fn make_unit_enum(name: &str, rename_all: Option<&str>, variants: Vec<EnumVariant>) -> EnumDef {
+    EnumDef {
+        name: name.to_string(),
+        rust_path: String::new(),
+        original_rust_path: String::new(),
+        methods: vec![],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: rename_all.is_some(),
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: rename_all.map(str::to_string),
+        variants,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+    }
+}
+
+#[test]
+fn gen_unit_enum_type_honors_serde_rename_all_lowercase() {
+    let enum_def = make_unit_enum(
+        "ChunkerType",
+        Some("lowercase"),
+        vec![make_unit_variant("Text", None), make_unit_variant("Markdown", None)],
+    );
+    let out = gen_unit_enum_type(&enum_def);
+    assert!(
+        out.contains(r#"ChunkerTypeText ChunkerType = "text""#),
+        "wire value must be lowercase; got:\n{out}"
+    );
+    assert!(
+        out.contains(r#"ChunkerTypeMarkdown ChunkerType = "markdown""#),
+        "wire value must be lowercase; got:\n{out}"
+    );
+}
+
+#[test]
+fn gen_unit_enum_type_explicit_serde_rename_wins_over_rename_all() {
+    let enum_def = make_unit_enum(
+        "Mode",
+        Some("lowercase"),
+        vec![make_unit_variant("Custom", Some("bespoke"))],
+    );
+    let out = gen_unit_enum_type(&enum_def);
+    assert!(
+        out.contains(r#"= "bespoke""#),
+        "explicit serde_rename must override rename_all; got:\n{out}"
+    );
+}
+
+#[test]
+fn gen_unit_enum_type_no_serde_keeps_rust_variant_name() {
+    let enum_def = make_unit_enum("Status", None, vec![make_unit_variant("Active", None)]);
+    let out = gen_unit_enum_type(&enum_def);
+    assert!(
+        out.contains(r#"= "Active""#),
+        "no serde attributes must preserve PascalCase; got:\n{out}"
+    );
+}
+
+fn make_tuple_variant(name: &str, serde_rename: Option<&str>) -> EnumVariant {
+    EnumVariant {
+        name: name.to_string(),
+        doc: String::new(),
+        fields: vec![FieldDef {
+            name: "_0".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: crate::core::ir::CoreWrapper::None,
+            vec_inner_core_wrapper: crate::core::ir::CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            original_type: None,
+        }],
+        is_default: false,
+        serde_rename: serde_rename.map(str::to_string),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_tuple: true,
+        originally_had_data_fields: false,
+        cfg: None,
+        version: Default::default(),
+    }
+}
+
+fn make_newtype_tuple_enum(name: &str, rename_all: Option<&str>, variants: Vec<EnumVariant>) -> EnumDef {
+    EnumDef {
+        name: name.to_string(),
+        rust_path: String::new(),
+        original_rust_path: String::new(),
+        methods: vec![],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: rename_all.is_some(),
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: rename_all.map(str::to_string),
+        variants,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+    }
+}
+
+#[test]
+fn gen_newtype_tuple_enum_type_honors_serde_rename_all_lowercase() {
+    let enum_def = make_newtype_tuple_enum(
+        "ChunkerType",
+        Some("lowercase"),
+        vec![
+            make_unit_variant("Text", None),
+            make_unit_variant("Markdown", None),
+            make_tuple_variant("Custom", None),
+        ],
+    );
+    let out = gen_newtype_tuple_enum_type(&enum_def);
+    assert!(
+        out.contains("type ChunkerType string"),
+        "must emit string type; got:\n{out}"
+    );
+    assert!(
+        out.contains(r#"ChunkerTypeText ChunkerType = "text""#),
+        "unit variant wire value must be lowercase; got:\n{out}"
+    );
+    assert!(
+        out.contains(r#"ChunkerTypeMarkdown ChunkerType = "markdown""#),
+        "unit variant wire value must be lowercase; got:\n{out}"
+    );
+}
+
+#[test]
+fn gen_newtype_tuple_enum_type_explicit_serde_rename_wins() {
+    let enum_def = make_newtype_tuple_enum(
+        "Mode",
+        Some("lowercase"),
+        vec![
+            make_unit_variant("Bespoke", Some("bespoke_wire")),
+            make_tuple_variant("Custom", None),
+        ],
+    );
+    let out = gen_newtype_tuple_enum_type(&enum_def);
+    assert!(
+        out.contains(r#"= "bespoke_wire""#),
+        "explicit serde_rename must override rename_all; got:\n{out}"
+    );
+}
+
+#[test]
+fn gen_newtype_tuple_enum_type_no_serde_keeps_rust_variant_name() {
+    let enum_def = make_newtype_tuple_enum(
+        "Format",
+        None,
+        vec![make_unit_variant("Json", None), make_tuple_variant("Custom", None)],
+    );
+    let out = gen_newtype_tuple_enum_type(&enum_def);
+    assert!(
+        out.contains(r#"= "Json""#),
+        "no serde attributes must preserve PascalCase; got:\n{out}"
     );
 }
