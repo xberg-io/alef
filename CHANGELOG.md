@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.25.52] - 2026-06-20
 
+### Added
+
+- **(e2e/brew): support batch URL lists and override subcommands.** Brew e2e codegen now expands
+  `mock_url_list` fixture args into multiple positional mock-server URLs and treats the brew
+  override `function` as the authoritative CLI subcommand for batch fixtures.
+  (`src/e2e/codegen/brew/category.rs`, `tests/e2e_brew_batch_subcommand.rs`)
+
+### Changed
+
+- **(docs): move Alef agent tooling docs to the plugin marketplace.** The stale in-tree
+  `skills/alef` skill and references were removed so agent tooling is sourced from the
+  `kreuzberg-dev/plugins` marketplace copy. (`skills/alef/`)
+
 ### Fixed
 
 - **(backends/java): declare host-native capsule return type in facade `getLanguage`.** The Java

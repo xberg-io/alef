@@ -54,12 +54,10 @@ fn resolved_one(toml: &str) -> ResolvedCrateConfig {
 
 /// The generated facade class is the public wrapper (main class without the `Rs` suffix).
 fn facade_content(files: &[alef::core::backend::GeneratedFile]) -> String {
-    let file = files
-        .iter()
-        .find(|f| {
-            let path = f.path.to_string_lossy();
-            path.ends_with(".java") && f.content.contains("public static") && f.content.contains("getLanguage")
-        });
+    let file = files.iter().find(|f| {
+        let path = f.path.to_string_lossy();
+        path.ends_with(".java") && f.content.contains("public static") && f.content.contains("getLanguage")
+    });
 
     if let Some(f) = file {
         f.content.clone()
@@ -100,7 +98,9 @@ construct_expr = "new io.github.treesitter.jtreesitter.Language({ptr})"
 "#,
     );
 
-    let files = JavaBackend.generate_bindings(&api, &config).expect("Java generation failed");
+    let files = JavaBackend
+        .generate_bindings(&api, &config)
+        .expect("Java generation failed");
     let content = facade_content(&files);
 
     assert!(
@@ -135,7 +135,9 @@ package = "dev.kreuzberg.treesitterlanguagepack"
 "#,
     );
 
-    let files = JavaBackend.generate_bindings(&api, &config).expect("Java generation failed");
+    let files = JavaBackend
+        .generate_bindings(&api, &config)
+        .expect("Java generation failed");
     let content = facade_content(&files);
 
     assert!(
