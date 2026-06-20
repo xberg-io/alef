@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.51] - 2026-06-20
+
 ### Fixed
 
 - **(e2e/zig): include host-capsule dependencies in local test packages.** Zig e2e local-mode
