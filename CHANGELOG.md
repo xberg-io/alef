@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.53] - 2026-06-20
+
 ### Added
 
 - **e2e harness_extras**: `[crates.e2e.harness_extras.<lang>]` dependency injection
