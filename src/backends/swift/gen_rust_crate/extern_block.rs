@@ -15,16 +15,23 @@ use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Returns the subset of `ty.fields` that appear in the swift-bridge constructor extern
-/// (filters out fields marked `binding_excluded` and any field key listed in `exclude_fields`).
+/// (filters out fields marked `binding_excluded`, any field key listed in `exclude_fields`,
+/// and any field whose `#[cfg(...)]` condition is not satisfied by the configured features).
 ///
 /// Order matches `ty.fields` — the positional argument order swift-bridge uses to emit
 /// the generated `convenience init(_ a, _ b, ...)`.
-pub(crate) fn constructor_fields<'a>(ty: &'a TypeDef, exclude_fields: &HashSet<String>) -> Vec<&'a FieldDef> {
+pub(crate) fn constructor_fields<'a>(
+    ty: &'a TypeDef,
+    exclude_fields: &HashSet<String>,
+    configured_features: &std::collections::HashSet<&str>,
+) -> Vec<&'a FieldDef> {
     ty.fields
         .iter()
         .filter(|f| {
             let field_key = format!("{}.{}", ty.name, f.name.to_snake_case());
-            !f.binding_excluded && !exclude_fields.contains(&field_key)
+            !f.binding_excluded
+                && !exclude_fields.contains(&field_key)
+                && super::feature_gate::cfg_satisfied(f.cfg.as_deref(), configured_features)
         })
         .collect()
 }
@@ -33,8 +40,12 @@ pub(crate) fn constructor_fields<'a>(ty: &'a TypeDef, exclude_fields: &HashSet<S
 /// constructor extern for `ty`. Mirrors the gating logic inside `emit_extern_block_for_type`
 /// so callers (gen_bindings.rs `intoRust()` emission) can detect the presence of a
 /// matching bulk constructor without re-running the whole emitter.
-pub(crate) fn has_constructor_extern(ty: &TypeDef, exclude_fields: &HashSet<String>) -> bool {
-    let fields = constructor_fields(ty, exclude_fields);
+pub(crate) fn has_constructor_extern(
+    ty: &TypeDef,
+    exclude_fields: &HashSet<String>,
+    configured_features: &std::collections::HashSet<&str>,
+) -> bool {
+    let fields = constructor_fields(ty, exclude_fields, configured_features);
     if fields.is_empty() {
         return false;
     }
@@ -72,6 +83,7 @@ pub(crate) fn emit_extern_block_for_type(
     type_paths: &HashMap<String, String>,
     no_serde_names: &HashSet<&str>,
     enum_names: &HashSet<String>,
+    configured_features: &std::collections::HashSet<&str>,
 ) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
@@ -94,8 +106,8 @@ pub(crate) fn emit_extern_block_for_type(
     // The gating predicate lives in `has_constructor_extern` so that gen_bindings.rs
     // can match the same emission decision when choosing between a bulk constructor
     // and the JSON roundtrip in `intoRust()`.
-    let constructor_fields = constructor_fields(ty, exclude_fields);
-    let emit_constructor = has_constructor_extern(ty, exclude_fields);
+    let constructor_fields = constructor_fields(ty, exclude_fields, configured_features);
+    let emit_constructor = has_constructor_extern(ty, exclude_fields, configured_features);
 
     if emit_constructor {
         let params: Vec<String> = constructor_fields
@@ -133,7 +145,14 @@ pub(crate) fn emit_extern_block_for_type(
     // Escape Swift keywords so e.g. `fn extension(&self)` becomes `fn extension_(&self)` —
     // matches the impl block in `wrappers.rs`.
     for field in &ty.fields {
-        if is_unbridgeable_getter(ty, field, exclude_fields, type_paths, no_serde_names) {
+        if is_unbridgeable_getter(
+            ty,
+            field,
+            exclude_fields,
+            type_paths,
+            no_serde_names,
+            configured_features,
+        ) {
             continue;
         }
         // Use enum-aware bridge type so that enum-typed Named fields are declared as
@@ -709,6 +728,138 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
 
     block.push_str("    }\n\n");
     Some(block)
+}
+
+#[cfg(test)]
+mod cfg_filtered_fields_tests {
+    //! Regression coverage for cfg-gated struct field filtering in constructor
+    //! params and getter declarations. Fields whose #[cfg(...)] condition is not
+    //! satisfied by the configured feature set must be dropped from the extern
+    //! block entirely, otherwise swift-bridge will panic when trying to reference
+    //! a type that doesn't exist, such as a feature-gated confidence score type.
+
+    use super::{constructor_fields, has_constructor_extern, is_unbridgeable_getter};
+    use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+    use std::collections::{HashMap, HashSet};
+
+    fn test_type_with_mixed_cfg_fields() -> TypeDef {
+        TypeDef {
+            name: "ExtractionResult".to_string(),
+            rust_path: "sample_crate::ExtractionResult".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "text".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    cfg: None,
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "extraction_confidence".to_string(),
+                    ty: TypeRef::Named("ExtractionConfidence".to_string()),
+                    optional: true,
+                    cfg: Some("feature = \"heuristics\"".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn constructor_fields_filters_cfg_gated_fields() {
+        let ty = test_type_with_mixed_cfg_fields();
+        let exclude_fields = HashSet::new();
+        let empty_features = HashSet::new();
+        let with_heuristics: HashSet<&str> = ["heuristics"].into_iter().collect();
+
+        // Without 'heuristics' feature, only the uncfg-gated field appears
+        let fields_without = constructor_fields(&ty, &exclude_fields, &empty_features);
+        assert_eq!(
+            fields_without.len(),
+            1,
+            "without heuristics feature, only uncfg-gated field should appear"
+        );
+        assert_eq!(
+            fields_without[0].name, "text",
+            "uncfg-gated 'text' field should be present"
+        );
+
+        // With 'heuristics' feature, both fields appear
+        let fields_with = constructor_fields(&ty, &exclude_fields, &with_heuristics);
+        assert_eq!(
+            fields_with.len(),
+            2,
+            "with heuristics feature, both fields should appear"
+        );
+        assert_eq!(fields_with[0].name, "text");
+        assert_eq!(fields_with[1].name, "extraction_confidence");
+        assert!(
+            !has_constructor_extern(&ty, &exclude_fields, &empty_features),
+            "non-primitive serde DTOs still require Default-based construction"
+        );
+    }
+
+    #[test]
+    fn is_unbridgeable_getter_returns_true_for_cfg_gated_fields() {
+        let ty = test_type_with_mixed_cfg_fields();
+        let exclude_fields = HashSet::new();
+        let empty_features = HashSet::new();
+        let with_heuristics: HashSet<&str> = ["heuristics"].into_iter().collect();
+        let mut type_paths = HashMap::new();
+        type_paths.insert(
+            "ExtractionConfidence".to_string(),
+            "sample_crate::ExtractionConfidence".to_string(),
+        );
+        let no_serde_names = HashSet::new();
+
+        // The cfg-gated field
+        let cfg_field = &ty.fields[1];
+        assert_eq!(cfg_field.name, "extraction_confidence");
+
+        // Without heuristics feature, the field is unbridgeable (returns true)
+        let unbridgeable_without = is_unbridgeable_getter(
+            &ty,
+            cfg_field,
+            &exclude_fields,
+            &type_paths,
+            &no_serde_names,
+            &empty_features,
+        );
+        assert!(
+            unbridgeable_without,
+            "cfg-gated field should be unbridgeable when feature is not configured"
+        );
+
+        // With heuristics feature, the field becomes bridgeable (still checks other rules)
+        let unbridgeable_with = is_unbridgeable_getter(
+            &ty,
+            cfg_field,
+            &exclude_fields,
+            &type_paths,
+            &no_serde_names,
+            &with_heuristics,
+        );
+        assert!(
+            !unbridgeable_with,
+            "cfg-gated field should be bridgeable when feature is configured (assuming type is in type_paths)"
+        );
+
+        // The uncfg-gated field should always be bridgeable (given it's a simple type)
+        let uncfg_field = &ty.fields[0];
+        let unbridgeable_uncfg = is_unbridgeable_getter(
+            &ty,
+            uncfg_field,
+            &exclude_fields,
+            &type_paths,
+            &no_serde_names,
+            &empty_features,
+        );
+        assert!(
+            !unbridgeable_uncfg,
+            "uncfg-gated String field should always be bridgeable"
+        );
+    }
 }
 
 #[cfg(test)]

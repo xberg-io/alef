@@ -90,6 +90,11 @@ impl Backend for SwiftBackend {
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
 
+        // Extract configured features for Swift to match the Rust-side feature set.
+        // This filters cfg-gated struct fields when emitting constructor externs and getters.
+        let base_features = config.features_for_language(crate::core::config::extras::Language::Swift);
+        let configured_features: std::collections::HashSet<&str> = base_features.iter().map(String::as_str).collect();
+
         // Function-wrapper emission is disabled in this phase (see comment below);
         // `swift.exclude_functions` therefore has no effect on the host wrapper but
         // is still consumed by the Rust-side bridge crate via gen_rust_crate::emit.
@@ -238,6 +243,7 @@ impl Backend for SwiftBackend {
                     &unit_serde_enum_names,
                     &untagged_enum_names,
                     &dto_error_name,
+                    &configured_features,
                     &mut body,
                 );
             } else {

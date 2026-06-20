@@ -69,6 +69,7 @@ pub(super) fn emit_first_class_struct(
     unit_enum_names: &HashSet<String>,
     untagged_enum_names: &HashSet<String>,
     error_type_name: &str,
+    configured_features: &std::collections::HashSet<&str>,
     out: &mut String,
 ) {
     let type_name = &ty.name;
@@ -282,7 +283,7 @@ pub(super) fn emit_first_class_struct(
     // `init(_ rb: RustBridge.{Type}) throws` above and avoids the JSONEncoder + Rust-side
     // `serde_json::from_str` work for primitive-only DTOs.
     let mut into_rust_body = String::new();
-    let direct_call = emit_into_rust_direct_call(ty, mapper, exclude_fields, type_name);
+    let direct_call = emit_into_rust_direct_call(ty, mapper, exclude_fields, type_name, configured_features);
     match direct_call {
         Some(call) => into_rust_body.push_str(&call),
         None => {
@@ -495,14 +496,15 @@ pub(super) fn emit_into_rust_direct_call(
     _mapper: &SwiftMapper,
     exclude_fields: &HashSet<String>,
     type_name: &str,
+    configured_features: &std::collections::HashSet<&str>,
 ) -> Option<String> {
     use crate::backends::swift::gen_rust_crate::extern_block::{constructor_fields, has_constructor_extern};
 
-    if !has_constructor_extern(ty, exclude_fields) {
+    if !has_constructor_extern(ty, exclude_fields, configured_features) {
         return None;
     }
 
-    let ctor_fields = constructor_fields(ty, exclude_fields);
+    let ctor_fields = constructor_fields(ty, exclude_fields, configured_features);
     // If any visible (binding-visible) field is dropped from the constructor — e.g.
     // listed in `[crates.<crate>.swift] exclude_fields` — the bulk constructor would
     // silently default that field while the JSON roundtrip preserves whatever serde

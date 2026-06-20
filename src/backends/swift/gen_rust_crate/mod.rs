@@ -367,7 +367,7 @@ fn emit_lib_rs(
         // block instead to co-locate it with its owning function.
         let is_handle_returned = handle_returned_types.contains(&ty.name);
         let would_be_empty_type_block = ty.fields.is_empty()
-            && !extern_block::has_constructor_extern(ty, exclude_fields)
+            && !extern_block::has_constructor_extern(ty, exclude_fields, configured_features)
             && ty
                 .methods
                 .iter()
@@ -392,28 +392,19 @@ fn emit_lib_rs(
             .as_deref()
             .map(|c| format!("    #[cfg({c})]\n"))
             .unwrap_or_default();
-        let cfg_close = if ty.cfg.is_some() {
-            // The closing brace is already inside the extern block string, so we only
-            // need to close the `#[cfg]` scope at the right nesting level. Because
-            // `#[cfg]` is an attribute on the whole `extern "Rust" { }` item (not a
-            // standalone scope), no extra braces are needed — the attribute applies to
-            // the next item statement.
-            String::new()
-        } else {
-            String::new()
-        };
         let raw_block = extern_block::emit_extern_block_for_type(
             ty,
             exclude_fields,
             &type_paths,
             &no_serde_names,
             &enum_names_owned,
+            configured_features,
         );
         // Indent the raw block by 4 spaces when it is wrapped in a cfg attribute, to
         // keep the resulting source readable.  The raw block already begins with "    "
         // (four-space indent inside `mod ffi`), so no additional indent is needed;
         // we just prepend the attribute on its own line.
-        extern_blocks.push(format!("{cfg_open}{raw_block}{cfg_close}"));
+        extern_blocks.push(format!("{cfg_open}{raw_block}"));
         // For opaque types with methods, also emit constructor + method extern blocks.
         if ty.is_opaque && !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
             // Only emit the `create_<type>` constructor when the user provides an explicit
@@ -793,6 +784,7 @@ fn emit_lib_rs(
             &enum_names,
             &no_serde_names,
             exclude_fields,
+            configured_features,
         ));
         out.push('\n');
         // For opaque types that expose methods, emit constructor + method shims.

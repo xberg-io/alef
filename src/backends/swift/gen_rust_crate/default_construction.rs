@@ -5,6 +5,7 @@
 //! delegates here. The emitted code creates a `Default` instance and assigns each
 //! field individually via serde JSON round-trips and native unwrapping.
 
+use crate::backends::swift::gen_rust_crate::feature_gate;
 use crate::backends::swift::gen_rust_crate::type_bridge::{needs_json_bridge, swift_bridge_rust_type};
 use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -26,6 +27,7 @@ pub(crate) fn emit_default_construction_body(
     enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
+    configured_features: &std::collections::HashSet<&str>,
 ) -> String {
     let mut out = String::new();
     out.push_str(&crate::backends::swift::template_env::render(
@@ -35,6 +37,11 @@ pub(crate) fn emit_default_construction_body(
         },
     ));
     for f in &ty.fields {
+        // Skip cfg-unsatisfied fields: they don't exist in the core type,
+        // so any assignment attempt will fail to compile.
+        if !feature_gate::cfg_satisfied(f.cfg.as_deref(), configured_features) {
+            continue;
+        }
         let name = f.name.to_snake_case();
         // Param name in the constructor signature is keyword-escaped (matches
         // wrappers.rs / extern_block.rs). Field access on `__target` uses the
@@ -352,11 +359,17 @@ pub(crate) fn emit_direct_field_inits(
     enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
+    configured_features: &std::collections::HashSet<&str>,
 ) -> Vec<String> {
     ty.fields
         .iter()
         .map(|f| {
             let name = f.name.to_snake_case();
+            // Skip cfg-unsatisfied fields: they don't exist in the source type,
+            // so any initializer referencing them will fail to compile.
+            if !feature_gate::cfg_satisfied(f.cfg.as_deref(), configured_features) {
+                return format!("            {name}: ::std::default::Default::default()");
+            }
             if f.binding_excluded {
                 return format!("            {name}: ::std::default::Default::default()");
             }

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(backends/swift): filter struct fields by `#[cfg]` against the configured feature set.** The
+  swift-bridge rust-crate generator emitted cfg-gated struct fields as constructor params and getter
+  externs even when the field's feature was not in the configured feature set for Swift. When a
+  field's type was not emitted as a visible type, swift-bridge-build panicked because the constructor
+  or getter referenced a non-existent type. Constructor params, getter externs, and wrapper impl
+  accessors (including the constructor body field initializers) now filter by cfg, mirroring the
+  existing type-level cfg filter. The wrapper `new()` constructor and its construction body
+  (`emit_default_construction_body` and `emit_direct_field_inits`) now use the cfg-aware
+  `constructor_fields()` helper to stay in lockstep with the extern block declaration.
+  (`src/backends/swift/gen_rust_crate/wrappers/constructors.rs`,
+  `src/backends/swift/gen_rust_crate/default_construction.rs`)
 - **(scaffold/zig): wire the host-capsule `tree_sitter` dependency into `build.zig`.** The zig
   scaffold declared the zig-tree-sitter dependency in `build.zig.zon` (for capsule passthrough) but
   never `addImport`ed its module in `build.zig`, so the binding's `@import("tree_sitter")` failed to

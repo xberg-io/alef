@@ -10,6 +10,7 @@
 use crate::backends::swift::gen_rust_crate::default_construction::{
     emit_default_construction_body, emit_direct_field_inits,
 };
+use crate::backends::swift::gen_rust_crate::extern_block::constructor_fields;
 use crate::backends::swift::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
 use crate::codegen::generators::type_paths::resolve_type_path;
 use crate::core::ir::{TypeDef, TypeRef};
@@ -26,6 +27,7 @@ pub(crate) fn emit_type_wrapper(
     enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
+    configured_features: &HashSet<&str>,
 ) -> String {
     let mut out = String::new();
     let source_path = resolve_type_path(&ty.name, source_crate, type_paths);
@@ -54,16 +56,9 @@ pub(crate) fn emit_type_wrapper(
 
         // Constructor — params use bridge types (String for JSON-bridged fields)
         // and Option<bridge_ty> when the field is optional.
-        // Excluded fields (via exclude_fields config) are omitted from params
-        // and left at Default::default() in the field initializers.
-        let constructor_fields: Vec<_> = ty
-            .fields
-            .iter()
-            .filter(|f| {
-                let field_key = format!("{}.{}", ty.name, f.name.to_snake_case());
-                !f.binding_excluded && !exclude_fields.contains(&field_key)
-            })
-            .collect();
+        // Excluded fields (via exclude_fields config) and cfg-unsatisfied fields
+        // are omitted from params and left at Default::default() in the field initializers.
+        let constructor_fields = constructor_fields(ty, exclude_fields, configured_features);
         let params: Vec<String> = constructor_fields
             .iter()
             .map(|f| {
@@ -125,10 +120,18 @@ pub(crate) fn emit_type_wrapper(
                     enum_names,
                     no_serde_names,
                     exclude_fields,
+                    configured_features,
                 );
                 out.push_str(&body);
             } else {
-                let field_inits = emit_direct_field_inits(ty, type_paths, enum_names, no_serde_names, exclude_fields);
+                let field_inits = emit_direct_field_inits(
+                    ty,
+                    type_paths,
+                    enum_names,
+                    no_serde_names,
+                    exclude_fields,
+                    configured_features,
+                );
                 out.push_str(&crate::backends::swift::template_env::render(
                     "struct_literal_open.jinja",
                     minijinja::context! {
@@ -146,7 +149,15 @@ pub(crate) fn emit_type_wrapper(
         } // end else (constructor emitted)
 
         // Getters — return bridge types (String for JSON-bridged, wrappers for Named).
-        emit_getters(ty, type_paths, enum_names, no_serde_names, exclude_fields, &mut out);
+        emit_getters(
+            ty,
+            type_paths,
+            enum_names,
+            no_serde_names,
+            exclude_fields,
+            configured_features,
+            &mut out,
+        );
 
         out.push_str("}\n");
     }
@@ -203,4 +214,103 @@ pub(crate) fn emit_type_constructor_shim(
          .map({type_name})\n}}\n",
         cfg_prefix = cfg_prefix,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{FieldDef, TypeRef};
+
+    #[test]
+    fn wrapper_constructor_filters_cfg_gated_fields() {
+        let fields = vec![
+            FieldDef {
+                name: "field_a".to_string(),
+                ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+                optional: false,
+                default: None,
+                doc: "".to_string(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: Default::default(),
+                vec_inner_core_wrapper: Default::default(),
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                original_type: None,
+            },
+            FieldDef {
+                name: "field_b".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                doc: "".to_string(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: Some("feature = \"heuristics\"".to_string()),
+                typed_default: None,
+                core_wrapper: Default::default(),
+                vec_inner_core_wrapper: Default::default(),
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                original_type: None,
+            },
+        ];
+
+        let ty = TypeDef {
+            name: "TestType".to_string(),
+            rust_path: "test::TestType".to_string(),
+            original_rust_path: "".to_string(),
+            fields,
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        };
+
+        let exclude_fields = std::collections::HashSet::new();
+        let mut configured_features = std::collections::HashSet::new();
+        configured_features.insert("pdf");
+        // Note: "heuristics" is NOT in configured_features
+
+        let output = emit_type_wrapper(
+            &ty,
+            "test_crate",
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &exclude_fields,
+            &configured_features,
+        );
+
+        // The wrapper output should include the newtype and impl block
+        assert!(output.contains("pub struct TestType"));
+        // The constructor should NOT include field_b (cfg-gated with heuristics)
+        assert!(!output.contains("field_b: String"));
+        // The constructor SHOULD include field_a
+        assert!(output.contains("field_a: u32"));
+    }
 }

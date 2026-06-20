@@ -23,11 +23,12 @@ use std::collections::{HashMap, HashSet};
 /// these in lockstep means the swift-bridge surface never contains a callable
 /// function with no valid bridge implementation.
 ///
-/// Three cases qualify:
+/// Five cases qualify:
 /// 1. Explicitly excluded fields (`[swift].exclude_fields` config).
-/// 2. JSON-bridged container with inner Named that is excluded from codegen
+/// 2. Fields whose `#[cfg(...)]` condition is not satisfied by the configured features.
+/// 3. JSON-bridged container with inner Named that is excluded from codegen
 ///    or marked as non-serde — round-trip cannot reconstruct the type.
-/// 3. `Vec<Named>` field on a non-serde struct — IR cannot guarantee the
+/// 4. `Vec<Named>` field on a non-serde struct — IR cannot guarantee the
 ///    Named wrapper matches the actual Rust field type (different type may
 ///    appear in Rust source vs IR).
 pub(crate) fn is_unbridgeable_getter(
@@ -36,7 +37,13 @@ pub(crate) fn is_unbridgeable_getter(
     exclude_fields: &HashSet<String>,
     type_paths: &HashMap<String, String>,
     no_serde_names: &HashSet<&str>,
+    configured_features: &std::collections::HashSet<&str>,
 ) -> bool {
+    // First check: if the field's cfg condition is not satisfied, skip it entirely.
+    if !super::super::feature_gate::cfg_satisfied(field.cfg.as_deref(), configured_features) {
+        return true;
+    }
+
     let name = field.name.to_snake_case();
     let field_key = format!("{}.{}", ty.name, name);
     if field.binding_excluded || exclude_fields.contains(&field_key) {
@@ -92,6 +99,7 @@ pub(super) fn emit_getters(
     enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
+    configured_features: &std::collections::HashSet<&str>,
     out: &mut String,
 ) {
     for field in &ty.fields {
@@ -120,7 +128,14 @@ pub(super) fn emit_getters(
         // Skip impl entirely for fields whose getter is unbridgeable. The matching
         // `extern_block::emit_extern_block_for_type` skips the extern declaration
         // for the same fields, so the swift-bridge surface stays consistent.
-        if is_unbridgeable_getter(ty, field, exclude_fields, type_paths, no_serde_names) {
+        if is_unbridgeable_getter(
+            ty,
+            field,
+            exclude_fields,
+            type_paths,
+            no_serde_names,
+            configured_features,
+        ) {
             if field.binding_excluded {
                 continue;
             }
