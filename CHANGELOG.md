@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **scaffold/swift root Package.swift**: the published binaryTarget manifest now
+  declares `linkerSettings` on the `RustBridge` target linking the Apple system
+  frameworks (`Security`, `CoreFoundation`, `SystemConfiguration`). The pre-built
+  static library inside the artifactbundle references these (notably `SC*` symbols
+  via reqwest's `system_configuration` proxy detection); without them remote
+  SwiftPM consumers failed to link with undefined-symbol errors.
 - **test_apps/zig runner**: the zig run command now strips any pre-existing
   `.hash` lines from `build.zig.zon` before injecting the freshly computed
   multihash. Previously the generated zon already carried the STALE placeholder
