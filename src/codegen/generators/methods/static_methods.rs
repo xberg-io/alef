@@ -1,7 +1,8 @@
 use super::trait_names::is_trait_method_name;
 use crate::codegen::generators::binding_helpers::{
-    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_with_let_bindings_json_str,
-    gen_named_let_bindings_pub, gen_unimplemented_body, has_named_params, wrap_return_with_mutex_mapped,
+    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_cfg,
+    gen_call_args_with_let_bindings_json_str, gen_named_let_bindings_pub, gen_unimplemented_body, has_named_params,
+    wrap_return_with_mutex_mapped,
 };
 use crate::codegen::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::codegen::shared::{function_params, function_sig_defaults};
@@ -36,6 +37,18 @@ pub fn gen_static_method(
         (
             gen_call_args_with_let_bindings_json_str(&method.params, opaque_types),
             gen_named_let_bindings_pub(&method.params, opaque_types, core_import),
+        )
+    } else if cfg.cast_uints_to_i32 || cfg.cast_large_ints_to_f64 {
+        // Backends that remap numeric params (e.g. extendr maps u32→i32, f32→f64) must cast the
+        // binding-level argument back to the core type at the call site.
+        (
+            gen_call_args_cfg(
+                &method.params,
+                opaque_types,
+                cfg.cast_uints_to_i32,
+                cfg.cast_large_ints_to_f64,
+            ),
+            String::new(),
         )
     } else {
         (gen_call_args(&method.params, opaque_types), String::new())
@@ -161,6 +174,12 @@ pub fn gen_static_method(
                     ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
                 }
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                // extendr: `wrap_return` produces `Result<T, extendr_api::Error>`, so a
+                // `String` error does not coerce. Convert to `extendr_api::Error::Other`,
+                // sanitising the message into a valid R condition class.
+                AsyncPattern::TokioBlockOn => {
+                    ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
+                }
                 _ => ".map_err(|e| e.to_string())",
             };
             // Wrap the Ok value if the return type needs conversion (e.g. PathBuf→String)

@@ -27,6 +27,51 @@ fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
     }
 }
 
+/// Normalise a cfg predicate for structural comparison by stripping all whitespace.
+///
+/// The IR stores cfg strings in token-stream `to_string()` form, which inserts spaces
+/// (`all (feature = "x" , not (...))`). Collapsing whitespace lets us match the shape of a
+/// predicate regardless of that incidental spacing.
+fn strip_cfg_whitespace(pred: &str) -> String {
+    pred.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+/// Return true if a function's effective (post-dedup) cfg means it is ALWAYS compiled in the
+/// binding crate, so it is safe to register in the `extendr_module!` block.
+///
+/// The `extendr_module!` macro parser rejects any `#[cfg(...)]` attribute on its `fn X;` entries
+/// (extendr-macros `Module::parse` only accepts bare `mod`/`fn`/`impl`/`use`), so a registration
+/// entry can never be conditionally gated. An entry is therefore emitted only when the function
+/// is unconditionally present:
+///
+/// - No cfg at all (`None`).
+/// - A dedup tautology `any(P, not(P))` — the merge of two complementary cfg variants of the same
+///   function (e.g. `feature = "tokio-runtime"` + `not(feature = "tokio-runtime")`), which is always
+///   true, so the `#[extendr]`-generated `meta__`/`wrap__` symbols always exist.
+///
+/// Any other gate (a real `feature = "..."` predicate the binding crate does not enable) leaves the
+/// wrapper — and its generated registration symbols — absent, so registering it would produce
+/// E0425 "cannot find function meta__X". Such functions are omitted from the module block.
+pub(super) fn always_registered(cfg: Option<&str>) -> bool {
+    let Some(pred) = cfg else {
+        return true;
+    };
+    let pred = pred.trim();
+    if pred.is_empty() {
+        return true;
+    }
+    let normalized = strip_cfg_whitespace(pred);
+    // Recognise the complementary-pair tautology produced by function dedup in either order.
+    let inner = normalized.strip_prefix("any(").and_then(|s| s.strip_suffix(')'));
+    if let Some(inner) = inner {
+        if let Some((left, right)) = inner.split_once(',') {
+            let complement = |a: &str, b: &str| format!("not({a})") == b;
+            return complement(left, right) || complement(right, left);
+        }
+    }
+    false
+}
+
 pub struct ExtendrBackend;
 
 impl Backend for ExtendrBackend {
@@ -718,7 +763,12 @@ impl Backend for ExtendrBackend {
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
 
-        // Generate function bindings
+        // Generate function bindings.
+        //
+        // Function wrapper definitions keep their source `#[cfg(...)]` gate. The generated crate
+        // (`kreuzberg-r`) does not redeclare the core crate's Cargo features (e.g. `heuristics`,
+        // `liter-llm`), so a feature-gated wrapper is dropped in the binding crate — matching the
+        // module-registration filter below, which only registers always-present functions.
         for func in &api.functions {
             if bridge_fn_names.contains(&func.name) {
                 continue;
@@ -866,9 +916,12 @@ impl Backend for ExtendrBackend {
                 .filter(|f| !r_exclude_functions.contains(&f.name))
                 // The `extendr_module!` macro parser accepts ONLY bare `mod`/`fn`/`impl`/`use`
                 // entries — it rejects any `#[cfg(...)]` attribute with "expected mod, fn or impl"
-                // (extendr-macros `Module::parse`). The R crate enables every gated feature, so the
-                // cfg-gated fn definitions always exist; the module entry is therefore emitted
-                // unconditionally regardless of the function's cfg.
+                // (extendr-macros `Module::parse`). A registration entry therefore can never be
+                // cfg-gated, so only functions that are ALWAYS compiled in the binding crate may be
+                // registered. Feature-gated wrappers (whose `#[extendr]` `meta__`/`wrap__` symbols
+                // are absent because the binding crate does not enable the core feature) are omitted
+                // to avoid E0425 "cannot find function meta__X". See `always_registered`.
+                .filter(|f| always_registered(f.cfg.as_deref()))
                 .map(|f| format!("    fn {};\n", f.name))
                 .collect::<String>()
                 + &collect_trait_bridge_functions(config)

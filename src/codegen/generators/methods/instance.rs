@@ -546,6 +546,12 @@ pub fn gen_method(
                     ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
                 }
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                // extendr: `wrap_return` produces `Result<T, extendr_api::Error>`, so a
+                // `String` error does not coerce. Convert to `extendr_api::Error::Other`,
+                // sanitising the message into a valid R condition class.
+                AsyncPattern::TokioBlockOn => {
+                    ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
+                }
                 _ => ".map_err(|e| e.to_string())",
             };
             if is_opaque {
@@ -571,7 +577,7 @@ pub fn gen_method(
             }
         } else if is_opaque {
             let unwrapped_call = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
-            wrap_return_with_mutex_mapped(
+            let wrapped = wrap_return_with_mutex_mapped(
                 &unwrapped_call,
                 &method.return_type,
                 type_name,
@@ -581,7 +587,15 @@ pub fn gen_method(
                 method.returns_ref,
                 method.returns_cow,
                 mapper,
-            )
+            );
+            // wrap_return_with_mutex_mapped passes primitive returns through unchanged; append the
+            // numeric remap cast (e.g. `usize` core return → `f64` binding return for extendr).
+            let cast = crate::codegen::generators::binding_helpers::primitive_return_cast_suffix(
+                &method.return_type,
+                cfg.cast_uints_to_i32,
+                cfg.cast_large_ints_to_f64,
+            );
+            format!("{wrapped}{cast}")
         } else {
             core_call
         }

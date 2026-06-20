@@ -6,6 +6,21 @@ use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, TypeRef};
 use ahash::AHashSet;
 
+/// Resolve the fully-qualified core path for an enum.
+///
+/// Prefer the enum's `rust_path` (e.g. `kreuzberg::core::config::extraction::ImageOutputFormat`),
+/// which is required for types that are NOT re-exported at the crate root — a naive
+/// `{core_import}::{name}` only resolves for crate-root re-exports and otherwise produces
+/// E0433 "cannot find ImageOutputFormat in kreuzberg". Falls back to `{core_import}::{name}`
+/// when `rust_path` is empty.
+fn enum_core_path(enum_def: &EnumDef, core_import: &str) -> String {
+    if enum_def.rust_path.is_empty() {
+        format!("{core_import}::{}", enum_def.name)
+    } else {
+        enum_def.rust_path.replace('-', "_")
+    }
+}
+
 /// Recursively collect all Named type names from a TypeRef into a set.
 pub(super) fn collect_named_types_into(ty: &TypeRef, out: &mut AHashSet<String>) {
     match ty {
@@ -78,7 +93,7 @@ pub(super) fn is_json_passthrough_data_enum(e: &EnumDef) -> bool {
 /// `default()`. From/Into impls bridge to the core type via serde round-trip.
 pub(super) fn gen_extendr_json_passthrough_enum_struct(enum_def: &EnumDef, core_import: &str) -> String {
     let name = &enum_def.name;
-    let core_path = format!("{core_import}::{name}");
+    let core_path = enum_core_path(enum_def, core_import);
     format!(
         r#"#[extendr]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -262,7 +277,7 @@ pub(super) fn gen_extendr_flat_data_enum_struct(
 /// not apply to flat structs. This function generates the correct struct-init form.
 pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_import: &str) -> String {
     let name = &enum_def.name;
-    let core_path = format!("{core_import}::{name}");
+    let core_path = enum_core_path(enum_def, core_import);
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
     let disc_ident = crate::core::keywords::rust_raw_ident(discriminator);
     let mut out = String::with_capacity(512);
@@ -345,7 +360,7 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
 
 pub(super) fn gen_extendr_flat_data_enum_to_core(enum_def: &EnumDef, core_import: &str) -> String {
     let name = &enum_def.name;
-    let core_path = format!("{core_import}::{name}");
+    let core_path = enum_core_path(enum_def, core_import);
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
     let disc_ident = crate::core::keywords::rust_raw_ident(discriminator);
     let mut out = String::with_capacity(512);

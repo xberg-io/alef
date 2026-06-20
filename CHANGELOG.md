@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.54] - 2026-06-20
+
 ### Fixed
 
 - **go**: a parameter literally named `result` no longer collides with the
@@ -24,6 +26,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`download_model`, `default_model_name`, `known_models`, and their `wrap__`/`meta__`
   siblings) were emitted three times — `cfg(ner-onnx)`, `cfg(not(ner-onnx))`, and an
   unconditional copy — producing E0428 "defined multiple times".
+- **extendr**: `extendr_module!` registration entries no longer carry a `#[cfg(...)]`
+  attribute. The macro's parser accepts only bare `mod`/`fn`/`impl`/`use` entries and
+  rejects any attribute with "expected mod, fn or impl"; a deduped complementary cfg
+  pair such as `any(feature = "tokio-runtime", not(feature = "tokio-runtime"))` (always
+  true) tripped this. Registration is now emitted only for functions that are always
+  compiled in the binding crate (no cfg, or a complementary-pair tautology), and
+  feature-gated wrappers — whose `meta__`/`wrap__` symbols are absent because the
+  binding crate does not declare the core feature — are omitted from the module block,
+  the R wrappers, and NAMESPACE (previously E0425 "cannot find function meta__X").
+- **extendr**: opaque-struct methods returning `Option<Named>`, `Vec<Named>`, or
+  `Option<Vec<_>>`/`Option<Vec<u8>>` are now excluded from the `#[extendr]` impl block.
+  extendr provides no `Robj` conversion for these (`Option<Preset>: ToVectorValue`,
+  `Robj: From<Vec<PresetSummary>>`, `Option<Vec<u8>>: ToVectorValue`), mirroring the
+  existing enum/map/arc-incompatible method filters; the R wrappers and NAMESPACE skip
+  them in lockstep.
+- **extendr**: data-enum (`From`/`Into`) conversions for types that are not re-exported
+  at the core crate root now use the enum's fully-qualified `rust_path` (e.g.
+  `kreuzberg::core::config::extraction::ImageOutputFormat`) instead of a naive
+  `{core_import}::{name}`, fixing E0433 "cannot find ImageOutputFormat in kreuzberg".
+- **extendr**: error-returning sync methods now convert the core error to
+  `extendr_api::Error::Other` (the `TokioBlockOn` async pattern) instead of falling
+  through to `.map_err(|e| e.to_string())`, which produced `Result<T, String>` where
+  the generated signature expects `Result<T, extendr_api::Error>`.
+- **extendr**: static methods and opaque-method primitive returns now apply the R
+  numeric remap cast at the call site / return (`u32`→`i32`, `usize`/`f32`→`f64`), so a
+  core `from_page_text(page_number: u32, …, layout_text_density: f32)` and a
+  `Registry::len() -> usize` mapped to `f64` no longer fail with E0308 mismatched types.
 - **csharp**: the host-native capsule wrapper called `NativeMethods.ts_pack_get_language`
   (the raw snake_case C name) while the P/Invoke declaration is generated as the
   PascalCase `GetLanguage`, producing `CS0117 'NativeMethods' does not contain a

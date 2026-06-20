@@ -2,6 +2,29 @@ use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::TypeRef;
 use ahash::AHashSet;
 
+/// Return the numeric cast suffix (e.g. `" as f64"`) needed when a method's primitive return type
+/// is represented by a different binding-level type.
+///
+/// Backends that remap numeric types (extendr maps `u8/u16/u32/i8/i16 → i32` and
+/// `u64/i64/usize/isize/f32 → f64`) must cast the core return value to the binding type. Returns an
+/// empty string when no remap applies (the common case for backends that preserve numeric widths).
+pub fn primitive_return_cast_suffix(
+    return_type: &TypeRef,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
+) -> &'static str {
+    use crate::codegen::conversions::helpers::{needs_f64_cast, needs_i32_cast};
+    if let TypeRef::Primitive(p) = return_type {
+        if cast_uints_to_i32 && needs_i32_cast(p) {
+            return " as i32";
+        }
+        if cast_large_ints_to_f64 && needs_f64_cast(p) {
+            return " as f64";
+        }
+    }
+    ""
+}
+
 /// Helper: wrap an opaque inner value in the correct smart pointer expression.
 ///
 /// - Plain opaque types use `Arc::new(val)`.

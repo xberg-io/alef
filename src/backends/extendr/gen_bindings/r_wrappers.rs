@@ -346,12 +346,17 @@ pub(super) fn gen_extendr_wrappers_r(
     // pass so the wrapper file does not define the same R wrapper twice.
     let bridge_fn_names: ahash::AHashSet<&str> = trait_bridge_fns.iter().map(|tb| tb.name.as_str()).collect();
 
-    // Free functions. Every entry in `api.functions` is registered in extendr_module!.
+    // Free functions. Only functions registered in `extendr_module!` get a `wrap__` symbol, so
+    // skip feature-gated wrappers that are not always compiled in the binding crate — otherwise the
+    // R wrapper would `.Call("wrap__X")` a symbol that does not exist (see `super::always_registered`).
     for func in &api.functions {
         if bridge_fn_names.contains(func.name.as_str()) {
             continue;
         }
         if r_exclude_functions.contains(&func.name) {
+            continue;
+        }
+        if !super::always_registered(func.cfg.as_deref()) {
             continue;
         }
         let params: Vec<String> = func.params.iter().map(|p| sanitize_r_param_name(&p.name)).collect();
@@ -752,6 +757,11 @@ pub(super) fn gen_namespace(
             continue;
         }
         if r_exclude_functions.contains(&func.name) {
+            continue;
+        }
+        // Skip feature-gated functions: their R wrapper is not emitted (no `wrap__` symbol), so an
+        // `export()` entry would reference an undefined function. Mirrors `gen_extendr_wrappers_r`.
+        if !super::always_registered(func.cfg.as_deref()) {
             continue;
         }
         out.push_str(&crate::backends::extendr::template_env::render(

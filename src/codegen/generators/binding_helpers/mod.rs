@@ -18,5 +18,8 @@ pub use let_bindings::{
     gen_serde_let_bindings,
 };
 pub use lossy_fields::{gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut};
-pub use returns::{apply_return_newtype_unwrap, wrap_return, wrap_return_with_mutex, wrap_return_with_mutex_mapped};
+pub use returns::{
+    apply_return_newtype_unwrap, primitive_return_cast_suffix, wrap_return, wrap_return_with_mutex,
+    wrap_return_with_mutex_mapped,
+};
 pub use unimplemented::gen_unimplemented_body;
