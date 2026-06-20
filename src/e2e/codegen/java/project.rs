@@ -1,14 +1,68 @@
+use crate::core::config::manifest_extras::ManifestExtras;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::template_versions as tv;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::FixtureGroup;
 
+/// Render `<dependency>` XML blocks for harness extras dependencies and dev dependencies.
+///
+/// Maven dependency keys are in `groupId:artifactId` format (e.g., `io.github.tree-sitter:jtreesitter`).
+/// Development dependencies are marked with `<scope>test</scope>`. The output is idempotent
+/// and deterministic (keys sorted alphabetically via BTreeMap).
+///
+/// Returns a multi-line string of `<dependency>` blocks (or empty if extras is empty).
+fn inject_pom_xml_extras(extras: &ManifestExtras) -> String {
+    let mut out = String::new();
+
+    // Process runtime dependencies
+    for (key, spec) in &extras.dependencies {
+        if let Some(version) = spec.version() {
+            let (group_id, artifact_id) = split_maven_key(key);
+            out.push_str(&format!(
+                "        <dependency>\n\
+                 \x20\x20\x20\x20<groupId>{}</groupId>\n\
+                 \x20\x20\x20\x20<artifactId>{}</artifactId>\n\
+                 \x20\x20\x20\x20<version>{}</version>\n\
+                 \x20\x20\x20\x20</dependency>\n",
+                group_id, artifact_id, version
+            ));
+        }
+    }
+
+    // Process dev/test dependencies with <scope>test</scope>
+    for (key, spec) in &extras.dev_dependencies {
+        if let Some(version) = spec.version() {
+            let (group_id, artifact_id) = split_maven_key(key);
+            out.push_str(&format!(
+                "        <dependency>\n\
+                 \x20\x20\x20\x20<groupId>{}</groupId>\n\
+                 \x20\x20\x20\x20<artifactId>{}</artifactId>\n\
+                 \x20\x20\x20\x20<version>{}</version>\n\
+                 \x20\x20\x20\x20<scope>test</scope>\n\
+                 \x20\x20\x20\x20</dependency>\n",
+                group_id, artifact_id, version
+            ));
+        }
+    }
+
+    out
+}
+
+/// Split a Maven dependency key `groupId:artifactId` on the LAST colon.
+/// If no colon is found, treat the entire key as artifactId with an empty groupId
+/// (caller should handle this case, typically not expected in valid alef.toml input).
+fn split_maven_key(key: &str) -> (&str, &str) {
+    match key.rfind(':') {
+        Some(idx) => (&key[..idx], &key[idx + 1..]),
+        None => ("", key),
+    }
+}
+
 pub(super) fn render_pom_xml(
     pkg_name: &str,
     java_group_id: &str,
     pkg_version: &str,
-    dep_mode: crate::e2e::config::DependencyMode,
-    test_documents_path: &str,
+    e2e_config: &E2eConfig,
     ffi_lib_name: &str,
     env_vars: &[(String, String)],
 ) -> String {
@@ -19,7 +73,7 @@ pub(super) fn render_pom_xml(
         (java_group_id, pkg_name)
     };
     let artifact_id = format!("{dep_artifact_id}-e2e-java");
-    let dep_block = match dep_mode {
+    let dep_block = match e2e_config.dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
             format!(
                 r#"        <dependency>
@@ -46,17 +100,37 @@ pub(super) fn render_pom_xml(
     // cargo build output into the JAR at package time, so NativeLib can
     // extract and load it at startup.
     let include_native_lib_path = true;
+
+    // Build extras_block from harness_extras if present (gated on Local dep_mode).
+    // Registry mode should not inject harness-specific dev deps which may have
+    // incompatible native build requirements.
+    let extras_block = match e2e_config.dep_mode {
+        crate::e2e::config::DependencyMode::Local => {
+            if let Some(extras) = e2e_config.harness_extras.get("java") {
+                if !extras.is_empty() {
+                    inject_pom_xml_extras(extras)
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        }
+        crate::e2e::config::DependencyMode::Registry => String::new(),
+    };
+
     crate::e2e::template_env::render(
         "java/pom.xml.jinja",
         minijinja::context! {
             artifact_id => artifact_id,
             java_group_id => java_group_id,
             dep_block => dep_block,
+            extras_block => extras_block,
             junit_version => tv::maven::JUNIT,
             jackson_version => tv::maven::JACKSON_E2E,
             build_helper_version => tv::maven::BUILD_HELPER_MAVEN_PLUGIN,
             maven_surefire_version => tv::maven::MAVEN_SUREFIRE_PLUGIN_E2E,
-            test_documents_path => test_documents_path,
+            test_documents_path => e2e_config.test_documents_relative_from(0),
             include_native_lib_path => include_native_lib_path,
             ffi_lib_name => ffi_lib_name,
             env_entries => env_vars,
@@ -260,4 +334,210 @@ pub(super) fn render_sealed_display(
     out.push_str("    }\n");
     out.push_str("}\n");
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::manifest_extras::ExtraDepSpec;
+    use crate::e2e::config::{DependencyMode, E2eConfig};
+
+    fn make_e2e_config(dep_mode: DependencyMode, harness_extras: Option<ManifestExtras>) -> E2eConfig {
+        let mut cfg = E2eConfig::default();
+        cfg.dep_mode = dep_mode;
+        if let Some(extras) = harness_extras {
+            cfg.harness_extras.insert("java".to_string(), extras);
+        }
+        cfg
+    }
+
+    #[test]
+    fn render_pom_xml_local_without_extras_has_single_dep() {
+        let e2e_cfg = make_e2e_config(DependencyMode::Local, None);
+        let out = render_pom_xml(
+            "tree-sitter",
+            "com.example",
+            "1.0.0",
+            &e2e_cfg,
+            "tree_sitter",
+            &[],
+        );
+        assert!(out.contains("<groupId>com.example</groupId>"), "got: {out}");
+        assert!(out.contains("<artifactId>tree-sitter</artifactId>"), "got: {out}");
+        assert!(!out.contains("io.github.tree-sitter"), "extras should not appear without None");
+    }
+
+    #[test]
+    fn render_pom_xml_with_harness_extras_includes_dependencies() {
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "io.github.tree-sitter:jtreesitter".to_string(),
+            ExtraDepSpec::Simple("0.26.0".to_string()),
+        );
+        let e2e_cfg = make_e2e_config(DependencyMode::Local, Some(extras));
+        let out = render_pom_xml(
+            "my-lib",
+            "com.example",
+            "1.0.0",
+            &e2e_cfg,
+            "my_lib",
+            &[],
+        );
+        assert!(
+            out.contains("<groupId>io.github.tree-sitter</groupId>"),
+            "groupId should be injected"
+        );
+        assert!(
+            out.contains("<artifactId>jtreesitter</artifactId>"),
+            "artifactId should be injected"
+        );
+        assert!(
+            out.contains("<version>0.26.0</version>"),
+            "version should be injected"
+        );
+        // Runtime deps should not have <scope>test</scope>
+        let jtreesitter_idx = out.find("jtreesitter").expect("jtreesitter found");
+        let after_jtreesitter = &out[jtreesitter_idx..];
+        let next_closing = after_jtreesitter.find("</dependency>").expect("closing tag found");
+        let dep_block = &after_jtreesitter[..next_closing];
+        assert!(
+            !dep_block.contains("<scope>test</scope>"),
+            "runtime deps should not have test scope"
+        );
+    }
+
+    #[test]
+    fn render_pom_xml_with_harness_extras_dev_dependencies_include_test_scope() {
+        let mut extras = ManifestExtras::default();
+        extras.dev_dependencies.insert(
+            "com.custom.org:custom-testing-lib".to_string(),
+            ExtraDepSpec::Simple("4.13.2".to_string()),
+        );
+        let e2e_cfg = make_e2e_config(DependencyMode::Local, Some(extras));
+        let out = render_pom_xml(
+            "my-lib",
+            "com.example",
+            "1.0.0",
+            &e2e_cfg,
+            "my_lib",
+            &[],
+        );
+        assert!(
+            out.contains("com.custom.org"),
+            "custom-testing-lib groupId should be present"
+        );
+        assert!(
+            out.contains("custom-testing-lib"),
+            "custom-testing-lib artifactId should be present"
+        );
+        assert!(
+            out.contains("<version>4.13.2</version>"),
+            "custom-testing-lib version should be present"
+        );
+        // Dev deps must include <scope>test</scope> — find it right after the custom artifact.
+        let custom_idx = out.find("custom-testing-lib").expect("custom-testing-lib found");
+        let after_custom = &out[custom_idx..];
+        let next_closing = after_custom.find("</dependency>").expect("closing tag found");
+        let dep_block = &after_custom[..next_closing];
+        assert!(
+            dep_block.contains("<scope>test</scope>"),
+            "dev deps must have test scope; got:\n{dep_block}"
+        );
+    }
+
+    #[test]
+    fn render_pom_xml_registry_mode_excludes_harness_extras() {
+        let mut extras = ManifestExtras::default();
+        extras.dev_dependencies.insert(
+            "io.github.tree-sitter:jtreesitter".to_string(),
+            ExtraDepSpec::Simple("0.26.0".to_string()),
+        );
+        let e2e_cfg = make_e2e_config(DependencyMode::Registry, Some(extras));
+        let out = render_pom_xml(
+            "my-lib",
+            "com.example",
+            "1.0.0",
+            &e2e_cfg,
+            "my_lib",
+            &[],
+        );
+        assert!(
+            !out.contains("jtreesitter"),
+            "registry mode should not inject harness extras"
+        );
+    }
+
+    #[test]
+    fn render_pom_xml_empty_extras_matches_no_extras() {
+        let empty_extras = ManifestExtras::default();
+        let with_empty = make_e2e_config(DependencyMode::Local, Some(empty_extras));
+        let without = make_e2e_config(DependencyMode::Local, None);
+        let with_empty_out = render_pom_xml("my-lib", "com.example", "1.0.0", &with_empty, "my_lib", &[]);
+        let without_out = render_pom_xml("my-lib", "com.example", "1.0.0", &without, "my_lib", &[]);
+        assert_eq!(with_empty_out, without_out, "empty extras should produce identical output");
+    }
+
+    #[test]
+    fn split_maven_key_splits_on_last_colon() {
+        let (group, artifact) = split_maven_key("io.github.tree-sitter:jtreesitter");
+        assert_eq!(group, "io.github.tree-sitter");
+        assert_eq!(artifact, "jtreesitter");
+    }
+
+    #[test]
+    fn split_maven_key_with_nested_groups() {
+        let (group, artifact) = split_maven_key("com.example.org.subgroup:my-artifact");
+        assert_eq!(group, "com.example.org.subgroup");
+        assert_eq!(artifact, "my-artifact");
+    }
+
+    #[test]
+    fn split_maven_key_without_colon() {
+        let (group, artifact) = split_maven_key("bare-artifact-name");
+        assert_eq!(group, "");
+        assert_eq!(artifact, "bare-artifact-name");
+    }
+
+    #[test]
+    fn inject_pom_xml_extras_preserves_order_from_btreemap() {
+        let mut extras = ManifestExtras::default();
+        // Insert in non-alphabetical order to verify BTreeMap sorts them.
+        extras.dependencies.insert(
+            "z.org:zulu".to_string(),
+            ExtraDepSpec::Simple("1.0".to_string()),
+        );
+        extras.dependencies.insert(
+            "a.org:alpha".to_string(),
+            ExtraDepSpec::Simple("2.0".to_string()),
+        );
+        let block = inject_pom_xml_extras(&extras);
+
+        // Both should be present.
+        assert!(block.contains("a.org") && block.contains("z.org"));
+        // alpha should come before zulu (alphabetical by key).
+        let alpha_idx = block.find("alpha").expect("alpha found");
+        let zulu_idx = block.find("zulu").expect("zulu found");
+        assert!(alpha_idx < zulu_idx, "keys should be alphabetically sorted");
+    }
+
+    #[test]
+    fn inject_pom_xml_extras_skips_entries_without_version() {
+        let mut extras = ManifestExtras::default();
+        // ExtraDepSpec::Detailed without a "version" key
+        let bad_spec = toml::Table::new(); // Empty table, no "version" key
+        extras.dependencies.insert(
+            "bad.org:badlib".to_string(),
+            ExtraDepSpec::Detailed(bad_spec),
+        );
+        extras.dev_dependencies.insert(
+            "good.org:goodlib".to_string(),
+            ExtraDepSpec::Simple("1.0".to_string()),
+        );
+
+        let block = inject_pom_xml_extras(&extras);
+
+        // goodlib should be present, badlib should be absent.
+        assert!(block.contains("goodlib"), "entries with version should be included");
+        assert!(!block.contains("badlib"), "entries without version should be skipped");
+    }
 }

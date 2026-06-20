@@ -72,14 +72,20 @@ impl E2eCodegen for JavaCodegen {
         env_entries.sort_by(|a, b| a.0.cmp(&b.0));
 
         // Generate pom.xml.
+        // `harness_extras` deps support the alef-generated e2e harness code under
+        // `e2e/{lang}/tests/` (Local dep mode). Registry mode emits the published-package
+        // test_apps at `test_apps/{lang}/` whose tests only import the under-test package
+        // and never need harness-specific dev deps. Injecting harness_extras here drags
+        // unused native deps (e.g. upstream `io.github.tree-sitter:jtreesitter`) into
+        // Maven downloads, which can break on newer Java versions that the unrelated
+        // native build doesn't support yet.
         files.push(GeneratedFile {
             path: output_base.join("pom.xml"),
             content: project::render_pom_xml(
                 &pkg_name,
                 &java_group_id,
                 &pkg_version,
-                e2e_config.dep_mode,
-                &e2e_config.test_documents_relative_from(0),
+                e2e_config,
                 &config.ffi_lib_name(),
                 &env_entries,
             ),

@@ -109,6 +109,14 @@ impl E2eCodegen for SwiftE2eCodegen {
 
         // Generate Package.swift for the standalone e2e consumer at
         // `<output>/swift_e2e/`. `swift test` is run from that directory.
+        // Thread harness_extras when in Local mode to inject extra dependencies into
+        // the e2e test harness's Package.swift. Registry mode omits harness_extras since
+        // the published package under test_apps/ only imports the under-test package
+        // and never needs harness-specific dev deps.
+        let package_swift_extras = match e2e_config.dep_mode {
+            crate::e2e::config::DependencyMode::Local => e2e_config.harness_extras.get(self.language_name()),
+            crate::e2e::config::DependencyMode::Registry => None,
+        };
         files.push(GeneratedFile {
             path: output_base.join("Package.swift"),
             content: project::render_package_swift(
@@ -118,6 +126,7 @@ impl E2eCodegen for SwiftE2eCodegen {
                 &pkg_version,
                 e2e_config.dep_mode,
                 has_http_fixtures,
+                package_swift_extras,
             ),
             generated_header: false,
         });

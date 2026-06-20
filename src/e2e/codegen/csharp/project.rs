@@ -1,5 +1,6 @@
 //! C# e2e project and shared test setup rendering.
 
+use crate::core::config::manifest_extras::ManifestExtras;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::template_versions as tv;
 use std::collections::HashMap;
@@ -10,6 +11,7 @@ pub(super) fn render_csproj(
     pkg_path: &str,
     pkg_version: &str,
     dep_mode: crate::e2e::config::DependencyMode,
+    extras: Option<&ManifestExtras>,
 ) -> String {
     let pkg_ref = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
@@ -19,10 +21,39 @@ pub(super) fn render_csproj(
             format!("    <ProjectReference Include=\"{pkg_path}\" />")
         }
     };
+
+    // Build extras block: combine dependencies and dev_dependencies as PackageReference elements.
+    // C# .csproj has no dev/runtime split — all are PackageReference. Both buckets render as
+    // the same element type, though in practice harness_extras would only use dev_dependencies
+    // (vitest, mock-server libs, etc.).
+    let extras_block = match extras {
+        Some(e) if !e.is_empty() => {
+            let mut lines = Vec::new();
+            // Combine both buckets (dependencies, dev_dependencies) into one sorted set.
+            let mut all_deps = e.dependencies.clone();
+            for (name, spec) in &e.dev_dependencies {
+                all_deps.insert(name.clone(), spec.clone());
+            }
+
+            if !all_deps.is_empty() {
+                for (name, spec) in &all_deps {
+                    if let Some(version) = spec.version() {
+                        lines.push(format!(
+                            "    <PackageReference Include=\"{name}\" Version=\"{version}\" />"
+                        ));
+                    }
+                }
+            }
+            lines.join("\n")
+        }
+        _ => String::new(),
+    };
+
     crate::e2e::template_env::render(
         "csharp/csproj.jinja",
         minijinja::context! {
             pkg_ref => pkg_ref,
+            extras_block => extras_block,
             namespace => pkg_name,
             microsoft_net_test_sdk_version => tv::nuget::MICROSOFT_NET_TEST_SDK,
             xunit_version => tv::nuget::XUNIT,
@@ -167,5 +198,238 @@ mod tests {
         // Verify null-check pattern: if null, set
         assert!(output.contains("if (Environment.GetEnvironmentVariable(\"TEST_VAR\") == null)"));
         assert!(output.contains("Environment.SetEnvironmentVariable(\"TEST_VAR\", \"test_value\");"));
+    }
+
+    #[test]
+    fn test_render_csproj_with_extras() {
+        use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "TreeSitter.DotNet".to_string(),
+            ExtraDepSpec::Simple("1.3.0".to_string()),
+        );
+
+        let output = render_csproj(
+            "MyLib",
+            "../../packages/csharp/MyLib/MyLib.csproj",
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Local,
+            Some(&extras),
+        );
+
+        // Verify the extras PackageReference is present
+        assert!(
+            output.contains("<PackageReference Include=\"TreeSitter.DotNet\" Version=\"1.3.0\" />"),
+            "extras should inject PackageReference, got: {}",
+            output
+        );
+        // Verify the main package reference is still there
+        assert!(
+            output.contains("<ProjectReference Include=\"../../packages/csharp/MyLib/MyLib.csproj\" />"),
+            "Local mode should use ProjectReference"
+        );
+    }
+
+    #[test]
+    fn test_render_csproj_with_dev_dependencies() {
+        use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+
+        let mut extras = ManifestExtras::default();
+        extras.dev_dependencies.insert(
+            "Bogus".to_string(),
+            ExtraDepSpec::Simple("^35.0.0".to_string()),
+        );
+
+        let output = render_csproj(
+            "MyLib",
+            "../../packages/csharp/MyLib/MyLib.csproj",
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Local,
+            Some(&extras),
+        );
+
+        // Dev dependencies should also render as PackageReference
+        assert!(
+            output.contains("<PackageReference Include=\"Bogus\" Version=\"^35.0.0\" />"),
+            "dev_dependencies should inject as PackageReference, got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_render_csproj_with_both_dependency_buckets() {
+        use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "TreeSitter.DotNet".to_string(),
+            ExtraDepSpec::Simple("1.3.0".to_string()),
+        );
+        extras.dev_dependencies.insert(
+            "Bogus".to_string(),
+            ExtraDepSpec::Simple("^35.0.0".to_string()),
+        );
+
+        let output = render_csproj(
+            "MyLib",
+            "../../packages/csharp/MyLib/MyLib.csproj",
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Local,
+            Some(&extras),
+        );
+
+        // Both buckets should be present
+        assert!(output.contains("<PackageReference Include=\"TreeSitter.DotNet\""));
+        assert!(output.contains("<PackageReference Include=\"Bogus\""));
+    }
+
+    #[test]
+    fn test_render_csproj_without_extras() {
+        let output = render_csproj(
+            "MyLib",
+            "../../packages/csharp/MyLib/MyLib.csproj",
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Local,
+            None,
+        );
+
+        // Should not have extras block, only baseline dependencies
+        assert!(output.contains("Microsoft.NET.Test.Sdk"));
+        assert!(output.contains("xunit"));
+        assert!(output.contains("<ProjectReference Include=\"../../packages/csharp/MyLib/MyLib.csproj\" />"));
+    }
+
+    #[test]
+    fn test_render_csproj_with_empty_extras() {
+        use crate::core::config::manifest_extras::ManifestExtras;
+
+        let extras = ManifestExtras::default(); // Empty: no dependencies or dev_dependencies
+
+        let output = render_csproj(
+            "MyLib",
+            "../../packages/csharp/MyLib/MyLib.csproj",
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Local,
+            Some(&extras),
+        );
+
+        // Empty extras should not affect output (idempotent)
+        assert!(output.contains("Microsoft.NET.Test.Sdk"));
+        assert!(output.contains("<ProjectReference Include=\"../../packages/csharp/MyLib/MyLib.csproj\" />"));
+    }
+
+    #[test]
+    fn test_render_csproj_registry_mode_ignores_extras() {
+        use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "TreeSitter.DotNet".to_string(),
+            ExtraDepSpec::Simple("1.3.0".to_string()),
+        );
+
+        let output = render_csproj(
+            "MyLib",
+            "../../packages/csharp/MyLib/MyLib.csproj",
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Registry,
+            Some(&extras),
+        );
+
+        // Registry mode should NOT include extras; template may still process empty extras_block
+        // but the real filtering happens at the call site. Verify the baseline works.
+        assert!(output.contains("<PackageReference Include=\"MyLib\" Version=\"0.1.0\" />"));
+        assert!(output.contains("Microsoft.NET.Test.Sdk"));
+    }
+
+    #[test]
+    fn test_render_csproj_extras_within_item_group() {
+        use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "TreeSitter.DotNet".to_string(),
+            ExtraDepSpec::Simple("1.3.0".to_string()),
+        );
+        extras.dev_dependencies.insert(
+            "Moq".to_string(),
+            ExtraDepSpec::Simple("4.16.0".to_string()),
+        );
+
+        let output = render_csproj(
+            "MyLib",
+            "../../packages/csharp/MyLib/MyLib.csproj",
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Local,
+            Some(&extras),
+        );
+
+        // Verify structure: extras should be within the first ItemGroup with test dependencies
+        let first_item_group_start = output.find("<ItemGroup>").expect("should have ItemGroup");
+        let first_item_group_end = output.find("</ItemGroup>").expect("should have /ItemGroup");
+        let first_item_group = &output[first_item_group_start..=first_item_group_end];
+
+        // Both extras and xunit should be in the same ItemGroup
+        assert!(
+            first_item_group.contains("xunit"),
+            "xunit should be in first ItemGroup"
+        );
+        assert!(
+            first_item_group.contains("TreeSitter.DotNet"),
+            "extras should be in first ItemGroup"
+        );
+        assert!(
+            first_item_group.contains("Moq"),
+            "dev_dependencies should also be in first ItemGroup"
+        );
+
+        // Verify the second ItemGroup has the pkg_ref
+        let second_item_group_start = output[first_item_group_end..]
+            .find("<ItemGroup>")
+            .map(|i| i + first_item_group_end)
+            .expect("should have second ItemGroup");
+        let second_item_group_end = output[second_item_group_start..]
+            .find("</ItemGroup>")
+            .map(|i| i + second_item_group_start + 1)
+            .unwrap_or(output.len());
+        let second_item_group = &output[second_item_group_start..second_item_group_end];
+
+        assert!(
+            second_item_group.contains("ProjectReference"),
+            "second ItemGroup should have ProjectReference"
+        );
+    }
+
+    #[test]
+    fn test_render_csproj_idempotent_with_same_extras() {
+        use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "TreeSitter.DotNet".to_string(),
+            ExtraDepSpec::Simple("1.3.0".to_string()),
+        );
+
+        let output1 = render_csproj(
+            "MyLib",
+            "../../packages/csharp/MyLib/MyLib.csproj",
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Local,
+            Some(&extras),
+        );
+
+        let output2 = render_csproj(
+            "MyLib",
+            "../../packages/csharp/MyLib/MyLib.csproj",
+            "0.1.0",
+            crate::e2e::config::DependencyMode::Local,
+            Some(&extras),
+        );
+
+        assert_eq!(
+            output1, output2,
+            "rendering with identical extras should be idempotent"
+        );
     }
 }

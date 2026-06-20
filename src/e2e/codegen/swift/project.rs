@@ -201,6 +201,101 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     crate::e2e::template_env::render("swift/app_harness.swift.jinja", ctx)
 }
 
+/// Extract the SwiftPM package name from a git URL. E.g., `https://github.com/foo/bar.git` → `bar`.
+/// Falls back to `default_name` if extraction fails.
+fn extract_package_name(url: &str, default_name: &str) -> String {
+    url.trim_end_matches('/')
+        .trim_end_matches(".git")
+        .rsplit('/')
+        .next()
+        .unwrap_or(default_name)
+        .to_string()
+}
+
+/// Splice `dependencies` and `dev_dependencies` from a [`ManifestExtras`] into the
+/// Package.swift's `dependencies` array and the test target's `dependencies` array.
+///
+/// Supports both Simple form (bare version string, URL comes from the key) and Detailed
+/// form (url + version in the table). For each extra dependency, appends a `.package(...)`
+/// entry to the Package's dependencies array and a `.product(name:package:)` entry to the
+/// test target's dependencies list.
+///
+/// Idempotent: re-running with the same extras yields the same output (sorted by package name).
+fn inject_package_swift_extras(
+    dependencies_block: &mut String,
+    test_target_dep: &mut String,
+    extras: &crate::core::config::manifest_extras::ManifestExtras,
+) {
+    use crate::core::config::manifest_extras::ExtraDepSpec;
+
+    // Collect all extra dependencies (runtime + dev) into a sorted map keyed by package name.
+    let mut all_extras: std::collections::BTreeMap<String, (String, String)> = std::collections::BTreeMap::new();
+
+    // Process runtime dependencies.
+    for (key, spec) in &extras.dependencies {
+        match spec {
+            ExtraDepSpec::Simple(version) => {
+                // Simple form: key is the URL, extract package name from it.
+                let pkg_name = extract_package_name(key, key);
+                all_extras.insert(pkg_name.clone(), (key.clone(), version.clone()));
+            }
+            ExtraDepSpec::Detailed(table) => {
+                // Detailed form: must have "url" + "version" keys.
+                if let (Some(url), Some(version)) = (
+                    table.get("url").and_then(|u| u.as_str()),
+                    table.get("version").and_then(|v| v.as_str()),
+                ) {
+                    let pkg_name = extract_package_name(url, key);
+                    all_extras.insert(pkg_name, (url.to_string(), version.to_string()));
+                }
+            }
+        }
+    }
+
+    // Process dev dependencies.
+    for (key, spec) in &extras.dev_dependencies {
+        match spec {
+            ExtraDepSpec::Simple(version) => {
+                let pkg_name = extract_package_name(key, key);
+                all_extras.insert(pkg_name.clone(), (key.clone(), version.clone()));
+            }
+            ExtraDepSpec::Detailed(table) => {
+                if let (Some(url), Some(version)) = (
+                    table.get("url").and_then(|u| u.as_str()),
+                    table.get("version").and_then(|v| v.as_str()),
+                ) {
+                    let pkg_name = extract_package_name(url, key);
+                    all_extras.insert(pkg_name, (url.to_string(), version.to_string()));
+                }
+            }
+        }
+    }
+
+    if all_extras.is_empty() {
+        return;
+    }
+
+    // Inject `.package(...)` entries into the dependencies array.
+    // Insert before the final `    ],\n` line.
+    let extras_packages: String = all_extras
+        .iter()
+        .map(|(_pkg_name, (url, version))| format!("        .package(url: \"{url}\", from: \"{version}\"),\n"))
+        .collect();
+
+    // Find the position to insert extras (before the closing bracket).
+    if let Some(pos) = dependencies_block.rfind("    ],") {
+        dependencies_block.insert_str(pos, &extras_packages);
+    }
+
+    // Append `.product(...)` entries to the test target's dependencies.
+    let extras_products: String = all_extras
+        .keys()
+        .map(|pkg_name| format!(", .product(name: \"{pkg_name}\", package: \"{pkg_name}\")"))
+        .collect();
+
+    test_target_dep.push_str(&extras_products);
+}
+
 pub(super) fn render_package_swift(
     module_name: &str,
     registry_url: &str,
@@ -208,6 +303,7 @@ pub(super) fn render_package_swift(
     pkg_version: &str,
     dep_mode: crate::e2e::config::DependencyMode,
     include_harness_target: bool,
+    extras: Option<&crate::core::config::manifest_extras::ManifestExtras>,
 ) -> String {
     let min_macos = toolchain::SWIFT_MIN_MACOS;
 
@@ -215,7 +311,7 @@ pub(super) fn render_package_swift(
     // For registry deps we use .package(url:, from:) to pull the Swift package from GitHub.
     // SwiftPM will resolve the tag v<version> to the package, making the Swift module available.
     // Use explicit .product(name:package:) to avoid ambiguity under tools-version 6.0.
-    let (dependencies_block, test_target_dep) = match dep_mode {
+    let (mut dependencies_block, mut test_target_dep) = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
             // Registry mode: fetch the full Swift package from GitHub at the release tag.
             let github_repo_url = registry_url.trim_end_matches(".git");
@@ -248,6 +344,22 @@ pub(super) fn render_package_swift(
             (deps_block, prod)
         }
     };
+
+    // Inject harness_extras (both runtime and dev dependencies) into the Package.swift.
+    // Both buckets are injected into the same `dependencies:` array with their corresponding
+    // product dependencies wired into the test target. The expected alef.toml shape:
+    //
+    //   [crates.e2e.harness_extras.swift]
+    //   dependencies = { "SwiftTreeSitter" = { url = "https://github.com/.../tree-sitter-swift.git", version = "0.25.0" } }
+    //   dev_dependencies = { ... }
+    //
+    // Both the Simple form (bare version string, URL comes from the key) and Detailed form
+    // (url + version in the table) are supported.
+    if let Some(extra) = extras {
+        if !extra.is_empty() {
+            inject_package_swift_extras(&mut dependencies_block, &mut test_target_dep, extra);
+        }
+    }
     // SwiftPM platform enums use the major version only (.v13, .v14, ...);
     // strip patch components to match the scaffold's `Package.swift`.
     let min_macos_major = min_macos.split('.').next().unwrap_or(min_macos);
@@ -290,4 +402,113 @@ let package = Package(
 )
 "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+
+    #[test]
+    fn render_package_swift_local_mode_baseline() {
+        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, None);
+        assert!(out.contains(".package(path:"), "baseline Package.swift should have .package(path:)");
+        assert!(out.contains("\"../../packages/swift\""), "should contain local path");
+        assert!(out.contains(".product(name: \"TreeSitter\", package: \"swift\")"), "should have product dep");
+    }
+
+    #[test]
+    fn render_package_swift_registry_mode_baseline() {
+        let out = render_package_swift("TreeSitter", "https://github.com/tree-sitter/tree-sitter-swift.git", "", "0.25.0", crate::e2e::config::DependencyMode::Registry, false, None);
+        assert!(out.contains(".package(url:"), "registry mode should use .package(url:)");
+        assert!(out.contains("https://github.com/tree-sitter/tree-sitter-swift"), "should contain GitHub URL");
+        assert!(out.contains("from: \"0.25.0\""), "should pin version");
+        assert!(out.contains(".product(name: \"TreeSitter\", package: \"tree-sitter-swift\")"), "should have product dep");
+    }
+
+    #[test]
+    fn render_package_swift_with_extras_detailed_form() {
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "upstream-key".to_string(),
+            ExtraDepSpec::Detailed({
+                let mut t = toml::Table::new();
+                t.insert("url".to_string(), "https://github.com/foo/SwiftTreeSitter.git".into());
+                t.insert("version".to_string(), "0.25.0".into());
+                t
+            }),
+        );
+        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
+        assert!(out.contains(".package(url: \"https://github.com/foo/SwiftTreeSitter.git\", from: \"0.25.0\")"), "should inject extras .package with url and version from Detailed form. Got:\n{out}");
+        assert!(out.contains(".product(name: \"SwiftTreeSitter\", package: \"SwiftTreeSitter\")"), "should inject product dep from extracted package name. Got:\n{out}");
+    }
+
+    #[test]
+    fn render_package_swift_with_extras_simple_form() {
+        let mut extras = ManifestExtras::default();
+        extras.dev_dependencies.insert(
+            "https://github.com/bar/MyLib.git".to_string(),
+            ExtraDepSpec::Simple("1.0.0".to_string()),
+        );
+        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
+        assert!(out.contains(".package(url: \"https://github.com/bar/MyLib.git\", from: \"1.0.0\")"), "should inject extras .package with URL as key and version as value. Got:\n{out}");
+        assert!(out.contains(".product(name: \"MyLib\", package: \"MyLib\")"), "should extract package name from URL. Got:\n{out}");
+    }
+
+    #[test]
+    fn render_package_swift_extras_both_buckets() {
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "runtime-pkg".to_string(),
+            ExtraDepSpec::Detailed({
+                let mut t = toml::Table::new();
+                t.insert("url".to_string(), "https://github.com/x/RuntimePkg.git".into());
+                t.insert("version".to_string(), "1.0.0".into());
+                t
+            }),
+        );
+        extras.dev_dependencies.insert(
+            "https://github.com/y/DevPkg.git".to_string(),
+            ExtraDepSpec::Simple("2.0.0".to_string()),
+        );
+        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
+        // Should inject both runtime and dev deps in sorted order (DevPkg, RuntimePkg).
+        assert!(out.contains(".package(url: \"https://github.com/x/RuntimePkg.git\", from: \"1.0.0\")"), "should inject runtime dep. Got:\n{out}");
+        assert!(out.contains(".package(url: \"https://github.com/y/DevPkg.git\", from: \"2.0.0\")"), "should inject dev dep. Got:\n{out}");
+        assert!(out.contains(".product(name: \"RuntimePkg\", package: \"RuntimePkg\")"), "should include runtime product. Got:\n{out}");
+        assert!(out.contains(".product(name: \"DevPkg\", package: \"DevPkg\")"), "should include dev product. Got:\n{out}");
+    }
+
+    #[test]
+    fn render_package_swift_empty_extras_matches_none() {
+        let extras = ManifestExtras::default();
+        let with_empty = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
+        let without = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, None);
+        assert_eq!(with_empty, without, "empty extras should produce identical output to None");
+    }
+
+    #[test]
+    fn render_package_swift_extras_idempotent() {
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "https://github.com/a/PkgA.git".to_string(),
+            ExtraDepSpec::Simple("1.0.0".to_string()),
+        );
+        let first = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
+        let second = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
+        assert_eq!(first, second, "re-rendering with same extras should be byte-stable");
+    }
+
+    #[test]
+    fn render_package_swift_includes_harness_target_when_needed() {
+        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, true, None);
+        assert!(out.contains(".executableTarget("), "should include harness executable target");
+        assert!(out.contains("\"Harness\""), "harness target name should be present");
+    }
+
+    #[test]
+    fn render_package_swift_omits_harness_target_when_not_needed() {
+        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, None);
+        assert!(!out.contains(".executableTarget("), "should omit harness executable target");
+    }
 }

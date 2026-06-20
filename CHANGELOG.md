@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **e2e harness_extras**: `[crates.e2e.harness_extras.<lang>]` dependency injection
+  now extends to the C-ABI family — `go` (go.mod `require`), `java` (pom.xml
+  `<dependency>`, `dev_dependencies` → `<scope>test</scope>`), `csharp` (.csproj
+  `<PackageReference>`), `swift` (Package.swift `.package(...)` + test-target
+  `.product(...)`), and `zig` (build.zig.zon `.dependencies` + build.zig
+  `addImport`, merged with existing capsule deps). Previously only `node`/`wasm`
+  consumed `harness_extras`, so hand-written e2e passthrough tests for the other
+  bindings could not import the upstream tree-sitter package (regen stripped any
+  manually added dependency). Gated on `DependencyMode::Local`, idempotent, and
+  deterministic, mirroring the node implementation.
+
 ### Fixed
 
 - **e2e/php**: registry-mode `install.sh` now installs the pinned version via the

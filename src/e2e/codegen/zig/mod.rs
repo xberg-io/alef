@@ -176,7 +176,7 @@ impl E2eCodegen for ZigE2eCodegen {
         // host_type's namespace — i.e. the last `[A-Za-z0-9_]` run before the type's `.`.
         // `?*const tree_sitter.Language` and `*tree_sitter.Language` both yield `tree_sitter`,
         // matching the import name the package scaffold wires in.
-        let zig_capsule_deps: Vec<(String, String, String)> = config
+        let mut zig_capsule_deps: Vec<(String, String, String)> = config
             .zig
             .as_ref()
             .map(|z| {
@@ -197,6 +197,47 @@ impl E2eCodegen for ZigE2eCodegen {
                 deps
             })
             .unwrap_or_default();
+
+        // Merge harness_extras into capsule deps when in Local mode. The harness_extras
+        // allow hand-written passthrough tests to @import upstream packages like zig-tree-sitter.
+        // Each extra is converted to a (module_name, url, hash) tuple and appended to capsule_deps.
+        // Last-write-wins: if a module name collides (same key in both sources), the harness_extras
+        // version takes precedence.
+        if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Local {
+            if let Some(extras) = e2e_config.harness_extras.get(self.language_name()) {
+                if !extras.is_empty() {
+                    // Merge dependencies (runtime + dev_dependencies combined in Local mode).
+                    let mut harness_extras_deps = Vec::new();
+                    for (module_name, spec) in &extras.dependencies {
+                        if let crate::core::config::manifest_extras::ExtraDepSpec::Detailed(table) = spec {
+                            if let (Some(url_val), Some(hash_val)) =
+                                (table.get("url").and_then(|v| v.as_str()), table.get("hash").and_then(|v| v.as_str()))
+                            {
+                                harness_extras_deps.push((module_name.clone(), url_val.to_string(), hash_val.to_string()));
+                            }
+                        }
+                    }
+                    for (module_name, spec) in &extras.dev_dependencies {
+                        if let crate::core::config::manifest_extras::ExtraDepSpec::Detailed(table) = spec {
+                            if let (Some(url_val), Some(hash_val)) =
+                                (table.get("url").and_then(|v| v.as_str()), table.get("hash").and_then(|v| v.as_str()))
+                            {
+                                harness_extras_deps.push((module_name.clone(), url_val.to_string(), hash_val.to_string()));
+                            }
+                        }
+                    }
+                    // Merge by removing duplicates (keep harness_extras, remove earlier capsule_deps with same module_name).
+                    let mut seen_modules = std::collections::HashSet::new();
+                    for (module_name, _, _) in &harness_extras_deps {
+                        seen_modules.insert(module_name.clone());
+                    }
+                    zig_capsule_deps.retain(|(module_name, _, _)| !seen_modules.contains(module_name));
+                    zig_capsule_deps.extend(harness_extras_deps);
+                    zig_capsule_deps.sort();
+                    zig_capsule_deps.dedup();
+                }
+            }
+        }
 
         // Generate build.zig.zon (Zig package manifest).
         files.push(GeneratedFile {

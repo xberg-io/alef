@@ -595,8 +595,9 @@ fn render_zig_mock_server_spawn() -> &'static str {
 /// [`client::http_call::render_http_test`] driver drives the call sequence.
 #[cfg(test)]
 mod zig_build_tests {
-    use super::{ZigBuildFlags, render_build_zig};
+    use super::{ZigBuildFlags, render_build_zig, render_build_zig_zon};
     use crate::e2e::config::DependencyMode;
+    use std::collections::BTreeMap;
 
     /// Registry mode test_app build.zig must NOT reference `../../target/release`
     /// (the local workspace layout). Instead, it must link the FFI from the
@@ -808,6 +809,151 @@ mod zig_build_tests {
             !content.contains("_run_run"),
             "test step dependency must not contain '_run_run' (double suffix bug), but found in:\n{}",
             content
+        );
+    }
+
+    /// Local mode build.zig.zon with a single harness_extras entry includes
+    /// the dependency in .dependencies with .url and .hash.
+    #[test]
+    fn local_mode_build_zig_zon_with_harness_extras_single_entry() {
+        let capsule_deps = vec![(
+            "tree_sitter".to_string(),
+            "https://github.com/example/zig-tree-sitter/archive/refs/tags/v0.25.0.tar.gz".to_string(),
+            "1220abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1".to_string(),
+        )];
+
+        let zon = render_build_zig_zon(
+            "demo_client",
+            "../../packages/zig",
+            DependencyMode::Local,
+            "0.1.0",
+            &BTreeMap::new(),
+            false,
+            &capsule_deps,
+        );
+
+        // Must include the tree_sitter dependency entry (contains both .tree_sitter = .{ and the content).
+        assert!(
+            zon.contains(".tree_sitter ="),
+            "zon must contain tree_sitter dependency, got:\n{zon}"
+        );
+        assert!(
+            zon.contains("https://github.com/example/zig-tree-sitter/archive/refs/tags/v0.25.0.tar.gz"),
+            "zon must contain tree_sitter URL, got:\n{zon}"
+        );
+        assert!(
+            zon.contains("1220abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"),
+            "zon must contain tree_sitter hash, got:\n{zon}"
+        );
+    }
+
+    /// Local mode build.zig with harness_extras includes addImport wiring
+    /// for each dependency, allowing the binding module to @import the extras.
+    #[test]
+    fn local_mode_build_zig_with_harness_extras_add_import_wiring() {
+        let test_filenames = vec!["basic_test.zig".to_string()];
+        let capsule_deps = vec![(
+            "tree_sitter".to_string(),
+            "https://github.com/example/zig-tree-sitter/archive/refs/tags/v0.25.0.tar.gz".to_string(),
+            "1220abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1".to_string(),
+        )];
+
+        let content = render_build_zig(
+            &test_filenames,
+            "demo_client",
+            "demo_client",
+            "demo_client_ffi",
+            "../../crates/demo-client-ffi",
+            ZigBuildFlags {
+                has_file_fixtures: false,
+                needs_mock_server: false,
+            },
+            "test_documents",
+            DependencyMode::Local,
+            false,
+            &std::collections::HashMap::new(),
+            &capsule_deps,
+        );
+
+        // Must include dependency fetch and addImport call.
+        assert!(
+            content.contains("const tree_sitter_dep = b.dependency(\"tree_sitter\""),
+            "build.zig must fetch tree_sitter dependency, got:\n{content}"
+        );
+        assert!(
+            content.contains("demo_client_module.addImport(\"tree_sitter\", tree_sitter_dep.module(\"tree_sitter\"))"),
+            "build.zig must wire addImport for tree_sitter, got:\n{content}"
+        );
+    }
+
+    /// Multiple harness_extras entries are all included in zon and build.zig,
+    /// without duplicates. (The caller in mod.rs sorts before calling render_build_zig_zon.)
+    #[test]
+    fn local_mode_build_zig_zon_with_multiple_harness_extras() {
+        // Input in sorted order (as provided by mod.rs after calling .sort() and .dedup()).
+        let capsule_deps = vec![
+            (
+                "alpha_lib".to_string(),
+                "https://github.com/example/zig-alpha/archive/refs/tags/v2.0.0.tar.gz".to_string(),
+                "1220aaa123aaa123aaa123aaa123aaa123aaa123aaa123aaa123aaa123aaa1".to_string(),
+            ),
+            (
+                "zebra_lib".to_string(),
+                "https://github.com/example/zig-zebra/archive/refs/tags/v1.0.0.tar.gz".to_string(),
+                "1220zzz123zzz123zzz123zzz123zzz123zzz123zzz123zzz123zzz123zzz1".to_string(),
+            ),
+        ];
+
+        let zon = render_build_zig_zon(
+            "demo_client",
+            "../../packages/zig",
+            DependencyMode::Local,
+            "0.1.0",
+            &BTreeMap::new(),
+            false,
+            &capsule_deps,
+        );
+
+        // Both must be present in the .dependencies block.
+        assert!(zon.contains(".alpha_lib ="), "zon must include alpha_lib, got:\n{zon}");
+        assert!(zon.contains(".zebra_lib ="), "zon must include zebra_lib, got:\n{zon}");
+        // Verify appearance order: alpha should appear before zebra
+        // (input is pre-sorted by mod.rs before calling render_build_zig_zon).
+        let deps_start = zon.find(".dependencies =").expect("no .dependencies block");
+        let deps_section = &zon[deps_start..];
+        let alpha_pos = deps_section.find(".alpha_lib").expect("alpha_lib not found in dependencies");
+        let zebra_pos = deps_section.find(".zebra_lib").expect("zebra_lib not found in dependencies");
+        assert!(
+            alpha_pos < zebra_pos,
+            "dependencies must appear in order within .dependencies block: alpha at {}, zebra at {}",
+            alpha_pos,
+            zebra_pos
+        );
+    }
+
+    /// Empty harness_extras does not emit spurious dependency entries.
+    #[test]
+    fn local_mode_build_zig_zon_without_harness_extras_is_unchanged() {
+        let empty_capsule_deps: Vec<(String, String, String)> = vec![];
+
+        let zon = render_build_zig_zon(
+            "demo_client",
+            "../../packages/zig",
+            DependencyMode::Local,
+            "0.1.0",
+            &BTreeMap::new(),
+            false,
+            &empty_capsule_deps,
+        );
+
+        // Must contain only the main package dependency, no extras.
+        assert!(
+            zon.contains(".demo_client ="),
+            "zon must include main package, got:\n{zon}"
+        );
+        assert!(
+            !zon.contains(".tree_sitter ="),
+            "zon must not include harness_extras when empty, got:\n{zon}"
         );
     }
 }
