@@ -94,9 +94,17 @@ fn render_test_function(
     );
     let field_resolver = &call_field_resolver;
 
-    // Determine subcommand based on fixture tags.
-    // If "crawl" tag is present, use "crawl"; if "map" tag is present, use "map"; else use default.
-    let subcommand = determine_subcommand(&fixture.tags, default_subcommand);
+    // Determine subcommand: authoritative from brew override function if present,
+    // otherwise fall back to tag-derived determination.
+    let subcommand = if let Some(brew_override) = call_config.overrides.get("brew") {
+        if let Some(override_fn) = &brew_override.function {
+            override_fn.clone()
+        } else {
+            determine_subcommand(&fixture.tags, default_subcommand)
+        }
+    } else {
+        determine_subcommand(&fixture.tags, default_subcommand)
+    };
 
     // Build the CLI command using the resolved call config.
     let cmd_parts = build_cli_command(
@@ -191,6 +199,36 @@ fn build_cli_command(
                     "\"${{MOCK_SERVER_{upper_id}:-${{MOCK_SERVER_URL}}/fixtures/{}}}\"",
                     fixture.id
                 ));
+            }
+            "mock_url_list" => {
+                // Multiple positional URL arguments.
+                //
+                // Resolve the list field from fixture input (with aliasing support),
+                // then emit each URL as a positional argument.
+                // Per-fixture env var for base URL (for host-root fixtures), falling back
+                // to MOCK_SERVER_URL/fixtures/<fixture_id>.
+                let upper_id = fixture.id.to_uppercase();
+                let base_var = format!(
+                    "${{MOCK_SERVER_{upper_id}:-${{MOCK_SERVER_URL}}/fixtures/{}}}",
+                    fixture.id
+                );
+                let urls_value = crate::e2e::codegen::resolve_urls_field(&fixture.input, &arg.field);
+
+                if let Some(urls_array) = urls_value.as_array() {
+                    for url_value in urls_array {
+                        if let Some(path) = url_value.as_str() {
+                            if path.starts_with("http") {
+                                // Absolute URL — emit verbatim (shell-quoted).
+                                parts.push(format!("\"{}\"", escape_shell(path)));
+                            } else {
+                                // Relative path — prepend base URL.
+                                // Path typically includes leading `/`, e.g., `/page1`.
+                                // Emit as a double-quoted token so shell expands the ${...} variable.
+                                parts.push(format!("\"{}{}", base_var, path) + "\"");
+                            }
+                        }
+                    }
+                }
             }
             "handle" => {
                 // CLI manages its own engine; skip handle args.
