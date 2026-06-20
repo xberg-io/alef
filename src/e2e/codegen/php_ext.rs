@@ -140,7 +140,10 @@ fn render_run_tests(pkg_name: &str, version: &str, extension_name: &str) -> Stri
     let _ = writeln!(out, "fi");
     let _ = writeln!(out);
     let _ = writeln!(out, "echo \"Installing $PKG version $VERSION via PIE...\"");
-    let _ = writeln!(out, "pie install \"$PKG\" --version \"$VERSION\"");
+    // PIE's `install` has no `--version` option (it parses `--version`/`-V` as
+    // "print PIE's own version" and exits without installing). The version is part
+    // of the package coordinate: `vendor/package:constraint`.
+    let _ = writeln!(out, "pie install \"$PKG:$VERSION\"");
     let _ = writeln!(out);
     let _ = writeln!(out, "# Locate the installed extension.");
     let _ = writeln!(out, "EXT_DIR=\"$(php -r 'echo ini_get(\"extension_dir\");')\"");

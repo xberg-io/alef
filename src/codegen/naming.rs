@@ -610,7 +610,16 @@ pub fn go_type_name(name: &str) -> String {
 /// - `api_key`   → `APIKey`   → `apiKey`
 /// - `user_id`   → `UserID`   → `userID`
 /// - `json`      → `JSON`     → `json`
+///
+/// A parameter literally named `result` is renamed to `resultArg`. The Go return-marshalling
+/// templates (`var_decl_slice`, `var_decl_type`, `result_json_unmarshal`, …) declare a hard-coded
+/// local named `result` to hold the unmarshalled return value, so a parameter of the same name
+/// would collide (`result redeclared`). `resultArg` is the only reserved rename needed because it is
+/// the sole identifier the generated function bodies hard-code as a local.
 pub fn go_param_name(name: &str) -> String {
+    if name == "result" {
+        return "resultArg".to_string();
+    }
     let pascal = apply_go_acronyms(&name.to_pascal_case());
     if pascal.is_empty() {
         return pascal;

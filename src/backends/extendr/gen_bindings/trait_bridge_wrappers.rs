@@ -233,8 +233,29 @@ pub(super) fn method_is_excluded_from_impl(
     if references_map(&method.return_type) || method.params.iter().any(|p| references_map(&p.ty)) {
         return true;
     }
+    // Return types extendr cannot convert into Robj: Option<Named>, Vec<Named>, Option<Vec<_>>.
+    // Mirrors `method_return_unsupported` in `generate_bindings` so wrapper/NAMESPACE entries are
+    // not emitted for methods the Rust impl block omits.
+    if method_return_unsupported(method) {
+        return true;
+    }
     if method.sanitized {
         return true;
     }
     false
+}
+
+/// Return true if a method's return type cannot be auto-converted into `Robj` by extendr.
+///
+/// Extendr provides no `Robj` conversion for `Option<Named>` (no `From<Option<ExternalPtr<T>>>`),
+/// `Vec<Named>` (no `From<Vec<LocalStruct>>`), or `Option<Vec<_>>` (fails `ToVectorValue`). Mirror
+/// of the closure of the same name in `generate_bindings`.
+pub(super) fn method_return_unsupported(method: &crate::core::ir::MethodDef) -> bool {
+    match &method.return_type {
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(_)),
+        TypeRef::Optional(inner) => {
+            matches!(inner.as_ref(), TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Bytes)
+        }
+        _ => false,
+    }
 }

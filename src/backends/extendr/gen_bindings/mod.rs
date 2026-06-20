@@ -52,6 +52,11 @@ impl Backend for ExtendrBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        // extendr emits a single compiled Rust surface with no Rust-cfg gating, so same-named
+        // cfg-variant functions must collapse to one definition to avoid E0428 (defined multiple
+        // times). See codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
         let core_import = config.core_import_name();
         // Build type path map for resolving fully-qualified paths to enums not re-exported at crate root
         let type_paths = build_type_path_lookup(api);
@@ -197,6 +202,38 @@ impl Backend for ExtendrBackend {
             references_map(&m.return_type) || m.params.iter().any(|p| references_map(&p.ty))
         };
 
+        // Helper: returns true if a method's RETURN type cannot be auto-converted into `Robj` by
+        // extendr, so the method must be excluded from the `#[extendr]` impl block.
+        //
+        // Extendr's automatic return conversions cover bare structs/enums/opaque handles (via
+        // ExternalPtr), primitives, String, and `Vec<primitive/String>`. They do NOT cover:
+        //   • `Option<Named>` — there is no `From<Option<ExternalPtr<T>>> for Robj`; the auto-impl
+        //     requires `T: ToVectorValue`, which structs/opaque handles don't implement
+        //     (e.g. `Registry::get -> Option<Preset>`).
+        //   • `Vec<Named>` — no `From<Vec<LocalStruct>> for Robj` (e.g. `summaries -> Vec<PresetSummary>`).
+        //   • `Option<Vec<_>>` — `Option<Vec<u8>>`/`Option<Vec<primitive>>`/`Option<Vec<Named>>` all
+        //     fail `ToVectorValue` (e.g. `Registry::sample_bytes -> Option<Vec<u8>>`).
+        // These returns are dropped rather than JSON-bridged because method delegation through the
+        // shared opaque/struct impl generators has no JSON-return path; callers reach the same data
+        // via the free-function / serialised-struct surfaces.
+        let method_return_unsupported = |m: &crate::core::ir::MethodDef| -> bool {
+            match &m.return_type {
+                // Vec<Named> (struct/enum element) — no R-list conversion.
+                crate::core::ir::TypeRef::Vec(inner) => {
+                    matches!(inner.as_ref(), crate::core::ir::TypeRef::Named(_))
+                }
+                crate::core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
+                    // Option<Named> — Option<ExternalPtr<T>> has no Robj conversion.
+                    crate::core::ir::TypeRef::Named(_) => true,
+                    // Option<Vec<_>>/Option<Bytes> — Vec<u8>/Vec<primitive>/Vec<Named> all fail
+                    // ToVectorValue. `Vec<u8>` is modelled as `TypeRef::Bytes` in the IR.
+                    crate::core::ir::TypeRef::Vec(_) | crate::core::ir::TypeRef::Bytes => true,
+                    _ => false,
+                },
+                _ => false,
+            }
+        };
+
         // Helper: returns true if a TypeRef requires a type that extendr cannot automatically
         // convert from/to Robj.
         //
@@ -311,8 +348,12 @@ impl Backend for ExtendrBackend {
                 //   • methods referencing arc-incompatible types (e.g. visitor() with VisitorHandle)
                 //   • methods taking/returning enum types (ToVectorValue not implemented for enums)
                 //   • methods taking non-opaque structs by value (TryFrom<&Robj> for owned T missing)
+                //   • methods returning Option<Named>/Vec<Named>/Option<Vec<_>> (no Robj conversion)
                 let has_excluded_opaque_methods = typ.methods.iter().any(|m| {
-                    method_references_arc_incompatible(m) || method_references_enum(m) || method_references_map(m)
+                    method_references_arc_incompatible(m)
+                        || method_references_enum(m)
+                        || method_references_map(m)
+                        || method_return_unsupported(m)
                 });
                 let opaque_impl_typ: std::borrow::Cow<crate::core::ir::TypeDef> = if has_excluded_opaque_methods {
                     let filtered = crate::core::ir::TypeDef {
@@ -323,6 +364,7 @@ impl Backend for ExtendrBackend {
                                 !method_references_arc_incompatible(m)
                                     && !method_references_enum(m)
                                     && !method_references_map(m)
+                                    && !method_return_unsupported(m)
                             })
                             .cloned()
                             .collect(),
@@ -357,7 +399,10 @@ impl Backend for ExtendrBackend {
                 // method params/return types in non-opaque impl blocks.
                 let has_excluded_fields = typ.fields.iter().any(|f| references_arc_incompatible(&f.ty));
                 let has_excluded_methods = typ.methods.iter().any(|m| {
-                    method_references_arc_incompatible(m) || method_references_enum(m) || method_references_map(m)
+                    method_references_arc_incompatible(m)
+                        || method_references_enum(m)
+                        || method_references_map(m)
+                        || method_return_unsupported(m)
                 });
                 let struct_typ: std::borrow::Cow<crate::core::ir::TypeDef> =
                     if has_excluded_fields || has_excluded_methods {
@@ -375,6 +420,7 @@ impl Backend for ExtendrBackend {
                                     !method_references_arc_incompatible(m)
                                         && !method_references_enum(m)
                                         && !method_references_map(m)
+                                        && !method_return_unsupported(m)
                                 })
                                 .cloned()
                                 .collect(),
@@ -818,7 +864,12 @@ impl Backend for ExtendrBackend {
                 .iter()
                 .filter(|f| !bridge_fn_names.contains(&f.name))
                 .filter(|f| !r_exclude_functions.contains(&f.name))
-                .map(|f| prepend_cfg(f.cfg.as_deref(), format!("    fn {};\n", f.name)))
+                // The `extendr_module!` macro parser accepts ONLY bare `mod`/`fn`/`impl`/`use`
+                // entries — it rejects any `#[cfg(...)]` attribute with "expected mod, fn or impl"
+                // (extendr-macros `Module::parse`). The R crate enables every gated feature, so the
+                // cfg-gated fn definitions always exist; the module entry is therefore emitted
+                // unconditionally regardless of the function's cfg.
+                .map(|f| format!("    fn {};\n", f.name))
                 .collect::<String>()
                 + &collect_trait_bridge_functions(config)
                     .iter()

@@ -27,8 +27,8 @@ pub struct ApiSurface {
 impl ApiSurface {
     /// Returns a clone of this surface with same-named cfg-variant functions collapsed to one.
     ///
-    /// Single-surface backends (Java, C#, Go, Kotlin, Swift, Dart, PHP, Ruby, Elixir) emit one
-    /// non-cfg-gated host method per function. When the extractor preserves a real impl and a
+    /// Single-surface backends (Java, C#, Go, Kotlin, Swift, Dart, PHP, Ruby, Elixir, R/extendr)
+    /// emit one host method per function. When the extractor preserves a real impl and a
     /// stub fallback under disjoint `cfg` gates, those two entries would otherwise become two
     /// host methods with identical signatures — a duplicate-method compile error. This collapses
     /// each such group into a single entry whose `cfg` is the OR of all members'. Rust-cfg-gated

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **go**: a parameter literally named `result` no longer collides with the
+  hard-coded `result` local that the return-marshalling templates declare. A core
+  fn such as `boundaries_from_extraction_result(result: ExtractionResult, …)` emitted
+  `var result []DocumentBoundary` inside a body whose signature already bound
+  `result`, producing `result redeclared` plus a type-mismatch return. `go_param_name`
+  now renames the reserved identifier `result` to `resultArg`.
+- **go**: an `Option<&[u8]>` (e.g. `Registry::sample_bytes`) return now emits a
+  `*[]byte` value instead of `unmarshalBytes(ptr)` (`[]byte`), which failed to compile
+  against the generated `*[]byte` signature. The `Optional(Bytes)` arm null-checks the
+  FFI pointer and boxes the copied slice (nil pointer → nil `*[]byte`).
+- **extendr**: the R backend now collapses same-named cfg-variant functions via
+  `with_deduped_functions()`, matching every other single-surface backend. NER fns
+  (`download_model`, `default_model_name`, `known_models`, and their `wrap__`/`meta__`
+  siblings) were emitted three times — `cfg(ner-onnx)`, `cfg(not(ner-onnx))`, and an
+  unconditional copy — producing E0428 "defined multiple times".
+- **csharp**: the host-native capsule wrapper called `NativeMethods.ts_pack_get_language`
+  (the raw snake_case C name) while the P/Invoke declaration is generated as the
+  PascalCase `GetLanguage`, producing `CS0117 'NativeMethods' does not contain a
+  definition for 'ts_pack_get_language'`. The wrapper now resolves the native method via
+  `to_csharp_name(&func.name)`, matching the P/Invoke declaration.
+- **swift**: the generated binding `Package.swift` emitted the `dependencies:` argument
+  before `products:`; SwiftPM (swift-tools 6.0) rejects this with "argument 'products'
+  must precede argument 'dependencies'". The scaffold now emits `products:` before
+  `dependencies:` (so the capsule host `.package(...)` injection still lands correctly).
+- **swift e2e harness_extras**: the `.product(name:package:)` test-target entry derived
+  both fields from the URL's last path component, so a repo whose product name differs
+  from its identity (e.g. `swift-tree-sitter` exposing `SwiftTreeSitter`) referenced a
+  non-existent product. The Detailed form now accepts an explicit `product` key.
+
 ## [0.25.53] - 2026-06-20
 
 ### Added

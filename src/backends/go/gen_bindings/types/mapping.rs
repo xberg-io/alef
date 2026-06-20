@@ -164,6 +164,19 @@ fn go_return_expr_inner(
             format!("unmarshalBytes({})", var_name)
         }
         TypeRef::Optional(inner) => match inner.as_ref() {
+            // Optional(Bytes): the bare Bytes arm yields `unmarshalBytes(ptr)` which is `[]byte`,
+            // but an `Option<&[u8]>` return has signature `*[]byte`. Null-check the pointer and
+            // box the copied slice so a null FFI pointer maps to a nil `*[]byte`.
+            TypeRef::Bytes => {
+                format!(
+                    "func() *[]byte {{\n\
+                     \tif {var_name} == nil {{ return nil }}\n\
+                     \tb := unmarshalBytes({var_name})\n\
+                     \treturn &b\n\
+                     }}()",
+                    var_name = var_name,
+                )
+            }
             // Optional(Primitive): wrap the plain primitive expression in a closure that
             // takes its address. The Primitive branch above emits plain `T(var)` / `var != 0`,
             // which would be a value (not a pointer); Optional callers want `*T`.
