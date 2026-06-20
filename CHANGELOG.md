@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **e2e/php**: registry-mode `install.sh` now installs the pinned version via the
+  `vendor/package:constraint` coordinate instead of the non-existent `pie install
+  --version <v>` flag. PIE parses `--version`/`-V` as "print PIE's own version" and
+  exits without installing, so the script silently no-opped; the load check then
+  passed only when an unrelated `<extension>` build happened to already be enabled
+  globally, masking the failure. Generated PHP test apps now pull the correct
+  release binary.
+
 ## [0.25.52] - 2026-06-20
 
 ### Added

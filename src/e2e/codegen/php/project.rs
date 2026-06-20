@@ -159,7 +159,10 @@ fi
 # binary cleanly. The php.ini-append guard below prevents duplicate `extension=`
 # lines so the verification step doesn't trip on "Module already loaded".
 EXT_DIR="$(php -r 'echo ini_get("extension_dir");')"
-"$PIE" install --version "$VERSION" "{pkg_name}" --skip-enable-extension
+# PIE's `install` has no `--version` option (it parses `--version`/`-V` as
+# "print PIE's own version" and exits without installing). The target version is
+# part of the package coordinate: `vendor/package:constraint`.
+"$PIE" install "{pkg_name}:$VERSION" --skip-enable-extension
 
 # Verify the .so/.dylib/.dll exists after install (or was already present).
 test -f "$EXT_DIR/{extension_name}.so" || test -f "$EXT_DIR/{extension_name}.dylib" || test -f "$EXT_DIR/{extension_name}.dll"
