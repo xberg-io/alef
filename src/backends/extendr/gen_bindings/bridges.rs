@@ -642,11 +642,19 @@ pub(super) fn gen_extendr_json_bridged_function(
                 // let-binding calls `{name}.into_option()`, which requires `Nullable<&Wrapper>`;
                 // emitting `Option<Wrapper>` here breaks both `into_option()` (E0599) and extendr's
                 // `TryFrom<&Robj>` (E0277). Fall through to the default mapping for other optionals.
-                match inner.as_ref() {
-                    TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => {
-                        format!("extendr_api::Nullable<&{n}>")
+                let inner_name = if let TypeRef::Named(n) = inner.as_ref() {
+                    if !opaque_types.contains(n.as_str()) {
+                        Some(n.clone())
+                    } else {
+                        None
                     }
-                    _ => format!("Option<{ty_str}>"),
+                } else {
+                    None
+                };
+                if let Some(n) = inner_name {
+                    format!("extendr_api::Nullable<&{n}>")
+                } else {
+                    format!("Option<{ty_str}>")
                 }
             } else if param.optional {
                 format!("Option<{ty_str}>")

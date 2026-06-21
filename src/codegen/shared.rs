@@ -320,6 +320,15 @@ pub fn constructor_parts_with_renames_and_cfg_restore(
 
 /// Build a function parameter list.
 pub fn function_params(params: &[ParamDef], type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
+    function_params_vec(params, type_mapper).join(", ")
+}
+
+/// Per-parameter `name: type` strings, before joining. Callers that render the signature
+/// across multiple lines (long-signature wrapping) must reuse this exact list rather than
+/// recomputing types — a separate recomputation diverges from the backend-aware mapping used
+/// for the single-line form (e.g. extendr's `Nullable<&T>`), producing a signature whose types
+/// disagree with the generated body and fail to compile.
+pub fn function_params_vec(params: &[ParamDef], type_mapper: &dyn Fn(&TypeRef) -> String) -> Vec<String> {
     // After the first optional param, all subsequent params must also be optional
     // to satisfy PyO3's signature constraint (required params can't follow optional ones).
     let mut seen_optional = false;
@@ -337,7 +346,6 @@ pub fn function_params(params: &[ParamDef], type_mapper: &dyn Fn(&TypeRef) -> St
             format!("{}: {}", p.name, ty)
         })
         .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// Build a function signature defaults string (for pyo3 signature etc.).

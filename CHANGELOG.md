@@ -9,18 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **codegen: long signatures preserve backend-aware parameter types**: the free-function
+  generator wraps a signature across multiple lines once its single-line parameter list
+  exceeds 100 characters. That wrapped path recomputed each parameter's type with a generic
+  `Option<T>` promotion, discarding the backend-specific mapping used for the single-line form
+  (notably extendr's `Nullable<&T>` for optional/promoted non-opaque DTO parameters). The
+  recomputed signature then disagreed with the generated body — which still marshalled the
+  parameter via `Nullable::into_option()` — producing `E0599`/`E0277` in the binding crate. The
+  wrapped path now reuses the exact per-parameter strings computed for the single-line form, so
+  long and short signatures are always type-identical. PyO3 output is unchanged (both paths
+  already produced the same `Option<T>` promotion). Surfaced as a non-compiling extendr binding
+  for functions like `check_format_limits` whose parameter list crosses the wrap threshold.
 - **ffi/java: export named opaque static constructors**: static methods on opaque
   types that return `Self` or `Result<Self, E>` are now emitted as C constructor
   exports using the Rust method name, such as `{prefix}_{type}_compile`, instead
   of only recognizing `new`. The Java downcall template now reports the missing
   symbol names and feature hint in `ExceptionInInitializerError` when a native
   export is absent.
-- **r/extendr: repair optional and by-reference DTO argument marshalling**:
+- **r/extendr: improve optional and by-reference DTO argument marshalling**:
   optional non-opaque named parameters use `extendr_api::Nullable<&T>` in the
-  binding surface, clone through the referenced wrapper, and participate in JSON
+  binding surface (now consistently, including wrapped long signatures — see the
+  codegen fix above), clone through the referenced wrapper, and participate in JSON
   bridging when a named return type already requires JSON serialization. Call
   arguments now preserve whether the core function expects by-value, `&T`, or
-  `&mut T`.
+  `&mut T`, and by-value passing no longer forces an erroneous `&` (fixes
+  `score_confidence`). Some extendr binding paths remain incomplete (slice `&[&str]`
+  parameters, `Nullable<&T>::into_option` trait bounds, uint→i32 call-site
+  cast-back, and `KreuzbergError → extendr_api::Error` conversion); the R crate is
+  not yet fully compiling and is tracked separately.
 - **elixir/rustler: fix sync argument conversions and enum atoms**: optional
   binary parameters now convert to `Option<&[u8]>` or owned `Vec<u8>` correctly,
   JSON string parameters deserialize to `serde_json::Value`, borrowed BTreeMap

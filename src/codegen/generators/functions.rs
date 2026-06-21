@@ -4,7 +4,7 @@ use crate::codegen::generators::binding_helpers::{
     has_named_params,
 };
 use crate::codegen::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
-use crate::codegen::shared::{function_params, function_sig_defaults};
+use crate::codegen::shared::function_sig_defaults;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{ApiSurface, FunctionDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
@@ -59,7 +59,12 @@ pub fn gen_function_with_mutex(
     // - Optional params: `Nullable<&T>` (extendr's Nullable<T: TryFrom<&Robj>>)
     // - Promoted-optional (required following optional): `Nullable<&T>` (treated as optional)
     // After the first optional/Nullable param, all subsequent params are also promoted.
-    let params = if cfg.named_non_opaque_params_by_ref {
+    // Per-parameter `name: type` strings. Computed once here and reused for BOTH the
+    // single-line and long-signature (multi-line wrapped) renderings below — the long path
+    // must not recompute types, or it diverges from this backend-aware mapping (e.g. dropping
+    // extendr's `Nullable<&T>` back to `Option<T>`) and produces a signature whose types
+    // disagree with the generated body.
+    let param_strings: Vec<String> = if cfg.named_non_opaque_params_by_ref {
         let mut seen_optional = false;
         func.params
             .iter()
@@ -78,6 +83,29 @@ pub fn gen_function_with_mutex(
                             format!("&{}", map_fn(&p.ty))
                         }
                     }
+                    TypeRef::Optional(inner) => {
+                        // Check if inner is a non-opaque Named struct that should be passed by-ref
+                        let inner_str_if_named = if let TypeRef::Named(n) = inner.as_ref() {
+                            if !opaque_types.contains(n.as_str()) {
+                                Some(n.clone())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        if let Some(inner_name) = inner_str_if_named {
+                            // Optional non-opaque Named struct (e.g. a promoted trailing config param whose
+                            // core signature is `&T` but which is exposed to R as omittable). extendr needs
+                            // `Nullable<&Wrapper>` so the by-ref/promoted let-binding's `.into_option()`
+                            // resolves and `TryFrom<&Robj>` is available; `Option<Wrapper>` breaks both.
+                            format!("extendr_api::Nullable<&{}>", inner_name)
+                        } else if p.optional || seen_optional {
+                            format!("Option<{}>", map_fn(&p.ty))
+                        } else {
+                            map_fn(&p.ty)
+                        }
+                    }
                     _ => {
                         if p.optional || seen_optional {
                             format!("Option<{}>", map_fn(&p.ty))
@@ -89,37 +117,21 @@ pub fn gen_function_with_mutex(
                 format!("{}: {}", p.name, ty)
             })
             .collect::<Vec<_>>()
-            .join(", ")
     } else {
-        function_params(&func.params, &map_fn)
+        crate::codegen::shared::function_params_vec(&func.params, &map_fn)
     };
+    let params = param_strings.join(", ");
     let return_type = mapper.map_type(&func.return_type);
     let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
 
     // Use let-binding pattern for non-opaque Named params so core fns can take &CoreType.
-    // When named_non_opaque_params_by_ref is set (extendr), the binding signature uses &T,
-    // so we TEMPORARILY set is_ref=true for Named non-opaque params when generating call args.
-    // However, the call args generation (gen_call_args_with_let_bindings) will respect
-    // the ACTUAL is_ref from the core function to determine by-ref vs by-value passing.
-    let effective_params: std::borrow::Cow<[crate::core::ir::ParamDef]> = if cfg.named_non_opaque_params_by_ref {
-        let modified: Vec<crate::core::ir::ParamDef> = func
-            .params
-            .iter()
-            .map(|p| {
-                if matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
-                    crate::core::ir::ParamDef {
-                        is_ref: true,
-                        ..p.clone()
-                    }
-                } else {
-                    p.clone()
-                }
-            })
-            .collect();
-        std::borrow::Cow::Owned(modified)
-    } else {
-        std::borrow::Cow::Borrowed(&func.params)
-    };
+    // The binding signature (above) already has `&T` for Named non-opaque params when
+    // named_non_opaque_params_by_ref is true. We do NOT modify is_ref here — we keep
+    // the original core function's is_ref so call args can respect by-ref vs by-value semantics.
+    // The let-binding creates an owned `_core` value from the borrowed `&param`, and
+    // call args will then apply the core function's actual is_ref to determine whether to
+    // pass `_core` by-value or `&_core` by-ref.
+    let effective_params: std::borrow::Cow<[crate::core::ir::ParamDef]> = std::borrow::Cow::Borrowed(&func.params);
     let use_let_bindings = has_named_params(&effective_params, opaque_types);
     let call_args = if use_let_bindings {
         // Use the mutex-aware variant so opaque params with is_ref && is_mut get
@@ -650,24 +662,11 @@ pub fn gen_function_with_mutex(
     let func_lifetime = if func_needs_py { "<'py>" } else { "" };
 
     let (func_sig, _params_formatted) = if params.len() > 100 {
-        // When formatting for long signatures, promote optional params like function_params() does
-        let mut seen_optional = false;
-        let wrapped_params = func
-            .params
-            .iter()
-            .map(|p| {
-                if p.optional {
-                    seen_optional = true;
-                }
-                let ty = if p.optional || seen_optional {
-                    format!("Option<{}>", mapper.map_type(&p.ty))
-                } else {
-                    mapper.map_type(&p.ty)
-                };
-                format!("{}: {}", p.name, ty)
-            })
-            .collect::<Vec<_>>()
-            .join(",\n    ");
+        // Wrap the signature across multiple lines for readability. Reuse the exact
+        // per-parameter strings computed above (`param_strings`) — recomputing the types here
+        // would drop backend-aware mappings such as extendr's `Nullable<&T>` back to `Option<T>`,
+        // yielding a signature that disagrees with the generated body.
+        let wrapped_params = param_strings.join(",\n    ");
 
         // For async PyO3, we need special signature handling
         if func_needs_py {
