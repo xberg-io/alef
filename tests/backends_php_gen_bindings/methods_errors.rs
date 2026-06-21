@@ -370,7 +370,9 @@ fn test_cfg_gated_async_function() {
                 map_is_btree: false,
                 core_wrapper: alef::core::ir::CoreWrapper::None,
             }],
-            return_type: TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(alef::core::ir::PrimitiveType::F32))))),
+            return_type: TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(
+                alef::core::ir::PrimitiveType::F32,
+            ))))),
             is_async: true,
             error_type: Some("EmbedError".to_string()),
             doc: "Embed texts asynchronously".to_string(),

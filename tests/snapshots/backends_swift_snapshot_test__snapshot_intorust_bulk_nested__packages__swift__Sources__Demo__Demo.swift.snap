@@ -109,6 +109,18 @@ internal extension ProcessResult {
     }
 }
 
+public typealias SpanRef = RustBridge.SpanRef
+
+public typealias SpanRefMut = RustBridge.SpanRefMut
+
+public typealias DiagnosticRef = RustBridge.DiagnosticRef
+
+public typealias DiagnosticRefMut = RustBridge.DiagnosticRefMut
+
+public typealias ProcessResultRef = RustBridge.ProcessResultRef
+
+public typealias ProcessResultRefMut = RustBridge.ProcessResultRefMut
+
 // MARK: - From-JSON Helpers
 // Public helpers that decode JSON into first-class Swift types.
 // First-class struct types (Codable) use JSONDecoder directly.

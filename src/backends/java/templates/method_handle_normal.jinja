@@ -7,6 +7,10 @@
             // Fallback to default lookup
             .or(() -> LINKER.defaultLookup().find("_{{ ffi_name }}"))
             // Fallback underscore variant
-            .orElseThrow(),
+            .orElseThrow(() -> new ExceptionInInitializerError(
+                "Native symbol not found: " + "{{ ffi_name }}" +
+                " (tried: {{ ffi_name }}, _{{ ffi_name }}). " +
+                "Ensure the native library was compiled with this function exported. " +
+                "If this is an optional feature, check that all required features are enabled.")),
         {{ layout }}
     );

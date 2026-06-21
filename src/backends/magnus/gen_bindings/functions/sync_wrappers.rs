@@ -58,7 +58,12 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
     //   - serde-recovery path: emit `{name}_core: core::Type` so gen_call_args_with_let_bindings
     //     can pass `&{name}_core` to the core function.
     let mut deser_lines = Vec::new();
-    if serde_recoverable {
+    // When a Vec<Named> param forces the `_core` call-arg path (gen_call_args_with_let_bindings_*),
+    // every Named param in the call is referenced as `{name}_core`. The serde let-binding emitter
+    // names scalar Named params `{name}_core` too, so use it here as well — otherwise the non-serde
+    // preamble would bind a scalar Named param as `{name}` and the `&{name}_core` call site would
+    // not resolve.
+    if serde_recoverable || needs_vec_named_let_binding {
         deser_lines.extend(magnus_serde_let_bindings(
             &func.params,
             opaque_types,

@@ -28,10 +28,18 @@ use minijinja::context;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.
-fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
+/// Prepend an always-true cfg condition that wraps any cfg predicate.
+/// This is used for PHP to work around ext-php-rs's #[php_impl] macro
+/// unconditionally resolving all function signatures even when cfg-gated.
+/// Instead of `#[cfg(feature = "X")]`, we emit `#[cfg(any(feature = "X", not(feature = "X")))]`
+/// which is always true and allows the macro to see the function.
+fn prepend_cfg_for_php(cfg: Option<&str>, item: String) -> String {
     match cfg {
-        Some(pred) if !pred.is_empty() => format!("#[cfg({pred})]\n{item}"),
+        Some(pred) if !pred.is_empty() => {
+            // Convert the cfg predicate to an always-true variant
+            let always_true_cfg = format!("any({pred}, not({pred}))");
+            format!("#[cfg({always_true_cfg})]\n{item}")
+        }
         _ => item,
     }
 }
@@ -429,7 +437,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                     &core_import,
                     &bridge_handle_path,
                 );
-                method_items.push(prepend_cfg(func.cfg.as_deref(), item));
+                method_items.push(prepend_cfg_for_php(func.cfg.as_deref(), item));
             } else if func.is_async {
                 let item = gen_async_function_as_static_method(
                     func,
@@ -443,7 +451,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                     &config.trait_bridges,
                     &mutex_types,
                 );
-                method_items.push(prepend_cfg(func.cfg.as_deref(), item));
+                method_items.push(prepend_cfg_for_php(func.cfg.as_deref(), item));
             } else {
                 let item = gen_function_as_static_method(
                     func,
@@ -458,7 +466,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                     has_serde,
                     &mutex_types,
                 );
-                method_items.push(prepend_cfg(func.cfg.as_deref(), item));
+                method_items.push(prepend_cfg_for_php(func.cfg.as_deref(), item));
             }
         }
 

@@ -762,8 +762,6 @@ impl Backend for ExtendrBackend {
                                 if enum_names.contains(n.as_str())))
                         // Required bare non-opaque structs need JSON bridging only when
                         // named_non_opaque_params_by_ref is false. When true, extendr can convert &Robj → &T.
-                        // Optional non-opaque structs still need JSON bridging since gen_function has a bug
-                        // with Optional(Named) types (generates Option<Option<T>>) until that's fixed.
                         || (!cfg.named_non_opaque_params_by_ref && (
                             matches!(&p.ty, crate::core::ir::TypeRef::Named(n)
                                 if !opaque_types.contains(n.as_str())
@@ -776,6 +774,12 @@ impl Backend for ExtendrBackend {
                                         && !enum_names.contains(n.as_str())
                                         && !extendr_incompatible_types.contains(n.as_str())
                                         && api.types.iter().any(|t| !t.is_opaque && !t.is_trait && t.name == *n)))))
+                        || (cfg.named_non_opaque_params_by_ref && matches!(&p.ty, crate::core::ir::TypeRef::Optional(inner)
+                            if matches!(inner.as_ref(), crate::core::ir::TypeRef::Named(n)
+                                if !opaque_types.contains(n.as_str())
+                                    && !enum_names.contains(n.as_str())
+                                    && !extendr_incompatible_types.contains(n.as_str())
+                                    && api.types.iter().any(|t| !t.is_opaque && !t.is_trait && t.name == *n))))
                         || (cfg.named_non_opaque_params_by_ref && matches!(&p.ty, crate::core::ir::TypeRef::Optional(inner)
                             if matches!(inner.as_ref(), crate::core::ir::TypeRef::Named(n)
                                 if !opaque_types.contains(n.as_str())

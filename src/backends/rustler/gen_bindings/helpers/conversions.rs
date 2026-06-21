@@ -399,12 +399,14 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             .variants
             .iter()
             .map(|v| {
-                let snake_name = v
-                    .serde_rename
-                    .clone()
-                    .unwrap_or_else(|| crate::codegen::naming::pascal_to_snake(&v.name));
-                let safe_atom = elixir_safe_param_name(&snake_name);
-                format!(":{}", elixir_safe_atom(&safe_atom))
+                let atom_value = match v.serde_rename.as_deref() {
+                    Some(rename) => rename.to_owned(),
+                    None => {
+                        let snake_name = crate::codegen::naming::pascal_to_snake(&v.name);
+                        elixir_safe_param_name(&snake_name)
+                    }
+                };
+                format!(":{}", elixir_safe_atom(&atom_value))
             })
             .collect();
         if !enum_def.doc.is_empty() {

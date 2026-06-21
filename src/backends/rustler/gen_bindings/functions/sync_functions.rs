@@ -244,10 +244,33 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                         }
                     }
                     TypeRef::Bytes => {
-                        if p.is_ref {
+                        if p.optional {
+                            // Option<rustler::Binary> -> Option<&[u8]>
+                            if p.is_ref {
+                                format!("{}.map(|b| b.as_slice())", p.name)
+                            } else {
+                                format!("{}.map(|b| b.as_slice().to_vec())", p.name)
+                            }
+                        } else if p.is_ref {
                             format!("{}.as_slice()", p.name)
                         } else {
                             format!("{}.as_slice().to_vec()", p.name)
+                        }
+                    }
+                    TypeRef::Json => {
+                        // Option<String> or String containing JSON -> serde_json::Value
+                        if p.optional {
+                            deser_lines.push(format!(
+                                "let {}_json: Option<serde_json::Value> = {}.map(|s| serde_json::from_str(&s)).transpose().map_err(|e| e.to_string())?;",
+                                p.name, p.name
+                            ));
+                            format!("{}_json", p.name)
+                        } else {
+                            deser_lines.push(format!(
+                                "let {}_json: serde_json::Value = serde_json::from_str(&{}).map_err(|e| e.to_string())?;",
+                                p.name, p.name
+                            ));
+                            format!("{}_json", p.name)
                         }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
@@ -277,7 +300,17 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     // Map: when the core fn expects BTreeMap but the binding receives
                     // HashMap (Rustler decodes BEAM maps as HashMap), collect into a BTreeMap.
                     TypeRef::Map(_, _) if p.map_is_btree => {
-                        format!("{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()", p.name)
+                        if p.is_ref {
+                            // Need to bind as a local, then take a reference
+                            let bound_name = format!("__{}_btree", p.name);
+                            deser_lines.push(format!(
+                                "let {bound_name} = {}.into_iter().collect::<std::collections::BTreeMap<_, _>>();",
+                                p.name
+                            ));
+                            format!("&{bound_name}")
+                        } else {
+                            format!("{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()", p.name)
+                        }
                     }
                     _ => p.name.clone(),
                 }
@@ -360,10 +393,33 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                         }
                     }
                     TypeRef::Bytes => {
-                        if p.is_ref {
+                        if p.optional {
+                            // Option<rustler::Binary> -> Option<&[u8]>
+                            if p.is_ref {
+                                format!("{}.map(|b| b.as_slice())", p.name)
+                            } else {
+                                format!("{}.map(|b| b.as_slice().to_vec())", p.name)
+                            }
+                        } else if p.is_ref {
                             format!("{}.as_slice()", p.name)
                         } else {
                             format!("{}.as_slice().to_vec()", p.name)
+                        }
+                    }
+                    TypeRef::Json => {
+                        // Option<String> or String containing JSON -> serde_json::Value
+                        if p.optional {
+                            deser_lines.push(format!(
+                                "let {}_json: Option<serde_json::Value> = {}.map(|s| serde_json::from_str(&s)).transpose().map_err(|e| e.to_string())?;",
+                                p.name, p.name
+                            ));
+                            format!("{}_json", p.name)
+                        } else {
+                            deser_lines.push(format!(
+                                "let {}_json: serde_json::Value = serde_json::from_str(&{}).map_err(|e| e.to_string())?;",
+                                p.name, p.name
+                            ));
+                            format!("{}_json", p.name)
                         }
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
@@ -383,6 +439,21 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                             format!("&{}", p.name)
                         } else {
                             p.name.to_string()
+                        }
+                    }
+                    // Map: when the core fn expects BTreeMap but the binding receives
+                    // HashMap (Rustler decodes BEAM maps as HashMap), collect into a BTreeMap.
+                    TypeRef::Map(_, _) if p.map_is_btree => {
+                        if p.is_ref {
+                            // Need to bind as a local, then take a reference
+                            let bound_name = format!("__{}_btree", p.name);
+                            deser_lines.push(format!(
+                                "let {bound_name} = {}.into_iter().collect::<std::collections::BTreeMap<_, _>>();",
+                                p.name
+                            ));
+                            format!("&{bound_name}")
+                        } else {
+                            format!("{}.into_iter().collect::<std::collections::BTreeMap<_, _>>()", p.name)
                         }
                     }
                     _ => p.name.clone(),

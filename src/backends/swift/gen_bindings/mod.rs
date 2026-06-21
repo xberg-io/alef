@@ -202,6 +202,7 @@ impl Backend for SwiftBackend {
         // stable Swift API that references RustBridge types.
         // Skip opaque handle types with methods — those get a full class wrapper below
         // instead of a typealias.
+        let mut first_class_struct_names: Vec<String> = Vec::new();
         for ty in api
             .types
             .iter()
@@ -235,6 +236,7 @@ impl Backend for SwiftBackend {
                             raw
                         }
                     });
+                first_class_struct_names.push(ty.name.clone());
                 dto::emit_first_class_struct(
                     ty,
                     &mapper,
@@ -254,6 +256,28 @@ impl Backend for SwiftBackend {
                     },
                 ));
             }
+            body.push('\n');
+        }
+
+        // Emit typealiases for *Ref and *RefMut variants of first-class structs.
+        // These are referenced in the `init(_ rb: RustBridge.{Type}Ref)` initializers
+        // and the `func intoRust() -> RustBridge.{Type}` methods, which swift-bridge
+        // synthesizes as part of the class hierarchy. Without these typealiases, the
+        // generated first-class struct code references undefined types in RustBridge.
+        for type_name in &first_class_struct_names {
+            body.push_str(&crate::backends::swift::template_env::render(
+                "typealias.jinja",
+                minijinja::context! {
+                    name => &format!("{type_name}Ref"),
+                },
+            ));
+            body.push('\n');
+            body.push_str(&crate::backends::swift::template_env::render(
+                "typealias.jinja",
+                minijinja::context! {
+                    name => &format!("{type_name}RefMut"),
+                },
+            ));
             body.push('\n');
         }
 

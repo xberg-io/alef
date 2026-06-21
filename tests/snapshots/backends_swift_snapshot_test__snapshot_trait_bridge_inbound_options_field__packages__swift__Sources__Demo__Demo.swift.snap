@@ -36,6 +36,10 @@ internal extension RenderOptions {
     }
 }
 
+public typealias RenderOptionsRef = RustBridge.RenderOptionsRef
+
+public typealias RenderOptionsRefMut = RustBridge.RenderOptionsRefMut
+
 /// Decision returned by a markup callback.
 public enum FlowDecision: String, Codable, Sendable, Hashable {
     /// Accept the event.

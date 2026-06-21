@@ -619,9 +619,13 @@ pub(super) fn gen_type_new(
 
 /// Generate an opaque static constructor from a method definition.
 ///
-/// For an opaque type with a static `new` method that returns `Self`,
-/// emits an `#[no_mangle] pub unsafe extern "C" fn {prefix}_{type_snake}_new(...) -> *mut {TypeOpaque}`
-/// that wraps the core `new` call and returns a heap-allocated opaque handle.
+/// For an opaque type with a static method that returns `Self` or `Result<Self, E>`,
+/// emits an `#[no_mangle] pub unsafe extern "C" fn {prefix}_{type_snake}_{method_name}(...) -> *mut {TypeOpaque}`
+/// that wraps the core call and returns a heap-allocated opaque handle.
+///
+/// The FFI symbol name is derived from the method name (e.g. `compile` → `_compile`,
+/// `new` → `_new`), NOT hardcoded to `_new`. This allows named constructors like
+/// `MetaSchema::compile` to be exported alongside or instead of `new`.
 ///
 /// Parameters are marshalled from FFI types (enum params as i32, strings as *const c_char, etc.)
 /// to core types via param conversion helpers. If the method signature is sanitized,
@@ -647,7 +651,11 @@ pub(super) fn gen_opaque_static_constructor(
     } else {
         qualified.clone()
     };
-    let ffi_fn_name = format!("{prefix}_{type_snake}_new");
+    // Derive the C symbol suffix from the method name, not from a hardcoded "_new".
+    // `Schema::compile`      → `{prefix}_schema_compile`
+    // `RouteBuilder::new`    → `{prefix}_route_builder_new`
+    let method_snake = c_symbol_component(&method.name);
+    let ffi_fn_name = format!("{prefix}_{type_snake}_{method_snake}");
     let will_be_unimplemented = method.sanitized;
 
     let mut out = String::with_capacity(4096);
@@ -826,22 +834,42 @@ pub(super) fn gen_opaque_static_constructor(
     out
 }
 
-/// Check if a method is a static constructor.
+/// Check if a method is an opaque static constructor eligible for C export.
 ///
 /// A static constructor must:
-/// - be named `"new"` (so the emitted C symbol is `{prefix}_{type_snake}_new`)
-/// - be marked `is_static`
-/// - return the owner type by name (i.e. return type is `TypeRef::Named(type_name)`)
+/// - be marked `is_static` (no `self` receiver)
+/// - return the owner type by value — either `TypeRef::Named(type_name)` (infallible)
+///   or unwrapped through a `Result<Self, _>` return (the error type is tracked in
+///   `method.error_type`, so the IR `return_type` is still `Named(type_name)` even for
+///   fallible constructors)
 ///
-/// Methods like `default()` are explicitly excluded because they would collide with
-/// the `_new` symbol produced for the actual `new()` method.
+/// There is NO name restriction: `new`, `compile`, `from_config`, etc. are all eligible.
+/// This enables named constructors like `Schema::compile` to be exported as
+/// `{prefix}_schema_compile` rather than being silently dropped.
+///
+/// Excluded:
+/// - `default` — the `_default` C symbol collides with the auto-emitted `_new` when
+///   both `new` and `default` exist on a type. `default` is almost always an
+///   infallible no-arg factory; callers use the `_new` path.
+/// - `to_json` / `from_json` — lifecycle helpers emitted by a separate path.
+/// - `clone` — not a constructor; clones an existing instance.
 pub(super) fn is_static_constructor(method: &crate::core::ir::MethodDef, type_name: &str) -> bool {
-    if method.name != "new" {
-        return false;
-    }
     if !method.is_static {
         return false;
     }
+    // Exclude lifecycle helpers and methods that would create symbol conflicts.
+    if matches!(method.name.as_str(), "default" | "to_json" | "from_json" | "clone") {
+        return false;
+    }
+    // Exclude reference-returning statics (e.g. `Registry::global() -> &Registry`): these are
+    // singleton/accessor methods, not constructors. The constructor emitter boxes the returned
+    // value into an owned `*mut T` handle, which is invalid for a borrowed `&T`.
+    if method.returns_ref {
+        return false;
+    }
+    // The return type in the IR is always the bare `Named(type_name)` for both infallible
+    // (`-> Self`) and fallible (`-> Result<Self, E>`) constructors; the error variant is
+    // captured in `method.error_type`, not in `return_type`.
     match &method.return_type {
         crate::core::ir::TypeRef::Named(n) => n == type_name,
         _ => false,

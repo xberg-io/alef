@@ -878,3 +878,151 @@ fn extendr_module_registration_registers_complementary_cfg_functions_once() {
         "cfg-less function must register without a #[cfg(...)] prefix:\n{module_block}"
     );
 }
+
+#[test]
+fn extendr_json_bridged_function_with_named_return_and_optional_named_params() {
+    // Regression test for: when a function returns a Named struct, optional Named params
+    // must also use JSON bridging for consistency. The fix ensures needs_json_struct
+    // includes `return_type_requires_json` in all three calculation sites.
+    let backend = ExtendrBackend;
+    let config = make_config();
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "ExtractionResult".to_string(),
+                rust_path: "test_lib::ExtractionResult".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("text", TypeRef::String, false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+                version: Default::default(),
+            },
+            TypeDef {
+                name: "ExtractionConfig".to_string(),
+                rust_path: "test_lib::ExtractionConfig".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+                version: Default::default(),
+            },
+        ],
+        functions: vec![FunctionDef {
+            name: "extract_with_config".to_string(),
+            rust_path: "test_lib::extract_with_config".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "bytes".to_string(),
+                    ty: TypeRef::Bytes,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: crate::core::ir::CoreWrapper::None,
+                },
+                ParamDef {
+                    name: "config".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Named("ExtractionConfig".to_string()))),
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: crate::core::ir::CoreWrapper::None,
+                },
+            ],
+            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The function must emit an #[extendr] wrapper for JSON-bridged dispatch
+    assert!(
+        content.contains("fn extract_with_config"),
+        "extendr function wrapper must be emitted:\n{content}"
+    );
+
+    // When the return type is a Named struct requiring JSON serialization,
+    // optional Named params must ALSO use JSON bridging. The signature must
+    // take config as Option<String> (not Option<&ExtractionConfig>), and the
+    // preamble must deserialize it from JSON.
+    assert!(
+        content.contains("config: Option<String>"),
+        "optional Named param must use JSON bridging when return is Named struct requiring JSON:\n{content}"
+    );
+
+    // The preamble must handle JSON deserialization for the optional param
+    assert!(
+        content.contains("config") && content.contains("serde_json"),
+        "preamble must deserialize JSON for optional config param:\n{content}"
+    );
+}

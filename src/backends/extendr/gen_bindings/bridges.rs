@@ -636,6 +636,18 @@ pub(super) fn gen_extendr_json_bridged_function(
                 } else {
                     format!("&{ty_str}")
                 }
+            } else if let TypeRef::Optional(inner) = &param.ty {
+                // Optional non-opaque Named struct (e.g. a promoted trailing config param whose
+                // core signature is `&T` but is exposed to R as omittable). The by-ref-promoted
+                // let-binding calls `{name}.into_option()`, which requires `Nullable<&Wrapper>`;
+                // emitting `Option<Wrapper>` here breaks both `into_option()` (E0599) and extendr's
+                // `TryFrom<&Robj>` (E0277). Fall through to the default mapping for other optionals.
+                match inner.as_ref() {
+                    TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => {
+                        format!("extendr_api::Nullable<&{n}>")
+                    }
+                    _ => format!("Option<{ty_str}>"),
+                }
             } else if param.optional {
                 format!("Option<{ty_str}>")
             } else {
@@ -669,7 +681,14 @@ pub(super) fn gen_extendr_json_bridged_function(
         // binding here — otherwise we emit a duplicate (and now-wrong-typed) let.
         let is_named_incompatible = matches!(&param.ty, TypeRef::Named(n)
             if extendr_incompatible_types.contains(n.as_str()));
+        let needs_by_ref_struct = cfg.named_non_opaque_params_by_ref
+            && !param.optional
+            && matches!(&param.ty, TypeRef::Named(n)
+                if !opaque_types.contains(n.as_str())
+                    && !enum_names.contains(n.as_str())
+                    && !extendr_incompatible_types.contains(n.as_str()));
         let needs_json_struct = !needs_json_enum
+            && !needs_by_ref_struct
             && (is_named_incompatible
                 || (matches!(&param.ty, TypeRef::Named(n)
                     if !opaque_types.contains(n.as_str())
@@ -679,7 +698,7 @@ pub(super) fn gen_extendr_json_bridged_function(
                     if matches!(inner.as_ref(), TypeRef::Named(n)
                         if !opaque_types.contains(n.as_str())
                             && !enum_names.contains(n.as_str()))))
-                    && (param.optional || !cfg.named_non_opaque_params_by_ref));
+                    && (param.optional || !cfg.named_non_opaque_params_by_ref || return_type_requires_json));
         if !needs_json && !needs_json_struct && !needs_json_enum {
             if let TypeRef::Named(n) = &param.ty {
                 if !opaque_types.contains(n.as_str()) {
@@ -741,18 +760,22 @@ pub(super) fn gen_extendr_json_bridged_function(
                             if !opaque_types.contains(n.as_str())
                                 && !enum_names.contains(n.as_str())
                                 && !extendr_incompatible_types.contains(n.as_str()))))
-                        && (param.optional || !cfg.named_non_opaque_params_by_ref));
+                        && (param.optional || !cfg.named_non_opaque_params_by_ref || return_type_requires_json));
             if needs_json {
                 if param.optional {
                     format!("{}_core.as_deref().unwrap_or_default()", param.name)
                 } else if param.is_mut {
                     format!("&mut {}_core", param.name)
+                } else if param.is_ref {
+                    // Vec<Named> passed by reference: pass as &[T]
+                    format!("&{}_core", param.name)
                 } else {
-                    // Vec<Named> parameters: pass the Vec directly, not as a slice.
-                    // The core functions expect owned Vec, not &[T].
+                    // Vec<Named> passed by value: pass the Vec directly
                     format!("{}_core", param.name)
                 }
             } else if needs_json_struct || needs_json_enum {
+                // For JSON-bridged params, the _core binding is already deserialized to the core type.
+                // Pass it based on the core function's expectation (is_ref / is_mut / by-value).
                 if param.optional && param.is_ref {
                     format!("{}_core.as_ref()", param.name)
                 } else if param.optional {
@@ -765,17 +788,32 @@ pub(super) fn gen_extendr_json_bridged_function(
                     format!("{}_core", param.name)
                 }
             } else if matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
-                // By-ref Named struct (when cfg.named_non_opaque_params_by_ref=true and !param.optional)
+                // Non-opaque Named struct: may be by-ref or by-value in the core function.
+                // When cfg.named_non_opaque_params_by_ref=true and !optional, the signature is `&LocalBinding`
+                // and named_let_bindings emits `let {name}_core: core::T = {name}.clone().into();`.
+                // When optional, use as_ref() for Option handling. Otherwise respect param.is_ref.
                 if cfg.named_non_opaque_params_by_ref && !param.optional {
-                    // Signature is `&LocalBinding`; named_let_bindings emits
-                    // `let {name}_core: core::T = {name}.clone().into();` — pass
-                    // `&{name}_core` to the core fn which expects `&core::T`.
-                    format!("&{}_core", param.name)
+                    // Signature is `&LocalBinding`; pass to core fn based on what it expects:
+                    if param.is_ref {
+                        format!("&{}_core", param.name)
+                    } else {
+                        format!("{}_core", param.name)
+                    }
                 } else if param.optional {
-                    format!("{}_core.as_ref()", param.name)
+                    // Optional case: use as_ref() for Some/None handling
+                    if param.is_ref {
+                        format!("{}_core.as_ref()", param.name)
+                    } else {
+                        format!("{}_core", param.name)
+                    }
                 } else if param.is_mut {
+                    // Mutable reference expected by core
                     format!("&mut {}_core", param.name)
+                } else if param.is_ref {
+                    // Immutable reference expected by core
+                    format!("&{}_core", param.name)
                 } else {
+                    // By-value: pass directly
                     format!("{}_core", param.name)
                 }
             } else {

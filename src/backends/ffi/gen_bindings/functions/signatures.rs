@@ -41,8 +41,17 @@ pub(in crate::backends::ffi::gen_bindings) fn should_skip_method_wrapper(
     }
 
     // Skip static constructors on opaque types — they are handled specially via
-    // gen_opaque_static_constructor to emit proper enum-by-value marshalling.
-    if typ.is_opaque && method.is_static {
+    // gen_opaque_static_constructor to emit proper opaque-handle marshalling.
+    //
+    // This guard must be consistent with `is_static_constructor` in types.rs:
+    // any static method returning Self (not `default`/`to_json`/`from_json`/`clone`)
+    // is routed through the dedicated constructor emitter rather than the generic
+    // method-wrapper path. Named constructors like `MetaSchema::compile` must also
+    // be skipped here so they don't get a second, conflicting method-wrapper export.
+    if typ.is_opaque
+        && method.is_static
+        && !matches!(method.name.as_str(), "default" | "to_json" | "from_json" | "clone")
+    {
         if let TypeRef::Named(name) = &method.return_type {
             if name == &typ.name {
                 return true;

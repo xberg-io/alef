@@ -98,7 +98,9 @@ pub fn gen_function_with_mutex(
 
     // Use let-binding pattern for non-opaque Named params so core fns can take &CoreType.
     // When named_non_opaque_params_by_ref is set (extendr), the binding signature uses &T,
-    // so we simulate is_ref=true for Named non-opaque params when generating call args.
+    // so we TEMPORARILY set is_ref=true for Named non-opaque params when generating call args.
+    // However, the call args generation (gen_call_args_with_let_bindings) will respect
+    // the ACTUAL is_ref from the core function to determine by-ref vs by-value passing.
     let effective_params: std::borrow::Cow<[crate::core::ir::ParamDef]> = if cfg.named_non_opaque_params_by_ref {
         let modified: Vec<crate::core::ir::ParamDef> = func
             .params

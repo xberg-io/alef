@@ -40,6 +40,10 @@ internal extension KeywordConfig {
     }
 }
 
+public typealias KeywordConfigRef = RustBridge.KeywordConfigRef
+
+public typealias KeywordConfigRefMut = RustBridge.KeywordConfigRefMut
+
 /// Errors emitted by keyword extraction.
 public enum DemoError: Swift.Error {
     /// Extraction encountered an error.

@@ -3085,3 +3085,84 @@ fn format_method_signature_unit_return_type() {
         "Unit return should not appear in signature, got:\n{sig}"
     );
 }
+
+/// Regression: optional ByteArray/Vec<u8> parameters in facade functions
+/// must be declared as `ByteArray?` not `String?`.
+///
+/// This ensures the Kotlin wrapper function signature matches what the
+/// caller expects. The bridge argument encoding (base64) happens transparently
+/// in the bridge call, not in the public API type.
+#[test]
+fn optional_bytes_param_declared_as_bytearray() {
+    let analyze_fn = FunctionDef {
+        name: "analyze_document".into(),
+        rust_path: "demo::analyze_document".into(),
+        original_rust_path: String::new(),
+        params: vec![ParamDef {
+            name: "document_bytes".into(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Bytes)),
+            optional: true,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+            vec_inner_is_ref: false,
+            map_is_btree: false,
+            core_wrapper: alef::core::ir::CoreWrapper::None,
+        }],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![analyze_fn],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_minimal_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted");
+
+    // Check that the optional bytes parameter is declared as ByteArray? not String?
+    assert!(
+        module_kt.content.contains("documentBytes: ByteArray? = null"),
+        "Expected 'documentBytes: ByteArray? = null' in generated Demo.kt, got:\n{}",
+        module_kt.content
+    );
+
+    // Check that the bridge call correctly base64-encodes it
+    assert!(
+        module_kt
+            .content
+            .contains("java.util.Base64.getEncoder().encodeToString(it)"),
+        "Expected base64 encoding of documentBytes in bridge call"
+    );
+}

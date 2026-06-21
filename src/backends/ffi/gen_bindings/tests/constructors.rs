@@ -269,3 +269,160 @@ fn test_opaque_constructor_only_for_opaque_types() {
         "RouteBuilder (opaque) should have _new constructor"
     );
 }
+
+// -----------------------------------------------------------------------
+// Regression: named static Result<Self> constructors (not "new")
+//
+// Prior to the fix, `is_static_constructor` only matched methods named
+// "new".  A method like `MetaSchema::compile` — static, returns Self,
+// error_type set — was silently dropped from FFI output: `should_skip_
+// method_wrapper` routed it away from the generic wrapper path, while
+// `is_static_constructor` refused to emit it as a constructor.  Net
+// result: no C export at all, causing Java <clinit> to crash with
+// NoSuchElementException on the missing symbol.
+// -----------------------------------------------------------------------
+
+/// Build an ApiSurface with an opaque type whose sole constructor is named
+/// `compile` (not `new`) and is fallible (`error_type` is set, representing
+/// `Result<Self, E>`).  This mirrors `kreuzberg::MetaSchema::compile`.
+fn opaque_with_named_constructor_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![TypeDef {
+            name: "Schema".to_string(),
+            rust_path: "my_lib::Schema".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "compile".to_string(),
+                params: vec![ParamDef {
+                    name: "json_text".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: crate::core::ir::CoreWrapper::None,
+                }],
+                return_type: TypeRef::Named("Schema".to_string()),
+                is_async: false,
+                is_static: true,
+                // error_type set → Result<Self, SchemaError>
+                error_type: Some("SchemaError".to_string()),
+                doc: "Compile the given JSON text as a schema.".to_string(),
+                receiver: None,
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Opaque compiled schema.".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    }
+}
+
+/// A named static constructor (`compile`) on an opaque type must emit a C
+/// export whose symbol is `{prefix}_{type_snake}_compile`, NOT `_new`.
+#[test]
+fn test_named_static_constructor_emits_compile_symbol() {
+    let api = opaque_with_named_constructor_api();
+    let config = sample_config();
+    let backend = FfiBackend;
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content
+            .contains("pub unsafe extern \"C\" fn my_lib_schema_compile("),
+        "named static constructor must emit _compile symbol, got:\n{}",
+        lib.content
+    );
+}
+
+/// The compile symbol must NOT produce a `_new` alias — the C export name
+/// must faithfully reflect the Rust method name.
+#[test]
+fn test_named_static_constructor_does_not_emit_new_symbol() {
+    let api = opaque_with_named_constructor_api();
+    let config = sample_config();
+    let backend = FfiBackend;
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        !lib.content.contains("pub unsafe extern \"C\" fn my_lib_schema_new("),
+        "named static constructor must NOT emit a _new symbol, got:\n{}",
+        lib.content
+    );
+}
+
+/// A fallible named constructor (`error_type` set) must clear the thread-local
+/// error state at entry (`clear_last_error`) and propagate errors by calling
+/// `set_last_error` + returning null rather than panicking.
+#[test]
+fn test_named_static_constructor_is_fallible() {
+    let api = opaque_with_named_constructor_api();
+    let config = sample_config();
+    let backend = FfiBackend;
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // Fallible path: clear_last_error at entry, set_last_error on Err branch
+    assert!(
+        lib.content.contains("clear_last_error"),
+        "fallible constructor must call clear_last_error(); got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("set_last_error"),
+        "fallible constructor must call set_last_error() on error; got:\n{}",
+        lib.content
+    );
+    // Returns null on failure
+    assert!(
+        lib.content.contains("std::ptr::null_mut()"),
+        "fallible constructor must return null_mut() on error; got:\n{}",
+        lib.content
+    );
+}

@@ -33,6 +33,10 @@ internal extension Chunk {
     }
 }
 
+public typealias ChunkRef = RustBridge.ChunkRef
+
+public typealias ChunkRefMut = RustBridge.ChunkRefMut
+
 /// Streaming event enum.
 public enum StreamEvent: Codable, Sendable, Hashable {
     /// A data event carrying an optional chunk.

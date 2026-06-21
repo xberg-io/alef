@@ -116,7 +116,7 @@ fn build_method_preamble(
             continue;
         }
         match &p.ty {
-            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && p.is_ref => {
+            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => {
                 let core_path = format!("{}::{}", core_import, n);
                 if p.optional {
                     out.push_str(&crate::backends::magnus::template_env::render(

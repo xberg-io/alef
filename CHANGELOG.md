@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **ffi/java: export named opaque static constructors**: static methods on opaque
+  types that return `Self` or `Result<Self, E>` are now emitted as C constructor
+  exports using the Rust method name, such as `{prefix}_{type}_compile`, instead
+  of only recognizing `new`. The Java downcall template now reports the missing
+  symbol names and feature hint in `ExceptionInInitializerError` when a native
+  export is absent.
+- **r/extendr: repair optional and by-reference DTO argument marshalling**:
+  optional non-opaque named parameters use `extendr_api::Nullable<&T>` in the
+  binding surface, clone through the referenced wrapper, and participate in JSON
+  bridging when a named return type already requires JSON serialization. Call
+  arguments now preserve whether the core function expects by-value, `&T`, or
+  `&mut T`.
+- **elixir/rustler: fix sync argument conversions and enum atoms**: optional
+  binary parameters now convert to `Option<&[u8]>` or owned `Vec<u8>` correctly,
+  JSON string parameters deserialize to `serde_json::Value`, borrowed BTreeMap
+  parameters get a stable local binding, and serde-renamed enum variants with
+  punctuation emit quoted atoms in `@type` while reserved Elixir words still get
+  safe public accessor names.
+- **swift: expose first-class struct bridge aliases**: first-class Swift DTOs now
+  emit deterministic `public typealias TypeRef` and `TypeRefMut` aliases to their
+  `RustBridge` counterparts so generated initializers and `intoRust()` helpers
+  can reference the swift-bridge class hierarchy.
+- **kotlin-android: keep optional byte inputs typed as bytes**: optional
+  `Bytes`/`Vec<u8>` facade parameters are now declared as `ByteArray?` instead of
+  `String?`, while bridge calls continue to base64-encode the value.
+- **ruby/magnus: bind named DTO parameters consistently**: when `Vec<Named>`
+  arguments force the `_core` call-argument path, scalar named DTO parameters now
+  receive matching `{name}_core` let bindings so generated call sites resolve.
+- **php: keep cfg-gated methods visible to `#[php_impl]`**: generated PHP static
+  methods wrap source cfg predicates in an always-true cfg expression so
+  ext-php-rs can resolve method signatures during macro expansion.
+- **typescript e2e: dispose plugin stubs during cleanup**: generated cleanup code
+  now calls `dispose()` after unregistering plugin bridges to release retained
+  TSFN references.
 - **go: alias the host capsule import so `goimports` cannot strip it**: a
   capsule return type (`[crates.go.capsule_types]`) whose host package name
   differs from the import path's last element (e.g. package `tree_sitter` from
