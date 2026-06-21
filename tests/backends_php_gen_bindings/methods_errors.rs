@@ -341,6 +341,105 @@ fn test_async_function() {
 }
 
 #[test]
+fn test_cfg_gated_async_function() {
+    let backend = PhpBackend;
+
+    // Create an async function with a cfg condition
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "embed_texts_async".to_string(),
+            rust_path: "test_lib::embed_texts_async".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "texts".to_string(),
+                ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+                map_is_btree: false,
+                core_wrapper: alef::core::ir::CoreWrapper::None,
+            }],
+            return_type: TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(alef::core::ir::PrimitiveType::F32))))),
+            is_async: true,
+            error_type: Some("EmbedError".to_string()),
+            doc: "Embed texts asynchronously".to_string(),
+            cfg: Some("all(feature = \"embeddings\", feature = \"tokio-runtime\")".to_string()),
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "EmbedError".to_string(),
+            rust_path: "test_lib::EmbedError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "NotAvailable".to_string(),
+                fields: vec![],
+                doc: "Feature not available".to_string(),
+                message_template: Some("embeddings not available".to_string()),
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                is_tuple: false,
+            }],
+            doc: "Embed error".to_string(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "Cfg-gated async function generation should succeed");
+
+    let files = result.unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+
+    let content = &lib_rs.content;
+
+    // Cfg-gated async functions should use an always-true cfg condition
+    // so ext-php-rs's #[php_impl] macro can see them unconditionally.
+    assert!(
+        content.contains("#[cfg(any(all(feature = \"embeddings\", feature = \"tokio-runtime\"), not(all(feature = \"embeddings\", feature = \"tokio-runtime\"))))]"),
+        "Should contain always-true cfg condition for ext-php-rs compatibility; content:\n{content}"
+    );
+
+    // The method should still be generated with the correct PHP name
+    assert!(
+        content.contains("#[php(name = \"embedTextsAsync\")]"),
+        "Extension binding should expose the PHP method as camelCase `embedTextsAsync`; content:\n{content}"
+    );
+}
+
+#[test]
 fn test_opaque_type() {
     let backend = PhpBackend;
 

@@ -394,15 +394,17 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
         // @type t :: :variant_one | :variant_two | ...
         // Rustler NifUnitEnum encodes variants as atoms using the variant name as-is,
         // but Elixir convention for atoms uses snake_case.
+        // Guard against Elixir reserved words (end, fn, do, etc.).
         let atom_arms: Vec<String> = enum_def
             .variants
             .iter()
             .map(|v| {
-                let atom = v
+                let snake_name = v
                     .serde_rename
                     .clone()
                     .unwrap_or_else(|| crate::codegen::naming::pascal_to_snake(&v.name));
-                format!(":{}", elixir_safe_atom(&atom))
+                let safe_atom = elixir_safe_param_name(&snake_name);
+                format!(":{}", elixir_safe_atom(&safe_atom))
             })
             .collect();
         if !enum_def.doc.is_empty() {
@@ -443,7 +445,10 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
         // Module attributes for each variant value — convenient aliases
         for variant in &enum_def.variants {
             // Use original variant name (snake_cased) as the identifier, not serde_rename.
-            let attr_name = elixir_safe_attr_name(&crate::codegen::naming::pascal_to_snake(&variant.name));
+            // Guard against Elixir reserved words (end, fn, do, etc.) and module attributes.
+            let snake_name = crate::codegen::naming::pascal_to_snake(&variant.name);
+            let safe_name = elixir_safe_param_name(&snake_name);
+            let attr_name = elixir_safe_attr_name(&safe_name);
             // But the atom value should use serde_rename if available, properly quoted if needed.
             let atom_value = variant
                 .serde_rename
@@ -462,8 +467,10 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
         // Export the values so callers can reference MyEnum.variant_name/0
         for variant in &enum_def.variants {
             // Use original variant name (snake_cased) as the function identifier.
-            let fn_name = crate::codegen::naming::pascal_to_snake(&variant.name);
-            let attr_name = elixir_safe_attr_name(&fn_name);
+            // Guard against Elixir reserved words (end, fn, do, etc.) and module attributes.
+            let snake_name = crate::codegen::naming::pascal_to_snake(&variant.name);
+            let safe_name = elixir_safe_param_name(&snake_name);
+            let attr_name = elixir_safe_attr_name(&safe_name);
             if !variant.doc.is_empty() {
                 let first_para = doc_first_paragraph_joined(&variant.doc);
                 emit_elixir_doc_attr(&mut out, "doc", &first_para, "  ");
@@ -471,7 +478,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             out.push_str(&template_env::render(
                 "elixir_enum_accessor.jinja",
                 minijinja::context! {
-                    atom_name => &fn_name,
+                    atom_name => &safe_name,
                     attr_name => &attr_name,
                 },
             ));
@@ -485,8 +492,11 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
         out.push_str("  @type t :: term()\n");
         out.push('\n');
         for variant in &enum_def.variants {
-            let variant_atom = format!(":{}", crate::codegen::naming::pascal_to_snake(&variant.name));
-            let type_name = elixir_safe_type_name(&crate::codegen::naming::pascal_to_snake(&variant.name));
+            let snake_name = crate::codegen::naming::pascal_to_snake(&variant.name);
+            // Guard variant atom against reserved words when used as a type name
+            let safe_atom = elixir_safe_param_name(&snake_name);
+            let variant_atom = format!(":{}", safe_atom);
+            let type_name = elixir_safe_type_name(&safe_atom);
             if !variant.doc.is_empty() {
                 let first_para = doc_first_paragraph_joined(&variant.doc);
                 emit_elixir_doc_attr(&mut out, "typedoc", &first_para, "  ");

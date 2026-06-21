@@ -146,6 +146,20 @@ fn go_capsule_return_config<'a>(
     }
 }
 
+/// Derive the Go package qualifier used in the body from a capsule `host_type`.
+///
+/// `host_type` looks like `*tree_sitter.Language` or `tree_sitter.Language`; the
+/// qualifier is the identifier the generated body references (`tree_sitter`). This is
+/// the alias the import must declare explicitly: when the import path's last element
+/// (`go-tree-sitter`) differs from the package name (`tree_sitter`), an unaliased
+/// import is stripped by `goimports` in cgo files (it cannot resolve the package name
+/// from the path), breaking the build. An explicit alias is matched syntactically and
+/// survives. Returns `None` when no qualifier can be derived (no alias needed).
+fn go_capsule_import_alias(host_type: &str) -> Option<&str> {
+    let bare = host_type.trim_start_matches(['*', '&', '[', ']', ' ']);
+    bare.split_once('.').map(|(qualifier, _)| qualifier)
+}
+
 /// Generate the complete Go binding file wrapping the C FFI layer.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_go_file(
@@ -595,33 +609,42 @@ pub(super) fn gen_go_file(
     }
     // Capsule (Language) passthrough needs `unsafe` (for unsafe.Pointer) and the host
     // tree-sitter Go package. Only add when a capsule wrapper was actually emitted.
-    let capsule_packages: Vec<&str> = if go_capsule_types.values().any(|c| !c.package.is_empty())
+    let capsule_emitted = go_capsule_types.values().any(|c| !c.package.is_empty())
         && api
             .functions
             .iter()
-            .any(|f| go_capsule_return_config(f, &go_capsule_types).is_some())
-    {
+            .any(|f| go_capsule_return_config(f, &go_capsule_types).is_some());
+    // Host capsule packages, rendered with an explicit alias matching the body
+    // qualifier (see `go_capsule_import_alias`). Deduped by package path.
+    let mut capsule_imports: Vec<(Option<&str>, &str)> = Vec::new();
+    if capsule_emitted {
         if !imports.contains(&"unsafe") {
             imports.push("unsafe");
         }
-        go_capsule_types
-            .values()
-            .filter(|c| !c.package.is_empty())
-            .map(|c| c.package.as_str())
-            .collect()
-    } else {
-        Vec::new()
-    };
-    let mut all_imports = imports.clone();
-    for pkg in &capsule_packages {
-        if !all_imports.contains(pkg) {
-            all_imports.push(pkg);
+        for cfg in go_capsule_types.values().filter(|c| !c.package.is_empty()) {
+            let path = cfg.package.as_str();
+            if capsule_imports.iter().any(|(_, p)| *p == path) {
+                continue;
+            }
+            capsule_imports.push((go_capsule_import_alias(&cfg.host_type), path));
+        }
+    }
+    // Build final import lines verbatim: stdlib imports are bare quoted paths; capsule
+    // imports carry an explicit alias when the package name differs from the path tail.
+    let mut import_lines: Vec<String> = imports.iter().map(|p| format!("\"{p}\"")).collect();
+    for (alias, path) in &capsule_imports {
+        let line = match alias {
+            Some(alias) => format!("{alias} \"{path}\""),
+            None => format!("\"{path}\""),
+        };
+        if !import_lines.contains(&line) {
+            import_lines.push(line);
         }
     }
     let imports_str = crate::backends::go::template_env::render(
         "imports_basic.jinja",
         minijinja::context! {
-            imports => all_imports,
+            imports => import_lines,
         },
     );
 
