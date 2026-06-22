@@ -235,6 +235,103 @@ fn sync_versions_bumps_both_python_pyprojects_to_pep440_prerelease() {
     );
 }
 
+/// Round-trip / idempotency guard for the freshness gate.
+///
+/// The downstream CI gate runs `alef verify` (which passes against the committed,
+/// *formatted* scaffold output), then `alef sync-versions`, then
+/// `git diff --exit-code`. The gate failed because `sync-versions` regenerated
+/// scaffold manifests (`crates/*-node/package.json`, …) in the raw serializer
+/// shape and finalized hashes WITHOUT running the post-generation formatter that
+/// the generate path applies — so already-committed bytes were rewritten into a
+/// different form.
+///
+/// This test reproduces the divergence hermetically using a custom `[format]`
+/// command (no external formatter binary required): the command rewrites the
+/// crate `package.json` into a sentinel "formatted" shape. It first runs the
+/// canonical generate-path sequence (scaffold write → `format_generated`) to
+/// capture the formatted bytes, then runs `sync_versions(no_regen=false)` and
+/// asserts the on-disk bytes are byte-identical. Before the fix, sync-versions
+/// left the raw (unformatted) bytes and the assertion fails (RED).
+#[test]
+fn sync_versions_scaffold_regen_is_byte_identical_to_generate_path() {
+    use crate::core::config::NewAlefConfig;
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace.package]\nversion = \"1.0.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+    )
+    .expect("write Cargo.toml");
+
+    // A custom formatter that deterministically rewrites the crate package.json
+    // into a sentinel "formatted" shape: it appends a marker comment-key. This
+    // stands in for the real formatter (oxfmt) whose canonicalization
+    // (tab indent + key reorder) the raw scaffold serializer does not produce.
+    // The command is best-effort and must be stable/idempotent.
+    let fmt_cmd = "node_pkg='crates/mylib-node/package.json'; \
+         if [ -f \"$node_pkg\" ] && ! grep -q '__alef_formatted__' \"$node_pkg\"; then \
+           printf '\\n// __alef_formatted__\\n' >> \"$node_pkg\"; \
+         fi";
+
+    let alef_toml = format!(
+        "[workspace]\nlanguages = [\"node\"]\n[workspace.format]\ncommand = {cmd:?}\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{ver}\"\n[crates.node]\npackage_name = \"@scope/mylib\"\n",
+        cmd = fmt_cmd,
+        ver = root.join("Cargo.toml").display().to_string().replace('\\', "/"),
+    );
+    let alef_toml_path = root.join("alef.toml");
+    std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+    let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+    let mut resolved = cfg.resolve().expect("resolve config");
+    let resolved_cfg = resolved.remove(0);
+
+    std::env::set_current_dir(root).expect("set_current_dir");
+
+    // 1. Canonical generate path: scaffold write + format_generated (custom cmd).
+    let generate_result = (|| -> anyhow::Result<String> {
+        let api = crate::cli::pipeline::extract(&resolved_cfg, &alef_toml_path, false)?;
+        let languages = resolved_cfg.languages.clone();
+        let scaffold_files = crate::cli::pipeline::scaffold(&api, &resolved_cfg, &languages)?;
+        let base_dir = std::path::PathBuf::from(".");
+        crate::cli::pipeline::write_scaffold_files_with_overwrite(&scaffold_files, &base_dir, true)?;
+        // Mirror the generate path: format, then read the canonical bytes.
+        let grouped: Vec<(crate::core::config::Language, Vec<crate::core::backend::GeneratedFile>)> =
+            languages.iter().map(|l| (*l, scaffold_files.clone())).collect();
+        crate::cli::pipeline::format_generated(&grouped, &resolved_cfg, &base_dir, None);
+        Ok(std::fs::read_to_string(root.join("crates/mylib-node/package.json"))?)
+    })();
+    let generate_bytes = match generate_result {
+        Ok(b) => b,
+        Err(e) => {
+            let _ = std::env::set_current_dir(&original_cwd);
+            panic!("generate path setup failed: {e}");
+        }
+    };
+
+    // 2. sync-versions with regen enabled (no_regen = false) must reproduce the
+    //    exact same formatted bytes.
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true, None);
+    let after_sync = std::fs::read_to_string(root.join("crates/mylib-node/package.json"));
+    let _ = std::env::set_current_dir(&original_cwd);
+
+    sync_result.expect("sync_versions ok");
+    let sync_bytes = after_sync.expect("read crate package.json after sync");
+
+    assert!(
+        generate_bytes.contains("__alef_formatted__"),
+        "generate path must apply the custom formatter (sentinel present), got:\n{generate_bytes}"
+    );
+    assert_eq!(
+        generate_bytes, sync_bytes,
+        "sync-versions scaffold regen must produce byte-identical output to the generate path.\n\
+         GENERATE PATH:\n{generate_bytes}\n\nSYNC-VERSIONS:\n{sync_bytes}"
+    );
+}
+
 // -----------------------------------------------------------------------
 // patch_workspace_dep_versions unit tests
 // -----------------------------------------------------------------------

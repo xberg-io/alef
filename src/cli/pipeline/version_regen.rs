@@ -1,7 +1,44 @@
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::backend::GeneratedFile;
+use crate::core::config::{Language, ResolvedCrateConfig};
 use anyhow::Context as _;
 
-use super::{extract, readme};
+use super::{extract, format_generated, readme};
+
+/// Run the post-generation formatters over a freshly written set of scaffold /
+/// e2e files, mirroring exactly what the `alef all` generate path does between
+/// writing files and finalizing hashes (see `bin_cli/all_commands.rs`).
+///
+/// The bug this fixes: `sync-versions` regenerated manifests
+/// (`package.json`, `composer.json`, `Package.swift`, …) by writing the raw
+/// scaffold serializer output (2-space JSON, scaffold key order, trailing comma
+/// on single-element Swift arrays) and then finalizing hashes — but it never ran
+/// the formatter the generate path applies afterwards (oxfmt, php-cs-fixer,
+/// swift-format, …). The committed files are the *formatted* form, so
+/// `sync-versions` rewrote already-committed bytes into a different shape and the
+/// downstream `alef verify` → `sync-versions` → `git diff --exit-code` freshness
+/// gate failed. Running the same formatter here makes the two paths produce
+/// byte-identical output.
+///
+/// `format_generated` keys off the language tag on each `(Language, files)`
+/// group to decide which formatter to run, but the formatters themselves operate
+/// per-directory / per-extension, so grouping every written file under each
+/// configured language is sufficient (and matches the generate path, which
+/// formats whole package directories rather than an exact file list). Formatter
+/// failures are best-effort warnings inside `format_generated` and never abort
+/// the sync.
+fn format_regenerated_files(config: &ResolvedCrateConfig, files: &[GeneratedFile], base_dir: &std::path::Path) {
+    if files.is_empty() || config.languages.is_empty() {
+        return;
+    }
+    // Group the full file list under every configured language. `format_generated`
+    // dedups by language and skips languages whose formatter is unavailable, so
+    // this is the minimal faithful mirror of the generate-path format pass.
+    let grouped: Vec<(Language, Vec<GeneratedFile>)> =
+        config.languages.iter().map(|lang| (*lang, files.to_vec())).collect();
+    // `only_languages = None`: format every configured language, exactly as the
+    // canonical scaffold/all path does (it never narrows the scaffold format pass).
+    format_generated(&grouped, config, base_dir, None);
+}
 
 /// Regenerate registry-mode test_apps scaffold files after a version sync so
 /// that version pins in generated files (e.g. pyproject.toml, mix.exs,
@@ -70,6 +107,13 @@ pub(super) fn regenerate_test_apps_after_sync(
 
     let base_dir = std::path::PathBuf::from(".");
     let count = super::generate::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
+
+    // Run the post-generation formatters BEFORE finalizing hashes, exactly as the
+    // `alef all` generate path does. Without this the regenerated e2e manifests
+    // would be left in raw-serializer form (different bytes than the committed,
+    // formatted files), breaking the downstream `alef verify` → `sync-versions`
+    // → `git diff --exit-code` freshness gate.
+    format_regenerated_files(&fresh_config, &files, &base_dir);
 
     let sources_hash = super::super::cache::sources_hash(&fresh_config.sources)?;
     let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
@@ -143,6 +187,16 @@ pub(super) fn regenerate_scaffold_after_sync(
     // Always overwrite: scaffold seed files (gemspec, pubspec.yaml, Cargo.toml)
     // must reflect the bumped version even when they already exist on disk.
     let count = super::generate::write_scaffold_files_with_overwrite(&scaffold_files, &base_dir, true)?;
+
+    // Run the post-generation formatters BEFORE finalizing hashes, exactly as the
+    // `alef all` generate path does. The scaffold serializer emits manifests in a
+    // raw shape (2-space JSON + scaffold key order for package.json/composer.json,
+    // a trailing comma on the single-element Swift dependency array in
+    // Package.swift); the formatter (oxfmt, php-cs-fixer, swift-format, …) is what
+    // produces the committed, canonical bytes. Skipping it here is what made
+    // `sync-versions` rewrite already-committed files into a divergent form and
+    // fail the downstream freshness gate.
+    format_regenerated_files(&fresh_config, &scaffold_files, &base_dir);
 
     let sources_hash = super::super::cache::sources_hash(&fresh_config.sources)?;
     let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
