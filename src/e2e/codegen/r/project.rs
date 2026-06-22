@@ -207,12 +207,12 @@ pub(super) fn render_install_r(pkg_name: &str, pkg_version: &str, github_repo: &
     let _ = writeln!(out, "  }}");
     let _ = writeln!(out, ")");
     let _ = writeln!(out);
-    let _ = writeln!(out, "# Verify the package is installed and loadable; install.packages does");
-    let _ = writeln!(out, "# not guarantee this even when no condition was raised.");
     let _ = writeln!(
         out,
-        "if (!requireNamespace(\"{pkg_name}\", quietly = TRUE)) {{"
+        "# Verify the package is installed and loadable; install.packages does"
     );
+    let _ = writeln!(out, "# not guarantee this even when no condition was raised.");
+    let _ = writeln!(out, "if (!requireNamespace(\"{pkg_name}\", quietly = TRUE)) {{");
     let _ = writeln!(
         out,
         "  message(paste(\"Error: {pkg_name} not available after install from\", url))"
