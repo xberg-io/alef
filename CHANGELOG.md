@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.4] - 2026-06-22
+
+### Fixed
+
+- **Swift: the swift-bridge glue/header materialization now runs AFTER the bridge crate is built,
+  so the generated SwiftPM package compiles.** `emit_swift_bridge_files` (which copies the
+  swift-bridge-generated `Sources/RustBridge/*.swift` glue and concatenates the C headers into
+  `RustBridgeC.h`) ran during the generate phase — BEFORE the `post_build` cargo build produced the
+  current `target/*/out` output — so it materialized the *previous* build's stale glue (e.g. an old
+  `Result<Language>` `getLanguage` instead of the current `usize` one) and left `RustBridgeC.h` as
+  the placeholder stub (no `Vec<opaque>` C symbols → thousands of `cannot find '__swift_bridge__$…'`
+  errors). A new `PostBuildStep::MaterializeSwiftBridge` re-runs the materialization after the cargo
+  build, keyed on the hyphenated `config.name` so it matches the build dir prefix. (`core/backend.rs`,
+  `backends/swift/gen_bindings/mod.rs`, `backends/swift/gen_bindings/bridge_artifacts.rs`,
+  `cli/pipeline/commands/build.rs`)
+- **Swift: capsule imports no longer make the package's opaque handles ambiguous.** Importing the
+  capsule host module (e.g. `SwiftTreeSitter`) brings its `Parser`/`Tree`/`Node`/… into scope,
+  colliding with this package's same-named `RustBridge` handles (`'Parser' is ambiguous for type
+  lookup`). Method-bearing opaque handles (emitted as `RustBridge` classes, not host typealiases)
+  now get a `public typealias X = RustBridge.X` that shadows the imported name; no-method handles
+  (e.g. `Language`) already had one. (`backends/swift/gen_bindings/mod.rs`)
+
 ## [0.26.3] - 2026-06-22
 
 ### Fixed
