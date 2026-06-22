@@ -60,6 +60,7 @@ fn e2e_config_with_exclusions(excluded: &[&str]) -> E2eConfig {
         test_documents_dir: "test_documents".to_string(),
         harness: Default::default(),
         harness_extras: Default::default(),
+        extra_system_libs: Default::default(),
     }
 }
 

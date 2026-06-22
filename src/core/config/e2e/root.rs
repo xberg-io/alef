@@ -46,6 +46,28 @@ pub struct E2eConfig {
     /// names (`node`, `wasm`, `python`, …).
     #[serde(default)]
     pub harness_extras: HashMap<String, ManifestExtras>,
+    /// Per-language extra system libraries to link into the generated e2e
+    /// harness's native build alongside the FFI library.
+    ///
+    /// Keyed by canonical language name (`zig`, …); the value is the list of
+    /// bare system-library names (no `lib` prefix, no extension) to link, e.g.
+    /// `["heif"]`. Currently only the Zig e2e generator consumes this: when the
+    /// linked FFI crate is built with feature sets that pull in additional
+    /// native libraries (e.g. libheif via the `all` feature), the strict
+    /// linker on some targets (notably aarch64) cannot resolve those undefined
+    /// symbols unless the e2e build links them explicitly. The libraries must
+    /// already be installed on the build host.
+    ///
+    /// Default is empty, so consumers that do not need extra links are
+    /// unaffected.
+    ///
+    /// Example:
+    /// ```toml
+    /// [e2e.extra_system_libs]
+    /// zig = ["heif"]
+    /// ```
+    #[serde(default)]
+    pub extra_system_libs: HashMap<String, Vec<String>>,
     /// Per-language formatter commands.
     #[serde(default)]
     pub format: HashMap<String, String>,
@@ -363,6 +385,13 @@ impl E2eConfig {
         }
     }
 
+    /// Extra system libraries to link for a given language's e2e harness build.
+    ///
+    /// Returns an empty slice when none are configured for `lang`.
+    pub fn extra_system_libs_for(&self, lang: &str) -> &[String] {
+        self.extra_system_libs.get(lang).map_or(&[], Vec::as_slice)
+    }
+
     /// Relative path from a backend's emission directory to the
     /// `test_documents_dir` at the repo root.
     ///
@@ -397,6 +426,7 @@ impl Default for E2eConfig {
             calls: HashMap::new(),
             packages: HashMap::new(),
             harness_extras: HashMap::new(),
+            extra_system_libs: HashMap::new(),
             format: HashMap::new(),
             fields: HashMap::new(),
             fields_optional: HashSet::new(),

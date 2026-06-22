@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the generated `build.gradle.kts`. Previously the launcher was only added when a fixture
   required a mock server, so mock-server-free suites failed before any test ran with "Failed to load
   JUnit Platform ... including the JUnit Platform launcher."
+- **zig e2e: add per-language `[e2e.extra_system_libs]` config** so the generated `build.zig` can link
+  additional system libraries (e.g. `heif`) alongside the FFI library at all three link sites. Fixes
+  strict-linker (aarch64) failures when the linked FFI crate pulls native libraries in via its feature
+  set. Defaults to empty, leaving existing consumers unchanged.
 
 ## [0.25.60] - 2026-06-22
 
