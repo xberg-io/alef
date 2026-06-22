@@ -1,6 +1,7 @@
 let cached_name = self.cached_name.clone();
+let __env = self.env();
 
-let __obj = match self.obj() {
+let __obj = match self.obj(&__env) {
     Ok(o) => o,
     Err(e) => {
         return Err({{ error_lookup }});

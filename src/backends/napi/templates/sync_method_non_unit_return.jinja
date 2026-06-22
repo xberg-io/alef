@@ -1,4 +1,5 @@
-let __obj = match self.obj() {
+let __env = self.env();
+let __obj = match self.obj(&__env) {
     Ok(o) => o,
 {% if has_default_impl %}
     // Object disposed/unavailable — treat like a missing method (no-op default).

@@ -62,19 +62,13 @@ impl {{ wrapper_name }} {
 
     /// Materialise a live `Object` from the persistent reference.
     ///
-    /// The returned object is kept alive by the underlying napi reference, so the
-    /// `'static` lifetime is sound for the duration of the current event-loop turn.
+    /// The returned object is tied to the provided `Env` and kept alive by the
+    /// underlying napi reference for the duration of the current event-loop turn.
     /// Returns an error once the reference has been released (after `dispose()`).
-    fn obj(&self) -> napi::Result<napi::bindgen_prelude::Object<'static>> {
-        let env = napi::Env::from_raw(self.env);
+    fn obj<'env>(&self, env: &'env napi::Env) -> napi::Result<napi::bindgen_prelude::Object<'env>> {
         let guard = self.obj_ref.lock().unwrap_or_else(|e| e.into_inner());
         match guard.as_ref() {
-            Some(obj_ref) => {
-                let obj = obj_ref.get_value(&env)?;
-                // SAFETY: the value is held alive by `obj_ref`, so extending the
-                // borrow to 'static does not outlive the underlying JS handle.
-                Ok(unsafe { std::mem::transmute::<napi::bindgen_prelude::Object<'_>, napi::bindgen_prelude::Object<'static>>(obj) })
-            }
+            Some(obj_ref) => obj_ref.get_value(env),
             None => Err(napi::Error::new(
                 napi::Status::GenericFailure,
                 format!("Plugin '{}' object has been disposed", self.cached_name),

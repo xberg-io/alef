@@ -192,10 +192,10 @@ mod tests {
         );
 
         // Method bodies must materialise the object through the released-on-dispose
-        // reference (`self.obj()`), never directly off a stored `self.inner` handle.
+        // reference helper, never directly off a stored `self.inner` handle.
         assert!(
-            code.contains("self.obj()") && !code.contains("self.inner"),
-            "method bodies must fetch the object via self.obj() (the disposable ref), not self.inner;\nactual code:\n{code}"
+            code.contains("self.obj(&__env)") && !code.contains("self.inner"),
+            "method bodies must fetch the object via the disposable self.obj helper, not self.inner;\nactual code:\n{code}"
         );
     }
 }
