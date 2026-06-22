@@ -3000,6 +3000,14 @@
             "string",
             "null"
           ]
+        },
+        "target_dep_overrides": {
+          "default": [],
+          "description": "Per-target overrides for the core-crate dependency emitted into the\ngenerated JNI `Cargo.toml`. Mirrors [`FfiConfig::target_dep_overrides`].\n\nThe JNI shim crate is the unit that gets cross-compiled to Android NDK\n(and potentially iOS) targets, where native-C deps (libheif via `heic`)\nand ONNX Runtime (`ort-sys`, no Android prebuilt) cannot link. Without\nper-target gating the JNI crate pulls the unconditional `[\"full\"]`\nfeature set on every target, breaking the Kotlin-Android build.\n\nWhen this list is non-empty the scaffold emits\n`[target.'cfg(not(<any-cfg>))'.dependencies]` for the default branch\nplus one `[target.'cfg(<cfg>)'.dependencies]` block per override,\ninstead of a single unconditional core-crate dependency line.\n\n[`FfiConfig::target_dep_overrides`]: super::FfiConfig::target_dep_overrides",
+          "items": {
+            "$ref": "#/$defs/FfiTargetDepOverride"
+          },
+          "type": "array"
         }
       },
       "type": "object"

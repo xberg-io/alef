@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **jni: honor per-target core-dep feature overrides in the generated JNI
+  `Cargo.toml`**: the JNI shim crate is the unit cross-compiled to Android NDK
+  (and iOS) targets, but it always emitted an unconditional
+  `{core} = { features = ["full"] }`, pulling in `heic` (libheif-sys, no NDK/SDK
+  cross-compile) and full ORT (`ort-sys`, no Android prebuilt) on every target —
+  breaking the Kotlin-Android publish and Mobile/E2E CI. `[crates.jni]` now
+  accepts a `target_dep_overrides` list (same shape as `[crates.ffi]`); when set,
+  the scaffold emits a `cfg(not(any(...)))` default branch carrying the full
+  feature set plus one `[target.'cfg(<cfg>)'.dependencies]` block per override,
+  matching the FFI crate's gating. (`src/core/config/languages/jni.rs`,
+  `src/scaffold/languages/jni.rs`)
+
 ## [0.26.0] - 2026-06-22
 
 ### Fixed

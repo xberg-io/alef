@@ -1,7 +1,56 @@
 use crate::core::backend::GeneratedFile;
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{FfiTargetDepOverride, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 use std::path::PathBuf;
+
+/// Render the `[target.'cfg(...)'.dependencies]` blocks for the JNI crate's
+/// core-crate dependency when per-target overrides are configured.
+///
+/// Returns an empty string when `overrides` is empty (the core dep then lives
+/// inline in `[dependencies]`). Otherwise emits a `cfg(not(any(...)))` default
+/// branch carrying the full `features` set, plus one `cfg(<override.cfg>)`
+/// block per override carrying that override's replacement feature set. This
+/// mirrors the FFI scaffolder so the same Android/iOS/Windows gating applies to
+/// the cross-compiled JNI shim. The dual-form `render_core_dep` keeps the
+/// `version = "..."` requirement so the manifest still publishes cleanly.
+fn render_jni_target_blocks(
+    crate_name: &str,
+    rel_path: &str,
+    default_features: &str,
+    version: &str,
+    overrides: &[FfiTargetDepOverride],
+) -> String {
+    if overrides.is_empty() {
+        return String::new();
+    }
+
+    let cfgs: Vec<&str> = overrides.iter().map(|o| o.cfg.as_str()).collect();
+    let combined_cfg = if cfgs.len() == 1 {
+        cfgs[0].to_owned()
+    } else {
+        format!("any({})", cfgs.join(", "))
+    };
+
+    let mut blocks = String::new();
+    blocks.push_str(&format!(
+        "\n[target.'cfg(not({combined_cfg}))'.dependencies]\n{}\n",
+        crate::scaffold::render_core_dep(crate_name, rel_path, default_features, version)
+    ));
+    for override_ in overrides {
+        let features_str = if override_.features.is_empty() {
+            String::new()
+        } else {
+            let quoted: Vec<String> = override_.features.iter().map(|f| format!("\"{f}\"")).collect();
+            format!(", features = [{}]", quoted.join(", "))
+        };
+        blocks.push_str(&format!(
+            "\n[target.'cfg({})'.dependencies]\n{}\n",
+            override_.cfg,
+            crate::scaffold::render_core_dep(crate_name, rel_path, &features_str, version)
+        ));
+    }
+    blocks
+}
 
 /// Scaffold the `<crate>-jni/Cargo.toml` for a JNI shim crate.
 ///
@@ -50,25 +99,51 @@ pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     // `crates/parser-core-core/`. Cargo dep-table keys must use the package
     // name; the `path = ...` value must use the directory name.
     let umbrella_dep_name = &config.name;
+
+    // Per-target dependency overrides: when configured (e.g. Android/iOS drop
+    // ORT + native-C features, Windows uses `windows-target`), the core-crate
+    // dependency moves out of the main `[dependencies]` table into per-cfg
+    // `[target.'cfg(...)'.dependencies]` blocks. The default branch is wrapped
+    // in `cfg(not(any(...)))` so exactly one variant matches on any build.
+    // Mirrors the FFI scaffolder's `render_core_dep` (see scaffold/languages/ffi.rs).
+    let target_overrides = config
+        .jni
+        .as_ref()
+        .map(|c| c.target_dep_overrides.as_slice())
+        .unwrap_or(&[]);
+    let rel_path = format!("../{core_crate_dir}");
+
     // Collect `[dependencies]` entries then sort alphabetically so the emitted
     // Cargo.toml is cargo-sort canonical without a post-processing step. The
     // umbrella dep is named after `config.name` which is consumer-dependent,
     // so the sort must run at codegen time rather than baking a static order.
     let mut dep_lines: Vec<String> = vec![
         "base64 = \"0.22\"".to_owned(),
-        crate::scaffold::render_core_dep(
-            umbrella_dep_name,
-            &format!("../{core_crate_dir}"),
-            &features_str,
-            &api.version,
-        ),
         "futures-util = \"0.3\"".to_owned(),
         "jni = \"0.22\"".to_owned(),
         "serde_json = \"1\"".to_owned(),
         "tokio = { version = \"1\", features = [\"rt-multi-thread\", \"macros\", \"sync\"] }".to_owned(),
     ];
+    // When no overrides apply, the core-crate dep lives inline in `[dependencies]`.
+    // Otherwise it is emitted in the per-target blocks below instead.
+    if target_overrides.is_empty() {
+        dep_lines.push(crate::scaffold::render_core_dep(
+            umbrella_dep_name,
+            &rel_path,
+            &features_str,
+            &api.version,
+        ));
+    }
     dep_lines.sort();
     let deps_section = dep_lines.join("\n");
+
+    let target_blocks_section = render_jni_target_blocks(
+        umbrella_dep_name,
+        &rel_path,
+        &features_str,
+        &api.version,
+        target_overrides,
+    );
 
     // cargo-sort orders sub-tables of `[package]` (e.g.
     // `[package.metadata.cargo-machete]`) immediately after the `[package]`
@@ -98,10 +173,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {deps_section}
-"#,
+{target_blocks_section}"#,
         jni_crate_name = jni_crate_name,
         jni_lib_name = jni_lib_name,
         deps_section = deps_section,
+        target_blocks_section = target_blocks_section,
     );
 
     let _ = api; // api not needed for Cargo.toml scaffold
@@ -345,6 +421,117 @@ namespace = "dev.example.sample_stream"
             keys, sorted,
             "JNI Cargo.toml [dependencies] must be alphabetically sorted; got:\n{keys:?}\nin:\n{cargo_toml}"
         );
+    }
+
+    /// When `[crates.jni] target_dep_overrides` are configured, the core-crate
+    /// dependency must move out of the inline `[dependencies]` table into per-cfg
+    /// `[target.'cfg(...)'.dependencies]` blocks: a `cfg(not(any(...)))` default
+    /// branch carrying the full feature set, plus one block per override carrying
+    /// its replacement features. Mirrors the FFI gating so the cross-compiled JNI
+    /// shim drops ORT / native-C features on Android, iOS, and Windows.
+    #[test]
+    fn scaffold_jni_emits_target_dep_overrides() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["kotlin_android", "jni"]
+
+[[crates]]
+name = "demo-doc"
+sources = ["src/lib.rs"]
+
+[crates.kotlin_android]
+package = "dev.example.demo"
+namespace = "dev.example.demo"
+features = ["full"]
+
+[[crates.jni.target_dep_overrides]]
+cfg = 'target_os = "android"'
+features = ["android-target"]
+
+[[crates.jni.target_dep_overrides]]
+cfg = 'target_os = "ios"'
+features = ["android-target"]
+
+[[crates.jni.target_dep_overrides]]
+cfg = 'target_os = "windows"'
+features = ["windows-target"]
+"#,
+        );
+        let api = ApiSurface::default();
+        let files = scaffold_jni(&api, &config).unwrap();
+        let cargo_toml = &files[0].content;
+
+        // The inline `[dependencies]` table must NOT carry the unconditional
+        // core-crate dep when overrides apply.
+        let deps_start = cargo_toml.find("[dependencies]").expect("missing [dependencies]");
+        let first_target = cargo_toml
+            .find("[target.")
+            .expect("expected at least one [target.*] block");
+        let inline_deps = &cargo_toml[deps_start..first_target];
+        assert!(
+            !inline_deps.contains("demo-doc ="),
+            "core-crate dep must not appear inline when overrides are present; got:\n{cargo_toml}"
+        );
+
+        // Default branch is gated on cfg(not(any(...))) and carries `full`.
+        assert!(
+            cargo_toml.contains(
+                r#"[target.'cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows")))'.dependencies]"#
+            ),
+            "default branch must be gated on cfg(not(any(...))); got:\n{cargo_toml}"
+        );
+        assert!(
+            cargo_toml.contains(r#"[target.'cfg(target_os = "android")'.dependencies]"#)
+                && cargo_toml.contains(r#"features = ["android-target"]"#),
+            "android override block must carry android-target; got:\n{cargo_toml}"
+        );
+        assert!(
+            cargo_toml.contains(r#"[target.'cfg(target_os = "windows")'.dependencies]"#)
+                && cargo_toml.contains(r#"features = ["windows-target"]"#),
+            "windows override block must carry windows-target; got:\n{cargo_toml}"
+        );
+        // One core-dep line per target branch: default + android + ios + windows.
+        let core_dep_lines = cargo_toml.matches("demo-doc = {").count();
+        assert_eq!(
+            core_dep_lines, 4,
+            "expected one core-dep line per target branch (default + 3 overrides); got {core_dep_lines}:\n{cargo_toml}"
+        );
+        toml::from_str::<toml::Value>(cargo_toml).expect("generated JNI Cargo.toml must be valid TOML");
+    }
+
+    /// Without `target_dep_overrides`, the core-crate dep stays inline in
+    /// `[dependencies]` and no `[target.*]` blocks are emitted (regression guard
+    /// for the default path).
+    #[test]
+    fn scaffold_jni_no_target_blocks_without_overrides() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["kotlin_android", "jni"]
+
+[[crates]]
+name = "demo-doc"
+sources = ["src/lib.rs"]
+
+[crates.kotlin_android]
+package = "dev.example.demo"
+namespace = "dev.example.demo"
+features = ["full"]
+"#,
+        );
+        let api = ApiSurface::default();
+        let files = scaffold_jni(&api, &config).unwrap();
+        let cargo_toml = &files[0].content;
+        assert!(
+            !cargo_toml.contains("[target."),
+            "no [target.*] blocks without overrides; got:\n{cargo_toml}"
+        );
+        assert!(
+            cargo_toml.contains("demo-doc = {") && cargo_toml.contains(r#"features = ["full"]"#),
+            "core-crate dep must stay inline with full features; got:\n{cargo_toml}"
+        );
+        toml::from_str::<toml::Value>(cargo_toml).expect("generated JNI Cargo.toml must be valid TOML");
     }
 
     /// Regression guard: cargo-sort orders sub-tables of `[package]`
