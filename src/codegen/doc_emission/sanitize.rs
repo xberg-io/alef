@@ -8,7 +8,7 @@ mod utf8;
 
 use escaping::{escape_jsdoc_block_close, xml_escape_for_csharp};
 use prose::apply_prose_transforms;
-pub(crate) use references::{delink_intradoc_references, wrap_bare_bracket_references};
+pub(crate) use references::{unlink_intradoc_references, wrap_bare_bracket_references};
 
 /// Target language for [`sanitize_rust_idioms`].
 ///

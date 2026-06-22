@@ -152,6 +152,21 @@ class MockServerListener : LauncherSessionListener {{
         val preset = System.getenv("MOCK_SERVER_URL")
         if (!preset.isNullOrEmpty()) {{
             System.setProperty("mockServerUrl", preset)
+            // Even when MOCK_SERVER_URL is preset (alef test-apps runner mode),
+            // the runner also exports MOCK_SERVERS as a JSON env var of
+            // fixture_id -> url. Translate it into mockServer.<fixture_id> system
+            // properties so tests that target a dedicated per-fixture server
+            // (e.g. asset-download tests) resolve it instead of falling back to
+            // the shared server. Mirrors the spawn path below and the Java listener.
+            val presetServers = System.getenv("MOCK_SERVERS")
+            if (!presetServers.isNullOrEmpty()) {{
+                System.setProperty("mockServers", presetServers)
+                val p = Pattern.compile(""""([^"]+)":"([^"]+)"""")
+                val matcher = p.matcher(presetServers)
+                while (matcher.find()) {{
+                    System.setProperty("mockServer.${{matcher.group(1)}}", matcher.group(2))
+                }}
+            }}
             return
         }}
         val repoRoot = locateRepoRoot()

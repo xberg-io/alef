@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.60] - 2026-06-22
+
 ### Fixed
 
 - **r/extendr: non-optional Named param after an optional param binds by reference**: the

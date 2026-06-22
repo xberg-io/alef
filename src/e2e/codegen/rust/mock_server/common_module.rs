@@ -10,7 +10,7 @@ use crate::core::hash::{self, CommentStyle};
 /// without panicking on unset env vars.
 ///
 /// The module:
-/// - Spawns `target/release/mock-server` with the fixtures directory as an argument
+/// - Spawns the `mock-server` binary (resolved via `CARGO_BIN_EXE_mock-server`) with the fixtures directory as an argument
 /// - Reads stdout lines looking for `MOCK_SERVER_URL=http://...` and `MOCK_SERVERS={...}`
 /// - Sets environment variables: `MOCK_SERVER_URL` and `MOCK_SERVER_<FIXTURE_ID>` for each entry
 /// - Drains remaining stdout in a background thread to prevent blocking
@@ -38,7 +38,7 @@ static MOCK_SERVER_URL: OnceLock<String> = OnceLock::new();
 ///
 /// The server is spawned once per test process and reused by all tests.
 /// On first call, this function:
-/// - Spawns the `target/release/mock-server` binary
+/// - Spawns the `mock-server` binary (resolved via `CARGO_BIN_EXE_mock-server`)
 /// - Reads `MOCK_SERVER_URL=http://...` from its stdout
 /// - Parses `MOCK_SERVERS={...}` JSON and sets env vars for per-fixture servers
 /// - Sets `MOCK_SERVER_URL` env var globally
@@ -47,10 +47,13 @@ static MOCK_SERVER_URL: OnceLock<String> = OnceLock::new();
 /// Subsequent calls return the cached URL without spawning again.
 pub fn mock_server_url() -> &'static str {
     MOCK_SERVER_URL.get_or_init(|| {
-        let mock_server_bin = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/target/release/mock-server"
-        );
+        // `CARGO_BIN_EXE_mock-server` is injected by Cargo when compiling an
+        // integration test in a crate that declares `[[bin]] name = "mock-server"`.
+        // It resolves to the freshly built binary for whatever profile the test
+        // is run under (debug or release) and guarantees the binary exists before
+        // the test runs — unlike a hardcoded `target/release/mock-server` path,
+        // which is absent under a plain `cargo test` (debug) run.
+        let mock_server_bin = env!("CARGO_BIN_EXE_mock-server");
         let fixtures_dir = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../fixtures"

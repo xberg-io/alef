@@ -135,8 +135,8 @@ pub(crate) fn wrap_bare_bracket_references(s: &str) -> String {
 /// Rust core doc-comments contain intra-doc links such as
 /// `` [`Error::LanguageNotFound`] ``, `` [`get_language`] ``, or
 /// `` [`Self::ensure_languages`] ``. Those item paths resolve in the core crate
-/// but **not** in the generated binding crates (`ts-pack-core-php`, `-py`,
-/// `-node`, …), so `rustdoc` invoked with `-D rustdoc::broken-intra-doc-links`
+/// but **not** in the generated language binding crates, so `rustdoc`
+/// invoked with `-D rustdoc::broken-intra-doc-links`
 /// fails with `unresolved link to '...'`. A crate-level `#![allow(...)]` cannot
 /// override a command-line `-D`, so the emitted doc text itself must not contain
 /// broken intra-doc links.
@@ -155,7 +155,7 @@ pub(crate) fn wrap_bare_bracket_references(s: &str) -> String {
 /// Legitimate Markdown links to URLs (`[text](https://…)`, `[text](http://…)`,
 /// `[text](#anchor)`) are left untouched: only intra-doc references — those with
 /// a non-URL target or the shortcut form — are de-linked.
-pub(crate) fn delink_intradoc_references(s: &str) -> String {
+pub(crate) fn unlink_intradoc_references(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let bytes = s.as_bytes();
     let mut i = 0;

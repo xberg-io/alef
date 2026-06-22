@@ -1,5 +1,5 @@
 use super::sanitize::{
-    DocTarget, delink_intradoc_references, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections,
+    DocTarget, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections, unlink_intradoc_references,
     wrap_bare_bracket_references,
 };
 use super::sections::{
@@ -153,7 +153,7 @@ pub fn emit_rustdoc(out: &mut String, doc: &str, indent: &str) {
     // rustdoc::broken-intra-doc-links` (forced on the command line, where a
     // crate-level `#![allow]` cannot override it) would fail. Converting them to
     // plain code spans keeps the text readable without leaving a broken link.
-    let delinked = delink_intradoc_references(doc);
+    let delinked = unlink_intradoc_references(doc);
     for line in delinked.lines() {
         out.push_str(indent);
         out.push_str("/// ");
