@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   property instead of the data-class payload property name (`value`), causing a Kotlin compile
   error "Unresolved reference 'field0'". The accessor now correctly accesses the actual
   property name used in both String and Vec variant branches.
+- **codegen: de-link rustdoc intra-doc references in generated binding docs**: core
+  doc-comments were copied verbatim into the generated binding crates, carrying intra-doc
+  links (e.g. ``[`Error::LanguageNotFound`]``, ``[`get_language`]``) that resolve in the core
+  crate but not in a binding crate, so `rustdoc -D rustdoc::broken-intra-doc-links` (which a
+  crate-level `#![allow]` cannot override) rejected them. The Rust doc emitter now de-links
+  such references to plain code spans, preserving genuine URL/anchor Markdown links.
+- **version: `sync-versions` output is byte-identical to the generate path**: scaffold and
+  test-app regeneration during `sync-versions` skipped the post-write `format_generated` pass
+  that `alef all` runs, rewriting committed manifests into an unformatted shape (node/wasm
+  `package.json` 2-space + scaffold key order, php `composer.json` reflow, a spurious
+  `Package.swift` trailing comma) and tripping downstream freshness gates. `sync-versions`
+  now runs the same formatter pass before hashing.
 
 ## [0.25.59] - 2026-06-21
 
