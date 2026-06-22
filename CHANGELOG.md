@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **r: registry-mode `install.R` no longer reports false success on a failed
+  install.** `install.packages` signals download/build failures (a 404 release
+  tarball, a non-zero `R CMD INSTALL`) as *warnings* and returns normally, so the
+  generated installer's `tryCatch(error=)` never fired and it printed
+  `Successfully installed <pkg>` while exiting 0 — masking real install failures
+  in CI. The generator now promotes install warnings to errors via
+  `withCallingHandlers`, then verifies the package is loadable with
+  `requireNamespace` before printing success; either failure path exits non-zero.
+  (`src/e2e/codegen/r/project.rs`)
+
 - **jni: honor per-target core-dep feature overrides in the generated JNI
   `Cargo.toml`**: the JNI shim crate is the unit cross-compiled to Android NDK
   (and iOS) targets, but it always emitted an unconditional

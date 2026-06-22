@@ -184,17 +184,43 @@ pub(super) fn render_install_r(pkg_name: &str, pkg_version: &str, github_repo: &
         out,
         "# Install from the release tarball without requiring devtools or remotes."
     );
-    let _ = writeln!(out, "tryCatch({{",);
+    // `install.packages` signals download/build failures as *warnings*, not
+    // errors, and returns normally — so a 404 or non-zero R CMD INSTALL would
+    // slip past a plain `tryCatch(error=)`. Promote warnings to errors during
+    // install, then verify the package is actually loadable before declaring
+    // success. Either failure path exits non-zero without printing success.
+    let _ = writeln!(out, "tryCatch(");
+    let _ = writeln!(out, "  withCallingHandlers(");
     let _ = writeln!(
         out,
-        "  install.packages(url, repos = NULL, type = \"source\", quiet = TRUE)"
+        "    install.packages(url, repos = NULL, type = \"source\", quiet = TRUE),"
     );
-    let _ = writeln!(out, "  message(paste(\"Successfully installed {pkg_name}\", VERSION))");
-    let _ = writeln!(out, "}}, error = function(e) {{");
-    let _ = writeln!(out, "  message(paste(\"Error installing {pkg_name} from\", url))");
-    let _ = writeln!(out, "  message(conditionMessage(e))");
+    let _ = writeln!(
+        out,
+        "    warning = function(w) stop(conditionMessage(w), call. = FALSE)"
+    );
+    let _ = writeln!(out, "  ),");
+    let _ = writeln!(out, "  error = function(e) {{");
+    let _ = writeln!(out, "    message(paste(\"Error installing {pkg_name} from\", url))");
+    let _ = writeln!(out, "    message(conditionMessage(e))");
+    let _ = writeln!(out, "    quit(status = 1)");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, ")");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "# Verify the package is installed and loadable; install.packages does");
+    let _ = writeln!(out, "# not guarantee this even when no condition was raised.");
+    let _ = writeln!(
+        out,
+        "if (!requireNamespace(\"{pkg_name}\", quietly = TRUE)) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  message(paste(\"Error: {pkg_name} not available after install from\", url))"
+    );
     let _ = writeln!(out, "  quit(status = 1)");
-    let _ = writeln!(out, "}})");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "message(paste(\"Successfully installed {pkg_name}\", VERSION))");
     out
 }
 
@@ -229,6 +255,67 @@ mod description_tests {
         assert!(
             !out.contains("Imports:"),
             "local mode must not emit Imports line, got: {out}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod install_r_tests {
+    use super::render_install_r;
+
+    #[test]
+    fn install_r_promotes_warnings_to_errors() {
+        // install.packages signals download/build failures as warnings, not
+        // errors. The installer must promote them so a 404 cannot slip past.
+        let out = render_install_r("mypkg", "1.2.3", "https://github.com/org/repo");
+        assert!(
+            out.contains("withCallingHandlers"),
+            "must wrap install in withCallingHandlers to catch warnings, got: {out}"
+        );
+        assert!(
+            out.contains("warning = function(w) stop(conditionMessage(w)"),
+            "must promote warnings to errors, got: {out}"
+        );
+    }
+
+    #[test]
+    fn install_r_verifies_loadability_before_success() {
+        let out = render_install_r("mypkg", "1.2.3", "https://github.com/org/repo");
+        let verify = out
+            .find("requireNamespace(\"mypkg\"")
+            .expect("must verify package loadability");
+        let success = out
+            .find("Successfully installed mypkg")
+            .expect("must print success message");
+        assert!(
+            verify < success,
+            "loadability check must precede the success message, got: {out}"
+        );
+    }
+
+    #[test]
+    fn install_r_exits_nonzero_on_failure() {
+        // Both the install error path and the loadability check must exit non-zero.
+        let out = render_install_r("mypkg", "1.2.3", "https://github.com/org/repo");
+        assert_eq!(
+            out.matches("quit(status = 1)").count(),
+            2,
+            "both failure paths must exit non-zero, got: {out}"
+        );
+    }
+
+    #[test]
+    fn install_r_success_message_is_not_unconditional() {
+        // The success message must not sit inside the tryCatch body where it
+        // would print regardless of the install outcome.
+        let out = render_install_r("mypkg", "1.2.3", "https://github.com/org/repo");
+        let trycatch_end = out.find("\n)\n").expect("tryCatch must close");
+        let success = out
+            .find("Successfully installed mypkg")
+            .expect("must print success message");
+        assert!(
+            success > trycatch_end,
+            "success message must come after the tryCatch block closes, got: {out}"
         );
     }
 }
