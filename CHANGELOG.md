@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **version: `sync-versions` no longer rewrites externally-formatted scaffold/test-app files.**
+  Commit `ff976c664` added a `format_generated` pass to the scaffold and test-app regen paths so
+  `sync-versions` output matches the generate path. For repos that delegate all formatting to
+  external tools (`[workspace.format] enabled = false`), `format_generated` is a permanent no-op,
+  so the regen rewrote already-committed manifests (`package.json`, `composer.json`,
+  `Package.swift`, shell helpers) in raw alef-serializer form (2-space JSON, scaffold key order,
+  collapsed arrays, shfmt-divergent shell) and broke the `sync-versions` → `git diff --exit-code`
+  freshness gate. When alef's internal formatter is disabled for every configured language, the
+  regen now skips rewriting files that already exist on disk (their version content is synced
+  surgically by `sync-versions` itself); internal-formatter repos are unaffected.
+- **version: `sync-versions` preserves external SwiftPM dependency pins.** Generated
+  `Package.swift` files may list both the first-party package and external dependencies (e.g.
+  `swift-tree-sitter`). The previous first-`from:` replacement clobbered whichever `from:` clause
+  appeared first, corrupting the external pin. The new `sync_swift_first_party_from` matches on the
+  `.package(url: ...)` URL so only the first-party dependency tracks the workspace version.
+- **version: `sync-versions` keeps the `v0.0.0` placeholder on locally-replaced Go modules.** When
+  an e2e `go.mod` resolves the first-party module via a local `replace ... => ../...` directive,
+  the require version is a placeholder Go never reads and the generate path emits `v0.0.0`. Bumping
+  it produced drift; the require line is now left untouched when a local `replace` is present.
 - **napi: generated plugin trait-bridges no longer pin the Node event loop.** The bridge held
   the JS object as `Object<'static>` via `transmute` and never released it, keeping libuv alive
   so vitest forked workers timed out on teardown. Bridges now hold a persistent `ObjectRef<false>`

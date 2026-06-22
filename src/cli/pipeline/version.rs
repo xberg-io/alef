@@ -8,7 +8,7 @@ use super::version_core::{bump_version, read_version, to_pep440, write_version_t
 use super::version_python::sync_python_versions;
 use super::version_regen::{regenerate_readmes, regenerate_scaffold_after_sync, regenerate_test_apps_after_sync};
 use super::version_registry::sync_registry_package_versions;
-use super::version_swift::precompute_swift_checksum;
+use super::version_swift::{precompute_swift_checksum, sync_swift_package_versions};
 use super::version_text::{
     read_workspace_license, remove_stale_kotlin_android_plugin, render_citation_cff, replace_citation_version,
     replace_gradle_project_version, replace_version_pattern, restore_gleam_dep_ranges, sync_cargo_lock_path_versions,
@@ -434,18 +434,7 @@ pub fn sync_versions(
         }
     }
 
-    // test_apps/*/Package.swift and e2e/*/Package.swift (generated entries with `from:` bounds)
-    for swift_pkg_pattern in &["test_apps/*/Package.swift", "e2e/*/Package.swift"] {
-        for swift_pkg in glob::glob(swift_pkg_pattern).into_iter().flatten().flatten() {
-            if let Ok(content) = std::fs::read_to_string(&swift_pkg) {
-                if let Some(new_content) = replace_version_pattern(&content, r#"from:\s*"[^"]*""#, &version) {
-                    std::fs::write(&swift_pkg, &new_content)
-                        .with_context(|| format!("failed to write {}", swift_pkg.display()))?;
-                    updated.push(swift_pkg.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
+    sync_swift_package_versions(config, &version, &mut updated)?;
 
     // C FFI download_ffi.sh: the generated shell helper declares `VERSION="X.Y.Z"`
     // (no spaces around `=`) at the top of the script so it can construct the

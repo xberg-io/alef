@@ -203,8 +203,33 @@ pub(super) fn sync_e2e_java_pom(content: &str, new_version: &str) -> Option<Stri
 /// `"sample-core-dev/sample-widget/packages/go"`). All other `require` entries are
 /// left untouched.
 ///
+/// When the same module is the target of a local `replace` directive
+/// (`require ... => ../../packages/go`), Go ignores the `require` version and
+/// the `alef all` generate path emits the conventional placeholder `v0.0.0`.
+/// Bumping the require line in that case produces drift versus the generated
+/// output, so this function leaves a locally-replaced module untouched.
+///
 /// Returns `Some(new_content)` when a replacement was made, `None` otherwise.
 pub(super) fn sync_e2e_go_mod(content: &str, module_path_fragment: &str, new_version: &str) -> Option<String> {
+    // A local `replace <module> => <relative-path>` directive means the require
+    // version is a placeholder Go never resolves; skip bumping to stay byte-
+    // identical with the generate path (which emits `v0.0.0`).
+    let has_local_replace = content.lines().any(|line| {
+        let trimmed = line.trim_start();
+        let trimmed = trimmed.strip_prefix("replace ").unwrap_or(trimmed);
+        if let Some((lhs, rhs)) = trimmed.split_once("=>") {
+            lhs.trim().starts_with(module_path_fragment) && {
+                let dest = rhs.trim();
+                dest.starts_with("./") || dest.starts_with("../") || dest.starts_with('/')
+            }
+        } else {
+            false
+        }
+    });
+    if has_local_replace {
+        return None;
+    }
+
     let mut changed = false;
     let lines: Vec<String> = content
         .lines()
@@ -238,6 +263,71 @@ pub(super) fn sync_e2e_go_mod(content: &str, module_path_fragment: &str, new_ver
         new_content
     };
     Some(new_content)
+}
+
+/// Rewrite the `from:` version bound on the *first-party* SwiftPM dependency in
+/// a generated `Package.swift`, leaving external `.package(url:..., from:...)`
+/// dependencies untouched.
+///
+/// A generated test_apps / e2e `Package.swift` may declare several SwiftPM
+/// dependencies, only one of which is the consumer's own published package, e.g.
+/// ```swift
+/// .package(url: "https://github.com/example-org/example-swift-package", from: "1.10.2"),
+/// .package(url: "https://github.com/tree-sitter/swift-tree-sitter", from: "0.25.0"),
+/// ```
+/// The naive `replace_version_pattern(content, "from:\\s*\"[^\"]*\"", version)`
+/// rewrites the *first* `from:` it finds — which clobbers the external
+/// `swift-tree-sitter` pin when that entry happens to appear first. Only the
+/// first-party entry (the one whose URL matches `repo_url`, modulo a trailing
+/// `.git` / `/`) tracks the workspace version.
+///
+/// Matching is done per `.package(url:...)` line: a line is first-party when its
+/// quoted URL, normalised (strip scheme, trailing `.git`, trailing `/`), is a
+/// prefix-or-equal match of the normalised `repo_url`. Returns `Some(new_content)`
+/// when a first-party `from:` actually changed, `None` otherwise (idempotent).
+pub(super) fn sync_swift_first_party_from(content: &str, repo_url: &str, new_version: &str) -> Option<String> {
+    use std::sync::LazyLock;
+    static PACKAGE_URL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r#"\.package\(\s*url:\s*"([^"]*)"\s*,\s*from:\s*"([^"]*)""#).expect("valid regex")
+    });
+
+    let target = normalize_repo_url(repo_url);
+    if target.is_empty() {
+        return None;
+    }
+
+    let mut changed = false;
+    let new_content = PACKAGE_URL_RE
+        .replace_all(content, |caps: &regex::Captures<'_>| {
+            let url = &caps[1];
+            let current = &caps[2];
+            let normalized = normalize_repo_url(url);
+            let is_first_party = !normalized.is_empty() && repo_url_matches(&normalized, &target);
+            if is_first_party && current != new_version {
+                changed = true;
+                format!(r#".package(url: "{url}", from: "{new_version}""#)
+            } else {
+                caps[0].to_string()
+            }
+        })
+        .into_owned();
+
+    if changed { Some(new_content) } else { None }
+}
+
+/// Normalise a repository URL for first-party comparison: drop the scheme, a
+/// trailing `.git`, and any trailing slash so `https://host/org/repo`,
+/// `https://host/org/repo.git`, and `host/org/repo/` all compare equal.
+fn normalize_repo_url(url: &str) -> String {
+    let after_scheme = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
+    after_scheme.trim_end_matches('/').trim_end_matches(".git").to_string()
+}
+
+fn repo_url_matches(candidate: &str, target: &str) -> bool {
+    candidate == target
+        || candidate
+            .strip_prefix(target)
+            .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 /// Rewrite the `version:` field for a path-source package in a Dart `pubspec.lock`.

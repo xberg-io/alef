@@ -82,6 +82,17 @@ require (
 \tgithub.com/sample_crate-dev/sample_crawler/packages/go v0.3.0-rc.27
 \tgithub.com/stretchr/testify v1.11.1
 )
+";
+
+const GO_MOD_E2E_LOCAL_REPLACE: &str = "\
+module e2e_go
+
+go 1.26
+
+require (
+\tgithub.com/sample_crate-dev/sample_crawler/packages/go v0.3.0-rc.27
+\tgithub.com/stretchr/testify v1.11.1
+)
 
 replace github.com/sample_crate-dev/sample_crawler/packages/go => ../../packages/go
 ";
@@ -109,6 +120,106 @@ fn sync_e2e_go_mod_is_idempotent() {
     let fragment = "github.com/sample_crate-dev/sample_crawler/packages/go";
     let first = sync_e2e_go_mod(GO_MOD_E2E, fragment, "0.3.0-rc.28").unwrap();
     let second = sync_e2e_go_mod(&first, fragment, "0.3.0-rc.28");
+    assert!(second.is_none(), "second call with same version must be a no-op");
+}
+
+#[test]
+fn sync_e2e_go_mod_skips_local_replace_placeholder_version() {
+    let fragment = "github.com/sample_crate-dev/sample_crawler/packages/go";
+    let result = sync_e2e_go_mod(GO_MOD_E2E_LOCAL_REPLACE, fragment, "0.3.0-rc.28");
+    assert!(
+        result.is_none(),
+        "local replace entries keep generated placeholder versions"
+    );
+}
+
+// -----------------------------------------------------------------------
+// sync_swift_first_party_from tests
+// -----------------------------------------------------------------------
+
+const SWIFT_PACKAGE_FIRST_PARTY_FIRST: &str = "\
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: \"E2eSwift\",
+    dependencies: [
+        .package(url: \"https://github.com/example-org/example-swift-package\", from: \"1.10.1\"),
+        .package(url: \"https://github.com/example-org/external-swift-package\", from: \"0.25.0\"),
+    ]
+)
+";
+
+// External dependency listed FIRST — the naive `replace_version_pattern` first-`from:`
+// rewrite would clobber it; the URL-scoped helper must not.
+const SWIFT_PACKAGE_EXTERNAL_FIRST: &str = "\
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: \"E2eSwift\",
+    dependencies: [
+        .package(url: \"https://github.com/example-org/external-swift-package\", from: \"0.25.0\"),
+        .package(url: \"https://github.com/example-org/example-swift-package.git\", from: \"1.10.1\"),
+    ]
+)
+";
+
+// Only an external dependency, no first-party entry — must be left untouched.
+const SWIFT_PACKAGE_ONLY_EXTERNAL: &str = "\
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: \"E2eSwift\",
+    dependencies: [
+        .package(path: \"../../packages/swift\"),
+        .package(url: \"https://github.com/example-org/external-swift-package\", from: \"0.25.0\"),
+    ]
+)
+";
+
+const FIRST_PARTY_REPO: &str = "https://github.com/example-org/example-swift-package";
+
+#[test]
+fn sync_swift_first_party_from_bumps_first_party_only() {
+    let result = sync_swift_first_party_from(SWIFT_PACKAGE_FIRST_PARTY_FIRST, FIRST_PARTY_REPO, "1.10.2");
+    let new = result.expect("first-party version changed");
+    assert!(
+        new.contains("example-swift-package\", from: \"1.10.2\""),
+        "first-party from: must bump:\n{new}"
+    );
+    assert!(
+        new.contains("external-swift-package\", from: \"0.25.0\""),
+        "external from: must be preserved:\n{new}"
+    );
+}
+
+#[test]
+fn sync_swift_first_party_from_preserves_external_when_listed_first() {
+    let result = sync_swift_first_party_from(SWIFT_PACKAGE_EXTERNAL_FIRST, FIRST_PARTY_REPO, "1.10.2");
+    let new = result.expect("first-party version changed");
+    assert!(
+        new.contains("external-swift-package\", from: \"0.25.0\""),
+        "external dep listed first must not be clobbered:\n{new}"
+    );
+    // `.git` suffix on the first-party URL must still match.
+    assert!(
+        new.contains("example-swift-package.git\", from: \"1.10.2\""),
+        "first-party (.git URL) from: must bump:\n{new}"
+    );
+}
+
+#[test]
+fn sync_swift_first_party_from_no_op_without_first_party() {
+    let result = sync_swift_first_party_from(SWIFT_PACKAGE_ONLY_EXTERNAL, FIRST_PARTY_REPO, "1.10.2");
+    assert!(result.is_none(), "file with only external deps must be left untouched");
+}
+
+#[test]
+fn sync_swift_first_party_from_is_idempotent() {
+    let first = sync_swift_first_party_from(SWIFT_PACKAGE_FIRST_PARTY_FIRST, FIRST_PARTY_REPO, "1.10.2").unwrap();
+    let second = sync_swift_first_party_from(&first, FIRST_PARTY_REPO, "1.10.2");
     assert!(second.is_none(), "second call with same version must be a no-op");
 }
 
@@ -605,7 +716,16 @@ fn sync_versions_bumps_swift_package_from_version() {
     std::fs::write(swift_dir.join("Package.swift"), swift_pkg_content).expect("write Package.swift");
 
     let alef_toml = format!(
-        "[workspace]\nlanguages = [\"swift\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
+        concat!(
+            "[workspace]\n",
+            "languages = [\"swift\"]\n",
+            "[workspace.scaffold]\n",
+            "repository = \"https://example.com/alef-sample\"\n",
+            "[[crates]]\n",
+            "name = \"mylib\"\n",
+            "sources = []\n",
+            "version_from = \"{}\"\n",
+        ),
         root.join("Cargo.toml").display().to_string().replace('\\', "/")
     );
     let alef_toml_path = root.join("alef.toml");

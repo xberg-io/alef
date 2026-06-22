@@ -2,6 +2,36 @@ use crate::core::config::{Language, ResolvedCrateConfig};
 use anyhow::Context as _;
 use tracing::{debug, info, warn};
 
+/// Sync generated SwiftPM `from:` bounds for this crate's first-party package.
+///
+/// Generated test app and e2e manifests may include external SwiftPM packages.
+/// Only the dependency whose URL points at this repo should track the workspace
+/// version; external pins must stay untouched.
+pub(super) fn sync_swift_package_versions(
+    config: &ResolvedCrateConfig,
+    version: &str,
+    updated: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    let Some(repo_url) = config.try_github_repo().ok() else {
+        return Ok(());
+    };
+
+    for swift_pkg_pattern in &["test_apps/*/Package.swift", "e2e/*/Package.swift"] {
+        for swift_pkg in glob::glob(swift_pkg_pattern).into_iter().flatten().flatten() {
+            if let Ok(content) = std::fs::read_to_string(&swift_pkg)
+                && let Some(new_content) =
+                    super::version_text::sync_swift_first_party_from(&content, &repo_url, version)
+            {
+                std::fs::write(&swift_pkg, &new_content)
+                    .with_context(|| format!("failed to write {}", swift_pkg.display()))?;
+                updated.push(swift_pkg.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Build the swift artifactbundle for the current crate, compute its sha256,
 /// substitute `__ALEF_SWIFT_CHECKSUM__` in root `Package.swift`, and write a
 /// sidecar file at `target/alef-swift-checksum.txt` so the publish workflow can
