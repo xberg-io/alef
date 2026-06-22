@@ -60,6 +60,11 @@ pub(crate) fn gen_opaque_handle_class(
         .iter()
         .filter(|m| m.receiver.is_none())
         .filter(|m| !matches!(m.name.as_str(), "default" | "to_json" | "from_json"))
+        // A static method returning a borrowed reference to its own opaque type (e.g.
+        // `Registry::global() -> &'static Registry`) has no FFI symbol — the FFI backend
+        // cannot box a borrow into an owned handle. Skip the wrapper so it does not
+        // reference the missing `NativeLib.<PREFIX>_<TYPE>_<METHOD>` MethodHandle.
+        .filter(|m| !m.returns_ref_to_owner(&typ.name))
         .collect();
     let has_instance_methods = !instance_methods.is_empty();
     let has_static_factories = !static_factory_methods.is_empty();

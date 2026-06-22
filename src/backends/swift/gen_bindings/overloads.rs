@@ -493,3 +493,69 @@ pub(super) fn convenience_name_shadows_bridge(func: &FunctionDef) -> bool {
     };
     wrapper_name == swift_inner
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::TypeDef;
+
+    /// A non-opaque serde DTO whose fields are not all first-class-supported (e.g. a
+    /// `Map` field) is NOT a first-class Codable struct, so its `*FromJson` helper
+    /// delegates to `RustBridge.{type}FromJson`. That bridge symbol only exists when
+    /// the Rust bridge crate compiled the type for the active feature set. After
+    /// `with_cfg_filtered` drops a cfg-gated type whose feature is off, the high-level
+    /// `emit_from_json_forwarders` pass must NOT emit a dangling `RustBridge` reference
+    /// for it — while a non-gated bridge type must still get its forwarder.
+    #[test]
+    fn from_json_forwarders_skip_cfg_filtered_bridge_types() {
+        use crate::core::ir::FieldDef;
+
+        // A Map field makes the type non-first-class, forcing the bridge branch.
+        fn bridge_serde_ty(name: &str, cfg: Option<&str>) -> TypeDef {
+            TypeDef {
+                name: name.to_string(),
+                is_opaque: false,
+                has_serde: true,
+                cfg: cfg.map(str::to_string),
+                fields: vec![FieldDef {
+                    name: "table".to_string(),
+                    ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                    ..FieldDef::default()
+                }],
+                ..TypeDef::default()
+            }
+        }
+
+        let mut api = ApiSurface::default();
+        api.types.push(bridge_serde_ty("PdfMetadata", None));
+        api.types.push(bridge_serde_ty("Preset", Some("feature = \"presets\"")));
+
+        let configured: std::collections::HashSet<&str> = ["pdf"].into_iter().collect();
+        let filtered = api.with_cfg_filtered(&configured);
+
+        let mapper = SwiftMapper;
+        let exclude_types = std::collections::HashSet::new();
+        let exclude_fields = std::collections::HashSet::new();
+        let known_dto_names = std::collections::HashSet::new();
+        let mut out = String::new();
+        emit_from_json_forwarders(
+            &filtered,
+            &exclude_types,
+            &mapper,
+            &exclude_fields,
+            &known_dto_names,
+            &mut out,
+        );
+
+        // Satisfied opaque type keeps its bridge forwarder.
+        assert!(
+            out.contains("RustBridge.pdfMetadataFromJson"),
+            "satisfied opaque type must keep its bridge forwarder. Got:\n{out}"
+        );
+        // cfg-gated opaque type (feature off) must produce no dangling bridge reference.
+        assert!(
+            !out.contains("presetFromJson") && !out.contains("RustBridge.Preset"),
+            "cfg-filtered type must not emit a dangling RustBridge reference. Got:\n{out}"
+        );
+    }
+}

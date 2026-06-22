@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **napi: generated plugin trait-bridges no longer pin the Node event loop.** The bridge held
+  the JS object as `Object<'static>` via `transmute` and never released it, keeping libuv alive
+  so vitest forked workers timed out on teardown. Bridges now hold a persistent `ObjectRef<false>`
+  and release it (`unref`) in `dispose()` and on `Drop`, materialising the object on demand.
+  Applies to all generated plugin bridges (OcrBackend, DocumentExtractor, Renderer,
+  EmbeddingBackend, PostProcessor, RerankerBackend, Validator).
+- **rustler: re-gate ungated NIF definitions that share a name with cfg-gated arms** so Rustler
+  `on_load` no longer aborts with a duplicate-NIF error. When the extractor drops a nested
+  `#[cfg(...)] pub mod` gate from an inline stub module, the stub function reached the surface
+  unconditionally and a second `#[rustler::nif]` was emitted alongside the active cfg arm
+  (`{:error, {:bad_lib, 'Duplicate NIF entry ...'}}`). A new `regate_ungated_same_name_functions`
+  pass keeps every gated arm and rewrites each ungated same-name entry's cfg to
+  `not(any(<gated cfgs>))`. This is the Rustler analogue of the FFI `cfg_dedup` pass.
+- **ffi symbol consistency for borrow-returning static accessors.** A static method returning a
+  reference to its own opaque type (e.g. `Registry::global() -> &'static Registry`) is skipped by
+  the FFI backend (a borrow cannot be boxed into an owned `*mut T` handle), but the Java, C#, and
+  Zig backends still bound the non-existent `{prefix}_{type}_{method}` symbol — crashing Java at
+  class-init (`ExceptionInInitializerError`) and failing C#/Zig on first call. All three backends
+  now consult the shared `MethodDef::returns_ref_to_owner` predicate and omit the binding,
+  matching the FFI backend's omission.
+- **swift: high-level facade referenced cfg-gated types/functions the RustBridge layer never
+  compiled.** `SwiftBackend::generate_bindings` filtered the facade only by `exclude_types`, while
+  the Rust bridge crate additionally drops items whose `#[cfg(feature = "...")]` gate is unsatisfied
+  by the Swift feature set. The facade emitted typealiases, `intoRust()`, `*FromJson` forwarders and
+  overloads for items the bridge omitted (the `presets`/`heuristics`/`structured` surface),
+  producing ~150 compile errors and `from:` label mismatches. The facade now applies the same cfg
+  gating via a new `ApiSurface::with_cfg_filtered`, sharing one cfg-matching implementation
+  (`core::ir::cfg_feature_satisfied`) with the bridge crate.
+- **kotlin/android e2e: always emit `testRuntimeOnly("org.junit.platform:junit-platform-launcher")`**
+  in the generated `build.gradle.kts`. Previously the launcher was only added when a fixture
+  required a mock server, so mock-server-free suites failed before any test ran with "Failed to load
+  JUnit Platform ... including the JUnit Platform launcher."
+
 ## [0.25.60] - 2026-06-22
 
 ### Fixed

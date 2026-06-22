@@ -1,5 +1,5 @@
 use crate::backends::rustler::gen_bindings::functions::{
-    gen_nif_async_function, gen_nif_async_method, gen_nif_function, gen_nif_method,
+    gen_nif_async_function, gen_nif_async_method, gen_nif_function, gen_nif_method, regate_ungated_same_name_functions,
 };
 use crate::backends::rustler::gen_bindings::helpers::{collect_types_for_nif_derives, get_module_info};
 use crate::backends::rustler::gen_bindings::rust_items::{
@@ -272,8 +272,13 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     let types_by_name: ahash::AHashMap<&str, &crate::core::ir::TypeDef> =
         api.types.iter().map(|t| (t.name.as_str(), t)).collect();
 
-    for func in api
-        .functions
+    // Re-gate ungated NIF definitions that share a name with gated arms so the fallback NIF
+    // compiles only when no gated arm does. Without this, an unconditional inline fallback module
+    // whose enclosing cfg gate was dropped by extraction would emit a second `#[rustler::nif]`
+    // alongside the active cfg arm, aborting `on_load` with a "Duplicate NIF entry" error.
+    let regated_functions = regate_ungated_same_name_functions(&api.functions);
+
+    for func in regated_functions
         .iter()
         .filter(|f| !exclude_functions.contains(f.name.as_str()))
     {

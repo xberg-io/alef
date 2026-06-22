@@ -710,6 +710,14 @@ pub(crate) fn gen_native_lib(
             if matches!(method.name.as_str(), "default" | "to_json" | "from_json") {
                 continue;
             }
+            // The FFI backend never exports a symbol for a static method that returns a
+            // borrowed reference to its own opaque type (e.g. `Registry::global() ->
+            // &'static Registry`) — a borrow cannot be boxed into an owned `*mut T` handle.
+            // Emitting an eager MethodHandle here would make `LIB.find(...)` throw at JVM
+            // clinit (ExceptionInInitializerError). Mirror the FFI's omission.
+            if method.returns_ref_to_owner(&typ.name) {
+                continue;
+            }
             let owner_snake = typ.name.to_snake_case();
             let owner_upper = owner_snake.to_uppercase();
             let method_snake = method.name.to_snake_case();

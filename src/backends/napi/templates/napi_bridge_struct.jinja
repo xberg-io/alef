@@ -1,6 +1,12 @@
 /// Wrapper that bridges a foreign JavaScript object to a Rust trait.
+///
+/// Holds the JS object via a persistent napi reference (`ObjectRef`) rather than
+/// a borrowed `Object` transmuted to `'static`. The reference is released in
+/// `dispose()` (and defensively in `Drop`) so the outstanding handle no longer
+/// pins the libuv event loop, letting Node/worker threads exit cleanly.
 pub struct {{ wrapper_name }} {
-    inner: napi::bindgen_prelude::Object<'static>,
+    env: napi::sys::napi_env,
+    obj_ref: std::sync::Mutex<Option<napi::bindgen_prelude::ObjectRef<false>>>,
     cached_name: String,
     cancellation_token: std::sync::Arc<tokio_util::sync::CancellationToken>,
 }

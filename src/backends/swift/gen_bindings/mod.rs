@@ -87,13 +87,21 @@ impl Backend for SwiftBackend {
         // bridge keeps the original multi-entry surface because it cfg-filters per configured
         // feature set itself; we hand it `original_api` below. See codegen::fn_dedup.
         let original_api = api;
-        let deduped_api = api.with_deduped_functions();
-        let api = &deduped_api;
 
         // Extract configured features for Swift to match the Rust-side feature set.
         // This filters cfg-gated struct fields when emitting constructor externs and getters.
         let base_features = config.features_for_language(crate::core::config::extras::Language::Swift);
         let configured_features: std::collections::HashSet<&str> = base_features.iter().map(String::as_str).collect();
+
+        // Drop any type/enum/function whose `#[cfg(feature = "...")]` gate is not satisfied
+        // by the Swift feature set BEFORE deduping. The Rust bridge crate filters its
+        // `visible_*` sets with the same cfg check, so the high-level facade must do the
+        // same — otherwise it emits `RustBridge.{Type}` / `RustBridge.{fn}` references for
+        // items the bridge layer never compiled (e.g. `presets`/`heuristics`/`structured`
+        // types absent from the Swift cargo features), which fail to resolve at compile time.
+        let cfg_filtered_api = original_api.with_cfg_filtered(&configured_features);
+        let deduped_api = cfg_filtered_api.with_deduped_functions();
+        let api = &deduped_api;
 
         // Function-wrapper emission is disabled in this phase (see comment below);
         // `swift.exclude_functions` therefore has no effect on the host wrapper but

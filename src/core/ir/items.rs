@@ -198,6 +198,25 @@ pub struct MethodDef {
     pub version: VersionAnnotation,
 }
 
+impl MethodDef {
+    /// True when this is a static method that returns a borrowed reference to its own
+    /// opaque owner type (e.g. `Registry::global() -> &'static Registry`).
+    ///
+    /// The C FFI backend cannot box a borrow into an owned `*mut T` handle, so it never
+    /// exports a `{prefix}_{type}_{method}` symbol for such accessors. Language backends
+    /// (Java, C#, Zig) must consult this predicate so they do NOT bind a symbol the cdylib
+    /// does not provide — otherwise eager symbol resolution (Java) crashes at class-init
+    /// and lazy resolution (C#, Zig) fails on first call.
+    ///
+    /// Keep this in lockstep with `is_static_constructor` in the FFI backend: that emitter
+    /// skips static `returns_ref` methods, so every backend must agree on the absent symbol.
+    pub fn returns_ref_to_owner(&self, owner_type_name: &str) -> bool {
+        self.is_static
+            && self.returns_ref
+            && matches!(&self.return_type, TypeRef::Named(name) if name == owner_type_name)
+    }
+}
+
 /// How `self` is received.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ReceiverKind {

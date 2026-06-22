@@ -20,16 +20,10 @@ impl {{ wrapper_name }} {
             ));
         }
 {%- endif %}
-        // SAFETY: The JS object is owned by the Node.js runtime and lives for
-        // the duration of the enclosing #[napi] call. The bridge is only used
-        // synchronously during that same call, so 'static is safe here.
-        let js_obj: napi::bindgen_prelude::Object<'static> = unsafe {
-            std::mem::transmute(js_obj)
-        };
-
-        // Cache the plugin name. `name` may be either a string property or a
-        // zero-arg function returning a string (the trait method form). Try the
-        // function first, then fall back to a string property.
+        // Cache the plugin name while the borrowed object is still in scope. `name`
+        // may be either a string property or a zero-arg function returning a string
+        // (the trait method form). Try the function first, then fall back to a
+        // string property.
         let cached_name = js_obj
             .get_named_property::<napi::bindgen_prelude::Function<(), String>>("name")
             .and_then(|f| f.call(()))
@@ -43,30 +37,90 @@ impl {{ wrapper_name }} {
             .unwrap_or_default();
 {%- endif %}
 
+        // Capture the raw napi_env that owns the object. It is stable for the
+        // lifetime of the Node process and is used to reconstruct an `Env` when
+        // materialising the object or building context arguments.
+        // SAFETY: `Object<'_>` is laid out as 3 pointer-sized words whose first
+        // word is the owning napi_env.
+        let env = unsafe {
+            let raw: [*mut std::ffi::c_void; 3] = std::mem::transmute_copy(&js_obj);
+            raw[0] as napi::sys::napi_env
+        };
+        // Hold the JS object via a persistent napi reference instead of a borrowed
+        // `Object` transmuted to `'static`. The reference keeps the value alive
+        // across handle scopes and, crucially, is released in `dispose()`/`Drop`
+        // so it no longer pins the event loop.
+        let obj_ref = js_obj.create_ref::<false>()?;
+
         Ok(Self {
-            inner: js_obj,
+            env,
+            obj_ref: std::sync::Mutex::new(Some(obj_ref)),
             cached_name,
             cancellation_token: std::sync::Arc::new(tokio_util::sync::CancellationToken::new()),
         })
     }
 
+    /// Materialise a live `Object` from the persistent reference.
+    ///
+    /// The returned object is kept alive by the underlying napi reference, so the
+    /// `'static` lifetime is sound for the duration of the current event-loop turn.
+    /// Returns an error once the reference has been released (after `dispose()`).
+    fn obj(&self) -> napi::Result<napi::bindgen_prelude::Object<'static>> {
+        let env = napi::Env::from_raw(self.env);
+        let guard = self.obj_ref.lock().unwrap_or_else(|e| e.into_inner());
+        match guard.as_ref() {
+            Some(obj_ref) => {
+                let obj = obj_ref.get_value(&env)?;
+                // SAFETY: the value is held alive by `obj_ref`, so extending the
+                // borrow to 'static does not outlive the underlying JS handle.
+                Ok(unsafe { std::mem::transmute::<napi::bindgen_prelude::Object<'_>, napi::bindgen_prelude::Object<'static>>(obj) })
+            }
+            None => Err(napi::Error::new(
+                napi::Status::GenericFailure,
+                format!("Plugin '{}' object has been disposed", self.cached_name),
+            )),
+        }
+    }
+
+    /// Release the persistent reference, unpinning the event loop.
+    ///
+    /// Idempotent: safe to call multiple times. After disposal the bridge can no
+    /// longer invoke the JS object.
+    fn release_ref(&self) {
+        if let Ok(mut guard) = self.obj_ref.lock() {
+            if let Some(obj_ref) = guard.take() {
+                let env = napi::Env::from_raw(self.env);
+                let _ = obj_ref.unref(&env);
+            }
+        }
+    }
+
     /// Clean up TSFN callbacks and release the event loop.
     pub async fn dispose(&self) -> napi::Result<()> {
         self.cancellation_token.cancel();
+        self.release_ref();
         Ok(())
     }
 
-    /// Extract napi::Env from the stored Object.
+    /// Extract napi::Env from the captured raw env pointer.
     fn env(&self) -> napi::Env {
-        // SAFETY: Object<'static> is 3 pointer-sized words; first word is napi_env.
-        let raw: [*mut std::ffi::c_void; 3] = unsafe { std::mem::transmute_copy(&self.inner) };
-        napi::Env::from_raw(raw[0] as napi::sys::napi_env)
+        napi::Env::from_raw(self.env)
+    }
+}
+
+impl Drop for {{ wrapper_name }} {
+    fn drop(&mut self) {
+        // Defensive release in case `dispose()` was never called. Releases the
+        // napi reference so the JS object can be collected and the event loop is
+        // no longer pinned by this bridge.
+        self.release_ref();
     }
 }
 
 // SAFETY: The bridge is created from a NAPI Object that is pinned to the
-// Node.js event loop thread. All access occurs on that thread. Send+Sync
-// are required by the Plugin trait but the bridge is never actually moved
-// across threads.
+// Node.js event loop thread. All napi access occurs on that thread; the stored
+// reference (`ObjectRef`) is only dereferenced while reconstructing an `Env` for
+// that same thread. Send+Sync are required by the Plugin trait but the bridge is
+// never actually moved across threads.
 unsafe impl Send for {{ wrapper_name }} {}
 unsafe impl Sync for {{ wrapper_name }} {}

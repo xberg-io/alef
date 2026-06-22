@@ -15,7 +15,6 @@ pub(super) fn render_build_gradle_kotlin_android(
     kotlin_pkg_id: &str,
     maven_coordinate: &str,
     dep_mode: crate::e2e::config::DependencyMode,
-    needs_mock_server: bool,
     jni_lib_name: &str,
     jni_crate_path: &str,
 ) -> String {
@@ -48,11 +47,14 @@ pub(super) fn render_build_gradle_kotlin_android(
     let jna = maven::JNA;
     let jspecify = maven::JSPECIFY;
     let coroutines = maven::KOTLINX_COROUTINES_CORE;
-    let launcher_dep = if needs_mock_server {
-        format!(r#"    testImplementation("org.junit.platform:junit-platform-launcher:{junit}")"#)
-    } else {
-        String::new()
-    };
+    // The JUnit Platform launcher must always be on the test *runtime* classpath:
+    // the Gradle Test Executor loads it to discover and launch JUnit Platform
+    // tests. Without it every run fails before any test executes with
+    // "Failed to load JUnit Platform ... including the JUnit Platform launcher".
+    // It is runtime-only (no compile-time symbols are referenced), so scope it
+    // `testRuntimeOnly`. The mock-server path additionally relies on it for the
+    // LauncherSessionListener SPI, but that no longer gates its inclusion.
+    let launcher_dep = format!(r#"    testRuntimeOnly("org.junit.platform:junit-platform-launcher:{junit}")"#);
 
     // In registry mode: depend on the published Maven artifact and declare
     // mavenCentral()/google() repos explicitly so the test_app is standalone.
@@ -494,7 +496,6 @@ mod tests {
             "dev.sample_crate.samplellm.android",
             "dev.sample_crate:demo-client-android:1.0.0",
             crate::e2e::config::DependencyMode::Local,
-            false,
             "demo_client_jni",
             "../../crates/demo-client-jni",
         );
@@ -502,6 +503,35 @@ mod tests {
             output.contains("jackson-module-kotlin"),
             "build.gradle.kts must depend on jackson-module-kotlin, got:\n{output}"
         );
+    }
+
+    /// Regression: build.gradle.kts must always put the JUnit Platform launcher
+    /// on the test runtime classpath. Without it the Gradle Test Executor fails
+    /// before any test runs with "Failed to load JUnit Platform ... including the
+    /// JUnit Platform launcher". It must be `testRuntimeOnly` and present in both
+    /// dependency modes, regardless of whether a mock server is needed.
+    #[test]
+    fn build_gradle_kotlin_android_always_includes_junit_platform_launcher() {
+        for dep_mode in [
+            crate::e2e::config::DependencyMode::Registry,
+            crate::e2e::config::DependencyMode::Local,
+        ] {
+            let output = render_build_gradle_kotlin_android(
+                "dev.sample_crate",
+                "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
+                dep_mode,
+                "sample_crate_jni",
+                "../../crates/sample_crate-jni",
+            );
+            assert!(
+                output.contains(r#"testRuntimeOnly("org.junit.platform:junit-platform-launcher:"#),
+                "build.gradle.kts ({dep_mode:?}) must declare junit-platform-launcher as testRuntimeOnly, got:\n{output}"
+            );
+            assert!(
+                output.contains("useJUnitPlatform()"),
+                "build.gradle.kts ({dep_mode:?}) must call useJUnitPlatform(), got:\n{output}"
+            );
+        }
     }
 
     /// Regression: registry-mode build.gradle.kts must emit the full Maven
@@ -516,7 +546,6 @@ mod tests {
             "dev.sample_crate",
             "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Registry,
-            false,
             "sample_crate_jni",
             "../../crates/sample_crate-jni",
         );
@@ -585,7 +614,6 @@ mod tests {
             "dev.sample_crate",
             "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Registry,
-            false,
             "sample_crate_jni",
             "../../crates/sample_crate-jni",
         );
@@ -622,7 +650,6 @@ mod tests {
                 "dev.sample_crate",
                 "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
                 dep_mode,
-                false,
                 "sample_crate_jni",
                 "../../crates/sample_crate-jni",
             );
@@ -641,7 +668,6 @@ mod tests {
             "dev.sample_crate.samplellm.android",
             "dev.sample_crate:demo-client-android:1.0.0",
             crate::e2e::config::DependencyMode::Local,
-            false,
             "demo_client_jni",
             "../../crates/demo-client-jni",
         );
@@ -664,7 +690,6 @@ mod tests {
                 "dev.sample_crate",
                 "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
                 dep_mode,
-                false,
                 "sample_crate_jni",
                 "../../crates/sample_crate-jni",
             );
@@ -696,7 +721,6 @@ mod tests {
             "dev.sample_crate",
             "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Local,
-            false,
             "sample_crate_jni",
             "../../crates/sample_crate-jni",
         );
@@ -719,7 +743,6 @@ mod tests {
             "dev.sample_crate",
             "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Registry,
-            false,
             "sample_crate_jni",
             "../../crates/sample_crate-jni",
         );

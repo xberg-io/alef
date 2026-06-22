@@ -13,5 +13,5 @@ pub use service::{
     RegistrationVariant, RegistrationVariantLanguageOverride, RegistrationVariantOverride, RegistrationVariantStyle,
     ResolvedVariant, ServiceDef, WrapperConstructorArg, WrapperConstructorCall,
 };
-pub use surface::{ApiSurface, UnsupportedPublicItem};
+pub use surface::{ApiSurface, UnsupportedPublicItem, cfg_feature_satisfied};
 pub use type_ref::{PrimitiveType, TypeRef};

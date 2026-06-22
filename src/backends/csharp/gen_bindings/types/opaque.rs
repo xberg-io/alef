@@ -88,6 +88,13 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_opaque_handle(
             }
             continue;
         }
+        // A static method returning a borrowed reference to its own opaque type (e.g.
+        // `Registry::global() -> &'static Registry`) has no FFI symbol — the FFI backend
+        // cannot box a borrow into an owned `*mut T` handle. Skip the public wrapper so it
+        // does not reference a missing `NativeMethods` P/Invoke entry point.
+        if method.returns_ref_to_owner(&typ.name) {
+            continue;
+        }
         // Static constructor: emit as public constructor instead of instance method
         if is_static_constructor(method, &typ.name) {
             out.push('\n');

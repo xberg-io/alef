@@ -315,6 +315,13 @@ pub(super) fn gen_native_methods(
             if streaming_methods.contains(&method.name) {
                 continue;
             }
+            // A static method returning a borrowed reference to its own opaque type (e.g.
+            // `Registry::global() -> &'static Registry`) has no FFI symbol — the FFI backend
+            // cannot box a borrow into an owned `*mut T` handle. Emitting a `[DllImport]`
+            // here would fail with EntryPointNotFoundException on first call.
+            if method.returns_ref_to_owner(&typ.name) {
+                continue;
+            }
             let c_method_name = format!("{}_{}_{}", prefix, type_snake, method.name.to_lowercase());
             // Use a type-prefixed C# method name to avoid collisions when different types
             // share a method with the same name (e.g. BrowserConfig::default and CrawlConfig::default

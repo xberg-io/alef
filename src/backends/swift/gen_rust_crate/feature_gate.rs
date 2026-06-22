@@ -33,40 +33,12 @@ pub(super) fn source_crate_has_feature(config: &ResolvedCrateConfig, core_crate_
 }
 
 /// Returns `true` when the `cfg` condition is satisfied by `configured_features`.
+///
+/// Thin wrapper over [`crate::core::ir::cfg_feature_satisfied`] so the Rust
+/// bridge crate and the high-level Swift facade share one cfg-matching
+/// implementation (keeping their `visible_*` sets in lockstep).
 pub(super) fn cfg_satisfied(cfg: Option<&str>, configured_features: &HashSet<&str>) -> bool {
-    let Some(cfg_str) = cfg else {
-        return true;
-    };
-
-    if configured_features.contains("full") {
-        return true;
-    }
-
-    if let Some(rest) = cfg_str.strip_prefix("feature = \"")
-        && let Some(feature_name) = rest.strip_suffix('"')
-    {
-        return configured_features.contains(feature_name);
-    }
-
-    if let Some(inner) = cfg_str
-        .strip_prefix("any (")
-        .or_else(|| cfg_str.strip_prefix("any("))
-        .and_then(|s| s.strip_suffix(')'))
-    {
-        let feature_names: Vec<&str> = inner
-            .split(',')
-            .filter_map(|clause| {
-                let trimmed = clause.trim();
-                trimmed.strip_prefix("feature = \"").and_then(|s| s.strip_suffix('"'))
-            })
-            .collect();
-
-        if !feature_names.is_empty() {
-            return feature_names.iter().any(|f| configured_features.contains(f));
-        }
-    }
-
-    true
+    crate::core::ir::cfg_feature_satisfied(cfg, configured_features)
 }
 
 #[cfg(test)]

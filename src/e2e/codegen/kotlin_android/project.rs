@@ -110,7 +110,6 @@ pub(super) fn generate(
             &kotlin_pkg_id,
             &maven_coordinate,
             e2e_config.dep_mode,
-            needs_mock_server,
             &jni_lib_name,
             &jni_crate_path,
         ),

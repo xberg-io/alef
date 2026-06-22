@@ -2063,7 +2063,7 @@ fn test_napi_visitor_bridge_has_obj_field() {
 }
 
 #[test]
-fn test_napi_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() {
+fn test_napi_plugin_bridge_produces_wrapper_struct_with_obj_ref_and_cached_name() {
     use alef::backends::napi::trait_bridge::gen_trait_bridge;
 
     let trait_def = make_trait_def_napi(
@@ -2081,8 +2081,12 @@ fn test_napi_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() 
         "plugin bridge wrapper struct must be JsOcrBackendBridge"
     );
     assert!(
-        code.code.contains("inner:"),
-        "plugin bridge wrapper must have an 'inner' field"
+        code.code.contains("obj_ref:"),
+        "plugin bridge wrapper must hold a persistent 'obj_ref' (ObjectRef), not a borrowed 'inner'"
+    );
+    assert!(
+        !code.code.contains("Object<'static>"),
+        "plugin bridge wrapper must NOT store a borrowed Object<'static> (pins the event loop)"
     );
     assert!(
         code.code.contains("cached_name: String"),
