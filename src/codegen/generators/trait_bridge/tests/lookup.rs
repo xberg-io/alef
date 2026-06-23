@@ -314,3 +314,56 @@ fn native_marshalled_struct_params_allowlists_only_known_serde_structs() {
     assert!(!is_native_marshalled_struct("Plain", &api));
     assert!(!is_native_marshalled_struct("Unknown", &api));
 }
+
+#[test]
+fn find_trait_def_locates_bridge_trait_by_name() {
+    // The trait the bridge wraps lives in `api.types` with `is_trait == true`.
+    let trait_def = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "mylib::Greeter".to_string(),
+        is_trait: true,
+        methods: vec![MethodDef {
+            name: "process".to_string(),
+            ..MethodDef::default()
+        }],
+        ..TypeDef::default()
+    };
+    let api = ApiSurface {
+        types: vec![
+            // A same-named non-trait struct must not shadow the trait.
+            TypeDef {
+                name: "Greeter".to_string(),
+                is_trait: false,
+                ..TypeDef::default()
+            },
+            trait_def,
+            TypeDef {
+                name: "Other".to_string(),
+                is_trait: true,
+                ..TypeDef::default()
+            },
+        ],
+        ..ApiSurface::default()
+    };
+    let bridge = TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        register_fn: Some("register_greeter".to_string()),
+        bind_via: BridgeBinding::FunctionParam,
+        ..TraitBridgeConfig::default()
+    };
+
+    let found = find_trait_def(&bridge, &api).expect("trait def must be found");
+    assert!(
+        found.is_trait,
+        "must resolve the trait, not the struct of the same name"
+    );
+    assert_eq!(found.methods.len(), 1);
+    assert_eq!(found.methods[0].name, "process");
+
+    // A bridge whose trait is not present resolves to None.
+    let missing = TraitBridgeConfig {
+        trait_name: "Absent".to_string(),
+        ..TraitBridgeConfig::default()
+    };
+    assert!(find_trait_def(&missing, &api).is_none());
+}

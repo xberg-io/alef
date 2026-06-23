@@ -208,6 +208,18 @@ pub fn native_marshalled_struct_params(trait_def: &TypeDef, api: &ApiSurface) ->
     out
 }
 
+/// Look up the trait `TypeDef` a bridge wraps, by the bridge's configured `trait_name`.
+///
+/// Trait definitions live in `api.types` with `is_trait == true`. Backends use this to recover the
+/// trait's methods (params + return types) when emitting a typed, host-implementable surface for a
+/// plugin bridge — e.g. an Elixir behaviour or a Python Protocol. Returns `None` when the trait is
+/// not present in `api.types` (e.g. fully excluded from the binding surface).
+pub fn find_trait_def<'a>(bridge: &TraitBridgeConfig, api: &'a ApiSurface) -> Option<&'a TypeDef> {
+    api.types
+        .iter()
+        .find(|typ| typ.is_trait && typ.name == bridge.trait_name)
+}
+
 /// True if `field_ty` references a `Named` type whose name equals `alias`,
 /// allowing for `Option<>` and `Vec<>` wrappers.
 fn field_type_matches_alias(field_ty: &TypeRef, alias: &str) -> bool {

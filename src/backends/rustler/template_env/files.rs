@@ -240,6 +240,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/elixir_top_level_opaque_method.ex.jinja"),
     ),
     (
+        "elixir_trait_behaviour.ex.jinja",
+        include_str!("../templates/elixir_trait_behaviour.ex.jinja"),
+    ),
+    (
         "elixir_trait_register_delegate.ex.jinja",
         include_str!("../templates/elixir_trait_register_delegate.ex.jinja"),
     ),

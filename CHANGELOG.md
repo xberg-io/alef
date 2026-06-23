@@ -78,6 +78,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flagging parameters delivered as native binding objects — so the expected shape of the registered
   named list is documented. (`src/backends/extendr/gen_bindings/r_wrappers.rs`,
   `src/backends/extendr/templates/r_trait_bridge_roxygen.jinja`)
+- **rustler: plugin trait bridges now emit a typed, host-implementable Elixir behaviour.** A
+  plugin-pattern bridge (one with a `register_*` function) emits a `defmodule {App}.{Trait}.Host`
+  behaviour with one `@callback` per trait method — typed params and a typed result — and the
+  `register_*` delegate documents that the dispatching GenServer should forward to a module
+  implementing it. The trait lookup is shared codegen (`find_trait_def` in
+  `src/codegen/generators/trait_bridge/lookup.rs`). The runtime path is unchanged: Rustler has no
+  direct call boundary, so a trait callback's args (including serde-struct params) are still
+  marshalled into a single JSON string carried in the `{:trait_call, method, args_json, reply_id}`
+  message and decoded by the GenServer via `Jason.decode` — only the typed surface is new.
+  (`src/backends/rustler/gen_bindings/public_api_delegates.rs`,
+  `src/backends/rustler/templates/elixir_trait_behaviour.ex.jinja`)
 
 ## [0.26.8] - 2026-06-23
 
