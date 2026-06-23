@@ -37,6 +37,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   struct params as their native struct type and returns as the result type. The `register_*`
   function's `backend` parameter is typed against that interface rather than `untyped`.
   (`src/backends/magnus/gen_stubs.rs`)
+- **napi: trait-callback struct params are passed to the host as native JS objects.** When the Rust
+  core calls back into a JavaScript trait object (e.g. a registered plugin backend), a callback
+  parameter that is a known serde struct is now constructed as the binding's native JS object (the
+  `#[napi(object)]` DTO, built via the same `From<core::T>` conversion used for return values) and
+  converted at the call boundary via `ToNapiValue`, instead of being serialized to a `{:?}` debug
+  string. Enums, opaque/handle types, and excluded/unknown parameters keep their prior
+  representation. The struct/non-struct decision reuses the shared
+  `native_marshalled_struct_params` allowlist. (`src/backends/napi/trait_bridge/visitor_bridge.rs`,
+  `src/backends/napi/trait_bridge/bridge_generator.rs`)
+- **napi: plugin trait-bridge host interfaces now type method returns natively.** The generated
+  TypeScript host interface (already typing struct params natively and typing `register_*`'s
+  callback against the interface) now also types each method's return as the native binding type
+  (e.g. `Promise<Doc>`) instead of the prior opaque `string`. (`src/backends/napi/gen_bindings/errors.rs`)
 
 ## [0.26.8] - 2026-06-23
 

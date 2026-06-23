@@ -2313,10 +2313,10 @@ fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
 
     assert!(
         content.contains("export interface OcrBackend {")
-            && content.contains("  processImage(content: Uint8Array): string")
+            && content.contains("  processImage(content: Uint8Array): ExtractionResult")
             && content.contains("  warmUp(): Promise<void>")
             && content.contains("  shutdown?(): void"),
-        "trait interface must use runtime method names and JSON-string return contract:\n{content}"
+        "trait interface must use runtime method names and the native return type contract:\n{content}"
     );
     assert!(
         content.contains("export declare function registerOcrBackend(impl: OcrBackend): void;"),

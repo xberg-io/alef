@@ -279,7 +279,7 @@ pub(super) fn gen_dts(
                         continue;
                     }
                     let params = dts_params(&method.params, no_prefix, default_types);
-                    let ret = trait_bridge_dts_return_type(&method.return_type, method.is_async);
+                    let ret = trait_bridge_dts_return_type(&method.return_type, method.is_async, no_prefix);
                     lines.extend(format_jsdoc(&method.doc, "  "));
                     let optional_marker = if method.has_default_impl { "?" } else { "" };
                     lines.push(format!("  {js_name}{optional_marker}({params}): {ret}"));
@@ -430,17 +430,19 @@ fn trait_bridge_requires_plugin_name(typ: &TypeDef, trait_bridges: &[crate::core
         .any(|bridge| bridge.trait_name == typ.name && bridge.super_trait.as_deref().is_some())
 }
 
-fn trait_bridge_dts_return_type(return_type: &TypeRef, is_async: bool) -> String {
-    let base = if matches!(return_type, TypeRef::Unit) {
-        "void"
-    } else {
-        "string"
+/// TypeScript return type for a trait-bridge host interface method.
+///
+/// The host interface is the type a JS object must satisfy to be registered as a plugin (or used
+/// as a visitor). Its method returns are typed natively against the binding's emitted type
+/// (`dts_type`) — e.g. a `Doc` return becomes `Doc`, an `Option<Doc>` becomes `Doc | null` — so
+/// callers get a precise contract instead of the prior opaque `string`. `()` returns map to
+/// `void`. Async methods are wrapped in `Promise<...>`.
+fn trait_bridge_dts_return_type(return_type: &TypeRef, is_async: bool, prefix: &str) -> String {
+    let base = match return_type {
+        TypeRef::Unit => "void".to_string(),
+        other => dts_type(other, prefix),
     };
-    if is_async {
-        format!("Promise<{base}>")
-    } else {
-        base.to_string()
-    }
+    if is_async { format!("Promise<{base}>") } else { base }
 }
 
 /// Format a rustdoc string as JSDoc comment lines with the given `indent` prefix.
@@ -702,14 +704,15 @@ mod tests {
 
     #[test]
     fn trait_bridge_dts_return_type_wraps_async_methods_in_promise() {
+        // Async methods wrap the (now natively-typed) return in Promise<...>; sync methods do not.
         assert_eq!(
-            trait_bridge_dts_return_type(&TypeRef::Named("ExtractionResult".to_string()), true),
-            "Promise<string>"
+            trait_bridge_dts_return_type(&TypeRef::Named("ExtractionResult".to_string()), true, ""),
+            "Promise<ExtractionResult>"
         );
-        assert_eq!(trait_bridge_dts_return_type(&TypeRef::Unit, true), "Promise<void>");
+        assert_eq!(trait_bridge_dts_return_type(&TypeRef::Unit, true, ""), "Promise<void>");
         assert_eq!(
-            trait_bridge_dts_return_type(&TypeRef::Named("ExtractionResult".to_string()), false),
-            "string"
+            trait_bridge_dts_return_type(&TypeRef::Named("ExtractionResult".to_string()), false, ""),
+            "ExtractionResult"
         );
     }
 

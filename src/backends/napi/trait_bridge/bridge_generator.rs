@@ -12,6 +12,17 @@ pub struct NapiBridgeGenerator {
     pub type_paths: HashMap<String, String>,
     /// Error type name (e.g., `"SampleCrateError"`).
     pub error_type: String,
+    /// Callback-param type names that get NATIVE-object marshalling — known serde structs per
+    /// the shared [`crate::codegen::generators::trait_bridge::is_native_marshalled_struct`] rule.
+    /// For such a param the bridge constructs the binding's native JS object (the
+    /// `#[napi(object)]` DTO wrapper, via the same `From<core::T>` conversion used for return
+    /// values) and hands THAT to the host method, instead of serializing the param to a string.
+    /// Enums, opaque/handle types, and excluded/unknown `Named` params are absent and keep their
+    /// prior representation.
+    pub struct_param_types: std::collections::HashSet<String>,
+    /// Node type-name prefix (e.g. `"Js"`) used to name the native DTO wrapper for a struct param
+    /// (`Js{TypeName}`), matching the binding's emitted `#[napi(object)]` struct.
+    pub type_prefix: String,
 }
 
 impl TraitBridgeGenerator for NapiBridgeGenerator {
@@ -35,7 +46,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let has_error = method.error_type.is_some();
 
         // Get the JS function from the object
-        let js_args_exprs = build_napi_args(method, spec.bridge_config);
+        let js_args_exprs = build_napi_args(method, spec.bridge_config, &self.struct_param_types, &self.type_prefix);
         let inner_tuple_ty = unknown_tuple_type(js_args_exprs.len());
         let args_tuple_ty = if js_args_exprs.is_empty() {
             inner_tuple_ty.clone()
@@ -109,7 +120,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let snake_method_name = name.clone();
 
         // Build the JS function call
-        let js_args_exprs = build_napi_args(method, spec.bridge_config);
+        let js_args_exprs = build_napi_args(method, spec.bridge_config, &self.struct_param_types, &self.type_prefix);
         let inner_tuple_ty = unknown_tuple_type(js_args_exprs.len());
         let args_tuple_ty = if js_args_exprs.is_empty() {
             inner_tuple_ty.clone()
