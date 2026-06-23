@@ -23,6 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   starts with `_` (positional), the generated forwarder now omits the label so the call matches the
   underlying signature. (`backends/swift/gen_bindings/overloads.rs`)
 
+### Changed
+
+- **Swift `gen_rust_crate` internals refactored for maintainability (no output change).** Extracted
+  the JSON `extern "Rust"` block emission into `emit_type_from_json_extern_block` /
+  `emit_enum_from_json_extern_block` helpers in `json_bridge.rs`, slimmed `emit_lib_rs` and the
+  capsule-shim emitters in `shims.rs`, and split the `extern_block` unit tests into a dedicated
+  `extern_block/` submodule (`capsule_function_tests`, `cfg_filtered_fields_tests`,
+  `streaming_extern_tests`). Generated swift-bridge output is unchanged; swift backend tests pass.
+
 ## [0.26.4] - 2026-06-22
 
 ### Fixed

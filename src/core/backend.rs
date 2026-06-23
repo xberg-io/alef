@@ -92,7 +92,7 @@ pub enum PostBuildStep {
     /// glue/headers from target/*/out into Sources/RustBridge{,C}). Must run
     /// AFTER the cargo build RunCommand so it picks up current output, not stale.
     MaterializeSwiftBridge {
-        /// Hyphenated binding crate name (e.g. `tree-sitter-language-pack-swift`),
+        /// Hyphenated binding crate name (e.g. `sample-lib-swift`),
         /// matching the cargo build output dir prefix `{name}-swift-<hash>`.
         binding_crate_name: String,
         /// Swift package root (the dir containing `Sources/`), relative to the

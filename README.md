@@ -179,7 +179,7 @@ extern "C" fn alef_extension_factory() -> Box<dyn alef::Extension> {
 
 Declare `[[extensions.template]]` blocks in `alef.toml` pointing to Jinja templates. Alef's built-in `TemplateExtension` emits them — no Rust required.
 
-For the full walkthrough, trait reference, and per-language emission patterns, see [Extending Alef](docs/extending.md).
+The full extension walkthrough covers trait references and per-language emission patterns.
 
 ## CLI Reference
 

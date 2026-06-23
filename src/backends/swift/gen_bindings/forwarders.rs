@@ -887,7 +887,9 @@ fn emit_capsule_free_function_forwarder(
             "let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ throw {nil_error} }}\n    return {construct}"
         )
     } else {
-        format!("let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ return nil }}\n    return {construct}")
+        format!(
+            "let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ return nil }}\n    return {construct}"
+        )
     };
 
     out.push_str(&crate::backends::swift::template_env::render(
@@ -966,7 +968,9 @@ fn emit_async_capsule_free_function_forwarder(
             "let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ throw {nil_error} }}\n    return {construct}"
         )
     } else {
-        format!("let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ return nil }}\n    return {construct}")
+        format!(
+            "let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ return nil }}\n    return {construct}"
+        )
     };
 
     out.push_str(&crate::backends::swift::template_env::render(

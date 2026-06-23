@@ -1,6 +1,7 @@
 //! Rust-side JSON bridge shims for generated swift-bridge crates.
 
-use crate::core::ir::{ApiSurface, FunctionDef, TypeDef};
+use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, TypeDef};
+use heck::AsSnakeCase;
 
 pub(super) fn emit_from_json_extern_decl(out: &mut String, snake_name: &str, wrapper_name: &str) {
     use heck::ToLowerCamelCase;
@@ -14,6 +15,30 @@ pub(super) fn emit_from_json_extern_decl(out: &mut String, snake_name: &str, wra
             wrapper_name => wrapper_name,
         },
     ));
+}
+
+pub(super) fn emit_type_from_json_extern_block(out: &mut String, types: &[&TypeDef]) {
+    if types.is_empty() {
+        return;
+    }
+    out.push_str("    extern \"Rust\" {\n");
+    for ty in types {
+        let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
+        emit_from_json_extern_decl(out, &type_snake, &ty.name);
+    }
+    out.push_str("    }\n");
+}
+
+pub(super) fn emit_enum_from_json_extern_block(out: &mut String, enums: &[&EnumDef]) {
+    if enums.is_empty() {
+        return;
+    }
+    out.push_str("    extern \"Rust\" {\n");
+    for en in enums {
+        let enum_snake = AsSnakeCase(en.name.as_str()).to_string();
+        emit_from_json_extern_decl(out, &enum_snake, &en.name);
+    }
+    out.push_str("    }\n");
 }
 
 pub(super) fn emit_from_json_shim(

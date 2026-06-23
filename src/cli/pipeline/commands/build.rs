@@ -596,15 +596,12 @@ pub fn run_post_build(
                     binding_crate_name,
                     &package_root,
                 )
-                .with_context(|| {
-                    format!("failed to re-materialize swift-bridge files for '{binding_crate_name}'")
-                })?;
+                .with_context(|| format!("failed to re-materialize swift-bridge files for '{binding_crate_name}'"))?;
                 if let Some(files) = materialized {
                     for f in files {
                         if let Some(parent) = f.path.parent() {
-                            std::fs::create_dir_all(parent).with_context(|| {
-                                format!("failed to create directory {}", parent.display())
-                            })?;
+                            std::fs::create_dir_all(parent)
+                                .with_context(|| format!("failed to create directory {}", parent.display()))?;
                         }
                         std::fs::write(&f.path, &f.content)
                             .with_context(|| format!("failed to write {}", f.path.display()))?;

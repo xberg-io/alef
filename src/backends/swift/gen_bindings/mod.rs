@@ -130,7 +130,7 @@ impl Backend for SwiftBackend {
         // (e.g., "SwiftTreeSitter.Language"), extract the module name (e.g., "SwiftTreeSitter")
         // and add an import statement.
         if let Some(swift_config) = &config.swift {
-            for (_type_name, capsule_cfg) in &swift_config.capsule_types {
+            for capsule_cfg in swift_config.capsule_types.values() {
                 // Extract the first dotted component from host_type.
                 // e.g., "SwiftTreeSitter.Language" → "SwiftTreeSitter"
                 if let Some(module_name) = capsule_cfg.host_type.split('.').next() {
@@ -825,7 +825,7 @@ impl Backend for SwiftBackend {
 
         // Use the hyphenated crate name so it matches the cargo build output dir
         // prefix `{config.name}-swift-<hash>` (the generate phase uses
-        // `api.crate_name`, which may be underscored and mis-match).
+        // `api.crate_name`, which may be underscored and mismatch).
         let binding_crate_name = format!("{}-swift", config.name);
 
         // Compute the Swift package root the same way the generate phase does:

@@ -635,40 +635,16 @@ fn emit_lib_rs(
     for block in &extern_blocks {
         out.push_str(block);
     }
-    if !extra_serde_param_types.is_empty() {
-        out.push_str("    extern \"Rust\" {\n");
-        for ty in &extra_serde_param_types {
-            let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
-            let type_name = &ty.name;
-            json_bridge::emit_from_json_extern_decl(&mut out, &type_snake, type_name);
-        }
-        out.push_str("    }\n");
-    }
+    json_bridge::emit_type_from_json_extern_block(&mut out, &extra_serde_param_types);
     // Emit from_json extern blocks for streaming item types.
     // The streaming wrapper calls `RustBridge.{itemType}FromJson(json)` on the
     // Swift side to deserialise each JSON chunk into the opaque type.
-    if !streaming_item_types.is_empty() {
-        out.push_str("    extern \"Rust\" {\n");
-        for ty in &streaming_item_types {
-            let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
-            let type_name = &ty.name;
-            json_bridge::emit_from_json_extern_decl(&mut out, &type_snake, type_name);
-        }
-        out.push_str("    }\n");
-    }
+    json_bridge::emit_type_from_json_extern_block(&mut out, &streaming_item_types);
     // Emit from_json extern blocks for any other DTO that Swift will JSON-encode.
     // Now broadened to every serde-enabled, non-opaque, non-trait struct type so
     // every `RustBridge.{Type}FromJson(json)` call from the Swift userland has a
     // matching link symbol — see the `json_fallback_types` comment above.
-    if !json_fallback_types.is_empty() {
-        out.push_str("    extern \"Rust\" {\n");
-        for ty in &json_fallback_types {
-            let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
-            let type_name = &ty.name;
-            json_bridge::emit_from_json_extern_decl(&mut out, &type_snake, type_name);
-        }
-        out.push_str("    }\n");
-    }
+    json_bridge::emit_type_from_json_extern_block(&mut out, &json_fallback_types);
     // Enum from_json declarations — pair every serde-enabled enum with a
     // `{enum}_from_json(json: String) -> Result<EnumWrapper, String>` shim so the
     // Swift `extension Enum.intoRust()` JSON path links cleanly. The wrapper enum
@@ -685,15 +661,7 @@ fn emit_lib_rs(
         .filter(|en| !result_type_enums.contains(&en.name))
         .copied()
         .collect();
-    if !json_fallback_enums_filtered.is_empty() {
-        out.push_str("    extern \"Rust\" {\n");
-        for en in &json_fallback_enums_filtered {
-            let enum_snake = AsSnakeCase(en.name.as_str()).to_string();
-            let enum_name = &en.name;
-            json_bridge::emit_from_json_extern_decl(&mut out, &enum_snake, enum_name);
-        }
-        out.push_str("    }\n");
-    }
+    json_bridge::emit_enum_from_json_extern_block(&mut out, &json_fallback_enums_filtered);
 
     // Emit phantom Vec<T> references for all opaque types so swift-bridge-build
     // generates the __swift_bridge__$Vec_T$* C symbols that Swift needs.
@@ -843,17 +811,17 @@ fn emit_lib_rs(
         out.push_str(&enums::emit_enum_wrapper(en, &source_crate, &type_paths));
         out.push('\n');
     }
+    let function_shim_context = shims::FunctionShimContext {
+        source_crate: &source_crate,
+        type_paths: &type_paths,
+        unit_enum_names: &unit_enum_names,
+        tagged_enum_names: &tagged_enum_names,
+        no_serde_names: &no_serde_names,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &swift_capsule_types,
+    };
     for f in &visible_functions {
-        out.push_str(&shims::emit_function_shim(
-            f,
-            &source_crate,
-            &type_paths,
-            &unit_enum_names,
-            &tagged_enum_names,
-            &no_serde_names,
-            &handle_returned_types,
-            &swift_capsule_types,
-        ));
+        out.push_str(&shims::emit_function_shim(f, &function_shim_context));
         out.push('\n');
     }
     for (_bridge_cfg, trait_def) in &active_bridges {

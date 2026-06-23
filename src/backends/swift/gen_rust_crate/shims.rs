@@ -16,6 +16,16 @@ use crate::core::ir::{FunctionDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
 
+pub(crate) struct FunctionShimContext<'a> {
+    pub(crate) source_crate: &'a str,
+    pub(crate) type_paths: &'a HashMap<String, String>,
+    pub(crate) unit_enum_names: &'a HashSet<&'a str>,
+    pub(crate) tagged_enum_names: &'a HashSet<&'a str>,
+    pub(crate) no_serde_names: &'a HashSet<&'a str>,
+    pub(crate) handle_returned_types: &'a HashSet<String>,
+    pub(crate) capsule_types: &'a HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
+}
+
 /// Returns true when a function can be fully bridged.
 ///
 /// A function is unbridgeable when any parameter is an enum bridge wrapper (no reverse From),
@@ -324,16 +334,15 @@ pub(crate) fn swift_call_arg(
     }
 }
 
-pub(crate) fn emit_function_shim(
-    f: &FunctionDef,
-    source_crate: &str,
-    type_paths: &HashMap<String, String>,
-    unit_enum_names: &HashSet<&str>,
-    tagged_enum_names: &HashSet<&str>,
-    no_serde_names: &HashSet<&str>,
-    handle_returned_types: &HashSet<String>,
-    capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
-) -> String {
+pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<'_>) -> String {
+    let source_crate = context.source_crate;
+    let type_paths = context.type_paths;
+    let unit_enum_names = context.unit_enum_names;
+    let tagged_enum_names = context.tagged_enum_names;
+    let no_serde_names = context.no_serde_names;
+    let handle_returned_types = context.handle_returned_types;
+    let capsule_types = context.capsule_types;
+
     // Match the extern block's escaping so the wrapper fn matches the extern decl.
     let fn_name = swift_ident(&f.name.to_snake_case());
 
@@ -599,13 +608,9 @@ pub(crate) fn emit_function_shim(
         // converted via .into_raw() as usize. On error, return 0 (null sentinel).
         // The Swift forwarder then reconstructs OpaquePointer(bitPattern:) and checks for 0.
         if f.is_async {
-            format!(
-                "{source_call}.await.map(|__cap| __cap.into_raw() as usize).unwrap_or(0)"
-            )
+            format!("{source_call}.await.map(|__cap| __cap.into_raw() as usize).unwrap_or(0)")
         } else if f.error_type.is_some() {
-            format!(
-                "{source_call}.map(|__cap| __cap.into_raw() as usize).unwrap_or(0)"
-            )
+            format!("{source_call}.map(|__cap| __cap.into_raw() as usize).unwrap_or(0)")
         } else {
             // Infallible capsule: just convert the pointer to usize.
             format!("{source_call}.into_raw() as usize")
@@ -764,16 +769,17 @@ mod tests {
         ));
 
         let capsule_types = std::collections::HashMap::new();
-        let shim = emit_function_shim(
-            &f,
-            "sample_crawler",
-            &type_paths,
-            &enum_names,
-            &no_serde_names,
-            &HashSet::new(),
-            &handle_returned_types,
-            &capsule_types,
-        );
+        let tagged_enum_names = HashSet::new();
+        let context = FunctionShimContext {
+            source_crate: "sample_crawler",
+            type_paths: &type_paths,
+            unit_enum_names: &enum_names,
+            tagged_enum_names: &tagged_enum_names,
+            no_serde_names: &no_serde_names,
+            handle_returned_types: &handle_returned_types,
+            capsule_types: &capsule_types,
+        };
+        let shim = emit_function_shim(&f, &context);
         assert!(shim.contains("actions: Vec<String>"));
         // Enum params are converted via From<String>, not JSON deserialization.
         // Swift delivers plain wire strings (e.g. "click"), not JSON-encoded strings
@@ -792,16 +798,17 @@ mod tests {
         let handle_returned_types = HashSet::new();
 
         let capsule_types = std::collections::HashMap::new();
-        let shim = emit_function_shim(
-            &f,
-            "sample_crawler",
-            &type_paths,
-            &enum_names,
-            &no_serde_names,
-            &HashSet::new(),
-            &handle_returned_types,
-            &capsule_types,
-        );
+        let tagged_enum_names = HashSet::new();
+        let context = FunctionShimContext {
+            source_crate: "sample_crawler",
+            type_paths: &type_paths,
+            unit_enum_names: &enum_names,
+            tagged_enum_names: &tagged_enum_names,
+            no_serde_names: &no_serde_names,
+            handle_returned_types: &handle_returned_types,
+            capsule_types: &capsule_types,
+        };
+        let shim = emit_function_shim(&f, &context);
         assert!(shim.contains("action: String"));
         // Enum params must use From<String>, not JSON deserialization.
         assert!(shim.contains("From<String>"));
@@ -835,16 +842,16 @@ mod tests {
         ));
 
         let capsule_types = std::collections::HashMap::new();
-        let shim = emit_function_shim(
-            &f,
-            "sample_crawler",
-            &type_paths,
-            &unit_enum_names,
-            &no_serde_names,
-            &tagged_enum_names,
-            &handle_returned_types,
-            &capsule_types,
-        );
+        let context = FunctionShimContext {
+            source_crate: "sample_crawler",
+            type_paths: &type_paths,
+            unit_enum_names: &unit_enum_names,
+            tagged_enum_names: &tagged_enum_names,
+            no_serde_names: &no_serde_names,
+            handle_returned_types: &handle_returned_types,
+            capsule_types: &capsule_types,
+        };
+        let shim = emit_function_shim(&f, &context);
         // The shim should take Vec<String> from Swift.
         assert!(shim.contains("names: Vec<String>"));
         // The shim must convert to &[&str] via iter().map(|s| s.as_str()).
