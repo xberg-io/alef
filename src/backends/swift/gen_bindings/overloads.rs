@@ -124,10 +124,24 @@ pub(super) fn emit_json_string_overloads(
         let mut call_args: Vec<String> = Vec::new();
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
-            if let Some((_, type_var_name)) = json_local_names.get(&i) {
-                call_args.push(format!("{param_name}: {type_var_name}"));
+            // Check if the original Rust parameter name starts with underscore (positional arg).
+            // If so, emit positional arguments (no parameter label) in the call.
+            let is_positional = param.name.starts_with('_');
+
+            if is_positional {
+                // Emit positional argument (no label)
+                if let Some((_, type_var_name)) = json_local_names.get(&i) {
+                    call_args.push(type_var_name.clone());
+                } else {
+                    call_args.push(param_name.clone());
+                }
             } else {
-                call_args.push(format!("{param_name}: {param_name}"));
+                // Emit named argument
+                if let Some((_, type_var_name)) = json_local_names.get(&i) {
+                    call_args.push(format!("{param_name}: {type_var_name}"));
+                } else {
+                    call_args.push(format!("{param_name}: {param_name}"));
+                }
             }
         }
         let call_args_str = call_args.join(", ");
