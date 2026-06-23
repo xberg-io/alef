@@ -1,3 +1,6 @@
-{# Mirror struct declarations must be cfg-gated when they reference feature-gated types. #}
-{% if source_cfg %}#[cfg({{ source_cfg }})]
-{% endif %}#[frb(mirror({{ name }}))]
+{# Mirror struct declarations stay unconditional: frb_generated.rs references them #}
+{# (and `crate::{Name}`) unconditionally, so gating the declaration on `source_cfg` #}
+{# leaves dangling paths whenever the feature is off. The mirror crate always pins #}
+{# the core dependency with its full feature set, so the wrapped types are always #}
+{# available. See rust_mirror_enum_attribute.jinja for the full rationale. #}
+#[frb(mirror({{ name }}))]

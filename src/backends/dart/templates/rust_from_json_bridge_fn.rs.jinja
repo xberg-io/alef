@@ -1,5 +1,7 @@
-{% if source_cfg %}#[cfg({{ source_cfg }})]
-{% endif %}#[frb]
+{# from_json bridge fns stay unconditional: frb_generated.rs wires them in regardless #}
+{# of feature flags, and the mirror crate pins the core dependency with its full #}
+{# feature set. See rust_mirror_enum_attribute.jinja for the full rationale. #}
+#[frb]
 pub fn {{ fn_name }}(json: String) -> Result<{{ type_name }}, String> {
     serde_json::from_str::<{{ core_ty }}>(&json)
         .map({{ type_name }}::from)

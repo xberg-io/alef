@@ -1,5 +1,6 @@
-{# Mirror conversions must be cfg-gated when they reference feature-gated types. #}
-{% if source_cfg %}#[cfg({{ source_cfg }})]
-{% endif %}impl From<{{ core_ty }}> for {{ name }} {
+{# Mirror conversions stay unconditional: frb_generated.rs calls them implicitly and #}
+{# the mirror crate pins the core dependency with its full feature set. See #}
+{# rust_mirror_enum_attribute.jinja for the full rationale. #}
+impl From<{{ core_ty }}> for {{ name }} {
     fn from(v: {{ core_ty }}) -> Self {
         {{ name }} {
