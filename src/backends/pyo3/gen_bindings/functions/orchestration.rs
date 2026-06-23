@@ -410,6 +410,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         &enum_names,
         &data_enum_names,
         dto,
+        reexported_types,
     );
 
     emit_function_wrappers(
