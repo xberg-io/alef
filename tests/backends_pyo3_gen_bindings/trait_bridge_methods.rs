@@ -53,7 +53,10 @@ fn test_gen_sync_method_body_string_return_no_error() {
     let method = make_method_def("name", vec![], TypeRef::String, false, false, false);
     let body = generator.gen_sync_method_body(&method, &spec);
 
-    assert!(body.contains("getattr(\"name\")"), "should resolve the host method by name");
+    assert!(
+        body.contains("getattr(\"name\")"),
+        "should resolve the host method by name"
+    );
     assert!(
         body.contains("call_method1(\"run\""),
         "should invoke the host method via the caller's contextvars context"
