@@ -47,14 +47,16 @@ pub(super) fn render_build_gradle_kotlin_android(
     let jna = maven::JNA;
     let jspecify = maven::JSPECIFY;
     let coroutines = maven::KOTLINX_COROUTINES_CORE;
-    // The JUnit Platform launcher must always be on the test *runtime* classpath:
-    // the Gradle Test Executor loads it to discover and launch JUnit Platform
-    // tests. Without it every run fails before any test executes with
-    // "Failed to load JUnit Platform ... including the JUnit Platform launcher".
-    // It is runtime-only (no compile-time symbols are referenced), so scope it
-    // `testRuntimeOnly`. The mock-server path additionally relies on it for the
-    // LauncherSessionListener SPI, but that no longer gates its inclusion.
-    let launcher_dep = format!(r#"    testRuntimeOnly("org.junit.platform:junit-platform-launcher:{junit}")"#);
+    // The JUnit Platform launcher must be on the test classpath at both compile
+    // and runtime: the Gradle Test Executor loads it at runtime to discover and
+    // launch JUnit Platform tests, and the generated `MockServerListener`
+    // implements the `LauncherSessionListener` SPI, referencing
+    // `org.junit.platform.launcher.{LauncherSession, LauncherSessionListener}`
+    // as compile-time symbols. Scoping it `testRuntimeOnly` keeps it off the
+    // compile classpath and fails Kotlin compilation with
+    // "Unresolved reference 'launcher'", so use `testImplementation` (a superset
+    // of `testRuntimeOnly` that covers both compile and runtime).
+    let launcher_dep = format!(r#"    testImplementation("org.junit.platform:junit-platform-launcher:{junit}")"#);
 
     // In registry mode: depend on the published Maven artifact and declare
     // mavenCentral()/google() repos explicitly so the test_app is standalone.
@@ -506,10 +508,12 @@ mod tests {
     }
 
     /// Regression: build.gradle.kts must always put the JUnit Platform launcher
-    /// on the test runtime classpath. Without it the Gradle Test Executor fails
-    /// before any test runs with "Failed to load JUnit Platform ... including the
-    /// JUnit Platform launcher". It must be `testRuntimeOnly` and present in both
-    /// dependency modes, regardless of whether a mock server is needed.
+    /// on the test classpath. The Gradle Test Executor loads it at runtime to
+    /// discover and launch JUnit Platform tests, and the generated
+    /// `MockServerListener` references `LauncherSession`/`LauncherSessionListener`
+    /// at compile time. It must be `testImplementation` (covering both compile
+    /// and runtime) and present in both dependency modes, regardless of whether a
+    /// mock server is needed.
     #[test]
     fn build_gradle_kotlin_android_always_includes_junit_platform_launcher() {
         for dep_mode in [
@@ -524,8 +528,8 @@ mod tests {
                 "../../crates/sample_crate-jni",
             );
             assert!(
-                output.contains(r#"testRuntimeOnly("org.junit.platform:junit-platform-launcher:"#),
-                "build.gradle.kts ({dep_mode:?}) must declare junit-platform-launcher as testRuntimeOnly, got:\n{output}"
+                output.contains(r#"testImplementation("org.junit.platform:junit-platform-launcher:"#),
+                "build.gradle.kts ({dep_mode:?}) must declare junit-platform-launcher as testImplementation, got:\n{output}"
             );
             assert!(
                 output.contains("useJUnitPlatform()"),
