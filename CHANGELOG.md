@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **backends/kotlin-android: bump generated Gradle plugin + dependency versions to latest stable.** The
+  emitted `build.gradle.kts` now pins jackson (`jackson-databind`, `jackson-module-kotlin`,
+  `jackson-datatype-jdk8`) `2.21.3` → `2.22.0`, the `org.jlleitschuh.gradle.ktlint` plugin
+  `13.1.0` → `14.2.0`, `com.vanniktech.maven.publish` (plugin + buildscript classpath)
+  `0.36.0` → `0.37.0`, `com.github.ben-manes.versions` `0.52.0` → `0.54.0`, and the
+  `com.android.library` Android Gradle Plugin `9.2.0` → `9.2.1` (the latest stable AGP; everything
+  above `9.2.1` on Google's Maven is `-alpha`/`-rc`). Never emit pre-release (`-alpha`/`-beta`/`-rc`)
+  versions. (`core/template_versions.rs`)
+
 ## [0.26.6] - 2026-06-23
 
 ### Fixed

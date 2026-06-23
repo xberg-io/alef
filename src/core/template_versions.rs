@@ -257,7 +257,7 @@ pub mod maven {
     pub const JSPECIFY: &str = "1.0.0";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
-    pub const JACKSON: &str = "2.21.3";
+    pub const JACKSON: &str = "2.22.0";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-annotations
     pub const JACKSON_ANNOTATIONS: &str = "2.21";
@@ -275,13 +275,13 @@ pub mod maven {
     pub const KOTLIN_JVM_PLUGIN: &str = "2.4.0";
 
     // renovate: datasource=maven depName=com.android.tools.build:gradle
-    pub const ANDROID_GRADLE_PLUGIN: &str = "9.2.0";
+    pub const ANDROID_GRADLE_PLUGIN: &str = "9.2.1";
 
     // renovate: datasource=maven depName=org.jlleitschuh.gradle:ktlint-gradle
-    pub const KTLINT_GRADLE_PLUGIN: &str = "13.1.0";
+    pub const KTLINT_GRADLE_PLUGIN: &str = "14.2.0";
 
     // renovate: datasource=maven depName=com.github.ben-manes:gradle-versions-plugin
-    pub const GRADLE_VERSIONS_PLUGIN: &str = "0.52.0";
+    pub const GRADLE_VERSIONS_PLUGIN: &str = "0.54.0";
 
     // renovate: datasource=github-releases depName=pinterest/ktlint
     pub const KTLINT: &str = "1.8.0";
@@ -302,7 +302,7 @@ pub mod maven {
     pub const ANDROIDX_TEST_ESPRESSO_CORE: &str = "3.7.0";
 
     // renovate: datasource=gradle-plugin depName=com.vanniktech.maven.publish
-    pub const VANNIKTECH_MAVEN_PUBLISH: &str = "0.36.0";
+    pub const VANNIKTECH_MAVEN_PUBLISH: &str = "0.37.0";
 }
 
 pub mod nuget {
