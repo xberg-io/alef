@@ -21,14 +21,7 @@ pub(crate) fn scaffold_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         .as_ref()
         .map(|c| {
             // Collect import names from capsule types that have a package.
-            let import_names: std::collections::BTreeSet<String> = c
-                .capsule_types
-                .values()
-                .filter(|cap| !cap.package.is_empty())
-                .filter_map(|cap| {
-                    crate::core::config::languages::zig_capsule_import_name(&cap.host_type).map(|s| s.to_string())
-                })
-                .collect();
+            let import_names = crate::core::config::languages::zig_capsule_import_names(&c.capsule_types);
             if import_names.is_empty() {
                 return String::new();
             }

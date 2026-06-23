@@ -116,6 +116,21 @@ pub fn zig_capsule_import_name(host_type: &str) -> Option<&str> {
     qualified.split('.').next()
 }
 
+/// Collect the distinct Zig module import names for every capsule type that declares a
+/// non-empty `package`. Shared by the scaffolded in-tree `build.zig` and the published
+/// distributable `build.zig` so their `b.dependency`/`addImport` wiring stays in sync —
+/// a published tarball missing this wiring fails consumers with
+/// `no module named '<name>' available within module '<module>'`.
+pub fn zig_capsule_import_names(
+    capsule_types: &std::collections::HashMap<String, HostCapsuleTypeConfig>,
+) -> std::collections::BTreeSet<String> {
+    capsule_types
+        .values()
+        .filter(|cap| !cap.package.is_empty())
+        .filter_map(|cap| zig_capsule_import_name(&cap.host_type).map(|s| s.to_string()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

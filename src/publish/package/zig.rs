@@ -98,7 +98,7 @@ pub fn package_zig(
     // resolves package-relative and works inside the Zig global cache.
     fs::write(
         staging.join("build.zig"),
-        render_distributable_build_zig(&module_name, &lib_name),
+        render_distributable_build_zig(&module_name, &lib_name, config),
     )
     .context("writing distributable build.zig into Zig package")?;
 
@@ -126,7 +126,29 @@ pub fn package_zig(
 /// so they work from the global Zig cache when consumed via `zig fetch`. It
 /// exports the `{module_name}` module; a consumer links it with
 /// `b.dependency("<pkg>", .{ ... }).module("{module_name}")`.
-fn render_distributable_build_zig(module_name: &str, ffi_lib_name: &str) -> String {
+fn render_distributable_build_zig(module_name: &str, ffi_lib_name: &str, config: &ResolvedCrateConfig) -> String {
+    // Host-native capsule passthrough: wire each capsule dependency's module into the
+    // distributed module, mirroring the in-tree scaffold's `build.zig`. The distributed
+    // build has no test module, so only the public `module` import is emitted. Without
+    // this, consumers fail with `no module named '<name>' available within module
+    // '{module_name}'` — the staged `build.zig.zon` declares the dependency, but a
+    // `build.zig` that never imports it leaves the module unresolved.
+    let capsule_imports_block: String = config
+        .zig
+        .as_ref()
+        .map(|c| {
+            let import_names = crate::core::config::languages::zig_capsule_import_names(&c.capsule_types);
+            let mut block = String::new();
+            for name in &import_names {
+                block.push_str(&format!(
+                    "    const {name}_dep = b.dependency(\"{name}\", .{{\n        \
+                     .target = target,\n        .optimize = optimize,\n    }});\n    \
+                     module.addImport(\"{name}\", {name}_dep.module(\"{name}\"));\n"
+                ));
+            }
+            block
+        })
+        .unwrap_or_default();
     format!(
         r#"const std = @import("std");
 
@@ -146,7 +168,7 @@ pub fn build(b: *std.Build) void {{
     module.addLibraryPath(b.path("lib"));
     module.addIncludePath(b.path("include"));
     module.linkSystemLibrary("{ffi_lib_name}", .{{}});
-}}
+{capsule_imports_block}}}
 "#
     )
 }
@@ -178,10 +200,28 @@ fn add_bundled_paths_to_manifest(manifest: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::config::NewAlefConfig;
+
+    fn resolve_config(toml_text: &str) -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(toml_text).expect("valid config");
+        cfg.resolve().expect("resolve").remove(0)
+    }
+
+    fn config_no_capsule() -> ResolvedCrateConfig {
+        resolve_config(
+            r#"
+[workspace]
+languages = ["zig"]
+[[crates]]
+name = "sample-lib"
+sources = []
+"#,
+        )
+    }
 
     #[test]
     fn distributable_build_zig_links_bundled_lib() {
-        let s = render_distributable_build_zig("sample_router", "sample_router_ffi");
+        let s = render_distributable_build_zig("sample_router", "sample_router_ffi", &config_no_capsule());
         assert!(
             s.contains("b.addModule(\"sample_router\""),
             "must export the module:\n{s}"
@@ -246,7 +286,7 @@ mod tests {
         // Regression test: packaged Zig archives must not retain workspace-relative
         // library paths from the in-tree build file.
         // where rc.57 tarball included workspace-relative paths instead of bundled libs.
-        let s = render_distributable_build_zig("sample_lib", "sample_lib_ffi");
+        let s = render_distributable_build_zig("sample_lib", "sample_lib_ffi", &config_no_capsule());
 
         // Must NOT contain workspace-relative paths that break consumers.
         assert!(
@@ -271,5 +311,40 @@ mod tests {
 
         // Must link libc so C header symbols resolve.
         assert!(s.contains(".link_libc = true"), "must enable libc linking:\n{s}");
+    }
+
+    #[test]
+    fn distributable_build_zig_wires_capsule_imports() {
+        let config = resolve_config(
+            r#"
+[workspace]
+languages = ["zig"]
+[[crates]]
+name = "sample-lib"
+sources = []
+
+[crates.zig.capsule_types.Language]
+host_type = "?*const tree_sitter.Language"
+package = "https://github.com/tree-sitter/zig-tree-sitter/archive/refs/tags/v0.26.0.tar.gz"
+package_version = "tree_sitter-0.26.0-deadbeef"
+"#,
+        );
+        let s = render_distributable_build_zig("sample_lib", "sample_lib_ffi", &config);
+
+        // build.zig.zon declares the dependency; build.zig must wire it into the module,
+        // or consumers hit `no module named 'tree_sitter'`.
+        assert!(
+            s.contains("b.dependency(\"tree_sitter\""),
+            "distributable build.zig must resolve the capsule dependency:\n{s}"
+        );
+        assert!(
+            s.contains("module.addImport(\"tree_sitter\", tree_sitter_dep.module(\"tree_sitter\"))"),
+            "distributable build.zig must import the capsule module:\n{s}"
+        );
+        // The distributable build script has no test module — only the public module.
+        assert!(
+            !s.contains("test_module"),
+            "distributable build.zig must not reference a test module:\n{s}"
+        );
     }
 }

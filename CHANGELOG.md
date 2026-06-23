@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.8] - 2026-06-23
+
+### Fixed
+
+- **scaffold/swift: root `Package.swift` now injects host-native capsule dependencies.** The
+  published-distribution root manifest (used by external consumers via `.package(url:, from:)`)
+  declared no swift-tree-sitter dependency, even though the generated source does
+  `import SwiftTreeSitter` — so any consumer of a passthrough-enabled Swift package failed with
+  `no such module 'SwiftTreeSitter'`. The root manifest now reuses the same `package_dependencies`
+  and module-target `.product(...)` injection as the in-tree manifest. (`src/scaffold/languages/swift.rs`)
+- **publish/zig: distributable `build.zig` now wires capsule imports.** The per-platform release
+  tarball overwrote the in-tree `build.zig` with a variant that dropped the capsule
+  `b.dependency(...)` / `module.addImport(...)` wiring, while `build.zig.zon` still declared the
+  dependency — so `zig fetch` consumers failed with `no module named 'tree_sitter' available within
+  module '<module>'`. `render_distributable_build_zig` now emits the module-level capsule wiring via
+  the shared `zig_capsule_import_names` helper. (`src/publish/package/zig.rs`,
+  `src/core/config/languages/capsule.rs`)
+
 ## [0.26.7] - 2026-06-23
 
 ### Fixed

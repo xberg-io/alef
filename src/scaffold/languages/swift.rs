@@ -332,7 +332,7 @@ let package = Package(
   ],
   products: [
     .library(name: "{module}", targets: ["{module}"])
-  ],
+  ],{package_dependencies}
   targets: [
     // RustBridgeC: C headers target. Swift files in RustBridge import this to
     // access C types (RustStr, etc.) produced by swift-bridge.
@@ -371,7 +371,7 @@ let package = Package(
     ),
     .target(
       name: "{module}",
-      dependencies: ["RustBridge", "RustBridgeC"],
+      dependencies: ["RustBridge", "RustBridgeC"{module_target_capsule_deps}],
       path: "packages/swift/Sources/{module}"
     ),
   ]
@@ -381,6 +381,8 @@ let package = Package(
             min_macos = min_macos_major,
             min_ios = min_ios_major,
             repository = repository.trim_end_matches('/'),
+            package_dependencies = package_dependencies,
+            module_target_capsule_deps = module_target_capsule_deps,
         )
     });
 
@@ -832,6 +834,46 @@ package_version = "0.25.0"
         assert!(
             pkg.content.contains("0.25.0"),
             "capsule package version must be present in dependencies: block"
+        );
+    }
+
+    /// The root (published-distribution) Package.swift must inject the same host-native
+    /// capsule dependencies as the in-tree manifest. Without them, remote consumers fail
+    /// to compile the generated `import SwiftTreeSitter` with `no such module 'SwiftTreeSitter'`.
+    #[test]
+    fn root_package_swift_injects_capsule_dependencies() {
+        let config = resolve_config(
+            r#"
+[workspace]
+languages = ["swift"]
+[[crates]]
+name = "my-lib"
+sources = []
+
+[crates.scaffold]
+repository = "https://github.com/acme/my-lib"
+
+[crates.swift.capsule_types.Language]
+host_type = "SwiftTreeSitter.Language"
+package = "https://github.com/tree-sitter/swift-tree-sitter"
+package_version = "0.25.0"
+"#,
+        );
+        let api = ApiSurface::default();
+        let files = scaffold_swift(&api, &config).expect("scaffold");
+        let pkg = find_file(&files, "Package.swift");
+
+        assert!(
+            pkg.content
+                .contains(".package(url: \"https://github.com/tree-sitter/swift-tree-sitter\""),
+            "root manifest must declare the capsule package dependency. Full content:\n{}",
+            pkg.content
+        );
+        assert!(
+            pkg.content
+                .contains(".product(name: \"SwiftTreeSitter\", package: \"swift-tree-sitter\")"),
+            "root manifest module target must depend on the capsule product. Full content:\n{}",
+            pkg.content
         );
     }
 }
