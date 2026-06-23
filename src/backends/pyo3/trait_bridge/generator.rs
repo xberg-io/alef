@@ -15,6 +15,13 @@ pub struct Pyo3BridgeGenerator {
     pub type_paths: HashMap<String, String>,
     /// Error type name (e.g., `"SampleCrateError"`).
     pub error_type: String,
+    /// Callback-param type names that get NATIVE-object marshalling — known serde structs per
+    /// the shared [`crate::codegen::generators::trait_bridge::is_native_marshalled_struct`] rule.
+    /// For such a param the bridge constructs the binding's native Python object (the `#[pyclass]`
+    /// wrapper, via the same `From<core::T>` conversion used for return values) and hands THAT to
+    /// the host method, instead of serializing the param to a JSON string. Enums, opaque/handle
+    /// types, and excluded/unknown `Named` params are absent and keep their prior representation.
+    pub struct_param_types: std::collections::HashSet<String>,
 }
 
 impl TraitBridgeGenerator for Pyo3BridgeGenerator {
@@ -110,6 +117,10 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                         _ => "",
                     }.to_string(),
                     ty_is_named => matches!(&p.ty, TypeRef::Named(_)),
+                    // Native serde struct: the preamble clones the core value into `{name}_owned`
+                    // so the call site can build the binding's native Python object from it,
+                    // rather than serializing the param to a JSON string.
+                    is_native_struct => matches!(&p.ty, TypeRef::Named(n) if self.is_native_struct_param(n)),
                     is_ref => p.is_ref,
                 }
             })
@@ -343,6 +354,14 @@ impl Pyo3BridgeGenerator {
         }
     }
 
+    /// True when a `Named(name)` param should be handed to the host as the binding's native
+    /// Python object rather than a JSON string — i.e. it is a known serde struct per the shared
+    /// allowlist. The native object is the `#[pyclass]` wrapper, constructed from the core value
+    /// via the same `From<core::T>` conversion the binding uses for function return values.
+    fn is_native_struct_param(&self, name: &str) -> bool {
+        self.struct_param_types.contains(name)
+    }
+
     /// Build Python call argument expressions for a sync method.
     fn sync_py_args(&self, method: &MethodDef) -> String {
         let args: Vec<String> = method
@@ -351,6 +370,15 @@ impl Pyo3BridgeGenerator {
             .map(|p| match (&p.ty, p.is_ref) {
                 (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, {})", p.name),
                 (TypeRef::Path, true) => format!("{}.to_str().unwrap_or_default()", p.name),
+                // Known serde struct: hand the host the binding's native Python object, built from
+                // the core value through the same Rust→Python conversion used for return values
+                // (`{Binding}::from(core_value)`). PyO3 auto-converts the `#[pyclass]` to a Python
+                // object at the call boundary. No JSON round-trip.
+                (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
+                    format!("{}::from((*{}).clone())", n, p.name)
+                }
+                // Other Named params (enums, opaque/handle, excluded/unknown) keep the prior
+                // JSON-string representation.
                 (TypeRef::Named(_), true) => {
                     format!("serde_json::to_string({}).unwrap_or_default()", p.name)
                 }
@@ -372,6 +400,11 @@ impl Pyo3BridgeGenerator {
             .map(|p| match (&p.ty, p.is_ref) {
                 (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, &{})", p.name),
                 (TypeRef::Path, true) => format!("{}_str.as_str()", p.name),
+                // Known serde struct: the param-cloning preamble owns the cloned core value in
+                // `{name}_owned`; build the native Python object from it here.
+                (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
+                    format!("{}::from({}_owned.clone())", n, p.name)
+                }
                 (TypeRef::Named(_), true) => format!("{}_json.as_str()", p.name),
                 _ => p.name.clone(),
             })

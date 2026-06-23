@@ -155,6 +155,59 @@ pub fn find_bridge_field<'a>(
     None
 }
 
+/// Decide whether a trait-callback parameter type should be marshalled to the host as the
+/// binding's NATIVE object (constructed through the binding's Rust→host conversion) rather
+/// than as a serialized string.
+///
+/// This is the single, backend-agnostic classification rule for trait-bridge callback params.
+/// Backends consult it (typically by seeding a per-generator struct-param allowlist with
+/// [`native_marshalled_struct_params`]) to choose between handing the host a native object vs.
+/// the prior string representation. Keeping the rule here — not in any one backend — lets every
+/// backend share the same notion of "this param is a struct the host should receive as a native
+/// value".
+///
+/// A type qualifies only when it is a **known serde struct**:
+/// - present in `api.types` (so the binding actually emits a representation for it),
+/// - a struct, i.e. NOT a trait (`!is_trait`) and NOT opaque/handle (`!is_opaque`),
+/// - derives serde (`has_serde`), so the binding's value conversion is well-defined,
+/// - not excluded from the binding surface (`!binding_excluded`).
+///
+/// Enums (which live in `api.enums`, never `api.types`), opaque/handle types, excluded types,
+/// and unknown `Named` types all fail this test and are left to their prior representation.
+pub fn is_native_marshalled_struct(type_name: &str, api: &ApiSurface) -> bool {
+    api.types
+        .iter()
+        .any(|t| t.name == type_name && !t.is_trait && !t.is_opaque && t.has_serde && !t.binding_excluded)
+}
+
+/// Collect the names of all trait-callback parameter types across `trait_def`'s methods that
+/// qualify for native-object marshalling per [`is_native_marshalled_struct`].
+///
+/// The result seeds each backend generator's struct-param allowlist; generators look a param's
+/// `Named` type up in that set to decide its marshalling, so the positive allowlist is computed
+/// once, in shared code, and reused identically by every backend.
+pub fn native_marshalled_struct_params(trait_def: &TypeDef, api: &ApiSurface) -> std::collections::HashSet<String> {
+    fn leaf_named(ty: &TypeRef) -> Option<&str> {
+        match ty {
+            TypeRef::Named(n) => Some(n.as_str()),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => leaf_named(inner),
+            _ => None,
+        }
+    }
+
+    let mut out = std::collections::HashSet::new();
+    for method in &trait_def.methods {
+        for param in &method.params {
+            if let Some(name) = leaf_named(&param.ty) {
+                if is_native_marshalled_struct(name, api) {
+                    out.insert(name.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
 /// True if `field_ty` references a `Named` type whose name equals `alias`,
 /// allowing for `Option<>` and `Vec<>` wrappers.
 fn field_type_matches_alias(field_ty: &TypeRef, alias: &str) -> bool {

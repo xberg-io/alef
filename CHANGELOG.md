@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **pyo3: trait-callback struct params are passed to the host as native Python objects.** When the
+  Rust core calls back into a Python trait object (e.g. a registered plugin backend), a callback
+  parameter that is a known serde struct is now constructed as the binding's native Python object
+  via the same `From<core::T>` conversion used for return values, instead of being serialized to a
+  JSON string. Enums, opaque/handle types, and excluded/unknown parameters keep their prior
+  representation. The struct/non-struct decision lives in shared codegen
+  (`is_native_marshalled_struct` / `native_marshalled_struct_params` in
+  `src/codegen/generators/trait_bridge/lookup.rs`) so other backends can reuse the same allowlist.
+- **pyo3: plugin trait bridges now emit a typed, host-implementable `Protocol`.** In addition to
+  visitor/options-field bridges, plugin-pattern bridges (those with a `register_*` function) emit a
+  `class {Trait}(Protocol)` stub whose methods type struct params as their native TypedDict/pyclass
+  type and returns as the result type. The `register_*` function's `backend` parameter is typed
+  against that Protocol rather than bare `object`. (`src/backends/pyo3/gen_stubs.rs`,
+  `src/backends/pyo3/trait_bridge/generator.rs`)
+
 ## [0.26.8] - 2026-06-23
 
 ### Fixed

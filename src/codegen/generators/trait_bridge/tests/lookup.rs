@@ -234,3 +234,83 @@ fn find_bridge_field_returns_none_for_function_param_bridge() {
     )];
     assert!(find_bridge_field(&func, std::slice::from_ref(&opts_type), &bridges).is_none());
 }
+
+// ---------------------------------------------------------------------------
+// Shared native-object marshalling classification
+// ---------------------------------------------------------------------------
+
+/// Plain data-struct TypeDef (not a trait, not opaque) with configurable serde / exclusion.
+fn make_struct_def(name: &str, has_serde: bool, is_opaque: bool, binding_excluded: bool) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("mylib::{name}"),
+        is_trait: false,
+        is_opaque,
+        has_serde,
+        binding_excluded,
+        ..TypeDef::default()
+    }
+}
+
+#[test]
+fn native_marshalled_struct_params_allowlists_only_known_serde_structs() {
+    // A neutral `Greeter` trait whose method takes one of each interesting param kind.
+    let greet = MethodDef {
+        name: "greet".to_string(),
+        params: vec![
+            make_param("opts", TypeRef::Named("Opts".to_string()), true), // struct, serde
+            make_param("mood", TypeRef::Named("Mood".to_string()), true), // enum
+            make_param("handle", TypeRef::Named("Handle".to_string()), true), // opaque
+            make_param("hidden", TypeRef::Named("Hidden".to_string()), true), // excluded
+            make_param("plain", TypeRef::Named("Plain".to_string()), true), // struct, NO serde
+            make_param("name", TypeRef::String, true),                    // primitive-ish
+            make_param("unknown", TypeRef::Named("Unknown".to_string()), true), // not in api.types
+        ],
+        return_type: TypeRef::Named("Doc".to_string()),
+        receiver: Some(ReceiverKind::Ref),
+        ..MethodDef::default()
+    };
+    let trait_def = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "mylib::Greeter".to_string(),
+        is_trait: true,
+        methods: vec![greet],
+        ..TypeDef::default()
+    };
+
+    let api = ApiSurface {
+        types: vec![
+            make_struct_def("Opts", true, false, false),   // qualifies
+            make_struct_def("Handle", true, true, false),  // opaque → no
+            make_struct_def("Hidden", true, false, true),  // excluded → no
+            make_struct_def("Plain", false, false, false), // no serde → no
+            make_struct_def("Doc", true, false, false),    // not a param, ignored
+        ],
+        // `Mood` lives in `enums`, never `types`, so it can never be a struct.
+        enums: vec![EnumDef {
+            name: "Mood".to_string(),
+            ..EnumDef::default()
+        }],
+        ..ApiSurface::default()
+    };
+
+    let structs = native_marshalled_struct_params(&trait_def, &api);
+    assert!(
+        structs.contains("Opts"),
+        "known serde struct must be allowlisted: {structs:?}"
+    );
+    assert_eq!(structs.len(), 1, "only `Opts` qualifies, got {structs:?}");
+    for excluded in ["Mood", "Handle", "Hidden", "Plain", "Unknown", "Doc"] {
+        assert!(
+            !structs.contains(excluded),
+            "{excluded} must NOT be native-marshalled: {structs:?}"
+        );
+    }
+
+    // Direct classifier checks.
+    assert!(is_native_marshalled_struct("Opts", &api));
+    assert!(!is_native_marshalled_struct("Handle", &api));
+    assert!(!is_native_marshalled_struct("Hidden", &api));
+    assert!(!is_native_marshalled_struct("Plain", &api));
+    assert!(!is_native_marshalled_struct("Unknown", &api));
+}

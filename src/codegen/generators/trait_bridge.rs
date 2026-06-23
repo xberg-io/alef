@@ -20,7 +20,8 @@ pub use formatting::{
 pub use generator::{BridgeOutput, TraitBridgeGenerator, gen_bridge_all};
 pub use lookup::{
     BridgeFieldMatch, bridge_handle_path, bridge_wrapper_name, find_bridge_field, find_bridge_param,
-    is_bridge_handle_type_ref, is_trait_bridge_managed_fn,
+    is_bridge_handle_type_ref, is_native_marshalled_struct, is_trait_bridge_managed_fn,
+    native_marshalled_struct_params,
 };
 pub use registration::{
     gen_bridge_clear_fn, gen_bridge_registration_fn, gen_bridge_unregistration_fn, host_function_path,

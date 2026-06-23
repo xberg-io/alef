@@ -3,6 +3,8 @@
 let {{ param.name }} = {{ param.name }}.to_vec();
 {% elif param.ty == "Path" and param.is_ref %}
 let {{ param.name }}_str = {{ param.name }}.to_string_lossy().to_string();
+{% elif param.is_native_struct and param.is_ref %}
+let {{ param.name }}_owned = {{ param.name }}.clone();
 {% elif param.ty_is_named and param.is_ref %}
 let {{ param.name }}_json = serde_json::to_string({{ param.name }}).unwrap_or_default();
 {% elif param.is_ref %}
