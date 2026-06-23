@@ -50,6 +50,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   TypeScript host interface (already typing struct params natively and typing `register_*`'s
   callback against the interface) now also types each method's return as the native binding type
   (e.g. `Promise<Doc>`) instead of the prior opaque `string`. (`src/backends/napi/gen_bindings/errors.rs`)
+- **php: trait-callback struct params are passed to the host as native PHP objects.** When the Rust
+  core calls back into a PHP plugin object, a callback parameter that is a known serde struct is now
+  constructed as the binding's native `#[php_class]` object via the same `From<core::T>` conversion
+  used for return values, then handed to the PHP method as a `Zval`, instead of being serialized to
+  a JSON string. Enums, opaque/handle types, and excluded/unknown parameters keep their prior
+  JSON-string representation. The decision reuses the shared allowlist
+  (`is_native_marshalled_struct` / `native_marshalled_struct_params`). (`src/backends/php/trait_bridge/generator.rs`)
+- **php: plugin trait bridges emit a typed, host-implementable interface.** The generated PHP
+  `interface {Trait}` for a plugin bridge now types method parameters that are known serde structs
+  as their native PHP class and types method returns as their native type, rather than `mixed`. The
+  facade's `register_*` method already types its `backend` parameter against this interface.
+  (`src/backends/php/trait_bridge/interfaces.rs`, `src/backends/php/templates/php_interface_method.jinja`)
 
 ## [0.26.8] - 2026-06-23
 

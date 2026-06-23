@@ -936,6 +936,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                     bridge_cfg,
                     &php_namespace,
                     &HashMap::new(), // type_paths not needed for the interface file itself
+                    api,
                 )
             };
 

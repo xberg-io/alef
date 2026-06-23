@@ -21,6 +21,67 @@ pub struct PhpBridgeGenerator {
     pub type_paths: HashMap<String, String>,
     /// Error type name (e.g., `"SampleCrateError"`).
     pub error_type: String,
+    /// Callback-param type names that get NATIVE-object marshalling — known serde structs per
+    /// the shared [`crate::codegen::generators::trait_bridge::is_native_marshalled_struct`] rule.
+    /// For such a param the bridge constructs the binding's native PHP object (the `#[php_class]`
+    /// wrapper, via the same `From<core::T>` conversion used for return values) and hands THAT to
+    /// the PHP method as a `Zval`, instead of serializing the param to a JSON string. Enums,
+    /// opaque/handle types, and excluded/unknown `Named` params are absent and keep their prior
+    /// JSON-string representation.
+    pub struct_param_types: std::collections::HashSet<String>,
+}
+
+impl PhpBridgeGenerator {
+    /// Build the `Zval` argument expression for one callback parameter.
+    ///
+    /// Known serde structs (per the shared allowlist) are handed to PHP as the binding's native
+    /// `#[php_class]` object — constructed from the core value through the same `From<core::T>`
+    /// conversion the binding uses for function return values (`{Class}::from((*name).clone())`),
+    /// which ext-php-rs converts to a Zval via `IntoZval`. All other params keep their prior
+    /// representation (JSON string for other `Named` types, etc.).
+    fn arg_zval_expr(&self, p: &crate::core::ir::ParamDef) -> String {
+        match &p.ty {
+            TypeRef::String => format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name),
+            TypeRef::Path => format!(
+                "ext_php_rs::types::Zval::try_from({}.to_string_lossy().to_string()).unwrap_or_default()",
+                p.name
+            ),
+            TypeRef::Bytes => format!(
+                "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
+                p.name
+            ),
+            // Known serde struct: hand PHP the binding's native object, not a JSON string.
+            TypeRef::Named(n) if self.struct_param_types.contains(n.as_str()) => format!(
+                "ext_php_rs::types::Zval::try_from({n}::from((*{}).clone())).unwrap_or_default()",
+                p.name
+            ),
+            // Other Named params (enums, opaque/handle, excluded/unknown) keep the JSON string.
+            TypeRef::Named(_) => format!(
+                "ext_php_rs::types::Zval::try_from(serde_json::to_string(&{}).unwrap_or_default()).unwrap_or_default()",
+                p.name
+            ),
+            TypeRef::Primitive(_) => {
+                format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name)
+            }
+            _ => format!(
+                "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
+                p.name
+            ),
+        }
+    }
+
+    /// Render the `Vec<&dyn IntoZvalDyn>` args expression passed to `try_call_method`,
+    /// or `vec![]` when the method takes no params.
+    fn args_expr(&self, method: &MethodDef) -> String {
+        if method.params.is_empty() {
+            return "vec![]".to_string();
+        }
+        let args_parts: Vec<String> = method.params.iter().map(|p| self.arg_zval_expr(p)).collect();
+        format!(
+            "[{}].iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()",
+            args_parts.join(", ")
+        )
+    }
 }
 
 impl TraitBridgeGenerator for PhpBridgeGenerator {
@@ -35,44 +96,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
 
-        let has_args = !method.params.is_empty();
-        let args_expr = if has_args {
-            let mut args_parts = Vec::new();
-            for p in &method.params {
-                let arg_expr = match &p.ty {
-                    TypeRef::String => format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name),
-                    TypeRef::Path => format!(
-                        "ext_php_rs::types::Zval::try_from({}.to_string_lossy().to_string()).unwrap_or_default()",
-                        p.name
-                    ),
-                    TypeRef::Bytes => format!(
-                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
-                        p.name
-                    ),
-                    TypeRef::Named(_) => {
-                        format!(
-                            "ext_php_rs::types::Zval::try_from(serde_json::to_string(&{}).unwrap_or_default()).unwrap_or_default()",
-                            p.name
-                        )
-                    }
-                    TypeRef::Primitive(_) => {
-                        format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name)
-                    }
-                    _ => format!(
-                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
-                        p.name
-                    ),
-                };
-                args_parts.push(arg_expr);
-            }
-            let args_array = format!("[{}]", args_parts.join(", "));
-            format!(
-                "{}.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()",
-                args_array
-            )
-        } else {
-            "vec![]".to_string()
-        };
+        let args_expr = self.args_expr(method);
 
         let is_result_type = method.error_type.is_some();
         let is_unit_return = matches!(method.return_type, TypeRef::Unit);
@@ -115,44 +139,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             .map(|p| p.name.clone())
             .collect();
 
-        let has_args = !method.params.is_empty();
-        let args_expr = if has_args {
-            let mut args_parts = Vec::new();
-            for p in &method.params {
-                let arg_expr = match &p.ty {
-                    TypeRef::String => format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name),
-                    TypeRef::Path => format!(
-                        "ext_php_rs::types::Zval::try_from({}.to_string_lossy().to_string()).unwrap_or_default()",
-                        p.name
-                    ),
-                    TypeRef::Bytes => format!(
-                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
-                        p.name
-                    ),
-                    TypeRef::Named(_) => {
-                        format!(
-                            "ext_php_rs::types::Zval::try_from(serde_json::to_string(&{}).unwrap_or_default()).unwrap_or_default()",
-                            p.name
-                        )
-                    }
-                    TypeRef::Primitive(_) => {
-                        format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name)
-                    }
-                    _ => format!(
-                        "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
-                        p.name
-                    ),
-                };
-                args_parts.push(arg_expr);
-            }
-            let args_array = format!("[{}]", args_parts.join(", "));
-            format!(
-                "{}.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()",
-                args_array
-            )
-        } else {
-            "vec![]".to_string()
-        };
+        let args_expr = self.args_expr(method);
 
         let is_result_type = method.error_type.is_some();
         let deserialize_error_expr = spec.make_error("format!(\"Deserialize error: {}\", e)");
@@ -308,11 +295,20 @@ pub fn gen_trait_bridge(
             code,
         }
     } else {
-        // Use the IR-driven TraitBridgeGenerator infrastructure
+        // Use the IR-driven TraitBridgeGenerator infrastructure.
+        //
+        // Classify which callback params get native-object marshalling using the SHARED rule
+        // (`native_marshalled_struct_params`) so the allowlist is identical to what other
+        // backends consult. For such params the bridge hands PHP the binding's native `#[php_class]`
+        // object (built via the same `From<core::T>` conversion used for return values) instead of
+        // a JSON string.
+        let struct_param_types =
+            crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
         let generator = PhpBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
+            struct_param_types,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types

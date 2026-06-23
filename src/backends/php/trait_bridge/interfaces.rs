@@ -1,9 +1,34 @@
 use minijinja::context;
 
 use crate::codegen::doc_emission::{DocTarget, sanitize_rust_idioms};
+use crate::codegen::generators::trait_bridge::is_native_marshalled_struct;
 use crate::core::config::TraitBridgeConfig;
-use crate::core::ir::{TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, TypeDef, TypeRef};
 use std::collections::HashMap;
+
+/// PHP type hint for a callback param/return that is a known serde struct: the native
+/// `#[php_class]` the runtime bridge now passes/expects. The class lives in the same PHP
+/// namespace as the interface, so the bare class name resolves correctly. Returns `None`
+/// for types that are not native-marshalled structs.
+fn native_struct_php_type(ty: &TypeRef, optional: bool, api: &ApiSurface) -> Option<String> {
+    let leaf = match ty {
+        TypeRef::Named(n) => n.as_str(),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => n.as_str(),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if !is_native_marshalled_struct(leaf, api) {
+        return None;
+    }
+    let is_optional = optional || matches!(ty, TypeRef::Optional(_));
+    Some(if is_optional {
+        format!("?{leaf}")
+    } else {
+        leaf.to_string()
+    })
+}
 
 /// Convert a Rust TypeRef to a PHP type string for interface declarations.
 fn rust_type_to_php_type(ty: &TypeRef, _is_ref: bool, optional: bool, _type_paths: &HashMap<String, String>) -> String {
@@ -168,6 +193,7 @@ pub fn gen_registration_interface(
     bridge_cfg: &TraitBridgeConfig,
     namespace: &str,
     type_paths: &HashMap<String, String>,
+    api: &ApiSurface,
 ) -> String {
     let interface_name = &bridge_cfg.trait_name;
     let mut out = String::with_capacity(2048);
@@ -199,8 +225,10 @@ pub fn gen_registration_interface(
         let mut param_docs = Vec::new();
 
         for p in &method.params {
-            // Convert Rust type to PHP type
-            let php_type = rust_type_to_php_type(&p.ty, p.is_ref, p.optional, type_paths);
+            // Known serde structs are typed as their native PHP class (matching the native object
+            // the runtime bridge now passes); everything else uses the scalar/mixed mapping.
+            let php_type = native_struct_php_type(&p.ty, p.optional, api)
+                .unwrap_or_else(|| rust_type_to_php_type(&p.ty, p.is_ref, p.optional, type_paths));
             method_params_parts.push(format!("{} ${}", php_type, p.name));
 
             let doc = format!("     * @param {} ${}", php_type, p.name);
@@ -208,6 +236,11 @@ pub fn gen_registration_interface(
         }
 
         let method_params = method_params_parts.join(", ");
+
+        // Type the return: known serde struct → its native PHP class; otherwise the scalar/mixed
+        // mapping. The interface is host-implementable, so this is the type the host must return.
+        let return_type = native_struct_php_type(&method.return_type, false, api)
+            .unwrap_or_else(|| rust_type_to_php_type(&method.return_type, false, false, type_paths));
 
         let param_docs_str = if param_docs.is_empty() {
             String::new()
@@ -228,6 +261,7 @@ pub fn gen_registration_interface(
             context! {
                 method_name => name,
                 method_params => &method_params,
+                return_type => &return_type,
                 doc_lines => &doc_lines,
                 param_docs => &param_docs_str,
             },
