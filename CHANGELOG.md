@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **PyO3: sync entrypoints and sync free functions now release the GIL across the blocking core
+  call.** When core re-enters Python through a registered trait callback (the bridge runs the host
+  callback on a `spawn_blocking` worker thread that re-acquires the GIL), the worker could never
+  obtain the GIL the sync entrypoint thread held while parked in the blocking call, deadlocking the
+  callback. Generated sync service entrypoints now wrap the core call in `_py.detach(|| ...)`, and
+  generated sync `#[pyfunction]` free functions take an injected `py: Python<'_>` and wrap the core
+  call in `py.detach(|| ...)`. The async path already released the GIL via `future_into_py`.
+  (`backends/pyo3/gen_bindings/service_api/rust_service.rs`, `codegen/generators/functions.rs`)
+
 ## [0.26.5] - 2026-06-23
 
 ### Fixed

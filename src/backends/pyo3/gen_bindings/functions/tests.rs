@@ -1,6 +1,48 @@
 use super::{classify_param_type, emit_param_conversion};
 use crate::core::ir::TypeRef;
 
+/// Sync PyO3 free functions must release the GIL across the blocking core call so a
+/// trait callback re-entering Python from a worker thread cannot deadlock. The generated
+/// sync free function must (1) take an injected `py: Python<'_>` handle and (2) wrap the
+/// core call in `py.detach(|| ...)`. This is a regression test for issue #136.
+#[test]
+fn sync_pyo3_free_fn_releases_gil_around_core_call() {
+    use crate::codegen::generators::gen_function;
+    use crate::core::ir::{FunctionDef, ParamDef};
+
+    let func = FunctionDef {
+        name: "count_words".to_owned(),
+        rust_path: "sample_core::count_words".to_owned(),
+        params: vec![ParamDef {
+            name: "text".to_owned(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            ..ParamDef::default()
+        }],
+        return_type: TypeRef::Primitive(crate::core::ir::PrimitiveType::U64),
+        is_async: false,
+        error_type: None,
+        ..FunctionDef::default()
+    };
+
+    let mapper = crate::backends::pyo3::type_map::Pyo3Mapper::new();
+    let cfg = crate::backends::pyo3::gen_bindings::config::binding_config("sample_core", true);
+    let adapter_bodies = ahash::AHashMap::new();
+    let opaque_types = ahash::AHashSet::new();
+
+    let output = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
+
+    assert!(
+        output.contains("py: Python<'_>"),
+        "expected injected `py: Python<'_>` handle on sync free function:\n{output}"
+    );
+    assert!(
+        output.contains("py.detach(|| sample_core::count_words("),
+        "expected core call wrapped in `py.detach(|| ...)`:\n{output}"
+    );
+}
+
 /// classify_param_type returns Plain for a bare Named type.
 #[test]
 fn classify_param_type_returns_plain_for_named() {

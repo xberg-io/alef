@@ -187,6 +187,22 @@ pub fn gen_function_with_mutex(
     let can_delegate = crate::codegen::shared::can_auto_delegate_function(func, opaque_types)
         || can_delegate_with_named_let_bindings(func, opaque_types);
 
+    // PyO3 sync free functions hold the GIL while calling into core. When core re-enters
+    // Python via a registered trait callback (the bridge runs the host callback on a
+    // `spawn_blocking` worker thread that re-acquires the GIL), the worker can never get the
+    // GIL this thread holds while parked in the blocking call → deadlock. Release the GIL
+    // for the duration of the blocking core call by wrapping it in `py.detach(|| ...)`. The
+    // closure touches no Python objects (Rust args in, Rust value out); conversion to Python
+    // happens after the call returns. The async path already releases the GIL via future_into_py.
+    let pyo3_sync = !func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+    let detach_core_call = |core_call: &str| -> String {
+        if pyo3_sync {
+            format!("py.detach(|| {core_call})")
+        } else {
+            core_call.to_string()
+        }
+    };
+
     // Backend-specific error conversion string for serde bindings
     let serde_err_conv = match cfg.async_pattern {
         AsyncPattern::Pyo3FutureIntoPy => ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))",
@@ -219,7 +235,9 @@ pub fn gen_function_with_mutex(
             };
             let serde_bindings =
                 gen_serde_let_bindings(&func.params, opaque_types, core_import, serde_err_async, serde_indent);
-            let core_call = format!("{core_fn_path}({call_args})");
+            // For sync PyO3 the blocking core call is wrapped in `py.detach(|| ...)` to release
+            // the GIL (no-op for async/other backends; the async path uses future_into_py).
+            let core_call = detach_core_call(&format!("{core_fn_path}({call_args})"));
 
             // Determine return wrapping strategy for serde async (uses explicit types to avoid E0283)
             let returns_ref = func.returns_ref;
@@ -423,7 +441,9 @@ pub fn gen_function_with_mutex(
             format!("{let_bindings}{async_body}")
         }
     } else {
-        let core_call = format!("{core_fn_path}({call_args})");
+        // For sync PyO3 the blocking core call is wrapped in `py.detach(|| ...)` to release
+        // the GIL (no-op for other backends).
+        let core_call = detach_core_call(&format!("{core_fn_path}({call_args})"));
 
         // Check if we need to cast primitives due to type mapping (e.g., u32 → i32 for extendr)
         let cast_suffix = match &func.return_type {
@@ -674,6 +694,11 @@ pub fn gen_function_with_mutex(
     };
     let func_lifetime = if func_needs_py { "<'py>" } else { "" };
 
+    // Sync PyO3 free functions take an injected `py: Python<'_>` handle so the body can call
+    // `py.detach(...)` to release the GIL across the blocking core call (see `pyo3_sync` above).
+    // PyO3 supplies this argument automatically; it is excluded from `#[pyo3(signature = (...))]`.
+    let sync_py_prefix = if pyo3_sync { "py: Python<'_>, " } else { "" };
+
     let (func_sig, _params_formatted) = if params.len() > 100 {
         // Wrap the signature across multiple lines for readability. Reuse the exact
         // per-parameter strings computed above (`param_strings`) — recomputing the types here
@@ -695,7 +720,7 @@ pub fn gen_function_with_mutex(
         } else {
             (
                 format!(
-                    "pub {async_kw}fn {}(\n    {}\n) -> {ret}",
+                    "pub {async_kw}fn {}(\n    {sync_py_prefix}{}\n) -> {ret}",
                     func.name,
                     wrapped_params,
                     ret = ret
@@ -712,10 +737,13 @@ pub fn gen_function_with_mutex(
             "",
         )
     } else {
-        (format!("pub {async_kw}fn {}({params}) -> {ret}", func.name), "")
+        (
+            format!("pub {async_kw}fn {}({sync_py_prefix}{params}) -> {ret}", func.name),
+            "",
+        )
     };
 
-    let total_params = func.params.len() + if func_needs_py { 1 } else { 0 };
+    let total_params = func.params.len() + if func_needs_py || pyo3_sync { 1 } else { 0 };
     let sig_defaults = if cfg.needs_signature {
         function_sig_defaults(&func.params)
     } else {

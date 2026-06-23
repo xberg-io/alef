@@ -433,6 +433,21 @@ mod tests {
         );
     }
 
+    /// Sync entrypoints must release the GIL around the blocking core call so a
+    /// trait callback re-entering Python from a worker thread cannot deadlock on
+    /// the GIL the entrypoint thread holds. The `into_router` fixture entrypoint
+    /// is sync; its core call must be wrapped in `_py.detach(|| ...)`.
+    #[test]
+    fn rust_sync_entrypoint_releases_gil_around_core_call() {
+        let surface = make_fixture_surface();
+        let config = make_test_config();
+        let output = gen_service_rs(&surface, &config);
+        assert!(
+            output.contains("_py.detach(|| owner.into_router())"),
+            "expected sync entrypoint core call wrapped in `_py.detach(|| ...)`:\n{output}"
+        );
+    }
+
     /// `gen_service_rs` emits registration dispatch via `match method_name`.
     #[test]
     fn rust_output_contains_registration_dispatch() {

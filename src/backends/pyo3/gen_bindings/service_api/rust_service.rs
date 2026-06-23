@@ -350,12 +350,17 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
              .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n"
         )
     } else if ep.error_type.is_some() {
+        // Sync entrypoint: release the GIL across the blocking core call. A trait callback
+        // re-entering Python from a `spawn_blocking` worker thread would otherwise deadlock
+        // trying to acquire the GIL this thread holds. `detach` releases it only for the
+        // closure, which touches no Python objects (Rust args in, Rust value out).
         format!(
-            "    {bind}owner.{ep_method}({args_str})\n        \
+            "    {bind}_py.detach(|| owner.{ep_method}({args_str}))\n        \
              .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n"
         )
     } else {
-        format!("    {bind}owner.{ep_method}({args_str});\n")
+        // Sync entrypoint: release the GIL across the blocking core call (see above).
+        format!("    {bind}_py.detach(|| owner.{ep_method}({args_str}));\n")
     }
 }
 
