@@ -144,6 +144,7 @@ fn make_data_enum(name: &str, serde_tag: Option<&str>) -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     }
 }
 

@@ -115,6 +115,7 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
         excluded_variants: Vec::new(),
         version: Default::default(),
         has_default: false,
+        string_shorthand: None,
     }
 }
 
