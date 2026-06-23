@@ -1061,3 +1061,91 @@ fn test_rbs_includes_trait_registry_functions() {
         "RBS must include trait bridge registry functions:\n{content}"
     );
 }
+
+#[test]
+fn test_rbs_plugin_bridge_emits_typed_interface_and_typed_register() {
+    // Neutral `Greeter` plugin trait: `process(opts: &Opts) -> Doc`.
+    // The host-implementable RBS interface must type the struct param as its native type (`Opts`)
+    // and the return as `Doc`, and `register_greeter` must take `_Greeter backend`.
+    let backend = MagnusBackend;
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        register_fn: Some("register_greeter".to_string()),
+        registry_getter: Some("test_lib::registry::get".to_string()),
+        super_trait: Some("Plugin".to_string()),
+        ..Default::default()
+    }];
+
+    let greeter = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "test_lib::Greeter".to_string(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![MethodDef {
+            name: "process".to_string(),
+            params: vec![ParamDef {
+                name: "opts".to_string(),
+                ty: TypeRef::Named("Opts".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+                map_is_btree: false,
+                core_wrapper: alef::core::ir::CoreWrapper::None,
+            }],
+            return_type: TypeRef::Named("Doc".to_string()),
+            receiver: Some(ReceiverKind::Ref),
+            error_type: Some("Error".to_string()),
+            ..MethodDef::default()
+        }],
+        ..TypeDef::default()
+    };
+    let opts = TypeDef {
+        name: "Opts".to_string(),
+        rust_path: "test_lib::Opts".to_string(),
+        has_serde: true,
+        fields: vec![make_field("label", TypeRef::String, false)],
+        ..TypeDef::default()
+    };
+    let doc = TypeDef {
+        name: "Doc".to_string(),
+        rust_path: "test_lib::Doc".to_string(),
+        has_serde: true,
+        is_return_type: true,
+        fields: vec![make_field("text", TypeRef::String, false)],
+        ..TypeDef::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![greeter, opts, doc],
+        ..Default::default()
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    // (c) Plugin-pattern interface emitted with typed struct param + typed return.
+    assert!(
+        content.contains("interface _Greeter"),
+        "plugin bridge must emit a host-implementable RBS interface:\n{content}"
+    );
+    assert!(
+        content.contains("def process: (Opts opts) -> Doc"),
+        "interface method must type the struct param as `Opts` and return as `Doc`:\n{content}"
+    );
+
+    // (d) register_* typed against the interface, not `untyped`.
+    assert!(
+        content.contains("def self.register_greeter: (_Greeter backend, String name) -> nil"),
+        "register fn must type its backend param against the interface:\n{content}"
+    );
+}

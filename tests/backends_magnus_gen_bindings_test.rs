@@ -4168,3 +4168,170 @@ fn same_named_free_functions_with_ungated_variant_dedup_to_one() {
         "the deduped download_model wrapper must be unconditional (an ungated variant exists), got preamble:\n{preamble}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Native-object marshalling of struct callback params (Magnus trait bridge)
+//
+// A trait-callback param that is a known serde struct must be handed to the host as the
+// binding's NATIVE Ruby value — constructed via the same `From<core::T>` conversion the binding
+// uses for return values / struct fields — NOT serialized to a JSON string. Enum / opaque /
+// unknown params keep their prior JSON-string representation. The positive allowlist is computed
+// by the SHARED classifier (`native_marshalled_struct_params`) and seeded into the generator.
+// ---------------------------------------------------------------------------
+
+/// Build a callback `ParamDef` (by-ref) with all the structural defaults.
+fn cb_param(name: &str, ty: TypeRef) -> ParamDef {
+    ParamDef {
+        name: name.to_string(),
+        ty,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+        original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
+        vec_inner_is_ref: false,
+        map_is_btree: false,
+        core_wrapper: alef::core::ir::CoreWrapper::None,
+    }
+}
+
+/// A plain (non-opaque) serde struct `TypeDef`.
+fn serde_struct(name: &str) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        has_serde: true,
+        ..TypeDef::default()
+    }
+}
+
+/// Build a neutral `Greeter` plugin bridge: a trait, its callback param/return structs, and a
+/// `TraitBridgeConfig` with a `register_*` fn (so the plugin — not visitor — path is taken).
+fn neutral_plugin_fixture(is_async: bool) -> (ApiSurface, TypeDef, alef::core::config::TraitBridgeConfig) {
+    let method = MethodDef {
+        name: "process".to_string(),
+        params: vec![
+            cb_param("opts", TypeRef::Named("Opts".to_string())), // known serde struct
+            cb_param("mood", TypeRef::Named("Mood".to_string())), // enum
+            cb_param("handle", TypeRef::Named("Handle".to_string())), // opaque
+            cb_param("widget", TypeRef::Named("Widget".to_string())), // unknown (not in api.types)
+        ],
+        return_type: TypeRef::Named("Doc".to_string()),
+        is_async,
+        error_type: Some("Error".to_string()),
+        receiver: Some(ReceiverKind::Ref),
+        ..MethodDef::default()
+    };
+    let trait_def = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "test_lib::Greeter".to_string(),
+        is_trait: true,
+        methods: vec![method],
+        ..TypeDef::default()
+    };
+
+    let mut handle = serde_struct("Handle");
+    handle.is_opaque = true;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            trait_def.clone(),
+            serde_struct("Opts"), // qualifies → native
+            handle,               // opaque → JSON string
+            serde_struct("Doc"),  // return type
+        ],
+        enums: vec![EnumDef {
+            name: "Mood".to_string(),
+            rust_path: "test_lib::Mood".to_string(),
+            ..EnumDef::default()
+        }],
+        ..Default::default()
+    };
+
+    let bridge = alef::core::config::TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        register_fn: Some("register_greeter".to_string()),
+        registry_getter: Some("test_lib::registry::get".to_string()),
+        super_trait: Some("Plugin".to_string()),
+        ..Default::default()
+    };
+
+    (api, trait_def, bridge)
+}
+
+#[test]
+fn test_magnus_sync_struct_param_marshalled_as_native_ruby_value() {
+    let (api, trait_def, bridge) = neutral_plugin_fixture(false);
+    let code = alef::backends::magnus::trait_bridge::gen_trait_bridge(
+        &trait_def,
+        &bridge,
+        "test_lib",
+        "Error",
+        "Error::Message {{ message: {msg} }}",
+        &api,
+    )
+    .expect("plugin bridge should generate");
+
+    // (a) The known serde struct param is built as the binding's native Ruby value via From<core>.
+    assert!(
+        code.contains("Opts::from(opts.clone()).into_value_with(&ruby)"),
+        "struct param must be marshalled as the native Ruby value, not a JSON string:\n{code}"
+    );
+    assert!(
+        !code.contains("serde_json::to_string(&opts)"),
+        "struct param must NOT be JSON-serialized:\n{code}"
+    );
+
+    // (b) Enum / opaque / unknown params keep the prior JSON-string representation.
+    for other in ["mood", "handle", "widget"] {
+        assert!(
+            code.contains(&format!("serde_json::to_string(&{other})")),
+            "non-struct param `{other}` must keep the JSON-string representation:\n{code}"
+        );
+        assert!(
+            !code.contains(&format!("from({other}.clone()).into_value_with")),
+            "non-struct param `{other}` must NOT be marshalled as a native value:\n{code}"
+        );
+    }
+}
+
+#[test]
+fn test_magnus_async_struct_param_marshalled_as_native_ruby_value() {
+    let (api, trait_def, bridge) = neutral_plugin_fixture(true);
+    let code = alef::backends::magnus::trait_bridge::gen_trait_bridge(
+        &trait_def,
+        &bridge,
+        "test_lib",
+        "Error",
+        "Error::Message {{ message: {msg} }}",
+        &api,
+    )
+    .expect("async plugin bridge should generate");
+
+    // The async preamble clones the core value into `{name}_owned`; the call site builds the
+    // native Ruby value from it.
+    assert!(
+        code.contains("let opts_owned = opts.clone();"),
+        "async preamble must clone the core struct value:\n{code}"
+    );
+    assert!(
+        code.contains("Opts::from(opts_owned.clone()).into_value_with(&ruby)"),
+        "async struct param must be marshalled as the native Ruby value:\n{code}"
+    );
+    assert!(
+        !code.contains("serde_json::to_string(&opts_owned)"),
+        "async struct param must NOT be JSON-serialized:\n{code}"
+    );
+    // Non-struct params keep JSON serialization on their owned copies.
+    assert!(
+        code.contains("serde_json::to_string(&mood_owned)") && code.contains("serde_json::to_string(&widget_owned)"),
+        "non-struct async params must keep the JSON-string representation:\n{code}"
+    );
+}

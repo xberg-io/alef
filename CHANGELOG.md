@@ -23,6 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   type and returns as the result type. The `register_*` function's `backend` parameter is typed
   against that Protocol rather than bare `object`. (`src/backends/pyo3/gen_stubs.rs`,
   `src/backends/pyo3/trait_bridge/generator.rs`)
+- **magnus: trait-callback struct params are passed to the host as native Ruby values.** When the
+  Rust core calls back into a Ruby trait object (e.g. a registered plugin backend), a callback
+  parameter that is a known serde struct is now constructed as the binding's native Ruby value —
+  the `#[magnus::wrap]` struct, built via the same `From<core::T>` conversion used for return
+  values and struct fields — and handed to the host method via `IntoValue`, instead of being
+  serialized to a JSON string. Enums, opaque/handle types, and excluded/unknown parameters keep
+  their prior JSON-string representation. The struct/non-struct decision reuses the shared codegen
+  allowlist (`native_marshalled_struct_params` in
+  `src/codegen/generators/trait_bridge/lookup.rs`). (`src/backends/magnus/trait_bridge/bridge_generator.rs`)
+- **magnus: plugin trait bridges now emit a typed, host-implementable RBS `interface`.** Plugin-pattern
+  bridges (those with a `register_*` function) emit an `interface _{Trait}` whose methods type
+  struct params as their native struct type and returns as the result type. The `register_*`
+  function's `backend` parameter is typed against that interface rather than `untyped`.
+  (`src/backends/magnus/gen_stubs.rs`)
 
 ## [0.26.8] - 2026-06-23
 
