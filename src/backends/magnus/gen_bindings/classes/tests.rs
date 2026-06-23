@@ -105,6 +105,72 @@ fn gen_enum_unit_variants_emit_ruby_symbols() {
     assert!(code.contains("\"pending\""), "variant snake_case symbol key");
 }
 
+fn make_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
+    EnumVariant {
+        name: name.to_string(),
+        fields,
+        doc: String::new(),
+        is_default: false,
+        serde_rename: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_tuple: false,
+        originally_had_data_fields: false,
+        cfg: None,
+        version: Default::default(),
+    }
+}
+
+fn make_data_enum(name: &str, serde_tag: Option<&str>) -> EnumDef {
+    EnumDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        original_rust_path: String::new(),
+        variants: vec![
+            make_variant("Png", vec![]),
+            make_variant("Jpeg", vec![make_field("quality", TypeRef::String, false)]),
+        ],
+        methods: vec![],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        has_default: false,
+        serde_tag: serde_tag.map(str::to_string),
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+    }
+}
+
+#[test]
+fn gen_enum_wraps_string_for_internally_tagged_enum() {
+    // For an internally-tagged enum (`#[serde(tag = "...")]`), serde cannot deserialize a bare
+    // JSON string. TryConvert must add an `.or_else` that wraps it as `{"<tag>": value}`.
+    let code = gen_enum(&make_data_enum("ImageOutputFormat", Some("type")));
+    assert!(
+        code.contains(r#".or_else(|_| serde_json::from_value(serde_json::json!({ "type": json_str })))"#),
+        "expected tagged string wrap for internally-tagged enum: {code}"
+    );
+}
+
+#[test]
+fn gen_enum_keeps_bare_string_for_externally_tagged_enum() {
+    // An externally-tagged data enum (no `#[serde(tag)]`) must not gain the tag-wrap branch.
+    let code = gen_enum(&make_data_enum("ExternallyTagged", None));
+    assert!(
+        !code.contains("serde_json::from_value(serde_json::json!({"),
+        "externally-tagged enum must not wrap the string in a tag object: {code}"
+    );
+    assert!(
+        code.contains("serde_json::from_str(&json_str)"),
+        "data enum must keep the from_str path: {code}"
+    );
+}
+
 #[test]
 fn gen_struct_emits_magnus_wrap_attribute() {
     let typ = make_typedef("Config", vec![make_field("value", TypeRef::String, false)]);

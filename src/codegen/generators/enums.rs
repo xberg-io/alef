@@ -94,6 +94,7 @@ pub fn gen_pyo3_data_enum_with_mapper(
             string_methods_content => string_methods_content,
             variant_accessors_content => variant_accessors,
             serde_tag_content => serde_tag_content,
+            serde_tag => enum_def.serde_tag,
             factory_methods_content => factory_methods_content,
         },
     )
@@ -605,6 +606,51 @@ mod tests {
         assert!(
             !generated.contains("inner: Default::default()"),
             "expected no inner: Default::default() when core lacks Default: {generated}"
+        );
+    }
+
+    #[test]
+    fn gen_pyo3_data_enum_wraps_string_for_internally_tagged_enum() {
+        // For an internally-tagged enum (`#[serde(tag = "...")]`), serde cannot deserialize a
+        // bare JSON string into the enum. The `__new__` string branch must wrap it as
+        // `{"<tag>": s}` so serde can resolve the variant.
+        let mut def = enum_def(
+            "ImageOutputFormat",
+            vec![variant("Png", vec![]), variant("Jpeg", vec![field("quality")])],
+        );
+        def.serde_tag = Some("type".to_string());
+
+        let generated = gen_pyo3_data_enum(&def, "core");
+
+        assert!(
+            generated.contains(r#"serde_json::to_string(&serde_json::json!({ "type": s }))"#),
+            "expected tagged string wrap for internally-tagged enum: {generated}"
+        );
+        assert!(
+            !generated.contains("serde_json::to_string(&s)"),
+            "internally-tagged enum must not emit the bare-string path: {generated}"
+        );
+    }
+
+    #[test]
+    fn gen_pyo3_data_enum_keeps_bare_string_for_externally_tagged_enum() {
+        // An externally-tagged enum (no `#[serde(tag)]`) accepts a bare string for unit variants,
+        // so the string branch must keep the existing `to_string(&s)` behavior.
+        let generated = gen_pyo3_data_enum(
+            &enum_def(
+                "StructureKind",
+                vec![variant("Other", vec![field("value")])],
+            ),
+            "core",
+        );
+
+        assert!(
+            generated.contains("serde_json::to_string(&s)"),
+            "expected bare-string path for externally-tagged enum: {generated}"
+        );
+        assert!(
+            !generated.contains("serde_json::json!({"),
+            "externally-tagged enum must not wrap the string in a tag object: {generated}"
         );
     }
 

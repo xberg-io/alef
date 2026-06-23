@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **backends/dart: stop propagating `source_cfg` to mirror struct/opaque-wrapper declarations,
+  their `From` conversions, and `from_json` bridge fns.** Regression of the 0.25.33 fix (which had
+  stripped cfg from the dart mirror declarations): cfg-gating was re-introduced, gating the dart Rust
+  crate's `lib.rs` declarations (e.g. `#[cfg(feature = "visitor")] pub struct VisitorHandle`,
+  `#[cfg(feature = "metadata")] pub fn create_html_metadata_from_json`) on the wrapper crate's own
+  features, while the companion `frb_generated.rs` (emitted by `flutter_rust_bridge`) references those
+  types/functions unconditionally — so `cargo build --no-default-features` failed with `E0425: cannot
+  find type/function`. The mirror enum templates were already unconditional; the struct/opaque/
+  conversion/from_json templates now match. The wrapper crate always pins the core dependency with its
+  full feature set, so the wrapped items are always available regardless of the wrapper's own
+  features. (`backends/dart/templates/`)
 - **node e2e: the generated test app disables frozen-lockfile.** A napi binding pins its platform
   binaries as `optionalDependencies` at the exact, not-yet-published release version, so before that
   version hits the registry a frozen `pnpm install` fails with `ERR_PNPM_OUTDATED_LOCKFILE` and pnpm

@@ -26,7 +26,13 @@ impl {{ name }} {
         // serde_json can deserialize into the tagged enum.
         let json_str: String = if let Some(v) = value {
             if let Ok(s) = v.extract::<String>() {
+{%- if serde_tag %}
+                // Internally-tagged enum: wrap the bare variant string as
+                // {"{{ serde_tag }}": value} so serde can deserialize it.
+                serde_json::to_string(&serde_json::json!({ "{{ serde_tag }}": s })).map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid {{ name }}: {e}")))?
+{%- else %}
                 serde_json::to_string(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid {{ name }}: {e}")))?
+{%- endif %}
             } else {
                 let json_mod = py.import("json")?;
                 json_mod.call_method1("dumps", (v,))?.extract()?
