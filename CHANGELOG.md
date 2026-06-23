@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.6] - 2026-06-23
+
 ### Fixed
 
+- **backends/pyo3 + magnus: deserialize a bare variant string into an internally-tagged enum.** For an
+  enum with `#[serde(tag = "...")]`, the generated PyO3 `__new__` constructor and the Magnus
+  `TryConvert` impl converted an incoming plain string to a bare JSON string (`"Png"`) before
+  `serde_json` deserialization. serde cannot deserialize a bare string into an internally-tagged enum —
+  it requires an object carrying the tag field — so constructing such an enum from a string (e.g. a
+  default `OcrConfig()` whose `vlm_fallback="disabled"` in Python, and the Ruby equivalent) raised a
+  `ValueError`/type error at runtime. Both backends now wrap the string as `{"<tag>": value}` using the
+  enum's `serde_tag` (PyO3 emits `serde_json::to_string(&serde_json::json!({ "<tag>": s }))`; Magnus
+  emits an `.or_else(|_| serde_json::from_value(serde_json::json!({ "<tag>": json_str })))`). Externally
+  tagged enums (no `serde_tag`) keep the existing bare-string behavior. (`codegen/generators/enums.rs`,
+  `codegen/templates/generators/enums/pyo3_data_enum.jinja`,
+  `backends/magnus/templates/enum_magnus.rs.jinja`)
 - **backends/dart: stop propagating `source_cfg` to mirror struct/opaque-wrapper declarations,
   their `From` conversions, and `from_json` bridge fns.** Regression of the 0.25.33 fix (which had
   stripped cfg from the dart mirror declarations): cfg-gating was re-introduced, gating the dart Rust

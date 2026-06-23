@@ -637,10 +637,7 @@ mod tests {
         // An externally-tagged enum (no `#[serde(tag)]`) accepts a bare string for unit variants,
         // so the string branch must keep the existing `to_string(&s)` behavior.
         let generated = gen_pyo3_data_enum(
-            &enum_def(
-                "StructureKind",
-                vec![variant("Other", vec![field("value")])],
-            ),
+            &enum_def("StructureKind", vec![variant("Other", vec![field("value")])]),
             "core",
         );
 
