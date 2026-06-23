@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.5] - 2026-06-23
+
+### Fixed
+
+- **kotlin_android e2e: the JUnit Platform launcher is now on the compile classpath, not just the
+  runtime classpath.** The generated `MockServerListener` implements the
+  `org.junit.platform.launcher.LauncherSessionListener` SPI and references `LauncherSession`/
+  `LauncherSessionListener` as compile-time symbols, but `render_build_gradle_kotlin_android`
+  scoped `junit-platform-launcher` as `testRuntimeOnly`, so `compileDebugUnitTestKotlin` failed with
+  "Unresolved reference 'launcher'". It is now `testImplementation` (a superset of `testRuntimeOnly`
+  covering both compile and runtime). (`e2e/codegen/kotlin_android/gradle.rs`)
+- **Swift: JSON-string overloads emit positional arguments for underscore-prefixed Rust params.**
+  `emit_json_string_overloads` always emitted labeled call arguments; for parameters whose Rust name
+  starts with `_` (positional), the generated forwarder now omits the label so the call matches the
+  underlying signature. (`backends/swift/gen_bindings/overloads.rs`)
+
 ## [0.26.4] - 2026-06-22
 
 ### Fixed
@@ -15,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so the generated SwiftPM package compiles.** `emit_swift_bridge_files` (which copies the
   swift-bridge-generated `Sources/RustBridge/*.swift` glue and concatenates the C headers into
   `RustBridgeC.h`) ran during the generate phase — BEFORE the `post_build` cargo build produced the
-  current `target/*/out` output — so it materialized the *previous* build's stale glue (e.g. an old
+  current `target/*/out` output — so it materialized the _previous_ build's stale glue (e.g. an old
   `Result<Language>` `getLanguage` instead of the current `usize` one) and left `RustBridgeC.h` as
   the placeholder stub (no `Vec<opaque>` C symbols → thousands of `cannot find '__swift_bridge__$…'`
   errors). A new `PostBuildStep::MaterializeSwiftBridge` re-runs the materialization after the cargo
