@@ -1014,3 +1014,178 @@ namespace = "dev.sample_crate"
 "#,
     )
 }
+
+/// Build an API with two opaque types: TreeCursor (a simple opaque type with no methods)
+/// and TreeWalker (an opaque client type with methods that return TreeCursor and Optional<TreeCursor>).
+fn make_opaque_client_api() -> ApiSurface {
+    let tree_cursor_type = TypeDef {
+        name: "TreeCursor".into(),
+        rust_path: "demo::TreeCursor".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: "A tree cursor (opaque handle).".to_string(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+
+    let walk_method = MethodDef {
+        name: "walk".into(),
+        params: vec![],
+        return_type: TypeRef::Named("TreeCursor".into()),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: "Get the tree cursor after walking.".to_string(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+
+    let walk_optional_method = MethodDef {
+        name: "walk_optional".into(),
+        params: vec![],
+        return_type: TypeRef::Optional(Box::new(TypeRef::Named("TreeCursor".into()))),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: "Optionally get the tree cursor.".to_string(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+
+    let tree_walker_type = TypeDef {
+        name: "TreeWalker".into(),
+        rust_path: "demo::TreeWalker".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![walk_method, walk_optional_method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: "A tree walker (opaque client type with opaque return methods).".to_string(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![tree_cursor_type, tree_walker_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    }
+}
+
+#[test]
+fn snapshot_jni_opaque_client_methods_with_opaque_returns() {
+    let api = make_opaque_client_api();
+    let config = make_jni_config_no_streaming();
+    let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
+
+    // Find the DefaultClient class in the generated files
+    let client_file = files
+        .iter()
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n == "DefaultClient.kt" || n == "TreeWalker.kt")
+        })
+        .expect("TreeWalker.kt not found");
+
+    let content = &client_file.content;
+
+    // Verify that opaque return methods use handle constructor, not JSON deserialization
+    assert!(
+        content.contains("fun walk(): TreeCursor {"),
+        "TreeWalker.walk() should have TreeCursor return type"
+    );
+    assert!(
+        content.contains("val handle = DemoBridge.nativeTreeWalkerWalk(handle)"),
+        "TreeWalker.walk() should assign bridge call result to handle variable: {content}"
+    );
+    assert!(
+        content.contains("return TreeCursor(handle)"),
+        "TreeWalker.walk() should construct TreeCursor from handle (not deserialize JSON): {content}"
+    );
+
+    // Verify nullable opaque return method
+    assert!(
+        content.contains("fun walkOptional(): TreeCursor? {"),
+        "TreeWalker.walkOptional() should have nullable TreeCursor return type"
+    );
+    assert!(
+        content.contains("return if (handle == 0L) null else TreeCursor(handle)"),
+        "TreeWalker.walkOptional() should check for null sentinel (0L) and construct TreeCursor: {content}"
+    );
+
+    // Verify that the bridge signature uses Long, not String
+    let bridge_file = files
+        .iter()
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with("Bridge.kt"))
+        })
+        .expect("DemoBridge.kt not found");
+
+    let bridge_content = &bridge_file.content;
+    assert!(
+        bridge_content.contains("external fun nativeTreeWalkerWalk(handle: Long): Long"),
+        "JNI bridge should expose nativeTreeWalkerWalk(handle: Long): Long (not String): {bridge_content}"
+    );
+    assert!(
+        bridge_content.contains("external fun nativeTreeWalkerWalkOptional(handle: Long): Long\n")
+            && !bridge_content.contains("nativeTreeWalkerWalkOptional(handle: Long): Long?"),
+        "JNI bridge should expose nativeTreeWalkerWalkOptional(handle: Long): Long — a primitive jlong, \
+         not the boxed Long? that would mismatch the Rust shim's jlong (tslp #146): {bridge_content}"
+    );
+}

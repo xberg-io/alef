@@ -43,6 +43,14 @@ pub fn emit_jni_client_class(
         .map(str::to_string)
         .unwrap_or_else(|| jni_kotlin_package(config));
 
+    // Opaque type names: Named params of this shape are handles (Long), not JSON (String).
+    let opaque_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait)
+        .map(|t| t.name.as_str())
+        .collect();
+
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();
 
@@ -134,7 +142,7 @@ pub fn emit_jni_client_class(
             .iter()
             .filter(|m| !m.sanitized && !m.is_static && !exclude_functions.contains(m.name.as_str()))
         {
-            emit_jni_client_method(method, class_name, &bridge_name, &mut body, &mut imports);
+            emit_jni_client_method(method, class_name, &bridge_name, &mut body, &mut imports, &opaque_type_names);
         }
 
         // Streaming methods owned by this client type.

@@ -1,0 +1,7 @@
+{% if is_async %}
+        val handle = withContext(Dispatchers.IO) { {{ bridge_call }} }
+        return if (handle == 0L) null else {{ wrapper_type }}(handle)
+{% else %}
+        val handle = {{ bridge_call }}
+        return if (handle == 0L) null else {{ wrapper_type }}(handle)
+{% endif %}

@@ -127,7 +127,7 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
                         continue;
                     }
                     let native_name = format!("native{owner_pascal}{}", to_pascal_case(&method.name));
-                    let return_ty = jni_return_type(&method.return_type);
+                    let return_ty = jni_return_type_for_method(&method.return_type, &opaque_type_names);
                     let params = if method.params.is_empty() {
                         "handle: Long".to_string()
                     } else if method.params.len() == 1 && is_binary_param_type(&method.params[0].ty) {

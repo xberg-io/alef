@@ -23,6 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ResolvedCrateConfig`, `ApiSurface`, `TypeDef`, `EnumDef`, `Fixture`, `FixtureGroup`,
   `load_fixtures`, `group_fixtures`. (`src/lib.rs`)
 
+### Fixed
+
+- **kotlin-android: opaque/handle return types crossed the JNI boundary as `String`/JSON,
+  crashing the JVM.** Client instance methods returning an opaque handle type (e.g. `Tree`,
+  `Node`, `TreeCursor`) generated `external fun … : String`/`String?` bridge signatures and
+  deserialized the result via `MAPPER.readValue(...)`, while the Rust JNI shim returns a raw
+  `jlong` handle. Returning a primitive `jlong` where the JVM expects an object reference is
+  undefined behavior → `EXCEPTION_ACCESS_VIOLATION`. The bridge now emits primitive `Long`
+  returns (required *and* optional — optionality uses the `0L` sentinel, never a boxed `Long?`,
+  which would re-introduce the same primitive-vs-object mismatch) and the client constructs the
+  wrapper directly (`Tree(handle)` / `if (h == 0L) null else Tree(h)`). Fixes downstream
+  tree-sitter-language-pack issue #146. (`src/backends/kotlin/gen_bindings/jni_emitter/`)
+
 ## [0.26.8] - 2026-06-23
 
 ### Fixed

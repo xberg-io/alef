@@ -457,3 +457,200 @@ fn buildscript_comes_after_imports_in_correct_order() {
         pos_jvm_target
     );
 }
+
+#[test]
+fn test_jni_opaque_handle_return_types() {
+    // Test that instance methods on opaque types correctly generate JNI external fun
+    // signatures with Long return types (not String) for handle returns, and DefaultClient
+    // methods that construct opaque types from handles.
+
+    use alef::core::ir::{MethodDef, ReceiverKind};
+
+    // Create two opaque types: Tree and TreeCursor
+    let tree_type = TypeDef {
+        name: "Tree".to_string(),
+        rust_path: "lang::Tree".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "walk".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("TreeCursor".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: "Get a cursor for walking the tree.".to_string(),
+            receiver: Some(ReceiverKind::Ref),
+            trait_source: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: "Abstract syntax tree.".to_string(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+
+    let tree_cursor_type = TypeDef {
+        name: "TreeCursor".to_string(),
+        rust_path: "lang::TreeCursor".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "next".to_string(),
+            params: vec![],
+            return_type: TypeRef::Optional(Box::new(TypeRef::Named("TreeCursor".to_string()))),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: "Move to next sibling, return None if no more.".to_string(),
+            receiver: Some(ReceiverKind::Ref),
+            trait_source: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: "Cursor for tree traversal.".to_string(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+
+    let api = ApiSurface {
+        crate_name: "lang".into(),
+        version: "0.1.0".into(),
+        types: vec![tree_type, tree_cursor_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: Default::default(),
+        handler_contracts: Default::default(),
+        unsupported_public_items: Default::default(),
+    };
+
+    let toml = r#"
+[workspace]
+languages = ["kotlin_android"]
+
+[[crates]]
+name = "lang"
+sources = ["src/lib.rs"]
+version_from = "/nonexistent/Cargo.toml"
+
+[crates.kotlin_android]
+package = "dev.sample_crate"
+namespace = "dev.sample_crate"
+artifact_id = "lang-android"
+group_id = "dev.sample_crate"
+
+[crates.package_metadata]
+repository = "https://github.com/example/demo"
+license = "MIT"
+"#;
+
+    let config = resolved_one(toml);
+    let files = KotlinAndroidBackend
+        .generate_bindings(&api, &config)
+        .expect("Backend should generate bindings");
+
+    // Find the DefaultClient.kt file
+    let client_kt = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("DefaultClient.kt"))
+        .expect("DefaultClient.kt should be generated")
+        .content
+        .clone();
+
+    // Verify that Tree.walk() method returns TreeCursor(handle) not MAPPER.readValue(...)
+    assert!(
+        client_kt.contains("fun walk(): TreeCursor"),
+        "Tree.walk() should return TreeCursor"
+    );
+
+    assert!(
+        client_kt.contains("TreeCursor(handle)"),
+        "Tree.walk() should construct TreeCursor(handle), got:\n{}",
+        client_kt
+    );
+
+    assert!(
+        !client_kt.contains("MAPPER.readValue(responseJson, TreeCursor::class.java)"),
+        "Tree.walk() should NOT use JSON deserialization for opaque types"
+    );
+
+    // Verify that TreeCursor.next() method handles Optional<TreeCursor> correctly
+    assert!(
+        client_kt.contains("fun next(): TreeCursor?"),
+        "TreeCursor.next() should return TreeCursor?"
+    );
+
+    assert!(
+        client_kt.contains("if (handle == 0L) null else TreeCursor(handle)"),
+        "TreeCursor.next() should use null check for optional opaque handle, got:\n{}",
+        client_kt
+    );
+
+    // Find the bridge object file
+    let bridge_kt = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("LangBridge.kt"))
+        .expect("LangBridge.kt should be generated")
+        .content
+        .clone();
+
+    // Verify JNI external fun for Tree.walk() returns Long (not String)
+    assert!(
+        bridge_kt.contains("external fun nativeTreeWalk(handle: Long): Long"),
+        "Tree.walk() should have JNI signature returning Long, got:\n{}",
+        bridge_kt
+    );
+
+    // Verify JNI external fun for TreeCursor.next() returns a primitive Long (0L = None),
+    // NOT a boxed Long? — the Rust JNI shim returns a primitive jlong, so Long? would
+    // mismatch (object-vs-primitive) and crash the JVM (tslp #146).
+    assert!(
+        bridge_kt.contains("external fun nativeTreeCursorNext(handle: Long): Long\n")
+            && !bridge_kt.contains("nativeTreeCursorNext(handle: Long): Long?"),
+        "TreeCursor.next() should have JNI signature returning a primitive Long, got:\n{}",
+        bridge_kt
+    );
+}

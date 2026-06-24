@@ -4,6 +4,7 @@ fn emit_jni_client_method(
     bridge_name: &str,
     out: &mut String,
     imports: &mut BTreeSet<String>,
+    opaque_type_names: &std::collections::HashSet<&str>,
 ) {
     if !m.doc.is_empty() {
         for line in m.doc.lines() {
@@ -48,7 +49,7 @@ fn emit_jni_client_method(
     let bridge_call = build_bridge_call(m, bridge_name, &native_name);
 
     // Emit the method body with optional `withContext` wrapping.
-    emit_method_body(m, out, &bridge_call, imports);
+    emit_method_body(m, out, &bridge_call, imports, opaque_type_names);
 
     out.push_str("    }\n\n");
 }
@@ -101,12 +102,26 @@ fn emit_method_body(
     out: &mut String,
     bridge_call: &str,
     imports: &mut BTreeSet<String>,
+    opaque_type_names: &std::collections::HashSet<&str>,
 ) {
-    let needs_deserialize = needs_json_deserialize(&m.return_type);
+    let needs_deserialize = needs_json_deserialize_for_method(&m.return_type, opaque_type_names);
     let return_kotlin_type = if needs_deserialize {
         Some(kotlin_type_with_string_imports(&m.return_type, false, imports))
     } else {
         None
+    };
+
+    // Check if this is an opaque type return (including optional)
+    let is_opaque_return = match &m.return_type {
+        TypeRef::Named(n) => opaque_type_names.contains(n.as_str()),
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Named(n) = inner.as_ref() {
+                opaque_type_names.contains(n.as_str())
+            } else {
+                false
+            }
+        }
+        _ => false,
     };
 
     match &m.return_type {
@@ -116,6 +131,33 @@ fn emit_method_body(
                 minijinja::context! {
                     is_async => m.is_async,
                     bridge_call => bridge_call,
+                },
+            ));
+        }
+        TypeRef::Optional(inner) if is_opaque_return => {
+            // Bridge returns a primitive Long handle (0L = None); wrap in opaque type constructor
+            if let TypeRef::Named(_) = inner.as_ref() {
+                let wrapper = kotlin_type_with_string_imports(&m.return_type, false, imports);
+                let base_wrapper = wrapper.trim_end_matches('?');
+                out.push_str(&template_env::render(
+                    "jni_opaque_optional_body.jinja",
+                    minijinja::context! {
+                        is_async => m.is_async,
+                        bridge_call => bridge_call,
+                        wrapper_type => base_wrapper,
+                    },
+                ));
+            }
+        }
+        _ if is_opaque_return => {
+            // Bridge returns Long (raw handle); wrap in opaque type constructor
+            let kotlin_ty = kotlin_type_with_string_imports(&m.return_type, false, imports);
+            out.push_str(&template_env::render(
+                "jni_opaque_body.jinja",
+                minijinja::context! {
+                    is_async => m.is_async,
+                    bridge_call => bridge_call,
+                    wrapper_type => kotlin_ty,
                 },
             ));
         }

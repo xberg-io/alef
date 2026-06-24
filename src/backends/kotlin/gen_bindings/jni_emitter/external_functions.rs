@@ -83,8 +83,8 @@ pub fn emit_streaming_jni_external_funs(out: &mut String, config: &ResolvedCrate
 /// destructor declaration for each client type.
 ///
 /// Methods with no params beyond `&self` produce `(handle: Long)` with no `requestJson`.
-/// `Vec<u8>` return types produce `ByteArray`; `Unit` stays `Unit`; everything else
-/// serialises via JSON → `String` (or `String?` for optionals).
+/// `Vec<u8>` return types produce `ByteArray`; `Unit` stays `Unit`; opaque Named returns
+/// produce `Long` (raw handle); everything else serialises via JSON → `String` (or `String?` for optionals).
 /// `exception_class` is the simple name of the exception class so every method gets
 /// an `@Throws` annotation that allows typed catch blocks to reach the error.
 /// Emitted destructor names are tracked in `emitted_destructor_names` to prevent
@@ -104,6 +104,15 @@ fn emit_method_jni_external_funs(
     if client_types.is_empty() {
         return;
     }
+
+    // Opaque type names: Named params of this shape are handles (Long), not JSON (String).
+    let opaque_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait)
+        .map(|t| t.name.as_str())
+        .collect();
+
     out.push_str("\n    // JNI external funs for client instance methods.\n");
     for ty in &client_types {
         let owner_pascal = to_pascal_case(&ty.name);
@@ -112,7 +121,7 @@ fn emit_method_jni_external_funs(
                 continue;
             }
             let native_name = format!("native{owner_pascal}{}", to_pascal_case(&method.name));
-            let return_ty = jni_return_type(&method.return_type);
+            let return_ty = jni_return_type_for_method(&method.return_type, &opaque_type_names);
             // Methods with at least one param pass them all as a single JSON string.
             // Methods with no params are called with only the handle.
             let params = if method.params.is_empty() {
