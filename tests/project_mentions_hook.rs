@@ -176,7 +176,7 @@ fn accepts_explicit_alef_owned_infrastructure_mentions() {
             "uses: xberg-io/actions/setup-rust@v1\n",
             "repo: xberg-io/alef\n",
             "tap: xberg-io/homebrew-tap\n",
-            "docs_host: docs.<repo>.kreuzberg.dev\n",
+            "docs_host: docs.<repo>.xberg.io\n",
         ),
     )
     .expect("write fixture");

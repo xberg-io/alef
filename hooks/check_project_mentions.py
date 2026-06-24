@@ -78,7 +78,7 @@ ALEF_INFRASTRUCTURE_ALLOWLIST = (
     "owner: kreuzberg-dev",
     "kreuzberg-bot",
     "bot@kreuzberg.dev",
-    "docs.<repo>.kreuzberg.dev",
+    "docs.<repo>.xberg.io",
     "kreuzberg, inc.",
 )
 
