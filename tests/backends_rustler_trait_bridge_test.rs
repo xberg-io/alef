@@ -701,3 +701,86 @@ fn test_plugin_bridge_enum_param_sent_as_native_term() {
         output.code
     );
 }
+
+// ---------------------------------------------------------------------------
+// Visitor bridge: native-term callback args
+// ---------------------------------------------------------------------------
+//
+// Like the plugin path, a visitor callback now sends its args as a NATIVE Erlang
+// term map carried in `{:visitor_callback, ref_id, callback_name, args_map}` —
+// built inside the `visitor_send_and_wait` dispatch closure via
+// `rustler::Term::map_new` + `map_put` per arg — NOT a JSON string. A serde-struct
+// param is materialised into the binding's `NifStruct` (via `From<core::T>`) and
+// encoded as a native term. The reply/return path is unchanged.
+
+fn make_visitor_struct_param_method(name: &str) -> MethodDef {
+    // Visitor methods must have a default impl (that is what makes the bridge a visitor).
+    let mut m = make_method(name, TypeRef::Named("WalkDecision".to_string()), false, true);
+    m.params = vec![
+        ParamDef {
+            name: "ctx".to_string(),
+            ty: TypeRef::Named("SyntaxContext".to_string()),
+            is_ref: true,
+            ..ParamDef::default()
+        },
+        ParamDef {
+            name: "label".to_string(),
+            ty: TypeRef::String,
+            is_ref: true,
+            ..ParamDef::default()
+        },
+    ];
+    m
+}
+
+#[test]
+fn test_visitor_bridge_struct_param_sent_as_native_term() {
+    let trait_def = make_trait_def("SyntaxWalker", vec![make_visitor_struct_param_method("visit_node")]);
+    let cfg = make_visitor_bridge_cfg("SyntaxWalker");
+    let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
+        .expect("trait bridge generation should succeed");
+
+    // The native args map is built with map_new and each arg is map_put under its key.
+    assert!(
+        output.code.contains("rustler::Term::map_new(env)"),
+        "visitor args must be built as a native term map via map_new; got:\n{}",
+        output.code
+    );
+    assert!(
+        output.code.contains(r#"args_map.map_put("ctx".encode(env)"#),
+        "struct param must be inserted into the native args map via map_put; got:\n{}",
+        output.code
+    );
+    assert!(
+        output.code.contains(r#"args_map.map_put("label".encode(env)"#),
+        "string param must be inserted into the native args map via map_put; got:\n{}",
+        output.code
+    );
+    // The owned struct binding is materialised before the dispatch and encoded natively.
+    assert!(
+        output
+            .code
+            .contains("let ctx_arg = SyntaxContext::from((*ctx).clone());"),
+        "struct param must be materialised as the binding NifStruct before dispatch; got:\n{}",
+        output.code
+    );
+    assert!(
+        output.code.contains("ctx_arg.encode(env)"),
+        "struct param must be encoded as a native term; got:\n{}",
+        output.code
+    );
+    // The callback dispatches through visitor_send_and_wait with a term-building closure.
+    assert!(
+        output
+            .code
+            .contains(r#"visitor_send_and_wait(self, "handle_node", |env| {"#),
+        "visitor callback must dispatch via visitor_send_and_wait with a term-building closure; got:\n{}",
+        output.code
+    );
+    // No JSON envelope: neither a serde_json::Map nor an args_json string.
+    assert!(
+        !output.code.contains("serde_json::Map::new()") && !output.code.contains("args_json"),
+        "visitor args must not be marshalled through a JSON string; got:\n{}",
+        output.code
+    );
+}

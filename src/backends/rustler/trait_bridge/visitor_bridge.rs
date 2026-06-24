@@ -1,6 +1,9 @@
-use super::json_args::build_json_arg;
-use crate::codegen::generators::trait_bridge::{bridge_param_type as param_type, visitor_param_type};
+use super::native_args::build_native_args;
+use crate::codegen::generators::trait_bridge::{
+    bridge_param_type as param_type, native_marshalled_struct_params, visitor_param_type,
+};
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use std::collections::HashSet;
 
 /// Parameters for [`gen_visitor_bridge`], grouped to keep argument count under the lint limit.
 pub(super) struct VisitorBridgeCtx<'a> {
@@ -17,8 +20,9 @@ pub(super) struct VisitorBridgeCtx<'a> {
 ///
 /// This generates an async message-passing bridge. When `convert_with_visitor` is called,
 /// it spawns a system thread that runs the conversion. Each visitor callback sends a
-/// `{:visitor_callback, ref_id, callback_name, args_json}` message to the calling Elixir
-/// process and blocks on a channel waiting for the reply from `visitor_reply/2`.
+/// `{:visitor_callback, ref_id, callback_name, args_map}` message to the calling Elixir
+/// process — `args_map` is a NATIVE Erlang term map (built inside `send_and_clear`), not a
+/// JSON string — and blocks on a channel waiting for the reply from `visitor_reply/2`.
 /// When conversion finishes, the thread sends `{:ok, result_json}` or `{:error, reason}`
 /// to the caller.
 pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -> anyhow::Result<()> {
@@ -83,7 +87,8 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
     ));
 
     // Helper: send a visitor callback message and block waiting for the reply.
-    // Encoded as: {:visitor_callback, ref_id, callback_atom, args_json_string}
+    // Encoded as: {:visitor_callback, ref_id, callback_atom, args_map} where args_map is a
+    // native Erlang term map built inside the dispatch closure.
     let ctx_send_wait = minijinja::context! {
         struct_name => struct_name
     };
@@ -107,8 +112,18 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
             struct_name => struct_name,
         },
     ));
+    // Classify which callback params marshal to the host as the binding's native struct term,
+    // using the SHARED allowlist — identical to the plugin path and every other backend.
+    let struct_param_types = native_marshalled_struct_params(trait_type, api);
     for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
-        gen_visitor_method_async(out, method, type_paths, struct_name, bridge_cfg, &result_metadata);
+        gen_visitor_method_async(
+            out,
+            method,
+            type_paths,
+            struct_name,
+            &result_metadata,
+            &struct_param_types,
+        );
     }
     out.push_str("}\n");
     out.push('\n');
@@ -118,15 +133,18 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
 /// Generate a single async visitor method that sends a callback message to the Elixir
 /// process and blocks on an mpsc channel waiting for the reply from `visitor_reply/2`.
 ///
-/// Arguments are serialized to a JSON object string so the Elixir side can decode them
-/// with Jason without depending on Rustler types.
+/// Each argument is materialised into an OWNED, `Encoder`-able value before the dispatch
+/// closure, then encoded into a NATIVE Erlang term map inside `send_and_clear` — so the
+/// Elixir host receives native terms (structs/maps), not a JSON string. Serde-struct params
+/// are built as the binding `NifStruct` via the shared allowlist (`struct_param_types`);
+/// other args encode as their natural native terms.
 fn gen_visitor_method_async(
     out: &mut String,
     method: &MethodDef,
     type_paths: &std::collections::HashMap<String, String>,
     _struct_name: &str,
-    bridge_cfg: &crate::core::config::TraitBridgeConfig,
     result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
+    struct_param_types: &HashSet<String>,
 ) {
     let name = &method.name;
 
@@ -153,18 +171,15 @@ fn gen_visitor_method_async(
         name.clone()
     };
 
-    // Build args for the template
-    let args: Vec<minijinja::Value> = method
-        .params
-        .iter()
-        .map(|p| {
-            let json_expr = build_json_arg(p, bridge_cfg);
-            // Strip leading underscore from param names for visitor arg keys
-            // (e.g., _text becomes text for template variable interpolation)
-            let key = p.name.strip_prefix('_').unwrap_or(&p.name).to_string();
+    // Build native-arg descriptors: each arg is materialised into an owned binding before the
+    // dispatch closure and encoded into the native term map inside `send_and_clear`.
+    let args: Vec<minijinja::Value> = build_native_args(&method.params, struct_param_types)
+        .into_iter()
+        .map(|a| {
             minijinja::context! {
-                key => key,
-                expr => json_expr
+                key => a.key,
+                binding => a.binding,
+                owned_expr => a.owned_expr,
             }
         })
         .collect();

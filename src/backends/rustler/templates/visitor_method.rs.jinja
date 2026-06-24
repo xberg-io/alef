@@ -1,10 +1,14 @@
     fn {{ method_name }}({{ sig }}) -> {{ ret_ty }} {
-        let {% if args %}mut {% endif %}args_map = serde_json::Map::new();
 {%- for arg in args %}
-        args_map.insert("{{ arg.key }}".to_string(), {{ arg.expr }});
+        let {{ arg.binding }} = {{ arg.owned_expr }};
 {%- endfor %}
-        let args_json = serde_json::Value::Object(args_map).to_string();
-        let result = visitor_send_and_wait(self, "{{ handle_name }}", args_json);
+        let result = visitor_send_and_wait(self, "{{ handle_name }}", |env| {
+            let {% if args %}mut {% endif %}args_map = rustler::Term::map_new(env);
+{%- for arg in args %}
+            args_map = args_map.map_put("{{ arg.key }}".encode(env), {{ arg.binding }}.encode(env)).expect("map_put");
+{%- endfor %}
+            args_map
+        });
         match result {
             None => {{ default_result_expr }},
             Some(s) => {

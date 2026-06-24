@@ -1,11 +1,11 @@
   @doc false
   defp do_visitor_receive_loop(visitor) do
     receive do
-      {:visitor_callback, ref_id, callback_name, args_json} ->
+      {:visitor_callback, ref_id, callback_name, args} ->
         result =
           case Map.get(visitor, callback_name) do
             nil -> "{{ default_result_wire_name }}"
-            fun -> apply_visitor_callback(fun, args_json)
+            fun -> apply_visitor_callback(fun, args)
           end
 
         {{ native_mod }}.visitor_reply(ref_id, result)
@@ -23,8 +23,9 @@
   end
 
   @doc false
-  defp apply_visitor_callback(fun, args_json) do
-    args = Jason.decode!(args_json)
+  defp apply_visitor_callback(fun, args) do
+    # `args` arrives as a native Erlang/Elixir map built on the Rust side (struct params as
+    # native maps, primitives as native terms) — no JSON envelope to decode.
     result = fun.(args)
 
     case result do

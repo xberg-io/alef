@@ -98,6 +98,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/backends/rustler/templates/trait_async_method_body.rs.jinja`,
   `src/backends/rustler/templates/service_api_genserver.ex.jinja`,
   `src/backends/rustler/trait_bridge/native_args.rs`)
+- **rustler: visitor callback args are sent to the host as a native Erlang term map.** The visitor
+  bridge now matches the plugin path: a visitor callback materialises each arg into an owned value
+  and builds a native term map inside the `visitor_send_and_wait` dispatch closure
+  (`rustler::Term::map_new` plus `map_put` per arg), sending `{:visitor_callback, ref_id,
+  callback_name, args_map}` — the host receives a native map, not a JSON string, so the receive loop
+  no longer `Jason.decode`s it. A known serde-struct param is built as the binding's `NifStruct` (via
+  `From<core::T>`) and encoded natively; other args encode as their natural native terms. The
+  reply/return path is unchanged. The dead `json_args` arg builder was removed.
+  (`src/backends/rustler/trait_bridge/visitor_bridge.rs`,
+  `src/backends/rustler/templates/visitor_method.rs.jinja`,
+  `src/backends/rustler/templates/visitor_send_and_wait.rs.jinja`,
+  `src/backends/rustler/templates/elixir_visitor_helper_functions.jinja`)
 
 ## [0.26.8] - 2026-06-23
 
