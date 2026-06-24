@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Extension API: `Extension::emit_e2e` hook.** Registered extensions can now contribute e2e test
+  files per language during `alef e2e generate`. `generate_e2e` invokes the hook after the built-in
+  generators and merges the returned files into the same write + orphan-sweep pipeline. The default
+  implementation returns an empty list, so consumers without an e2e extension are unaffected. This lets
+  a downstream extension own domain-specific (e.g. HTTP) e2e generation without modifying alef core.
+  (`src/core/extension.rs`, `src/e2e/mod.rs`)
+- **Config: inline `[extensions.<name>]` tables.** `NewAlefConfig` gains an `extensions` field, so
+  per-extension configuration can live in `alef.toml` directly (read via `read_extension_config`)
+  instead of a side-car file, while `deny_unknown_fields` still rejects genuine typos.
+  (`src/core/config/new_config.rs`)
+- **Crate-root re-exports for extensions**: `GeneratedFile`, `E2eConfig`, `Language`,
+  `ResolvedCrateConfig`, `ApiSurface`, `TypeDef`, `EnumDef`, `Fixture`, `FixtureGroup`,
+  `load_fixtures`, `group_fixtures`. (`src/lib.rs`)
+
 ## [0.26.8] - 2026-06-23
 
 ### Fixed

@@ -64,6 +64,15 @@ pub struct NewAlefConfig {
     pub workspace: WorkspaceConfig,
     /// One entry per independently published binding package.
     pub crates: Vec<RawCrateConfig>,
+    /// Opaque per-extension configuration tables. alef does not interpret these;
+    /// each registered [`crate::core::extension::Extension`] reads its own
+    /// `[extensions.<name>]` table via
+    /// [`crate::core::extension::read_extension_config`]. Declaring the field
+    /// keeps `deny_unknown_fields` typo protection while admitting extension
+    /// sections inline in `alef.toml`.
+    #[serde(default)]
+    #[schemars(skip)]
+    pub extensions: std::collections::BTreeMap<String, toml::Value>,
 }
 
 impl NewAlefConfig {

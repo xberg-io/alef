@@ -37,6 +37,12 @@ pub use core::extension::{Extension, ExtensionConfig};
 pub use core::template_env::TemplateEnv;
 pub use extensions::template::TemplateExtension;
 
+// Convenience re-exports for downstream extensions that own e2e / domain codegen.
+pub use core::backend::GeneratedFile;
+pub use core::config::{E2eConfig, Language, ResolvedCrateConfig};
+pub use core::ir::{ApiSurface, EnumDef, TypeDef};
+pub use e2e::fixture::{Fixture, FixtureGroup, group_fixtures, load_fixtures};
+
 /// Run the alef CLI, threading the given extensions through the pipeline.
 ///
 /// The built-in [`TemplateExtension`] is always prepended so consumers who

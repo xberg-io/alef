@@ -156,5 +156,27 @@ pub fn generate_e2e(
         all_files.extend(files);
     }
 
+    // Let registered extensions contribute e2e files per language. The default
+    // `Extension::emit_e2e` returns empty, so consumers without an e2e extension
+    // see no change. Returned files merge into the same collection the caller
+    // writes and orphan-sweeps.
+    crate::with_extensions(|exts| {
+        for lang in &resolved_languages {
+            for ext in exts {
+                let extra = ext.emit_e2e(&groups, e2e_config, config, lang, type_defs, enums)?;
+                if !extra.is_empty() {
+                    info!(
+                        "  [{}] extension `{}` generated {} e2e file(s)",
+                        lang,
+                        ext.name(),
+                        extra.len()
+                    );
+                }
+                all_files.extend(extra);
+            }
+        }
+        Ok::<(), anyhow::Error>(())
+    })?;
+
     Ok(all_files)
 }

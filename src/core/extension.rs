@@ -106,6 +106,27 @@ pub trait Extension: Send + Sync {
     ) -> Result<()> {
         Ok(())
     }
+
+    /// Emit e2e test files for one language.
+    ///
+    /// Called during `alef e2e generate` after the built-in generators run,
+    /// once per resolved language. Extensions use this to own domain-specific
+    /// e2e generation (e.g. HTTP integration tests) without modifying alef core.
+    /// Returned files are merged into the same collection alef writes and
+    /// orphan-sweeps.
+    ///
+    /// Default: returns an empty list.
+    fn emit_e2e(
+        &self,
+        _groups: &[crate::e2e::fixture::FixtureGroup],
+        _e2e_config: &crate::core::config::E2eConfig,
+        _config: &crate::core::config::ResolvedCrateConfig,
+        _language: &str,
+        _type_defs: &[crate::core::ir::TypeDef],
+        _enums: &[crate::core::ir::EnumDef],
+    ) -> Result<Vec<GeneratedFile>> {
+        Ok(vec![])
+    }
 }
 
 /// Read the `[extensions.<name>]` section from `alef.toml` at `config_path`.
