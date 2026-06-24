@@ -56,7 +56,13 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
         let method = ctx.method.to_uppercase();
 
         // Build the path, appending query params when present.
-        let path = if ctx.query_params.is_empty() {
+        //
+        // `ctx.path` is `/fixtures/{id}{request.path}` and `request.path` already
+        // embeds the fixture's query string when it has one. `ctx.query_params`
+        // mirrors that same query, so appending it onto a path that already
+        // contains `?` produces a malformed double-query (`/p?x=1?x=1`). Only
+        // append when the path carries no query component of its own.
+        let path = if ctx.query_params.is_empty() || ctx.path.contains('?') {
             ctx.path.to_string()
         } else {
             let pairs: Vec<String> = ctx
@@ -325,4 +331,58 @@ pub(super) fn render_http_test_method(out: &mut String, fixture: &Fixture, http:
     }
 
     client::http_call::render_http_test(out, &JavaTestClientRenderer, fixture);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::e2e::codegen::client::{CallCtx, TestClientRenderer};
+    use std::collections::BTreeMap;
+
+    fn ctx_with<'a>(
+        path: &'a str,
+        query: &'a BTreeMap<String, serde_json::Value>,
+        headers: &'a BTreeMap<String, String>,
+        cookies: &'a BTreeMap<String, String>,
+    ) -> CallCtx<'a> {
+        CallCtx {
+            method: "GET",
+            path,
+            headers,
+            query_params: query,
+            cookies,
+            body: None,
+            content_type: None,
+            response_var: "response",
+        }
+    }
+
+    #[test]
+    fn render_call_does_not_double_append_query_when_path_already_has_one() {
+        let headers = BTreeMap::new();
+        let cookies = BTreeMap::new();
+        let mut query = BTreeMap::new();
+        query.insert("term".to_string(), serde_json::Value::String("hi there".to_string()));
+        let ctx = ctx_with("/fixtures/x/search?term=hi%20there", &query, &headers, &cookies);
+
+        let mut out = String::new();
+        JavaTestClientRenderer.render_call(&mut out, &ctx);
+
+        assert!(out.contains("/fixtures/x/search?term=hi%20there"), "got: {out}");
+        assert!(!out.contains("term=hi%20there?term"), "double query emitted: {out}");
+    }
+
+    #[test]
+    fn render_call_appends_query_when_path_has_none() {
+        let headers = BTreeMap::new();
+        let cookies = BTreeMap::new();
+        let mut query = BTreeMap::new();
+        query.insert("term".to_string(), serde_json::Value::String("foo".to_string()));
+        let ctx = ctx_with("/fixtures/x/search", &query, &headers, &cookies);
+
+        let mut out = String::new();
+        JavaTestClientRenderer.render_call(&mut out, &ctx);
+
+        assert!(out.contains("/fixtures/x/search?term=foo"), "got: {out}");
+    }
 }

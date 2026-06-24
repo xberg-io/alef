@@ -88,7 +88,12 @@ impl client::TestClientRenderer for PhpTestClientRenderer {
             opts.push(format!("'headers' => ['Cookie' => \"{}\"]", escape_php(&cookie_str)));
         }
 
-        if !ctx.query_params.is_empty() {
+        // `ctx.path` is `/fixtures/{id}{request.path}` and already embeds the
+        // fixture's query string when it has one; `ctx.query_params` mirrors it.
+        // Guzzle's `query` option overrides any query already on the URI, so
+        // emitting both is redundant — only add it when the path carries no
+        // query component of its own.
+        if !ctx.query_params.is_empty() && !ctx.path.contains('?') {
             let pairs: Vec<String> = ctx
                 .query_params
                 .iter()
@@ -293,4 +298,59 @@ pub(super) fn render_http_test_method(out: &mut String, fixture: &Fixture, http:
     }
 
     client::http_call::render_http_test(out, &PhpTestClientRenderer, fixture);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::e2e::codegen::client::{CallCtx, TestClientRenderer};
+    use std::collections::BTreeMap;
+
+    fn ctx_with<'a>(
+        path: &'a str,
+        query: &'a BTreeMap<String, serde_json::Value>,
+        headers: &'a BTreeMap<String, String>,
+        cookies: &'a BTreeMap<String, String>,
+    ) -> CallCtx<'a> {
+        CallCtx {
+            method: "GET",
+            path,
+            headers,
+            query_params: query,
+            cookies,
+            body: None,
+            content_type: None,
+            response_var: "response",
+        }
+    }
+
+    #[test]
+    fn render_call_omits_query_option_when_path_already_has_one() {
+        let headers = BTreeMap::new();
+        let cookies = BTreeMap::new();
+        let mut query = BTreeMap::new();
+        query.insert("term".to_string(), serde_json::Value::String("hi there".to_string()));
+        let ctx = ctx_with("/fixtures/x/search?term=hi%20there", &query, &headers, &cookies);
+
+        let mut out = String::new();
+        PhpTestClientRenderer.render_call(&mut out, &ctx);
+
+        assert!(out.contains("/fixtures/x/search?term=hi%20there"), "got: {out}");
+        assert!(!out.contains("'query' =>"), "redundant query option emitted: {out}");
+    }
+
+    #[test]
+    fn render_call_emits_query_option_when_path_has_none() {
+        let headers = BTreeMap::new();
+        let cookies = BTreeMap::new();
+        let mut query = BTreeMap::new();
+        query.insert("term".to_string(), serde_json::Value::String("foo".to_string()));
+        let ctx = ctx_with("/fixtures/x/search", &query, &headers, &cookies);
+
+        let mut out = String::new();
+        PhpTestClientRenderer.render_call(&mut out, &ctx);
+
+        assert!(out.contains("'query' =>"), "expected query option, got: {out}");
+        assert!(out.contains("\"term\" => \"foo\""), "got: {out}");
+    }
 }
