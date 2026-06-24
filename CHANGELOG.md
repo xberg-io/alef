@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **pyo3: the `_native` type stub now declares the exception classes.** 0.27.0 made `exceptions.py`
+  re-export the exceptions from the native module, but the generated `_native.pyi` stub only
+  declared data types/enums/functions — so `from ._native import DownloadError` failed type-checking
+  with `Module "…._native" has no attribute "DownloadError"`. The stub now emits a class for each
+  exception (base under `Exception`, each variant under the base, base declared first), matching the
+  native `create_exception!` hierarchy and the re-export. (`src/backends/pyo3/gen_stubs.rs`)
+
 ## [0.27.0] - 2026-06-24
 
 ### Added

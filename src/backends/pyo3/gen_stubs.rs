@@ -279,6 +279,31 @@ pub fn gen_stubs(
         body_lines.push("".to_string());
     }
 
+    // Generate exception class stubs. The native module defines these via
+    // `pyo3::create_exception!` (base error under `Exception`, each variant under the base) and
+    // the generated `exceptions.py` re-exports them from this module. The stub must therefore
+    // declare them, or mypy reports `_native` "has no attribute <Variant>Error" on the re-export
+    // (tslp issue #147). Base is emitted before its variants so the variant base class resolves.
+    {
+        let mut seen_exc: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut exc_lines: Vec<String> = Vec::new();
+        for error in &api.errors {
+            if seen_exc.insert(error.name.clone()) {
+                exc_lines.push(format!("class {}(Exception): ...", error.name));
+            }
+            for variant in &error.variants {
+                let variant_name = crate::codegen::error_gen::python_exception_name(&variant.name, &error.name);
+                if seen_exc.insert(variant_name.clone()) {
+                    exc_lines.push(format!("class {variant_name}({}): ...", error.name));
+                }
+            }
+        }
+        if !exc_lines.is_empty() {
+            body_lines.extend(exc_lines);
+            body_lines.push("".to_string());
+        }
+    }
+
     // Generate function stubs — no blank lines between consecutive stubs (ruff strips them).
     // Skip functions excluded for this language backend: they are absent from the native
     // Rust module and must not appear in the .pyi type-stub either.

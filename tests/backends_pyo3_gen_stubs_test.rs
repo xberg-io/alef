@@ -431,6 +431,84 @@ fn test_enum_stubs() {
 }
 
 #[test]
+fn test_exception_stubs() {
+    let backend = Pyo3Backend;
+
+    // The native module defines exceptions via create_exception! and exceptions.py re-exports
+    // them, so the _native stub must declare the exception classes (base under Exception, each
+    // variant under the base) or mypy reports `_native` "has no attribute" (tslp issue #147).
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "LibError".to_string(),
+            rust_path: "test_lib::LibError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                ErrorVariant {
+                    name: "Download".to_string(),
+                    message_template: None,
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    is_tuple: false,
+                    doc: "Download error.".to_string(),
+                },
+                ErrorVariant {
+                    name: "ParseFailed".to_string(),
+                    message_template: None,
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    is_tuple: false,
+                    doc: "Parse failed.".to_string(),
+                },
+            ],
+            doc: "Library errors.".to_string(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config_with_stubs();
+    let result = backend.generate_type_stubs(&api, &config);
+    assert!(result.is_ok());
+    let files = result.unwrap();
+    let content = &files[0].content;
+
+    // Base derives from Exception; variants (Error-suffixed, N818) derive from the base.
+    assert!(
+        content.contains("class LibError(Exception): ..."),
+        "base error must derive from Exception:\n{content}"
+    );
+    assert!(
+        content.contains("class DownloadError(LibError): ..."),
+        "variant must derive from the base error:\n{content}"
+    );
+    assert!(
+        content.contains("class ParseFailedError(LibError): ..."),
+        "variant must derive from the base error:\n{content}"
+    );
+    // The base must be declared before the variants reference it as a base class.
+    assert!(
+        content.find("class LibError(Exception)").unwrap() < content.find("class DownloadError(LibError)").unwrap(),
+        "base must be declared before variants:\n{content}"
+    );
+}
+
+#[test]
 fn test_stubs_with_no_stubs_config() {
     let backend = Pyo3Backend;
 
