@@ -5,68 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.27.1] - 2026-06-24
-
-### Fixed
-
-- **pyo3: the `_native` type stub now declares the exception classes.** 0.27.0 made `exceptions.py`
-  re-export the exceptions from the native module, but the generated `_native.pyi` stub only
-  declared data types/enums/functions — so `from ._native import DownloadError` failed type-checking
-  with `Module "…._native" has no attribute "DownloadError"`. The stub now emits a class for each
-  exception (base under `Exception`, each variant under the base, base declared first), matching the
-  native `create_exception!` hierarchy and the re-export. (`src/backends/pyo3/gen_stubs.rs`)
-
-## [0.27.0] - 2026-06-24
-
-### Added
-
-- **Extension API: `Extension::emit_e2e` hook.** Registered extensions can now contribute e2e test
-  files per language during `alef e2e generate`. `generate_e2e` invokes the hook after the built-in
-  generators and merges the returned files into the same write + orphan-sweep pipeline. The default
-  implementation returns an empty list, so consumers without an e2e extension are unaffected. This lets
-  a downstream extension own domain-specific (e.g. HTTP) e2e generation without modifying alef core.
-  (`src/core/extension.rs`, `src/e2e/mod.rs`)
-- **Config: inline `[extensions.<name>]` tables.** `NewAlefConfig` gains an `extensions` field, so
-  per-extension configuration can live in `alef.toml` directly (read via `read_extension_config`)
-  instead of a side-car file, while `deny_unknown_fields` still rejects genuine typos.
-  (`src/core/config/new_config.rs`)
-- **Crate-root re-exports for extensions**: `GeneratedFile`, `E2eConfig`, `Language`,
-  `ResolvedCrateConfig`, `ApiSurface`, `TypeDef`, `EnumDef`, `Fixture`, `FixtureGroup`,
-  `load_fixtures`, `group_fixtures`. (`src/lib.rs`)
-
-### Fixed
-
-- **kotlin-android: opaque/handle return types crossed the JNI boundary as `String`/JSON,
-  crashing the JVM.** Client instance methods returning an opaque handle type (e.g. `Tree`,
-  `Node`, `TreeCursor`) generated `external fun … : String`/`String?` bridge signatures and
-  deserialized the result via `MAPPER.readValue(...)`, while the Rust JNI shim returns a raw
-  `jlong` handle. Returning a primitive `jlong` where the JVM expects an object reference is
-  undefined behavior → `EXCEPTION_ACCESS_VIOLATION`. The bridge now emits primitive `Long`
-  returns (required *and* optional — optionality uses the `0L` sentinel, never a boxed `Long?`,
-  which would re-introduce the same primitive-vs-object mismatch) and the client constructs the
-  wrapper directly (`Tree(handle)` / `if (h == 0L) null else Tree(h)`). Fixes downstream
-  tree-sitter-language-pack issue #146. (`src/backends/kotlin/gen_bindings/jni_emitter/`)
-- **pyo3: package exception classes were unrelated to the ones the native module raises.** The
-  generated `exceptions.py` defined its own Python exception hierarchy while the native module
-  (`create_exception!`) defined and raised a *different* set, so `from <pkg> import DownloadError;
-  except DownloadError:` never caught the raised error. Two changes: (1) the native variants now
-  derive from the native base error (`create_exception!(_native, DownloadError, Error)`) instead of
-  all deriving flat from `PyException`, so `except Error:` still catches every variant; (2)
-  `exceptions.py` now re-exports the native classes (`from .<native module> import …`) instead of
-  redefining them, giving a single canonical class object per exception. Fixes downstream
-  tree-sitter-language-pack issue #147.
-  (`src/codegen/templates/error_gen/pyo3_error_types.jinja`, `src/backends/pyo3/gen_bindings/errors.rs`)
-
-### Fixed
-
-- **extendr: free functions returning wide integers now cast the return value to match the
-  R-facing signature.** The extendr type mapper rewrites `usize`/`u64`/`i64`/`isize` to `f64`
-  and `u8`/`u16`/`u32` to `i32`, and the wrapper signature is rendered through that mapper. The
-  return value was forwarded uncast, so the body (`Vec<usize>`) disagreed with the signature
-  (`Vec<f64>`) and the generated R crate failed to compile with E0308. Scalar, `Vec`, `Option`,
-  and `Option<Vec>` return shapes are now cast at the value site. The cast is gated strictly on
-  the extendr-only cast flags, so pyo3/napi/wasm output is unchanged. (#145,
-  `src/codegen/generators/functions.rs`)
+## [Unreleased]
 
 ### Added
 
@@ -171,11 +110,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/backends/rustler/templates/visitor_method.rs.jinja`,
   `src/backends/rustler/templates/visitor_send_and_wait.rs.jinja`,
   `src/backends/rustler/templates/elixir_visitor_helper_functions.jinja`)
-
-## [Unreleased]
-
-### Added
-
 - **`#[alef(string_shorthand(variant = "...", field = "..."))]` enum attribute.** Lets a bare
   host-language string construct a data-carrying variant of an internally-tagged enum
   (`#[serde(tag = "...")]`) by routing the string into one named field. For an enum like
@@ -194,6 +128,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the enum and how to fix it, rather than a silent fallback. (`core/ir/items.rs`,
   `extract/extractor/helpers/attributes.rs`, `extract/validation.rs`, `core/validation/mod.rs`,
   `codegen/generators/enums.rs`, `backends/magnus/gen_bindings/classes.rs`)
+
+### Fixed
+
+- **extendr: free functions returning wide integers now cast the return value to match the
+  R-facing signature.** The extendr type mapper rewrites `usize`/`u64`/`i64`/`isize` to `f64`
+  and `u8`/`u16`/`u32` to `i32`, and the wrapper signature is rendered through that mapper. The
+  return value was forwarded uncast, so the body (`Vec<usize>`) disagreed with the signature
+  (`Vec<f64>`) and the generated R crate failed to compile with E0308. Scalar, `Vec`, `Option`,
+  and `Option<Vec>` return shapes are now cast at the value site. The cast is gated strictly on
+  the extendr-only cast flags, so pyo3/napi/wasm output is unchanged. (#145,
+  `src/codegen/generators/functions.rs`)
+
+## [0.27.1] - 2026-06-24
+
+### Fixed
+
+- **pyo3: the `_native` type stub now declares the exception classes.** 0.27.0 made `exceptions.py`
+  re-export the exceptions from the native module, but the generated `_native.pyi` stub only
+  declared data types/enums/functions — so `from ._native import DownloadError` failed type-checking
+  with `Module "…._native" has no attribute "DownloadError"`. The stub now emits a class for each
+  exception (base under `Exception`, each variant under the base, base declared first), matching the
+  native `create_exception!` hierarchy and the re-export. (`src/backends/pyo3/gen_stubs.rs`)
+
+## [0.27.0] - 2026-06-24
+
+### Added
+
+- **Extension API: `Extension::emit_e2e` hook.** Registered extensions can now contribute e2e test
+  files per language during `alef e2e generate`. `generate_e2e` invokes the hook after the built-in
+  generators and merges the returned files into the same write + orphan-sweep pipeline. The default
+  implementation returns an empty list, so consumers without an e2e extension are unaffected. This lets
+  a downstream extension own domain-specific (e.g. HTTP) e2e generation without modifying alef core.
+  (`src/core/extension.rs`, `src/e2e/mod.rs`)
+- **Config: inline `[extensions.<name>]` tables.** `NewAlefConfig` gains an `extensions` field, so
+  per-extension configuration can live in `alef.toml` directly (read via `read_extension_config`)
+  instead of a side-car file, while `deny_unknown_fields` still rejects genuine typos.
+  (`src/core/config/new_config.rs`)
+- **Crate-root re-exports for extensions**: `GeneratedFile`, `E2eConfig`, `Language`,
+  `ResolvedCrateConfig`, `ApiSurface`, `TypeDef`, `EnumDef`, `Fixture`, `FixtureGroup`,
+  `load_fixtures`, `group_fixtures`. (`src/lib.rs`)
+
+### Fixed
+
+- **kotlin-android: opaque/handle return types crossed the JNI boundary as `String`/JSON,
+  crashing the JVM.** Client instance methods returning an opaque handle type (e.g. `Tree`,
+  `Node`, `TreeCursor`) generated `external fun … : String`/`String?` bridge signatures and
+  deserialized the result via `MAPPER.readValue(...)`, while the Rust JNI shim returns a raw
+  `jlong` handle. Returning a primitive `jlong` where the JVM expects an object reference is
+  undefined behavior → `EXCEPTION_ACCESS_VIOLATION`. The bridge now emits primitive `Long`
+  returns (required *and* optional — optionality uses the `0L` sentinel, never a boxed `Long?`,
+  which would re-introduce the same primitive-vs-object mismatch) and the client constructs the
+  wrapper directly (`Tree(handle)` / `if (h == 0L) null else Tree(h)`). Fixes downstream
+  tree-sitter-language-pack issue #146. (`src/backends/kotlin/gen_bindings/jni_emitter/`)
+- **pyo3: package exception classes were unrelated to the ones the native module raises.** The
+  generated `exceptions.py` defined its own Python exception hierarchy while the native module
+  (`create_exception!`) defined and raised a *different* set, so `from <pkg> import DownloadError;
+  except DownloadError:` never caught the raised error. Two changes: (1) the native variants now
+  derive from the native base error (`create_exception!(_native, DownloadError, Error)`) instead of
+  all deriving flat from `PyException`, so `except Error:` still catches every variant; (2)
+  `exceptions.py` now re-exports the native classes (`from .<native module> import …`) instead of
+  redefining them, giving a single canonical class object per exception. Fixes downstream
+  tree-sitter-language-pack issue #147.
+  (`src/codegen/templates/error_gen/pyo3_error_types.jinja`, `src/backends/pyo3/gen_bindings/errors.rs`)
 
 ## [0.26.8] - 2026-06-23
 
