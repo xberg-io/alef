@@ -461,3 +461,147 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         api_py.content
     );
 }
+
+/// Under the structural (TypedDict) output style, a result type listed in `reexported_types`
+/// must still be re-exported from the native module (an attribute-access pyclass matching the
+/// runtime object), while a type that is `is_return_type` but NOT reexported — e.g. a config a
+/// resolver returns yet callers construct, like `ExtractionConfig` — stays a structural
+/// `.options` type. Regression for kreuzberg-dev/alef#134 (public API didn't type-check).
+#[test]
+fn test_typeddict_style_reexports_only_listed_results_as_native() {
+    fn mk_type(name: &str, is_return_type: bool) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("my_lib::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![make_field("value", TypeRef::String, false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        }
+    }
+
+    let backend = Pyo3Backend;
+    // DocResult: pure result, listed in reexported_types -> native pyclass.
+    // DocConfig: is_return_type (a resolver returns it) AND a param the caller builds, not
+    // reexported -> structural .options TypedDict.
+    let api = ApiSurface {
+        crate_name: "my_lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![mk_type("DocResult", true), mk_type("DocConfig", true)],
+        functions: vec![FunctionDef {
+            name: "extract".to_string(),
+            rust_path: "my_lib::extract".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "config".to_string(),
+                ty: TypeRef::Named("DocConfig".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+                map_is_btree: false,
+                core_wrapper: alef::core::ir::CoreWrapper::None,
+            }],
+            return_type: TypeRef::Named("DocResult".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: "Extract a document.".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let mut config = make_config();
+    config.dto = alef::core::config::DtoConfig {
+        python: alef::core::config::PythonDtoStyle::TypedDict,
+        ..Default::default()
+    };
+    config.python = Some(PythonConfig {
+        module_name: Some("_my_lib".to_string()),
+        pip_name: None,
+        async_runtime: None,
+        stubs: Some(StubsConfig {
+            output: std::path::PathBuf::from("packages/python/my_lib"),
+            emit_docstrings: false,
+        }),
+        features: None,
+        serde_rename_all: None,
+        capsule_types: Default::default(),
+        release_gil: false,
+        exclude_functions: Vec::new(),
+        exclude_types: Vec::new(),
+        extra_dependencies: Default::default(),
+        pip_dependencies: Vec::new(),
+        sdist_include: Vec::new(),
+        scaffold_output: Default::default(),
+        rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
+        reexported_types: vec!["DocResult".to_string()],
+    });
+
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
+    let init_py = &files
+        .iter()
+        .find(|f| f.path.ends_with("__init__.py"))
+        .expect("__init__.py")
+        .content;
+
+    let native_line = init_py
+        .lines()
+        .find(|l| l.contains("from ._my_lib import"))
+        .unwrap_or("");
+    let options_line = init_py
+        .lines()
+        .find(|l| l.contains("from .options import"))
+        .unwrap_or("");
+
+    assert!(
+        native_line.contains("DocResult"),
+        "reexported result must be imported from the native module:\n{init_py}"
+    );
+    assert!(
+        options_line.contains("DocConfig") && !native_line.contains("DocConfig"),
+        "is_return_type-but-not-reexported config must come from .options, not native:\n{init_py}"
+    );
+}

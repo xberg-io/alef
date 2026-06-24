@@ -961,7 +961,18 @@ pub(super) fn generate_public_api(
     // Trait bridge lifecycle functions are emitted by the native codegen but must
     // also be surfaced in the public module for e2e and user code.
     let api_fn_names: AHashSet<String> = api.functions.iter().map(|f| f.name.clone()).collect();
-    append_trait_bridge_delegates(&mut content, config, &api_fn_names, &native_mod);
+    append_trait_bridge_delegates(
+        &mut content,
+        config,
+        &crate::backends::rustler::gen_bindings::public_api_delegates::TraitDelegateCtx {
+            api,
+            app_module: &app_module,
+            opaque_types: &opaque_types,
+            default_types: &default_types,
+            api_fn_names: &api_fn_names,
+            native_mod: &native_mod,
+        },
+    );
 
     // Emit per-tagged-enum encoder helpers for any tagged enum referenced as a wrapper
     // parameter. Each encoder accepts idiomatic Elixir input shapes — bare atoms for

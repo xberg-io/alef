@@ -18,8 +18,8 @@
 
 mod bridge_functions;
 mod generator;
-mod json_args;
 mod methods;
+mod native_args;
 #[cfg(test)]
 mod tests;
 mod visitor_bridge;

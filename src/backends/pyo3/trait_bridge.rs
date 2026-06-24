@@ -71,11 +71,20 @@ pub fn gen_trait_bridge(
         )?;
         Ok(BridgeOutput { imports: vec![], code })
     } else {
-        // Use the IR-driven TraitBridgeGenerator infrastructure
+        // Use the IR-driven TraitBridgeGenerator infrastructure.
+        //
+        // Classify which callback params get native-object marshalling using the SHARED rule
+        // (`native_marshalled_struct_params`) so the allowlist is identical to what other
+        // backends will consult. For such params the bridge hands the host the binding's native
+        // Python object (the `#[pyclass]`, built via the same `From<core::T>` conversion used for
+        // return values) instead of a JSON string.
+        let struct_param_types =
+            crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
         let generator = Pyo3BridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
+            struct_param_types,
         };
         let lifetime_type_names: HashSet<String> = api
             .types
@@ -144,6 +153,7 @@ mod tests {
             core_import: "sample_core".to_owned(),
             type_paths: HashMap::new(),
             error_type: "SampleError".to_owned(),
+            struct_param_types: HashSet::new(),
         };
 
         let make_method = |is_async: bool| MethodDef {
@@ -220,6 +230,7 @@ mod tests {
             core_import: "sample_core".to_owned(),
             type_paths: HashMap::new(),
             error_type: "SampleError".to_owned(),
+            struct_param_types: HashSet::new(),
         };
 
         // A trait method returning a struct `Doc` exercises the json.dumps -> from_str path.

@@ -2001,3 +2001,81 @@ fn test_pyi_includes_trait_bridge_registry_functions() {
         "pyi must include trait bridge functions exported by runtime:\n{content}"
     );
 }
+
+#[test]
+fn test_pyi_plugin_bridge_emits_typed_protocol_and_typed_register() {
+    // Neutral `Greeter` plugin trait: `process(&self, opts: &Opts) -> Doc`.
+    // The host-implementable Protocol must type the struct param as its native type (`Opts`)
+    // and the return as `Doc`, and `register_greeter` must take `backend: Greeter`.
+    let backend = Pyo3Backend;
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        register_fn: Some("register_greeter".to_string()),
+        registry_getter: Some("test_lib::registry::get".to_string()),
+        super_trait: Some("Plugin".to_string()),
+        bind_via: alef::core::config::BridgeBinding::FunctionParam,
+        ..Default::default()
+    }];
+
+    let greeter = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "test_lib::Greeter".to_string(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![MethodDef {
+            name: "process".to_string(),
+            params: vec![ParamDef {
+                name: "opts".to_string(),
+                ty: TypeRef::Named("Opts".to_string()),
+                is_ref: true,
+                ..Default::default()
+            }],
+            return_type: TypeRef::Named("Doc".to_string()),
+            receiver: Some(ReceiverKind::Ref),
+            error_type: Some("Error".to_string()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let opts = TypeDef {
+        name: "Opts".to_string(),
+        rust_path: "test_lib::Opts".to_string(),
+        has_serde: true,
+        fields: vec![make_field("label", TypeRef::String, false)],
+        ..Default::default()
+    };
+    let doc = TypeDef {
+        name: "Doc".to_string(),
+        rust_path: "test_lib::Doc".to_string(),
+        has_serde: true,
+        is_return_type: true,
+        fields: vec![make_field("text", TypeRef::String, false)],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![greeter, opts, doc],
+        ..Default::default()
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    // (c) Plugin-pattern Protocol emitted with typed struct param + typed return.
+    assert!(
+        content.contains("class Greeter(Protocol):"),
+        "plugin bridge must emit a host-implementable Protocol:\n{content}"
+    );
+    assert!(
+        content.contains("def process(self, opts: Opts) -> Doc: ..."),
+        "Protocol method must type the struct param as `Opts` and return as `Doc`:\n{content}"
+    );
+
+    // (d) register_* typed against the Protocol, not bare `object`.
+    assert!(
+        content.contains("def register_greeter(backend: Greeter) -> None: ..."),
+        "register fn must type its backend param against the Protocol:\n{content}"
+    );
+}

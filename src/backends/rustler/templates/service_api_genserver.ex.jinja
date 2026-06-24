@@ -10,9 +10,9 @@
       {:ok, state}
     end
 
-    def handle_cast({:trait_call, method, args_json, reply_id}, registrations) do
-      # Decode JSON args and dispatch to registered handler
-      case decode_args_and_dispatch(method, args_json, registrations) do
+    def handle_cast({:trait_call, method, args, reply_id}, registrations) do
+      # args arrives as a native Erlang map (no JSON decode); dispatch to the registered handler.
+      case decode_args_and_dispatch(method, args, registrations) do
         {:ok, response} ->
           Native.complete_trait_call(reply_id, response)
 
@@ -25,34 +25,27 @@
     end
 
 
-    defp decode_args_and_dispatch(method, args_json, registrations) do
+    defp decode_args_and_dispatch(method, args, registrations) do
       # Find handler entry for the method
       case find_handler(method, registrations) do
         nil ->
           {:error, "Handler not registered for method: #{method}"}
 
         {^method, _metadata, handler} ->
-          # Decode JSON args (assumes handler accepts a single arg)
-          case Jason.decode(args_json) do
-            {:ok, args} ->
-              # Call the registered handler with decoded args
-              try do
-                response = handler.(args)
-                # Encode response to JSON
-                case Jason.encode(response) do
-                  {:ok, response_json} ->
-                    {:ok, response_json}
+          # Call the registered handler with the native args map (assumes handler accepts a single arg)
+          try do
+            response = handler.(args)
+            # Encode response to JSON (the reply path stays JSON)
+            case Jason.encode(response) do
+              {:ok, response_json} ->
+                {:ok, response_json}
 
-                  {:error, reason} ->
-                    {:error, "Failed to encode response: #{reason}"}
-                end
-              rescue
-                e ->
-                  {:error, "Handler raised exception: #{inspect(e)}"}
-              end
-
-            {:error, reason} ->
-              {:error, "Failed to decode args: #{reason}"}
+              {:error, reason} ->
+                {:error, "Failed to encode response: #{reason}"}
+            end
+          rescue
+            e ->
+              {:error, "Handler raised exception: #{inspect(e)}"}
           end
       end
     end

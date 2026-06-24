@@ -1903,3 +1903,135 @@ fn opaque_static_constructor_wraps_return_in_struct() {
         "instance method handler_name must unpack obj.ref; got:\n{content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Typed host surface for plugin trait bridges
+// ---------------------------------------------------------------------------
+//
+// A plugin-pattern bridge (one with a `register_*` function) emits a typed,
+// host-implementable Elixir behaviour: one `@callback` per trait method with
+// typed params and return. This is the Rustler analog of the pyo3 plugin
+// `Protocol`. The runtime args reach the host as a NATIVE Erlang term map
+// carried in `{:trait_call, method, args_map, reply_id}` (built via
+// `Term::map_new`/`map_put`, no `Jason.decode`); the reply stays JSON.
+
+fn make_plugin_bridge_trait() -> TypeDef {
+    TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "my_lib::Greeter".to_string(),
+        is_trait: true,
+        methods: vec![MethodDef {
+            name: "process".to_string(),
+            params: vec![ParamDef {
+                name: "opts".to_string(),
+                ty: TypeRef::Named("Opts".to_string()),
+                is_ref: true,
+                ..Default::default()
+            }],
+            return_type: TypeRef::Named("Doc".to_string()),
+            receiver: Some(ReceiverKind::Ref),
+            error_type: Some("Error".to_string()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+
+fn make_plugin_bridge_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![
+            make_plugin_bridge_trait(),
+            TypeDef {
+                name: "Opts".to_string(),
+                rust_path: "my_lib::Opts".to_string(),
+                has_serde: true,
+                fields: vec![make_field("label", TypeRef::String, false)],
+                ..Default::default()
+            },
+            TypeDef {
+                name: "Doc".to_string(),
+                rust_path: "my_lib::Doc".to_string(),
+                has_serde: true,
+                is_return_type: true,
+                fields: vec![make_field("text", TypeRef::String, false)],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+fn make_plugin_bridge_config() -> ResolvedCrateConfig {
+    let mut config = make_config("my_lib");
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        register_fn: Some("register_greeter".to_string()),
+        registry_getter: Some("my_lib::registry::get".to_string()),
+        bind_via: BridgeBinding::FunctionParam,
+        ..Default::default()
+    }];
+    config
+}
+
+#[test]
+fn test_plugin_bridge_emits_typed_host_behaviour() {
+    let backend = RustlerBackend;
+    let files = backend
+        .generate_public_api(&make_plugin_bridge_api(), &make_plugin_bridge_config())
+        .expect("generate_public_api should succeed");
+
+    let main = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib.ex"))
+        .expect("main module file should be generated");
+    let content = &main.content;
+
+    // Typed, host-implementable behaviour with one @callback per trait method.
+    assert!(
+        content.contains("defmodule MyLib.Greeter.Host do"),
+        "plugin bridge must emit a typed host behaviour module; got:\n{content}"
+    );
+    assert!(
+        content.contains("@callback process(map()) :: {:ok, map()} | {:error, atom, String.t()}"),
+        "behaviour @callback must type the struct param and the result; got:\n{content}"
+    );
+
+    // register_* delegate references the behaviour for the host to implement.
+    assert!(
+        content.contains("def register_greeter(genserver_pid, plugin_name) do")
+            && content.contains("MyLib.Greeter.Host"),
+        "register delegate must reference the host behaviour; got:\n{content}"
+    );
+}
+
+#[test]
+fn test_visitor_bridge_does_not_emit_host_behaviour() {
+    // A bridge with no `register_*` function (visitor/options-field style) keeps
+    // its prior surface and must NOT get a typed host behaviour.
+    let backend = RustlerBackend;
+    let api = make_plugin_bridge_api();
+    let mut config = make_config("my_lib");
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        register_fn: None,
+        type_alias: Some("GreeterHandle".to_string()),
+        bind_via: BridgeBinding::FunctionParam,
+        ..Default::default()
+    }];
+
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api should succeed");
+    let main = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("my_lib.ex"))
+        .expect("main module file should be generated");
+
+    assert!(
+        !main.content.contains("MyLib.Greeter.Host"),
+        "bridges without register_* must not emit a host behaviour; got:\n{}",
+        main.content
+    );
+}

@@ -87,6 +87,47 @@ pub(super) fn push_roxygen_inline_multiline(block: &mut String, text: &str) {
 /// `@param` per parameter, an `@return`, and the `@export` tag. Every output
 /// line is prefixed with `#'` — callers prepend the block directly above the
 /// `name <- function(...) ...` definition.
+/// Build one roxygen2 doc line describing a single trait-callback method the host backend must
+/// implement: `name(arg: Type, ...) -> ReturnType`. Param types that are native-marshalled
+/// structs are tagged `(native object)` so the host knows it receives a binding external pointer
+/// rather than a JSON string. Used to emit a typed host-interface contract on `register_<trait>`.
+fn trait_method_doc_line(
+    method: &crate::core::ir::MethodDef,
+    native_structs: &std::collections::HashSet<String>,
+) -> String {
+    let args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let ty = doc_type_name(&p.ty);
+            if matches!(&p.ty, TypeRef::Named(n) if native_structs.contains(n)) {
+                format!("{}: {} (native object)", p.name.trim_start_matches('_'), ty)
+            } else {
+                format!("{}: {}", p.name.trim_start_matches('_'), ty)
+            }
+        })
+        .collect();
+    let ret = doc_type_name(&method.return_type);
+    format!("`{}({}) -> {}`", method.name, args.join(", "), ret)
+}
+
+/// Render a TypeRef as a short, R-facing type label for roxygen docs (not Rust syntax).
+fn doc_type_name(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Unit => "void".to_string(),
+        TypeRef::String | TypeRef::Char => "character".to_string(),
+        TypeRef::Bytes => "raw".to_string(),
+        TypeRef::Path => "character".to_string(),
+        TypeRef::Primitive(_) => "numeric".to_string(),
+        TypeRef::Named(n) => n.clone(),
+        TypeRef::Optional(inner) => format!("{} or NULL", doc_type_name(inner)),
+        TypeRef::Vec(inner) => format!("list of {}", doc_type_name(inner)),
+        TypeRef::Map(_, _) => "named list".to_string(),
+        TypeRef::Json => "character".to_string(),
+        TypeRef::Duration => "numeric".to_string(),
+    }
+}
+
 pub(super) fn r_roxygen_block(func_name: &str, doc: &str, params: &[ParamDef], return_type: &TypeRef) -> String {
     let mut block = String::with_capacity(256);
     let trimmed_doc = doc.trim();
@@ -411,11 +452,38 @@ pub(super) fn gen_extendr_wrappers_r(
         } else {
             ""
         };
+        // For `register_<trait>`, emit a typed host-interface contract: one doc line per
+        // callback method the host backend must implement, naming each param's struct type and
+        // the return type. This is R's equivalent of the typed plugin Protocol other bindings
+        // emit — it documents the shape the registered named list must satisfy. Params whose
+        // type is a native-marshalled struct are flagged so the host knows it receives a native
+        // binding object (external pointer) rather than a JSON string.
+        let method_docs: Vec<String> = if kind == "register" {
+            bridges
+                .iter()
+                .find(|b| b.register_fn.as_deref() == Some(bridge_fn.name.as_str()))
+                .and_then(|b| api.types.iter().find(|t| t.is_trait && t.name == b.trait_name))
+                .map(|trait_def| {
+                    let native =
+                        crate::backends::extendr::trait_bridge::native_marshalled_extendr_struct_params(trait_def, api);
+                    trait_def
+                        .methods
+                        .iter()
+                        .filter(|m| !m.binding_excluded)
+                        .map(|m| trait_method_doc_line(m, &native))
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         let roxygen_block = crate::backends::extendr::template_env::render(
             "r_trait_bridge_roxygen.jinja",
             minijinja::context! {
                 name => &bridge_fn.name,
                 kind => kind,
+                method_docs => method_docs,
             },
         );
 

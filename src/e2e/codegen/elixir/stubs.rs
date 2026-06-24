@@ -106,7 +106,8 @@ pub fn emit_test_backend(
     let _ = writeln!(module_defs, "end");
 
     // Emit the GenServer wrapper that Rustler NIFs can call via PID message passing.
-    // Messages arrive as {:trait_call, method_atom, args_json_string, reply_id}.
+    // Messages arrive as {:trait_call, method_atom, args, reply_id}, where `args` is a native
+    // Erlang map (the callback args are sent as native terms, not a JSON string).
     // The GenServer calls the stub module method, serializes the result to JSON, and
     // passes it back to the NIF's complete_trait_call/2 which unblocks the waiting Rust thread.
     let _ = writeln!(module_defs, "unless Code.ensure_loaded?({genserver_module}) do");
@@ -123,9 +124,8 @@ pub fn emit_test_backend(
     let _ = writeln!(module_defs, "  @impl true");
     let _ = writeln!(
         module_defs,
-        "  def handle_info({{:trait_call, method_atom, args_json, reply_id}}, state) do"
+        "  def handle_info({{:trait_call, method_atom, args, reply_id}}, state) do"
     );
-    let _ = writeln!(module_defs, "    args = Jason.decode!(args_json)");
     let _ = writeln!(module_defs, "    method_name = to_string(method_atom)");
     let _ = writeln!(
         module_defs,
@@ -380,7 +380,15 @@ mod test_backend_tests {
                 && emission.setup_block.contains(
                     "apply(E2e.TestStubs.TestStubMyTestFixture, String.to_existing_atom(method_name), ordered_args)"
                 ),
-            "GenServer must convert decoded JSON objects into ordered apply/3 args, got:\n{}",
+            "GenServer must convert the native args map into ordered apply/3 args, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission
+                .setup_block
+                .contains("{:trait_call, method_atom, args, reply_id}")
+                && !emission.setup_block.contains("Jason.decode!(args_json)"),
+            "GenServer must receive callback args as a native map, not Jason.decode! a JSON string, got:\n{}",
             emission.setup_block
         );
     }

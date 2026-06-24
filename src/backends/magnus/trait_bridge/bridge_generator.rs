@@ -64,11 +64,19 @@ pub fn gen_trait_bridge(
         // Plugin pattern: use the shared TraitBridgeGenerator infrastructure.
         // Use the host crate's canonical error type (e.g. SampleCrateError) so the
         // generated `impl Plugin for ...` matches the trait's actual signature.
+        // Classify which callback params get native-object marshalling using the SHARED rule
+        // (`native_marshalled_struct_params`) so the allowlist is identical to what other
+        // backends consult. For such params the bridge hands the host the binding's native Ruby
+        // value (the `#[magnus::wrap]` struct, built via the same `From<core::T>` conversion used
+        // for return values / fields) instead of a JSON string.
+        let struct_param_types =
+            crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
         let generator = MagnusBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
+            struct_param_types,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types
@@ -120,6 +128,14 @@ struct MagnusBridgeGenerator {
     error_type: String,
     /// Error constructor template (e.g. `"SampleCrateError::Plugin {{ message: {msg}, plugin_name: String::new() }}"`).
     error_constructor: String,
+    /// Callback-param type names that get NATIVE-object marshalling — known serde structs per the
+    /// shared [`crate::codegen::generators::trait_bridge::is_native_marshalled_struct`] rule. For
+    /// such a param the bridge constructs the binding's native Ruby value (the `#[magnus::wrap]`
+    /// struct, via the same `From<core::T>` conversion used for function return values / struct
+    /// fields) and hands THAT to the host method, instead of serializing the param to a JSON
+    /// string. Enums, opaque/handle types, and excluded/unknown `Named` params are absent and keep
+    /// their prior JSON-string representation.
+    struct_param_types: std::collections::HashSet<String>,
 }
 
 impl MagnusBridgeGenerator {
@@ -475,6 +491,14 @@ impl MagnusBridgeGenerator {
         )
     }
 
+    /// True when a `Named(name)` param should be handed to the host as the binding's native Ruby
+    /// value rather than a JSON string — i.e. it is a known serde struct per the shared allowlist.
+    /// The native value is the `#[magnus::wrap]` binding struct, constructed from the core value
+    /// via the same `From<core::T>` conversion the binding uses for function return values.
+    fn is_native_struct_param(&self, name: &str) -> bool {
+        self.struct_param_types.contains(name)
+    }
+
     /// Build a Ruby arg expression for funcall given a Rust parameter.
     fn ruby_arg_expr(&self, p: &crate::core::ir::ParamDef) -> String {
         self.ruby_arg_expr_custom(&p.ty, &p.name)
@@ -493,7 +517,18 @@ impl MagnusBridgeGenerator {
             TypeRef::Bytes => format!(
                 "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(String::from_utf8_lossy(AsRef::<[u8]>::as_ref(&{var})).as_ref()).as_value() }}"
             ),
+            // Known serde struct: hand the host the binding's native Ruby value, built from the
+            // core value through the same Rust→Ruby conversion used for return values / struct
+            // fields (`{Binding}::from(core_value)`). The `#[magnus::wrap]` struct implements
+            // `IntoValue`, so `into_value_with` produces the same `magnus::Value` the funcall tuple
+            // expects — no JSON round-trip. `{var}.clone()` yields an owned `core::T` whether `var`
+            // is a `&core::T` (sync path) or an owned `core::T` (async `_owned` path).
+            TypeRef::Named(n) if self.is_native_struct_param(n) => format!(
+                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; use magnus::IntoValue; {n}::from({var}.clone()).into_value_with(&ruby) }}"
+            ),
             // serde_json::to_string takes &T; the macro `&{var}` is fine for both owned and ref.
+            // Other Named params (enums, opaque/handle, excluded/unknown) keep the prior
+            // JSON-string representation.
             TypeRef::Named(_) | TypeRef::Json => format!(
                 "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value()) }}"
             ),

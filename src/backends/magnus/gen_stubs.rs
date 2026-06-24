@@ -49,10 +49,37 @@ pub fn gen_stubs(
         lines.push(gen_function_stub(func, streaming_method_names));
         lines.push("".to_string());
     }
+    // Emit a host-implementable RBS `interface` for each plugin-pattern trait bridge (those with
+    // a `register_*` function) whose trait is resolvable in the API surface. This surfaces the
+    // typed protocol a host backend must implement to be registered, rather than leaving callers
+    // with an untyped `backend`. Interface method params that are known serde structs are typed as
+    // their native struct type and returns as the result type, matching the native Ruby values the
+    // runtime bridge now passes/expects.
+    //
+    // Track the trait names that received an interface so the `register_*` signature below can type
+    // its `backend` parameter against the interface instead of `untyped`.
+    let mut interface_trait_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for bridge in trait_bridges {
+        if bridge.register_fn.is_none() {
+            continue;
+        }
+        if let Some(stub) = gen_plugin_interface_stub(bridge, api) {
+            lines.push(stub);
+            lines.push("".to_string());
+            interface_trait_names.insert(bridge.trait_name.clone());
+        }
+    }
     for bridge in trait_bridges {
         if let Some(register_fn) = bridge.register_fn.as_deref() {
+            // Type the `backend` param against the host-implementable interface when one was
+            // emitted for this bridge's trait; otherwise fall back to `untyped`.
+            let backend_type = if interface_trait_names.contains(&bridge.trait_name) {
+                plugin_interface_name(&bridge.trait_name)
+            } else {
+                "untyped".to_string()
+            };
             lines.push(format!(
-                "  def self.{register_fn}: (untyped backend, String name) -> nil"
+                "  def self.{register_fn}: ({backend_type} backend, String name) -> nil"
             ));
             lines.push("".to_string());
         }
@@ -87,6 +114,62 @@ pub fn gen_stubs(
     lines.push("end".to_string());
 
     lines.join("\n")
+}
+
+/// RBS interface name for a plugin-bridge trait. RBS requires interface names to begin with an
+/// underscore (e.g. trait `Greeter` → interface `_Greeter`).
+fn plugin_interface_name(trait_name: &str) -> String {
+    format!("_{trait_name}")
+}
+
+/// Generate a host-implementable RBS `interface` for a plugin-pattern trait bridge.
+///
+/// Returns `None` when the bridge's trait (or its methods) is absent from the API surface — the
+/// caller then falls back to `untyped` for the `register_*` backend param so the stub still
+/// type-checks.
+///
+/// Method signatures come from [`TraitBridgeConfig::resolve_methods`], the same source the
+/// trait-bridge code generator uses to emit the runtime vtable, so the interface surface matches
+/// the methods the bridge actually forwards through Magnus. Each param's RBS type is its native
+/// type via [`rbs_type`]: known serde structs surface as their struct type (matching the native
+/// Ruby value the runtime now passes), and the return is the method's result type.
+fn gen_plugin_interface_stub(bridge: &TraitBridgeConfig, api: &ApiSurface) -> Option<String> {
+    let methods = bridge.resolve_methods(api);
+    if methods.is_empty() {
+        return None;
+    }
+    api.types.iter().find(|t| t.name == bridge.trait_name)?;
+
+    let interface_name = plugin_interface_name(&bridge.trait_name);
+    let mut lines = vec![format!("  interface {interface_name}")];
+
+    for method in methods {
+        if method.binding_excluded {
+            continue;
+        }
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let param_type = rbs_type(&p.ty);
+                if p.optional {
+                    format!("?{} {}", param_type, p.name)
+                } else {
+                    format!("{} {}", param_type, p.name)
+                }
+            })
+            .collect();
+        let return_type = rbs_type(&method.return_type);
+        lines.push(format!(
+            "    def {}: ({}) -> {}",
+            method.name,
+            params.join(", "),
+            return_type
+        ));
+    }
+
+    lines.push("  end".to_string());
+    Some(lines.join("\n"))
 }
 
 /// Convert crate name to PascalCase module name. Handles both kebab- and

@@ -6,6 +6,7 @@ use heck::ToSnakeCase;
 
 type OptionsFieldBridges<'a> = AHashMap<&'a str, (&'a str, &'a str, Option<&'a str>)>;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_converters(
     out: &mut String,
     needed_converters: &[String],
@@ -14,7 +15,10 @@ pub(super) fn emit_converters(
     enum_names: &AHashSet<&str>,
     data_enum_names: &AHashSet<&str>,
     dto: &DtoConfig,
+    reexported_types: &[String],
 ) {
+    let output_style = dto.python_output_style();
+    let reexported_names: AHashSet<&str> = reexported_types.iter().map(|s| s.as_str()).collect();
     // Emit a helper that coerces strings or PyO3 enum aliases into the
     // canonical enum class instance. PyO3 enums do not expose a `__new__`
     // that accepts strings, so the wrapper must do the lookup itself.
@@ -31,11 +35,15 @@ pub(super) fn emit_converters(
         let typ = default_types[type_name];
         let snake = type_name.to_snake_case();
 
-        // `_to_rust_*` converters handle INPUT types (has_default config structs). These are
-        // typed according to the INPUT style (`dto.python`), NOT the output style. Use
-        // `value.get("field")` dict access only when the input style is TypedDict; otherwise
-        // use `value.field` attribute access (safe for dataclasses/pydantic).
-        let is_typeddict = dto.python == PythonDtoStyle::TypedDict;
+        // `_to_rust_*` converters handle has_default config structs. A type is emitted as a
+        // TypedDict (a dict at runtime, requiring `value.get("field")` access) only when it is a
+        // return type under the structural output style and is NOT re-exported as a native
+        // pyclass. This mirrors `gen_typeddict` in types.rs and the `options_type_names`
+        // classification in orchestration.rs. Pure input configs (e.g. ChunkingConfig) are
+        // always emitted as @dataclass, so they keep `value.field` attribute access.
+        let is_typeddict = output_style == PythonDtoStyle::TypedDict
+            && typ.is_return_type
+            && !reexported_names.contains(type_name.as_str());
 
         // Helper: emit `value.field` or `value.get("field")` depending on the type kind.
         let field_access = |name: &str| -> String {
@@ -355,6 +363,16 @@ pub(super) fn emit_converters(
             ));
         } else {
             out.push_str("        return None\n");
+        }
+        // TypedDict configs (total=False) carry only the keys the caller set, so reading every
+        // field with `value.get(...)` would pass `None` for omitted keys and the PyO3 constructor
+        // rejects `None` for non-Optional fields. The dict branch above already coerced nested
+        // structs/enums in place, so splat the present keys and let PyO3 apply its own defaults
+        // for the rest. (Skip when a visitor bridge needs an explicit override kwarg.)
+        if is_typeddict && bridge_visitor_field.is_none() {
+            out.push_str("    value = cast(dict[str, Any], value)\n");
+            out.push_str(&format!("    return _rust.{type_name}(**value)\n\n\n"));
+            continue;
         }
         // Narrow `value` to the concrete dataclass for mypy. The signature accepts
         // `{type_name} | dict[str, Any] | str | None` so callers may pass JSON

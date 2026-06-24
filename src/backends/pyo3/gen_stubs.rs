@@ -232,17 +232,28 @@ pub fn gen_stubs(
 
     let mut body_lines: Vec<String> = Vec::new();
 
-    // Emit `class TraitName(Protocol):` for each OptionsField trait bridge whose trait
-    // is resolvable in the API surface. This surfaces the user-facing protocol the
-    // PyO3 bridge expects (any object implementing the visitor methods), rather than
-    // exposing the binding-internal opaque `VisitorHandle` wrapper to callers.
+    // Emit `class TraitName(Protocol):` for each trait bridge whose trait is resolvable in the
+    // API surface. This surfaces the user-facing, host-implementable protocol the PyO3 bridge
+    // expects, rather than exposing a binding-internal opaque wrapper to callers:
+    //   - OptionsField/visitor bridges → the visitor protocol on the options struct.
+    //   - Plugin bridges (those with a `register_fn`) → the protocol a host backend must
+    //     implement to be registered via `register_*`. Method params that are known serde
+    //     structs are typed as their native TypedDict/pyclass type and returns as the result
+    //     type, matching the native objects the runtime bridge now passes/expects.
+    //
+    // Track the trait names that received a Protocol so the `register_*` signature below can type
+    // its `backend` parameter against the Protocol instead of bare `object`.
+    let mut protocol_trait_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     for bridge in trait_bridges {
-        if bridge.bind_via != crate::core::config::BridgeBinding::OptionsField {
+        let is_protocol_bridge =
+            bridge.bind_via == crate::core::config::BridgeBinding::OptionsField || bridge.register_fn.is_some();
+        if !is_protocol_bridge {
             continue;
         }
         if let Some(stub) = gen_visitor_protocol_stub(bridge, api, &capsule_names, emit_docstrings) {
             body_lines.push(stub);
             body_lines.push("".to_string());
+            protocol_trait_names.insert(bridge.trait_name.clone());
         }
     }
 
@@ -340,7 +351,14 @@ pub fn gen_stubs(
     }
     for bridge in trait_bridges {
         if let Some(register_fn) = bridge.register_fn.as_deref() {
-            body_lines.push(format!("def {register_fn}(backend: object) -> None: ..."));
+            // Type the `backend` param against the host-implementable Protocol when one was
+            // emitted for this bridge's trait; otherwise fall back to `object`.
+            let backend_type = if protocol_trait_names.contains(&bridge.trait_name) {
+                bridge.trait_name.as_str()
+            } else {
+                "object"
+            };
+            body_lines.push(format!("def {register_fn}(backend: {backend_type}) -> None: ..."));
         }
         if let Some(unregister_fn) = bridge.unregister_fn.as_deref() {
             body_lines.push(format!("def {unregister_fn}(name: str) -> None: ..."));

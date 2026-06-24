@@ -1,4 +1,7 @@
-fn visitor_send_and_wait(bridge: &{{ struct_name }}, callback_name: &str, args_json: String) -> Option<String> {
+fn visitor_send_and_wait<F>(bridge: &{{ struct_name }}, callback_name: &str, build_args: F) -> Option<String>
+where
+    F: for<'a> FnOnce(rustler::Env<'a>) -> rustler::Term<'a>,
+{
     let (tx, rx) = std::sync::mpsc::sync_channel::<Option<String>>(1);
     let ref_id = VISITOR_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     VISITOR_CHANNELS.lock().unwrap().insert(ref_id, tx);
@@ -9,7 +12,7 @@ fn visitor_send_and_wait(bridge: &{{ struct_name }}, callback_name: &str, args_j
         let tag = rustler::types::atom::Atom::from_str(env, "visitor_callback").unwrap().to_term(env);
         let ref_term = ref_id.encode(env);
         let name_term = rustler::types::atom::Atom::from_str(env, &cb_name).unwrap().to_term(env);
-        let args_term = args_json.encode(env);
+        let args_term = build_args(env);
         rustler::types::tuple::make_tuple(env, &[tag, ref_term, name_term, args_term])
     });
     let result = rx.recv().ok().flatten();

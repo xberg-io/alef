@@ -328,9 +328,9 @@ fn elixir_genserver_handle_cast_decodes_args_and_dispatches() {
     let surface = make_fixture_surface();
     let output = gen_service_ex(&surface, "");
 
-    // Assert that handle_cast decodes args_json
+    // Assert that handle_cast dispatches the native args map (no JSON decode)
     assert!(
-        output.contains("decode_args_and_dispatch(method, args_json, registrations)"),
+        output.contains("decode_args_and_dispatch(method, args, registrations)"),
         "expected decode_args_and_dispatch call in handle_cast:\n{output}"
     );
 
@@ -355,31 +355,31 @@ fn elixir_genserver_handle_cast_decodes_args_and_dispatches() {
     );
 }
 
-/// Elixir GenServer dispatch helper decodes JSON and calls registered handler.
+/// Elixir GenServer dispatch helper receives a native args map and calls the registered handler.
 #[test]
 fn elixir_genserver_dispatch_helper_invokes_handler() {
     let surface = make_fixture_surface();
     let output = gen_service_ex(&surface, "");
 
-    // Assert that decode_args_and_dispatch helper exists
+    // Assert that decode_args_and_dispatch helper exists and takes the native `args` map
     assert!(
-        output.contains("defp decode_args_and_dispatch(method, args_json, registrations) do"),
+        output.contains("defp decode_args_and_dispatch(method, args, registrations) do"),
         "expected decode_args_and_dispatch helper function:\n{output}"
     );
 
-    // Assert that it decodes JSON
+    // Assert that args are NOT JSON-decoded — they arrive as a native Erlang map
     assert!(
-        output.contains("Jason.decode(args_json)"),
-        "expected Jason.decode(args_json) in dispatch:\n{output}"
+        !output.contains("Jason.decode"),
+        "args must arrive as a native map, not be Jason.decode'd:\n{output}"
     );
 
-    // Assert that it calls the registered handler
+    // Assert that it calls the registered handler with the native map directly
     assert!(
         output.contains("response = handler.(args)"),
         "expected handler.(args) invocation:\n{output}"
     );
 
-    // Assert that response is encoded back to JSON
+    // Assert that the reply path still encodes the response back to JSON
     assert!(
         output.contains("Jason.encode(response)"),
         "expected Jason.encode(response) in dispatch:\n{output}"

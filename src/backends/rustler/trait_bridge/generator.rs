@@ -13,6 +13,15 @@ pub struct RustlerBridgeGenerator {
     pub type_paths: HashMap<String, String>,
     /// Error type name (e.g., `"SampleCrateError"`).
     pub error_type: String,
+    /// Callback-param type names that marshal to the Elixir host as the binding's NATIVE struct
+    /// term — known serde structs per the shared
+    /// [`crate::codegen::generators::trait_bridge::is_native_marshalled_struct`] rule. For such a
+    /// param the bridge builds the binding's `NifStruct`/`NifMap` (via the same `From<core::T>`
+    /// conversion used for return values) and encodes it through Rustler's `Encoder`, so the host
+    /// receives a native struct/map rather than a JSON string. All other args are encoded as their
+    /// natural native terms (strings, numbers, booleans, lists); enums/opaque/unknown `Named` params
+    /// fall back to a debug string term.
+    pub struct_param_types: std::collections::HashSet<String>,
 }
 
 /// Generate all trait bridge code for a given trait type and bridge config.
@@ -71,11 +80,20 @@ pub fn gen_trait_bridge(
             code: out,
         })
     } else {
-        // Plugin-style bridge: use the IR-driven TraitBridgeGenerator infrastructure
+        // Plugin-style bridge: use the IR-driven TraitBridgeGenerator infrastructure.
+        //
+        // Classify which callback params marshal to the host as the binding's native struct term
+        // using the SHARED rule (`native_marshalled_struct_params`), identical to every other
+        // backend's allowlist. For such params the bridge builds the binding `NifStruct` via
+        // `From<core::T>` and encodes it natively; other args are encoded as their natural native
+        // terms.
+        let struct_param_types =
+            crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
         let generator = super::generator::RustlerBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
+            struct_param_types,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types

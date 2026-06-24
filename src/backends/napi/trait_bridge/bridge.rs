@@ -52,11 +52,22 @@ pub fn gen_trait_bridge(
         )?;
         Ok(BridgeOutput { imports: vec![], code })
     } else {
-        // Use the IR-driven TraitBridgeGenerator infrastructure
+        // Use the IR-driven TraitBridgeGenerator infrastructure.
+        //
+        // Classify which callback params get native-object marshalling using the SHARED rule
+        // (`native_marshalled_struct_params`) so the allowlist is identical to what other backends
+        // consult. For such params the bridge hands the host the binding's native JS object (the
+        // `#[napi(object)]` DTO, built via the same `From<core::T>` conversion used for return
+        // values) instead of a debug/JSON string. The DTO is named with the `"Js"` prefix — the
+        // same prefix the bridge uses for its wrapper struct and the binding's default node prefix.
+        let struct_param_types =
+            crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
         let generator = NapiBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
+            struct_param_types,
+            type_prefix: "Js".to_string(),
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types

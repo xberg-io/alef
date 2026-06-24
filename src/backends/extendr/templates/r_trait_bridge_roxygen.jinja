@@ -4,6 +4,17 @@
 #' Register an R-side plugin implementation. Pass a named list whose entries
 #' implement the trait's required methods (e.g. `list(name = function() "my", ...)`).
 #'
+{% if method_docs -%}
+#' The backend must implement the following methods (named entries in `r_backend`):
+{% for m in method_docs -%}
+#'   \item{ {{ m }} }
+{% endfor -%}
+#'
+#' Each method receiving a known struct argument is handed the native binding object
+#' (an external pointer with `$field` accessors), not a JSON string. Other arguments
+#' (enums, opaque handles) arrive as JSON strings; return values must be JSON strings.
+#'
+{% endif -%}
 #' @param r_backend Named list of R closures implementing the trait surface.
 {% elif kind == "unregister" -%}
 #' Unregister a previously registered plugin by name.

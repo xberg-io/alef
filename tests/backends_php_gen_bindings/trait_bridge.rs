@@ -304,3 +304,173 @@ fn test_php_visitor_bridge_has_send_sync_impls() {
         "PHP visitor bridge must implement Sync"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Native-object trait-callback args + typed host interface (neutral fixtures)
+// ---------------------------------------------------------------------------
+
+/// A non-opaque serde struct DTO (qualifies for native-object marshalling).
+fn make_serde_struct(name: &str) -> TypeDef {
+    let mut t = make_node_context_php();
+    t.name = name.to_string();
+    t.rust_path = format!("my_lib::{name}");
+    t.fields = vec![make_field("label", TypeRef::String, false)];
+    t
+}
+
+/// An opaque/handle type (must NOT be native-marshalled).
+fn make_opaque_type(name: &str) -> TypeDef {
+    let mut t = make_serde_struct(name);
+    t.is_opaque = true;
+    t
+}
+
+fn make_named_param(name: &str, type_name: &str) -> ParamDef {
+    ParamDef {
+        name: name.to_string(),
+        ty: TypeRef::Named(type_name.to_string()),
+        is_ref: true,
+        ..ParamDef::default()
+    }
+}
+
+/// `Greeter` plugin trait: `greet(opts: &Opts, mood: &Mood, handle: &Handle, hidden: &Hidden) -> Doc`.
+/// `Opts`/`Doc` are serde structs; `Mood` is an enum; `Handle` is opaque; `Hidden` is excluded.
+fn make_greeter_api() -> (TypeDef, ApiSurface) {
+    let greet = MethodDef {
+        params: vec![
+            make_named_param("opts", "Opts"),
+            make_named_param("mood", "Mood"),
+            make_named_param("handle", "Handle"),
+            make_named_param("hidden", "Hidden"),
+        ],
+        ..make_method_php("greet", TypeRef::Named("Doc".to_string()), true, false)
+    };
+    let trait_def = make_trait_def_php("Greeter", vec![greet]);
+
+    let mut hidden = make_serde_struct("Hidden");
+    hidden.binding_excluded = true;
+
+    let mut mood_enum = make_visit_result_php();
+    mood_enum.name = "Mood".to_string();
+    mood_enum.rust_path = "my_lib::Mood".to_string();
+
+    let api = ApiSurface {
+        types: vec![
+            make_serde_struct("Opts"),
+            make_serde_struct("Doc"),
+            make_opaque_type("Handle"),
+            hidden,
+        ],
+        enums: vec![mood_enum],
+        ..make_api_php()
+    };
+    (trait_def, api)
+}
+
+#[test]
+fn test_php_sync_struct_param_marshalled_as_native_object_not_json() {
+    use alef::backends::php::trait_bridge::gen_trait_bridge;
+
+    let (trait_def, api) = make_greeter_api();
+    let bridge_cfg = make_plugin_bridge_cfg_php("Greeter");
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+
+    // (a) serde struct param `opts` is built as the binding's native PHP object via From<core::T>,
+    //     boxed into a ZendClassObject (the bare #[php_class] struct is not itself IntoZval).
+    assert!(
+        code.code.contains(
+            "ext_php_rs::convert::IntoZval::into_zval(ext_php_rs::types::ZendClassObject::new(Opts::from((*opts).clone())), false)"
+        ),
+        "serde struct param must be marshalled as the native PHP object (boxed ZendClassObject), not a JSON string:\n{}",
+        code.code
+    );
+    // (b) the struct param must NOT be JSON-serialized.
+    assert!(
+        !code.code.contains("serde_json::to_string(&opts)"),
+        "serde struct param must not be JSON-serialized:\n{}",
+        code.code
+    );
+    // (b) enum / opaque / excluded params keep the prior JSON-string representation.
+    for name in ["mood", "handle", "hidden"] {
+        assert!(
+            code.code.contains(&format!("serde_json::to_string(&{name})")),
+            "non-struct param `{name}` must keep its JSON-string representation:\n{}",
+            code.code
+        );
+        assert!(
+            !code.code.contains(&format!("::from((*{name}).clone())")),
+            "non-struct param `{name}` must NOT be native-marshalled:\n{}",
+            code.code
+        );
+    }
+}
+
+#[test]
+fn test_php_typed_interface_emitted_for_plugin_bridge() {
+    use alef::backends::php::trait_bridge::gen_registration_interface;
+
+    let (trait_def, api) = make_greeter_api();
+    let bridge_cfg = make_plugin_bridge_cfg_php("Greeter");
+    let iface = gen_registration_interface(
+        &trait_def,
+        &bridge_cfg,
+        "My\\Ns",
+        &std::collections::HashMap::new(),
+        &api,
+    );
+
+    // (c) host-implementable interface with the serde struct param typed natively and the
+    //     serde struct return typed natively; non-struct params fall back to mixed.
+    assert!(
+        iface.contains("interface Greeter"),
+        "plugin interface must be emitted:\n{iface}"
+    );
+    assert!(
+        iface.contains("public function greet(Opts $opts, mixed $mood, mixed $handle, mixed $hidden): Doc;"),
+        "interface must type the serde struct param as `Opts`, the return as `Doc`, and leave \
+         enum/opaque/excluded params as mixed:\n{iface}"
+    );
+    assert!(
+        iface.contains("@param Opts $opts"),
+        "PHPDoc must type the serde struct param:\n{iface}"
+    );
+    assert!(iface.contains("@return Doc"), "PHPDoc must type the return:\n{iface}");
+}
+
+#[test]
+fn test_php_register_fn_typed_against_interface() {
+    // (d) the PHP facade's register_* method types `backend` against the emitted interface.
+    let backend = PhpBackend;
+    let mut config = make_config_with_extension("greeter_ext");
+
+    let (greeter, mut api) = make_greeter_api();
+    // Give the trait a method with no params so the facade/native surface stays simple; the
+    // register typing comes from the bridge config + interface name.
+    api.types.insert(0, greeter);
+    config.trait_bridges = vec![make_plugin_bridge_cfg_php("Greeter")];
+
+    // The host-implementable interface file `Greeter.php` carries the typed contract.
+    let iface_files = backend
+        .generate_bindings(&api, &config)
+        .expect("php generation must succeed");
+    let iface = iface_files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("Greeter.php"))
+        .map(|f| f.content.clone())
+        .expect("Greeter.php interface file must be emitted");
+    assert!(
+        iface.contains("interface Greeter"),
+        "interface file must declare interface:\n{iface}"
+    );
+
+    // The PHP facade types the register_* method's `backend` param against that interface.
+    let facade = backend
+        .generate_public_api(&api, &config)
+        .expect("php public-api generation must succeed");
+    let facade_typed = facade.iter().any(|f| f.content.contains("Greeter $backend) : void"));
+    assert!(
+        facade_typed,
+        "register_* facade method must type its backend param against the `Greeter` interface"
+    );
+}

@@ -1,7 +1,7 @@
 use super::*;
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
 use crate::core::ir::{
-    ApiSurface, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
+    ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 use std::collections::HashMap;
 

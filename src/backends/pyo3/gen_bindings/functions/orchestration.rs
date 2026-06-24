@@ -253,10 +253,25 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     // that the type leaves through the native return surface, and falsely excluding it from
     // .options is what produced alef#72 (PackConfig/ProcessConfig imported from ._native
     // despite being dataclasses re-exported from .options).
+    // Types re-exported in the public package as native pyclasses (config `reexported_types`):
+    // skip _rust. qualification for these.
+    let reexported_names: AHashSet<&str> = reexported_types.iter().map(|s| s.as_str()).collect();
+    let output_style = dto.python_output_style();
+    // A has_default struct lives in options.py (a config the caller constructs) unless it is a
+    // native return type. Under the structural (TypedDict) style only the curated `reexported_types`
+    // results stay native; a type that is `is_return_type` but not reexported (e.g. `ExtractionConfig`,
+    // returned by a resolver yet built by the caller) keeps its config identity and is imported from
+    // .options. Under the non-structural style every `is_return_type` lives in the native module.
     let options_type_names: AHashSet<String> = api
         .types
         .iter()
-        .filter(|t| t.has_default && !t.name.ends_with("Update") && !t.is_return_type)
+        .filter(|t| {
+            t.has_default
+                && !t.name.ends_with("Update")
+                && !(t.is_return_type
+                    && (output_style != crate::core::config::PythonDtoStyle::TypedDict
+                        || reexported_names.contains(t.name.as_str())))
+        })
         .map(|t| t.name.clone())
         .collect();
     // Types returned directly by free functions — these live in the native module,
@@ -268,8 +283,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         .filter(|t| t.is_return_type)
         .map(|t| t.name.clone())
         .collect();
-    // Types re-exported in the public package: skip _rust. qualification for these
-    let reexported_names: AHashSet<&str> = reexported_types.iter().map(|s| s.as_str()).collect();
     // All non-enum IR type names (used to distinguish structs from enums in classification).
     let all_ir_type_names: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
     // Enums that options.py actually exports: plain (non-data) unit enums referenced by
@@ -397,6 +410,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         &enum_names,
         &data_enum_names,
         dto,
+        reexported_types,
     );
 
     emit_function_wrappers(

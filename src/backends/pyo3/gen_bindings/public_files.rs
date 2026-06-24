@@ -120,6 +120,7 @@ pub(super) fn generate_public_api(
         &module_name,
         &api.version,
         &config.dto,
+        &reexported_types,
         &config.trait_bridges,
         &extra_init_imports,
         &capsule_types,

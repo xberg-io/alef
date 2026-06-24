@@ -214,6 +214,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/async_param_clone_named_ref.jinja"),
     ),
     (
+        "async_param_clone_native_struct_ref.jinja",
+        include_str!("templates/async_param_clone_native_struct_ref.jinja"),
+    ),
+    (
         "async_param_clone_ref.jinja",
         include_str!("templates/async_param_clone_ref.jinja"),
     ),

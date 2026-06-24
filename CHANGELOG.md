@@ -68,6 +68,110 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the extendr-only cast flags, so pyo3/napi/wasm output is unchanged. (#145,
   `src/codegen/generators/functions.rs`)
 
+### Added
+
+- **pyo3: trait-callback struct params are passed to the host as native Python objects.** When the
+  Rust core calls back into a Python trait object (e.g. a registered plugin backend), a callback
+  parameter that is a known serde struct is now constructed as the binding's native Python object
+  via the same `From<core::T>` conversion used for return values, instead of being serialized to a
+  JSON string. Enums, opaque/handle types, and excluded/unknown parameters keep their prior
+  representation. The struct/non-struct decision lives in shared codegen
+  (`is_native_marshalled_struct` / `native_marshalled_struct_params` in
+  `src/codegen/generators/trait_bridge/lookup.rs`) so other backends can reuse the same allowlist.
+- **pyo3: plugin trait bridges now emit a typed, host-implementable `Protocol`.** In addition to
+  visitor/options-field bridges, plugin-pattern bridges (those with a `register_*` function) emit a
+  `class {Trait}(Protocol)` stub whose methods type struct params as their native TypedDict/pyclass
+  type and returns as the result type. The `register_*` function's `backend` parameter is typed
+  against that Protocol rather than bare `object`. (`src/backends/pyo3/gen_stubs.rs`,
+  `src/backends/pyo3/trait_bridge/generator.rs`)
+- **magnus: trait-callback struct params are passed to the host as native Ruby values.** When the
+  Rust core calls back into a Ruby trait object (e.g. a registered plugin backend), a callback
+  parameter that is a known serde struct is now constructed as the binding's native Ruby value —
+  the `#[magnus::wrap]` struct, built via the same `From<core::T>` conversion used for return
+  values and struct fields — and handed to the host method via `IntoValue`, instead of being
+  serialized to a JSON string. Enums, opaque/handle types, and excluded/unknown parameters keep
+  their prior JSON-string representation. The struct/non-struct decision reuses the shared codegen
+  allowlist (`native_marshalled_struct_params` in
+  `src/codegen/generators/trait_bridge/lookup.rs`). (`src/backends/magnus/trait_bridge/bridge_generator.rs`)
+- **magnus: plugin trait bridges now emit a typed, host-implementable RBS `interface`.** Plugin-pattern
+  bridges (those with a `register_*` function) emit an `interface _{Trait}` whose methods type
+  struct params as their native struct type and returns as the result type. The `register_*`
+  function's `backend` parameter is typed against that interface rather than `untyped`.
+  (`src/backends/magnus/gen_stubs.rs`)
+- **napi: trait-callback struct params are passed to the host as native JS objects.** When the Rust
+  core calls back into a JavaScript trait object (e.g. a registered plugin backend), a callback
+  parameter that is a known serde struct is now constructed as the binding's native JS object (the
+  `#[napi(object)]` DTO, built via the same `From<core::T>` conversion used for return values) and
+  converted at the call boundary via `ToNapiValue`, instead of being serialized to a `{:?}` debug
+  string. Enums, opaque/handle types, and excluded/unknown parameters keep their prior
+  representation. The struct/non-struct decision reuses the shared
+  `native_marshalled_struct_params` allowlist. (`src/backends/napi/trait_bridge/visitor_bridge.rs`,
+  `src/backends/napi/trait_bridge/bridge_generator.rs`)
+- **napi: plugin trait-bridge host interfaces now type method returns natively.** The generated
+  TypeScript host interface (already typing struct params natively and typing `register_*`'s
+  callback against the interface) now also types each method's return as the native binding type
+  (e.g. `Promise<Doc>`) instead of the prior opaque `string`. (`src/backends/napi/gen_bindings/errors.rs`)
+- **php: trait-callback struct params are passed to the host as native PHP objects.** When the Rust
+  core calls back into a PHP plugin object, a callback parameter that is a known serde struct is now
+  constructed as the binding's native `#[php_class]` object via the same `From<core::T>` conversion
+  used for return values, then handed to the PHP method as a `Zval`, instead of being serialized to
+  a JSON string. Enums, opaque/handle types, and excluded/unknown parameters keep their prior
+  JSON-string representation. The decision reuses the shared allowlist
+  (`is_native_marshalled_struct` / `native_marshalled_struct_params`). (`src/backends/php/trait_bridge/generator.rs`)
+- **php: plugin trait bridges emit a typed, host-implementable interface.** The generated PHP
+  `interface {Trait}` for a plugin bridge now types method parameters that are known serde structs
+  as their native PHP class and types method returns as their native type, rather than `mixed`. The
+  facade's `register_*` method already types its `backend` parameter against this interface.
+  (`src/backends/php/trait_bridge/interfaces.rs`, `src/backends/php/templates/php_interface_method.jinja`)
+- **extendr: trait-callback struct params are passed to the host as native R objects.** When the
+  Rust core calls back into an R plugin backend, a callback parameter that is a known serde struct
+  is now handed to the R closure as the binding's native R object (an extendr external pointer with
+  `$field` accessors), built via the same `From<core::T>` conversion used for return values, instead
+  of being serialized to a JSON string. The async path clones the owned core value before the
+  `spawn_blocking` boundary and constructs the R object inside the closure, since R objects are not
+  `Send`. The positive allowlist reuses the shared `native_marshalled_struct_params` classifier,
+  narrowed to structs extendr can register as a class (structs with `Vec<Named>` / `Option<Vec<_>>`
+  fields stay on the JSON-string path). Enums, opaque/handle types, and excluded/unknown parameters
+  keep their prior representation. (`src/backends/extendr/trait_bridge.rs`)
+- **extendr: `register_<trait>` roxygen now documents the typed host callback contract.** The
+  generated R wrapper for a plugin registration function emits one roxygen line per callback method
+  the host backend must implement — naming each struct parameter type and the return type, and
+  flagging parameters delivered as native binding objects — so the expected shape of the registered
+  named list is documented. (`src/backends/extendr/gen_bindings/r_wrappers.rs`,
+  `src/backends/extendr/templates/r_trait_bridge_roxygen.jinja`)
+- **rustler: plugin trait bridges now emit a typed, host-implementable Elixir behaviour.** A
+  plugin-pattern bridge (one with a `register_*` function) emits a `defmodule {App}.{Trait}.Host`
+  behaviour with one `@callback` per trait method — typed params and a typed result — and the
+  `register_*` delegate documents that the dispatching GenServer should forward to a module
+  implementing it. The trait lookup is shared codegen (`find_trait_def` in
+  `src/codegen/generators/trait_bridge/lookup.rs`).
+  (`src/backends/rustler/gen_bindings/public_api_delegates.rs`,
+  `src/backends/rustler/templates/elixir_trait_behaviour.ex.jinja`)
+- **rustler: trait-callback args are sent to the host as a native Erlang term map.** A plugin trait
+  callback now builds its args as a native term map inside `send_and_clear` (`rustler::Term::map_new`
+  plus `map_put` per arg) and sends `{:trait_call, method, args_map, reply_id}` — the host receives a
+  native map, not a JSON string, so the GenServer dispatches it directly without `Jason.decode`. A
+  known serde-struct param is materialised into the binding's `NifStruct` (via the same
+  `From<core::T>` conversion used for return values) and encoded as a native term; other args encode
+  as their natural native terms (strings, numbers, booleans, lists), with enums/opaque/unknown params
+  falling back to a debug-string term. Only the args path changed — the reply stays JSON.
+  (`src/backends/rustler/templates/trait_sync_method_body.rs.jinja`,
+  `src/backends/rustler/templates/trait_async_method_body.rs.jinja`,
+  `src/backends/rustler/templates/service_api_genserver.ex.jinja`,
+  `src/backends/rustler/trait_bridge/native_args.rs`)
+- **rustler: visitor callback args are sent to the host as a native Erlang term map.** The visitor
+  bridge now matches the plugin path: a visitor callback materialises each arg into an owned value
+  and builds a native term map inside the `visitor_send_and_wait` dispatch closure
+  (`rustler::Term::map_new` plus `map_put` per arg), sending `{:visitor_callback, ref_id,
+  callback_name, args_map}` — the host receives a native map, not a JSON string, so the receive loop
+  no longer `Jason.decode`s it. A known serde-struct param is built as the binding's `NifStruct` (via
+  `From<core::T>`) and encoded natively; other args encode as their natural native terms. The
+  reply/return path is unchanged. The dead `json_args` arg builder was removed.
+  (`src/backends/rustler/trait_bridge/visitor_bridge.rs`,
+  `src/backends/rustler/templates/visitor_method.rs.jinja`,
+  `src/backends/rustler/templates/visitor_send_and_wait.rs.jinja`,
+  `src/backends/rustler/templates/elixir_visitor_helper_functions.jinja`)
+
 ## [0.26.8] - 2026-06-23
 
 ### Fixed

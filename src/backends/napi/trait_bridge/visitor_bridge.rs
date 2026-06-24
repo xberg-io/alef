@@ -91,7 +91,10 @@ fn gen_visitor_method_napi(
         format!("napi::bindgen_prelude::FnArgs<{inner_tuple_ty}>")
     };
 
-    let js_args_exprs = build_napi_args(method, bridge_cfg);
+    // Visitor methods pass their context struct through the dedicated `context_type` branch in
+    // `build_napi_args`; no extra struct params get native-object marshalling here, so the
+    // allowlist is empty.
+    let js_args_exprs = build_napi_args(method, bridge_cfg, &std::collections::HashSet::new(), "Js");
     let arg_exprs: Vec<String> = js_args_exprs
         .iter()
         .map(|expr| expr.replace("self.env()", "__env"))
@@ -134,7 +137,12 @@ fn gen_visitor_method_napi(
 /// Build NAPI argument expressions for a visitor method.
 ///
 /// Returns one expression per parameter, each producing a `napi::bindgen_prelude::Unknown`.
-pub(super) fn build_napi_args(method: &MethodDef, bridge_cfg: &TraitBridgeConfig) -> Vec<String> {
+pub(super) fn build_napi_args(
+    method: &MethodDef,
+    bridge_cfg: &TraitBridgeConfig,
+    struct_param_types: &std::collections::HashSet<String>,
+    type_prefix: &str,
+) -> Vec<String> {
     method
         .params
         .iter()
@@ -148,6 +156,26 @@ pub(super) fn build_napi_args(method: &MethodDef, bridge_cfg: &TraitBridgeConfig
                     )
                     .trim_end()
                     .to_string();
+                }
+                // Known serde struct (per the shared `native_marshalled_struct_params` allowlist):
+                // hand the host the binding's NATIVE JS object, built from the core value through
+                // the same `From<core::T>` conversion used for return values (`Js{Name}::from(..)`),
+                // then converted to a `napi` value via `ToNapiValue`. No `{:?}` debug string. The
+                // trait-impl signature passes the param by reference, so clone the pointee before
+                // converting.
+                if struct_param_types.contains(n.as_str()) {
+                    let owned = if p.is_ref {
+                        format!("(*{}).clone()", p.name)
+                    } else {
+                        p.name.clone()
+                    };
+                    return format!(
+                        "unsafe {{ \
+                         let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), {prefix}{ty}::from({owned})).unwrap_or(std::ptr::null_mut()); \
+                         napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}",
+                        prefix = type_prefix,
+                        ty = n,
+                    );
                 }
             }
             // Option<&str>

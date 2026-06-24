@@ -593,12 +593,13 @@ end
   @doc """
   Handle an incoming trait call message.
 
-  Message format: {{:trait_call, method_atom, args_json, reply_id}}
+  Message format: {{:trait_call, method_atom, args, reply_id}}
+
+  `args` arrives as a native Erlang map (no JSON decode); the reply stays JSON.
   """
   @impl GenServer
-  def handle_info({{:trait_call, method, args_json, reply_id}}, impl_module) do
+  def handle_info({{:trait_call, method, args, reply_id}}, impl_module) do
     try do
-      args = Jason.decode!(args_json)
       method_name = to_string(method)
       ordered_args = ordered_args(impl_module, method_name, args)
 

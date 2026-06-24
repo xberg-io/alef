@@ -20,6 +20,26 @@ pub struct ExtendrBridgeGenerator {
     /// Map of type name → fully-qualified Rust path for type references.
     pub type_paths: HashMap<String, String>,
     pub error_type: String,
+    /// Callback-param type names that get NATIVE-object marshalling — known serde structs
+    /// (per the shared [`crate::codegen::generators::trait_bridge::is_native_marshalled_struct`]
+    /// rule) that are also registered as extendr classes (so the `#[extendr]`-generated
+    /// `From<Binding> for Robj` exists). For such a param the bridge builds the binding's native
+    /// R object (an `ExternalPtr` class env, via the same `From<core::T>` conversion used for
+    /// return values) and hands THAT to the host closure, instead of serializing the param to a
+    /// JSON string. Enums, opaque/handle types, extendr-incompatible structs, and excluded/unknown
+    /// `Named` params are absent and keep their prior JSON-string representation.
+    pub struct_param_types: std::collections::HashSet<String>,
+}
+
+impl ExtendrBridgeGenerator {
+    /// True when a `Named(name)` callback param should be handed to the host as the binding's
+    /// native R object rather than a JSON string — i.e. it is a known serde struct that is also
+    /// registered as an extendr class. The native object is the `ExternalPtr` class env,
+    /// constructed from the core value via the same `From<core::T>` conversion the binding uses
+    /// for function return values.
+    fn is_native_struct_param(&self, name: &str) -> bool {
+        self.struct_param_types.contains(name)
+    }
 }
 
 impl TraitBridgeGenerator for ExtendrBridgeGenerator {
@@ -44,7 +64,24 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             let args: Vec<String> = method
                 .params
                 .iter()
-                .map(|p| build_extendr_arg(p, spec.bridge_config.context_type.as_deref()))
+                .map(|p| match &p.ty {
+                    // Known serde struct registered as an extendr class: hand the host the
+                    // binding's native R object, built from the core value through the same
+                    // Rust→R conversion used for return values (`Robj::from(Binding::from(core))`).
+                    // The `#[extendr]`-generated `From<Binding> for Robj` wraps it as an
+                    // `ExternalPtr` class env. No JSON round-trip.
+                    TypeRef::Named(n) if self.is_native_struct_param(n) => {
+                        let owned = if p.is_ref {
+                            format!("(*{}).clone()", p.name)
+                        } else {
+                            format!("{}.clone()", p.name)
+                        };
+                        format!("extendr_api::Robj::from({n}::from({owned}))")
+                    }
+                    // Other params (enums, opaque/handle, excluded/unknown, primitives, strings)
+                    // keep their prior representation.
+                    _ => build_extendr_arg(p, spec.bridge_config.context_type.as_deref()),
+                })
                 .collect();
             let pairs: Vec<String> = method
                 .params
@@ -123,6 +160,13 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             let template_name = match (&p.ty, p.is_ref) {
                 (TypeRef::Bytes, true) => "async_param_clone_bytes_ref.jinja",
                 (TypeRef::Path, true) => "async_param_clone_path_ref.jinja",
+                // Native serde struct: clone the OWNED core value (`{name}_owned`, which is
+                // `Send`) before the closure. The native R object cannot cross the
+                // `spawn_blocking` thread boundary (it wraps a `!Send` `Robj`), so it is
+                // constructed from the cloned core value INSIDE the closure instead.
+                (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
+                    "async_param_clone_native_struct_ref.jinja"
+                }
                 (TypeRef::Named(_), true) => "async_param_clone_named_ref.jinja",
                 (_, true) => "async_param_clone_ref.jinja",
                 _ => "async_param_clone_value.jinja",
@@ -146,6 +190,13 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 .map(|p| match (&p.ty, p.is_ref) {
                     (TypeRef::Bytes, true) => format!("extendr_api::Robj::from(&{0}[..])", p.name),
                     (TypeRef::Path, true) => format!("extendr_api::Robj::from({0}_str.as_str())", p.name),
+                    // Native serde struct: build the binding's native R object from the cloned
+                    // owned core value INSIDE the closure, through the same `From<core::T>`
+                    // conversion used for return values. The `#[extendr]`-generated
+                    // `From<Binding> for Robj` wraps it as an `ExternalPtr`. No JSON round-trip.
+                    (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
+                        format!("extendr_api::Robj::from({n}::from({0}_owned.clone()))", p.name)
+                    }
                     (TypeRef::Named(_), true) => format!("extendr_api::Robj::from({0}_json.as_str())", p.name),
                     _ => format!("extendr_api::Robj::from({})", p.name),
                 })
@@ -302,6 +353,43 @@ fn method_error_expr(error_constructor: &str, method_name: &str, plugin_name_exp
     make_error_expr(error_constructor, &message_expr)
 }
 
+/// Compute the set of trait-callback struct params that extendr should marshal to the host as
+/// the binding's native R object (an `ExternalPtr` class env) rather than a JSON string.
+///
+/// Starts from the shared, backend-agnostic allowlist
+/// ([`crate::codegen::generators::trait_bridge::native_marshalled_struct_params`] — known serde
+/// structs) and removes structs that extendr cannot register as a class because their own fields
+/// contain types extendr cannot convert (`Vec<Named>` / `Option<Vec<_>>` / nested `Vec`). Those
+/// have no `#[extendr]`-generated `From<Binding> for Robj`, so the native conversion would not
+/// compile; they keep their prior JSON-string representation.
+pub(crate) fn native_marshalled_extendr_struct_params(
+    trait_type: &TypeDef,
+    api: &ApiSurface,
+) -> std::collections::HashSet<String> {
+    let mut out = crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
+    out.retain(|name| {
+        api.types
+            .iter()
+            .find(|t| &t.name == name)
+            .is_some_and(|t| !t.fields.iter().any(|f| field_is_extendr_incompatible(&f.ty)))
+    });
+    out
+}
+
+/// True if a field type prevents extendr from registering the containing struct as a class —
+/// `Vec<Named>`, `Option<Vec<_>>`, or nested `Vec<Vec<_>>`. Mirrors the
+/// `is_extendr_native_incompatible` check in `gen_bindings` (kept in sync; extendr cannot
+/// auto-convert these from/to `Robj`).
+fn field_is_extendr_incompatible(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(_) | TypeRef::Vec(_)),
+        TypeRef::Optional(inner) => {
+            matches!(inner.as_ref(), TypeRef::Vec(inner2) if matches!(inner2.as_ref(), TypeRef::Named(_) | TypeRef::Vec(_)))
+        }
+        _ => false,
+    }
+}
+
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
     trait_type: &TypeDef,
@@ -356,11 +444,22 @@ pub fn gen_trait_bridge(
             code: out,
         })
     } else {
-        // Use the IR-driven TraitBridgeGenerator infrastructure
+        // Use the IR-driven TraitBridgeGenerator infrastructure.
+        //
+        // Classify which callback params get native-object marshalling using the SHARED rule
+        // (`native_marshalled_struct_params`) so the allowlist is identical to what other backends
+        // consult, then narrow it to structs extendr can actually represent as a native R object:
+        // extendr-incompatible structs (those with `Vec<Named>` / `Option<Vec<_>>` fields) are NOT
+        // registered as extendr classes and have no `#[extendr]`-generated `From<Binding> for Robj`,
+        // so they must keep the JSON-string representation. For the remaining params the bridge hands
+        // the host the binding's native R object (an `ExternalPtr` class env) built via the same
+        // `From<core::T>` conversion used for return values.
+        let struct_param_types = native_marshalled_extendr_struct_params(trait_type, api);
         let generator = ExtendrBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
+            struct_param_types,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types
@@ -842,5 +941,213 @@ mod tests {
 
         crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
         assert!(output.code.contains("\"display_name\""));
+    }
+
+    // -----------------------------------------------------------------------
+    // Native-object marshalling of struct callback params (neutral fixtures).
+    //
+    // A trait-callback param that is a known serde struct registered as an extendr class must be
+    // handed to the host as the binding's NATIVE R object — built via the same `From<core::T>`
+    // conversion the binding uses for return values, then wrapped as an `Robj` ExternalPtr — NOT
+    // serialized to a JSON string. Enum / opaque / unknown / extendr-incompatible params keep
+    // their prior JSON-string representation. The positive allowlist comes from the SHARED
+    // classifier (`native_marshalled_struct_params`), narrowed to extendr-representable structs.
+    // -----------------------------------------------------------------------
+
+    use crate::backends::extendr::trait_bridge::{ExtendrBridgeGenerator, native_marshalled_extendr_struct_params};
+    use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
+    use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::{ApiSurface, FieldDef, MethodDef, ParamDef, TypeDef, TypeRef};
+    use std::collections::{HashMap, HashSet};
+
+    fn struct_typedef(name: &str, fields: Vec<FieldDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("sample_core::{name}"),
+            fields,
+            has_serde: true,
+            ..Default::default()
+        }
+    }
+
+    fn named_field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            ..Default::default()
+        }
+    }
+
+    fn greeter_trait_with(methods: Vec<MethodDef>) -> TypeDef {
+        TypeDef {
+            name: "Greeter".to_string(),
+            rust_path: "sample_core::Greeter".to_string(),
+            is_trait: true,
+            methods,
+            ..Default::default()
+        }
+    }
+
+    fn ref_named_param(name: &str, ty_name: &str) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty: TypeRef::Named(ty_name.to_string()),
+            is_ref: true,
+            ..Default::default()
+        }
+    }
+
+    fn method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async: bool) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params,
+            return_type,
+            is_async,
+            ..Default::default()
+        }
+    }
+
+    fn generator_with(struct_params: &[&str]) -> ExtendrBridgeGenerator {
+        ExtendrBridgeGenerator {
+            core_import: "sample_core".to_string(),
+            type_paths: HashMap::new(),
+            error_type: "SampleError".to_string(),
+            struct_param_types: struct_params.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn plugin_spec<'a>(trait_def: &'a TypeDef, bridge_cfg: &'a TraitBridgeConfig) -> TraitBridgeSpec<'a> {
+        TraitBridgeSpec {
+            trait_def,
+            bridge_config: bridge_cfg,
+            core_import: "sample_core",
+            wrapper_prefix: "R",
+            type_paths: HashMap::new(),
+            lifetime_type_names: HashSet::new(),
+            error_type: "SampleError".to_string(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_string(),
+        }
+    }
+
+    #[test]
+    fn allowlist_includes_serde_struct_excludes_enum_opaque_and_incompatible() {
+        // Opts is a plain serde struct param (qualifies). Bag is a serde struct param with a
+        // Vec<Named> field — extendr cannot register it as a class, so it is excluded. Mood is an
+        // enum (lives in api.enums, never api.types) and Widget is an unknown Named — both absent.
+        let mut api = ApiSurface::default();
+        api.types
+            .push(struct_typedef("Opts", vec![named_field("greeting", TypeRef::String)]));
+        api.types.push(struct_typedef(
+            "Bag",
+            vec![named_field(
+                "items",
+                TypeRef::Vec(Box::new(TypeRef::Named("Opts".to_string()))),
+            )],
+        ));
+
+        let trait_def = greeter_trait_with(vec![
+            method(
+                "greet",
+                vec![ref_named_param("opts", "Opts"), ref_named_param("bag", "Bag")],
+                TypeRef::Named("Doc".to_string()),
+                false,
+            ),
+            method(
+                "decorate",
+                vec![ref_named_param("mood", "Mood"), ref_named_param("widget", "Widget")],
+                TypeRef::Unit,
+                false,
+            ),
+        ]);
+
+        let allow = native_marshalled_extendr_struct_params(&trait_def, &api);
+        assert!(allow.contains("Opts"), "serde struct param must qualify: {allow:?}");
+        assert!(
+            !allow.contains("Bag"),
+            "extendr-incompatible struct must be excluded: {allow:?}"
+        );
+        assert!(!allow.contains("Mood"), "enum must be excluded: {allow:?}");
+        assert!(!allow.contains("Widget"), "unknown type must be excluded: {allow:?}");
+    }
+
+    #[test]
+    fn sync_struct_param_marshalled_as_native_r_object_not_json_string() {
+        let generator = generator_with(&["Opts"]);
+        let trait_def = greeter_trait_with(vec![]);
+        let bridge_cfg = TraitBridgeConfig::default();
+        let spec = plugin_spec(&trait_def, &bridge_cfg);
+
+        let m = method(
+            "greet",
+            vec![ref_named_param("opts", "Opts")],
+            TypeRef::Named("Doc".to_string()),
+            false,
+        );
+        let body = generator.gen_sync_method_body(&m, &spec);
+
+        assert!(
+            body.contains("extendr_api::Robj::from(Opts::from((*opts).clone()))"),
+            "struct param must be built as the binding's native R object via From<core>:\n{body}"
+        );
+        assert!(
+            !body.contains("serde_json::to_string(opts)"),
+            "struct param must NOT be serialized to a JSON string:\n{body}"
+        );
+    }
+
+    #[test]
+    fn async_struct_param_marshalled_as_native_r_object_not_json_string() {
+        let generator = generator_with(&["Opts"]);
+        let trait_def = greeter_trait_with(vec![]);
+        let bridge_cfg = TraitBridgeConfig::default();
+        let spec = plugin_spec(&trait_def, &bridge_cfg);
+
+        let m = method(
+            "greet",
+            vec![ref_named_param("opts", "Opts")],
+            TypeRef::Named("Doc".to_string()),
+            true,
+        );
+        let body = generator.gen_async_method_body(&m, &spec);
+
+        // The preamble clones the OWNED core value (Send) before the spawn_blocking closure; the
+        // native R object is constructed from it INSIDE the closure (R objects are !Send).
+        assert!(
+            body.contains("let opts_owned = (*opts).clone();"),
+            "async preamble must clone the owned core struct value:\n{body}"
+        );
+        assert!(
+            body.contains("extendr_api::Robj::from(Opts::from(opts_owned.clone()))"),
+            "async struct param must be built as the binding's native R object:\n{body}"
+        );
+        assert!(
+            !body.contains("opts_json"),
+            "async struct param must NOT be serialized to a JSON string:\n{body}"
+        );
+    }
+
+    #[test]
+    fn enum_and_unknown_named_params_keep_json_string_representation() {
+        // Only Opts is on the allowlist; Mood (enum) and Widget (unknown) are not.
+        let generator = generator_with(&["Opts"]);
+        let trait_def = greeter_trait_with(vec![]);
+        let bridge_cfg = TraitBridgeConfig::default();
+        let spec = plugin_spec(&trait_def, &bridge_cfg);
+
+        let m = method(
+            "decorate",
+            vec![ref_named_param("mood", "Mood"), ref_named_param("widget", "Widget")],
+            TypeRef::Unit,
+            false,
+        );
+        let body = generator.gen_sync_method_body(&m, &spec);
+        assert!(
+            body.contains("serde_json::to_string(mood)") && body.contains("serde_json::to_string(widget)"),
+            "non-struct Named params must keep the JSON-string representation:\n{body}"
+        );
+        assert!(
+            !body.contains("Mood::from(") && !body.contains("Widget::from("),
+            "non-struct Named params must NOT be built as native objects:\n{body}"
+        );
     }
 }

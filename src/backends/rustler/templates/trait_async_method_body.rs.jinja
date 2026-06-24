@@ -1,27 +1,23 @@
-{%- for param_clone in param_clones %}
-let {{ param_clone.name }} = {{ param_clone.name }}.clone();
-{% endfor -%}
-
 let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
 TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);
 
 let pid = self.inner;
 
-let args_json = {
-    let {% if args_json %}mut {% endif %}args = serde_json::Map::new();
-{%- for arg in args_json %}
-    args.insert("{{ arg.name }}".to_string(), {{ arg.expr }});
+{%- for arg in native_args %}
+let {{ arg.binding }} = {{ arg.owned_expr }};
 {%- endfor %}
-    serde_json::Value::Object(args).to_string()
-};
 
 let method = "{{ method_name }}";
 
 tokio::task::spawn_blocking(move || {
     let mut env = rustler::OwnedEnv::new();
     let _ = env.send_and_clear(&pid, |env| {
-        (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(), method, args_json.as_str(), reply_id).encode(env)
+        let {% if native_args %}mut {% endif %}args_map = rustler::Term::map_new(env);
+{%- for arg in native_args %}
+        args_map = args_map.map_put("{{ arg.key }}".encode(env), {{ arg.binding }}.encode(env)).expect("map_put");
+{%- endfor %}
+        (rustler::types::atom::Atom::from_str(env, "trait_call").unwrap(), method, args_map, reply_id).encode(env)
     });
 }).await.ok();
 

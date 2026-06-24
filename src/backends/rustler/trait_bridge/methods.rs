@@ -1,7 +1,7 @@
 use super::generator::RustlerBridgeGenerator;
-use super::json_args::build_json_arg;
+use super::native_args::build_native_args;
 use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
-use crate::core::ir::{MethodDef, TypeRef};
+use crate::core::ir::MethodDef;
 
 impl TraitBridgeGenerator for RustlerBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
@@ -15,124 +15,12 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let has_error = method.error_type.is_some();
-
-        // Build clone_params array: only parameters that own their data and need to be moved.
-        // Skip references to primitives like &[u8] or &str (borrowed slices/strings don't clone meaningfully).
-        // Include: String (owned), Vec (owned), custom types passed by reference.
-        let clone_params: Vec<minijinja::Value> = method
-            .params
-            .iter()
-            .filter(|p| {
-                // Clone String types (owned) and referenced custom types.
-                // Skip Bytes (&[u8]) and bare references to primitives.
-                match &p.ty {
-                    TypeRef::String => !p.is_ref,  // Clone String but not &str
-                    TypeRef::Bytes => false,       // Skip &[u8] and Vec<u8> (handled separately)
-                    TypeRef::Named(_) => p.is_ref, // Clone references to custom types for thread safety
-                    _ => false,
-                }
-            })
-            .map(|p| {
-                minijinja::context! {
-                    name => p.name.clone()
-                }
-            })
-            .collect();
-
-        // Build params array with json_expr
-        let params: Vec<minijinja::Value> = method
-            .params
-            .iter()
-            .map(|p| {
-                let json_expr = build_json_arg(p, spec.bridge_config);
-                minijinja::context! {
-                    name => p.name.clone(),
-                    json_expr => json_expr
-                }
-            })
-            .collect();
-
-        // Build error constructors
-        let error_deser = spec
-            .error_constructor
-            .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
-        let error_msg = spec.error_constructor.replace("{msg}", "msg");
-        let error_closed = spec
-            .error_constructor
-            .replace("{msg}", "\"Channel closed before reply received\".to_string()");
-
-        let ctx = minijinja::context! {
-            clone_params => clone_params,
-            params => params,
-            method_name => method.name,
-            has_error => has_error,
-            error_deser => error_deser,
-            error_msg => error_msg,
-            error_closed => error_closed
-        };
-
-        crate::backends::rustler::template_env::render("sync_method_body.rs.jinja", ctx)
+        let ctx = self.native_method_ctx(method, spec);
+        crate::backends::rustler::template_env::render("trait_sync_method_body.rs.jinja", ctx)
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let has_error = method.error_type.is_some();
-
-        // Build param_clones array: only parameters that own their data and need to be moved.
-        // Skip references to primitives like &[u8] or &str (borrowed slices/strings don't clone meaningfully).
-        // Include: String (owned), Vec (owned), custom types passed by reference.
-        let param_clones: Vec<minijinja::Value> = method
-            .params
-            .iter()
-            .filter(|p| {
-                // Clone String types (owned) and referenced custom types.
-                // Skip Bytes (&[u8]) and bare references to primitives.
-                match &p.ty {
-                    TypeRef::String => !p.is_ref,  // Clone String but not &str
-                    TypeRef::Bytes => false,       // Skip &[u8] and Vec<u8> (handled separately)
-                    TypeRef::Named(_) => p.is_ref, // Clone references to custom types for thread safety
-                    _ => false,
-                }
-            })
-            .map(|p| {
-                minijinja::context! {
-                    name => p.name.clone()
-                }
-            })
-            .collect();
-
-        // Build args_json array with name and expr
-        let args_json: Vec<minijinja::Value> = method
-            .params
-            .iter()
-            .map(|p| {
-                let expr = build_json_arg(p, spec.bridge_config);
-                minijinja::context! {
-                    name => p.name.clone(),
-                    expr => expr
-                }
-            })
-            .collect();
-
-        // Build error constructors
-        let error_deser = spec
-            .error_constructor
-            .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
-        let error_msg = spec.error_constructor.replace("{msg}", "msg");
-        let error_closed = spec
-            .error_constructor
-            .replace("{msg}", "\"Channel closed before reply received\".to_string()");
-
-        let ctx = minijinja::context! {
-            param_clones => param_clones,
-            args_json => args_json,
-            method_name => method.name,
-            has_error => has_error,
-            error_deser => error_deser,
-            error_msg => error_msg,
-            error_closed => error_closed
-        };
-
+        let ctx = self.native_method_ctx(method, spec);
         crate::backends::rustler::template_env::render("trait_async_method_body.rs.jinja", ctx)
     }
 
@@ -193,6 +81,45 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 }
 
 impl RustlerBridgeGenerator {
+    /// Build the shared minijinja context for a trait method body (sync or async).
+    ///
+    /// Each callback argument is materialised into an OWNED, `Encoder`-able value before the
+    /// dispatch closure, then encoded into a NATIVE Erlang term map inside `send_and_clear` — so the
+    /// Elixir host receives native terms (structs/maps), not a JSON string. Serde-struct params are
+    /// built as the binding `NifStruct` via the shared allowlist (`struct_param_types`); other args
+    /// encode as their natural native terms.
+    fn native_method_ctx(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> minijinja::Value {
+        let has_error = method.error_type.is_some();
+
+        let native_args: Vec<minijinja::Value> = build_native_args(&method.params, &self.struct_param_types)
+            .into_iter()
+            .map(|a| {
+                minijinja::context! {
+                    key => a.key,
+                    binding => a.binding,
+                    owned_expr => a.owned_expr,
+                }
+            })
+            .collect();
+
+        let error_deser = spec
+            .error_constructor
+            .replace("{msg}", "format!(\"Failed to deserialize response: {}\", _e)");
+        let error_msg = spec.error_constructor.replace("{msg}", "msg");
+        let error_closed = spec
+            .error_constructor
+            .replace("{msg}", "\"Channel closed before reply received\".to_string()");
+
+        minijinja::context! {
+            native_args => native_args,
+            method_name => method.name,
+            has_error => has_error,
+            error_deser => error_deser,
+            error_msg => error_msg,
+            error_closed => error_closed,
+        }
+    }
+
     /// Generate support NIFs for completing trait calls from Elixir.
     pub fn gen_support_nifs(&self) -> String {
         let ctx = minijinja::context! {};

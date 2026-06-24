@@ -250,6 +250,108 @@ fn regression_namespace_exports_functions_types_enums() {
 }
 
 #[test]
+fn register_wrapper_roxygen_documents_typed_host_callback_shape() {
+    // The `register_<trait>` R wrapper must surface a typed host-interface contract in roxygen:
+    // one documented line per callback method the host backend must implement, naming the struct
+    // param type and the return type, and flagging native-object params. This is R's equivalent
+    // of the typed plugin Protocol other bindings emit. Neutral fixtures: Greeter / Opts / Doc.
+    let backend = ExtendrBackend;
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["r"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.r]
+package_name = "testlib"
+
+[[crates.trait_bridges]]
+trait_name = "Greeter"
+super_trait = "test_lib::Plugin"
+registry_getter = "test_lib::get_greeter_registry"
+register_fn = "register_greeter"
+unregister_fn = "unregister_greeter"
+clear_fn = "clear_greeters"
+"#,
+    );
+
+    let opts = TypeDef {
+        name: "Opts".to_string(),
+        rust_path: "test_lib::Opts".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("greeting", TypeRef::String, false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+    let doc_ty = TypeDef {
+        name: "Doc".to_string(),
+        rust_path: "test_lib::Doc".to_string(),
+        has_serde: true,
+        ..opts.clone()
+    };
+    let greeter = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "test_lib::Greeter".to_string(),
+        is_trait: true,
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "greet".to_string(),
+            params: vec![ParamDef {
+                name: "opts".to_string(),
+                ty: TypeRef::Named("Opts".to_string()),
+                is_ref: true,
+                ..Default::default()
+            }],
+            return_type: TypeRef::Named("Doc".to_string()),
+            ..Default::default()
+        }],
+        has_serde: false,
+        ..opts.clone()
+    };
+
+    let mut api = make_api_surface();
+    api.types.push(opts);
+    api.types.push(doc_ty);
+    api.types.push(greeter);
+
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let wrappers = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+        .expect("extendr-wrappers.R must be generated");
+    let content = &wrappers.content;
+
+    // The register roxygen names the method, its struct param type, and the return type.
+    assert!(
+        content.contains("greet(opts: Opts (native object)) -> Doc"),
+        "register roxygen must document the typed callback shape with native struct param:\n{content}"
+    );
+    assert!(
+        content.contains("must implement the following methods"),
+        "register roxygen must introduce the host-interface contract:\n{content}"
+    );
+}
+
+#[test]
 fn r_field_long_descriptions_are_truncated_to_fit_120_char_lines() {
     // Ensure roxygen2 @field lines don't exceed 120 chars to satisfy lintr.
     // Each @field line has format: "#' @field <name> <description>"

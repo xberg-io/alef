@@ -1,4 +1,9 @@
-  @doc "Register a {{ trait_name }} plugin with a GenServer PID and name."
+  @doc """
+  Register a {{ trait_name }} plugin with a GenServer PID and name.
+
+  The GenServer should dispatch `{:trait_call, ...}` messages to a module that
+  implements the `{{ behaviour_module }}` behaviour.
+  """
   @spec {{ func_name }}(pid(), String.t()) :: :ok | :error
   def {{ func_name }}(genserver_pid, plugin_name) do
     {{ native_mod }}.{{ func_name }}(genserver_pid, plugin_name)
