@@ -105,3 +105,38 @@ fn async_pyo3_functions_place_bindings_inside_async_block() {
     //       let result = core_crate::function_name(&param_refs, &param_core).await...
     //   })
 }
+
+/// Regression guard for issue #145: the wide-integer return cast is gated on the extendr-only
+/// cast flags (`cast_large_ints_to_f64` / `cast_uints_to_i32`). pyo3 does not set them, so a
+/// `usize` return must stay `usize` with no `as f64` cast leaking into the body.
+#[test]
+fn pyo3_usize_return_is_not_cast_to_f64() {
+    use crate::codegen::generators::gen_function;
+    use crate::core::ir::{FunctionDef, PrimitiveType};
+
+    let func = FunctionDef {
+        name: "wide_value".to_owned(),
+        rust_path: "sample_core::wide_value".to_owned(),
+        params: vec![],
+        return_type: TypeRef::Primitive(PrimitiveType::Usize),
+        is_async: false,
+        error_type: None,
+        ..FunctionDef::default()
+    };
+
+    let mapper = crate::backends::pyo3::type_map::Pyo3Mapper::new();
+    let cfg = crate::backends::pyo3::gen_bindings::config::binding_config("sample_core", true);
+    let adapter_bodies = ahash::AHashMap::new();
+    let opaque_types = ahash::AHashSet::new();
+
+    let output = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
+
+    assert!(
+        !output.contains("as f64"),
+        "pyo3 usize return must not be cast to f64:\n{output}"
+    );
+    assert!(
+        output.contains("-> usize"),
+        "pyo3 signature should keep usize:\n{output}"
+    );
+}

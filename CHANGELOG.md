@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **extendr: free functions returning wide integers now cast the return value to match the
+  R-facing signature.** The extendr type mapper rewrites `usize`/`u64`/`i64`/`isize` to `f64`
+  and `u8`/`u16`/`u32` to `i32`, and the wrapper signature is rendered through that mapper. The
+  return value was forwarded uncast, so the body (`Vec<usize>`) disagreed with the signature
+  (`Vec<f64>`) and the generated R crate failed to compile with E0308. Scalar, `Vec`, `Option`,
+  and `Option<Vec>` return shapes are now cast at the value site. The cast is gated strictly on
+  the extendr-only cast flags, so pyo3/napi/wasm output is unchanged. (#145,
+  `src/codegen/generators/functions.rs`)
+
 ## [0.26.8] - 2026-06-23
 
 ### Fixed

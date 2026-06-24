@@ -30,6 +30,80 @@ fn arc_wrap_expr(val: &str, name: &str, mutex_types: &AHashSet<String>) -> Strin
     }
 }
 
+/// Compute the cast target for a leaf primitive given the active wide-integer cast flags.
+///
+/// Mirrors the extendr type mapper: large ints (`usize`/`u64`/`i64`/`isize`) map to `f64`
+/// when `cast_large_ints_to_f64` is set, and small unsigned ints (`u8`/`u16`/`u32`) map to
+/// `i32` when `cast_uints_to_i32` is set. Returns `None` for any primitive the mapper leaves
+/// unchanged, so backends that do not set these flags (pyo3/napi/wasm) never trigger a cast.
+fn wide_int_cast_target(
+    prim: &crate::core::ir::PrimitiveType,
+    cast_large_ints_to_f64: bool,
+    cast_uints_to_i32: bool,
+) -> Option<&'static str> {
+    use crate::core::ir::PrimitiveType;
+    match prim {
+        PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Isize
+            if cast_large_ints_to_f64 =>
+        {
+            Some("f64")
+        }
+        PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 if cast_uints_to_i32 => Some("i32"),
+        _ => None,
+    }
+}
+
+/// When a wide-integer cast flag rewrites the return type's leaf primitive to a different
+/// R-representable type, cast the core-call result so the wrapper body matches the rendered
+/// signature (e.g. body yields `Vec<usize>` but the signature says `Vec<f64>`).
+///
+/// Returns `None` when no cast is needed (no flags set, or the primitive is left unchanged by
+/// the mapper). Handles the four shapes the mapper can rewrite: scalar `P`, `Vec<P>`,
+/// `Option<P>`, and `Option<Vec<P>>`. `expr` must already be the unwrapped value (the `Ok`
+/// payload / awaited value), never a `Result` or a serialized `String`.
+fn cast_return_expr(
+    ret: &TypeRef,
+    expr: &str,
+    cast_large_ints_to_f64: bool,
+    cast_uints_to_i32: bool,
+) -> Option<String> {
+    if !cast_large_ints_to_f64 && !cast_uints_to_i32 {
+        return None;
+    }
+    match ret {
+        TypeRef::Primitive(prim) => {
+            let target = wide_int_cast_target(prim, cast_large_ints_to_f64, cast_uints_to_i32)?;
+            Some(format!("({expr}) as {target}"))
+        }
+        TypeRef::Vec(inner) => {
+            let TypeRef::Primitive(prim) = inner.as_ref() else {
+                return None;
+            };
+            let target = wide_int_cast_target(prim, cast_large_ints_to_f64, cast_uints_to_i32)?;
+            Some(format!(
+                "{expr}.into_iter().map(|v| v as {target}).collect::<Vec<{target}>>()"
+            ))
+        }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Primitive(prim) => {
+                let target = wide_int_cast_target(prim, cast_large_ints_to_f64, cast_uints_to_i32)?;
+                Some(format!("{expr}.map(|v| v as {target})"))
+            }
+            TypeRef::Vec(vinner) => {
+                let TypeRef::Primitive(prim) = vinner.as_ref() else {
+                    return None;
+                };
+                let target = wide_int_cast_target(prim, cast_large_ints_to_f64, cast_uints_to_i32)?;
+                Some(format!(
+                    "{expr}.map(|xs| xs.into_iter().map(|v| v as {target}).collect::<Vec<{target}>>())"
+                ))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Generate a free function. Equivalent to `gen_function_with_mutex` with no mutex types.
 pub fn gen_function(
     func: &FunctionDef,
@@ -242,6 +316,17 @@ pub fn gen_function_with_mutex(
             // Determine return wrapping strategy for serde async (uses explicit types to avoid E0283)
             let returns_ref = func.returns_ref;
             let wrap_return = |expr: &str| -> String {
+                // Cast wide-integer leaf primitives (extendr: usize/u64/i64/isize → f64,
+                // u8/u16/u32 → i32) so the value matches the rendered signature. No-op for
+                // backends without the cast flags; the unwrapped value is cast, never the Result.
+                if let Some(cast) = cast_return_expr(
+                    &func.return_type,
+                    expr,
+                    cfg.cast_large_ints_to_f64,
+                    cfg.cast_uints_to_i32,
+                ) {
+                    return cast;
+                }
                 match &func.return_type {
                     TypeRef::Vec(inner) => {
                         // Vec<T>: check if elements need conversion
@@ -384,15 +469,30 @@ pub fn gen_function_with_mutex(
                 _ => "result".to_string(),
             },
             TypeRef::Unit => "result".to_string(),
-            _ => super::binding_helpers::wrap_return(
-                "result",
-                &func.return_type,
-                "",
-                opaque_types,
-                false,
-                func.returns_ref,
-                false,
-            ),
+            _ => {
+                // Cast wide-integer leaf primitives (extendr: usize/u64/i64/isize → f64,
+                // u8/u16/u32 → i32) so the awaited value matches the rendered signature.
+                // No-op for backends that do not set the cast flags. The shared helper handles
+                // scalar/Vec/Option/Option<Vec> shapes; everything else passes through
+                // binding_helpers::wrap_return unchanged.
+                let cast = cast_return_expr(
+                    &func.return_type,
+                    "result",
+                    cfg.cast_large_ints_to_f64,
+                    cfg.cast_uints_to_i32,
+                );
+                cast.unwrap_or_else(|| {
+                    super::binding_helpers::wrap_return(
+                        "result",
+                        &func.return_type,
+                        "",
+                        opaque_types,
+                        false,
+                        func.returns_ref,
+                        false,
+                    )
+                })
+            }
         };
 
         // For Pyo3 async functions with let_bindings that create temporary borrows,
@@ -445,31 +545,20 @@ pub fn gen_function_with_mutex(
         // the GIL (no-op for other backends).
         let core_call = detach_core_call(&format!("{core_fn_path}({call_args})"));
 
-        // Check if we need to cast primitives due to type mapping (e.g., u32 → i32 for extendr)
-        let cast_suffix = match &func.return_type {
-            TypeRef::Primitive(prim) => {
-                let mapped = mapper.map_type(&func.return_type);
-                // If the mapped type differs from the original, we need a cast
-                let original = match prim {
-                    crate::core::ir::PrimitiveType::U8 => "u8",
-                    crate::core::ir::PrimitiveType::U16 => "u16",
-                    crate::core::ir::PrimitiveType::U32 => "u32",
-                    crate::core::ir::PrimitiveType::U64 => "u64",
-                    crate::core::ir::PrimitiveType::I8 => "i8",
-                    crate::core::ir::PrimitiveType::I16 => "i16",
-                    crate::core::ir::PrimitiveType::I32 => "i32",
-                    crate::core::ir::PrimitiveType::I64 => "i64",
-                    crate::core::ir::PrimitiveType::Usize => "usize",
-                    crate::core::ir::PrimitiveType::Isize => "isize",
-                    _ => "",
-                };
-                if !original.is_empty() && mapped != original {
-                    format!(" as {}", mapped)
-                } else {
-                    String::new()
-                }
-            }
-            _ => String::new(),
+        // When a wide-integer cast flag rewrites the return type's leaf primitive (extendr maps
+        // usize/u64/i64/isize → f64 and u8/u16/u32 → i32), cast the core-call value so the body
+        // matches the rendered signature. `cast_value` casts the unwrapped value expression
+        // (scalar / Vec / Option / Option<Vec> shapes); it is a no-op for backends that do not
+        // set the flags. Applied to the `Ok` payload in the Result path and to the bare value
+        // otherwise — never to a Result or serialized String.
+        let cast_value = |expr: &str| -> String {
+            cast_return_expr(
+                &func.return_type,
+                expr,
+                cfg.cast_large_ints_to_f64,
+                cfg.cast_uints_to_i32,
+            )
+            .unwrap_or_else(|| expr.to_string())
         };
 
         // Determine return wrapping strategy
@@ -616,33 +705,25 @@ pub fn gen_function_with_mutex(
                 _ => ".map_err(|e| e.to_string())",
             };
             let wrapped = wrap_return("val");
+            // Cast the `Ok` payload first; wide-int return shapes (scalar/Vec/Option primitives)
+            // make `wrap_return("val") == "val"`, so the cast IS the wrapped value.
+            let cast_val = cast_value("val");
             if wrapped == "val" {
-                if cast_suffix.is_empty() {
+                if cast_val == "val" {
                     format!("{core_call}{err_conv}")
                 } else {
-                    format!("{core_call}.map(|val| val{cast_suffix}){err_conv}")
+                    format!("{core_call}.map(|val| {cast_val}){err_conv}")
                 }
             } else if wrapped == "val.into()" {
-                if cast_suffix.is_empty() {
-                    format!("{core_call}.map(Into::into){err_conv}")
-                } else {
-                    format!("{core_call}.map(|val| (val{cast_suffix}).into()){err_conv}")
-                }
+                format!("{core_call}.map(Into::into){err_conv}")
             } else if let Some(type_path) = wrapped.strip_suffix("::from(val)") {
-                if cast_suffix.is_empty() {
-                    format!("{core_call}.map({type_path}::from){err_conv}")
-                } else {
-                    format!("{core_call}.map(|val| {type_path}::from(val{cast_suffix})){err_conv}")
-                }
+                format!("{core_call}.map({type_path}::from){err_conv}")
             } else {
                 format!("{core_call}.map(|val| {wrapped}){err_conv}")
             }
         } else {
-            if cast_suffix.is_empty() {
-                wrap_return(&core_call)
-            } else {
-                wrap_return(&format!("({core_call}){cast_suffix}"))
-            }
+            let cast = cast_value(&core_call);
+            wrap_return(&cast)
         }
     };
 
