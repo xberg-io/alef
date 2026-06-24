@@ -371,7 +371,13 @@ pub(super) fn emit_converters(
         // for the rest. (Skip when a visitor bridge needs an explicit override kwarg.)
         if is_typeddict && bridge_visitor_field.is_none() {
             out.push_str("    value = cast(dict[str, Any], value)\n");
-            out.push_str(&format!("    return _rust.{type_name}(**value)\n\n\n"));
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "converters/typeddict_splat_return.jinja",
+                minijinja::context! {
+                    type_name => type_name,
+                },
+            ));
+            out.push_str("\n\n");
             continue;
         }
         // Narrow `value` to the concrete dataclass for mypy. The signature accepts
