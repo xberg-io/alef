@@ -417,14 +417,21 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     }
     let files_line = files_entries.join(" ");
 
-    // When the files: line would exceed mix format's default 98-char limit,
-    // emit a wrapped form that mix format is stable with.
-    let files_keyword = if files_line.len() > 85 {
+    // Pre-wrap the `files:` list to match what `mix format` would produce under
+    // the `.formatter.exs` this scaffold emits (`line_length: 140`, see below).
+    // The rendered line is `      files: ~w(<content>)` — 17 chars of indent and
+    // `files: ~w()` wrapper around the content — so wrap only when the full line
+    // would exceed 140. Wrapping earlier (the old hardcoded 85) produced output
+    // that `mix format` immediately un-wraps, fighting the package formatter.
+    const FILES_LINE_WRAP_OVERHEAD: usize = 17;
+    const FORMATTER_LINE_LENGTH: usize = 140;
+    let files_keyword = if files_line.len() + FILES_LINE_WRAP_OVERHEAD > FORMATTER_LINE_LENGTH {
         // Wrap: emit ~w() on a new line with indentation
-        let files_entries_str = files_entries.join(" ");
-        format!("\n        ~w({})", files_entries_str)
+        format!("\n        ~w({files_line})")
     } else {
-        format!("~w({})", files_line)
+        // Inline: leading space so the rendered line is `files: ~w(...)`
+        // (the template emits `files:{files_keyword}`).
+        format!(" ~w({files_line})")
     };
     let links_line = meta
         .configured_repository

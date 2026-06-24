@@ -85,7 +85,7 @@ fn test_scaffold_elixir_mix_exs_files_list_omits_nonexistent_lib_and_checksum() 
     assert!(
         mix_exs
             .content
-            .contains("files:\n        ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock)"),
+            .contains("files: ~w(.formatter.exs mix.exs README* checksum-*.exs native/my_lib_nif/Cargo.toml native/my_lib_nif/Cargo.lock)"),
         "content: {}",
         mix_exs.content
     );
