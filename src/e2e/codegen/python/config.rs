@@ -135,6 +135,9 @@ timeout = 300
 ///   deserialises `allowed_origins` / `allowed_methods` / `allowed_headers`.
 ///   Keys are renamed here so the template can call `CorsConfig.from_json()`
 ///   directly without any in-template remapping.
+///
+/// NOTE: called only by `render_app_harness` which is kept for tests only.
+#[allow(dead_code)]
 fn build_middleware_value(middleware: &Option<crate::e2e::fixture::HttpMiddleware>) -> serde_json::Value {
     let Some(mw) = middleware else {
         return serde_json::Value::Null;
@@ -187,6 +190,10 @@ fn build_middleware_value(middleware: &Option<crate::e2e::fixture::HttpMiddlewar
 /// The harness spawns the SUT app and registers handlers per fixture,
 /// returning canned expected responses. It's driven by conftest.py's
 /// subprocess launcher.
+///
+/// NOTE: production emission is handled by the spikard-e2e-http extension
+/// (which copies this logic verbatim). This function is kept for tests only.
+#[allow(dead_code)]
 pub(super) fn render_app_harness(
     e2e_config: &E2eConfig,
     groups: &[FixtureGroup],
@@ -307,10 +314,6 @@ fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
 pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
     let module = resolve_module(e2e_config);
 
-    // Check for server-pattern HTTP fixtures (require harness).
-    let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
-    let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
-
     let has_mock_server_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
         if f.needs_mock_server() {
             return true;
@@ -335,116 +338,10 @@ pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -
     let header = hash::header(CommentStyle::Hash);
     let env_setup = render_env_setup_block(e2e_config);
 
-    if uses_harness {
-        // Server-pattern harness: spawn app_harness.py subprocess
-        let host = &e2e_config.harness.host;
-        let port = e2e_config.harness.port;
-        format!(
-            r#"{header}"""Pytest configuration for e2e tests."""
-from __future__ import annotations
-
-import os
-import subprocess
-import sys
-import time
-from pathlib import Path
-from typing import Generator
-
-import pytest
-
-{env_setup}# Ensure the package is importable.
-# The {module} package is expected to be installed in the current environment.
-
-_HERE = Path(__file__).parent
-_APP_HARNESS = _HERE / "app_harness.py"
-
-
-@pytest.fixture(scope="session", autouse=True)
-def sut_server() -> Generator[str, None, None]:
-    """Spawn the app harness and set SUT_URL.
-
-    If SUT_URL is already set, a parent process started a shared harness.
-    Use it as-is and do NOT spawn our own.
-    """
-    import socket  # noqa: PLC0415
-
-    existing = os.environ.get("SUT_URL")
-    if existing:
-        yield existing
-        return
-
-    # Spawn the harness script as a subprocess.
-    proc = subprocess.Popen(
-        [sys.executable, str(_APP_HARNESS)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        stdin=subprocess.PIPE,
-    )
-
-    url = f"http://{host}:{port}"
-    # Poll until the harness actually accepts TCP connections. The harness
-    # may print a listening banner before the runtime has finished binding,
-    # so port availability is the authoritative readiness signal.
-    deadline = time.time() + 15.0
-    ready = False
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            # Process died early; surface stderr in the failure path.
-            break
-        try:
-            with socket.create_connection(("{host}", {port}), timeout=0.5):
-                ready = True
-                break
-        except OSError:
-            time.sleep(0.1)
-
-    if not ready:
-        stderr_bytes = proc.stderr.read() if proc.stderr else b""
-        proc.terminate()
-        raise RuntimeError(
-            f"App harness did not become reachable on {host}:{port} within 15s; "
-            f"stderr={{stderr_bytes[:1000]!r}}"
-        )
-
-    os.environ["SUT_URL"] = url
-    yield url
-
-    # Cleanup
-    if proc.stdin:
-        proc.stdin.close()
-    proc.terminate()
-    proc.wait(timeout=5)
-
-
-@pytest.fixture(scope="session")
-def app(sut_server: str) -> object:
-    """Return a simple HTTP helper bound to the SUT server URL."""
-
-    class _App:
-        def request(self, path: str, **kwargs: object) -> object:
-            import urllib.request  # noqa: PLC0415
-            method = str(kwargs.pop("method", "GET"))
-            url = f"{{sut_server}}{{path}}"
-            data = kwargs.pop("json", None)
-            if data is not None:
-                import json  # noqa: PLC0415
-                body = json.dumps(data).encode()
-                headers = dict(kwargs.pop("headers", {{}}))
-                headers.setdefault("Content-Type", "application/json")
-                req = urllib.request.Request(url, data=body, headers=headers, method=method.upper())
-            else:
-                headers = dict(kwargs.pop("headers", {{}}))
-                req = urllib.request.Request(url, headers=headers, method=method.upper())
-            try:
-                with urllib.request.urlopen(req) as resp:  # noqa: S310
-                    return resp
-            except urllib.error.HTTPError as exc:
-                return exc
-
-    return _App()
-"#
-        )
-    } else if has_mock_server_fixtures {
+    // NOTE: when uses_harness is true (server-pattern), the conftest.py is emitted
+    // by the spikard-e2e-http extension (Extension::emit_e2e "python" arm).
+    // alef falls through to the client/mock-server or minimal conftest below.
+    if has_mock_server_fixtures {
         // Mock-server pattern (non-HTTP fixtures)
         format!(
             r#"{header}"""Pytest configuration for e2e tests."""
