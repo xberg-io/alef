@@ -234,7 +234,7 @@ prek run --all-files
   HTML-to-Markdown and headless Chrome fallback.
 - [html-to-markdown](https://github.com/kreuzberg-dev/html-to-markdown) - fast, lossless
   HTML-to-Markdown conversion.
-- [liter-llm](https://github.com/kreuzberg-dev/liter-llm) — universal LLM API client with native bindings for 16 languages and 143 providers.
+- [liter-llm](https://github.com/kreuzberg-dev/liter-llm) — universal LLM API client with native bindings for 14 languages and 143 providers.
 - [tree-sitter-language-pack](https://github.com/kreuzberg-dev/tree-sitter-language-pack) -
   tree-sitter grammars and code-intelligence primitives.
 - [Discord](https://discord.gg/xt9WY3GnKR) - community, roadmap, and release discussion.
