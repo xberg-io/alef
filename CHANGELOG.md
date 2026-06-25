@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stub's `python_type` mapper, and the return type is the enum. Variant selection is shared with the
   runtime binding via `collect_variant_constructors`, so unit / tuple / `binding_excluded` /
   sanitized-field variants and hand-written method collisions are skipped identically.
+- **magnus (Ruby): RBS stubs declare per-variant data-enum constructors.** The `.rbs` stub for a
+  tagged data enum was an empty `class Shape ... end`; it now declares a singleton method per
+  data-carrying variant — `def self.circle: (Float radius) -> Shape` — so RBS sees the
+  `Shape.circle(...)` factories the runtime binding registers via `define_singleton_method`. The
+  declared name is the bare snake_case host name, each param maps through the stub's `rbs_type`
+  mapper, and the return type is the enum. Variant selection is shared with the runtime binding via
+  `collect_variant_constructors`, so unit / tuple / `binding_excluded` / sanitized-field variants and
+  hand-written method collisions are skipped identically.
 
 ## [0.28.1] - 2026-06-25
 

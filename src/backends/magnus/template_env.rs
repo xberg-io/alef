@@ -13,6 +13,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/enum_variant_constructor.rs.jinja"),
     ),
     (
+        "rbs_enum_variant_constructor.jinja",
+        include_str!("templates/rbs_enum_variant_constructor.jinja"),
+    ),
+    (
+        "rbs_enum_variant_constructor_param.jinja",
+        include_str!("templates/rbs_enum_variant_constructor_param.jinja"),
+    ),
+    (
         "visitor_bridge_struct.rs.jinja",
         include_str!("templates/visitor_bridge_struct.rs.jinja"),
     ),
