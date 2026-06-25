@@ -604,11 +604,12 @@ impl Backend for Pyo3Backend {
 
         for e in &api.enums {
             if generators::enum_has_data_variants(e) {
-                // Do not project Rust associated functions (e.g. `ContentPart::text`) as
-                // `#[staticmethod]` factories. They are a Rust idiom; the generated pyo3 enum
-                // already exposes a native, idiomatic constructor (`ContentPart(type=..., **kwargs)`),
-                // so factory methods would be redundant non-idiomatic sugar. Pass `None`.
-                let data_enum_code = generators::gen_pyo3_data_enum_with_mapper(e, &core_import, None);
+                // Emit a `#[staticmethod]` constructor for each data-carrying struct variant
+                // (`EmbeddingModelType.preset("balanced")`). These are the type-safe, discoverable
+                // idiomatic path — the discriminator is carried by the variant name rather than a
+                // magic `type="..."` string. The `#[new]` dict/kwargs/string constructor stays as-is
+                // for flexibility; the variant constructors are additive.
+                let data_enum_code = generators::gen_pyo3_data_enum_with_mapper(e, &core_import, Some(&mapper));
                 // A data enum is rendered as an opaque `{ inner: CoreEnum }` wrapper. The renderer
                 // already emits `impl Default` when the core enum's `has_default` is set. When a
                 // `Default`-deriving parent struct holds the enum as a non-optional field (tracked

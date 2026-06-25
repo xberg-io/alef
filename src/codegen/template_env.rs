@@ -290,6 +290,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/generators/enums/pyo3_factory_method.jinja"),
     ),
     (
+        "generators/enums/pyo3_variant_constructor_body.jinja",
+        include_str!("templates/generators/enums/pyo3_variant_constructor_body.jinja"),
+    ),
+    (
         "generators/enums/enum_definition.jinja",
         include_str!("templates/generators/enums/enum_definition.jinja"),
     ),
