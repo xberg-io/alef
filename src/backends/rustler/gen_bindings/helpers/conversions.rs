@@ -495,10 +495,13 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
         out.push('\n');
         for variant in &enum_def.variants {
             let snake_name = crate::codegen::naming::pascal_to_snake(&variant.name);
-            // Guard variant atom against reserved words when used as a type name
-            let safe_atom = elixir_safe_param_name(&snake_name);
-            let variant_atom = format!(":{}", safe_atom);
-            let type_name = elixir_safe_type_name(&safe_atom);
+            // The atom VALUE in `%{type: :atom}` must match the runtime atom the NifTaggedEnum
+            // decoder and the generated constructor use — both derive it from `snake_name` via
+            // `elixir_safe_atom` (e.g. `End` → `:end`, a valid atom). The `@type` LHS name, by
+            // contrast, is an identifier in type position where reserved words are illegal
+            // (`@type end ::` won't compile), so it keeps the reserved-word-guarded form.
+            let variant_atom = format!(":{}", elixir_safe_atom(&snake_name));
+            let type_name = elixir_safe_type_name(&elixir_safe_param_name(&snake_name));
             if !variant.doc.is_empty() {
                 let first_para = doc_first_paragraph_joined(&variant.doc);
                 emit_elixir_doc_attr(&mut out, "typedoc", &first_para, "  ");

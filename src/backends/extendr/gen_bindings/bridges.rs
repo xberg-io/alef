@@ -170,16 +170,10 @@ pub(super) fn gen_extendr_enum_variant_constructors(
     mapper: &dyn TypeMapper,
     core_path: &str,
 ) -> Vec<String> {
-    use crate::codegen::generators::binding_helpers::{
-        gen_call_args_with_let_bindings_json_str_cast_vec, gen_named_let_bindings_pub, has_named_params,
-    };
-    use crate::codegen::generators::collect_variant_constructors;
-    use crate::codegen::shared::function_params;
+    use crate::codegen::generators::{collect_variant_constructors, variant_field_init};
+    use crate::codegen::shared::{function_params, is_promoted_optional};
 
     let name = &enum_def.name;
-    // gen_named_let_bindings_pub expects the crate name, not the full qualified type path.
-    let core_import_for_let = core_path.find("::").map(|i| &core_path[..i]).unwrap_or(core_path);
-    let opaque_types: AHashSet<String> = AHashSet::new();
     let map_fn = |ty: &TypeRef| mapper.map_type(ty);
 
     collect_variant_constructors(enum_def)
@@ -187,24 +181,18 @@ pub(super) fn gen_extendr_enum_variant_constructors(
         .map(|ctor| {
             let params_str = function_params(&ctor.params, &map_fn);
 
-            // Per-param converted expressions, paired 1:1 with `ctor.params` (no comma-join then
-            // re-split). Named-DTO fields convert via a `<field>_core` let binding; primitives that
-            // extendr remaps (u8..=u32→i32, u64/usize/isize/f32→f64) are cast back to the core type.
-            let arg_exprs =
-                gen_call_args_with_let_bindings_json_str_cast_vec(&ctor.params, &opaque_types, true, true);
-            let ref_let_bindings = if has_named_params(&ctor.params, &opaque_types) {
-                gen_named_let_bindings_pub(&ctor.params, &opaque_types, core_import_for_let)
-            } else {
-                String::new()
-            };
-
-            // Pair each field name with its converted expression for the core struct literal.
+            // Build each `field: <expr>` init inline (no `let <field>_core: <core_import>::<Type>`
+            // path annotation): the core variant literal gives inference its target, so a non-
+            // re-exported field type resolves without naming `<core_import>::<Type>`. The shared
+            // `variant_field_init` handles DTO `.into()`, promoted-optional `unwrap_or_default()`,
+            // and the extendr numeric cast back to the core type (u8..=u32→i32, big ints/f32→f64).
             // `field: field` collapses to the shorthand `field` for an unchanged passthrough.
             let field_inits: Vec<String> = ctor
                 .params
                 .iter()
-                .zip(arg_exprs)
-                .map(|(p, expr)| {
+                .enumerate()
+                .map(|(idx, p)| {
+                    let expr = variant_field_init(p, is_promoted_optional(&ctor.params, idx), true, true);
                     if expr == p.name {
                         p.name.clone()
                     } else {
@@ -213,19 +201,20 @@ pub(super) fn gen_extendr_enum_variant_constructors(
                 })
                 .collect();
 
-            let let_lines: String = ref_let_bindings
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .map(|line| format!("        {line}\n"))
-                .collect();
-
-            format!(
-                "    pub fn _factory_{snake}({params_str}) -> {name} {{\n{let_lines}        {core_path}::{variant} {{ {fields} }}.into()\n    }}",
-                snake = ctor.snake_name,
-                variant = ctor.variant_name,
-                fields = field_inits.join(", "),
+            template_env::render(
+                "enum_variant_constructor.rs.jinja",
+                minijinja::context! {
+                    snake => &ctor.snake_name,
+                    params_str => &params_str,
+                    name => name,
+                    let_lines => Vec::<String>::new(),
+                    core_path => core_path,
+                    variant => &ctor.variant_name,
+                    field_inits => field_inits.join(", "),
+                },
             )
+            .trim_end()
+            .to_string()
         })
         .collect()
 }

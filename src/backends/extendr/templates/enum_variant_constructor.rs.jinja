@@ -1,0 +1,9 @@
+{# Per-variant constructor for a JSON-passthrough data enum. Builds the CORE variant then `.into()`s
+   it into the wrapper. DTO fields convert via `<field>_core` let bindings (one per line); primitives
+   that extendr remaps are cast back to the core type at the field-init site. #}
+    pub fn _factory_{{ snake }}({{ params_str }}) -> {{ name }} {
+{%- for line in let_lines %}
+        {{ line }}
+{%- endfor %}
+        {{ core_path }}::{{ variant }} { {{ field_inits }} }.into()
+    }

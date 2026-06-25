@@ -169,6 +169,16 @@ pub(crate) fn gen_php_function_params(
 /// Non-opaque Named types are passed as `&T`, so we clone before `.into()`.
 /// Handles i64->usize/u64 casts for primitive types that need conversion.
 pub(crate) fn gen_php_call_args(params: &[crate::core::ir::ParamDef], opaque_types: &AHashSet<String>) -> String {
+    gen_php_call_args_vec(params, opaque_types).join(", ")
+}
+
+/// Per-parameter form of [`gen_php_call_args`]. Use this when each expression must be paired with its
+/// source param (e.g. building `field: <expr>` core struct-literals) so there is no need to re-split a
+/// comma-joined string — some expressions (`Map`/`BTreeMap`) contain top-level commas.
+pub(crate) fn gen_php_call_args_vec(
+    params: &[crate::core::ir::ParamDef],
+    opaque_types: &AHashSet<String>,
+) -> Vec<String> {
     params
         .iter()
         .map(|p| {
@@ -332,7 +342,6 @@ pub(crate) fn gen_php_call_args(params: &[crate::core::ir::ParamDef], opaque_typ
             }
         })
         .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// Generate let bindings for non-opaque Named params in free functions.
@@ -451,6 +460,18 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
     opaque_types: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
 ) -> String {
+    gen_php_call_args_with_let_bindings_vec(params, opaque_types, mutex_types).join(", ")
+}
+
+/// Per-parameter form of [`gen_php_call_args_with_let_bindings`]. Use this when each expression must
+/// be paired with its source param (e.g. building `field: <expr>` core struct-literals) so there is
+/// no need to re-split a comma-joined string — some expressions (`Map`/`BTreeMap`) contain top-level
+/// commas.
+pub(crate) fn gen_php_call_args_with_let_bindings_vec(
+    params: &[crate::core::ir::ParamDef],
+    opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+) -> Vec<String> {
     params
         .iter()
         .map(|p| {
@@ -642,5 +663,4 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
             }
         })
         .collect::<Vec<_>>()
-        .join(", ")
 }

@@ -512,4 +512,53 @@ mod variant_constructors {
         // reserved word — elixir_safe_param_name guards it.
         assert!(result.contains("{:end, %{at: at}}"), "{result}");
     }
+
+    #[test]
+    fn reserved_word_variant_typespec_atom_matches_constructor_and_decoder() {
+        // The `@type` per-variant atom must use the SAME `:end` the constructor and the
+        // NifTaggedEnum decoder use — not the reserved-word-guarded `:end_val`. The `@type` LHS
+        // name still uses the guarded form because `@type end ::` is illegal Elixir.
+        let def = EnumDef {
+            name: "Marker".to_string(),
+            rust_path: "test_lib::Marker".to_string(),
+            variants: vec![variant("End", vec![field("at", TypeRef::String)])],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        };
+        let result = gen_elixir_enum_module(&def, "SampleCrate");
+        assert!(
+            result.contains("@type end_val :: %{type: :end,"),
+            "typespec LHS guards the reserved word, atom value stays `:end`: {result}"
+        );
+        assert!(
+            !result.contains("type: :end_val"),
+            "typespec atom must not use the reserved-word-guarded form: {result}"
+        );
+    }
+
+    #[test]
+    fn serde_renamed_struct_variant_constructor_uses_snake_atom() {
+        // A `#[serde(rename = "...")]` struct variant: the constructor's `{:atom, ...}` derives the
+        // atom from the Rust variant name (snake_case), NOT the wire rename — the NifTaggedEnum
+        // decoder matches on that same snake atom and applies the wire rename downstream. This keeps
+        // the constructor and decoder in agreement.
+        let mut renamed = variant("EmojiBased", vec![field("shortcode", TypeRef::String)]);
+        renamed.serde_rename = Some("emoji-based".to_string());
+        let def = EnumDef {
+            name: "Token".to_string(),
+            rust_path: "test_lib::Token".to_string(),
+            variants: vec![renamed],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        };
+        let result = gen_elixir_enum_module(&def, "SampleCrate");
+        assert!(
+            result.contains("def emoji_based(shortcode), do: {:emoji_based, %{shortcode: shortcode}}"),
+            "constructor atom must derive from snake_case variant name, ignoring serde_rename: {result}"
+        );
+        assert!(
+            !result.contains(":\"emoji-based\""),
+            "constructor must not emit the wire-renamed atom: {result}"
+        );
+    }
 }

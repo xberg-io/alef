@@ -83,9 +83,10 @@ fn casts_remapped_primitive_back_to_core() {
 }
 
 #[test]
-fn converts_named_dto_field_via_core_let_binding() {
-    // A Named-DTO field arrives as a binding type; convert via a `<field>_core` let binding then
-    // build the core variant with that.
+fn converts_named_dto_field_inline_without_path_annotation() {
+    // A Named-DTO field converts inline with `.into()` in the core variant literal — no typed
+    // `let <field>_core: <core_import>::<Type>` binding — so the core type path is never named and
+    // non-re-exported field types resolve via inference.
     let def = EnumDef {
         name: "Wrapper".to_string(),
         rust_path: "test_lib::Wrapper".to_string(),
@@ -98,12 +99,46 @@ fn converts_named_dto_field_via_core_let_binding() {
     };
     let methods = gen_extendr_enum_variant_constructors(&def, &ExtendrBackend, "test_lib::Wrapper");
     let code = methods.join("\n");
+    // No `let <field>_core: <path> = ...` annotation anywhere in the body.
     assert!(
-        code.contains("let llm_core: test_lib::LlmConfig = llm.into();"),
-        "{code}"
+        !code.contains("_core"),
+        "must inline `.into()`, no _core let binding: {code}"
     );
     assert!(
-        code.contains("test_lib::Wrapper::Llm { llm: llm_core }.into()"),
+        !code.contains("test_lib::LlmConfig ="),
+        "must not name the field's core path: {code}"
+    );
+    assert!(
+        code.contains("test_lib::Wrapper::Llm { llm: llm.into() }.into()"),
+        "{code}"
+    );
+}
+
+#[test]
+fn variant_constructor_body_has_no_core_path_let_annotation() {
+    // Guard: across a mix of DTO, primitive-cast, and plain fields, the generated constructor body
+    // must contain no `<core_import>::<Type>` let-binding type annotation — every field converts
+    // inline so a non-re-exported field type can never trigger E0425.
+    let def = EnumDef {
+        name: "Job".to_string(),
+        rust_path: "test_lib::Job".to_string(),
+        variants: vec![variant(
+            "Run",
+            vec![
+                field("config", TypeRef::Named("RunConfig".to_string())),
+                field("retries", TypeRef::Primitive(PrimitiveType::U32)),
+                field("name", TypeRef::String),
+            ],
+        )],
+        serde_tag: Some("type".to_string()),
+        ..Default::default()
+    };
+    let methods = gen_extendr_enum_variant_constructors(&def, &ExtendrBackend, "test_lib::Job");
+    let code = methods.join("\n");
+    assert!(!code.contains("_core"), "no _core let binding: {code}");
+    assert!(!code.contains(" = "), "no let-binding assignment in the body: {code}");
+    assert!(
+        code.contains("test_lib::Job::Run { config: config.into(), retries: retries as u32, name }.into()"),
         "{code}"
     );
 }
@@ -162,6 +197,33 @@ fn struct_embeds_constructors_in_impl_block() {
 }
 
 #[test]
+fn casts_optional_remapped_primitive_back_to_core() {
+    // An `Option<u64>` field: extendr maps the inner to f64, so the cast helper emits
+    // `.map(|v| v as u64)` rather than a bare `as` cast.
+    // Canonical IR for an `Option<u64>` field: inner `ty` + `optional = true` (this is how
+    // `function_params` wraps the signature in `Option<...>`).
+    let mut max_field = field("max", TypeRef::Primitive(PrimitiveType::U64));
+    max_field.optional = true;
+    let def = EnumDef {
+        name: "Bounded".to_string(),
+        rust_path: "test_lib::Bounded".to_string(),
+        variants: vec![variant("Limit", vec![max_field])],
+        serde_tag: Some("type".to_string()),
+        ..Default::default()
+    };
+    let methods = gen_extendr_enum_variant_constructors(&def, &ExtendrBackend, "test_lib::Bounded");
+    let code = methods.join("\n");
+    assert!(
+        code.contains("pub fn _factory_limit(max: Option<f64>) -> Bounded"),
+        "{code}"
+    );
+    assert!(
+        code.contains("test_lib::Bounded::Limit { max: max.map(|v| v as u64) }.into()"),
+        "{code}"
+    );
+}
+
+#[test]
 fn registrations_pair_r_name_with_factory_fn() {
     let regs = extendr_enum_variant_constructor_registrations(&shape_enum());
     assert_eq!(
@@ -178,5 +240,39 @@ fn registrations_pair_r_name_with_factory_fn() {
                 vec!["width".to_string(), "height".to_string()]
             ),
         ]
+    );
+}
+
+#[test]
+fn r_wrapper_binds_variant_constructor_under_snake_name() {
+    use crate::core::backend::Backend;
+
+    // End-to-end through generate_public_api: the R wrapper must bind `<Name>$<snake>` to the
+    // `wrap__<Name>___factory_<snake>` symbol (the `_factory_` Rust ident is hidden behind the
+    // bare snake R name).
+    let backend = ExtendrBackend;
+    let config = super::make_config();
+    let mut api = super::make_api_surface();
+    api.enums = vec![shape_enum()];
+
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let wrappers = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+        .expect("extendr-wrappers.R must be generated");
+    let content = &wrappers.content;
+
+    assert!(
+        content.contains("Shape$circle <- function(radius)"),
+        "variant ctor must bind under the bare snake name: {content}"
+    );
+    assert!(
+        content.contains(".Call(\"wrap__Shape___factory_circle\", radius"),
+        "variant ctor must call the _factory_ symbol: {content}"
+    );
+    assert!(content.contains("Shape$rect <- function(width, height)"), "{content}");
+    assert!(
+        content.contains(".Call(\"wrap__Shape___factory_rect\", width, height"),
+        "{content}"
     );
 }

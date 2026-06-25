@@ -2,6 +2,10 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "enum_variant_constructor.rs.jinja",
+        include_str!("templates/enum_variant_constructor.rs.jinja"),
+    ),
+    (
         "unregistration_fn.jinja",
         include_str!("templates/unregistration_fn.jinja"),
     ),
