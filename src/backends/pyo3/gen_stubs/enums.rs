@@ -87,8 +87,52 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef) {
     // to the inner serde serialization. Variant TypedDicts above are kept for documentation.
     lines.push(format!("class {}:", enum_def.name));
     lines.push(format!("    {}: str", tag_field));
+    // Per-variant `@staticmethod` constructors, declared between the tag attribute and the
+    // dunder stubs so type-checkers and IDEs see `Shape.circle(...)` factory calls. The variant
+    // selection is shared with the runtime binding via `collect_variant_constructors`, so the
+    // declared surface stays in lockstep with the methods PyO3 actually exposes.
+    gen_data_enum_variant_constructor_stubs(lines, enum_def);
     // PYI029: __str__/__repr__ stubs are needed because the pyo3 wrapper implements them
     // via Display/Debug, and downstream callers rely on str(value) returning the serde tag.
     lines.push("    def __str__(self) -> str: ...  # noqa: PYI029".to_string());
     lines.push("    def __repr__(self) -> str: ...  # noqa: PYI029".to_string());
 }
+
+/// Emit a `@staticmethod` stub for each per-variant constructor the PyO3 binding exposes.
+///
+/// The runtime binding declares these under the bare snake_case host name (via
+/// `#[pyo3(name = "<snake>")]`), so the stub declares the same public name. Each param type maps
+/// through [`python_type`] — the same mapper the surrounding stub uses for fields — and the return
+/// type is the enum itself. `collect_variant_constructors` owns the skip rules (unit / tuple /
+/// `binding_excluded` / sanitized-field variants and hand-written method collisions) so the stub
+/// and runtime binding stay aligned.
+fn gen_data_enum_variant_constructor_stubs(lines: &mut Vec<String>, enum_def: &EnumDef) {
+    use crate::codegen::generators::collect_variant_constructors;
+
+    for ctor in collect_variant_constructors(enum_def) {
+        let params: Vec<String> = ctor
+            .params
+            .iter()
+            .map(|p| {
+                crate::backends::pyo3::template_env::render(
+                    "stub_enum_variant_constructor_param.jinja",
+                    minijinja::context! {
+                        name => python_safe_name(&p.name),
+                        py_type => python_type(&p.ty),
+                    },
+                )
+            })
+            .collect();
+        lines.push(crate::backends::pyo3::template_env::render(
+            "stub_enum_variant_constructor.jinja",
+            minijinja::context! {
+                method_name => python_safe_name(&ctor.snake_name),
+                params => params.join(", "),
+                return_type => &enum_def.name,
+            },
+        ));
+    }
+}
+
+#[cfg(test)]
+mod tests;

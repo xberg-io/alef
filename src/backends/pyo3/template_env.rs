@@ -616,6 +616,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "service_api_pyfunction_footer.rs.jinja",
         include_str!("templates/service_api_pyfunction_footer.rs.jinja"),
     ),
+    (
+        "stub_enum_variant_constructor.jinja",
+        include_str!("templates/stub_enum_variant_constructor.jinja"),
+    ),
+    (
+        "stub_enum_variant_constructor_param.jinja",
+        include_str!("templates/stub_enum_variant_constructor_param.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
