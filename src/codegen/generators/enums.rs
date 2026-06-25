@@ -136,7 +136,15 @@ pub(crate) fn collect_variant_constructors(enum_def: &EnumDef) -> Vec<VariantCon
     enum_def
         .variants
         .iter()
-        .filter(|v| !v.fields.is_empty() && !v.is_tuple && !v.binding_excluded)
+        // Skip variants that cannot be constructed from binding-side values: a `sanitized` field
+        // has no resolvable type (e.g. `[(u32, u32); 4]` -> String) and a `binding_excluded` field
+        // is hidden from the binding surface entirely, so the core variant cannot be built.
+        .filter(|v| {
+            !v.fields.is_empty()
+                && !v.is_tuple
+                && !v.binding_excluded
+                && !v.fields.iter().any(|f| f.sanitized || f.binding_excluded)
+        })
         .filter_map(|v| {
             let snake_name = pascal_to_snake(&v.name);
             if method_names.contains(snake_name.as_str()) {
@@ -167,53 +175,98 @@ pub(crate) fn collect_variant_constructors(enum_def: &EnumDef) -> Vec<VariantCon
         .collect()
 }
 
+/// Build the struct-literal init expression for one variant field.
+///
+/// Returns the value placed at `<field>: <expr>` in `<core>::<Variant> { .. }`. The conversion is
+/// inlined (e.g. `field.into()`) rather than routed through a typed `let <field>_core: <path> = …`
+/// binding, so type inference resolves the target from the variant literal and no core type path
+/// has to be named — non-re-exported types (`pkg::enrich::EnrichResult`) work unchanged.
+///
+/// The conversions mirror the binding→core struct-field rules (`field_conversion_to_core`) but on a
+/// bare param rather than a `val.<field>` receiver: `Path` (String→PathBuf), `Json`
+/// (String→Value), `Duration` (u64→Duration), `Char`, `Bytes`, and Named/Vec/Map element
+/// conversions all run inline.
+///
+/// `promoted` is true when the pyo3 signature widened a non-optional core field to `Option<T>`
+/// because it follows an optional param. Such a param arrives as `Option<T>` but the core field is
+/// `T`, so the value is unwrapped (`unwrap_or_default()`) before any element conversion.
+fn variant_field_init(param: &crate::core::ir::ParamDef, promoted: bool) -> String {
+    use crate::core::ir::TypeRef;
+
+    let name = &param.name;
+
+    // Genuinely-optional core field (`Option<T>`): convert through the Option, leaving it intact.
+    if param.optional {
+        let inner = match &param.ty {
+            TypeRef::Optional(inner) => inner.as_ref(),
+            other => other,
+        };
+        return match inner {
+            TypeRef::Named(_) | TypeRef::Path => format!("{name}.map(Into::into)"),
+            TypeRef::Json => format!("{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())"),
+            TypeRef::Char => format!("{name}.and_then(|s| s.chars().next())"),
+            TypeRef::Duration => format!("{name}.map(std::time::Duration::from_millis)"),
+            TypeRef::Bytes => format!("{name}.map(|v| v.to_vec().into())"),
+            TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
+                format!("{name}.map(|v| v.into_iter().map(Into::into).collect())")
+            }
+            TypeRef::Vec(_) => format!("{name}.map(|v| v.into_iter().collect())"),
+            // String / primitive / Map: the binding `Option<T>` already matches the core field.
+            _ => name.clone(),
+        };
+    }
+
+    // Core field is `T`. A promoted param arrives as `Option<T>`; unwrap to the field default first,
+    // then apply the same per-type conversion to the resulting owned value.
+    let base = if promoted {
+        format!("{name}.unwrap_or_default()")
+    } else {
+        name.clone()
+    };
+    match &param.ty {
+        TypeRef::Named(_) | TypeRef::Path => format!("{base}.into()"),
+        TypeRef::Json => format!("serde_json::from_str(&{base}).unwrap_or_default()"),
+        TypeRef::Char => format!("{base}.chars().next().unwrap_or('*')"),
+        TypeRef::Duration => format!("std::time::Duration::from_millis({base})"),
+        TypeRef::Bytes => format!("{base}.to_vec().into()"),
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+            format!("{base}.into_iter().map(Into::into).collect()")
+        }
+        TypeRef::Vec(_) => format!("{base}.into_iter().collect()"),
+        // String / primitive / Map: pass the (possibly unwrapped) value through unchanged.
+        _ => base,
+    }
+}
+
 /// Generate a `#[staticmethod]` constructor for each data-carrying struct variant of `enum_def`.
 ///
-/// Reuses the shared param / let-binding / call-arg machinery (and the `pyo3_factory_method.jinja`
-/// template) but builds the core variant struct literal
-/// (`Self { inner: <core_path>::<Variant> { field: <expr>, .. } }`) directly. Every generated
-/// constructor collides with the variant accessor of the same snake_case name, so they always use
-/// the `_factory_<name>` Rust ident plus `#[pyo3(name = "<name>")]`.
+/// Reuses the shared param machinery (and the `pyo3_factory_method.jinja` template) but builds the
+/// core variant struct literal (`Self { inner: <core_path>::<Variant> { field: <expr>, .. } }`)
+/// directly via [`variant_field_init`]. Every generated constructor collides with the variant
+/// accessor of the same snake_case name, so they always use the `_factory_<name>` Rust ident plus
+/// `#[pyo3(name = "<name>")]`.
 fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &str, mapper: &dyn TypeMapper) -> String {
-    use crate::codegen::generators::binding_helpers::{
-        gen_call_args_vec, gen_call_args_with_let_bindings_json_str_vec, gen_named_let_bindings_pub, has_named_params,
-    };
-    use crate::codegen::shared::{function_params, function_sig_defaults};
+    use crate::codegen::shared::{function_params, function_sig_defaults, is_promoted_optional};
 
     let constructors = collect_variant_constructors(enum_def);
     if constructors.is_empty() {
         return String::new();
     }
 
-    // gen_named_let_bindings_pub expects the crate name, not the full qualified type path.
-    let core_import_for_let = core_path.find("::").map(|i| &core_path[..i]).unwrap_or(core_path);
-    let opaque_types: ahash::AHashSet<String> = ahash::AHashSet::new();
     let map_fn = |ty: &TypeRef| mapper.map_type(ty);
 
     let mut out = String::new();
     for ctor in &constructors {
         let params_str = function_params(&ctor.params, &map_fn);
 
-        // Per-param converted expressions, aligned 1:1 with `ctor.params` (no comma-join, so no
-        // re-split). Named-DTO fields convert via a `<field>_core` let binding; everything else
-        // converts inline at the call site.
-        let use_let_bindings = has_named_params(&ctor.params, &opaque_types);
-        let (arg_exprs, ref_let_bindings) = if use_let_bindings {
-            (
-                gen_call_args_with_let_bindings_json_str_vec(&ctor.params, &opaque_types),
-                gen_named_let_bindings_pub(&ctor.params, &opaque_types, core_import_for_let),
-            )
-        } else {
-            (gen_call_args_vec(&ctor.params, &opaque_types), String::new())
-        };
-
-        // Pair each field name with its converted expression to build the struct literal.
-        // `field: field` is normalized to the shorthand `field` for an unchanged passthrough.
+        // Build each `field: <expr>` init inline. `field: field` collapses to the shorthand `field`
+        // for an unchanged passthrough.
         let field_inits: Vec<String> = ctor
             .params
             .iter()
-            .zip(arg_exprs)
-            .map(|(p, expr)| {
+            .enumerate()
+            .map(|(idx, p)| {
+                let expr = variant_field_init(p, is_promoted_optional(&ctor.params, idx));
                 if expr == p.name {
                     p.name.clone()
                 } else {
@@ -222,13 +275,7 @@ fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &st
             })
             .collect();
 
-        let mut body_lines: Vec<String> = ref_let_bindings
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(ToOwned::to_owned)
-            .collect();
-        body_lines.push(
+        let body_lines = vec![
             crate::codegen::template_env::render(
                 "generators/enums/pyo3_variant_constructor_body.jinja",
                 minijinja::context! {
@@ -239,7 +286,7 @@ fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &st
             )
             .trim_end()
             .to_string(),
-        );
+        ];
 
         // Always collides with the variant accessor of the same name → `_factory_<name>`.
         let rust_fn_name = format!("_factory_{}", ctor.snake_name);
@@ -773,8 +820,9 @@ mod tests {
     #[test]
     fn variant_constructors_convert_named_dto_fields() {
         use crate::codegen::type_mapper::IdentityMapper;
-        // A field whose type is a binding DTO (Named) must run through the same let-binding /
-        // conversion machinery the factory-method path uses, producing `<field>_core`.
+        // A field whose type is a binding DTO (Named) converts inline via `.into()` in the struct
+        // literal — no typed `let <field>_core: <path>` binding, so the core type path is never
+        // named (non-re-exported core types resolve through inference).
         let def = enum_def(
             "Wrapper",
             vec![variant(
@@ -790,22 +838,19 @@ mod tests {
             "{generated}"
         );
         assert!(
-            generated.contains("let llm_core: crate::LlmConfig = llm.into();"),
+            generated.contains("Self { inner: crate::Wrapper::Llm { llm: llm.into() } }"),
             "{generated}"
         );
-        assert!(
-            generated.contains("Self { inner: crate::Wrapper::Llm { llm: llm_core } }"),
-            "{generated}"
-        );
+        // No typed let-binding naming the core path.
+        assert!(!generated.contains("llm_core"), "{generated}");
     }
 
     #[test]
     fn variant_constructors_pair_interleaved_field_exprs_by_position() {
         use crate::codegen::type_mapper::IdentityMapper;
-        // Interleave a primitive, a Named-DTO (converted to `<field>_core`), and a Vec<Named> DTO
-        // (also `<field>_core`) so the field→expr pairing must align by position, not by a re-split
-        // of a joined string. A Vec<Named> expr is the kind that previously had to survive `<>`
-        // depth tracking; here each expr lands in its own struct-literal slot directly.
+        // Interleave a primitive, a Named-DTO (`.into()`), and a Vec<Named> DTO
+        // (`.into_iter().map(Into::into).collect()`) so each field's init lands in its own
+        // struct-literal slot, converted inline.
         let def = enum_def(
             "Job",
             vec![variant(
@@ -820,18 +865,10 @@ mod tests {
 
         let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
 
-        // Each field is paired with the right expression: primitive passes through (shorthand),
-        // the two DTO fields use their own `_core` bindings.
         assert!(
-            generated.contains("Self { inner: crate::Job::Run { retries, config: config_core, steps: steps_core } }"),
-            "{generated}"
-        );
-        assert!(
-            generated.contains("let config_core: crate::RunConfig = config.into();"),
-            "{generated}"
-        );
-        assert!(
-            generated.contains("let steps_core: Vec<_> = steps.into_iter().map(Into::into).collect();"),
+            generated.contains(
+                "Self { inner: crate::Job::Run { retries, config: config.into(), steps: steps.into_iter().map(Into::into).collect() } }"
+            ),
             "{generated}"
         );
     }
@@ -865,6 +902,147 @@ mod tests {
             generated.contains("pub fn _factory_real(value: String) -> Self"),
             "{generated}"
         );
+    }
+
+    #[test]
+    fn variant_constructors_skip_variant_with_sanitized_field() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // A sanitized field (e.g. core `[(u32, u32); 4]` downgraded to String) has no faithful
+        // binding value, so the core variant cannot be built — skip the whole variant.
+        let mut sanitized = typed_field("points", TypeRef::String);
+        sanitized.sanitized = true;
+        let def = enum_def(
+            "OcrBoundingGeometry",
+            vec![
+                variant("Quadrilateral", vec![sanitized]),
+                variant(
+                    "Rectangle",
+                    vec![typed_field("left", TypeRef::Primitive(PrimitiveType::U32))],
+                ),
+            ],
+        );
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        assert!(!generated.contains("_factory_quadrilateral"), "{generated}");
+        assert!(generated.contains("_factory_rectangle"), "{generated}");
+    }
+
+    #[test]
+    fn variant_constructors_skip_variant_with_binding_excluded_field() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // A `binding_excluded` field (e.g. `#[alef(skip)]`) is hidden from the binding surface, so
+        // no value exists to fill it — skip the variant rather than emit a broken literal.
+        let mut excluded = typed_field("entries", TypeRef::String);
+        excluded.binding_excluded = true;
+        let def = enum_def(
+            "NodeContent",
+            vec![
+                variant("MetadataBlock", vec![excluded]),
+                variant("Title", vec![typed_field("text", TypeRef::String)]),
+            ],
+        );
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        assert!(!generated.contains("_factory_metadata_block"), "{generated}");
+        assert!(generated.contains("_factory_title"), "{generated}");
+    }
+
+    #[test]
+    fn variant_constructors_pass_through_genuine_optional_core_field() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // A field whose CORE type is `Option<String>` (optional=true) keeps the binding Option
+        // unchanged in the struct literal — no unwrap.
+        let mut opt = typed_field("value", TypeRef::String);
+        opt.optional = true;
+        let def = enum_def("AnnotationKind", vec![variant("Custom", vec![opt])]);
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        assert!(
+            generated.contains("Self { inner: crate::AnnotationKind::Custom { value } }"),
+            "{generated}"
+        );
+        assert!(!generated.contains("unwrap_or_default"), "{generated}");
+    }
+
+    #[test]
+    fn variant_constructors_unwrap_promoted_optional_field() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // `extra` is a non-optional core field (`Vec<String>`, defaulted) that FOLLOWS an optional
+        // field, so pyo3 promotes it to `Option<Vec<String>>` in the signature. The core field is
+        // still `Vec<String>`, so the struct literal must `unwrap_or_default()` the promoted param.
+        let mut model_file = typed_field("model_file", TypeRef::String);
+        model_file.optional = true;
+        let extra = typed_field("extra", TypeRef::Vec(Box::new(TypeRef::String)));
+        let def = enum_def("RerankerModelType", vec![variant("Custom", vec![model_file, extra])]);
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        assert!(
+            generated
+                .contains("pub fn _factory_custom(model_file: Option<String>, extra: Option<Vec<String>>) -> Self"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains(
+                "Self { inner: crate::RerankerModelType::Custom { model_file, extra: extra.unwrap_or_default().into_iter().collect() } }"
+            ),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn variant_constructors_convert_optional_path_field() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // A `Path` field maps to `String` in the binding but `PathBuf` in core; an optional one
+        // must convert through the Option (`.map(Into::into)`), not pass the `Option<String>`
+        // through unchanged (which would mismatch `Option<PathBuf>`).
+        let mut cache_dir = typed_field("cache_dir", TypeRef::Path);
+        cache_dir.optional = true;
+        let def = enum_def(
+            "ChunkSizing",
+            vec![variant(
+                "Tokenizer",
+                vec![typed_field("model", TypeRef::String), cache_dir],
+            )],
+        );
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        assert!(
+            generated.contains(
+                "Self { inner: crate::ChunkSizing::Tokenizer { model, cache_dir: cache_dir.map(Into::into) } }"
+            ),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn variant_constructors_use_inline_into_for_non_reexported_core_type() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // The core type lives at a nested module path (`pkg::enrich::EnrichStatus`), and the field
+        // type is also non-re-exported. The inline `.into()` must not name any core type path, so
+        // the generated body resolves the target via inference from the variant literal.
+        let mut def = enum_def(
+            "EnrichStatus",
+            vec![variant(
+                "Completed",
+                vec![typed_field("result", TypeRef::Named("EnrichResult".to_string()))],
+            )],
+        );
+        def.rust_path = "pkg::enrich::EnrichStatus".to_string();
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "pkg", Some(&IdentityMapper));
+
+        assert!(
+            generated.contains("Self { inner: pkg::enrich::EnrichStatus::Completed { result: result.into() } }"),
+            "{generated}"
+        );
+        // The brittle `let result_core: pkg::EnrichResult` path annotation must not appear.
+        assert!(!generated.contains("EnrichResult ="), "{generated}");
+        assert!(!generated.contains("result_core"), "{generated}");
     }
 
     #[test]

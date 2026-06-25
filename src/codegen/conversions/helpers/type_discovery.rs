@@ -57,12 +57,22 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
         }
     }
 
-    // Collect Named types from enum variant fields — enum variants that are
-    // used as input types need From impls for their nested Named fields too.
+    // Collect Named types from enum variant fields. A data enum is an input whenever it is already
+    // referenced as one, OR because alef emits a per-variant constructor for every data-carrying
+    // variant: each constructor takes the variant's fields as inputs and builds the core variant,
+    // so those nested Named field types need binding→core From impls. Skipping sanitized /
+    // binding-excluded fields here matches the variants the constructor pass actually emits.
     for e in &surface.enums {
-        if names.contains(&e.name) {
+        let is_data_enum = e.variants.iter().any(|v| !v.fields.is_empty());
+        if names.contains(&e.name) || is_data_enum {
             for variant in &e.variants {
+                if variant.binding_excluded {
+                    continue;
+                }
                 for field in &variant.fields {
+                    if field.sanitized || field.binding_excluded {
+                        continue;
+                    }
                     collect_named_types(&field.ty, &mut names);
                 }
             }
@@ -89,7 +99,13 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
             // Also walk enum variant fields in the transitive closure
             if let Some(e) = surface.enums.iter().find(|e| e.name == *name) {
                 for variant in &e.variants {
+                    if variant.binding_excluded {
+                        continue;
+                    }
                     for field in &variant.fields {
+                        if field.sanitized || field.binding_excluded {
+                            continue;
+                        }
                         let mut field_names = AHashSet::new();
                         collect_named_types(&field.ty, &mut field_names);
                         for n in field_names {
@@ -132,5 +148,66 @@ pub fn field_references_excluded_type(ty: &TypeRef, exclude_types: &[String]) ->
             field_references_excluded_type(k, exclude_types) || field_references_excluded_type(v, exclude_types)
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{EnumDef, EnumVariant, FieldDef};
+
+    fn field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            ..Default::default()
+        }
+    }
+
+    fn data_enum(name: &str, variant_name: &str, fields: Vec<FieldDef>) -> EnumDef {
+        EnumDef {
+            name: name.to_string(),
+            rust_path: format!("pkg::{name}"),
+            variants: vec![EnumVariant {
+                name: variant_name.to_string(),
+                fields,
+                ..Default::default()
+            }],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn data_enum_variant_field_types_are_inputs_even_when_enum_is_return_only() {
+        // A data enum that is never referenced as an input still gets per-variant constructors, so
+        // its variants' Named field types need binding→core From impls.
+        let mut surface = ApiSurface::default();
+        surface.enums.push(data_enum(
+            "EnrichStatus",
+            "Completed",
+            vec![field("result", TypeRef::Named("EnrichResult".to_string()))],
+        ));
+
+        let names = input_type_names(&surface);
+        assert!(names.contains("EnrichResult"), "{names:?}");
+    }
+
+    #[test]
+    fn sanitized_and_excluded_variant_fields_are_not_inputs() {
+        // Sanitized / binding-excluded fields are skipped by the constructor pass, so their nested
+        // types must not be pulled into the input set (no constructor references them).
+        let mut sanitized = field("points", TypeRef::Named("QuadPoints".to_string()));
+        sanitized.sanitized = true;
+        let mut excluded = field("entries", TypeRef::Named("MetaEntries".to_string()));
+        excluded.binding_excluded = true;
+
+        let mut surface = ApiSurface::default();
+        surface.enums.push(data_enum("Geo", "Quad", vec![sanitized]));
+        surface.enums.push(data_enum("Node", "Block", vec![excluded]));
+
+        let names = input_type_names(&surface);
+        assert!(!names.contains("QuadPoints"), "{names:?}");
+        assert!(!names.contains("MetaEntries"), "{names:?}");
     }
 }

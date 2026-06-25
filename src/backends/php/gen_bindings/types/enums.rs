@@ -744,13 +744,39 @@ pub(crate) fn gen_flat_data_enum_variant_constructors(
             // Build the CORE variant struct literal, pairing each field with its converted expression
             // (the same per-param machinery method bodies use). Core field names are the original Rust
             // names; the expressions reference the camelCase PHP params / `_core` let-bindings.
-            let let_bindings = gen_php_named_let_bindings(&ctor.params, opaque_types, enum_names, core_import);
+            //
+            // A plain (non-`Vec`) non-opaque Named field converts inline with `.clone().into()` in the
+            // struct literal instead of via a typed `let <name>_core: <core_import>::<Type>` binding.
+            // The literal gives type inference its target, so the core type path is never named —
+            // non-re-exported core types (`kreuzberg::enrich::EnrichResult`) work unchanged. Only
+            // params that still require a let binding (fallible `Vec<struct>` decode, etc.) keep it.
+            let inline = |p: &crate::core::ir::ParamDef| -> Option<String> {
+                match &p.ty {
+                    TypeRef::Named(name)
+                        if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) =>
+                    {
+                        let php_name = to_php_name(&p.name);
+                        Some(if p.optional {
+                            format!("{php_name}.map(|v| v.clone().into())")
+                        } else {
+                            format!("{php_name}.clone().into()")
+                        })
+                    }
+                    _ => None,
+                }
+            };
+            let let_binding_params: Vec<crate::core::ir::ParamDef> =
+                ctor.params.iter().filter(|p| inline(p).is_none()).cloned().collect();
+            let let_bindings = gen_php_named_let_bindings(&let_binding_params, opaque_types, enum_names, core_import);
             let arg_exprs = gen_php_call_args_with_let_bindings_vec(&ctor.params, opaque_types, &mutex_types);
             let field_inits: Vec<String> = ctor
                 .params
                 .iter()
                 .zip(arg_exprs)
-                .map(|(p, expr)| format!("{}: {expr}", p.name))
+                .map(|(p, expr)| {
+                    let value = inline(p).unwrap_or(expr);
+                    format!("{}: {value}", p.name)
+                })
                 .collect();
             let core_variant = format!("{core_path}::{} {{ {} }}", variant.name, field_inits.join(", "));
 
@@ -833,8 +859,16 @@ mod variant_constructor_tests {
     /// Run the generator with the common (empty opaque/bridge/enum) sets and the `crate` core import.
     fn run(def: &EnumDef, mapper: &PhpMapper) -> String {
         let empty = AHashSet::new();
+        // Mirror real codegen: the `enum_names` set passed to the generator is the mapper's, so
+        // unit-variant-enum fields (mapped to `String`) are recognized and routed through the
+        // shared `From<String>` let-binding rather than the inline struct-conversion path.
         join(gen_flat_data_enum_variant_constructors(
-            def, mapper, &empty, &empty, &empty, "crate",
+            def,
+            mapper,
+            &empty,
+            &empty,
+            &mapper.enum_names,
+            "crate",
         ))
     }
 
@@ -862,9 +896,10 @@ mod variant_constructor_tests {
     }
 
     #[test]
-    fn converts_named_dto_field_via_shared_let_binding() {
-        // A Named-DTO field arrives as `&T`; the SHARED let-binding machinery emits `<field>_core`
-        // and the core variant references it — same path method bodies use, no parallel converter.
+    fn converts_named_dto_field_inline_without_path_annotation() {
+        // A plain Named-DTO field converts inline with `.clone().into()` in the struct literal — no
+        // typed `let <field>_core: <core_import>::<Type>` binding — so the core type path is never
+        // named and non-re-exported core types resolve via inference.
         let def = EnumDef {
             name: "Wrapper".to_string(),
             rust_path: "test_lib::Wrapper".to_string(),
@@ -877,12 +912,9 @@ mod variant_constructor_tests {
         };
         let code = run(&def, &mapper());
         assert!(code.contains("pub fn _factory_llm(llm: &LlmConfig) -> Self"), "{code}");
+        assert!(!code.contains("llm_core"), "must inline, no _core binding: {code}");
         assert!(
-            code.contains("let llm_core"),
-            "must use the shared _core let binding: {code}"
-        );
-        assert!(
-            code.contains("test_lib::Wrapper::Llm { llm: llm_core }.into()"),
+            code.contains("test_lib::Wrapper::Llm { llm: llm.clone().into() }.into()"),
             "{code}"
         );
     }
