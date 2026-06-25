@@ -1,0 +1,9 @@
+{# Per-variant singleton constructors for a data enum. Each builds the serde-shaped variant
+   directly; Ruby registers them via define_singleton_method under the snake_case name. #}
+impl {{ enum_name }} {
+{% for ctor in constructors %}
+    pub fn {{ ctor.rust_fn_name }}({{ ctor.params }}) -> Self {
+        Self::{{ ctor.variant_name }} { {{ ctor.field_inits }} }
+    }
+{% endfor %}
+}

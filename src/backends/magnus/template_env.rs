@@ -9,6 +9,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     ("enum_def.rs.jinja", include_str!("templates/enum_def.rs.jinja")),
     ("enum_magnus.rs.jinja", include_str!("templates/enum_magnus.rs.jinja")),
     (
+        "enum_variant_constructor.rs.jinja",
+        include_str!("templates/enum_variant_constructor.rs.jinja"),
+    ),
+    (
         "visitor_bridge_struct.rs.jinja",
         include_str!("templates/visitor_bridge_struct.rs.jinja"),
     ),

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **magnus: per-variant constructors for data enums.** A data enum like
+  `Shape { Circle { radius }, Rect { width, height } }` now exposes a singleton constructor per
+  data-carrying struct variant, so Ruby callers write `Shape.circle(radius)` /
+  `Shape.rect(width, height)` instead of building a raw `{ "type" => "circle", ... }` Hash. Each
+  constructor builds the serde-shaped variant directly (`Self::Circle { radius }`); parameters use
+  the same types the generated enum declares, so no core conversion is needed. The Rust function is
+  `_factory_<name>` (registered under the bare snake_case name) to avoid colliding with the variant
+  accessor. Unit, tuple, and `binding_excluded` variants are skipped, and a hand-written `impl`
+  method of the same name suppresses the generated constructor. Mirrors the pyo3 path; both share
+  `collect_variant_constructors` in `src/codegen/generators/enums.rs`. The internally-tagged
+  unit-variant bare-string fallback (`{"<tag>": s}`) is unchanged.
+
 ### Removed
 
 - **`string_shorthand` enum attribute.** The opt-in `#[alef(string_shorthand(variant, field))]`

@@ -101,26 +101,27 @@ pub fn gen_pyo3_data_enum_with_mapper(
     )
 }
 
-/// A data-carrying struct variant prepared for constructor synthesis.
+/// A data-carrying struct variant prepared for constructor generation.
 ///
-/// Holds exactly the values a backend needs to emit one per-variant constructor.
-/// `params` are the variant's named fields turned into `ParamDef`s so the shared param/let-binding/
-/// call-arg machinery applies unchanged.
-struct VariantConstructor<'a> {
-    /// Rust PascalCase variant name (used in the `<core_path>::<Variant> { .. }` literal).
-    variant_name: &'a str,
+/// Holds exactly the values a backend needs to emit one per-variant constructor. Backend-agnostic:
+/// the pyo3 and magnus emitters both consume it. `params` are the variant's named fields turned into
+/// `ParamDef`s so the shared param/signature machinery applies unchanged.
+pub(crate) struct VariantConstructor<'a> {
+    /// Rust PascalCase variant name (used in the `<Variant> { .. }` literal).
+    pub(crate) variant_name: &'a str,
     /// snake_case constructor name exposed to the host language.
-    snake_name: String,
+    pub(crate) snake_name: String,
     /// Variant fields modeled as params for the shared signature/conversion machinery.
-    params: Vec<crate::core::ir::ParamDef>,
+    pub(crate) params: Vec<crate::core::ir::ParamDef>,
 }
 
 /// Collect the data-carrying struct variants of `enum_def` that need a generated constructor.
 ///
 /// Skips unit variants (no fields), tuple variants (`is_tuple`), and `binding_excluded` variants.
 /// A variant whose snake_case name matches a hand-written `enum_def.methods` entry is skipped too:
-/// the consumer-authored method wins.
-fn collect_variant_constructors(enum_def: &EnumDef) -> Vec<VariantConstructor<'_>> {
+/// the consumer-authored method wins. Backend-agnostic selection shared by the pyo3 and magnus
+/// per-variant-constructor emitters.
+pub(crate) fn collect_variant_constructors(enum_def: &EnumDef) -> Vec<VariantConstructor<'_>> {
     use crate::codegen::naming::pascal_to_snake;
     use crate::core::ir::ParamDef;
 

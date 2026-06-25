@@ -780,12 +780,83 @@ fn field_type_for_serde_inner(ty: &TypeRef) -> String {
 }
 
 fn field_type_for_serde(field: &FieldDef) -> String {
-    let base = field_type_for_serde_inner(&field.ty);
-    if field.optional {
-        format!("Option<{base}>")
-    } else {
-        base
+    serde_field_type(&field.ty, field.optional)
+}
+
+/// Serde-shaped Rust type for a data-enum field of type `ty` (wrapping in `Option<...>` when
+/// `optional`). This is the type the generated `enum {{ name }}` variant declares, so per-variant
+/// constructor parameters must use it verbatim — the magnus data enum is binding-shaped, so the
+/// constructor assigns parameters into the variant with no core conversion.
+fn serde_field_type(ty: &TypeRef, optional: bool) -> String {
+    let base = field_type_for_serde_inner(ty);
+    if optional { format!("Option<{base}>") } else { base }
+}
+
+/// Generate per-variant singleton constructors for a data enum.
+///
+/// For a data enum `Shape { Circle { radius }, Rect { width, height } }`, emits an `impl Shape`
+/// block with one constructor per data-carrying struct variant so Ruby callers write
+/// `Shape.circle(radius)` / `Shape.rect(width, height)` instead of building a raw Hash. Each
+/// constructor builds the serde-shaped variant directly (`Self::Circle { radius }`).
+///
+/// Variant selection (skipping unit/tuple/`binding_excluded` variants and yielding to a hand-written
+/// `impl` method of the same name) is shared with pyo3 via `collect_variant_constructors`. The Rust
+/// function name is `_factory_<snake>` to avoid colliding with the variant accessor of the same
+/// snake_case name; Ruby registers it under the bare snake name via `define_singleton_method`.
+///
+/// Returns an empty string when no variant qualifies (no empty `impl` block).
+pub(super) fn gen_data_enum_variant_constructors(enum_def: &EnumDef) -> String {
+    let constructors = crate::codegen::generators::collect_variant_constructors(enum_def);
+    if constructors.is_empty() {
+        return String::new();
     }
+
+    let rendered: Vec<minijinja::Value> = constructors
+        .iter()
+        .map(|ctor| {
+            let params = ctor
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name, serde_field_type(&p.ty, p.optional)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            // The serde-shaped enum is binding-shaped, so each field is assigned by its own name
+            // (struct-literal shorthand) with no conversion. Constructors only exist for variants
+            // with fields, so the field list is never empty.
+            let field_inits = ctor
+                .params
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            minijinja::context! {
+                rust_fn_name => format!("_factory_{}", ctor.snake_name),
+                variant_name => ctor.variant_name,
+                params => params,
+                field_inits => field_inits,
+            }
+        })
+        .collect();
+
+    crate::backends::magnus::template_env::render(
+        "enum_variant_constructor.rs.jinja",
+        minijinja::context! {
+            enum_name => &enum_def.name,
+            constructors => rendered,
+        },
+    )
+}
+
+/// Ruby method names of the per-variant constructors generated for `enum_def`, paired with their
+/// Rust function names and arity. Used by module-init to register `define_singleton_method`s.
+pub(super) fn data_enum_variant_constructor_registrations(enum_def: &EnumDef) -> Vec<(String, String, i32)> {
+    crate::codegen::generators::collect_variant_constructors(enum_def)
+        .into_iter()
+        .map(|ctor| {
+            let arity = ctor.params.len() as i32;
+            (ctor.snake_name.clone(), format!("_factory_{}", ctor.snake_name), arity)
+        })
+        .collect()
 }
 
 /// Generate a From impl for binding → core conversion that excludes thread-unsafe fields.

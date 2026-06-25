@@ -377,6 +377,12 @@ impl Backend for MagnusBackend {
         for enum_def in &api.enums {
             if !is_reserved_enum(&enum_def.name) && !exclude_types.contains(enum_def.name.as_str()) {
                 builder.add_item(&classes::gen_enum(enum_def));
+                // Per-variant singleton constructors (`Shape.circle(radius)`); empty for enums with
+                // no qualifying struct variant.
+                let constructors = classes::gen_data_enum_variant_constructors(enum_def);
+                if !constructors.is_empty() {
+                    builder.add_item(&constructors);
+                }
             }
         }
 

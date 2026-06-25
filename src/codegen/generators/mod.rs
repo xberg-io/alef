@@ -145,6 +145,7 @@ pub use binding_helpers::{
     gen_named_let_bindings_pub, gen_named_let_bindings_with_augmented, gen_serde_let_bindings, gen_unimplemented_body,
     has_named_params, is_simple_non_opaque_param, wrap_return, wrap_return_with_mutex, wrap_return_with_mutex_mapped,
 };
+pub(crate) use enums::collect_variant_constructors;
 pub use enums::{enum_has_data_variants, gen_enum, gen_pyo3_data_enum, gen_pyo3_data_enum_with_mapper};
 pub use functions::{
     collect_explicit_core_imports, collect_trait_imports, gen_function, gen_function_with_mutex,

@@ -204,6 +204,40 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         lines.push("".to_string());
     }
 
+    // Register data-enum classes that expose per-variant singleton constructors
+    // (`Shape.circle(radius)`). Data enums without qualifying struct variants stay unregistered —
+    // they round-trip purely through serde IntoValue/TryConvert and need no Ruby class.
+    for enum_def in &api.enums {
+        if crate::backends::magnus::gen_bindings::is_reserved_enum(&enum_def.name)
+            || exclude_types.contains(enum_def.name.as_str())
+        {
+            continue;
+        }
+        let registrations = classes::data_enum_variant_constructor_registrations(enum_def);
+        if registrations.is_empty() {
+            continue;
+        }
+        lines.push(crate::backends::magnus::template_env::render(
+            "module_class_define.rs.jinja",
+            minijinja::context! {
+                binding => "class",
+                class_name => &enum_def.name,
+            },
+        ));
+        for (ruby_name, function_name, arity) in &registrations {
+            lines.push(crate::backends::magnus::template_env::render(
+                "module_class_singleton_method_register.rs.jinja",
+                minijinja::context! {
+                    ruby_name => ruby_name,
+                    type_name => &enum_def.name,
+                    function_name => function_name,
+                    arity => arity,
+                },
+            ));
+        }
+        lines.push("".to_string());
+    }
+
     // Register iterator classes (e.g. ChatStreamIterator) at module scope.
     if !streaming_iterator_registrations.is_empty() {
         lines.extend(streaming_iterator_registrations.iter().cloned());
