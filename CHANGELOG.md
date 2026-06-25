@@ -1337,6 +1337,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`&serde_json::Value: FromZvalMut` unsatisfied), breaking `liter-llm-php` compilation during a
   full regen. The display text is exposed via the core-derived `text()` accessor instead.
   (`src/backends/php/gen_bindings/types/structs.rs`)
+- **(backends/java/gen_bindings/types/builders, records): treat function-path `#[serde(default = "fn")]` as a serde-managed default in Java builder/record codegen.** The extractor change preserved the function path verbatim (`serde(default = "default_true")`) instead of the generic `/* serde(default) */` marker, so the Java builder's `has_serde_default` check missed it and emitted the path string literally — e.g. `private boolean structure = serde(default = "default_true");` — invalid Java (Java reserves `default`). Fix: `is_serde_default_marker()` in `helpers.rs` now matches both the bare marker and any string starting with `"serde(default = \""`. (`src/backends/java/gen_bindings/helpers.rs`, `src/backends/java/gen_bindings/types/builders.rs`, `src/backends/java/gen_bindings/types/records.rs`)
 - **(e2e/codegen/swift): use the per-call `result_type` override for root-type
   detection** so first-class result structs render property access
   (`result.choices`) instead of method-call access. (`src/e2e/codegen/swift/values.rs`)

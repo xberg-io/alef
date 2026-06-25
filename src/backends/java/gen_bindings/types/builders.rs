@@ -563,3 +563,30 @@ pub(super) fn gen_builder_nested_class(
 
     body
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::backends::java::gen_bindings::helpers::is_serde_default_marker;
+
+    #[test]
+    fn is_serde_default_marker_bare_marker() {
+        assert!(is_serde_default_marker(Some("/* serde(default) */")));
+    }
+
+    #[test]
+    fn is_serde_default_marker_function_path() {
+        assert!(is_serde_default_marker(Some("serde(default = \"default_true\")")));
+    }
+
+    #[test]
+    fn is_serde_default_marker_none() {
+        assert!(!is_serde_default_marker(None));
+    }
+
+    #[test]
+    fn is_serde_default_marker_explicit_literal_not_serde() {
+        assert!(!is_serde_default_marker(Some("true")));
+        assert!(!is_serde_default_marker(Some("0")));
+        assert!(!is_serde_default_marker(Some("null")));
+    }
+}
