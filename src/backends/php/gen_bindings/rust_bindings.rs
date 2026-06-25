@@ -404,6 +404,8 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &mapper,
                 &opaque_types,
                 &bridge_type_aliases_set,
+                &enum_names,
+                &core_import,
             ));
         } else {
             // Unit-variant enums are lowered to PHP classes with class constants.

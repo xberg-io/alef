@@ -1,8 +1,15 @@
-{# Per-variant constructor on a flat data enum. Builds the flat struct directly: discriminator tag
-   plus the variant's flat field(s); `..Default::default()` covers the rest unless this variant
-   already covers every flat field. Exposed to PHP under the snake name; Rust fn is `_factory_<snake>`
-   to avoid colliding with the variant's `get_<flat>` accessor. #}
+{# Per-variant constructor on a flat data enum. Builds the CORE variant then converts to the flat PHP
+   struct via the generated `From<core::Enum>` impl (`.into()`), reusing the same param/let-binding
+   machinery method bodies use. Exposed to PHP under the snake name; Rust fn is `_factory_<snake>` to
+   avoid colliding with the variant's `get_<flat>` accessor. A `Vec<NamedStruct>` field can fail to
+   decode, forcing a `PhpResult<Self>` return. #}
 #[php(name = "{{ php_name }}")]
-pub fn {{ rust_fn_name }}({{ params }}) -> Self {
-    Self { {{ tag_field }}_tag: "{{ tag_val }}".to_string(), {{ field_inits | join(", ") }}{% if needs_default %}, ..Default::default(){% endif %} }
+{% if fallible -%}
+pub fn {{ rust_fn_name }}({{ params }}) -> PhpResult<Self> {
+    {{ let_bindings }}Ok({{ core_variant }}.into())
 }
+{%- else -%}
+pub fn {{ rust_fn_name }}({{ params }}) -> Self {
+    {{ let_bindings }}{{ core_variant }}.into()
+}
+{%- endif %}

@@ -227,13 +227,17 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
 }
 
 /// Generate `#[php_impl]` accessor methods, a `from_json` constructor, and per-variant constructors
-/// for the flat data enum. `opaque_types` / `bridge_type_aliases` are threaded into the per-variant
-/// constructor param machinery so refs and opaque handling match the rest of the PHP backend.
+/// for the flat data enum. `opaque_types` / `bridge_type_aliases` / `enum_names` / `core_import` are
+/// threaded into the per-variant constructor machinery so it reuses the same param and conversion
+/// logic the flat-enum `From` impl and method bodies use.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_flat_data_enum_methods(
     enum_def: &EnumDef,
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
     bridge_type_aliases: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
+    core_import: &str,
 ) -> String {
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let mut impl_builder = ImplBuilder::new(&enum_def.name);
@@ -248,7 +252,14 @@ pub(crate) fn gen_flat_data_enum_methods(
     impl_builder.add_method(&from_json);
 
     // Per-variant constructors — `Shape::circle($radius)` rather than a hand-built `from_json` blob.
-    for ctor in gen_flat_data_enum_variant_constructors(enum_def, mapper, opaque_types, bridge_type_aliases) {
+    for ctor in gen_flat_data_enum_variant_constructors(
+        enum_def,
+        mapper,
+        opaque_types,
+        bridge_type_aliases,
+        enum_names,
+        core_import,
+    ) {
         impl_builder.add_method(&ctor);
     }
 
@@ -680,72 +691,75 @@ fn flat_enum_binding_to_core_field_expr(f: &crate::core::ir::FieldDef, flat_name
 /// For a tagged data enum `Shape { Circle { radius }, Rect { width, height } }` lowered to the flat
 /// PHP class `Shape { type_tag, circle: Option<..>, rect: Option<..> }`, emits one static method per
 /// data-carrying struct variant so PHP callers write `Shape::circle($radius)` /
-/// `Shape::rect($width, $height)` instead of hand-rolling a JSON blob for `from_json`. Each method
-/// builds the flat struct directly: it sets the discriminator tag and the variant's flat field(s),
-/// then `..Default::default()` for the remaining `Option<..>` fields (omitted when the variant covers
-/// every flat field, to avoid `clippy::needless_update`).
+/// `Shape::rect($width, $height)` instead of hand-rolling a JSON blob for `from_json`.
+///
+/// Construction is wrapper-convert (like extendr/pyo3): the method builds the CORE variant
+/// (`<core_path>::<Variant> { field: <core_expr> }`) and converts to the flat PHP struct via the
+/// generated `From<core::Enum> for PhpEnum` impl with `.into()`. This means there is exactly ONE
+/// param→value converter — the shared `gen_php_named_let_bindings` / `gen_php_call_args_with_let_bindings_vec`
+/// machinery that every PHP method body already uses — so every field shape (`Bytes`, `Json`,
+/// `Vec<NamedStruct>`, opaque, enum-as-String, …) is handled identically to a method call, not by a
+/// parallel hand-rolled converter. When any param conversion is fallible (a `Vec<NamedStruct>` field
+/// decodes element-by-element and can `return Err`), the method returns `PhpResult<Self>`.
 ///
 /// Variant selection (skipping unit/tuple/`binding_excluded` variants and yielding to a hand-written
 /// `impl` method of the same name) is shared with pyo3/magnus via `collect_variant_constructors`. The
-/// flat-field name, tag value, and the param→field conversion all reuse the same machinery the
-/// core→binding `From` impl uses, so the constructor produces exactly the struct `from_json` would.
-/// The Rust fn is `_factory_<snake>` (exposed to PHP under the camelCase snake name) to mirror the
+/// Rust fn is `_factory_<snake>` (exposed to PHP under the camelCase snake name) to mirror the
 /// pyo3/magnus disambiguation against the same-named variant accessor.
 ///
 /// Returns the method bodies to splice into the flat enum's `#[php_impl]` block (empty when no
 /// variant qualifies).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_flat_data_enum_variant_constructors(
     enum_def: &EnumDef,
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
     bridge_type_aliases: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
+    core_import: &str,
 ) -> Vec<String> {
+    use super::super::helpers::{
+        gen_php_call_args_with_let_bindings_vec, gen_php_function_params, gen_php_named_let_bindings,
+        param_conversion_is_fallible,
+    };
     use crate::codegen::generators::collect_variant_constructors;
     use crate::codegen::naming::to_php_name;
 
-    let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
-
-    // The complete flat-field set (excluding the tag) lets a variant covering every field omit
-    // `..Default::default()`, matching the From-impl emission.
-    let all_flat_fields: std::collections::BTreeSet<String> = {
-        let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        for variant in &enum_def.variants {
-            for (idx, _) in variant.fields.iter().enumerate() {
-                seen.insert(flat_field_name(variant, idx));
-            }
-        }
-        seen
-    };
+    let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
+    let mutex_types: AHashSet<String> = AHashSet::new();
 
     // `collect_variant_constructors` decides which variants qualify (skip rules + hand-written
-    // suppression); look the EnumVariant back up by name so the per-variant flat-field machinery
-    // (`flat_field_name`, the field exprs) applies unchanged.
+    // suppression); look the EnumVariant back up by name to read its concrete fields.
     let qualifying = collect_variant_constructors(enum_def);
     qualifying
         .iter()
         .filter_map(|ctor| {
             let variant = enum_def.variants.iter().find(|v| v.name == ctor.variant_name)?;
-            let tag_val = variant_tag_value(variant, enum_def);
 
             // Constructor params: each variant field as its PHP binding type. Reuse the shared
             // function-param machinery so refs / enum-as-String / Vec handling stay consistent with
             // the rest of the PHP backend.
-            let params =
-                super::super::helpers::gen_php_function_params(&ctor.params, mapper, opaque_types, bridge_type_aliases);
+            let params = gen_php_function_params(&ctor.params, mapper, opaque_types, bridge_type_aliases);
 
-            // Build `<flat_name>: Some(<expr>)` for each field, pairing the EnumVariant field with
-            // the PHP param name 1:1 (no comma-join then re-split).
-            let mut field_inits: Vec<String> = Vec::with_capacity(variant.fields.len());
-            for (idx, f) in variant.fields.iter().enumerate() {
-                let flat_name = flat_field_name(variant, idx);
-                let php_name = to_php_name(&f.name);
-                let expr = flat_enum_constructor_field_expr(f, &php_name, opaque_types);
-                field_inits.push(format!("{flat_name}: {expr}"));
-            }
+            // Build the CORE variant struct literal, pairing each field with its converted expression
+            // (the same per-param machinery method bodies use). Core field names are the original Rust
+            // names; the expressions reference the camelCase PHP params / `_core` let-bindings.
+            let let_bindings = gen_php_named_let_bindings(&ctor.params, opaque_types, enum_names, core_import);
+            let arg_exprs = gen_php_call_args_with_let_bindings_vec(&ctor.params, opaque_types, &mutex_types);
+            let field_inits: Vec<String> = ctor
+                .params
+                .iter()
+                .zip(arg_exprs)
+                .map(|(p, expr)| format!("{}: {expr}", p.name))
+                .collect();
+            let core_variant = format!("{core_path}::{} {{ {} }}", variant.name, field_inits.join(", "));
 
-            let variant_flat_names: std::collections::BTreeSet<String> =
-                (0..variant.fields.len()).map(|i| flat_field_name(variant, i)).collect();
-            let needs_default = variant_flat_names != all_flat_fields;
+            // A `Vec<NamedStruct>` field decodes element-by-element and can `return Err`, which forces
+            // the whole constructor to return `PhpResult<Self>`.
+            let fallible = ctor
+                .params
+                .iter()
+                .any(|p| param_conversion_is_fallible(p, opaque_types, enum_names));
 
             Some(crate::backends::php::template_env::render(
                 "php_flat_enum_variant_constructor.jinja",
@@ -753,94 +767,13 @@ pub(crate) fn gen_flat_data_enum_variant_constructors(
                     php_name => to_php_name(&ctor.snake_name),
                     rust_fn_name => format!("_factory_{}", ctor.snake_name),
                     params => params,
-                    tag_field => tag_field,
-                    tag_val => &tag_val,
-                    field_inits => field_inits,
-                    needs_default => needs_default,
+                    let_bindings => let_bindings,
+                    core_variant => core_variant,
+                    fallible => fallible,
                 },
             ))
         })
         .collect()
-}
-
-/// Build the `Some(<expr>)` flat-field initializer for one constructor param of a flat data enum.
-///
-/// Mirrors the `flat_enum_core_to_binding_field_expr` conversions but starts from a PHP-side
-/// constructor parameter rather than a destructured core value: non-opaque Named params arrive as
-/// `&T` (so clone before `.into()`), `usize/u64/isize` arrive as `i64`, `Path` arrives as `String`,
-/// and `Vec<Named>` converts element-wise. The flat struct field is always `Option<MappedType>`, so
-/// every expression is wrapped in `Some(..)` (or kept as-is when the param is already `Option<..>`).
-fn flat_enum_constructor_field_expr(
-    f: &crate::core::ir::FieldDef,
-    php_name: &str,
-    opaque_types: &AHashSet<String>,
-) -> String {
-    use crate::core::ir::{PrimitiveType, TypeRef};
-
-    // Helper: produce `Some(<inner>)` from a raw owned expression.
-    let wrap_some = |inner: String| -> String { format!("Some({inner})") };
-
-    match &f.ty {
-        TypeRef::Path => {
-            if f.optional {
-                format!("{php_name}.map(std::path::PathBuf::from)")
-            } else {
-                wrap_some(format!("std::path::PathBuf::from({php_name})"))
-            }
-        }
-        TypeRef::Primitive(p @ (PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::Isize)) => {
-            let core_ty = match p {
-                PrimitiveType::Usize => "usize",
-                PrimitiveType::U64 => "u64",
-                PrimitiveType::Isize => "isize",
-                _ => unreachable!(),
-            };
-            if f.optional {
-                format!("{php_name}.map(|v| v as {core_ty})")
-            } else {
-                wrap_some(format!("{php_name} as {core_ty}"))
-            }
-        }
-        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-            // Opaque param arrives owned (Vec/owned wrapper); pass through.
-            if f.optional {
-                php_name.to_string()
-            } else {
-                wrap_some(php_name.to_string())
-            }
-        }
-        TypeRef::Named(_) => {
-            // Non-opaque Named param arrives as `&T`; clone then convert into the core field type.
-            if f.optional {
-                format!("{php_name}.map(|v| v.clone().into())")
-            } else {
-                wrap_some(format!("{php_name}.clone().into()"))
-            }
-        }
-        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
-            if f.optional {
-                format!("{php_name}.map(|v| v.into_iter().map(Into::into).collect())")
-            } else {
-                wrap_some(format!("{php_name}.into_iter().map(Into::into).collect()"))
-            }
-        }
-        // Primitives that map to the same PHP type (all except u64/usize/isize) and String:
-        // binding type == core type, no conversion needed.
-        TypeRef::Primitive(_) | TypeRef::String => {
-            if f.optional {
-                php_name.to_string()
-            } else {
-                wrap_some(php_name.to_string())
-            }
-        }
-        _ => {
-            if f.optional {
-                format!("{php_name}.map(Into::into)")
-            } else {
-                wrap_some(format!("{php_name}.into()"))
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -897,24 +830,24 @@ mod variant_constructor_tests {
         parts.join("\n")
     }
 
-    #[test]
-    fn emits_static_constructor_per_struct_variant() {
+    /// Run the generator with the common (empty opaque/bridge/enum) sets and the `crate` core import.
+    fn run(def: &EnumDef, mapper: &PhpMapper) -> String {
         let empty = AHashSet::new();
-        let code = join(gen_flat_data_enum_variant_constructors(
-            &shape_enum(),
-            &mapper(),
-            &empty,
-            &empty,
-        ));
+        join(gen_flat_data_enum_variant_constructors(
+            def, mapper, &empty, &empty, &empty, "crate",
+        ))
+    }
+
+    #[test]
+    fn emits_static_constructor_building_core_variant_then_into() {
+        let code = run(&shape_enum(), &mapper());
 
         // Exposed to PHP under the snake name; Rust fn is `_factory_<snake>` to avoid colliding with
-        // the `get_circle` accessor.
-        // Struct variants use their own field names as flat-struct fields (`radius`, `width`,
-        // `height`), so the constructor sets those directly.
+        // the `get_circle` accessor. Wrapper-convert: build the CORE variant then `.into()`.
         assert!(code.contains(r#"#[php(name = "circle")]"#), "{code}");
         assert!(code.contains("pub fn _factory_circle(radius: f64) -> Self"), "{code}");
         assert!(
-            code.contains(r#"Self { type_tag: "Circle".to_string(), radius: Some(radius), ..Default::default() }"#),
+            code.contains("test_lib::Shape::Circle { radius: radius }.into()"),
             "{code}"
         );
         assert!(code.contains(r#"#[php(name = "rect")]"#), "{code}");
@@ -922,39 +855,16 @@ mod variant_constructor_tests {
             code.contains("pub fn _factory_rect(width: f64, height: f64) -> Self"),
             "{code}"
         );
-        // Rect covers width+height but not radius, so `..Default::default()` remains.
         assert!(
-            code.contains(
-                r#"Self { type_tag: "Rect".to_string(), width: Some(width), height: Some(height), ..Default::default() }"#
-            ),
+            code.contains("test_lib::Shape::Rect { width: width, height: height }.into()"),
             "{code}"
         );
     }
 
     #[test]
-    fn omits_default_when_variant_covers_all_flat_fields() {
-        // A single-variant data enum: the variant's fields ARE the entire flat struct, so
-        // `..Default::default()` must be omitted (clippy::needless_update).
-        let def = EnumDef {
-            name: "Only".to_string(),
-            rust_path: "test_lib::Only".to_string(),
-            variants: vec![variant("One", vec![field("value", TypeRef::String)])],
-            serde_tag: Some("type".to_string()),
-            ..Default::default()
-        };
-        let empty = AHashSet::new();
-        let code = join(gen_flat_data_enum_variant_constructors(&def, &mapper(), &empty, &empty));
-        assert!(
-            code.contains(r#"Self { type_tag: "One".to_string(), value: Some(value) }"#),
-            "{code}"
-        );
-        assert!(!code.contains("..Default::default()"), "{code}");
-    }
-
-    #[test]
-    fn converts_named_dto_field() {
-        // A Named-DTO field arrives as `&T`; the constructor clones then `.into()`s into the core
-        // field type, wrapped in Some for the flat Option field.
+    fn converts_named_dto_field_via_shared_let_binding() {
+        // A Named-DTO field arrives as `&T`; the SHARED let-binding machinery emits `<field>_core`
+        // and the core variant references it — same path method bodies use, no parallel converter.
         let def = EnumDef {
             name: "Wrapper".to_string(),
             rust_path: "test_lib::Wrapper".to_string(),
@@ -965,11 +875,128 @@ mod variant_constructor_tests {
             serde_tag: Some("type".to_string()),
             ..Default::default()
         };
-        let empty = AHashSet::new();
-        let code = join(gen_flat_data_enum_variant_constructors(&def, &mapper(), &empty, &empty));
+        let code = run(&def, &mapper());
         assert!(code.contains("pub fn _factory_llm(llm: &LlmConfig) -> Self"), "{code}");
         assert!(
-            code.contains(r#"Self { type_tag: "Llm".to_string(), llm: Some(llm.clone().into()) }"#),
+            code.contains("let llm_core"),
+            "must use the shared _core let binding: {code}"
+        );
+        assert!(
+            code.contains("test_lib::Wrapper::Llm { llm: llm_core }.into()"),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn converts_bytes_field() {
+        // Bytes params arrive as `PhpBytes`; the shared call-arg machinery unwraps to `.0` (Vec<u8>)
+        // for the core field — a branch the old hand-rolled converter dropped silently.
+        let def = EnumDef {
+            name: "Blob".to_string(),
+            rust_path: "test_lib::Blob".to_string(),
+            variants: vec![variant("Raw", vec![field("data", TypeRef::Bytes)])],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        };
+        let code = run(&def, &mapper());
+        assert!(code.contains("pub fn _factory_raw(data: PhpBytes) -> Self"), "{code}");
+        assert!(code.contains("test_lib::Blob::Raw { data: data.0 }.into()"), "{code}");
+    }
+
+    #[test]
+    fn converts_json_field() {
+        // Json params arrive as a JSON `String`; the shared machinery parses via `serde_json::from_str`
+        // through the `<name>_json` let binding — another branch the old converter dropped.
+        let def = EnumDef {
+            name: "Payload".to_string(),
+            rust_path: "test_lib::Payload".to_string(),
+            variants: vec![variant("Doc", vec![field("body", TypeRef::Json)])],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        };
+        let code = run(&def, &mapper());
+        assert!(code.contains("pub fn _factory_doc(body: String) -> Self"), "{code}");
+        assert!(
+            code.contains("test_lib::Payload::Doc { body: body_json }.into()"),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn converts_vec_named_struct_field_fallibly() {
+        // A `Vec<NamedStruct>` field decodes element-by-element and can `return Err`, so the
+        // constructor must return `PhpResult<Self>` and wrap the build in `Ok(...)`.
+        let def = EnumDef {
+            name: "Batch".to_string(),
+            rust_path: "test_lib::Batch".to_string(),
+            variants: vec![variant(
+                "Many",
+                vec![field(
+                    "items",
+                    TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+                )],
+            )],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        };
+        let code = run(&def, &mapper());
+        assert!(
+            code.contains("pub fn _factory_many(items: &ext_php_rs::types::ZendHashTable) -> PhpResult<Self>"),
+            "{code}"
+        );
+        assert!(
+            code.contains("Ok(test_lib::Batch::Many { items: items_core }.into())"),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn converts_enum_as_string_field() {
+        // A field whose type is a unit-variant enum maps to `String` in PHP and round-trips via
+        // `From<String>` for the core enum — handled by the shared call-arg path.
+        let mut m = mapper();
+        m.enum_names.insert("Color".to_string());
+        let def = EnumDef {
+            name: "Painted".to_string(),
+            rust_path: "test_lib::Painted".to_string(),
+            variants: vec![variant(
+                "Fill",
+                vec![field("color", TypeRef::Named("Color".to_string()))],
+            )],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        };
+        let code = run(&def, &m);
+        // Enum params are owned `String`, not `&T`. The shared let-binding machinery emits a
+        // `<field>_core` binding that round-trips the string through `From<String>` for the core enum.
+        assert!(code.contains("pub fn _factory_fill(color: String) -> Self"), "{code}");
+        assert!(
+            code.contains("let color_core"),
+            "must use the shared _core let binding: {code}"
+        );
+        assert!(
+            code.contains("test_lib::Painted::Fill { color: color_core }.into()"),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn casts_wide_int_field() {
+        // A `u64` field arrives as PHP `i64`; the shared call-arg machinery casts it back to the core
+        // type at the call site.
+        let def = EnumDef {
+            name: "Sized_".to_string(),
+            rust_path: "test_lib::Sized_".to_string(),
+            variants: vec![variant(
+                "Big",
+                vec![field("count", TypeRef::Primitive(PrimitiveType::U64))],
+            )],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        };
+        let code = run(&def, &mapper());
+        assert!(
+            code.contains("test_lib::Sized_::Big { count: count as u64 }.into()"),
             "{code}"
         );
     }
@@ -993,12 +1020,12 @@ mod variant_constructor_tests {
             serde_tag: Some("type".to_string()),
             ..Default::default()
         };
-        let empty = AHashSet::new();
-        let code = join(gen_flat_data_enum_variant_constructors(&def, &mapper(), &empty, &empty));
+        let code = run(&def, &mapper());
         assert!(!code.contains("_factory_empty"), "{code}");
         assert!(!code.contains("_factory_pair"), "{code}");
         assert!(!code.contains("_factory_hidden"), "{code}");
         assert!(code.contains("pub fn _factory_real(value: String) -> Self"), "{code}");
+        assert!(code.contains("test_lib::Mixed::Real { value: value }.into()"), "{code}");
     }
 
     #[test]
@@ -1011,10 +1038,9 @@ mod variant_constructor_tests {
             }],
             ..shape_enum()
         };
-        let empty = AHashSet::new();
-        let code = join(gen_flat_data_enum_variant_constructors(&def, &mapper(), &empty, &empty));
+        let code = run(&def, &mapper());
         assert!(
-            !code.contains(r#""Circle".to_string()"#),
+            !code.contains("test_lib::Shape::Circle"),
             "consumer method wins for Circle: {code}"
         );
         assert!(
@@ -1033,7 +1059,7 @@ mod variant_constructor_tests {
             ..Default::default()
         };
         let empty = AHashSet::new();
-        let code = gen_flat_data_enum_variant_constructors(&def, &mapper(), &empty, &empty);
+        let code = gen_flat_data_enum_variant_constructors(&def, &mapper(), &empty, &empty, &empty, "crate");
         assert!(code.is_empty(), "no constructors for unit-only enum: {code:?}");
     }
 }
