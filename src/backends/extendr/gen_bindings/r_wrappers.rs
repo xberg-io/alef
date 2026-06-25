@@ -3,7 +3,9 @@ use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, EnumDef, ParamDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 
-use super::bridges::{is_flat_data_enum, is_json_passthrough_data_enum};
+use super::bridges::{
+    extendr_enum_variant_constructor_registrations, is_flat_data_enum, is_json_passthrough_data_enum,
+};
 use super::options::find_r_options_type_from_api;
 use super::trait_bridge_wrappers::{TraitBridgeFn, collect_excluded_class_types, method_is_excluded_from_impl};
 
@@ -686,6 +688,26 @@ pub(super) fn gen_extendr_wrappers_r(
                 minijinja::context! {
                     type_name => type_name,
                     method_name => method_name,
+                    params_sig => params_sig,
+                    call_args_str => call_args_str,
+                },
+            ));
+        }
+        // Per-variant constructors: `<Name>$<snake> <- function(<params>)
+        // .Call("wrap__<Name>___factory_<snake>", <params>, PACKAGE = ...)`. The Rust fn is
+        // `_factory_<snake>` (disambiguated like pyo3/magnus); R surfaces it under the snake name.
+        for (r_name, rust_fn, param_names) in extendr_enum_variant_constructor_registrations(e) {
+            let r_params: Vec<String> = param_names.iter().map(|p| sanitize_r_param_name(p)).collect();
+            let params_sig = r_params.join(", ");
+            let mut call_args = vec![format!("\"wrap__{type_name}__{rust_fn}\"")];
+            call_args.extend(r_params.iter().cloned());
+            call_args.push(format!("PACKAGE = \"{package_name}\""));
+            let call_args_str = call_args.join(", ");
+            out.push_str(&crate::backends::extendr::template_env::render(
+                "r_method_binding.jinja",
+                minijinja::context! {
+                    type_name => type_name,
+                    method_name => r_name,
                     params_sig => params_sig,
                     call_args_str => call_args_str,
                 },

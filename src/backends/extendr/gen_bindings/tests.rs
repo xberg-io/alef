@@ -106,6 +106,7 @@ fn make_api_surface() -> ApiSurface {
     }
 }
 
+mod bridges;
 mod trait_bridge;
 mod wide_int_returns;
 mod wrappers;

@@ -533,7 +533,11 @@ impl Backend for ExtendrBackend {
                 // trip. Generate a newtype struct whose serde representation defers
                 // entirely to the core enum, so nested deserialization through parent
                 // structs preserves the full tagged payload across the FFI boundary.
-                builder.add_item(&bridges::gen_extendr_json_passthrough_enum_struct(e, &core_import));
+                builder.add_item(&bridges::gen_extendr_json_passthrough_enum_struct(
+                    e,
+                    self,
+                    &core_import,
+                ));
             } else {
                 builder.add_item(&generators::gen_enum(e, &cfg));
             }

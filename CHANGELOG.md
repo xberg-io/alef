@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **extendr (R): per-variant constructors for data enums.** A tagged data enum with struct
+  variants (the JSON-passthrough shape, e.g. `EmbeddingModelType { Preset { name } }`) now exposes a
+  constructor per data-carrying variant on its R class env, so R callers write
+  `EmbeddingModelType$preset(name)` alongside the existing `$default()` / `$from_json()` instead of
+  hand-rolling a JSON string. Each constructor builds the CORE variant directly
+  (`core::EmbeddingModelType::Preset { name }`) and `.into()`s it into the JSON-passthrough wrapper —
+  the wrapper stores the core value as serde JSON, so this is the wrapper-convert model. DTO fields
+  convert via `<field>_core` let bindings and extendr's remapped numerics (u8..=u32 → i32,
+  u64/usize/isize/f32 → f64) are cast back to the core type. The Rust fn is `_factory_<snake>`; the R
+  wrapper binds it under the bare snake name. Unit, tuple, and `binding_excluded` variants are
+  skipped, and a hand-written `impl` method of the same name suppresses the generated constructor.
+  Shares `collect_variant_constructors` with the pyo3/magnus/php paths; adds the reusable
+  `gen_call_args_with_let_bindings_json_str_cast_vec` per-param helper for numeric-remapping backends
+  (`src/codegen/generators/binding_helpers/call_args.rs`).
 - **php: per-variant constructors for data enums.** A tagged data enum like
   `Shape { Circle { radius }, Rect { width, height } }` — lowered to the flat PHP class
   `Shape { type_tag, radius, width, height, ... }` — now exposes a static method per data-carrying

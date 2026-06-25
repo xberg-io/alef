@@ -326,6 +326,20 @@ pub fn gen_call_args_with_let_bindings_json_str_vec(
     gen_call_args_with_let_bindings_inner(params, opaque_types, true, false, false)
 }
 
+/// Like [`gen_call_args_with_let_bindings_json_str_vec`] but additionally casts primitive params
+/// whose binding type was remapped back to the core type (`cast_uints_to_i32`: u8/u16/u32/i8/i16 →
+/// i32; `cast_large_ints_to_f64`: u64/usize/isize/f32 → f64). Use this for backends that remap
+/// numerics (extendr) when each expression must be paired with its source param — e.g. building a
+/// `field: <expr>` core struct-literal so there is no need to re-split a comma-joined string.
+pub fn gen_call_args_with_let_bindings_json_str_cast_vec(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
+) -> Vec<String> {
+    gen_call_args_with_let_bindings_inner(params, opaque_types, true, cast_uints_to_i32, cast_large_ints_to_f64)
+}
+
 fn gen_call_args_with_let_bindings_inner(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,

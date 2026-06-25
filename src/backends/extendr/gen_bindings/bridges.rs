@@ -90,10 +90,21 @@ pub(super) fn is_json_passthrough_data_enum(e: &EnumDef) -> bool {
 /// the bridge with no extra glue.
 ///
 /// The struct exposes `from_json(json: String)` (for direct construction from R) and
-/// `default()`. From/Into impls bridge to the core type via serde round-trip.
-pub(super) fn gen_extendr_json_passthrough_enum_struct(enum_def: &EnumDef, core_import: &str) -> String {
+/// `default()`, plus a per-variant constructor for each data-carrying struct variant
+/// (`EmbeddingModelType$preset(name)`). From/Into impls bridge to the core type via serde round-trip.
+pub(super) fn gen_extendr_json_passthrough_enum_struct(
+    enum_def: &EnumDef,
+    mapper: &dyn TypeMapper,
+    core_import: &str,
+) -> String {
     let name = &enum_def.name;
     let core_path = enum_core_path(enum_def, core_import);
+    let variant_constructors = gen_extendr_enum_variant_constructors(enum_def, mapper, &core_path);
+    let variant_constructors_block = if variant_constructors.is_empty() {
+        String::new()
+    } else {
+        format!("\n{}", variant_constructors.join("\n"))
+    };
     format!(
         r#"#[extendr]
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -134,10 +145,106 @@ impl {name} {{
         let core: {core_path} =
             serde_json::from_str(&json).map_err(|e| extendr_api::Error::Other(e.to_string()))?;
         Ok(core.into())
-    }}
+    }}{variant_constructors_block}
 }}
 "#
     )
+}
+
+/// Generate per-variant constructor methods for a JSON-passthrough data enum.
+///
+/// Each data-carrying struct variant gets a `pub fn _factory_<snake>(<params>) -> <Name>` method
+/// that builds the CORE variant directly (`<core_path>::<Variant> { field: <expr> }`) and `.into()`s
+/// it into the JSON-passthrough wrapper — the wrapper-convert model, since the binding stores the
+/// core value as serde JSON, not the binding-shaped fields. Reuses the shared param / let-binding /
+/// call-arg machinery (with the extendr numeric remapping cast) so DTO fields convert via
+/// `<field>_core` let bindings and primitives are cast back to the core type.
+///
+/// Variant selection (skipping unit/tuple/`binding_excluded` variants and yielding to a hand-written
+/// `impl` method of the same name) is shared with pyo3/magnus via `collect_variant_constructors`. The
+/// Rust fn is `_factory_<snake>`; the R wrapper (emitted in `r_wrappers`) exposes it under the bare
+/// snake name so callers write `<Name>$<snake>(...)`. Returns one rendered method per qualifying
+/// variant (empty when none qualifies).
+pub(super) fn gen_extendr_enum_variant_constructors(
+    enum_def: &EnumDef,
+    mapper: &dyn TypeMapper,
+    core_path: &str,
+) -> Vec<String> {
+    use crate::codegen::generators::binding_helpers::{
+        gen_call_args_with_let_bindings_json_str_cast_vec, gen_named_let_bindings_pub, has_named_params,
+    };
+    use crate::codegen::generators::collect_variant_constructors;
+    use crate::codegen::shared::function_params;
+
+    let name = &enum_def.name;
+    // gen_named_let_bindings_pub expects the crate name, not the full qualified type path.
+    let core_import_for_let = core_path.find("::").map(|i| &core_path[..i]).unwrap_or(core_path);
+    let opaque_types: AHashSet<String> = AHashSet::new();
+    let map_fn = |ty: &TypeRef| mapper.map_type(ty);
+
+    collect_variant_constructors(enum_def)
+        .iter()
+        .map(|ctor| {
+            let params_str = function_params(&ctor.params, &map_fn);
+
+            // Per-param converted expressions, paired 1:1 with `ctor.params` (no comma-join then
+            // re-split). Named-DTO fields convert via a `<field>_core` let binding; primitives that
+            // extendr remaps (u8..=u32→i32, u64/usize/isize/f32→f64) are cast back to the core type.
+            let arg_exprs =
+                gen_call_args_with_let_bindings_json_str_cast_vec(&ctor.params, &opaque_types, true, true);
+            let ref_let_bindings = if has_named_params(&ctor.params, &opaque_types) {
+                gen_named_let_bindings_pub(&ctor.params, &opaque_types, core_import_for_let)
+            } else {
+                String::new()
+            };
+
+            // Pair each field name with its converted expression for the core struct literal.
+            // `field: field` collapses to the shorthand `field` for an unchanged passthrough.
+            let field_inits: Vec<String> = ctor
+                .params
+                .iter()
+                .zip(arg_exprs)
+                .map(|(p, expr)| {
+                    if expr == p.name {
+                        p.name.clone()
+                    } else {
+                        format!("{}: {expr}", p.name)
+                    }
+                })
+                .collect();
+
+            let let_lines: String = ref_let_bindings
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(|line| format!("        {line}\n"))
+                .collect();
+
+            format!(
+                "    pub fn _factory_{snake}({params_str}) -> {name} {{\n{let_lines}        {core_path}::{variant} {{ {fields} }}.into()\n    }}",
+                snake = ctor.snake_name,
+                variant = ctor.variant_name,
+                fields = field_inits.join(", "),
+            )
+        })
+        .collect()
+}
+
+/// R-facing registrations for the per-variant constructors of a JSON-passthrough data enum:
+/// `(r_name, rust_fn_name, param_names)`. Used by `r_wrappers` to bind
+/// `<Name>$<snake> <- function(<params>) .Call("wrap__<Name>___factory_<snake>", <params>, ...)`.
+pub(super) fn extendr_enum_variant_constructor_registrations(enum_def: &EnumDef) -> Vec<(String, String, Vec<String>)> {
+    crate::codegen::generators::collect_variant_constructors(enum_def)
+        .into_iter()
+        .map(|ctor| {
+            let param_names: Vec<String> = ctor.params.iter().map(|p| p.name.clone()).collect();
+            (
+                ctor.snake_name.clone(),
+                format!("_factory_{}", ctor.snake_name),
+                param_names,
+            )
+        })
+        .collect()
 }
 
 /// Generate an extendr function with bridge field binding support.
