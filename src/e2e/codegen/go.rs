@@ -263,14 +263,9 @@ impl E2eCodegen for GoCodegen {
                 generated_header: true,
             });
 
-            if has_http_fixtures {
-                let harness_content = render_harness_main(e2e_config, groups, &module_path);
-                files.push(GeneratedFile {
-                    path: output_base.join("cmd").join("harness").join("main.go"),
-                    content: harness_content,
-                    generated_header: true,
-                });
-            }
+            // The server-pattern `cmd/harness/main.go` (SUT-as-server) is delegated
+            // to a consumer extension via `Extension::emit_e2e`; alef no longer emits
+            // it. The shared `main_test.go` spawn wiring stays generic in alef.
         }
 
         // Generate test files per category.
@@ -763,6 +758,10 @@ fn render_helpers_test_go() -> String {
 }
 
 /// Generate `cmd/harness/main.go` — the app harness that serves fixtures for server-pattern e2e tests.
+// The server-pattern harness `main.go` is now emitted by a consumer extension via
+// `Extension::emit_e2e`; alef no longer calls this renderer. Retained pending the
+// dead-code sweep so the migration diff stays minimal.
+#[allow(dead_code)]
 fn render_harness_main(_e2e_config: &E2eConfig, groups: &[FixtureGroup], go_module_path: &str) -> String {
     use minijinja::{Environment, context};
 

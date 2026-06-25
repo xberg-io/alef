@@ -144,21 +144,16 @@ impl E2eCodegen for ElixirCodegen {
             generated_header: false,
         });
 
-        // Generate app_harness.exs if using server-pattern HTTP fixtures.
-        if uses_harness {
+        // app_harness.exs and the server-pattern test_helper.exs are owned by
+        // spikard's e2e-http extension (spikard-e2e-http::lang::elixir::emit).
+        // alef emits test_helper.exs only for the non-harness cases.
+        if !uses_harness {
             files.push(GeneratedFile {
-                path: output_base.join("app_harness.exs"),
-                content: project::render_app_harness(e2e_config, groups, config),
-                generated_header: true,
+                path: output_base.join("test").join("test_helper.exs"),
+                content: project::render_test_helper(has_http_tests || has_mock_server_tests, e2e_config),
+                generated_header: false,
             });
         }
-
-        // Generate test_helper.exs.
-        files.push(GeneratedFile {
-            path: output_base.join("test").join("test_helper.exs"),
-            content: project::render_test_helper(has_http_tests || has_mock_server_tests, uses_harness, e2e_config),
-            generated_header: false,
-        });
 
         // Generate test files per category.
         for group in groups {

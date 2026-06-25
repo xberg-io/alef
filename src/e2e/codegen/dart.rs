@@ -71,17 +71,10 @@ impl E2eCodegen for DartE2eCodegen {
             generated_header: false,
         });
 
-        // Check if any fixture is an HTTP test (needs app harness).
-        let has_http_fixtures = groups.iter().any(|g| g.fixtures.iter().any(|f| f.is_http_test()));
-
-        // Generate app_harness.dart when using server-pattern (HTTP fixtures).
-        if has_http_fixtures {
-            files.push(GeneratedFile {
-                path: output_base.join("app_harness.dart"),
-                content: project::render_app_harness(groups, e2e_config, &pkg_name),
-                generated_header: true,
-            });
-        }
+        // The server-pattern `app_harness.dart` (SUT-as-server) is delegated to a
+        // consumer extension via `Extension::emit_e2e`; alef no longer emits it.
+        // The shared `*_test.dart` spawn block self-detects the harness binary at
+        // runtime, so it stays generic in alef and is unaffected.
 
         let test_base = output_base.join("test");
 

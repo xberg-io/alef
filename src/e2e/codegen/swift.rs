@@ -14,7 +14,6 @@
 
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::hash::{self, CommentStyle};
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::sanitize_filename;
 use crate::e2e::fixture::{Fixture, FixtureGroup};
@@ -134,18 +133,10 @@ impl E2eCodegen for SwiftE2eCodegen {
         // For registry mode, SwiftPM fetches the package directly from GitHub.
         // No pre-test artifact download script is needed.
 
-        // Generate the app harness executable that runs the SUT server for tests.
-        // Only emit when there are HTTP fixtures; consumers without HTTP tests
-        // don't need the harness or its HTTP framework dependency.
-        if has_http_fixtures {
-            let app_harness_body = project::render_app_harness(e2e_config, groups, module_name);
-            let app_harness_content = format!("{}{}", hash::header(CommentStyle::DoubleSlash), app_harness_body);
-            files.push(GeneratedFile {
-                path: output_base.join("Sources").join("Harness").join("main.swift"),
-                content: app_harness_content,
-                generated_header: false,
-            });
-        }
+        // The server-pattern harness executable (`Sources/Harness/main.swift`,
+        // the SUT-as-server) is delegated to a consumer extension via
+        // `Extension::emit_e2e`; alef no longer emits it. The shared test-file
+        // spawn wiring stays generic in alef.
 
         // Tests are placed alongside Package.swift under `<output>/swift_e2e/Tests/...`.
         let tests_base = output_base.clone();

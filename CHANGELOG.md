@@ -68,6 +68,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `StringShorthandInvalid` validation diagnostic. Internally-tagged **unit**-variant bare-string
   wrapping (`{"<tag>": s}`) is unaffected and still emitted for pyo3 and magnus.
 
+### Changed
+
+- **e2e: server-pattern harness generation is delegated to extensions.** The `app_harness` and its
+  server-spawn test setup (for HTTP-server-under-test e2e) are no longer emitted by alef's built-in
+  generators; a consumer provides them via `Extension::emit_e2e`. The shared client-pattern e2e
+  (mock-server, per-test request bodies, project scaffolding) is unchanged and stays generic.
+  Consumers that do not configure a server harness (`[crates.e2e.harness] imports`) are unaffected.
+  Languages migrated so far: node, python, php, ruby, elixir, go, java, dart, swift, wasm. For go,
+  java, and swift the server-spawn seam woven into the shared test-runner file (Go `main_test.go`,
+  Java test class `@BeforeAll`/`@AfterAll`, Swift test file) stays generic in alef; only the
+  separable harness-SUT programs (`cmd/harness/main.go`, `HarnessMain.java`/`FixtureLoader.java`,
+  `Sources/Harness/main.swift`, `app_harness.dart`, wasm `app_harness.mjs`) move to the extension.
+
 ## [0.28.0] - 2026-06-24
 
 ### Added

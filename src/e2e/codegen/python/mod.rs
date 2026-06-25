@@ -40,15 +40,9 @@ impl super::E2eCodegen for PythonE2eCodegen {
         let mut files = Vec::new();
         let output_base = PathBuf::from(e2e_config.effective_output()).join("python");
 
-        // Check if there are HTTP fixtures that need server-pattern harness
-        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
-        if has_http_fixtures && !e2e_config.harness.imports.is_empty() {
-            files.push(GeneratedFile {
-                path: output_base.join("app_harness.py"),
-                content: config::render_app_harness(e2e_config, groups, config),
-                generated_header: true,
-            });
-        }
+        // NOTE: app_harness.py and the server-pattern conftest.py are emitted
+        // by the spikard-e2e-http extension (Extension::emit_e2e "python" arm).
+        // alef emits only the non-server-pattern conftest here.
 
         files.push(GeneratedFile {
             path: output_base.join("conftest.py"),

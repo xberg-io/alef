@@ -61,28 +61,15 @@ mod test_helper_tests {
         E2eConfig::default()
     }
 
-    /// The `uses_harness=true` path (server-pattern) must start a named Finch pool
+    /// The `has_http_tests=true` (mock-server) path must start a named Finch pool
     /// before `ExUnit.start()` so that `Req` calls with `finch: AlefE2EFinch` work.
-    #[test]
-    fn test_helper_harness_path_includes_named_finch_supervisor() {
-        let config = make_e2e_config();
-        let output = render_test_helper(false, true, &config);
-        assert!(
-            output.contains("Finch.start_link(name: AlefE2EFinch, pools: %{:default => [protocols: [:http1]]})"),
-            "uses_harness path must start named Finch pool, got:\n{output}"
-        );
-        assert!(
-            output.contains("ExUnit.start()"),
-            "uses_harness path must call ExUnit.start(), got:\n{output}"
-        );
-    }
-
-    /// The `has_http_tests=true` (mock-server) path must also start a named Finch pool
-    /// so that `Req` calls with `finch: AlefE2EFinch` work.
+    ///
+    /// Note: the server-pattern (`uses_harness`) test_helper is emitted by
+    /// spikard's e2e-http extension (`spikard_e2e_http::lang::elixir`), not here.
     #[test]
     fn test_helper_http_path_includes_named_finch_supervisor() {
         let config = make_e2e_config();
-        let output = render_test_helper(true, false, &config);
+        let output = render_test_helper(true, &config);
         assert!(
             output.contains("Finch.start_link(name: AlefE2EFinch, pools: %{:default => [protocols: [:http1]]})"),
             "has_http_tests path must start named Finch pool, got:\n{output}"
@@ -103,7 +90,7 @@ mod test_helper_tests {
             .insert("ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         config.env.insert("DEBUG_MODE".to_string(), "false".to_string());
 
-        let output = render_test_helper(false, false, &config);
+        let output = render_test_helper(false, &config);
 
         // Must contain System.put_env calls for both keys
         assert!(
@@ -148,7 +135,7 @@ mod test_helper_tests {
         let config = make_e2e_config();
         // config.env is empty by default
 
-        let output = render_test_helper(false, false, &config);
+        let output = render_test_helper(false, &config);
 
         // Should not contain System.put_env or System.get_env
         assert!(

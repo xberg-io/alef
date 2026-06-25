@@ -122,6 +122,10 @@ fn chunk_fixtures_for_swift(json: &str) -> Vec<String> {
     chunks
 }
 
+// The server-pattern harness (`Sources/Harness/main.swift`) is now emitted by a
+// consumer extension via `Extension::emit_e2e`; alef no longer emits it. Retained
+// for the project tests pending the dead-code sweep.
+#[allow(dead_code)]
 pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], module_name: &str) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();

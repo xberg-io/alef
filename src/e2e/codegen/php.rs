@@ -170,14 +170,7 @@ impl E2eCodegen for PhpCodegen {
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
         });
 
-        // Generate app_harness.php for server-pattern HTTP fixtures (before bootstrap).
-        if uses_server_harness {
-            files.push(GeneratedFile {
-                path: output_base.join("app_harness.php"),
-                content: project::render_app_harness(e2e_config, groups, &pkg_path),
-                generated_header: true,
-            });
-        }
+        // app_harness.php is now emitted by the spikard-e2e-http extension.
 
         // Generate bootstrap.php that loads both autoloaders and optionally starts the mock server.
         files.push(GeneratedFile {

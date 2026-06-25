@@ -194,23 +194,10 @@ impl E2eCodegen for JavaCodegen {
             }
         }
 
-        // Emit FixtureLoader.java helper for loading fixtures from classpath
-        if uses_harness {
-            files.push(GeneratedFile {
-                path: test_base.join("FixtureLoader.java"),
-                content: project::render_fixture_loader(&java_group_id),
-                generated_header: true,
-            });
-        }
-
-        // Emit HarnessMain.java if server-pattern harness is needed
-        if uses_harness {
-            files.push(GeneratedFile {
-                path: test_base.join("HarnessMain.java"),
-                content: project::render_harness_main(e2e_config, groups, &java_group_id, &binding_pkg),
-                generated_header: true,
-            });
-        }
+        // The server-pattern `FixtureLoader.java` and `HarnessMain.java`
+        // (SUT-as-server) are delegated to a consumer extension via
+        // `Extension::emit_e2e`; alef no longer emits them. The shared test-file
+        // `@BeforeAll`/`@AfterAll` harness-spawn seam stays generic in alef.
 
         // Collect all distinct sealed-union type names declared in `assert_enum_fields`
         // across all call configs for this language.  For each such type we emit a

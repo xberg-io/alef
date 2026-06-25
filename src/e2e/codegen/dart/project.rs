@@ -51,6 +51,10 @@ dev_dependencies:
     )
 }
 
+// The server-pattern `app_harness.dart` is now emitted by a consumer extension via
+// `Extension::emit_e2e`; alef no longer emits it. Retained pending the dead-code
+// sweep so the migration diff stays minimal.
+#[allow(dead_code)]
 pub(super) fn render_app_harness(groups: &[FixtureGroup], e2e_config: &E2eConfig, pkg_name: &str) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();

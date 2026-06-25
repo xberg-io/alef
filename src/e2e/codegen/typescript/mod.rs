@@ -16,10 +16,7 @@ use std::path::PathBuf;
 
 use super::E2eCodegen;
 use crate::codegen::generators::trait_bridge::to_camel_case;
-use config::{
-    render_file_setup, render_global_setup, render_package_json, render_tsconfig,
-    render_vitest_config,
-};
+use config::{render_file_setup, render_global_setup, render_package_json, render_tsconfig, render_vitest_config};
 pub use test_file::render_test_file;
 use test_file::resolve_node_function_name;
 

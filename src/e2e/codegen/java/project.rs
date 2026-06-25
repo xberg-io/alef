@@ -143,6 +143,10 @@ pub(super) fn render_pom_xml(
 /// This harness loads fixtures from classpath resources, registers handlers via
 /// the app binding, and serves on a port read from SUT_URL env var or the
 /// configured default. Tests hit the real SUT at /fixtures/<fixture_id>{path}.
+// The server-pattern `HarnessMain.java` is now emitted by a consumer extension via
+// `Extension::emit_e2e`; alef no longer emits it. Retained for tests pending the
+// dead-code sweep.
+#[allow(dead_code)]
 pub(super) fn render_harness_main(
     e2e_config: &E2eConfig,
     groups: &[FixtureGroup],
@@ -203,6 +207,10 @@ pub(super) fn render_harness_main(
 /// This avoids inlining all fixtures as Java string literals, which would exceed
 /// Java's 65535-byte limit for large fixture sets. Fixtures are stored as individual
 /// JSON files in src/test/resources/fixtures/ and loaded at test runtime.
+// The server-pattern `FixtureLoader.java` is now emitted by a consumer extension
+// via `Extension::emit_e2e`; alef no longer emits it. Retained pending the
+// dead-code sweep so the migration diff stays minimal.
+#[allow(dead_code)]
 pub(super) fn render_fixture_loader(java_group_id: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = header;

@@ -78,18 +78,12 @@ impl E2eCodegen for RubyCodegen {
             generated_header: false,
         });
 
-        // Check if there are HTTP fixtures that need server-pattern harness
+        // Check if there are HTTP fixtures that need server-pattern harness.
+        // When uses_harness is true, the spikard-e2e-http extension owns the server-pattern
+        // files (app_harness.rb, spec_helper.rb server variant, and all *_spec.rb files).
+        // alef only emits those files for the client/mock-server pattern (uses_harness == false).
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
         let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
-
-        // Emit app_harness.rb when using server-pattern
-        if uses_harness {
-            files.push(GeneratedFile {
-                path: output_base.join("app_harness.rb"),
-                content: project::render_app_harness(e2e_config, groups),
-                generated_header: true,
-            });
-        }
 
         // Check if any fixture is an HTTP test (needs mock server bootstrap).
         let has_mock_server_fixtures = groups
@@ -111,14 +105,15 @@ impl E2eCodegen for RubyCodegen {
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
         });
 
-        // Always generate spec/spec_helper.rb when file-based, HTTP, or server-pattern fixtures are present.
-        if has_file_fixtures || has_mock_server_fixtures || uses_harness {
+        // For client/mock-server pattern only: emit spec_helper.rb.
+        // The server-pattern spec_helper.rb (uses_harness) is emitted by the extension.
+        if !uses_harness && (has_file_fixtures || has_mock_server_fixtures) {
             files.push(GeneratedFile {
                 path: output_base.join("spec").join("spec_helper.rb"),
                 content: project::render_spec_helper(
                     has_file_fixtures,
                     has_mock_server_fixtures,
-                    uses_harness,
+                    false,
                     &e2e_config.test_documents_relative_from(1),
                     &gem_name,
                     &module_path,
@@ -131,69 +126,72 @@ impl E2eCodegen for RubyCodegen {
         }
 
         // Generate spec files per category.
-        let spec_base = output_base.join("spec");
+        // When uses_harness is true, spec files are owned by the spikard-e2e-http extension.
+        if !uses_harness {
+            let spec_base = output_base.join("spec");
 
-        for group in groups {
-            let active: Vec<&Fixture> = group
-                .fixtures
-                .iter()
-                .filter(|f| super::should_include_fixture(f, lang, e2e_config))
-                .collect();
+            for group in groups {
+                let active: Vec<&Fixture> = group
+                    .fixtures
+                    .iter()
+                    .filter(|f| super::should_include_fixture(f, lang, e2e_config))
+                    .collect();
 
-            if active.is_empty() {
-                continue;
-            }
-
-            // Skip the entire file if no fixture in this category produces output.
-            let has_any_output = active.iter().any(|f| {
-                // HTTP tests always produce output.
-                if f.is_http_test() {
-                    return true;
+                if active.is_empty() {
+                    continue;
                 }
-                let cc = e2e_config.resolve_call_for_fixture(
-                    f.call.as_deref(),
-                    &f.id,
-                    &f.resolved_category(),
-                    &f.tags,
-                    &f.input,
-                );
-                let fr = FieldResolver::new(
-                    e2e_config.effective_fields(cc),
-                    e2e_config.effective_fields_optional(cc),
-                    e2e_config.effective_result_fields(cc),
-                    e2e_config.effective_fields_array(cc),
-                    &std::collections::HashSet::new(),
-                );
-                let expects_error = f.assertions.iter().any(|a| a.assertion_type == "error");
-                let has_not_error = f.assertions.iter().any(|a| a.assertion_type == "not_error");
-                expects_error || has_not_error || spec_file::has_usable_assertion(f, &fr, result_is_simple)
-            });
-            if !has_any_output {
-                continue;
-            }
 
-            let filename = format!("{}_spec.rb", sanitize_filename(&group.category));
-            let content = spec_file::render_spec_file(
-                &group.category,
-                &active,
-                &module_path,
-                class_name.as_deref(),
-                &gem_name,
-                options_type.as_deref(),
-                enum_fields,
-                result_is_simple,
-                e2e_config,
-                has_file_fixtures || has_mock_server_fixtures,
-                uses_harness,
-                &config.adapters,
-                config,
-                type_defs,
-            );
-            files.push(GeneratedFile {
-                path: spec_base.join(filename),
-                content,
-                generated_header: true,
-            });
+                // Skip the entire file if no fixture in this category produces output.
+                let has_any_output = active.iter().any(|f| {
+                    // HTTP tests always produce output.
+                    if f.is_http_test() {
+                        return true;
+                    }
+                    let cc = e2e_config.resolve_call_for_fixture(
+                        f.call.as_deref(),
+                        &f.id,
+                        &f.resolved_category(),
+                        &f.tags,
+                        &f.input,
+                    );
+                    let fr = FieldResolver::new(
+                        e2e_config.effective_fields(cc),
+                        e2e_config.effective_fields_optional(cc),
+                        e2e_config.effective_result_fields(cc),
+                        e2e_config.effective_fields_array(cc),
+                        &std::collections::HashSet::new(),
+                    );
+                    let expects_error = f.assertions.iter().any(|a| a.assertion_type == "error");
+                    let has_not_error = f.assertions.iter().any(|a| a.assertion_type == "not_error");
+                    expects_error || has_not_error || spec_file::has_usable_assertion(f, &fr, result_is_simple)
+                });
+                if !has_any_output {
+                    continue;
+                }
+
+                let filename = format!("{}_spec.rb", sanitize_filename(&group.category));
+                let content = spec_file::render_spec_file(
+                    &group.category,
+                    &active,
+                    &module_path,
+                    class_name.as_deref(),
+                    &gem_name,
+                    options_type.as_deref(),
+                    enum_fields,
+                    result_is_simple,
+                    e2e_config,
+                    has_file_fixtures || has_mock_server_fixtures,
+                    false,
+                    &config.adapters,
+                    config,
+                    type_defs,
+                );
+                files.push(GeneratedFile {
+                    path: spec_base.join(filename),
+                    content,
+                    generated_header: true,
+                });
+            }
         }
 
         Ok(files)

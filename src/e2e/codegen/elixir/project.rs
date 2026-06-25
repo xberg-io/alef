@@ -1,116 +1,9 @@
-use crate::core::config::ResolvedCrateConfig;
-use crate::core::hash::{self, CommentStyle};
 use crate::core::template_versions as tv;
 use crate::e2e::config::E2eConfig;
-use crate::e2e::fixture::FixtureGroup;
 use std::fmt::Write as FmtWrite;
 
-use super::values::elixir_module_name;
-
-pub(super) fn render_app_harness(
-    e2e_config: &E2eConfig,
-    groups: &[FixtureGroup],
-    config: &ResolvedCrateConfig,
-) -> String {
-    // Collect all HTTP fixtures from all groups.
-    let mut fixtures_map = serde_json::Map::new();
-
-    for group in groups {
-        for fixture in &group.fixtures {
-            if fixture.http.is_none() {
-                continue;
-            }
-            // Convert the fixture to JSON for the harness to load.
-            // We only need the http field, handler, request, and expected_response.
-            let http_data = &fixture.http.as_ref().unwrap();
-            let fixture_json = serde_json::json!({
-                "http": {
-                    "handler": {
-                        "route": &http_data.handler.route,
-                        "method": &http_data.handler.method,
-                        "body_schema": http_data.handler.body_schema.clone(),
-                    },
-                    "request": {
-                        "path": &http_data.request.path,
-                    },
-                    "expected_response": {
-                        "status_code": http_data.expected_response.status_code,
-                        "body": &http_data.expected_response.body,
-                        "headers": &http_data.expected_response.headers,
-                    }
-                }
-            });
-            fixtures_map.insert(fixture.id.clone(), fixture_json);
-        }
-    }
-
-    let fixtures_json_str = serde_json::to_string(&fixtures_map).unwrap_or_default();
-    // Escape backslashes and quotes for Elixir string literal
-    let fixtures_json = fixtures_json_str.replace('\\', "\\\\").replace('"', "\\\"");
-    let fixtures_json = format!("\"{}\"", fixtures_json);
-
-    // Apply per-language harness overrides on top of the top-level harness config.
-    let harness_override = e2e_config.harness.overrides.get("elixir");
-    let imports_override = harness_override.and_then(|o| o.imports.as_ref());
-    let imports: &[String] = imports_override.unwrap_or(&e2e_config.harness.imports);
-    let app_class: Option<&str> = harness_override
-        .and_then(|o| o.app_class.as_deref())
-        .or(e2e_config.harness.app_class.as_deref());
-    let register_route_method: Option<&str> = harness_override
-        .and_then(|o| o.register_method.as_deref())
-        .or(e2e_config.harness.register_method.as_deref());
-    let body_schema_setter: Option<&str> = harness_override
-        .and_then(|o| o.body_schema_setter.as_deref())
-        .or(e2e_config.harness.body_schema_setter.as_deref());
-    let run_method: Option<&str> = harness_override
-        .and_then(|o| o.run_method.as_deref())
-        .or(e2e_config.harness.run_method.as_deref());
-    let host = &e2e_config.harness.host;
-    let port = e2e_config.harness.port;
-
-    let header = hash::header(CommentStyle::Hash);
-
-    let binding_path = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Local {
-        "../../packages/elixir"
-    } else {
-        "."
-    };
-
-    // Build module paths for RouteBuilder, Method, and App using the binding name from imports[0]
-    let module_prefix = if !imports.is_empty() {
-        format!("{}.", elixir_module_name(&imports[0]))
-    } else {
-        String::new()
-    };
-    let route_builder_class = format!("{}RouteBuilder", module_prefix);
-    let method_enum_class = format!("{}Method", module_prefix);
-    let server_config_class = format!("{}ServerConfig", module_prefix);
-    let unqualified_app_class = app_class.unwrap_or("App");
-    let app_class_name = format!("{}{}", module_prefix, unqualified_app_class);
-
-    // Check if App.config is excluded from bindings. If excluded, the harness should not
-    // call it and instead rely on default ServerConfig construction.
-    let config_method_key = format!("{}.config", app_class_name);
-    let skip_app_config = config.exclude.methods.iter().any(|m| m == &config_method_key);
-
-    let ctx = minijinja::context! {
-        header => header,
-        app_class => app_class_name,
-        route_builder_class => &route_builder_class,
-        route_builder_schema_setter => body_schema_setter.unwrap_or("request_schema_json"),
-        method_enum_class => &method_enum_class,
-        register_route_method => register_route_method.unwrap_or("route"),
-        run_method => run_method.unwrap_or("run"),
-        server_config_class => &server_config_class,
-        host => host,
-        port => port,
-        binding_path => binding_path,
-        fixtures_json => fixtures_json,
-        skip_app_config => skip_app_config,
-    };
-
-    crate::e2e::template_env::render("elixir/app_harness.exs.jinja", ctx)
-}
+// render_app_harness has been moved to spikard's e2e-http extension
+// (spikard_e2e_http::lang::elixir). Do not add it back here.
 
 /// Emit an Elixir snippet that sets every `[e2e.env]` entry into the environment
 /// using `System.get_env` to check first so a parent runner can override at spawn time.
@@ -133,88 +26,18 @@ fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
     out
 }
 
-pub(super) fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_config: &E2eConfig) -> String {
+/// Render the non-server-pattern `test/test_helper.exs`.
+///
+/// Covers the mock-server case (`has_http_tests` = true) and the NIF-only case.
+/// The server-pattern (`uses_harness`) branch is owned by spikard's e2e-http
+/// extension (`spikard_e2e_http::lang::elixir::render_test_helper_server`).
+pub(super) fn render_test_helper(has_http_tests: bool, e2e_config: &E2eConfig) -> String {
     // Environment variables (including E2E_ALLOW_PRIVATE_NETWORK) must be set BEFORE
     // the Rustler NIF loads (at first module init). render_env_setup_block emits all [e2e.env]
     // vars with System.get_env guards, ensuring they're set early.
     let env_setup = render_env_setup_block(e2e_config);
 
-    if uses_harness {
-        // Server-pattern harness: spawn app_harness.exs subprocess
-        let host = &e2e_config.harness.host;
-        let port = e2e_config.harness.port;
-        format!(
-            r#"{env_setup}# Start a named Finch pool before ExUnit configured to use HTTP/1 only.
-# Tests pass `finch: AlefE2EFinch` on every Req call; the pool's protocol
-# selection (via `pools.default.protocols: [:http1]`) is the canonical place
-# to pin the wire protocol since Req rejects per-call `:connect_options` when
-# `:finch` is set.
-{{:ok, _}} = Finch.start_link(name: AlefE2EFinch, pools: %{{:default => [protocols: [:http1]]}})
-
-ExUnit.start()
-
-# Spawn app_harness subprocess and set SUT_URL
-# If SUT_URL is already set, a parent process started a shared harness.
-# Use it as-is and do NOT spawn our own.
-
-unless System.get_env("SUT_URL") do
-  app_harness_bin = Path.expand("../app_harness.exs", __DIR__)
-  project_root = Path.expand("..", __DIR__)
-
-  # Build the list of ebin directories from _build/dev/lib so the harness can access compiled dependencies
-  build_lib_dir = Path.join(project_root, "_build/dev/lib")
-  lib_paths = if File.dir?(build_lib_dir) do
-    File.ls!(build_lib_dir)
-    |> Enum.map(&Path.join(build_lib_dir, &1))
-    |> Enum.filter(&File.dir?/1)
-    |> Enum.flat_map(fn lib_path ->
-      ebin_path = Path.join(lib_path, "ebin")
-      if File.dir?(ebin_path), do: ["-pa", ebin_path], else: []
-    end)
-  else
-    []
-  end
-
-  # Use `elixir` to execute the harness script with proper code paths
-  port = Port.open({{:spawn_executable, System.find_executable("elixir")}}, [
-    :binary,
-    {{:line, 65_536}},
-    args: lib_paths ++ [app_harness_bin]
-  ])
-
-  url = "http://{host}:{port}"
-
-  # Poll until the harness accepts TCP connections
-  deadline = :erlang.monotonic_time(:millisecond) + 15_000
-  ready = false
-
-  {{ready, url}} =
-    Enum.reduce_while(1..150, {{false, url}}, fn _, {{_, url_acc}} ->
-      now = :erlang.monotonic_time(:millisecond)
-      if now > deadline do
-        {{:halt, {{false, url_acc}}}}
-      else
-        case :gen_tcp.connect(String.to_charlist("{host}"), {port}, [], 500) do
-          {{:ok, socket}} ->
-            :gen_tcp.close(socket)
-            {{:halt, {{true, url_acc}}}}
-          {{:error, _}} ->
-            Process.sleep(100)
-            {{:cont, {{false, url_acc}}}}
-        end
-      end
-    end)
-
-  unless ready do
-    Port.close(port)
-    raise "App harness did not become reachable on {host}:{port} within 15s"
-  end
-
-  System.put_env("SUT_URL", url)
-end
-"#
-        )
-    } else if has_http_tests {
+    if has_http_tests {
         let finch_setup = r#"# Start a named Finch pool before ExUnit configured to use HTTP/1 only.
 # Tests pass `finch: AlefE2EFinch` on every Req call; the pool's protocol
 # selection (via `pools.default.protocols: [:http1]`) is the canonical place
