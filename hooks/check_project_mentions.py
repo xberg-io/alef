@@ -77,7 +77,7 @@ ALEF_INFRASTRUCTURE_ALLOWLIST = (
     "packageName=xberg-io/pre-commit-hooks",
     "owner: kreuzberg-dev",
     "kreuzberg-bot",
-    "bot@kreuzberg.dev",
+    "bot@xberg.io",
     "docs.<repo>.xberg.io",
     "kreuzberg, inc.",
 )
