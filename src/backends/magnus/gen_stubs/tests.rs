@@ -24,6 +24,13 @@ fn field(name: &str, ty: TypeRef) -> FieldDef {
     }
 }
 
+fn optional_field(name: &str, ty: TypeRef) -> FieldDef {
+    FieldDef {
+        optional: true,
+        ..field(name, ty)
+    }
+}
+
 fn variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
     EnumVariant {
         name: name.to_string(),
@@ -102,7 +109,10 @@ fn maps_named_dto_field_to_its_type() {
 
     let stub = gen_enum_stub(&def, false);
 
-    assert!(stub.contains("    def self.llm: (LlmConfig config) -> Source"), "{stub}");
+    assert!(
+        stub.contains("    def self.llm: (LlmConfig config) -> Source"),
+        "{stub}"
+    );
 }
 
 #[test]
@@ -133,6 +143,41 @@ fn skips_unit_tuple_excluded_and_sanitized_variants() {
     assert!(!stub.contains("def self.hidden"), "{stub}");
     assert!(!stub.contains("def self.raw"), "{stub}");
     assert!(stub.contains("    def self.real: (String value) -> Shape"), "{stub}");
+}
+
+#[test]
+fn optional_field_is_nilable() {
+    let def = enum_def(
+        "Source",
+        vec![variant("Tag", vec![optional_field("label", TypeRef::String)])],
+    );
+
+    let stub = gen_enum_stub(&def, false);
+
+    assert!(stub.contains("    def self.tag: (?String label) -> Source"), "{stub}");
+}
+
+#[test]
+fn param_after_optional_is_promoted_to_nilable() {
+    // `width` is not optional in the IR, but it follows the optional `radius`, so the runtime magnus
+    // binding wraps it in `Option<T>`. The RBS stub must mark it nilable too to match.
+    let def = enum_def(
+        "Shape",
+        vec![variant(
+            "Ring",
+            vec![
+                optional_field("radius", TypeRef::Primitive(PrimitiveType::F64)),
+                field("width", TypeRef::Primitive(PrimitiveType::U32)),
+            ],
+        )],
+    );
+
+    let stub = gen_enum_stub(&def, false);
+
+    assert!(
+        stub.contains("    def self.ring: (?Float radius, ?Integer width) -> Shape"),
+        "{stub}"
+    );
 }
 
 #[test]

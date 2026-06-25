@@ -113,12 +113,26 @@ fn gen_data_enum_variant_constructor_stubs(lines: &mut Vec<String>, enum_def: &E
         let params: Vec<String> = ctor
             .params
             .iter()
-            .map(|p| {
+            .enumerate()
+            .map(|(idx, p)| {
+                // A param is optional in the emitted signature when it is naturally optional OR was
+                // promoted because it follows an optional param — the same rule the runtime PyO3
+                // binding applies (`is_promoted_optional`), which widens such params to `Optional[T]`
+                // with a `= None` default. Mirroring it keeps the stub's required/optional split and
+                // defaults identical to the runtime constructor signature.
+                let optional = p.optional || crate::codegen::shared::is_promoted_optional(&ctor.params, idx);
+                let py_type = python_type(&p.ty);
+                let py_type = if optional && !py_type.contains("| None") {
+                    format!("{py_type} | None")
+                } else {
+                    py_type
+                };
                 crate::backends::pyo3::template_env::render(
                     "stub_enum_variant_constructor_param.jinja",
                     minijinja::context! {
                         name => python_safe_name(&p.name),
-                        py_type => python_type(&p.ty),
+                        py_type => py_type,
+                        optional => optional,
                     },
                 )
             })

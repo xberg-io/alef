@@ -428,12 +428,20 @@ fn gen_data_enum_variant_constructor_stubs(lines: &mut Vec<String>, enum_def: &E
         let params: Vec<String> = ctor
             .params
             .iter()
-            .map(|p| {
+            .enumerate()
+            .map(|(idx, p)| {
+                // A param is nilable in the emitted RBS signature when it is naturally optional OR was
+                // promoted because it follows an optional param — the same rule the runtime magnus
+                // binding applies (`is_promoted_optional`), which wraps such params in `Option<T>`.
+                // Mirroring it keeps the stub's required/optional split identical to the runtime
+                // constructor, and matches how `gen_function_stub` renders optional params (`?T name`).
+                let optional = p.optional || crate::codegen::shared::is_promoted_optional(&ctor.params, idx);
                 crate::backends::magnus::template_env::render(
                     "rbs_enum_variant_constructor_param.jinja",
                     minijinja::context! {
                         rbs_type => rbs_type(&p.ty),
                         name => &p.name,
+                        optional => optional,
                     },
                 )
             })

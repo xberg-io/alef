@@ -24,6 +24,13 @@ fn field(name: &str, ty: TypeRef) -> FieldDef {
     }
 }
 
+fn optional_field(name: &str, ty: TypeRef) -> FieldDef {
+    FieldDef {
+        optional: true,
+        ..field(name, ty)
+    }
+}
+
 fn variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
     EnumVariant {
         name: name.to_string(),
@@ -145,6 +152,47 @@ fn skips_unit_tuple_excluded_and_sanitized_variants() {
     assert!(!stub.contains("def raw("), "{stub}");
     assert!(
         stub.contains("    @staticmethod\n    def real(value: str) -> Shape: ..."),
+        "{stub}"
+    );
+}
+
+#[test]
+fn optional_field_is_nilable_with_default() {
+    let def = enum_def(
+        "Source",
+        vec![variant("Tag", vec![optional_field("label", TypeRef::String)])],
+    );
+
+    let stub = gen_enum_stub(&def, false);
+
+    assert!(
+        stub.contains("    @staticmethod\n    def tag(label: str | None = None) -> Source: ..."),
+        "{stub}"
+    );
+}
+
+#[test]
+fn param_after_optional_is_promoted_to_nilable() {
+    // `width` is not optional in the IR, but it follows the optional `radius`, so the runtime PyO3
+    // signature widens it to `Optional[int] = None`. The stub must match (no required param may
+    // follow a defaulted one).
+    let def = enum_def(
+        "Shape",
+        vec![variant(
+            "Ring",
+            vec![
+                optional_field("radius", TypeRef::Primitive(PrimitiveType::F64)),
+                field("width", TypeRef::Primitive(PrimitiveType::U32)),
+            ],
+        )],
+    );
+
+    let stub = gen_enum_stub(&def, false);
+
+    assert!(
+        stub.contains(
+            "    @staticmethod\n    def ring(radius: float | None = None, width: int | None = None) -> Shape: ..."
+        ),
         "{stub}"
     );
 }
