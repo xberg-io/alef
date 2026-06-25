@@ -2,8 +2,8 @@ use crate::core::template_versions as tv;
 use crate::e2e::config::E2eConfig;
 use std::fmt::Write as FmtWrite;
 
-// render_app_harness has been moved to spikard's e2e-http extension
-// (spikard_e2e_http::lang::elixir). Do not add it back here.
+// render_app_harness has been moved to a consumer extension
+// (the e2e extension). Do not add it back here.
 
 /// Emit an Elixir snippet that sets every `[e2e.env]` entry into the environment
 /// using `System.get_env` to check first so a parent runner can override at spawn time.
@@ -29,8 +29,8 @@ fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
 /// Render the non-server-pattern `test/test_helper.exs`.
 ///
 /// Covers the mock-server case (`has_http_tests` = true) and the NIF-only case.
-/// The server-pattern (`uses_harness`) branch is owned by spikard's e2e-http
-/// extension (`spikard_e2e_http::lang::elixir::render_test_helper_server`).
+/// The server-pattern (`uses_harness`) branch is owned by a consumer extension
+/// via `Extension::emit_e2e`.
 pub(super) fn render_test_helper(has_http_tests: bool, e2e_config: &E2eConfig) -> String {
     // Environment variables (including E2E_ALLOW_PRIVATE_NETWORK) must be set BEFORE
     // the Rustler NIF loads (at first module init). render_env_setup_block emits all [e2e.env]

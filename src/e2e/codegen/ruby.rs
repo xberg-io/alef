@@ -79,7 +79,7 @@ impl E2eCodegen for RubyCodegen {
         });
 
         // Check if there are HTTP fixtures that need server-pattern harness.
-        // When uses_harness is true, the spikard-e2e-http extension owns the server-pattern
+        // When uses_harness is true, a consumer extension owns the server-pattern
         // files (app_harness.rb, spec_helper.rb server variant, and all *_spec.rb files).
         // alef only emits those files for the client/mock-server pattern (uses_harness == false).
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
@@ -126,7 +126,7 @@ impl E2eCodegen for RubyCodegen {
         }
 
         // Generate spec files per category.
-        // When uses_harness is true, spec files are owned by the spikard-e2e-http extension.
+        // When uses_harness is true, spec files are owned by a consumer extension.
         if !uses_harness {
             let spec_base = output_base.join("spec");
 

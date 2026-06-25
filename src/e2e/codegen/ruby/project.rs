@@ -29,7 +29,7 @@ pub(super) fn render_env_setup(env: &HashMap<String, String>) -> String {
 
 /// Build a Ruby-native middleware value for app harness fixtures.
 ///
-/// Server-pattern app_harness generation moved to the spikard-e2e-http extension;
+/// Server-pattern app_harness generation moved to a consumer extension;
 /// retained for alef's own ruby codegen tests.
 #[allow(dead_code)]
 pub(super) fn build_middleware_value(middleware: &Option<crate::e2e::fixture::HttpMiddleware>) -> serde_json::Value {
@@ -64,7 +64,7 @@ pub(super) fn build_middleware_value(middleware: &Option<crate::e2e::fixture::Ht
     }
 }
 
-/// Server-pattern app_harness generation moved to the spikard-e2e-http extension;
+/// Server-pattern app_harness generation moved to a consumer extension;
 /// retained for alef's own ruby codegen tests.
 #[allow(dead_code)]
 pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {

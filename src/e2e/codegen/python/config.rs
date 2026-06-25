@@ -191,7 +191,7 @@ fn build_middleware_value(middleware: &Option<crate::e2e::fixture::HttpMiddlewar
 /// returning canned expected responses. It's driven by conftest.py's
 /// subprocess launcher.
 ///
-/// NOTE: production emission is handled by the spikard-e2e-http extension
+/// NOTE: production emission is handled by a consumer extension
 /// (which copies this logic verbatim). This function is kept for tests only.
 #[allow(dead_code)]
 pub(super) fn render_app_harness(
@@ -339,7 +339,7 @@ pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -
     let env_setup = render_env_setup_block(e2e_config);
 
     // NOTE: when uses_harness is true (server-pattern), the conftest.py is emitted
-    // by the spikard-e2e-http extension (Extension::emit_e2e "python" arm).
+    // by a consumer extension (Extension::emit_e2e "python" arm).
     // alef falls through to the client/mock-server or minimal conftest below.
     if has_mock_server_fixtures {
         // Mock-server pattern (non-HTTP fixtures)

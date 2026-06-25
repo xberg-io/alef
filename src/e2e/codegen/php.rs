@@ -170,7 +170,7 @@ impl E2eCodegen for PhpCodegen {
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
         });
 
-        // app_harness.php is now emitted by the spikard-e2e-http extension.
+        // app_harness.php is now emitted by a consumer extension.
 
         // Generate bootstrap.php that loads both autoloaders and optionally starts the mock server.
         files.push(GeneratedFile {

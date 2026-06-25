@@ -41,7 +41,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
         let output_base = PathBuf::from(e2e_config.effective_output()).join("python");
 
         // NOTE: app_harness.py and the server-pattern conftest.py are emitted
-        // by the spikard-e2e-http extension (Extension::emit_e2e "python" arm).
+        // by a consumer extension (Extension::emit_e2e "python" arm).
         // alef emits only the non-server-pattern conftest here.
 
         files.push(GeneratedFile {

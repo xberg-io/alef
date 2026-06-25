@@ -64,8 +64,8 @@ mod test_helper_tests {
     /// The `has_http_tests=true` (mock-server) path must start a named Finch pool
     /// before `ExUnit.start()` so that `Req` calls with `finch: AlefE2EFinch` work.
     ///
-    /// Note: the server-pattern (`uses_harness`) test_helper is emitted by
-    /// spikard's e2e-http extension (`spikard_e2e_http::lang::elixir`), not here.
+    /// Note: the server-pattern (`uses_harness`) test_helper is emitted by a
+    /// consumer extension via `Extension::emit_e2e`, not here.
     #[test]
     fn test_helper_http_path_includes_named_finch_supervisor() {
         let config = make_e2e_config();

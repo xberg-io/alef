@@ -145,7 +145,7 @@ impl E2eCodegen for ElixirCodegen {
         });
 
         // app_harness.exs and the server-pattern test_helper.exs are owned by
-        // spikard's e2e-http extension (spikard-e2e-http::lang::elixir::emit).
+        // a consumer extension (the e2e extension).
         // alef emits test_helper.exs only for the non-harness cases.
         if !uses_harness {
             files.push(GeneratedFile {

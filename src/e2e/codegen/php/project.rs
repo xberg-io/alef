@@ -222,7 +222,7 @@ pub(super) fn render_phpunit_xml() -> String {
 /// # Note
 ///
 /// This function is retained for reference but no longer called from alef.
-/// The spikard-e2e-http extension now owns `app_harness.php` emission.
+/// A consumer extension now owns `app_harness.php` emission.
 #[allow(dead_code)]
 pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], pkg_path: &str) -> String {
     use serde_json::json;

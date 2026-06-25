@@ -72,7 +72,7 @@ impl E2eCodegen for TypeScriptCodegen {
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
 
         // Server-pattern app_harness.mjs (spinning up the SUT as an HTTP server)
-        // is emitted by the spikard-e2e-http extension via Extension::emit_e2e —
+        // is emitted by a consumer extension via Extension::emit_e2e —
         // server-pattern e2e is not generic, so alef does not generate it.
 
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
@@ -183,7 +183,7 @@ impl E2eCodegen for TypeScriptCodegen {
         });
 
         // The server-pattern globalSetup (which spawns app_harness) is emitted by
-        // the spikard-e2e-http extension. alef emits only the client/mock-server
+        // a consumer extension. alef emits only the client/mock-server
         // globalSetup; when a server harness is configured the extension owns both
         // app_harness.mjs and its globalSetup.ts.
         let use_server_pattern = has_http_fixtures && !e2e_config.harness.imports.is_empty();
