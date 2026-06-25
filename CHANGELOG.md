@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `From`/`Into` impl path (`conversions::binding_to_core::render`). The `is_boxed` flag is carried
   on `VariantConstructor` (parallel to `params`) and threaded into `variant_field_init`, so the
   pyo3, magnus, and extendr per-variant factories all box correctly.
+- **pyo3 (Python): type stubs declare per-variant data-enum constructors.** The `.pyi` stub for a
+  tagged data enum now emits a `@staticmethod` per data-carrying variant — `def circle(radius: float)
+  -> Shape: ...` — between the tag attribute and the `__str__`/`__repr__` dunders, so type-checkers and
+  IDE autocomplete see the `Shape.circle(...)` factories the runtime binding already exposed. The
+  declared name is the public host name (`#[pyo3(name = "<snake>")]`), each param maps through the
+  stub's `python_type` mapper, and the return type is the enum. Variant selection is shared with the
+  runtime binding via `collect_variant_constructors`, so unit / tuple / `binding_excluded` /
+  sanitized-field variants and hand-written method collisions are skipped identically.
 
 ## [0.28.1] - 2026-06-25
 
