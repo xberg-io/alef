@@ -402,11 +402,51 @@ fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
             .map(|v| format!(":{}", crate::codegen::naming::pascal_to_snake(&v.name)))
             .collect();
         lines.push(format!("    type value = {}", symbol_variants.join(" | ")));
+    } else {
+        // Data enum: declare a singleton constructor per data-carrying variant so RBS sees the
+        // `Shape.circle(...)` factories the runtime binding registers via define_singleton_method.
+        gen_data_enum_variant_constructor_stubs(&mut lines, enum_def);
     }
 
     lines.push("  end".to_string());
 
     lines.join("\n")
+}
+
+/// Emit an RBS singleton-method declaration for each per-variant constructor the magnus binding
+/// registers (`def self.<snake>: (<Type> <name>, ...) -> <Enum>`).
+///
+/// The runtime binding registers these under the bare snake_case host name, so the stub declares the
+/// same name. Each param type maps through [`rbs_type`] — the same mapper the surrounding stub uses —
+/// and the return type is the enum. `collect_variant_constructors` owns the skip rules (unit / tuple /
+/// `binding_excluded` / sanitized-field variants and hand-written method collisions) so the stub and
+/// runtime binding stay aligned.
+fn gen_data_enum_variant_constructor_stubs(lines: &mut Vec<String>, enum_def: &EnumDef) {
+    use crate::codegen::generators::collect_variant_constructors;
+
+    for ctor in collect_variant_constructors(enum_def) {
+        let params: Vec<String> = ctor
+            .params
+            .iter()
+            .map(|p| {
+                crate::backends::magnus::template_env::render(
+                    "rbs_enum_variant_constructor_param.jinja",
+                    minijinja::context! {
+                        rbs_type => rbs_type(&p.ty),
+                        name => &p.name,
+                    },
+                )
+            })
+            .collect();
+        lines.push(crate::backends::magnus::template_env::render(
+            "rbs_enum_variant_constructor.jinja",
+            minijinja::context! {
+                method_name => &ctor.snake_name,
+                params => params.join(", "),
+                return_type => &enum_def.name,
+            },
+        ));
+    }
 }
 
 /// Generate a function stub (module method) using RBS declaration syntax.
@@ -446,3 +486,6 @@ fn gen_function_stub(func: &FunctionDef, streaming_method_names: &ahash::AHashSe
 
     format!("  def self.{}: {} -> {}", func.name, param_list, return_type)
 }
+
+#[cfg(test)]
+mod tests;
