@@ -187,13 +187,41 @@ pub(crate) fn collect_variant_constructors(enum_def: &EnumDef) -> Vec<VariantCon
 /// (String→Value), `Duration` (u64→Duration), `Char`, `Bytes`, and Named/Vec/Map element
 /// conversions all run inline.
 ///
-/// `promoted` is true when the pyo3 signature widened a non-optional core field to `Option<T>`
+/// `promoted` is true when the binding signature widened a non-optional core field to `Option<T>`
 /// because it follows an optional param. Such a param arrives as `Option<T>` but the core field is
 /// `T`, so the value is unwrapped (`unwrap_or_default()`) before any element conversion.
-fn variant_field_init(param: &crate::core::ir::ParamDef, promoted: bool) -> String {
+///
+/// `cast_uints_to_i32` / `cast_large_ints_to_f64` mirror a backend's numeric remapping (extendr maps
+/// `u8..=u32`→`i32` and `u64`/`usize`/`isize`/`f32`→`f64`); when set, primitive fields whose binding
+/// type was remapped are cast back to the core type (`field as u32`). Backends that do not remap
+/// primitives (pyo3) pass `false`.
+pub(crate) fn variant_field_init(
+    param: &crate::core::ir::ParamDef,
+    promoted: bool,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
+) -> String {
+    use crate::codegen::conversions::helpers::{core_prim_str, needs_f64_cast, needs_i32_cast};
     use crate::core::ir::TypeRef;
 
     let name = &param.name;
+
+    // Primitive whose binding type was remapped: cast back to the core type. Handles both the
+    // genuinely-optional (`Option<i32>`→`Option<u32>`) and required/promoted shapes.
+    if let TypeRef::Primitive(prim) = &param.ty {
+        let needs_cast =
+            (cast_uints_to_i32 && needs_i32_cast(prim)) || (cast_large_ints_to_f64 && needs_f64_cast(prim));
+        if needs_cast {
+            let core_ty = core_prim_str(prim);
+            return if param.optional {
+                format!("{name}.map(|v| v as {core_ty})")
+            } else if promoted {
+                format!("{name}.unwrap_or_default() as {core_ty}")
+            } else {
+                format!("{name} as {core_ty}")
+            };
+        }
+    }
 
     // Genuinely-optional core field (`Option<T>`): convert through the Option, leaving it intact.
     if param.optional {
@@ -266,7 +294,8 @@ fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &st
             .iter()
             .enumerate()
             .map(|(idx, p)| {
-                let expr = variant_field_init(p, is_promoted_optional(&ctor.params, idx));
+                // pyo3 does not remap primitives, so no numeric cast back to the core type.
+                let expr = variant_field_init(p, is_promoted_optional(&ctor.params, idx), false, false);
                 if expr == p.name {
                     p.name.clone()
                 } else {
