@@ -228,7 +228,7 @@ prek run --all-files
 
 - [Kreuzberg](https://github.com/xberg-io/kreuzberg) - document intelligence for text,
   tables, metadata, OCR, and code intelligence.
-- [Kreuzberg Cloud](https://github.com/xberg-io/kreuzberg-cloud) - managed extraction API
+- [Xberg Enterprise](https://github.com/xberg-io/xberg-enterprise) - managed extraction API
   with SDKs, dashboards, and observability.
 - [kreuzcrawl](https://github.com/xberg-io/kreuzcrawl) - web crawling and scraping with
   HTML-to-Markdown and headless Chrome fallback.
