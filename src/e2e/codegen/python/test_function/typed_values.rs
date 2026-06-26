@@ -188,6 +188,7 @@ pub(super) fn emit_json_object_arg(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_json_object_arg_with_mock_url(
     arg_bindings: &mut Vec<String>,
     kwarg_exprs: &mut Vec<String>,

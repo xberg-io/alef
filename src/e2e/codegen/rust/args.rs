@@ -239,6 +239,7 @@ pub fn render_rust_arg(
 /// `vec_inner_is_ref` — when true and `element_type = "String"`, emits an extra binding that
 ///   converts `Vec<String>` to `Vec<&str>` so the slice coerces to `&[&str]` as required by the
 ///   Rust core. This mirrors the `vec_inner_is_ref` flag on `ParamDef` in the binding shims.
+#[allow(clippy::too_many_arguments)]
 fn render_json_object_arg(
     name: &str,
     value: &serde_json::Value,
