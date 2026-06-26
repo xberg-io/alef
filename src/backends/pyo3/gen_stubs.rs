@@ -284,9 +284,16 @@ pub fn gen_stubs(
         body_lines.push("".to_string());
     }
 
+    // Dataclass-backed config DTOs (e.g. `LlmConfig`): their public name resolves to the
+    // `options.py` `@dataclass`, not the compiled `#[pyclass]` this stub declares. A data-enum
+    // factory param of such a type (e.g. `EmbeddingModelType.llm(llm: LlmConfig)`) is widened to
+    // `options.<Name> | dict[str, Any]` so callers can pass the public dataclass (what
+    // `from <pkg> import LlmConfig` yields) or a dict — the forms the runtime coercion accepts.
+    let coercible_dtos = crate::backends::pyo3::gen_bindings::wire_schema::coercible_dto_names(api, config);
+
     // Generate enum stubs
     for enum_def in &api.enums {
-        body_lines.push(gen_enum_stub(enum_def, emit_docstrings));
+        body_lines.push(gen_enum_stub(enum_def, emit_docstrings, &coercible_dtos));
         body_lines.push("".to_string());
     }
 
@@ -383,6 +390,13 @@ pub fn gen_stubs(
     // an explicit `import builtins`. Emit it only when actually referenced so F401 stays clean.
     if contains_word(&body_joined, "builtins") {
         lines.push("import builtins".to_string());
+        lines.push("".to_string());
+    }
+    // A widened factory param (`options.<Dto> | dict[str, Any]`) references the sibling options
+    // module. The import is stub-only (`.pyi` is never executed, so there is no runtime cycle with
+    // `options.py`, which imports from this module). Emit it only when referenced so F401 stays clean.
+    if body_joined.contains("options.") {
+        lines.push("from . import options".to_string());
         lines.push("".to_string());
     }
     if !used_typing.is_empty() {
