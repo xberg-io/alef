@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **napi: stop generating the legacy `packages/typescript` wrapper package.** The napi backend no
+  longer emits the `packages/typescript/src/index.ts` re-export barrel or its `bridges/*.ts` files;
+  the native package (`crates/{lib}-node`, published with its own `index.d.ts`) is the canonical
+  TypeScript surface, and `packages/node` is the modern package directory. `generate_public_api` for
+  the napi backend now falls back to the default (no-op), and the existing orphan sweep removes any
+  previously generated `packages/typescript/` tree on the next run. Version sync/checks and the e2e
+  node package fallback now reference `packages/node` instead of the legacy `packages/typescript`.
+
 ### Added
 
 - **e2e: support typed JSON-object arguments and `$mock_url` placeholders inside request DTOs.**

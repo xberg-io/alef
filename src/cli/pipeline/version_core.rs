@@ -329,10 +329,10 @@ pub fn verify_versions(config: &ResolvedCrateConfig) -> anyhow::Result<Vec<Strin
     }
 
     // Node
-    if let Some(found) = extract_version("packages/typescript/package.json", r#""version"\s*:\s*"([^"]*)""#) {
+    if let Some(found) = extract_version("packages/node/package.json", r#""version"\s*:\s*"([^"]*)""#) {
         if found != expected {
             mismatches.push(format!(
-                "packages/typescript/package.json: found {found}, expected {expected}"
+                "packages/node/package.json: found {found}, expected {expected}"
             ));
         }
     }

@@ -7,7 +7,6 @@ pub mod enums;
 pub mod errors;
 pub mod functions;
 pub mod methods;
-mod public_api;
 pub mod service_api;
 mod support;
 mod type_stubs;
@@ -920,14 +919,6 @@ impl Backend for NapiBackend {
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         type_stubs::generate(api, config)
-    }
-
-    fn generate_public_api(
-        &self,
-        api: &ApiSurface,
-        config: &ResolvedCrateConfig,
-    ) -> anyhow::Result<Vec<GeneratedFile>> {
-        public_api::generate(api, config)
     }
 
     fn generate_service_api(

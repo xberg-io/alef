@@ -97,14 +97,9 @@ pub fn sync_versions(
     let python_version = to_pep440(&version);
     sync_python_versions(config, &version, &python_version, &mut updated)?;
 
-    // Node: package.json — use the configured Node package_dir, falling back
-    // to "packages/node" (the modern default) and "packages/typescript" (legacy
-    // path retained so older repos that still use the old default keep syncing).
+    // Node: package.json — use the configured Node package_dir.
     let node_pkg_dir = config.package_dir(Language::Node);
-    let mut node_paths: Vec<String> = vec![format!("{node_pkg_dir}/package.json")];
-    if node_pkg_dir != "packages/typescript" {
-        node_paths.push("packages/typescript/package.json".to_string());
-    }
+    let node_paths: Vec<String> = vec![format!("{node_pkg_dir}/package.json")];
     for node_path in node_paths {
         if let Ok(content) = std::fs::read_to_string(&node_path) {
             if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
