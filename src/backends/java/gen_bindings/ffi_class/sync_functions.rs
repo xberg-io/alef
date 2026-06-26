@@ -266,7 +266,7 @@ pub(super) fn gen_sync_function_method_with_visitor(
         out.push_str(&crate::backends::java::template_env::render(
             "ffi_invoke_primitive_result.jinja",
             minijinja::context! {
-                cast_type => "int",
+                cast_type => "(int)(long)",
                 ffi_handle => &ffi_handle,
                 call_args => {
                     let mut args = call_args.clone();

@@ -1307,6 +1307,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(backends/java): promote sub-64-bit integer layouts for JBR Win64 Panama compat.** Panama linker implementations on JBR/Win64 throw `ClassCastException: OfIntImpl cannot be cast to OfLong` at class-load time when `JAVA_BYTE`, `JAVA_SHORT`, or `JAVA_INT` appear in a `FunctionDescriptor`. All integer return types are now promoted: 8/16-bit integers to `JAVA_INT`, 32-bit integers and booleans to `JAVA_LONG`, enum discriminants (i32 in FFI) to `JAVA_LONG`. `MethodHandle.invoke()` adapts the wider value back to the narrower Java type at the call site via the cast chain in `java_ffi_return_cast()` (e.g., `(int)(long)` for i32, `(short)(int)` for i16). (`src/backends/java/type_map.rs`, `src/backends/java/gen_bindings/marshal.rs`, `src/backends/java/templates/`)
 - **(backends/swift): scope the swift post-build `cargo build` to `-p liter-llm-swift`.**
   It previously built the whole workspace, which re-triggered other crates' build scripts —
   notably liter-llm-dart's frb codegen, which regenerated `lib.dart` and wiped the dart

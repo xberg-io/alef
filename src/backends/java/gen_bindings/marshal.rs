@@ -48,18 +48,6 @@ pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
     }
 }
 
-/// Return the Java cast expression for a primitive FFI return type.
-/// Returns the Java cast expression to apply to `MethodHandle.invoke()` return value.
-///
-/// The cast must match the widened ValueLayout from `java_ffi_type()`. When the
-/// FunctionDescriptor uses a wider layout than the logical Java type (e.g. JAVA_LONG
-/// for i32, JAVA_INT for i16), `invoke()` boxes the wider type. We need a chain of
-/// casts to unbox then narrow back to the target type.
-///
-/// Examples:
-/// - JAVA_LONG return (i32 → long): `(int)(long)` unboxes Long then narrows to int
-/// - JAVA_INT return (i16 → int): `(short)(int)` unboxes Integer then narrows to short
-/// - JAVA_LONG return (bool → long): `long` unboxes Long directly (comparison handles narrowing)
 /// Returns the Java cast expression (including parens) to apply to `MethodHandle.invoke()`.
 ///
 /// Templates no longer wrap this in `()` — the parens are included here. When the
@@ -504,5 +492,27 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
                 free_handle => free_handle,
             },
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ahash::AHashSet;
+
+    #[test]
+    fn gen_ffi_layout_with_enums_enum_uses_java_long() {
+        let mut enum_names = AHashSet::new();
+        enum_names.insert("Status".to_string());
+        let ty = TypeRef::Named("Status".to_string());
+        assert_eq!(gen_ffi_layout_with_enums(&ty, &enum_names), "ValueLayout.JAVA_LONG");
+    }
+
+    #[test]
+    fn gen_ffi_layout_with_enums_non_enum_named_uses_address() {
+        let mut enum_names = AHashSet::new();
+        enum_names.insert("Status".to_string());
+        let ty = TypeRef::Named("SomeStruct".to_string());
+        assert_eq!(gen_ffi_layout_with_enums(&ty, &enum_names), "ValueLayout.ADDRESS");
     }
 }

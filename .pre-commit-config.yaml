@@ -103,7 +103,6 @@ repos:
       - id: rust-max-lines
         args:
           - --max=1000
-        exclude: src/backends/php/gen_bindings/types/structs\.rs
 
       # Python — repo-internal pre-commit helper scripts only
       - id: ruff
