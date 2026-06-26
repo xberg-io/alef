@@ -183,24 +183,20 @@ pub fn java_return_type(ty: &TypeRef) -> Cow<'static, str> {
 
 /// Maps a primitive type to its Java FFI equivalent (Panama FFM ValueLayout).
 ///
-/// Sub-64-bit integer layouts (`JAVA_BYTE`, `JAVA_SHORT`, `JAVA_INT`) are not
-/// supported by all Panama linker implementations (JBR/Win64 throws
-/// `ClassCastException: OfIntImpl cannot be cast to OfLong` at class-load time
-/// when any of these appear in a `FunctionDescriptor`). All integer primitives
-/// are promoted to either `JAVA_INT` (for 8/16-bit types) or `JAVA_LONG` (for
-/// 32/64-bit types). `MethodHandle.invoke()` adapts the wider value back to the
-/// narrower Java type (byte/short/int) at the call site via `asType()`, which
-/// is allowed for numeric primitive narrowing.
+/// All sub-64-bit integer layouts are promoted to `JAVA_LONG`. JBR/Win64 Panama
+/// throws `ClassCastException: OfIntImpl cannot be cast to OfLong` at class-load
+/// time when any non-LONG integer layout (`JAVA_BYTE`, `JAVA_SHORT`, `JAVA_INT`)
+/// appears in a `FunctionDescriptor`. `MethodHandle.invoke()` adapts the wider
+/// value back at the call site via the cast chain in `java_ffi_return_cast()`.
 pub fn java_ffi_type(prim: &PrimitiveType) -> &'static str {
     match prim {
-        // bool is represented as i32 in the Rust FFI; promote to JAVA_LONG for Win64 compat.
-        PrimitiveType::Bool => "ValueLayout.JAVA_LONG",
-        // 8-bit values widened to 32-bit (x86-64 always returns ≥32 bits).
-        PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_INT",
-        // 16-bit values widened to 32-bit (returned in EAX on x86-64).
-        PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_INT",
-        // 32-bit integers promoted to 64-bit for JBR Win64 Panama compat.
-        PrimitiveType::U32 | PrimitiveType::I32 => "ValueLayout.JAVA_LONG",
+        PrimitiveType::Bool
+        | PrimitiveType::U8
+        | PrimitiveType::I8
+        | PrimitiveType::U16
+        | PrimitiveType::I16
+        | PrimitiveType::U32
+        | PrimitiveType::I32 => "ValueLayout.JAVA_LONG",
         PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
             "ValueLayout.JAVA_LONG"
         }
@@ -346,16 +342,15 @@ mod tests {
     }
 
     #[test]
-    fn java_ffi_type_promotes_i16_u16_to_java_int() {
-        // 16-bit types widened to JAVA_INT (not JAVA_SHORT — sub-32-bit unsupported on JBR).
-        assert_eq!(java_ffi_type(&PrimitiveType::I16), "ValueLayout.JAVA_INT");
-        assert_eq!(java_ffi_type(&PrimitiveType::U16), "ValueLayout.JAVA_INT");
+    fn java_ffi_type_promotes_i16_u16_to_java_long() {
+        assert_eq!(java_ffi_type(&PrimitiveType::I16), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::U16), "ValueLayout.JAVA_LONG");
     }
 
     #[test]
-    fn java_ffi_type_promotes_i8_u8_to_java_int() {
-        assert_eq!(java_ffi_type(&PrimitiveType::I8), "ValueLayout.JAVA_INT");
-        assert_eq!(java_ffi_type(&PrimitiveType::U8), "ValueLayout.JAVA_INT");
+    fn java_ffi_type_promotes_i8_u8_to_java_long() {
+        assert_eq!(java_ffi_type(&PrimitiveType::I8), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::U8), "ValueLayout.JAVA_LONG");
     }
 
     #[test]

@@ -50,24 +50,23 @@ pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
 
 /// Returns the Java cast expression (including parens) to apply to `MethodHandle.invoke()`.
 ///
-/// Templates no longer wrap this in `()` — the parens are included here. When the
-/// FunctionDescriptor uses a wider layout than the logical Java type (e.g. JAVA_LONG
-/// for i32, JAVA_INT for i16), `invoke()` boxes the wider type. We emit a chain of
-/// casts to unbox then narrow back to the target type:
+/// All integers use `JAVA_LONG` (see `java_ffi_type()`), so `invoke()` always boxes
+/// as `Long`. The cast unboxes Long then narrows to the target Java type:
 ///
-/// - JAVA_LONG return (bool or i32): `(long)` or `(int)(long)` — unboxes Long
-/// - JAVA_INT return (i16 or i8): `(short)(int)` / `(byte)(int)` — unboxes Integer then narrows
-/// - JAVA_LONG / JAVA_FLOAT / JAVA_DOUBLE: `(long)`, `(float)`, `(double)` — direct unbox
+/// - bool/i64/u64: `(long)` — unbox Long directly
+/// - i32/u32: `(int)(long)` — unbox Long, narrow to int
+/// - i16/u16: `(short)(long)` — unbox Long, narrow to short
+/// - i8/u8: `(byte)(long)` — unbox Long, narrow to byte
 pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
     match ty {
         TypeRef::Primitive(prim) => match prim {
-            // Bool is i32 in FFI (JAVA_LONG layout); keep as long, comparison handles bool semantics.
+            // All integers use JAVA_LONG; bool keeps the long value (comparison narrows to bool).
             PrimitiveType::Bool => "(long)",
-            // 8-bit types use JAVA_INT layout; unbox Integer then narrow to byte.
-            PrimitiveType::U8 | PrimitiveType::I8 => "(byte)(int)",
-            // 16-bit types use JAVA_INT layout; unbox Integer then narrow to short.
-            PrimitiveType::U16 | PrimitiveType::I16 => "(short)(int)",
-            // 32-bit types use JAVA_LONG layout; unbox Long then narrow to int.
+            // 8-bit: unbox Long, narrow to byte.
+            PrimitiveType::U8 | PrimitiveType::I8 => "(byte)(long)",
+            // 16-bit: unbox Long, narrow to short.
+            PrimitiveType::U16 | PrimitiveType::I16 => "(short)(long)",
+            // 32-bit: unbox Long, narrow to int.
             PrimitiveType::U32 | PrimitiveType::I32 => "(int)(long)",
             PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "(long)",
             PrimitiveType::F32 => "(float)",
@@ -499,6 +498,30 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
 mod tests {
     use super::*;
     use ahash::AHashSet;
+
+    #[test]
+    fn java_ffi_return_cast_i8_uses_long_chain() {
+        assert_eq!(
+            java_ffi_return_cast(&TypeRef::Primitive(PrimitiveType::I8)),
+            "(byte)(long)"
+        );
+        assert_eq!(
+            java_ffi_return_cast(&TypeRef::Primitive(PrimitiveType::U8)),
+            "(byte)(long)"
+        );
+    }
+
+    #[test]
+    fn java_ffi_return_cast_i16_uses_long_chain() {
+        assert_eq!(
+            java_ffi_return_cast(&TypeRef::Primitive(PrimitiveType::I16)),
+            "(short)(long)"
+        );
+        assert_eq!(
+            java_ffi_return_cast(&TypeRef::Primitive(PrimitiveType::U16)),
+            "(short)(long)"
+        );
+    }
 
     #[test]
     fn gen_ffi_layout_with_enums_enum_uses_java_long() {

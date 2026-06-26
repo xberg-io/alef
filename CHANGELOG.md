@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(backends/java): promote all integer layouts to `JAVA_LONG` for JBR Win64 Panama compat.** Panama linker implementations on JBR/Win64 throw `ClassCastException: OfIntImpl cannot be cast to OfLong` at class-load time when any sub-64-bit integer layout appears in a `FunctionDescriptor`. All integer return types are now promoted to `JAVA_LONG`; `MethodHandle.invoke()` adapts the wider value back at the call site via cast chains in `java_ffi_return_cast()` (e.g., `(int)(long)` for i32, `(short)(long)` for i16, `(byte)(long)` for i8). Enum discriminants (i32 in FFI) are also promoted. (`src/backends/java/type_map.rs`, `src/backends/java/gen_bindings/marshal.rs`, `src/backends/java/templates/`)
+- **(backends/java/gen_bindings/types/builders, records): treat function-path `#[serde(default = "fn")]` as a serde-managed default in Java builder/record codegen.** The extractor preserved the function path verbatim (`serde(default = "default_true")`) instead of the generic `/* serde(default) */` marker, so the Java builder's `has_serde_default` check missed it and emitted the path string literally — e.g. `private boolean structure = serde(default = "default_true");` — invalid Java. Fix: `is_serde_default_marker()` in `helpers.rs` now matches both the bare marker and any string starting with `"serde(default = \""`. (`src/backends/java/gen_bindings/helpers.rs`, `src/backends/java/gen_bindings/types/builders.rs`, `src/backends/java/gen_bindings/types/records.rs`)
 - **Per-variant constructors now box `Box<T>` fields.** When a data enum's struct variant has a
   field whose core type is `Box<T>`/`Option<Box<T>>` for a Named `T` (e.g. `CrawlEvent::Page {
   result: Box<CrawlPageResult> }`), the generated `_factory_<variant>` constructor emitted
@@ -1307,7 +1309,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **(backends/java): promote sub-64-bit integer layouts for JBR Win64 Panama compat.** Panama linker implementations on JBR/Win64 throw `ClassCastException: OfIntImpl cannot be cast to OfLong` at class-load time when `JAVA_BYTE`, `JAVA_SHORT`, or `JAVA_INT` appear in a `FunctionDescriptor`. All integer return types are now promoted: 8/16-bit integers to `JAVA_INT`, 32-bit integers and booleans to `JAVA_LONG`, enum discriminants (i32 in FFI) to `JAVA_LONG`. `MethodHandle.invoke()` adapts the wider value back to the narrower Java type at the call site via the cast chain in `java_ffi_return_cast()` (e.g., `(int)(long)` for i32, `(short)(int)` for i16). (`src/backends/java/type_map.rs`, `src/backends/java/gen_bindings/marshal.rs`, `src/backends/java/templates/`)
 - **(backends/swift): scope the swift post-build `cargo build` to `-p liter-llm-swift`.**
   It previously built the whole workspace, which re-triggered other crates' build scripts —
   notably liter-llm-dart's frb codegen, which regenerated `lib.dart` and wiped the dart
@@ -1338,7 +1339,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`&serde_json::Value: FromZvalMut` unsatisfied), breaking `liter-llm-php` compilation during a
   full regen. The display text is exposed via the core-derived `text()` accessor instead.
   (`src/backends/php/gen_bindings/types/structs.rs`)
-- **(backends/java/gen_bindings/types/builders, records): treat function-path `#[serde(default = "fn")]` as a serde-managed default in Java builder/record codegen.** The extractor change preserved the function path verbatim (`serde(default = "default_true")`) instead of the generic `/* serde(default) */` marker, so the Java builder's `has_serde_default` check missed it and emitted the path string literally — e.g. `private boolean structure = serde(default = "default_true");` — invalid Java (Java reserves `default`). Fix: `is_serde_default_marker()` in `helpers.rs` now matches both the bare marker and any string starting with `"serde(default = \""`. (`src/backends/java/gen_bindings/helpers.rs`, `src/backends/java/gen_bindings/types/builders.rs`, `src/backends/java/gen_bindings/types/records.rs`)
 - **(e2e/codegen/swift): use the per-call `result_type` override for root-type
   detection** so first-class result structs render property access
   (`result.choices`) instead of method-call access. (`src/e2e/codegen/swift/values.rs`)

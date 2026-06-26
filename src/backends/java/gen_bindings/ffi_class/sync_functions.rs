@@ -1,7 +1,7 @@
 use crate::backends::java::type_map::{java_boxed_type, java_return_type, java_type};
 use crate::codegen::naming::to_java_name;
 use crate::core::config::HostCapsuleTypeConfig;
-use crate::core::ir::{FunctionDef, TypeRef};
+use crate::core::ir::{FunctionDef, PrimitiveType, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
@@ -266,7 +266,7 @@ pub(super) fn gen_sync_function_method_with_visitor(
         out.push_str(&crate::backends::java::template_env::render(
             "ffi_invoke_primitive_result.jinja",
             minijinja::context! {
-                cast_type => "(int)(long)",
+                cast_type => java_ffi_return_cast(&TypeRef::Primitive(PrimitiveType::I32)),
                 ffi_handle => &ffi_handle,
                 call_args => {
                     let mut args = call_args.clone();
