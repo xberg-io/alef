@@ -29,7 +29,7 @@ repos:
           - commit-msg
 
   - repo: https://github.com/xberg-io/pre-commit-hooks
-    rev: v2.1.10
+    rev: v3.0.0
     hooks:
       # AI governance
       - id: ai-rulez-generate
