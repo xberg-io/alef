@@ -468,7 +468,28 @@ fn gen_data_enum_variant_constructor_stubs(enum_def: &crate::core::ir::EnumDef) 
                     }
                 })
                 .collect();
-            crate::backends::php::template_env::render(
+            // Emit `@param array<...>` PHPDoc for array/map parameters so PHPStan (level max)
+            // sees the element type instead of flagging a bare `array` as `missingType.iterableValue`.
+            // Mirrors the handling in `opaque_files.rs` and the static-method path above.
+            let phpdoc_params: Vec<String> = ctor
+                .params
+                .iter()
+                .filter(|p| matches!(&p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)))
+                .map(|p| format!("@param {} ${}", php_phpdoc_type(&p.ty), to_php_name(&p.name)))
+                .collect();
+            let doc_block = match phpdoc_params.len() {
+                0 => String::new(),
+                1 => format!("    /** {} */\n", phpdoc_params[0]),
+                _ => {
+                    let mut block = String::from("    /**\n");
+                    for line in &phpdoc_params {
+                        block.push_str(&format!("     * {line}\n"));
+                    }
+                    block.push_str("     */\n");
+                    block
+                }
+            };
+            let method = crate::backends::php::template_env::render(
                 "php_static_method_stub.jinja",
                 context! {
                     method_name => to_php_name(&ctor.snake_name),
@@ -476,7 +497,8 @@ fn gen_data_enum_variant_constructor_stubs(enum_def: &crate::core::ir::EnumDef) 
                     return_type => &enum_def.name,
                     stub_body => "{ throw new \\RuntimeException('Not implemented — provided by the native extension.'); }",
                 },
-            )
+            );
+            format!("{doc_block}{method}")
         })
         .collect()
 }

@@ -114,6 +114,48 @@ fn maps_named_dto_field_to_its_type() {
 }
 
 #[test]
+fn emits_param_phpdoc_for_map_and_vec_variant_fields() {
+    // A data-carrying variant whose factory takes an array/map parameter must carry an
+    // `@param array<...>` PHPDoc, otherwise PHPStan (level max) flags the bare `array`
+    // as `missingType.iterableValue`. Regression for CacheBackend::openDal(array $config).
+    let def = enum_def(
+        "CacheBackend",
+        vec![
+            variant(
+                "OpenDal",
+                vec![
+                    field("scheme", TypeRef::String, false),
+                    field(
+                        "config",
+                        TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                        false,
+                    ),
+                ],
+            ),
+            variant(
+                "Tags",
+                vec![field("labels", TypeRef::Vec(Box::new(TypeRef::String)), false)],
+            ),
+        ],
+    );
+
+    let stubs = gen_data_enum_variant_constructor_stubs(&def).join("");
+
+    assert!(
+        stubs.contains("/** @param array<string, string> $config */"),
+        "map parameter should get a typed @param PHPDoc:\n{stubs}"
+    );
+    assert!(
+        stubs.contains("/** @param array<string> $labels */"),
+        "vec parameter should get a typed @param PHPDoc:\n{stubs}"
+    );
+    assert!(
+        stubs.contains("public static function openDal(string $scheme, array $config): CacheBackend"),
+        "{stubs}"
+    );
+}
+
+#[test]
 fn optional_field_is_nullable_with_default() {
     let def = enum_def(
         "Source",

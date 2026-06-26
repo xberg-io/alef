@@ -446,6 +446,8 @@ fn gen_data_enum_variant_constructor_stubs(lines: &mut Vec<String>, enum_def: &E
                         optional => optional,
                     },
                 )
+                .trim_end()
+                .to_string()
             })
             .collect();
         lines.push(crate::backends::magnus::template_env::render(

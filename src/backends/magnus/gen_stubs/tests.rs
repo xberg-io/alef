@@ -111,8 +111,14 @@ fn tagged_data_enum_emits_no_singleton_constructors() {
     };
     let stub = gen_enum_stub(&tagged, false);
     assert!(stub.contains("  class Shape"), "{stub}");
-    assert!(!stub.contains("def self.circle"), "tagged enum must not declare factories: {stub}");
-    assert!(!stub.contains("def self.rect"), "tagged enum must not declare factories: {stub}");
+    assert!(
+        !stub.contains("def self.circle"),
+        "tagged enum must not declare factories: {stub}"
+    );
+    assert!(
+        !stub.contains("def self.rect"),
+        "tagged enum must not declare factories: {stub}"
+    );
 }
 
 #[test]
