@@ -578,6 +578,10 @@ pub(super) fn emit_module_kt(
         // otherwise.
         let returns_opaque =
             matches!(&f.return_type, crate::core::ir::TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
+        let generate_config = config
+            .generate_overrides
+            .get("kotlin_android")
+            .unwrap_or(&config.generate);
 
         // Detect if the method name already indicates async (e.g. rerankAsync from
         // Rust's rerank_async). For these, emit only as suspend function to avoid
@@ -588,6 +592,8 @@ pub(super) fn emit_module_kt(
         let suspend_wrapper_name = format!("{}Async", method_name);
         let suspend_wrapper_would_collide =
             !method_name_already_async && all_async_method_names.contains(&suspend_wrapper_name);
+        let emit_suspend_wrapper =
+            method_name_already_async || (generate_config.async_wrappers && !suspend_wrapper_would_collide);
 
         if returns_dto || returns_generic_container || returns_opaque || needs_jackson {
             // Suppress unused-warning on the legacy DTO-list flag — it remains
@@ -617,7 +623,7 @@ pub(super) fn emit_module_kt(
                 // Emit the suspend variant. For async-named functions, it's the only
                 // method; for sync-named functions, it wraps the sync version above
                 // (unless the wrapper name would collide).
-                if !suspend_wrapper_would_collide {
+                if emit_suspend_wrapper {
                     emit_kdoc_pub(&mut body, &f.doc, "    ");
                     if method_name_already_async {
                         // For async-named functions, emit suspend with direct JNI call
@@ -669,7 +675,7 @@ pub(super) fn emit_module_kt(
                     ));
                 }
                 // Emit the suspend variant (unless the wrapper name would collide).
-                if !suspend_wrapper_would_collide {
+                if emit_suspend_wrapper {
                     emit_kdoc_pub(&mut body, &f.doc, "    ");
                     if method_name_already_async {
                         // For async-named functions, emit suspend with direct JNI call

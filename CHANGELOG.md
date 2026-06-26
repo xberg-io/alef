@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java/kotlin-android**: honor per-language `generate.async_wrappers = false` when emitting
+  Java `CompletableFuture` helpers and Kotlin Android suspend convenience wrappers. This keeps
+  bindings that want a single canonical method name from leaking extra `fooAsync` entrypoints while
+  still preserving Rust functions that are themselves named `*_async`.
+
 - **java (scaffold)**: derive the `maven-source-plugin` source include from the Maven group's first
   path segment instead of a hardcoded `dev/**`. After the `dev.kreuzberg` → `io.xberg` rebrand,
   generated sources moved to `io/<group>/…`, so the stale `dev/**` include matched nothing, the

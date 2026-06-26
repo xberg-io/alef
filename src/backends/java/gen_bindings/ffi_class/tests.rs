@@ -1,4 +1,6 @@
-use crate::core::config::{BridgeBinding, HostCapsuleTypeConfig, ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{
+    BridgeBinding, GenerateConfig, HostCapsuleTypeConfig, ResolvedCrateConfig, TraitBridgeConfig,
+};
 use crate::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use std::collections::HashMap;
@@ -232,6 +234,48 @@ fn test_options_field_visitor_setter_uses_configured_renderer_field() {
         !out.contains("SYN_OPTIONS_SET_VISITOR_HANDLE") && !out.contains("options_set_visitor_handle"),
         "Java options-field bridge must not bind the legacy visitor_handle setter"
     );
+}
+
+#[test]
+fn test_java_async_wrappers_respect_generate_override() {
+    let api = ApiSurface {
+        functions: vec![FunctionDef {
+            name: "extract".to_string(),
+            rust_path: "xberg::extract".to_string(),
+            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            is_async: true,
+            error_type: Some("XbergError".to_string()),
+            ..FunctionDef::default()
+        }],
+        ..ApiSurface::default()
+    };
+    let mut generate_overrides = HashMap::new();
+    generate_overrides.insert(
+        "java".to_string(),
+        GenerateConfig {
+            async_wrappers: false,
+            ..GenerateConfig::default()
+        },
+    );
+    let config = ResolvedCrateConfig {
+        generate_overrides,
+        ..ResolvedCrateConfig::default()
+    };
+    let out = gen_main_class(
+        &api,
+        &config,
+        "io.xberg",
+        "XbergRs",
+        "xberg",
+        &HashSet::new(),
+        &HashSet::new(),
+        false,
+        &create_test_capsule_types(),
+    );
+
+    assert!(out.contains("ExtractionResult extract("));
+    assert!(!out.contains("extractAsync("));
+    assert!(!out.contains("CompletableFuture"));
 }
 
 #[test]
