@@ -70,6 +70,26 @@ fn test_scaffold_swift() {
         "In-tree Package.swift must include unsafeFlags for local development; got: {}",
         package_swift.content
     );
+    // The FFI dylib's install_name is @rpath/lib...dylib, so the manifest must emit a runtime
+    // rpath (not just `-L` compile-time search) or `swift test` fails to dlopen the library.
+    // The rpath path is resolved absolutely from the manifest location via Foundation/#filePath.
+    assert!(
+        package_swift.content.contains("import Foundation"),
+        "Package.swift must import Foundation to resolve the absolute rpath; got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("-Wl,-rpath,"),
+        "Package.swift must emit a runtime -Wl,-rpath so the FFI dylib loads at runtime; got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift
+            .content
+            .contains("let rustTargetDir = (#filePath as NSString)"),
+        "Package.swift must derive the target dir from the manifest path; got: {}",
+        package_swift.content
+    );
     assert!(
         package_swift
             .content

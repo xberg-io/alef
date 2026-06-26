@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift: add `-Wl,-rpath` to the generated `Package.swift` so the FFI dylib loads at runtime.**
+  The `RustBridge` target emitted only `-L` (compile-time search). Because the FFI dylib's
+  install_name is `@rpath/lib…dylib`, the consumer (and any test bundle linking the target) needs an
+  `LC_RPATH` or `swift test` aborts with `dlopen … Library not loaded: @rpath/libhtml_to_markdown_ffi.dylib`.
+  The manifest now derives the Cargo target dir absolutely from `#filePath` (CWD-independent, like the
+  Zig/C e2e generators) and adds `-Wl,-rpath` for both the release and debug profiles. The e2e Swift
+  package inherits the rpath transitively through this target.
+
 - **extendr (R): exclude methods with R-incompatible `Vec`/`Option<Vec>` params from `#[extendr]` impls.**
   Method filtering only dropped methods with bare-enum or bare owned-struct params; it missed
   `Vec<struct>`, `Vec<enum>`, `Vec<Vec<_>>`, and `Option<Vec<_>>` params. extendr generates no
