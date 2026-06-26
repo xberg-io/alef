@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **java (scaffold)**: derive the `maven-source-plugin` source include from the Maven group's first
+  path segment instead of a hardcoded `dev/**`. After the `dev.kreuzberg` → `io.xberg` rebrand,
+  generated sources moved to `io/<group>/…`, so the stale `dev/**` include matched nothing, the
+  source jar came out empty, and Sonatype Central rejected the deployment with "Sources must be
+  provided but not found in entries". The include now tracks the group (`io/**` for `io.xberg.*`).
+
 ## [0.29.2] - 2026-06-26
 
 ### Fixed

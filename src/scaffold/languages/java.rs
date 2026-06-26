@@ -60,6 +60,13 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let scm = scm_urls(repo_url);
 
     let group_id = config.java_group_id();
+    // The alef Java backend emits sources under a directory tree mirroring the
+    // package (e.g. group `io.xberg.foo` -> `io/xberg/foo/Foo.java`). The
+    // maven-source-plugin include must target the first path segment so it picks
+    // up the generated sources without pulling in `target/`. Deriving it from the
+    // group keeps the source jar correct across namespaces (the `dev.kreuzberg`
+    // -> `io.xberg` rebrand previously broke a hardcoded `dev/**` include).
+    let source_root = group_id.split('.').next().unwrap_or("dev");
 
     // Build developers XML from authors
     let developers_xml = if meta.authors.is_empty() {
@@ -185,8 +192,8 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 
     <build>
         <!-- The alef Java backend emits source files at the package root
-             (e.g. packages/java/dev/<group>/<artifact>/Foo.java), not under
-             the Maven-default `src/main/java/` layout. Point sourceDirectory
+             (e.g. packages/java/{source_root}/<group>/<artifact>/Foo.java), not
+             under the Maven-default `src/main/java/` layout. Point sourceDirectory
              at the package root so `mvn package` finds them. -->
         <sourceDirectory>${{project.basedir}}</sourceDirectory>
         <resources>
@@ -296,10 +303,10 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
                          source-archive include of everything under basedir
                          pulls in target/ as well (which contains the archive
                          being assembled — "A zip file cannot include itself").
-                         Restrict to the alef-emitted dev/ subtree and any
-                         conventional `src/main/java/` overlay. -->
+                         Restrict to the alef-emitted {source_root}/ subtree and
+                         any conventional `src/main/java/` overlay. -->
                     <includes>
-                        <include>dev/**/*.java</include>
+                        <include>{source_root}/**/*.java</include>
                         <include>src/main/java/**/*.java</include>
                     </includes>
                 </configuration>
