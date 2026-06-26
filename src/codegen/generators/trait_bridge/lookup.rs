@@ -208,6 +208,26 @@ pub fn native_marshalled_struct_params(trait_def: &TypeDef, api: &ApiSurface) ->
     out
 }
 
+/// Collect the names of native-marshalled structs that appear as a callback's RETURN type.
+///
+/// Restricted to a bare `Named` return: the native fast-path extracts the binding's native object
+/// and converts it via `From<core::T>`, which is well-defined only for a direct struct return.
+/// `Optional`/`Vec`/other return shapes keep the existing mapping/JSON path. Return-side
+/// counterpart to [`native_marshalled_struct_params`] — a host may return the binding's native
+/// result object instead of an untyped mapping, and the bridge accepts it (falling back to the
+/// mapping path otherwise).
+pub fn native_marshalled_struct_returns(trait_def: &TypeDef, api: &ApiSurface) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for method in &trait_def.methods {
+        if let TypeRef::Named(name) = &method.return_type {
+            if is_native_marshalled_struct(name, api) {
+                out.insert(name.clone());
+            }
+        }
+    }
+    out
+}
+
 /// Look up the trait `TypeDef` a bridge wraps, by the bridge's configured `trait_name`.
 ///
 /// Trait definitions live in `api.types` with `is_trait == true`. Backends use this to recover the

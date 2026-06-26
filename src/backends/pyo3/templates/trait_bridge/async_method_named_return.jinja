@@ -16,6 +16,14 @@ tokio::task::spawn_blocking(move || {
         let bound_method = obj.getattr("{{ method_name }}").map_err(|e| {{ error_expr }})?;
         let py_result = ctx.call_method1("run", ({{ run_args }}))
             .map_err(|e| {{ error_expr }})?;
+{%- if native_return_type %}
+        // Native fast-path: the host returned the binding's result object. Extract it and convert
+        // via `From<{{ native_return_type }}>` for the core type, skipping the JSON round-trip. Fall
+        // through to the mapping path below when the host returned a plain dict/mapping instead.
+        if let Ok(native) = py_result.extract::<{{ native_return_type }}>() {
+            return Ok(<{{ return_type }}>::from(native));
+        }
+{%- endif %}
         let json_val: String = py
             .import("json")
             .and_then(|m| m.call_method1("dumps", (py_result,)))

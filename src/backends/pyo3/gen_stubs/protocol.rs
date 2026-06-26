@@ -37,6 +37,12 @@ pub(super) fn gen_visitor_protocol_stub(
     // Method bodies are `...` (Protocol convention). Skipped methods that the FFI
     // backend bypasses (`ffi_skip_methods`) are still part of the trait surface a
     // host-language visitor must implement, so include them too.
+    //
+    // Host callbacks are always `def`, never `async def`, regardless of the Rust trait:
+    // the bridge invokes the method synchronously on a `tokio::spawn_blocking` worker and
+    // uses its return value directly (see trait_bridge/generator.rs). A host coroutine would
+    // never be awaited. The return type stays the native result type — the bridge now accepts
+    // the binding's native object on return (with a mapping as fallback).
     let mut body_emitted = false;
     for method in methods {
         if method.binding_excluded {
@@ -50,14 +56,7 @@ pub(super) fn gen_visitor_protocol_stub(
         }
         let return_type = substitute_capsule_type(&python_type(&method.return_type), capsule_names);
         let safe_name = python_safe_name(&method.name);
-        let def_kw = if method.is_async { "async def" } else { "def" };
-        let signature = format!(
-            "    {} {}({}) -> {}: ...",
-            def_kw,
-            safe_name,
-            params.join(", "),
-            return_type
-        );
+        let signature = format!("    def {}({}) -> {}: ...", safe_name, params.join(", "), return_type);
         lines.push(signature);
     }
 

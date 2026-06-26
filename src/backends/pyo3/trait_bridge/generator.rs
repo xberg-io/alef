@@ -22,6 +22,11 @@ pub struct Pyo3BridgeGenerator {
     /// the host method, instead of serializing the param to a JSON string. Enums, opaque/handle
     /// types, and excluded/unknown `Named` params are absent and keep their prior representation.
     pub struct_param_types: std::collections::HashSet<String>,
+    /// Callback-RETURN type names that get NATIVE-object marshalling — known serde structs returned
+    /// directly by a method (per the shared `native_marshalled_struct_returns` rule). For such a
+    /// return the bridge first tries to extract the host's native Python object and convert it via
+    /// `From<Binding>` for the core type, falling back to the JSON/mapping path otherwise.
+    pub struct_return_types: std::collections::HashSet<String>,
 }
 
 impl TraitBridgeGenerator for Pyo3BridgeGenerator {
@@ -86,6 +91,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     run_args => run_args,
                     is_named => is_named,
                     extract_ty => ext,
+                    native_return_type => self.native_struct_return(&method.return_type),
                     has_error => has_error,
                     error_expr => error_expr,
                     deserialize_error_expr => deserialize_error_expr,
@@ -173,6 +179,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     run_args => run_args,
                     param_cloning => param_cloning,
                     return_type => return_type,
+                    native_return_type => self.native_struct_return(&method.return_type),
                     error_expr => error_expr,
                     json_error_expr => json_error_expr,
                     deserialize_error_expr => deserialize_error_expr,
@@ -419,5 +426,16 @@ impl Pyo3BridgeGenerator {
     /// Check if a TypeRef is a Named type.
     fn is_named(&self, ty: &TypeRef) -> bool {
         matches!(ty, TypeRef::Named(_))
+    }
+
+    /// Binding pyclass type name to extract for a native-object return, when the return is a bare
+    /// `Named` struct on the native-marshalled return allowlist. The bridge tries
+    /// `py_result.extract::<Binding>()` and converts via `From<Binding>` for the core type, falling
+    /// back to the JSON/mapping path. `None` keeps the mapping path unchanged.
+    fn native_struct_return<'a>(&self, ty: &'a TypeRef) -> Option<&'a str> {
+        match ty {
+            TypeRef::Named(n) if self.struct_return_types.contains(n) => Some(n.as_str()),
+            _ => None,
+        }
     }
 }

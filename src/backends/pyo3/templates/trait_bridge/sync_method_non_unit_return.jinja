@@ -6,7 +6,18 @@ Python::attach(|py| {
             let bound_method = obj.getattr("{{ method_name }}")?;
             ctx.call_method1("run", ({{ run_args }}))
         })
-{% if is_named %}
+{% if native_return_type %}
+        .and_then(|v| {
+            // Native fast-path: the host returned the binding's result object — extract it and
+            // convert via `From<{{ native_return_type }}>`, skipping the JSON round-trip. Fall back
+            // to the mapping path (a JSON string) when the host returned a plain mapping instead.
+            if let Ok(native) = v.extract::<{{ native_return_type }}>() {
+                return Ok(<{{ extract_ty }}>::from(native));
+            }
+            let s = v.extract::<String>()?;
+            serde_json::from_str::<{{ extract_ty }}>(&s).map_err(|e| {{ deserialize_error_expr }})
+        })
+{% elif is_named %}
         .and_then(|v| v.extract::<String>())
         .and_then(|s| serde_json::from_str::<{{ extract_ty }}>(&s).map_err(|e| {{ deserialize_error_expr }}))
 {% else %}

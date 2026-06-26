@@ -80,11 +80,16 @@ pub fn gen_trait_bridge(
         // return values) instead of a JSON string.
         let struct_param_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
+        // Return-side counterpart: a host may return the binding's native result object, which the
+        // bridge extracts and converts via `From<Binding>` (falling back to the mapping/JSON path).
+        let struct_return_types =
+            crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api);
         let generator = Pyo3BridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             struct_param_types,
+            struct_return_types,
         };
         let lifetime_type_names: HashSet<String> = api
             .types
@@ -154,6 +159,7 @@ mod tests {
             type_paths: HashMap::new(),
             error_type: "SampleError".to_owned(),
             struct_param_types: HashSet::new(),
+            struct_return_types: HashSet::new(),
         };
 
         let make_method = |is_async: bool| MethodDef {
@@ -231,6 +237,7 @@ mod tests {
             type_paths: HashMap::new(),
             error_type: "SampleError".to_owned(),
             struct_param_types: HashSet::new(),
+            struct_return_types: HashSet::new(),
         };
 
         // A trait method returning a struct `Doc` exercises the json.dumps -> from_str path.
@@ -257,6 +264,80 @@ mod tests {
             assert!(
                 body.contains("must be a mapping"),
                 "deserialize error must hint the value must be a mapping matching the type's fields (is_async={is_async}):\n{body}"
+            );
+        }
+    }
+
+    /// When the return type is a native-marshalled struct, the bridge tries to extract the host's
+    /// native binding object first (and convert via `From<Binding>`), falling back to the JSON
+    /// mapping path. Return-side counterpart to the native-arg marshalling. See issue #153.
+    #[test]
+    fn trait_callback_native_struct_return_extracts_native_object_first() {
+        use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{MethodDef, ReceiverKind, TypeDef, TypeRef};
+        use std::collections::{HashMap, HashSet};
+
+        let trait_def = TypeDef {
+            name: "SampleService".to_owned(),
+            rust_path: "sample_core::SampleService".to_owned(),
+            is_trait: true,
+            is_opaque: true,
+            ..TypeDef::default()
+        };
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "SampleService".to_owned(),
+            register_fn: Some("register_sample".to_owned()),
+            registry_getter: Some("sample_core::registry::get".to_owned()),
+            ..TraitBridgeConfig::default()
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge_cfg,
+            core_import: "sample_core",
+            wrapper_prefix: "Py",
+            type_paths: HashMap::new(),
+            lifetime_type_names: HashSet::new(),
+            error_type: "SampleError".to_owned(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_owned(),
+        };
+        // `Doc` is on the native-marshalled return allowlist.
+        let generator = super::Pyo3BridgeGenerator {
+            core_import: "sample_core".to_owned(),
+            type_paths: HashMap::new(),
+            error_type: "SampleError".to_owned(),
+            struct_param_types: HashSet::new(),
+            struct_return_types: HashSet::from(["Doc".to_owned()]),
+        };
+
+        let make_method = |is_async: bool| MethodDef {
+            name: "build".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Named("Doc".to_owned()),
+            is_async,
+            error_type: Some("SampleError".to_owned()),
+            receiver: Some(ReceiverKind::Ref),
+            ..MethodDef::default()
+        };
+
+        for is_async in [true, false] {
+            let body = if is_async {
+                generator.gen_async_method_body(&make_method(true), &spec)
+            } else {
+                generator.gen_sync_method_body(&make_method(false), &spec)
+            };
+            assert!(
+                body.contains("extract::<Doc>()"),
+                "native return must try extracting the binding object `Doc` first (is_async={is_async}):\n{body}"
+            );
+            // Native object converts via `From<Doc>` for the core type; mapping path is still present.
+            assert!(
+                body.contains("::from(native)"),
+                "native return must convert the extracted object via From<Binding> (is_async={is_async}):\n{body}"
+            );
+            assert!(
+                body.contains("serde_json::from_str"),
+                "the JSON/mapping fallback must remain (is_async={is_async}):\n{body}"
             );
         }
     }

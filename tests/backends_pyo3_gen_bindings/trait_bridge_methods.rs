@@ -249,6 +249,7 @@ fn make_struct_aware_generator(core_import: &str, struct_params: &[&str]) -> Pyo
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
         struct_param_types: struct_params.iter().map(|s| s.to_string()).collect(),
+        struct_return_types: std::collections::HashSet::new(),
     }
 }
 
