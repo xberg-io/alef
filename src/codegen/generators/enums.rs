@@ -19,7 +19,7 @@ pub fn enum_has_data_variants(enum_def: &EnumDef) -> bool {
 /// produce a valid value for the sanitized field. The forwarding trait impls
 /// (`Default`, `Serialize`, `Deserialize`) are still generated unconditionally since
 /// the wrapper struct always delegates to the core type.
-fn enum_has_sanitized_fields(enum_def: &EnumDef) -> bool {
+pub fn enum_has_sanitized_fields(enum_def: &EnumDef) -> bool {
     enum_def.variants.iter().any(|v| v.fields.iter().any(|f| f.sanitized))
 }
 

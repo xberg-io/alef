@@ -140,9 +140,12 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             if typ.has_default && !typ.is_return_type {
                 local.insert(typ.name.as_str());
             }
-            // When output_style == TypedDict, return types are also emitted locally
-            // as TypedDicts — they must NOT be imported from the native module.
-            if output_style == PythonDtoStyle::TypedDict && typ.is_return_type {
+            // When output_style == TypedDict, return types are also emitted locally as TypedDicts —
+            // they must NOT be imported from the native module. This must mirror the emission loop,
+            // which only emits `has_default` types: a return type without `has_default` is a native
+            // pyclass that is imported, not redefined locally. Marking it local here without the
+            // `has_default` guard would leave it neither imported nor emitted (an undefined name).
+            if output_style == PythonDtoStyle::TypedDict && typ.is_return_type && typ.has_default {
                 local.insert(typ.name.as_str());
             }
         }

@@ -115,6 +115,15 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef, coercib
     // selection is shared with the runtime binding via `collect_variant_constructors`, so the
     // declared surface stays in lockstep with the methods PyO3 actually exposes.
     gen_data_enum_variant_constructor_stubs(lines, enum_def, coercible_dtos);
+    // The runtime wrapper exposes a `#[new]` accepting a tag string, a `{"type": ...}` dict, or
+    // kwargs (see pyo3_data_enum.jinja) — UNLESS a variant field is sanitized, in which case the
+    // serde-based `#[new]` is omitted and the type is return-only. Mirror that here so a converter
+    // constructing `OutputFormat(value)` / `EmbeddingModelType({...})` type-checks.
+    if !crate::codegen::generators::enum_has_sanitized_fields(enum_def) {
+        lines.push(
+            "    def __init__(self, value: dict[str, Any] | str | None = None, **kwargs: Any) -> None: ...".to_string(),
+        );
+    }
     // PYI029: __str__/__repr__ stubs are needed because the pyo3 wrapper implements them
     // via Display/Debug, and downstream callers rely on str(value) returning the serde tag.
     lines.push("    def __str__(self) -> str: ...  # noqa: PYI029".to_string());

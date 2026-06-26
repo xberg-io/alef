@@ -249,9 +249,12 @@ pub(super) fn emit_converters(
                     ));
                 }
                 helper.push_str("    }\n");
-                helper.push_str("    for _k, _cls in _data_enum_coercions.items():\n");
+                // Distinct loop variable from the unit-enum loop above: reusing `_cls` makes a type
+                // checker infer a single `type[...]` for it and flag the second dict's classes as an
+                // incompatible reassignment.
+                helper.push_str("    for _k, _data_cls in _data_enum_coercions.items():\n");
                 helper.push_str(
-                "        if _k in value and value[_k] is not None and not isinstance(value[_k], _cls):\n            value[_k] = _cls(value[_k])\n",
+                "        if _k in value and value[_k] is not None and not isinstance(value[_k], _data_cls):\n            value[_k] = _data_cls(value[_k])\n",
             );
             }
 

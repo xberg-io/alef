@@ -356,22 +356,38 @@ pub fn gen_stubs(
             }
         }
     }
+    // Names already declared as plain functions above (from `api.functions`). A trait bridge's
+    // `clear_fn` is frequently also exposed as a regular registry function (`clear_ocr_backends`),
+    // so emitting it again here would produce a duplicate `def` (mypy `no-redef`). Skip any bridge
+    // function whose name already has a declaration; the register/unregister names are bridge-only.
+    let declared_function_names: std::collections::HashSet<&str> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(&f.name))
+        .map(|f| f.name.as_str())
+        .collect();
     for bridge in trait_bridges {
         if let Some(register_fn) = bridge.register_fn.as_deref() {
-            // Type the `backend` param against the host-implementable Protocol when one was
-            // emitted for this bridge's trait; otherwise fall back to `object`.
-            let backend_type = if protocol_trait_names.contains(&bridge.trait_name) {
-                bridge.trait_name.as_str()
-            } else {
-                "object"
-            };
-            body_lines.push(format!("def {register_fn}(backend: {backend_type}) -> None: ..."));
+            if !declared_function_names.contains(register_fn) {
+                // Type the `backend` param against the host-implementable Protocol when one was
+                // emitted for this bridge's trait; otherwise fall back to `object`.
+                let backend_type = if protocol_trait_names.contains(&bridge.trait_name) {
+                    bridge.trait_name.as_str()
+                } else {
+                    "object"
+                };
+                body_lines.push(format!("def {register_fn}(backend: {backend_type}) -> None: ..."));
+            }
         }
         if let Some(unregister_fn) = bridge.unregister_fn.as_deref() {
-            body_lines.push(format!("def {unregister_fn}(name: str) -> None: ..."));
+            if !declared_function_names.contains(unregister_fn) {
+                body_lines.push(format!("def {unregister_fn}(name: str) -> None: ..."));
+            }
         }
         if let Some(clear_fn) = bridge.clear_fn.as_deref() {
-            body_lines.push(format!("def {clear_fn}() -> None: ..."));
+            if !declared_function_names.contains(clear_fn) {
+                body_lines.push(format!("def {clear_fn}() -> None: ..."));
+            }
         }
     }
 
