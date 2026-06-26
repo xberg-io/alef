@@ -750,10 +750,10 @@ fn lib_rs_enum_extern_block_and_wrapper() {
 
 #[test]
 fn lib_rs_struct_with_enum_field_returns_string() {
-    // A struct with an enum-typed field must have that getter return `String`,
+    // A struct with a UNIT enum-typed field must have that getter return `String`,
     // not the opaque enum wrapper type. The extern block must declare `fn foo(&self) -> String`
-    // (not `fn foo(&self) -> Status`), and the wrapper impl must serialize the enum to JSON via
-    // serde_json::to_string so the Swift side can decode the variant payload.
+    // (not `fn foo(&self) -> Status`), and the wrapper impl must emit the bare serde raw value
+    // via `Status::from(...).to_string()` (Swift reconstructs it with `Type(rawValue:)`).
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -781,10 +781,10 @@ fn lib_rs_struct_with_enum_field_returns_string() {
         "extern block must declare status() -> String, not the opaque enum type: {}",
         lib.content
     );
-    // Wrapper impl must serialize the enum to JSON instead of emitting a bare variant name.
+    // Unit-enum wrapper impl must convert to String via Status::from(...).to_string().
     assert!(
-        lib.content.contains("serde_json::to_string(&self.0.status)"),
-        "wrapper impl must serialize the enum field via serde_json::to_string: {}",
+        lib.content.contains("Status::from(") && lib.content.contains(".to_string()"),
+        "wrapper impl must call Status::from(...).to_string(): {}",
         lib.content
     );
     // Opaque enum type IS declared in its own extern block (required for parameter usage).
@@ -792,6 +792,81 @@ fn lib_rs_struct_with_enum_field_returns_string() {
     assert!(
         lib.content.contains("type Status;"),
         "lib.rs must declare Status as opaque extern type (needed for param usage): {}",
+        lib.content
+    );
+}
+
+#[test]
+fn lib_rs_struct_with_tagged_enum_field_serializes_to_json() {
+    // A struct with a TAGGED enum field (at least one variant carries data) must serialize the
+    // getter to JSON via serde_json::to_string. The discriminant-only bridge wrapper drops the
+    // variant payload, so its to_string() would emit an invalid bare name; Swift decodes the
+    // JSON back via JSONDecoder (matching the bidirectional `*_from_json` representation).
+    let payload = EnumDef {
+        name: "Payload".to_string(),
+        rust_path: "demo::Payload".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![EnumVariant {
+            name: "Text".to_string(),
+            fields: vec![make_field("value", TypeRef::String)],
+            doc: String::new(),
+            is_default: false,
+            serde_rename: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_tuple: false,
+            originally_had_data_fields: true,
+            cfg: None,
+            version: Default::default(),
+        }],
+        methods: vec![],
+        doc: String::new(),
+        cfg: None,
+        serde_tag: Some("type".to_string()),
+        serde_untagged: false,
+        serde_rename_all: None,
+        is_copy: false,
+        has_serde: true,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+        has_default: false,
+    };
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![{
+            let mut t = make_type(
+                "Item",
+                vec![make_field("payload", TypeRef::Named("Payload".to_string()))],
+            );
+            t.has_serde = true;
+            t
+        }],
+        functions: vec![],
+        enums: vec![payload],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // Getter must be declared as String in the extern block.
+    assert!(
+        lib.content.contains("fn payload(&self) -> String;"),
+        "extern block must declare payload() -> String: {}",
+        lib.content
+    );
+    // Tagged enum must serialize via serde_json::to_string, NOT the discriminant wrapper to_string().
+    assert!(
+        lib.content.contains("serde_json::to_string(&self.0.payload)"),
+        "tagged-enum getter must serialize via serde_json::to_string: {}",
         lib.content
     );
 }

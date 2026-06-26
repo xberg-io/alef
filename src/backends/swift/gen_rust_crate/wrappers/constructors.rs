@@ -20,11 +20,13 @@ use std::collections::{HashMap, HashSet};
 
 use super::getters::emit_getters;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_type_wrapper(
     ty: &TypeDef,
     source_crate: &str,
     type_paths: &HashMap<String, String>,
     enum_names: &HashSet<&str>,
+    unit_enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
     configured_features: &HashSet<&str>,
@@ -153,6 +155,7 @@ pub(crate) fn emit_type_wrapper(
             ty,
             type_paths,
             enum_names,
+            unit_enum_names,
             no_serde_names,
             exclude_fields,
             configured_features,
@@ -300,6 +303,7 @@ mod tests {
             &ty,
             "test_crate",
             &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &exclude_fields,

@@ -93,10 +93,12 @@ struct GetterCtx {
 }
 
 /// Emit getter methods for all fields of a type wrapper.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_getters(
     ty: &TypeDef,
     type_paths: &HashMap<String, String>,
     enum_names: &HashSet<&str>,
+    unit_enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
     configured_features: &std::collections::HashSet<&str>,
@@ -162,16 +164,19 @@ pub(super) fn emit_getters(
                 },
             ));
         } else if is_enum_named(&field.ty, enum_names) {
-            // Enum-typed Named field: return the serde-JSON encoding of the source enum
-            // value as a String. The opaque enum type is NOT declared in the extern block
-            // (see extern_block.rs), so we must not return the wrapper type here; and the
-            // discriminant-only wrapper would lose the variant payload, so serialize the
-            // original value instead. The Swift side JSON-decodes this back into its Codable
-            // enum (matching the bidirectional `*_from_json` representation).
-            emit_enum_string_getter(field, &ctx, enum_names, out);
+            // Enum-typed Named field: return the enum as a String. The opaque enum type is
+            // NOT declared in the extern block (see extern_block.rs), so we must not return
+            // the wrapper type here. Unit enums (all variants fieldless) serialize to their
+            // bare serde raw value via the wrapper's `to_string()`, which Swift reconstructs
+            // with `Type(rawValue:)`. Tagged enums (variants carry data) cannot use the
+            // discriminant-only wrapper — it drops the payload — so the source value is
+            // serialized with `serde_json::to_string`, which Swift decodes via `JSONDecoder`
+            // (matching the bidirectional `*_from_json` representation).
+            emit_enum_string_getter(field, &ctx, enum_names, unit_enum_names, out);
         } else if is_vec_of_enum(&field.ty, enum_names) {
-            // Vec<Named(enum)>: map each element to String via to_string().
-            emit_vec_enum_string_getter(field, &ctx, enum_names, out);
+            // Vec<Named(enum)>: map each element to a String (raw value for unit enums,
+            // serde-JSON for tagged enums — see emit_enum_string_getter).
+            emit_vec_enum_string_getter(field, &ctx, enum_names, unit_enum_names, out);
         } else if let TypeRef::Named(wrapper) = &field.ty {
             emit_named_getter(field, wrapper, &ctx, enum_names, out);
         } else if let TypeRef::Vec(inner) = &field.ty {
@@ -257,15 +262,18 @@ pub(super) fn emit_getters(
 
 /// Emit a `String`-returning getter for an enum-typed `Named` field.
 ///
-/// Instead of returning the opaque enum wrapper (which would trigger swift-bridge's
-/// `Vec<EnumType> Vectorizable` generation), this serializes the source enum value to
-/// JSON via `serde_json::to_string`. The discriminant-only bridge wrapper drops the
-/// variant payload and its `.to_string()` emits a bare variant name (invalid JSON), so
-/// the original value must be serialized for the Swift `JSONDecoder` to reconstruct it.
+/// Returns the opaque enum as a `String` (avoids swift-bridge's `Vec<EnumType>
+/// Vectorizable` generation). The encoding depends on the enum kind:
+/// - Unit enums (all variants fieldless): the bridge wrapper's `to_string()` yields the
+///   bare serde raw value (e.g. `stop`), which Swift reconstructs via `Type(rawValue:)`.
+/// - Tagged enums (some variant carries data): the discriminant-only wrapper drops the
+///   payload, so the source value is serialized with `serde_json::to_string` and Swift
+///   decodes it via `JSONDecoder` (matching the bidirectional `*_from_json` representation).
 fn emit_enum_string_getter(
     field: &crate::core::ir::FieldDef,
     ctx: &GetterCtx,
     enum_names: &HashSet<&str>,
+    unit_enum_names: &HashSet<&str>,
     out: &mut String,
 ) {
     let TypeRef::Named(wrapper) = &field.ty else {
@@ -273,13 +281,23 @@ fn emit_enum_string_getter(
     };
     let is_enum = enum_names.contains(wrapper.as_str());
     debug_assert!(is_enum, "emit_enum_string_getter called with non-enum Named type");
+    let is_unit = unit_enum_names.contains(wrapper.as_str());
 
     let name = &ctx.name;
     let getter_name = &ctx.getter_name;
 
     if field.optional {
-        // Option<EnumType> → Option<String>. Boxed and Arc fields both deref to the enum via `&*w`.
-        let map_expr = if field.is_boxed || matches!(field.core_wrapper, CoreWrapper::Arc) {
+        // Option<EnumType> → Option<String>.
+        let map_expr = if is_unit {
+            if field.is_boxed {
+                format!("self.0.{name}.clone().map(|w| {wrapper}::from(*w).to_string())")
+            } else if matches!(field.core_wrapper, CoreWrapper::Arc) {
+                format!("self.0.{name}.clone().map(|w| {wrapper}::from((*w).clone()).to_string())")
+            } else {
+                format!("self.0.{name}.clone().map(|w| {wrapper}::from(w).to_string())")
+            }
+        } else if field.is_boxed || matches!(field.core_wrapper, CoreWrapper::Arc) {
+            // Tagged enum: serialize the source value. Boxed and Arc both deref via `&*w`.
             format!(
                 "self.0.{name}.clone().map(|w| serde_json::to_string(&*w).unwrap_or_else(|_| \"null\".to_string()))"
             )
@@ -294,8 +312,17 @@ fn emit_enum_string_getter(
             },
         ));
     } else {
-        // EnumType → String. Boxed and Arc fields both deref to the enum via `&*self.0.{name}`.
-        let expr = if field.is_boxed || matches!(field.core_wrapper, CoreWrapper::Arc) {
+        // EnumType → String.
+        let expr = if is_unit {
+            if field.is_boxed {
+                format!("{wrapper}::from(*self.0.{name}.clone()).to_string()")
+            } else if matches!(field.core_wrapper, CoreWrapper::Arc) {
+                format!("{wrapper}::from((*self.0.{name}).clone()).to_string()")
+            } else {
+                format!("{wrapper}::from(self.0.{name}.clone()).to_string()")
+            }
+        } else if field.is_boxed || matches!(field.core_wrapper, CoreWrapper::Arc) {
+            // Tagged enum: serialize the source value. Boxed and Arc both deref via `&*self.0.{name}`.
             format!("serde_json::to_string(&*self.0.{name}).unwrap_or_else(|_| \"null\".to_string())")
         } else {
             format!("serde_json::to_string(&self.0.{name}).unwrap_or_else(|_| \"null\".to_string())")
@@ -312,11 +339,14 @@ fn emit_enum_string_getter(
 
 /// Emit a `Vec<String>`-returning getter for a `Vec<Named(enum)>` field.
 ///
-/// Maps each enum element to its serde-JSON encoding via `serde_json::to_string`.
+/// Maps each enum element to a `String`: the bridge wrapper's `to_string()` raw value for
+/// unit enums, or `serde_json::to_string` of the source value for tagged enums (see
+/// `emit_enum_string_getter` for the encoding rationale).
 fn emit_vec_enum_string_getter(
     field: &crate::core::ir::FieldDef,
     ctx: &GetterCtx,
     enum_names: &HashSet<&str>,
+    unit_enum_names: &HashSet<&str>,
     out: &mut String,
 ) {
     let TypeRef::Vec(inner) = &field.ty else {
@@ -327,14 +357,22 @@ fn emit_vec_enum_string_getter(
     };
     let is_enum = enum_names.contains(wrapper.as_str());
     debug_assert!(is_enum, "emit_vec_enum_string_getter called with non-enum Vec<Named>");
+    let is_unit = unit_enum_names.contains(wrapper.as_str());
 
     let name = &ctx.name;
     let getter_name = &ctx.getter_name;
 
-    // Build the per-element mapping expression based on wrapping strategy.
-    let elem_expr = match field.vec_inner_core_wrapper {
-        CoreWrapper::Arc => "serde_json::to_string(&**elem).unwrap_or_else(|_| \"null\".to_string())".to_string(),
-        _ => "serde_json::to_string(elem).unwrap_or_else(|_| \"null\".to_string())".to_string(),
+    // Build the per-element mapping expression based on enum kind and wrapping strategy.
+    let elem_expr = if is_unit {
+        match field.vec_inner_core_wrapper {
+            CoreWrapper::Arc => format!("{wrapper}::from((**elem).clone()).to_string()"),
+            _ => format!("{wrapper}::from(elem.clone()).to_string()"),
+        }
+    } else {
+        match field.vec_inner_core_wrapper {
+            CoreWrapper::Arc => "serde_json::to_string(&**elem).unwrap_or_else(|_| \"null\".to_string())".to_string(),
+            _ => "serde_json::to_string(elem).unwrap_or_else(|_| \"null\".to_string())".to_string(),
+        }
     };
 
     if field.optional {

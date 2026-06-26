@@ -19,11 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   register/unregister/clear lifecycle calls. The call sites now narrow via `(int) (long)`, matching
   the canonical pattern already used for `last_error_code`.
 
-- **swift**: serialize enum-typed struct field getters to JSON instead of emitting a bare variant
-  name. The discriminant-only bridge wrapper's `.to_string()` dropped the variant payload and
-  returned an unquoted name (e.g. `Text`), which Swift's `JSONDecoder` rejected with "The given data
-  was not valid JSON." Getters now emit `serde_json::to_string` of the source enum value, matching
-  the bidirectional `*_from_json` representation the Swift `Codable` types expect.
+- **swift**: encode enum-typed struct field getters to match how the Swift side decodes each enum
+  kind. Tagged enums (some variant carries data, e.g. `AssistantContent`) are serialized with
+  `serde_json::to_string` of the source value and decoded via `JSONDecoder` — the discriminant-only
+  bridge wrapper's `.to_string()` previously dropped the payload and returned an unquoted name (e.g.
+  `Text`), which `JSONDecoder` rejected with "The given data was not valid JSON." Unit enums (all
+  variants fieldless, e.g. `FinishReason`) keep returning their bare serde raw value via the wrapper's
+  `.to_string()`, which Swift reconstructs with `Type(rawValue:)`; serializing those to JSON would
+  emit a quoted string the rawValue init cannot parse.
 
 - **elixir**: keep async NIF symbols suffixed internally while exposing async free functions under
   their original public names in the high-level Elixir facade. Generated modules now expose

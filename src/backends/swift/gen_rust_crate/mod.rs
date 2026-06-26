@@ -759,6 +759,7 @@ fn emit_lib_rs(
             &source_crate,
             &type_paths,
             &enum_names,
+            &unit_enum_names,
             &no_serde_names,
             exclude_fields,
             configured_features,
