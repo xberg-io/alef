@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **pyo3 (Python): enum-variant payloads accept the public dataclass/dict.** A data-enum
+  per-variant constructor (e.g. `EmbeddingModelType.llm(...)`) now coerces a config-DTO payload the
+  same way struct fields are coerced, so passing the public `LlmConfig` dataclass — or a plain
+  `dict` — builds the variant instead of raising `TypeError: 'LlmConfig' object is not an instance
+  of 'LlmConfig'`. Previously the generated factory demanded the compiled `#[pyclass]` instance
+  while the package re-exported the pure-Python `@dataclass` for the same name, so the two never
+  matched. A payload field whose `Named` type is a dataclass-backed config DTO is now generated as
+  `&Bound<PyAny>` and routed through a module-level `__alef_coerce_dto` helper
+  (dataclass via `dataclasses.asdict` / dict / JSON-native → serde into the core type); native
+  re-exported return types stay compiled and are left untouched. The config-vs-native-return
+  classification is shared with `__init__.py` import routing as a single source of truth (xberg #1165).
+
 ## [0.28.1] - 2026-06-25
 
 ### Added

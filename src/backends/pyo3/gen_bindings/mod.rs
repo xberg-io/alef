@@ -602,6 +602,34 @@ impl Backend for Pyo3Backend {
             opaque_types.is_empty(),
         );
 
+        // Classify which config-DTO types are dataclass-backed: their public name resolves to a
+        // `@dataclass`/`dict` (via options.py), not the compiled `#[pyclass]`. Enum-variant payload
+        // fields of these types must accept the public wrapper or a dict — coerced into the core
+        // type — for parity with struct-field `_to_rust_*` coercion. Native-return types stay
+        // compiled and are left untouched. Same source of truth as `gen_init_py`'s import routing.
+        let dto_output_style = config.dto.python_output_style();
+        let reexported_dto_names: ahash::AHashSet<&str> = config
+            .python
+            .as_ref()
+            .map(|p| p.reexported_types.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        let coercible_dto_names: ahash::AHashSet<&str> = api
+            .types
+            .iter()
+            .filter(|t| errors::is_dataclass_backed_config(t, dto_output_style, &reexported_dto_names))
+            .map(|t| t.name.as_str())
+            .collect();
+        // Emit the runtime coercion helper once when any data-enum variant constructor needs it
+        // (gated on serde availability — the helper deserializes the coerced JSON into the core type).
+        if has_serde
+            && api
+                .enums
+                .iter()
+                .any(|e| generators::data_enum_needs_dto_coercion(e, &coercible_dto_names))
+        {
+            builder.add_item(generators::PYO3_DTO_COERCE_HELPER);
+        }
+
         for e in &api.enums {
             if generators::enum_has_data_variants(e) {
                 // Emit a `#[staticmethod]` constructor for each data-carrying struct variant
@@ -609,7 +637,8 @@ impl Backend for Pyo3Backend {
                 // idiomatic path — the discriminator is carried by the variant name rather than a
                 // magic `type="..."` string. The `#[new]` dict/kwargs/string constructor stays as-is
                 // for flexibility; the variant constructors are additive.
-                let data_enum_code = generators::gen_pyo3_data_enum_with_mapper(e, &core_import, Some(&mapper));
+                let data_enum_code =
+                    generators::gen_pyo3_data_enum_with_coercion(e, &core_import, Some(&mapper), &coercible_dto_names);
                 // A data enum is rendered as an opaque `{ inner: CoreEnum }` wrapper. The renderer
                 // already emits `impl Default` when the core enum's `has_default` is set. When a
                 // `Default`-deriving parent struct holds the enum as a non-optional field (tracked

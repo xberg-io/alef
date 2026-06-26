@@ -271,6 +271,104 @@ fn variant_constructors_convert_named_dto_fields() {
 }
 
 #[test]
+fn variant_constructors_coerce_dataclass_backed_dto_field() {
+    use crate::codegen::generators::gen_pyo3_data_enum_with_coercion;
+    use crate::codegen::type_mapper::IdentityMapper;
+    use ahash::AHashSet;
+    // A payload field whose Named type is a dataclass-backed config DTO accepts the public wrapper
+    // (a @dataclass) or a dict via `&Bound<PyAny>` and is coerced through the runtime helper, rather
+    // than demanding the compiled `#[pyclass]`. The factory therefore takes `py` and is fallible.
+    // (xberg #1165: enum-variant payloads must coerce like struct fields do.)
+    let def = enum_def(
+        "Wrapper",
+        vec![variant(
+            "Llm",
+            vec![typed_field("llm", TypeRef::Named("LlmConfig".to_string()))],
+        )],
+    );
+    let coercible: AHashSet<&str> = ["LlmConfig"].into_iter().collect();
+
+    let generated = gen_pyo3_data_enum_with_coercion(&def, "core", Some(&IdentityMapper), &coercible);
+
+    assert!(
+        generated
+            .contains("pub fn _factory_llm(py: Python<'_>, llm: &Bound<'_, pyo3::types::PyAny>) -> PyResult<Self>"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("Ok(Self { inner: crate::Wrapper::Llm { llm: __alef_coerce_dto(py, llm)? } })"),
+        "{generated}"
+    );
+    // The compiled-type-only path is gone.
+    assert!(!generated.contains("llm: llm.into()"), "{generated}");
+    // The module-level runtime helper is emitted exactly when needed.
+    assert!(
+        crate::codegen::generators::data_enum_needs_dto_coercion(&def, &coercible),
+        "expected coercion to be flagged"
+    );
+}
+
+#[test]
+fn variant_constructors_coerce_only_dto_leaving_primitive_typed() {
+    use crate::codegen::generators::gen_pyo3_data_enum_with_coercion;
+    use crate::codegen::type_mapper::IdentityMapper;
+    use ahash::AHashSet;
+    // Coercion is gated strictly: only the dataclass-backed DTO field becomes `&Bound<PyAny>`; the
+    // sibling primitive keeps its concrete type and shorthand init.
+    let def = enum_def(
+        "Job",
+        vec![variant(
+            "Run",
+            vec![
+                typed_field("retries", TypeRef::Primitive(PrimitiveType::U32)),
+                typed_field("config", TypeRef::Named("RunConfig".to_string())),
+            ],
+        )],
+    );
+    let coercible: AHashSet<&str> = ["RunConfig"].into_iter().collect();
+
+    let generated = gen_pyo3_data_enum_with_coercion(&def, "core", Some(&IdentityMapper), &coercible);
+
+    assert!(
+        generated.contains(
+            "pub fn _factory_run(py: Python<'_>, retries: u32, config: &Bound<'_, pyo3::types::PyAny>) -> PyResult<Self>"
+        ),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("Ok(Self { inner: crate::Job::Run { retries, config: __alef_coerce_dto(py, config)? } })"),
+        "{generated}"
+    );
+}
+
+#[test]
+fn variant_constructors_skip_coercion_for_non_dataclass_named_field() {
+    use crate::codegen::generators::{data_enum_needs_dto_coercion, gen_pyo3_data_enum_with_coercion};
+    use crate::codegen::type_mapper::IdentityMapper;
+    use ahash::AHashSet;
+    // A Named field that is NOT a dataclass-backed config DTO (e.g. a native-return type) stays on
+    // the `.into()` path and the factory remains infallible — no `py` param, no helper.
+    let def = enum_def(
+        "Wrapper",
+        vec![variant(
+            "Llm",
+            vec![typed_field("llm", TypeRef::Named("LlmConfig".to_string()))],
+        )],
+    );
+    let empty: AHashSet<&str> = AHashSet::new();
+
+    let generated = gen_pyo3_data_enum_with_coercion(&def, "core", Some(&IdentityMapper), &empty);
+
+    assert!(
+        generated.contains("pub fn _factory_llm(llm: LlmConfig) -> Self"),
+        "{generated}"
+    );
+    assert!(generated.contains("llm: llm.into()"), "{generated}");
+    assert!(!generated.contains("__alef_coerce_dto"), "{generated}");
+    assert!(!data_enum_needs_dto_coercion(&def, &empty), "should not flag coercion");
+}
+
+#[test]
 fn variant_constructors_pair_interleaved_field_exprs_by_position() {
     use crate::codegen::type_mapper::IdentityMapper;
     // Interleave a primitive, a Named-DTO (`.into()`), and a Vec<Named> DTO

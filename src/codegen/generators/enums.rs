@@ -1,6 +1,54 @@
 use crate::codegen::generators::RustBindingConfig;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{EnumDef, TypeRef};
+use ahash::AHashSet;
+
+/// Module-level runtime helper coercing a public payload (dataclass / dict / JSON-native value)
+/// into a core type via serde. Emitted once per pyo3 module when any data-enum variant constructor
+/// has a coercible config-DTO field. Mirrors the struct-field `_to_rust_*` coercion on the Python
+/// side so enum-variant payloads accept the same inputs (the public `LlmConfig` dataclass or a
+/// `dict`), instead of demanding the compiled `#[pyclass]` instance.
+pub const PYO3_DTO_COERCE_HELPER: &str = r#"fn __alef_coerce_dto<T: serde::de::DeserializeOwned>(
+    py: Python<'_>,
+    value: &Bound<'_, pyo3::types::PyAny>,
+) -> PyResult<T> {
+    // Dataclass instances are not directly JSON-serializable; route them through
+    // `dataclasses.asdict` first. Plain dicts and JSON-native values pass straight to `json.dumps`.
+    let payload = if value.hasattr("__dataclass_fields__")? {
+        py.import("dataclasses")?.call_method1("asdict", (value,))?
+    } else {
+        value.clone()
+    };
+    let json_str: String = py.import("json")?.call_method1("dumps", (payload,))?.extract()?;
+    serde_json::from_str(&json_str).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}"#;
+
+/// Extract the leaf `Named` type name from `Named(n)` or `Optional(Named(n))`. Returns `None` for
+/// every other shape (primitive, `Vec`, `Path`, …). Used to test whether a variant-constructor
+/// payload field is a coercible config DTO.
+fn dto_named_name(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(n) => Some(n.as_str()),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => Some(n.as_str()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// True when any generated variant constructor of `enum_def` has a coercible config-DTO payload
+/// field — i.e. the [`PYO3_DTO_COERCE_HELPER`] runtime helper must be emitted into the module.
+pub fn data_enum_needs_dto_coercion(enum_def: &EnumDef, coercible_dto_names: &AHashSet<&str>) -> bool {
+    if !enum_has_data_variants(enum_def) {
+        return false;
+    }
+    collect_variant_constructors(enum_def).iter().any(|c| {
+        c.params
+            .iter()
+            .any(|p| dto_named_name(&p.ty).is_some_and(|n| coercible_dto_names.contains(n)))
+    })
+}
 
 /// Returns true if any variant of the enum has data fields.
 /// These enums cannot be represented as flat integer enums in bindings.
@@ -43,10 +91,27 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
 /// `#[staticmethod]` constructor inside the `#[pymethods]` impl block — `Shape.circle(radius=...)`
 /// rather than the stringly-typed `Shape(type="circle", ...)` form. The mapper maps each field's
 /// type into the binding signature. Without a mapper the constructor section is omitted.
+///
+/// Delegates to [`gen_pyo3_data_enum_with_coercion`] with no config-DTO coercion (empty set) — the
+/// stable entry point for callers that don't classify dataclass-backed types.
 pub fn gen_pyo3_data_enum_with_mapper(
     enum_def: &EnumDef,
     core_import: &str,
     mapper: Option<&dyn TypeMapper>,
+) -> String {
+    gen_pyo3_data_enum_with_coercion(enum_def, core_import, mapper, &AHashSet::new())
+}
+
+/// Like [`gen_pyo3_data_enum_with_mapper`] but also threads the set of dataclass-backed config-DTO
+/// type names. A variant-constructor payload field whose `Named` type is in `coercible_dto_names`
+/// is generated to accept the public wrapper (a `@dataclass`) or a `dict` — coerced into the core
+/// type via [`PYO3_DTO_COERCE_HELPER`] — instead of demanding the compiled `#[pyclass]` instance.
+/// This restores parity with struct-field coercion (`_to_rust_*`) for enum-variant payloads.
+pub fn gen_pyo3_data_enum_with_coercion(
+    enum_def: &EnumDef,
+    core_import: &str,
+    mapper: Option<&dyn TypeMapper>,
+    coercible_dto_names: &AHashSet<&str>,
 ) -> String {
     let name = &enum_def.name;
     let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
@@ -81,7 +146,7 @@ pub fn gen_pyo3_data_enum_with_mapper(
     // Generate a per-variant constructor for each data-carrying struct variant when a mapper
     // is provided (the mapper maps field types into the binding signature).
     let variant_constructors_content = match mapper {
-        Some(m) => gen_pyo3_enum_variant_constructors_content(enum_def, &core_path, m),
+        Some(m) => gen_pyo3_enum_variant_constructors_content(enum_def, &core_path, m, coercible_dto_names),
         None => String::new(),
     };
 
@@ -273,7 +338,12 @@ pub(crate) fn variant_field_init(
 /// directly via [`variant_field_init`]. Every generated constructor collides with the variant
 /// accessor of the same snake_case name, so they always use the `_factory_<name>` Rust ident plus
 /// `#[pyo3(name = "<name>")]`.
-fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &str, mapper: &dyn TypeMapper) -> String {
+fn gen_pyo3_enum_variant_constructors_content(
+    enum_def: &EnumDef,
+    core_path: &str,
+    mapper: &dyn TypeMapper,
+    coercible_dto_names: &AHashSet<&str>,
+) -> String {
     use crate::codegen::shared::{function_params, function_sig_defaults, is_promoted_optional};
 
     let constructors = collect_variant_constructors(enum_def);
@@ -281,11 +351,31 @@ fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &st
         return String::new();
     }
 
-    let map_fn = |ty: &TypeRef| mapper.map_type(ty);
+    // True for a payload field whose `Named` type is a dataclass-backed config DTO: its public
+    // wrapper is a `@dataclass`/`dict`, not the compiled `#[pyclass]`, so it must be coerced.
+    let is_coercible = |ty: &TypeRef| dto_named_name(ty).is_some_and(|n| coercible_dto_names.contains(n));
+
+    // A coercible field accepts `&Bound<PyAny>` (the public wrapper or a dict) rather than the
+    // compiled type. `function_params_vec` wraps optional/promoted params in `Option<…>`.
+    let map_fn = |ty: &TypeRef| {
+        if is_coercible(ty) {
+            "&Bound<'_, pyo3::types::PyAny>".to_string()
+        } else {
+            mapper.map_type(ty)
+        }
+    };
 
     let mut out = String::new();
     for ctor in &constructors {
+        // A constructor with any coercible payload calls the fallible `__alef_coerce_dto` helper,
+        // so it takes `py` and returns `PyResult<Self>`.
+        let needs_coercion = ctor.params.iter().any(|p| is_coercible(&p.ty));
         let params_str = function_params(&ctor.params, &map_fn);
+        let params_str = if needs_coercion {
+            format!("py: Python<'_>, {params_str}")
+        } else {
+            params_str
+        };
 
         // Build each `field: <expr>` init inline. `field: field` collapses to the shorthand `field`
         // for an unchanged passthrough.
@@ -294,8 +384,13 @@ fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &st
             .iter()
             .enumerate()
             .map(|(idx, p)| {
-                // pyo3 does not remap primitives, so no numeric cast back to the core type.
-                let expr = variant_field_init(p, is_promoted_optional(&ctor.params, idx), false, false);
+                let promoted = is_promoted_optional(&ctor.params, idx);
+                let expr = if is_coercible(&p.ty) {
+                    coercible_field_init(&p.name, p.optional, promoted)
+                } else {
+                    // pyo3 does not remap primitives, so no numeric cast back to the core type.
+                    variant_field_init(p, promoted, false, false)
+                };
                 if expr == p.name {
                     p.name.clone()
                 } else {
@@ -337,6 +432,7 @@ fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &st
                 signature_defaults => signature_defaults,
                 rust_fn_name => rust_fn_name,
                 params => params_str,
+                returns_result => needs_coercion,
                 body_lines => body_lines,
             },
         ));
@@ -344,6 +440,25 @@ fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &st
     }
 
     out.trim_end().to_string()
+}
+
+/// Build the struct-literal init expression for a coercible config-DTO payload field. The param
+/// arrives as `&Bound<PyAny>` (or `Option<&Bound<PyAny>>` when optional/promoted) and is routed
+/// through `__alef_coerce_dto`, whose target core type is resolved by inference from the variant
+/// literal slot — so the core type path is never named (non-re-exported core DTOs work unchanged).
+///
+/// `promoted` is true when the binding signature widened a non-optional core field to `Option<T>`
+/// because it follows an optional param; the coerced value is unwrapped to the field default.
+fn coercible_field_init(name: &str, optional: bool, promoted: bool) -> String {
+    if optional {
+        // Genuinely-optional core field: keep the `Option`, coercing the inner value when present.
+        format!("{name}.map(|v| __alef_coerce_dto(py, v)).transpose()?")
+    } else if promoted {
+        // Core field is `T` but the param arrived as `Option<&Bound>`: coerce then unwrap to default.
+        format!("{name}.map(|v| __alef_coerce_dto(py, v)).transpose()?.unwrap_or_default()")
+    } else {
+        format!("__alef_coerce_dto(py, {name})?")
+    }
 }
 
 /// Convert a Rust PascalCase variant name to `UPPER_SNAKE_CASE` for PyO3 `#[pyo3(name = "...")]`.

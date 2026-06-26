@@ -8,8 +8,12 @@
     #[pyo3(signature = ({{ signature_defaults }}))]
 {%- endif %}
     #[staticmethod]
-    pub fn {{ rust_fn_name }}({{ params }}) -> Self {
+    pub fn {{ rust_fn_name }}({{ params }}) -> {% if returns_result %}PyResult<Self>{% else %}Self{% endif %} {
 {%- for body_line in body_lines %}
+{%- if returns_result %}
+        Ok({{ body_line }})
+{%- else %}
         {{ body_line }}
+{%- endif %}
 {%- endfor %}
     }

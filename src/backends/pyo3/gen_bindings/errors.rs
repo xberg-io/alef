@@ -4,8 +4,36 @@ use crate::codegen::generators;
 use crate::codegen::shared::binding_fields;
 use crate::core::config::{DtoConfig, PythonDtoStyle};
 use crate::core::hash::{self, CommentStyle};
-use crate::core::ir::ApiSurface;
+use crate::core::ir::{ApiSurface, TypeDef};
 use ahash::AHashSet;
+
+/// True when `typ` is rendered as a pure-Python dataclass / TypedDict in `options.py` rather than
+/// being re-exported from the native module. For such types the public name resolves to the
+/// wrapper (a `@dataclass` or a plain `dict`), NOT the compiled `#[pyclass]`. This is the single
+/// source of truth for the config-vs-native-return split: `gen_init_py` uses it to route imports,
+/// and the data-enum variant-constructor generator uses it to decide which `Named` payload fields
+/// must be coerced (a native-return type stays compiled, so no coercion is needed or wanted).
+pub(super) fn is_dataclass_backed_config(
+    typ: &TypeDef,
+    output_style: PythonDtoStyle,
+    reexported_names: &AHashSet<&str>,
+) -> bool {
+    if typ.is_trait || typ.binding_excluded {
+        return false;
+    }
+    if typ.name.ends_with("Builder") || typ.name.ends_with("Update") {
+        return false;
+    }
+    if !typ.has_default || typ.fields.is_empty() {
+        return false;
+    }
+    // A `has_default` type that is also a return type is handed back to callers as an
+    // attribute-access pyclass and re-exported from the native module (unless the structural
+    // TypedDict style applies and it is not in `reexported_types`).
+    let is_native_return = typ.is_return_type
+        && (output_style != PythonDtoStyle::TypedDict || reexported_names.contains(typ.name.as_str()));
+    !is_native_return
+}
 
 fn render_relative_import(module_name: &str, imports: &[String]) -> String {
     crate::backends::pyo3::template_env::render(
@@ -148,12 +176,10 @@ pub(super) fn gen_init_py(
             continue;
         }
         if typ.has_default && !typ.name.ends_with("Update") && !typ.fields.is_empty() {
-            let is_native_return = typ.is_return_type
-                && (output_style != PythonDtoStyle::TypedDict || reexported_names.contains(typ.name.as_str()));
-            if is_native_return {
-                native_return_types.push(typ.name.clone());
-            } else {
+            if is_dataclass_backed_config(typ, output_style, &reexported_names) {
                 config_types.push(typ.name.clone());
+            } else {
+                native_return_types.push(typ.name.clone());
             }
             // Collect enum references regardless of whether the type is a return type or config
             // type — some enums are shared across both categories.
