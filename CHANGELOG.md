@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Trait-callback host returns accept the native binding object across the dynamic backends
+  (pyo3, magnus, php, extendr).** Host-implementable trait callbacks already received native
+  arguments (#142/#143), but the return value was still marshalled through a mapping/JSON path that
+  rejected the binding's native result object even though the generated host interface advertised
+  that type. Each dynamic backend's return path now tries the native object first
+  (`extract::<Binding>()` / `TryConvert` / `FromZval` / `ExternalPtr` unwrap) and converts via
+  `From<Binding> for Core`, falling back to the existing dict/array/hash/JSON path. The native path
+  is gated on the binding→core conversion actually being generated (`convertible_types`), and extendr
+  additionally gates on extendr-representability so non-representable rich types keep the JSON path. A
+  shared `native_marshalled_struct_returns` classifier mirrors the param-side allowlist. On pyo3 the
+  Protocol method also changes from `async def` to `def`, matching the `spawn_blocking` bridge that
+  never awaited it. Resolves #153.
+
 ### Fixed
 
 - **Per-variant constructors now box `Box<T>` fields.** When a data enum's struct variant has a
