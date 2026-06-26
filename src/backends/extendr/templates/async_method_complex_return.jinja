@@ -32,6 +32,14 @@ tokio::task::spawn_blocking(move || {
     match result {
         Err(_) => Err({{ failed_method_error }}),
         Ok(val) => {
+{%- if native_return_binding %}
+            // Native-object return: unwrap the host's native `ExternalPtr` and convert via
+            // `From<{{ native_return_binding }}>` (mirrors the options decoder); fall through to the
+            // JSON-string path when the host returned a string instead.
+            if let Ok(ext) = extendr_api::prelude::ExternalPtr::<{{ native_return_binding }}>::try_from(&val) {
+                return Ok((*ext).clone().into());
+            }
+{%- endif %}
             let payload = val.as_str().unwrap_or("");
             serde_json::from_str::<{{ return_type }}>(payload).map_err(|_| {{ deserialization_error }})
         }

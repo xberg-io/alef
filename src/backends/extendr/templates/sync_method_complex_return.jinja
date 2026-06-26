@@ -58,6 +58,18 @@ match result {
 {% endif %}
     }
     Ok(val) => {
+{%- if native_return_binding %}
+        // Native-object return: unwrap the host's native `ExternalPtr` and convert via
+        // `From<{{ native_return_binding }}>` (mirrors the options decoder). Falls through to the
+        // JSON-string path below when the host instead returned a string (e.g. jsonlite::toJSON).
+        if let Ok(ext) = extendr_api::prelude::ExternalPtr::<{{ native_return_binding }}>::try_from(&val) {
+{%- if has_error %}
+            return Ok((*ext).clone().into());
+{%- else %}
+            return (*ext).clone().into();
+{%- endif %}
+        }
+{%- endif %}
         let payload = val.as_str().unwrap_or("");
         match serde_json::from_str::<{{ return_type }}>(payload) {
 {% if has_error %}

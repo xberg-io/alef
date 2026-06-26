@@ -12,7 +12,9 @@
 #'
 #' Each method receiving a known struct argument is handed the native binding object
 #' (an external pointer with `$field` accessors), not a JSON string. Other arguments
-#' (enums, opaque handles) arrive as JSON strings; return values must be JSON strings.
+#' (enums, opaque handles) arrive as JSON strings. A method may return either the native
+#' binding object (an external pointer, for representable struct return types) or a
+#' JSON-encoded string (e.g. via `jsonlite::toJSON`); other return shapes use a JSON string.
 #'
 {% endif -%}
 #' @param r_backend Named list of R closures implementing the trait surface.

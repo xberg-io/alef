@@ -85,6 +85,7 @@ fn generator_with(struct_params: &[&str]) -> ExtendrBridgeGenerator {
         type_paths: HashMap::new(),
         error_type: "SampleError".to_string(),
         struct_param_types: struct_params.iter().map(|s| s.to_string()).collect(),
+        struct_return_types: std::collections::HashSet::new(),
     }
 }
 
@@ -164,6 +165,35 @@ fn sync_struct_param_marshalled_as_native_r_object_not_json_string() {
     assert!(
         !body.contains("serde_json::to_string(opts)"),
         "struct param must NOT be serialized to a JSON string:\n{body}"
+    );
+}
+
+/// Return-side counterpart: a method returning a native-marshalled struct must first try to unwrap
+/// the host's native `ExternalPtr` and convert via `From<Binding>` (mirroring the options decoder),
+/// falling back to the JSON-string path. See issue #153.
+#[test]
+fn native_struct_return_unwraps_external_ptr_before_json() {
+    let generator = ExtendrBridgeGenerator {
+        core_import: "sample_core".to_string(),
+        type_paths: HashMap::new(),
+        error_type: "SampleError".to_string(),
+        struct_param_types: std::collections::HashSet::new(),
+        struct_return_types: std::collections::HashSet::from(["Doc".to_string()]),
+    };
+    let trait_def = greeter_trait_with(vec![]);
+    let bridge_cfg = TraitBridgeConfig::default();
+    let spec = plugin_spec(&trait_def, &bridge_cfg);
+
+    let m = method("build", vec![], TypeRef::Named("Doc".to_string()), false);
+    let body = generator.gen_sync_method_body(&m, &spec);
+
+    assert!(
+        body.contains("ExternalPtr::<Doc>::try_from(&val)") && body.contains("(*ext).clone().into()"),
+        "native struct return must unwrap the ExternalPtr and convert via From<Doc>:\n{body}"
+    );
+    assert!(
+        body.contains("serde_json::from_str"),
+        "the JSON-string fallback must remain:\n{body}"
     );
 }
 

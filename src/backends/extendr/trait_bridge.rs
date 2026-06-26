@@ -29,6 +29,11 @@ pub struct ExtendrBridgeGenerator {
     /// JSON string. Enums, opaque/handle types, extendr-incompatible structs, and excluded/unknown
     /// `Named` params are absent and keep their prior JSON-string representation.
     pub struct_param_types: std::collections::HashSet<String>,
+    /// Callback-RETURN type names that get NATIVE-object marshalling — extendr-representable serde
+    /// structs with a generated `From<Binding> for core`. For such a return the bridge first tries
+    /// to unwrap the host's native `ExternalPtr` and convert via `From<Binding>` (mirroring the
+    /// options decoder), falling back to the `as_str()` + serde JSON-string path.
+    pub struct_return_types: std::collections::HashSet<String>,
 }
 
 impl ExtendrBridgeGenerator {
@@ -39,6 +44,17 @@ impl ExtendrBridgeGenerator {
     /// for function return values.
     fn is_native_struct_param(&self, name: &str) -> bool {
         self.struct_param_types.contains(name)
+    }
+
+    /// Binding struct name to unwrap for a native-object return, when the return is a bare `Named`
+    /// struct on the (representability- and conversion-gated) native-marshalled return allowlist.
+    /// The bridge tries `ExternalPtr::<Binding>::try_from(&val)` and converts via `From<Binding>`;
+    /// `None` keeps the JSON-string path.
+    fn native_struct_return<'a>(&self, ty: &'a TypeRef) -> Option<&'a str> {
+        match ty {
+            TypeRef::Named(n) if self.struct_return_types.contains(n) => Some(n.as_str()),
+            _ => None,
+        }
     }
 }
 
@@ -118,6 +134,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 empty_args => empty_args,
                 args_pairs => args_pairs,
                 return_type => ret_ty,
+                native_return_binding => self.native_struct_return(&method.return_type),
                 is_primitive_return => is_primitive_return,
                 missing_method_error => method_error_expr(
                     &spec.error_constructor,
@@ -234,6 +251,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 empty_args => empty_args,
                 args_pairs => args_pairs,
                 return_type => ret_ty,
+                native_return_binding => self.native_struct_return(&method.return_type),
                 missing_method_error => method_error_expr(
                     &spec.error_constructor,
                     name,
@@ -376,6 +394,28 @@ pub(crate) fn native_marshalled_extendr_struct_params(
     out
 }
 
+/// Return-side counterpart to [`native_marshalled_extendr_struct_params`]: struct return types
+/// extendr can unwrap from the host's native `ExternalPtr` and convert to the core type (mirroring
+/// the options decoder). Requires the struct to be extendr-representable as a class AND to have a
+/// generated `From<Binding> for core` (`convertible_types`); otherwise the native unwrap would not
+/// compile and the return keeps the JSON-string path.
+pub(crate) fn native_marshalled_extendr_struct_returns(
+    trait_type: &TypeDef,
+    api: &ApiSurface,
+) -> std::collections::HashSet<String> {
+    let binding_to_core = crate::codegen::conversions::convertible_types(api);
+    let mut out = crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api);
+    out.retain(|name| {
+        binding_to_core.contains(name.as_str())
+            && api
+                .types
+                .iter()
+                .find(|t| &t.name == name)
+                .is_some_and(|t| !t.fields.iter().any(|f| field_is_extendr_incompatible(&f.ty)))
+    });
+    out
+}
+
 /// True if a field type prevents extendr from registering the containing struct as a class —
 /// `Vec<Named>`, `Option<Vec<_>>`, or nested `Vec<Vec<_>>`. Mirrors the
 /// `is_extendr_native_incompatible` check in `gen_bindings` (kept in sync; extendr cannot
@@ -455,11 +495,13 @@ pub fn gen_trait_bridge(
         // the host the binding's native R object (an `ExternalPtr` class env) built via the same
         // `From<core::T>` conversion used for return values.
         let struct_param_types = native_marshalled_extendr_struct_params(trait_type, api);
+        let struct_return_types = native_marshalled_extendr_struct_returns(trait_type, api);
         let generator = ExtendrBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             struct_param_types,
+            struct_return_types,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types
