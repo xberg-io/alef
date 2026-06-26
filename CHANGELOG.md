@@ -9,7 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Trait-callback host returns accept the native binding object across the dynamic backends
+- **Exception handling architecture guide and cross-language pattern documentation.** Added comprehensive
+  `EXCEPTION_HANDLING.md` documenting exception/error handling patterns across all 15 language bindings
+  (Python, Node.js, Ruby, PHP, Go, Java, C#, Elixir, WebAssembly, Dart, Swift, Kotlin Android, R, Zig, C FFI).
+  Covers issue #147 (Python exception class identity), type identity preservation, error code standardization
+  (1000+), and implementation checklists for new bindings. Ensures consistency across polyglot bindings.
+
+- **CI resource optimization guide.** Added `CI_RESOURCE_OPTIMIZATION.md` documenting optimization strategies
+  for large polyglot codebases (300+ grammars) on resource-constrained GitHub-hosted runners. Covers concurrency
+  tuning (CLONE_CONCURRENCY=8, GENERATE_CONCURRENCY=2), sharding across parallel jobs, memory monitoring,
+  and troubleshooting. Resolves exit-code 143 (SIGTERM) resource exhaustion issues.
+
+- **PyO3 exception handling pattern documentation.** Enhanced `src/backends/pyo3/gen_bindings/errors.rs` with
+  detailed cross-language exception handling patterns and core principle that exception class/type identity
+  raised by native code must match the type exposed by public API. Reference for all polyglot backends.
+
+### Trait-callback host returns accept the native binding object across the dynamic backends
   (pyo3, magnus, php, extendr).** Host-implementable trait callbacks already received native
   arguments (#142/#143), but the return value was still marshalled through a mapping/JSON path that
   rejected the binding's native result object even though the generated host interface advertised
