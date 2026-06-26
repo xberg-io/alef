@@ -71,12 +71,25 @@ pub fn gen_trait_bridge(
         // for return values / fields) instead of a JSON string.
         let struct_param_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
+        // Return-side counterpart: a host may return the binding's native Ruby object. The binding
+        // struct's `TryConvert` accepts the native wrapped object (and a Hash/JSON via `to_json`),
+        // and `From<Binding> for core` converts it. Gate on the binding→core conversion actually
+        // being generated for the type (`convertible_types`) — unlike pyo3's always-emitted
+        // `From<Binding>`, magnus generates it conditionally; for a type that does not qualify, keep
+        // the proven `serde_json::from_str`-into-core path so the bridge always compiles.
+        let binding_to_core = crate::codegen::conversions::convertible_types(api);
+        let struct_return_types: std::collections::HashSet<String> =
+            crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api)
+                .into_iter()
+                .filter(|name| binding_to_core.contains(name.as_str()))
+                .collect();
         let generator = MagnusBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
             struct_param_types,
+            struct_return_types,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types
@@ -136,6 +149,12 @@ struct MagnusBridgeGenerator {
     /// string. Enums, opaque/handle types, and excluded/unknown `Named` params are absent and keep
     /// their prior JSON-string representation.
     struct_param_types: std::collections::HashSet<String>,
+    /// Callback-RETURN type names that get NATIVE-object marshalling — known serde structs returned
+    /// directly by a method (per the shared `native_marshalled_struct_returns` rule). For such a
+    /// return the bridge routes the value through the binding struct's `TryConvert` (which accepts
+    /// the native wrapped object as well as a Hash/JSON via `to_json`) and converts via
+    /// `From<Binding> for core`, instead of `serde_json::from_str` into core directly.
+    struct_return_types: std::collections::HashSet<String>,
 }
 
 impl MagnusBridgeGenerator {
@@ -482,6 +501,7 @@ impl MagnusBridgeGenerator {
             minijinja::context! {
                 has_error => has_error,
                 needs_json => self.needs_json_marshalling(&method.return_type),
+                native_return_binding => self.native_struct_return(&method.return_type),
                 indent => indent,
                 rust_ty => rust_ty,
                 err_non_json => err_non_json,
@@ -489,6 +509,17 @@ impl MagnusBridgeGenerator {
                 err_convert => err_convert,
             },
         )
+    }
+
+    /// Binding struct name to route a native-object return through, when the return is a bare
+    /// `Named` struct on the native-marshalled return allowlist. The binding struct's `TryConvert`
+    /// accepts the host's native wrapped object (and a Hash/JSON via `to_json`); `From<Binding> for
+    /// core` then yields the core value. `None` keeps the `serde_json::from_str`-into-core path.
+    fn native_struct_return<'a>(&self, ty: &'a TypeRef) -> Option<&'a str> {
+        match ty {
+            TypeRef::Named(n) if self.struct_return_types.contains(n) => Some(n.as_str()),
+            _ => None,
+        }
     }
 
     /// True when a `Named(name)` param should be handed to the host as the binding's native Ruby

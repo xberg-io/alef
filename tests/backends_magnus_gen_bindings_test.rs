@@ -1538,6 +1538,43 @@ mod trait_bridge {
         );
     }
 
+    /// `NodeContext` is a serde struct in the API, so it is native-marshalled. A method returning
+    /// it must route the host return through the binding struct's `TryConvert` (which accepts the
+    /// host's native wrapped object as well as a Hash/JSON via `to_json`) and `Into::into` for the
+    /// core type — not `serde_json::from_str` into core directly. Return-side counterpart to the
+    /// native-arg marshalling. See issue #153.
+    #[test]
+    fn test_plugin_bridge_native_struct_return_routes_through_binding_tryconvert() {
+        let trait_def = make_trait_def(
+            "OcrBackend",
+            vec![make_method(
+                "build",
+                TypeRef::Named("NodeContext".to_string()),
+                true,
+                false,
+            )],
+        );
+        let cfg = make_plugin_bridge_cfg("OcrBackend");
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "sample_crate",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        )
+        .expect("trait bridge generation should succeed");
+
+        assert!(
+            code.contains("<NodeContext as magnus::TryConvert>::try_convert(val)") && code.contains(".map(Into::into)"),
+            "native struct return must route through the binding TryConvert + Into::into:\n{code}"
+        );
+        assert!(
+            !code.contains("serde_json::from_str::<sample_crate::NodeContext>"),
+            "native struct return must not deserialize JSON into core directly:\n{code}"
+        );
+    }
+
     #[test]
     fn test_plugin_bridge_emits_registration_fn() {
         let trait_def = make_trait_def(
