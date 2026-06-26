@@ -109,7 +109,21 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef) {
 fn gen_data_enum_variant_constructor_stubs(lines: &mut Vec<String>, enum_def: &EnumDef) {
     use crate::codegen::generators::collect_variant_constructors;
 
-    for ctor in collect_variant_constructors(enum_def) {
+    let ctors = collect_variant_constructors(enum_def);
+
+    // A per-variant factory method named after a builtin container (e.g. a `List` variant → `def
+    // list(...)`) shadows that builtin within the class body, so a sibling annotation like
+    // `entries: list[MetadataEntry]` resolves to the factory rather than `builtins.list` and mypy
+    // rejects it (`Function ... is not valid as a type`). Qualify the shadowed builtins as
+    // `builtins.<name>` in the factory annotations to break the cycle.
+    const SHADOWABLE_BUILTINS: &[&str] = &["list", "dict", "set", "tuple", "frozenset", "type"];
+    let shadowed: Vec<&str> = SHADOWABLE_BUILTINS
+        .iter()
+        .copied()
+        .filter(|b| ctors.iter().any(|c| c.snake_name == *b))
+        .collect();
+
+    for ctor in &ctors {
         let params: Vec<String> = ctor
             .params
             .iter()
@@ -121,7 +135,10 @@ fn gen_data_enum_variant_constructor_stubs(lines: &mut Vec<String>, enum_def: &E
                 // with a `= None` default. Mirroring it keeps the stub's required/optional split and
                 // defaults identical to the runtime constructor signature.
                 let optional = p.optional || crate::codegen::shared::is_promoted_optional(&ctor.params, idx);
-                let py_type = python_type(&p.ty);
+                let mut py_type = python_type(&p.ty);
+                for builtin in &shadowed {
+                    py_type = py_type.replace(&format!("{builtin}["), &format!("builtins.{builtin}["));
+                }
                 let py_type = if optional && !py_type.contains("| None") {
                     format!("{py_type} | None")
                 } else {

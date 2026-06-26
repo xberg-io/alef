@@ -124,6 +124,38 @@ fn maps_named_dto_field_to_its_type() {
 }
 
 #[test]
+fn qualifies_builtin_shadowed_by_a_variant_factory_name() {
+    // A `List` variant emits `def list(...)`, which shadows the builtin `list` within the class
+    // body — so a sibling factory annotated `list[MetadataEntry]` would resolve to the factory and
+    // mypy rejects it (`Function ... is not valid as a type`). The shadowed builtin container must be
+    // qualified as `builtins.list[...]` in the factory annotations.
+    let def = enum_def(
+        "NodeContent",
+        vec![
+            variant("List", vec![field("ordered", TypeRef::String)]),
+            variant(
+                "MetadataBlock",
+                vec![field(
+                    "entries",
+                    TypeRef::Vec(Box::new(TypeRef::Named("MetadataEntry".to_string()))),
+                )],
+            ),
+        ],
+    );
+
+    let stub = gen_enum_stub(&def, false);
+
+    assert!(
+        stub.contains("    @staticmethod\n    def list(ordered: str) -> NodeContent: ..."),
+        "{stub}"
+    );
+    assert!(
+        stub.contains("def metadata_block(entries: builtins.list[MetadataEntry]) -> NodeContent: ..."),
+        "builtin shadowed by the `list` factory must be qualified as builtins.list: {stub}"
+    );
+}
+
+#[test]
 fn skips_unit_tuple_excluded_and_sanitized_variants() {
     let mut tuple_variant = variant("Pair", vec![field("_0", TypeRef::String)]);
     tuple_variant.is_tuple = true;

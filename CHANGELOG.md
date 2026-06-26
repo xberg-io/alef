@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **pyo3 (Python): qualify builtin containers shadowed by a data-enum variant factory name.**
+  A data enum with a `List` variant emits a `def list(...)` `@staticmethod` factory, which shadows the
+  builtin `list` within the class body — so a sibling factory annotated `entries: list[MetadataEntry]`
+  resolves to the factory and mypy rejects the `.pyi`
+  (`Function ... is not valid as a type [valid-type]`). Factory annotations now qualify a shadowed
+  builtin container (`list`/`dict`/`set`/`tuple`/`frozenset`/`type`) as `builtins.<name>[...]`, and the
+  stub emits `import builtins` when referenced.
+
 - **java: promote all integer FFM `FunctionDescriptor` layouts to `JAVA_LONG` for JBR Win64 Panama
   compat.** JetBrains Runtime's Panama linker casts every descriptor layout to `OfLong` internally, so
   any sub-64-bit integer layout (`JAVA_BYTE`/`JAVA_SHORT`/`JAVA_INT`) threw

@@ -378,6 +378,13 @@ pub fn gen_stubs(
         .filter(|name| contains_word(&body_joined, name))
         .collect();
     let mut lines = header_lines;
+    // A data-enum factory whose name shadows a builtin container forces its annotations to be
+    // written as `builtins.<name>[...]` (see `gen_data_enum_variant_constructor_stubs`), which needs
+    // an explicit `import builtins`. Emit it only when actually referenced so F401 stays clean.
+    if contains_word(&body_joined, "builtins") {
+        lines.push("import builtins".to_string());
+        lines.push("".to_string());
+    }
     if !used_typing.is_empty() {
         lines.push(format!("from typing import {}", used_typing.join(", ")));
         lines.push("".to_string());
