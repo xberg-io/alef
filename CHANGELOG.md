@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   separate request/config DTOs can be generated correctly. Structured JSON args can also embed
   `$mock_url`, which is replaced at test runtime with the fixture's mock-server URL.
 
+- **e2e: accept fixture-level args, config, and route mocks in validation.**
+  The embedded fixture schema now matches Alef's fixture model for per-fixture argument overrides,
+  top-level `config`, `mock_response`, `setup`, `env`, and HTTP fixtures. Fixture loading mirrors
+  top-level `config` into `input.config` before generation, and semantic missing-field validation now
+  respects fixture-level `args`.
+
 ## [0.29.0] - 2026-06-26
 
 ### Fixed

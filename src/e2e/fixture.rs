@@ -627,12 +627,22 @@ fn load_fixtures_recursive(base: &Path, dir: &Path, fixtures: &mut Vec<Fixture>)
                 .with_context(|| format!("failed to read fixture: {}", path.display()))?;
             let relative = path.strip_prefix(base).unwrap_or(&path).to_string_lossy().to_string();
 
-            // Try parsing as array first, then as single fixture
+            // Try parsing as array first, then as single fixture. Normalize at the
+            // raw JSON level so fixture-level helper fields that are not stored on
+            // `Fixture` can still influence generated argument input.
             let parsed: Vec<Fixture> = if content.trim_start().starts_with('[') {
-                serde_json::from_str(&content)
+                let values: Vec<serde_json::Value> = serde_json::from_str(&content)
+                    .with_context(|| format!("failed to parse fixture array: {}", path.display()))?;
+                values
+                    .into_iter()
+                    .map(normalize_fixture_value)
+                    .map(serde_json::from_value)
+                    .collect::<std::result::Result<Vec<_>, _>>()
                     .with_context(|| format!("failed to parse fixture array: {}", path.display()))?
             } else {
-                let single: Fixture = serde_json::from_str(&content)
+                let value: serde_json::Value = serde_json::from_str(&content)
+                    .with_context(|| format!("failed to parse fixture: {}", path.display()))?;
+                let single: Fixture = serde_json::from_value(normalize_fixture_value(value))
                     .with_context(|| format!("failed to parse fixture: {}", path.display()))?;
                 vec![single]
             };
@@ -655,6 +665,23 @@ fn load_fixtures_recursive(base: &Path, dir: &Path, fixtures: &mut Vec<Fixture>)
         }
     }
     Ok(())
+}
+
+fn normalize_fixture_value(mut value: serde_json::Value) -> serde_json::Value {
+    let Some(object) = value.as_object_mut() else {
+        return value;
+    };
+
+    if let Some(config) = object.get("config").cloned() {
+        let input = object
+            .entry("input")
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        if let Some(input_object) = input.as_object_mut() {
+            input_object.entry("config".to_string()).or_insert(config);
+        }
+    }
+
+    value
 }
 
 /// Group fixtures by their resolved category.
@@ -745,6 +772,42 @@ mod tests {
         let fixture: Fixture = serde_json::from_str(json).unwrap();
         assert!(!fixture.needs_mock_server());
         assert!(!fixture.is_streaming_mock());
+    }
+
+    #[test]
+    fn normalize_fixture_value_copies_top_level_config_into_input() {
+        let value = serde_json::json!({
+            "id": "configured_call",
+            "description": "Configured call",
+            "input": {"kind": "uri", "uri": "doc.txt"},
+            "config": {"output_format": "markdown"}
+        });
+
+        let normalized = normalize_fixture_value(value);
+        assert_eq!(
+            normalized.pointer("/input/config/output_format"),
+            Some(&serde_json::json!("markdown"))
+        );
+    }
+
+    #[test]
+    fn normalize_fixture_value_preserves_explicit_input_config() {
+        let value = serde_json::json!({
+            "id": "configured_call",
+            "description": "Configured call",
+            "input": {
+                "kind": "uri",
+                "uri": "doc.txt",
+                "config": {"output_format": "html"}
+            },
+            "config": {"output_format": "markdown"}
+        });
+
+        let normalized = normalize_fixture_value(value);
+        assert_eq!(
+            normalized.pointer("/input/config/output_format"),
+            Some(&serde_json::json!("html"))
+        );
     }
 
     #[test]

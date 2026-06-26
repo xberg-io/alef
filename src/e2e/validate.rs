@@ -134,7 +134,7 @@ pub fn validate_fixtures_semantic(
                 });
             }
         }
-        for arg in &call_config.args {
+        for arg in fixture.resolved_args(call_config) {
             if arg.optional {
                 continue;
             }
@@ -618,6 +618,64 @@ mod tests {
                 .iter()
                 .any(|e| e.message.contains("missing required input field 'input'")),
             "bare 'input' field should not produce a false-positive missing-field warning; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_fixture_args_override_missing_field_validation() {
+        use crate::core::config::e2e::ArgMapping;
+
+        let fixture = Fixture {
+            id: "url_batch".to_string(),
+            category: None,
+            description: "URL batch".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            setup: Vec::new(),
+            call: Some("extract_batch".to_string()),
+            input: serde_json::json!({"extract_inputs": []}),
+            mock_response: None,
+            visitor: None,
+            args: vec![ArgMapping {
+                name: "inputs".to_string(),
+                field: "input.extract_inputs".to_string(),
+                arg_type: "json_object".to_string(),
+                optional: false,
+                owned: true,
+                element_type: Some("ExtractInput".to_string()),
+                go_type: Some("ExtractInput".to_string()),
+                vec_inner_is_ref: false,
+                trait_name: None,
+            }],
+            assertion_recipes: vec![],
+            assertions: vec![],
+            source: "url/url_batch.json".to_string(),
+            http: None,
+        };
+        let call = CallConfig {
+            function: "extract_batch".to_string(),
+            args: vec![ArgMapping {
+                name: "inputs".to_string(),
+                field: "input.inputs".to_string(),
+                arg_type: "json_object".to_string(),
+                optional: false,
+                owned: true,
+                element_type: Some("ExtractInput".to_string()),
+                go_type: Some("ExtractInput".to_string()),
+                vec_inner_is_ref: false,
+                trait_name: None,
+            }],
+            ..Default::default()
+        };
+        let config = make_e2e_config(vec![("extract_batch", call)]);
+        let errors = validate_fixtures_semantic(&[fixture], &config, &["rust".to_string()]);
+        assert!(
+            !errors
+                .iter()
+                .any(|e| e.message.contains("missing required input field 'inputs'")),
+            "fixture-level args should replace call args for missing-field validation; got: {:?}",
             errors
         );
     }

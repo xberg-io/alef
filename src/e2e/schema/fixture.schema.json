@@ -28,6 +28,12 @@
           "description": "Optional tags for filtering"
         },
         "skip": { "$ref": "#/$defs/skip" },
+        "env": { "$ref": "#/$defs/env" },
+        "setup": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/setup_call" },
+          "description": "Setup calls executed before the main call"
+        },
         "call": {
           "type": "string",
           "description": "Named call config to use. References [e2e.calls.<name>]. Defaults to [e2e.call] when omitted"
@@ -35,6 +41,19 @@
         "input": {
           "type": "object",
           "description": "Input data passed to the function under test. Fields map to args via [e2e.call.args] config"
+        },
+        "config": {
+          "description": "Optional fixture-level config mirrored into input.config before code generation"
+        },
+        "mock_response": { "$ref": "#/$defs/mock_response" },
+        "visitor": {
+          "type": "object",
+          "description": "Visitor callback specification for visitor-pattern tests"
+        },
+        "args": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/arg_mapping" },
+          "description": "Fixture-level argument mappings. When present, overrides the resolved call args"
         },
         "assertion_recipes": {
           "type": "array",
@@ -45,7 +64,62 @@
           "type": "array",
           "items": { "$ref": "#/$defs/assertion" },
           "description": "List of assertions to check on the result"
+        },
+        "http": {
+          "type": "object",
+          "description": "HTTP server fixture specification"
         }
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "api_key_var": { "type": "string" }
+      }
+    },
+    "setup_call": {
+      "type": "object",
+      "required": ["call"],
+      "additionalProperties": false,
+      "properties": {
+        "call": { "type": "string" },
+        "input": {}
+      }
+    },
+    "mock_response": {
+      "type": "object",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "body": {},
+        "stream_chunks": {
+          "type": "array",
+          "items": {}
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "arg_mapping": {
+      "type": "object",
+      "required": ["name", "field"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "field": { "type": "string" },
+        "type": { "type": "string" },
+        "arg_type": { "type": "string" },
+        "optional": { "type": "boolean" },
+        "owned": { "type": "boolean" },
+        "element_type": { "type": "string" },
+        "go_type": { "type": "string" },
+        "vec_inner_is_ref": { "type": "boolean" },
+        "trait_name": { "type": "string" },
+        "trait": { "type": "string" }
       }
     },
     "skip": {
@@ -109,7 +183,8 @@
           "type": "string",
           "description": "Assertion check type for the method result (equals, is_true, is_false, greater_than_or_equal, count_min)"
         },
-        "args": { "type": "object", "description": "Arguments to pass to the method call" }
+        "args": { "description": "Arguments to pass to the method call" },
+        "return_type": { "type": "string", "description": "Return type hint for generated assertion code" }
       }
     }
   }
