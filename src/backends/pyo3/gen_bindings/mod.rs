@@ -603,38 +603,15 @@ impl Backend for Pyo3Backend {
             opaque_types.is_empty(),
         );
 
-        // Classify which config-DTO types are dataclass-backed: their public name resolves to a
-        // `@dataclass`/`dict` (via options.py), not the compiled `#[pyclass]`. Enum-variant payload
-        // fields of these types must accept the public wrapper or a dict — coerced into the core
-        // type — for parity with struct-field `_to_rust_*` coercion. Native-return types stay
-        // compiled and are left untouched. Same source of truth as `gen_init_py`'s import routing.
-        let dto_output_style = config.dto.python_output_style();
-        let reexported_dto_names: ahash::AHashSet<&str> = config
-            .python
-            .as_ref()
-            .map(|p| p.reexported_types.iter().map(String::as_str).collect())
-            .unwrap_or_default();
-        let coercible_dto_names: ahash::AHashSet<&str> = api
-            .types
-            .iter()
-            .filter(|t| errors::is_dataclass_backed_config(t, dto_output_style, &reexported_dto_names))
-            .map(|t| t.name.as_str())
-            .collect();
-        // Emit the runtime coercion helper once when any data-enum variant constructor needs it
-        // (gated on serde availability — the helper deserializes the coerced JSON into the core type),
-        // followed by the per-DTO `__ALEF_WIRE_*` rename-schema consts that give the helper full
-        // serde-rename fidelity (handling `#[serde(rename)]`/`#[serde(rename_all)]` and nesting).
-        if has_serde
-            && api
-                .enums
-                .iter()
-                .any(|e| generators::data_enum_needs_dto_coercion(e, &coercible_dto_names))
-        {
-            builder.add_item(generators::PYO3_DTO_COERCE_HELPER);
-            let wire_schema_consts = wire_schema::gen_wire_schema_consts(api, &coercible_dto_names);
-            if !wire_schema_consts.is_empty() {
-                builder.add_item(&wire_schema_consts);
-            }
+        // Classify which config-DTO types are dataclass-backed (their public name is a
+        // `@dataclass`/`dict`, not the compiled `#[pyclass]`) so enum-variant payloads of those
+        // types are coerced rather than required as compiled instances. Then emit the runtime
+        // coercion helper plus the per-DTO `__ALEF_WIRE_*` rename-schema consts (both live in
+        // `wire_schema`). `coercible_dto_names` is reused below to drive the variant constructors.
+        let coercible_dto_names = wire_schema::coercible_dto_names(api, config);
+        let coercion_section = wire_schema::emit_dto_coercion_section(api, has_serde, &coercible_dto_names);
+        if !coercion_section.is_empty() {
+            builder.add_item(&coercion_section);
         }
 
         for e in &api.enums {

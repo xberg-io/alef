@@ -9,13 +9,54 @@
 //! same single source of truth the Python `_to_rust_*` converters use) and recurses through nested
 //! DTOs, sequences, maps, and optionals so renamed fields at any depth survive the round-trip.
 
+use super::errors::is_dataclass_backed_config;
 use crate::codegen::generators::{
-    coercible_payload, collect_variant_constructors, enum_has_data_variants, pyo3_wire_schema_const_name,
+    PYO3_DTO_COERCE_HELPER, coercible_payload, collect_variant_constructors, data_enum_needs_dto_coercion,
+    enum_has_data_variants, pyo3_wire_schema_const_name,
 };
 use crate::codegen::naming::wire_field_name;
 use crate::codegen::shared::binding_fields;
+use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, TypeDef};
 use ahash::{AHashMap, AHashSet};
+
+/// Classify the dataclass-backed config-DTO type names: their public name resolves to a
+/// `@dataclass`/`dict` (via `options.py`), not the compiled `#[pyclass]`. Enum-variant payload
+/// fields of these types must accept the public wrapper or a dict — coerced into the core type —
+/// for parity with struct-field `_to_rust_*` coercion. Native-return types stay compiled and are
+/// left untouched. Same source of truth as `gen_init_py`'s import routing.
+pub(super) fn coercible_dto_names<'a>(api: &'a ApiSurface, config: &ResolvedCrateConfig) -> AHashSet<&'a str> {
+    let output_style = config.dto.python_output_style();
+    let reexported: AHashSet<&str> = config
+        .python
+        .as_ref()
+        .map(|p| p.reexported_types.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    api.types
+        .iter()
+        .filter(|t| is_dataclass_backed_config(t, output_style, &reexported))
+        .map(|t| t.name.as_str())
+        .collect()
+}
+
+/// Emit the data-enum DTO-coercion section for the generated pyo3 module: the runtime coercion
+/// helper ([`PYO3_DTO_COERCE_HELPER`]) followed by the per-DTO `__ALEF_WIRE_*` rename-schema consts.
+/// Returns an empty string when no data-enum variant constructor needs coercion (or `serde` is
+/// unavailable — the helper deserializes the coerced JSON into the core type). The helper and the
+/// schema consts are joined the same way `RustFileBuilder` joins items (`"\n\n"`), so emitting this
+/// as a single item is byte-identical to emitting them separately.
+pub(super) fn emit_dto_coercion_section(api: &ApiSurface, has_serde: bool, coercible: &AHashSet<&str>) -> String {
+    let needed = has_serde && api.enums.iter().any(|e| data_enum_needs_dto_coercion(e, coercible));
+    if !needed {
+        return String::new();
+    }
+    let schema_consts = gen_wire_schema_consts(api, coercible);
+    if schema_consts.is_empty() {
+        PYO3_DTO_COERCE_HELPER.to_string()
+    } else {
+        format!("{PYO3_DTO_COERCE_HELPER}\n\n{schema_consts}")
+    }
+}
 
 /// One emitted `__AlefAlias` row.
 struct AliasEntry {
