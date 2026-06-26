@@ -5,7 +5,7 @@ mod capsule_methods;
 mod cfg_fields;
 mod config;
 mod config_opaque;
-mod constructors;
+pub(in crate::backends::pyo3) mod constructors;
 pub mod enums;
 pub mod errors;
 pub mod functions;
