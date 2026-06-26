@@ -404,7 +404,10 @@ pub(super) fn emit_converters(
             },
         ));
 
-        for field in binding_fields(&typ.fields) {
+        // Skip cfg-gated fields: they are conditionally compiled out of the native `#[new]`
+        // constructor (and omitted from the `.pyi` stub, which cannot express `#[cfg]`), so passing
+        // them as keyword arguments would be an unknown-kwarg error. Mirrors the stub's filter.
+        for field in binding_fields(&typ.fields).filter(|f| f.cfg.is_none()) {
             // Check if the field's type is itself a has_default Named type (needs nested conversion)
             let inner_named = match &field.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
