@@ -276,6 +276,13 @@ impl Backend for ExtendrBackend {
             }
         };
 
+        // A method cannot be exposed in a #[extendr] impl if any parameter is a type extendr
+        // cannot convert from an incoming R object (Vec<struct>/Vec<enum>/Vec<Vec<_>>/Option<Vec<_>>).
+        // Mirrors the free-function param check below; complements method_references_enum, which only
+        // catches bare-enum and bare owned-struct params, not the Vec/Option<Vec> variants.
+        let method_params_use_extendr_incompatible =
+            |m: &crate::core::ir::MethodDef| -> bool { m.params.iter().any(|p| is_extendr_native_incompatible(&p.ty)) };
+
         // Types that cannot be registered as extendr classes because their fields use types
         // that extendr cannot convert (Vec<T> where T is a non-opaque non-enum struct, etc.).
         // These types are still generated as Rust structs (for From impls), but are excluded
@@ -347,6 +354,7 @@ impl Backend for ExtendrBackend {
                         || method_references_enum(m)
                         || method_references_map(m)
                         || method_return_unsupported(m)
+                        || method_params_use_extendr_incompatible(m)
                 });
                 let opaque_impl_typ: std::borrow::Cow<crate::core::ir::TypeDef> = if has_excluded_opaque_methods {
                     let filtered = crate::core::ir::TypeDef {
@@ -358,6 +366,7 @@ impl Backend for ExtendrBackend {
                                     && !method_references_enum(m)
                                     && !method_references_map(m)
                                     && !method_return_unsupported(m)
+                                    && !method_params_use_extendr_incompatible(m)
                             })
                             .cloned()
                             .collect(),
@@ -396,6 +405,7 @@ impl Backend for ExtendrBackend {
                         || method_references_enum(m)
                         || method_references_map(m)
                         || method_return_unsupported(m)
+                        || method_params_use_extendr_incompatible(m)
                 });
                 let struct_typ: std::borrow::Cow<crate::core::ir::TypeDef> =
                     if has_excluded_fields || has_excluded_methods {
@@ -414,6 +424,7 @@ impl Backend for ExtendrBackend {
                                         && !method_references_enum(m)
                                         && !method_references_map(m)
                                         && !method_return_unsupported(m)
+                                        && !method_params_use_extendr_incompatible(m)
                                 })
                                 .cloned()
                                 .collect(),

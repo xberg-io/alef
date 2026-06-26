@@ -2120,3 +2120,84 @@ fn test_emits_reference_for_named_non_opaque_struct_params() {
         "config param must be passed to the core function by reference: {content}"
     );
 }
+
+#[test]
+fn methods_with_vec_struct_params_are_excluded_from_extendr_impl() {
+    // Methods whose parameters are types extendr cannot convert from an incoming R object —
+    // `Vec<NamedStruct>` and `Option<Vec<NamedStruct>>` — must be omitted from the #[extendr]
+    // impl block. The struct wrapper only implements `From<core::T>`, not `TryFrom<&Robj>`, so
+    // emitting such a method makes the #[extendr] proc-macro fail with
+    // `error[E0277]: T: TryFrom<&Robj> not satisfied` (the downstream R-binding break).
+    // These cases are NOT caught by the bare-owned-struct / enum param predicates, so this
+    // proves the dedicated `is_extendr_native_incompatible` param check.
+    let backend = ExtendrBackend;
+
+    let entry = make_type("MetadataEntry", vec![make_field("value", TypeRef::String, false)], true);
+    let widget = TypeDef {
+        methods: vec![
+            // Vec<struct> param — extendr cannot build it from an R list → excluded.
+            make_ref_method(
+                "set_entries",
+                vec![make_param(
+                    "entries",
+                    TypeRef::Vec(Box::new(TypeRef::Named("MetadataEntry".to_string()))),
+                    false,
+                )],
+                TypeRef::Primitive(PrimitiveType::U32),
+            ),
+            // Option<Vec<struct>> param — same, via the Optional arm → excluded.
+            make_ref_method(
+                "set_optional_entries",
+                vec![make_param(
+                    "entries",
+                    TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named(
+                        "MetadataEntry".to_string(),
+                    ))))),
+                    true,
+                )],
+                TypeRef::Primitive(PrimitiveType::U32),
+            ),
+            // Primitive param — extendr-compatible → retained.
+            make_ref_method(
+                "set_count",
+                vec![make_param("count", TypeRef::Primitive(PrimitiveType::U32), false)],
+                TypeRef::Primitive(PrimitiveType::U32),
+            ),
+        ],
+        ..make_type(
+            "Widget",
+            vec![make_field("count", TypeRef::Primitive(PrimitiveType::U32), false)],
+            true,
+        )
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![entry, widget],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &make_config()).expect("generation");
+    let content = &files[0].content;
+
+    assert!(
+        !content.contains("fn set_entries"),
+        "method with Vec<struct> param must be excluded from the #[extendr] impl: {content}"
+    );
+    assert!(
+        !content.contains("fn set_optional_entries"),
+        "method with Option<Vec<struct>> param must be excluded from the #[extendr] impl: {content}"
+    );
+    assert!(
+        content.contains("fn set_count"),
+        "method with extendr-compatible primitive param must be retained: {content}"
+    );
+}

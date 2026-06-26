@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **extendr (R): exclude methods with R-incompatible `Vec`/`Option<Vec>` params from `#[extendr]` impls.**
+  Method filtering only dropped methods with bare-enum or bare owned-struct params; it missed
+  `Vec<struct>`, `Vec<enum>`, `Vec<Vec<_>>`, and `Option<Vec<_>>` params. extendr generates no
+  `TryFrom<&Robj>` for those, so the proc-macro failed downstream with
+  `error[E0277]: T: TryFrom<&Robj> not satisfied` (e.g. `Vec<MetadataEntry>`). The two method-filter
+  sites in `gen_bindings/mod.rs` now also apply the existing `is_extendr_native_incompatible` param
+  check (already used for free functions), so such methods are omitted from the impl block.
+
 - **php: per-variant constructor boxes `Box<T>` fields.** The flat-data-enum factory
   (`gen_flat_data_enum_variant_constructors`) emitted `field: field.clone().into()` for a variant
   field whose core type is `Box<T>`/`Option<Box<T>>` (Named `T`), which fails to compile (no
@@ -44,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   raised by native code must match the type exposed by public API. Reference for all polyglot backends.
 
 ### Trait-callback host returns accept the native binding object across the dynamic backends
+
   (pyo3, magnus, php, extendr).** Host-implementable trait callbacks already received native
   arguments (#142/#143), but the return value was still marshalled through a mapping/JSON path that
   rejected the binding's native result object even though the generated host interface advertised
