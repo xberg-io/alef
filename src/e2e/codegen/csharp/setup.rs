@@ -8,6 +8,14 @@ use std::collections::HashMap;
 use super::stubs::emit_test_backend_with_class_name;
 use super::{classify_bytes_value_csharp, json_to_csharp, resolve_handle_config_type};
 
+fn json_object_csharp_type<'a>(
+    arg: &'a crate::e2e::config::ArgMapping,
+    options_type: Option<&'a str>,
+    value: &serde_json::Value,
+) -> Option<&'a str> {
+    crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, value)
+}
+
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
 /// Returns `(setup_lines, args_string)`.
@@ -265,7 +273,9 @@ pub(super) fn build_args_and_setup(
                         // `FromJson("{}")` factory; otherwise emit `new <Type>()`. Fall back to
                         // null only when nothing constructible can be resolved.
                         if options_via == Some("from_json") {
-                            if let Some(opts_type) = options_type {
+                            if let Some(opts_type) =
+                                json_object_csharp_type(arg, options_type, &serde_json::Value::Null)
+                            {
                                 format!("{opts_type}.FromJson(\"{{}}\")")
                             } else {
                                 resolve_json_object_default(
@@ -292,13 +302,14 @@ pub(super) fn build_args_and_setup(
             }
             Some(v) => {
                 if arg.arg_type == "json_object" {
+                    let json_object_type = json_object_csharp_type(arg, options_type, v);
                     // `options_via = "from_json"`: deserialize the entire value (object,
                     // array, or scalar) as the options type. This sidesteps per-field
                     // type ambiguity — e.g. `JsonElement?` (untagged unions) or
                     // `List<NamedRecord>` whose element type cannot be inferred from
                     // JSON shape alone — by delegating to System.Text.Json.
                     if options_via == Some("from_json")
-                        && let Some(opts_type) = options_type
+                        && let Some(opts_type) = json_object_type
                     {
                         let sorted = sort_discriminator_first(v.clone());
                         let json_str = serde_json::to_string(&sorted).unwrap_or_default();
@@ -308,7 +319,21 @@ pub(super) fn build_args_and_setup(
                         // `<Crate>Exception`, allowing error fixtures asserting
                         // `Assert.ThrowsAny<<Crate>Exception>(...)` to catch the parse
                         // failure (e.g. `Unknown FilePurpose value: invalid-purpose`).
-                        parts.push(format!("{opts_type}.FromJson(\"{escaped}\")",));
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(&sorted) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            let base_var = format!("{}_MockBaseUrl", arg.name.to_upper_camel_case());
+                            let json_var = format!("{}_Json", arg.name.to_upper_camel_case());
+                            setup_lines.push(format!(
+                                "var {base_var} = Environment.GetEnvironmentVariable(\"{env_key}\") ?? Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";"
+                            ));
+                            setup_lines.push(format!(
+                                "var {json_var} = \"{escaped}\".Replace(\"{}\", {base_var});",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            ));
+                            parts.push(format!("{opts_type}.FromJson({json_var})"));
+                        } else {
+                            parts.push(format!("{opts_type}.FromJson(\"{escaped}\")",));
+                        }
                         continue;
                     }
                     // Array value: generate a typed List<T> based on element_type.
@@ -317,7 +342,7 @@ pub(super) fn build_args_and_setup(
                         continue;
                     }
                     // Object value with known type: generate idiomatic C# object initializer.
-                    if let Some(opts_type) = options_type {
+                    if let Some(opts_type) = json_object_type {
                         if let Some(obj) = v.as_object() {
                             parts.push(csharp_object_initializer(
                                 obj,

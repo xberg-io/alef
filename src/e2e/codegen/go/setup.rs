@@ -5,6 +5,18 @@ use crate::e2e::escape::go_string_literal;
 use super::json_values::{convert_json_for_go, element_type_to_go_slice, json_to_go};
 use super::test_backend::emit_test_backend_with_context;
 
+fn json_object_go_type<'a>(arg: &'a crate::e2e::config::ArgMapping, options_type: Option<&'a str>) -> Option<&'a str> {
+    arg.go_type.as_deref().or(arg.element_type.as_deref()).or(options_type)
+}
+
+fn qualified_go_type(import_alias: &str, type_name: &str) -> String {
+    if type_name.contains('.') {
+        type_name.to_string()
+    } else {
+        format!("{import_alias}.{type_name}")
+    }
+}
+
 pub(super) fn resolve_handle_config_type(
     arg: &crate::e2e::config::ArgMapping,
     options_type: Option<&str>,
@@ -219,8 +231,8 @@ pub(super) fn build_args_and_setup(
                 "json_object" => {
                     if options_ptr {
                         parts.push("nil".to_string());
-                    } else if let Some(opts_type) = options_type {
-                        parts.push(format!("{import_alias}.{opts_type}{{}}"));
+                    } else if let Some(opts_type) = json_object_go_type(arg, options_type) {
+                        parts.push(format!("{}{{}}", qualified_go_type(import_alias, opts_type)));
                     } else {
                         parts.push("nil".to_string());
                     }
@@ -238,8 +250,8 @@ pub(super) fn build_args_and_setup(
                     "json_object" => {
                         if options_ptr {
                             "nil".to_string()
-                        } else if let Some(opts_type) = options_type {
-                            format!("{import_alias}.{opts_type}{{}}")
+                        } else if let Some(opts_type) = json_object_go_type(arg, options_type) {
+                            format!("{}{{}}", qualified_go_type(import_alias, opts_type))
                         } else {
                             "nil".to_string()
                         }
@@ -255,8 +267,8 @@ pub(super) fn build_args_and_setup(
                     if is_empty_obj {
                         if options_ptr {
                             parts.push("nil".to_string());
-                        } else if let Some(opts_type) = options_type {
-                            parts.push(format!("{import_alias}.{opts_type}{{}}"));
+                        } else if let Some(opts_type) = json_object_go_type(arg, options_type) {
+                            parts.push(format!("{}{{}}", qualified_go_type(import_alias, opts_type)));
                         } else {
                             parts.push("nil".to_string());
                         }
@@ -310,8 +322,8 @@ pub(super) fn build_args_and_setup(
                             ));
                         }
                         parts.push(var_name.to_string());
-                    } else if let Some(opts_type) = options_type {
-                        let remapped_v = if options_ptr {
+                    } else if let Some(opts_type) = json_object_go_type(arg, options_type) {
+                        let remapped_v = if Some(opts_type) == options_type && options_ptr {
                             convert_json_for_go(v.clone())
                         } else {
                             v.clone()
@@ -319,10 +331,26 @@ pub(super) fn build_args_and_setup(
                         let json_str = serde_json::to_string(&remapped_v).unwrap_or_default();
                         let go_literal = go_string_literal(&json_str);
                         let var_name = &arg.name;
+                        let type_name = qualified_go_type(import_alias, opts_type);
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(&remapped_v) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            setup_lines.push(format!(
+                                "{var_name}MockBaseURL := os.Getenv(\"{env_key}\")\n\tif {var_name}MockBaseURL == \"\" {{\n\t\t{var_name}MockBaseURL = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"\n\t}}"
+                            ));
+                            setup_lines.push(format!(
+                                "{var_name}JSON := strings.ReplaceAll({go_literal}, \"{}\", {var_name}MockBaseURL)",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            ));
+                        }
+                        let json_expr = if crate::e2e::codegen::value_contains_mock_url_placeholder(&remapped_v) {
+                            format!("{var_name}JSON")
+                        } else {
+                            go_literal
+                        };
                         setup_lines.push(format!(
-                            "var {var_name} {import_alias}.{opts_type}\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
+                            "var {var_name} {type_name}\n\tif err := json.Unmarshal([]byte({json_expr}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
                         ));
-                        let arg_expr = if options_ptr {
+                        let arg_expr = if Some(opts_type) == options_type && options_ptr {
                             format!("&{var_name}")
                         } else {
                             var_name.to_string()

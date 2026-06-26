@@ -81,6 +81,17 @@ impl<'a> E2eCallRecipe<'a> {
         }
         arg.element_type.as_deref().or(self.options_type)
     }
+
+    /// Resolve the concrete constructor/deserializer type for one `json_object`
+    /// argument value.
+    ///
+    /// `options_type` remains the default for config-like arguments, while
+    /// `ArgMapping::element_type` can name the DTO used by a non-config object
+    /// argument. Array values still use `element_type` as their element type and
+    /// therefore do not have a single object constructor type.
+    pub fn json_object_constructor_type(&self, arg: &'a ArgMapping, value: &serde_json::Value) -> Option<&'a str> {
+        json_object_constructor_type(arg, self.options_type, value)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +155,25 @@ impl<'a> ResolvedE2eCallRecipe<'a> {
         }
         arg.element_type.as_deref().or(self.options_type)
     }
+
+    /// Resolve the concrete constructor/deserializer type for one `json_object`
+    /// argument value. See [`E2eCallRecipe::json_object_constructor_type`].
+    pub fn json_object_constructor_type(&self, arg: &'a ArgMapping, value: &serde_json::Value) -> Option<&'a str> {
+        json_object_constructor_type(arg, self.options_type, value)
+    }
+}
+
+/// Resolve the concrete constructor/deserializer type for one `json_object`
+/// argument value.
+pub(crate) fn json_object_constructor_type<'a>(
+    arg: &'a ArgMapping,
+    options_type: Option<&'a str>,
+    value: &serde_json::Value,
+) -> Option<&'a str> {
+    if arg.arg_type != "json_object" || value.is_array() {
+        return None;
+    }
+    arg.element_type.as_deref().or(options_type)
 }
 
 pub(crate) fn trait_bridge_options_type(config: &ResolvedCrateConfig) -> Option<&str> {

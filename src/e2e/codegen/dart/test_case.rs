@@ -515,7 +515,10 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                     // the generated bridge package. The parameter name used in the
                     // bridge method call is always `req:` for single-request-object methods
                     // (derived from the Rust IR param name).
-                    if let Some(opts_type) = options_type {
+                    if let Some(opts_type) = call_recipe
+                        .json_object_constructor_type(arg_def, arg_value)
+                        .or(options_type)
+                    {
                         if !arg_value.is_null() {
                             let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
                             // Escape for Dart single-quoted string literal (handles embedded quotes,
@@ -570,9 +573,9 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                             // Round-trip object config JSON through a generated helper.
                             // Resolve config type from explicit element_type first, then fall back
                             // to options_type from the call recipe, then to the arg name as a last resort.
-                            let opts_type = arg_def
-                                .element_type
-                                .as_deref()
+                            let opts_type = call_recipe
+                                .json_object_constructor_type(arg_def, arg_value)
+                                .or(arg_def.element_type.as_deref())
                                 .or(options_type)
                                 .unwrap_or(&arg_def.name);
                             let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
@@ -593,7 +596,10 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                             // call signature matches the binding, which expects a required
                             // config parameter even when all fields use their defaults.
                             // Resolve config type from element_type, options_type, or arg name.
-                            let opts_type = arg_def.element_type.as_deref().or(options_type);
+                            let opts_type = call_recipe
+                                .json_object_constructor_type(arg_def, arg_value)
+                                .or(arg_def.element_type.as_deref())
+                                .or(options_type);
                             if let Some(opts_type) = opts_type {
                                 let var_name = format!("_{}", arg_def.name);
                                 let dart_fn = type_name_to_create_from_json_dart(opts_type);
@@ -613,7 +619,10 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                         // Construct a default instance via FRB's
                         // `create<Type>FromJson(json: '{}')` helper when IR metadata says
                         // the configured type has a default.
-                        let opts_type = arg_def.element_type.as_deref().or(options_type);
+                        let opts_type = call_recipe
+                            .json_object_constructor_type(arg_def, arg_value)
+                            .or(arg_def.element_type.as_deref())
+                            .or(options_type);
                         if let Some(opts_type) = opts_type.filter(|_| {
                             call_recipe.json_object_arg_has_default(arg_def)
                                 || call_recipe.should_materialize_json_object(arg_def, arg_value)
@@ -659,7 +668,10 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                     // in the visitor block below — its setup line is inserted ahead of
                     // this options call by `build_dart_visitor`.
                     if !map.is_empty() {
-                        if let Some(opts_type) = options_type {
+                        if let Some(opts_type) = call_recipe
+                            .json_object_constructor_type(arg_def, arg_value)
+                            .or(options_type)
+                        {
                             let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
                             let escaped_json = escape_dart(&json_str);
                             let dart_param_name = snake_to_camel(&arg_def.name);

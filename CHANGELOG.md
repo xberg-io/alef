@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **e2e: support typed JSON-object arguments and `$mock_url` placeholders inside request DTOs.**
+  Generated e2e tests now resolve non-array `json_object` argument types from per-argument metadata
+  (`element_type`, and `go_type` for Go) before falling back to call-level `options_type`, so calls with
+  separate request/config DTOs can be generated correctly. Structured JSON args can also embed
+  `$mock_url`, which is replaced at test runtime with the fixture's mock-server URL.
+
 ## [0.29.0] - 2026-06-26
 
 ### Fixed

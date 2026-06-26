@@ -200,15 +200,16 @@ pub(super) fn render_test_method(
     // Uses `resolve_field` so that `field = "input"` resolves to the whole fixture
     // input (and not a nested key called "input"), matching dart/swift behavior.
     // Also include tests with array element types, which are deserialized inline.
-    let needs_deser = (options_type.is_some()
-        && args.iter().any(|arg| {
-            arg.arg_type == "json_object" && !crate::e2e::codegen::resolve_field(&fixture.input, &arg.field).is_null()
-        }))
-        || args.iter().any(|arg| {
-            arg.arg_type == "json_object"
-                && arg.element_type.is_some()
-                && !crate::e2e::codegen::resolve_field(&fixture.input, &arg.field).is_null()
-        });
+    let needs_deser = args.iter().any(|arg| {
+        let val = crate::e2e::codegen::resolve_field(&fixture.input, &arg.field);
+        arg.arg_type == "json_object"
+            && !val.is_null()
+            && crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, val).is_some()
+    }) || args.iter().any(|arg| {
+        arg.arg_type == "json_object"
+            && arg.element_type.is_some()
+            && !crate::e2e::codegen::resolve_field(&fixture.input, &arg.field).is_null()
+    });
 
     // Merge per-call kotlin enum_fields (HashMap key = field path, value = enum type name)
     // into the global fields_enum set so that call-specific enum-typed result fields
@@ -292,14 +293,33 @@ pub(super) fn render_test_method(
             if val.is_array() && arg.element_type.is_some() {
                 continue;
             }
-            let Some(opts_type) = options_type else { continue };
+            let Some(opts_type) = crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, val)
+            else {
+                continue;
+            };
             let normalized = crate::e2e::codegen::transform_json_keys_for_language(val, "snake_case");
             let json_str = serde_json::to_string(&normalized).unwrap_or_default();
             let var_name = &arg.name;
-            deser_lines.push(format!(
-                "val {var_name} = MAPPER.readValue(\"{}\", {opts_type}::class.java)",
-                crate::e2e::escape::escape_kotlin(&json_str)
-            ));
+            if crate::e2e::codegen::value_contains_mock_url_placeholder(&normalized) {
+                let env_key = crate::e2e::codegen::mock_url_env_key(&fixture.id);
+                deser_lines.push(format!(
+                    "val {var_name}MockBaseUrl = System.getProperty(\"mockServer.{fixture_id}\", System.getenv(\"{env_key}\") ?: ((System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\"))",
+                    fixture_id = fixture.id,
+                ));
+                deser_lines.push(format!(
+                    "val {var_name}Json = \"{}\".replace(\"{}\", {var_name}MockBaseUrl)",
+                    crate::e2e::escape::escape_kotlin(&json_str),
+                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                ));
+                deser_lines.push(format!(
+                    "val {var_name} = MAPPER.readValue({var_name}Json, {opts_type}::class.java)"
+                ));
+            } else {
+                deser_lines.push(format!(
+                    "val {var_name} = MAPPER.readValue(\"{}\", {opts_type}::class.java)",
+                    crate::e2e::escape::escape_kotlin(&json_str)
+                ));
+            }
         }
     }
     if !expects_error {

@@ -139,10 +139,12 @@ pub(super) fn build_args_and_setup(
                 &mut kwarg_exprs,
                 value,
                 var_name,
-                options_type,
+                crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, value),
                 options_via,
                 enum_fields,
                 &arg.element_type,
+                &fixture.id,
+                fixture.has_host_root_route(),
                 type_defs,
                 enums,
             )

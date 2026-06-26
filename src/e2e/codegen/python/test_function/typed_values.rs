@@ -51,9 +51,24 @@ pub(super) fn emit_json_object_arg(
     options_via: &str,
     enum_fields: &HashMap<String, String>,
     element_type: &Option<String>,
+    fixture_id: &str,
+    has_host_root_route: bool,
     type_defs: &[crate::core::ir::TypeDef],
     enums: &[crate::core::ir::EnumDef],
 ) -> bool {
+    if crate::e2e::codegen::value_contains_mock_url_placeholder(value) {
+        return emit_json_object_arg_with_mock_url(
+            arg_bindings,
+            kwarg_exprs,
+            value,
+            var_name,
+            options_type,
+            options_via,
+            fixture_id,
+            has_host_root_route,
+        );
+    }
+
     match options_via {
         "dict" => {
             // When we have an array of objects and an element_type, emit dict literals (not constructor calls).
@@ -171,6 +186,46 @@ pub(super) fn emit_json_object_arg(
             }
         }
     }
+}
+
+fn emit_json_object_arg_with_mock_url(
+    arg_bindings: &mut Vec<String>,
+    kwarg_exprs: &mut Vec<String>,
+    value: &serde_json::Value,
+    var_name: &str,
+    options_type: Option<&str>,
+    options_via: &str,
+    fixture_id: &str,
+    has_host_root_route: bool,
+) -> bool {
+    let json_str = serde_json::to_string(value).unwrap_or_default();
+    let escaped = escape_python(&json_str);
+    let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+    let fallback = format!("os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'");
+    let base_expr = if has_host_root_route {
+        format!("os.environ.get('{env_key}') or {fallback}")
+    } else {
+        fallback
+    };
+    arg_bindings.push(format!("    {var_name}_mock_base_url = {base_expr}"));
+    arg_bindings.push(format!(
+        "    {var_name}_json = \"{escaped}\".replace(\"{}\", {var_name}_mock_base_url)",
+        crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+    ));
+
+    match (options_via, options_type) {
+        ("from_json", Some(opts_type)) => {
+            arg_bindings.push(format!("    {var_name} = {opts_type}.from_json({var_name}_json)"));
+        }
+        ("dict", _) | (_, None) | ("json", _) => {
+            arg_bindings.push(format!("    {var_name} = json.loads({var_name}_json)"));
+        }
+        (_, Some(opts_type)) => {
+            arg_bindings.push(format!("    {var_name} = {opts_type}(**json.loads({var_name}_json))"));
+        }
+    }
+    kwarg_exprs.push(var_name.to_string());
+    true
 }
 
 pub(super) fn emit_bytes_arg(
@@ -291,6 +346,8 @@ mod tests {
             "kwargs",
             &HashMap::new(),
             &None,
+            "fixture",
+            false,
             &type_defs,
             &enums,
         );
@@ -326,6 +383,8 @@ mod tests {
             "dict",
             &HashMap::new(),
             &None,
+            "fixture",
+            false,
             &type_defs,
             &enums,
         );

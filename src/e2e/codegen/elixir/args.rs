@@ -304,8 +304,9 @@ pub(super) fn build_args_and_setup(
                 }
                 // For json_object args with options_type+options_via, build a proper struct.
                 if arg.arg_type == "json_object" && !v.is_null() {
+                    let object_type = crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, v);
                     if let (Some(_opts_type), Some(options_fn), Some(obj)) =
-                        (options_type, options_default_fn, v.as_object())
+                        (object_type, options_default_fn, v.as_object())
                     {
                         // Add setup line to initialize options from default function.
                         let options_var = "options";
@@ -344,7 +345,7 @@ pub(super) fn build_args_and_setup(
                     // crashes the facade with FunctionClauseError. Emit positional/keyword
                     // form per `use_keyword_form_for_optional_args` to mirror the threshold
                     // applied to JSON-string emission.
-                    if let (Some(opts_type), None, Some(obj)) = (options_type, options_default_fn, v.as_object()) {
+                    if let (Some(opts_type), None, Some(obj)) = (object_type, options_default_fn, v.as_object()) {
                         let options_var = "options";
                         let mut field_strs = Vec::new();
                         for (k, vv) in obj.iter() {

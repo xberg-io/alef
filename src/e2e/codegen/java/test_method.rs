@@ -137,22 +137,28 @@ pub(super) fn render_test_method(
     let effective_result_is_option = call_overrides.is_some_and(|o| o.result_is_option) || call_config.result_is_option;
 
     // Check if this test needs ObjectMapper deserialization for json_object args.
-    let needs_deser = effective_options_type.is_some()
-        && args.iter().any(|arg| {
-            if arg.arg_type != "json_object" {
-                return false;
-            }
-            let val = super::super::resolve_field(&fixture.input, &arg.field);
-            !val.is_null() && !val.is_array()
-        });
+    let needs_deser = args.iter().any(|arg| {
+        if arg.arg_type != "json_object" {
+            return false;
+        }
+        let val = super::super::resolve_field(&fixture.input, &arg.field);
+        !val.is_null()
+            && !val.is_array()
+            && crate::e2e::codegen::recipe::json_object_constructor_type(arg, effective_options_type, val).is_some()
+    });
 
     // Emit builder expressions for json_object args.
     let mut builder_expressions = String::new();
-    if let (true, Some(opts_type)) = (needs_deser, effective_options_type) {
+    if needs_deser {
         for arg in args {
             if arg.arg_type == "json_object" {
                 let val = super::super::resolve_field(&fixture.input, &arg.field);
                 if !val.is_null() && !val.is_array() {
+                    let Some(opts_type) =
+                        crate::e2e::codegen::recipe::json_object_constructor_type(arg, effective_options_type, val)
+                    else {
+                        continue;
+                    };
                     if options_via == "from_json" {
                         // Build the typed POJO via `JsonUtil.fromJson(json, Type.class)`.
                         // The Java backend centralizes JSON deserialization in JsonUtil rather
@@ -162,9 +168,24 @@ pub(super) fn render_test_method(
                         let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                         let escaped = escape_java(&json_str);
                         let var_name = &arg.name;
-                        builder_expressions.push_str(&format!(
-                            "        var {var_name} = JsonUtil.fromJson(\"{escaped}\", {opts_type}.class);\n",
-                        ));
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(&normalized) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(&fixture.id);
+                            builder_expressions.push_str(&format!(
+                                "        String {var_name}MockBaseUrl = System.getProperty(\"mockServer.{fixture_id}\", System.getenv().getOrDefault(\"{env_key}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\"));\n",
+                                fixture_id = fixture.id,
+                            ));
+                            builder_expressions.push_str(&format!(
+                                "        String {var_name}Json = \"{escaped}\".replace(\"{}\", {var_name}MockBaseUrl);\n",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            ));
+                            builder_expressions.push_str(&format!(
+                                "        var {var_name} = JsonUtil.fromJson({var_name}Json, {opts_type}.class);\n",
+                            ));
+                        } else {
+                            builder_expressions.push_str(&format!(
+                                "        var {var_name} = JsonUtil.fromJson(\"{escaped}\", {opts_type}.class);\n",
+                            ));
+                        }
                     } else if let Some(obj) = val.as_object() {
                         // Generate builder expression: TypeName.builder().withFieldName(value)...build()
                         let empty_path_fields: Vec<String> = Vec::new();

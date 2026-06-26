@@ -279,7 +279,10 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         // Array args use fixture-shaped object literals; element_type is
                         // still used by typed bindings/imports, not product-specific constructors.
                         parts.push(json_to_js_camel(v));
-                    } else if let Some(opts_type) = options_type {
+                    } else if let Some(raw_type) =
+                        crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, v)
+                    {
+                        let opts_type = canonical_ts_type_name(lang, raw_type, config);
                         // Object value with known options type — construct properly for wasm-bindgen.
                         if v.is_object() && v.as_object().is_some_and(|o| o.is_empty()) {
                             // Empty options: pass undefined so wasm-bindgen's instanceof
@@ -287,11 +290,29 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                             // that fails the runtime class check).
                             parts.push("undefined".to_string());
                         } else if let Some(obj) = v.as_object() {
+                            if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                                let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                                let var_prefix = sanitize_ident(&arg.name);
+                                setup_lines.push(format!(
+                                    "const {var_prefix}MockBaseUrl = process.env.{env_key} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
+                                ));
+                                let json_literal = json_to_js_camel(v);
+                                setup_lines.push(format!(
+                                    "const {var_prefix}Json = JSON.stringify({json_literal}).replaceAll(\"{}\", {var_prefix}MockBaseUrl);",
+                                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                ));
+                                setup_lines.push(format!(
+                                    "const {name} = JSON.parse({var_prefix}Json) as {opts_type};",
+                                    name = arg.name
+                                ));
+                                parts.push(arg.name.clone());
+                                continue;
+                            }
                             // Build TypeScript code to construct the options object properly,
                             // handling nested types via their static factory methods.
                             let ts_code = ts_builder_expression(
                                 obj,
-                                opts_type,
+                                &opts_type,
                                 nested_types,
                                 lang,
                                 enum_fields,

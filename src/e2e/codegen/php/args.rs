@@ -317,6 +317,8 @@ pub(super) fn build_args_and_setup(
             }
             Some(v) => {
                 if arg.arg_type == "json_object" && !v.is_null() {
+                    let json_object_type =
+                        crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, v);
                     // Check for typed object arrays first.
                     if let Some(elem_type) = &arg.element_type {
                         if v.is_array() {
@@ -361,7 +363,7 @@ pub(super) fn build_args_and_setup(
                                 "json_encode({})",
                                 super::values::json_to_php_camel_keys_with_types(
                                     &filtered_v,
-                                    options_type,
+                                    json_object_type,
                                     rename_all,
                                     type_defs
                                 )
@@ -369,7 +371,7 @@ pub(super) fn build_args_and_setup(
                             continue;
                         }
                         _ => {
-                            if let Some(type_name) = options_type {
+                            if let Some(type_name) = json_object_type {
                                 // Use TypeName::from_json(json_encode([...])) to construct the
                                 // typed config object. ext-php-rs structs expose a from_json()
                                 // static method that accepts a JSON string.
@@ -398,15 +400,31 @@ pub(super) fn build_args_and_setup(
                                 // matters is the BINDING struct, since `from_json` calls
                                 // `serde_json::from_str::<Self>` against the binding type.
                                 let type_rename_all = Some(php_lang_rename_all);
-                                setup_lines.push(format!(
-                                    "{arg_var} = \\{namespace}\\{type_name}::from_json(json_encode({}));",
-                                    super::values::json_to_php_camel_keys_with_types(
-                                        &filtered_v,
-                                        Some(type_name),
-                                        type_rename_all,
-                                        type_defs
-                                    )
-                                ));
+                                let php_value = super::values::json_to_php_camel_keys_with_types(
+                                    &filtered_v,
+                                    Some(type_name),
+                                    type_rename_all,
+                                    type_defs,
+                                );
+                                if crate::e2e::codegen::value_contains_mock_url_placeholder(&filtered_v) {
+                                    let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                                    let base_var = format!("${}MockBaseUrl", arg.name);
+                                    let json_var = format!("${}Json", arg.name);
+                                    setup_lines.push(format!(
+                                        "{base_var} = getenv(\"{env_key}\") ?: (getenv(\"MOCK_SERVER_URL\") . \"/fixtures/{fixture_id}\");"
+                                    ));
+                                    setup_lines.push(format!(
+                                        "{json_var} = str_replace(\"{}\", {base_var}, json_encode({php_value}));",
+                                        crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                    ));
+                                    setup_lines.push(format!(
+                                        "{arg_var} = \\{namespace}\\{type_name}::from_json({json_var});"
+                                    ));
+                                } else {
+                                    setup_lines.push(format!(
+                                        "{arg_var} = \\{namespace}\\{type_name}::from_json(json_encode({php_value}));"
+                                    ));
+                                }
                                 parts.push(arg_var);
                                 continue;
                             }

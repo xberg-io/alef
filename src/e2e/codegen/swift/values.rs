@@ -34,7 +34,11 @@ pub(super) fn is_scalar_element_type(element_type: Option<&str>) -> bool {
 }
 
 pub(super) fn from_json_helper_for_arg(arg: &crate::e2e::config::ArgMapping, options_type: Option<&str>) -> String {
-    let type_name = options_type.unwrap_or(arg.name.as_str());
+    let type_name = arg
+        .element_type
+        .as_deref()
+        .or(options_type)
+        .unwrap_or(arg.name.as_str());
     format!("{}FromJson", type_name.to_lower_camel_case())
 }
 

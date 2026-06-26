@@ -103,17 +103,28 @@ pub(super) fn render_test_file(
         .any(|f| f.env.as_ref().and_then(|e| e.api_key_var.as_ref()).is_some());
     let needs_pytest = has_error_test || is_async || has_env_api_key;
 
-    let needs_json_import = effective_options_via == "json"
-        && fixtures.iter().any(|f| {
-            e2e_config
-                .call
-                .args
-                .iter()
-                .any(|arg| arg.arg_type == "json_object" && !resolve_field(&f.input, &arg.field).is_null())
-        });
+    let has_mock_url_placeholder = fixtures.iter().any(|f| {
+        let cc =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        cc.args.iter().any(|arg| {
+            arg.arg_type == "json_object"
+                && crate::e2e::codegen::value_contains_mock_url_placeholder(resolve_field(&f.input, &arg.field))
+        })
+    });
+
+    let needs_json_import = has_mock_url_placeholder
+        || effective_options_via == "json"
+            && fixtures.iter().any(|f| {
+                e2e_config
+                    .call
+                    .args
+                    .iter()
+                    .any(|arg| arg.arg_type == "json_object" && !resolve_field(&f.input, &arg.field).is_null())
+            });
 
     let client_factory = resolve_client_factory(e2e_config);
     let needs_os_import = client_factory.is_some()
+        || has_mock_url_placeholder
         || e2e_config
             .call
             .args
@@ -211,6 +222,8 @@ pub(super) fn render_test_file(
 
             // For json_object args, collect both enum types and config types.
             if arg.arg_type == "json_object" && !value.is_null() {
+                let constructor_type =
+                    crate::e2e::codegen::recipe::json_object_constructor_type(arg, fixture_opts_type.as_deref(), value);
                 if let Some(obj) = value.as_object() {
                     // Collect explicitly configured enum fields. Auto-detected
                     // enums (resolve_field_enum_type below) must mirror the
@@ -222,14 +235,14 @@ pub(super) fn render_test_file(
                         if let Some(enum_type) = enum_fields.get(key) {
                             used_enum_types.insert(enum_type.clone());
                         } else if let Some(auto_enum_type) =
-                            resolve_field_enum_type(key, fixture_opts_type.as_deref(), type_defs, enums)
+                            resolve_field_enum_type(key, constructor_type, type_defs, enums)
                         {
                             used_enum_types.insert(auto_enum_type);
                         }
                     }
                 }
                 // Collect the config type itself (e.g., ExtractionConfig, EmbeddingConfig)
-                if let Some(opts_type) = fixture_opts_type.as_deref() {
+                if let Some(opts_type) = constructor_type {
                     if !value.is_null() && value.is_object() {
                         // This is a constructor call like ExtractionConfig(...), so import the type
                         used_config_types.insert(opts_type.to_string());

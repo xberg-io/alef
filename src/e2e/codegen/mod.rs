@@ -152,6 +152,28 @@ pub(crate) fn transform_json_keys_for_language(value: &serde_json::Value, wire_c
     walk(value, rewrite_key)
 }
 
+/// Placeholder that e2e fixtures can embed inside structured JSON arguments.
+///
+/// This is useful for APIs where a URL lives inside a request DTO rather than in a
+/// top-level `mock_url` argument. Language generators replace the token at test
+/// runtime with the per-fixture mock server base URL.
+pub(crate) const MOCK_URL_PLACEHOLDER: &str = "$mock_url";
+
+/// Return true when a fixture value recursively contains [`MOCK_URL_PLACEHOLDER`].
+pub(crate) fn value_contains_mock_url_placeholder(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(value) => value.contains(MOCK_URL_PLACEHOLDER),
+        serde_json::Value::Array(values) => values.iter().any(value_contains_mock_url_placeholder),
+        serde_json::Value::Object(values) => values.values().any(value_contains_mock_url_placeholder),
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => false,
+    }
+}
+
+/// Environment variable used by the mock server for fixtures with a host-root listener.
+pub(crate) fn mock_url_env_key(fixture_id: &str) -> String {
+    format!("MOCK_SERVER_{}", fixture_id.to_uppercase())
+}
+
 /// Trait for per-language e2e test code generation.
 pub trait E2eCodegen: Send + Sync {
     /// Generate all e2e test project files for this language.

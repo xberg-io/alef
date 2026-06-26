@@ -125,14 +125,30 @@ pub(super) fn build_args_string(
             if arg.arg_type == "json_object" && val.is_object() {
                 // If options_type is provided, wrap the object with TypeName$from_json(...)
                 // regardless of whether this is an optional or required config parameter.
-                if let Some(type_name) = options_type {
+                if let Some(type_name) =
+                    crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, val)
+                {
                     // Use the `I(...)` (AsIs) wrapper for array-valued fields so
                     // `jsonlite::toJSON(..., auto_unbox = TRUE)` preserves them as
                     // JSON arrays. Without this, single-element vectors get
                     // unboxed to scalars (e.g. `c("foo")` → `"foo"`) and serde
                     // rejects them when deserializing `Vec<T>` fields.
                     let r_list = json_to_r_preserve_arrays(val, true);
-                    let r_value = format!("{type_name}$from_json(jsonlite::toJSON({r_list}, auto_unbox = TRUE))");
+                    let json_expr = if crate::e2e::codegen::value_contains_mock_url_placeholder(val) {
+                        let env_key = crate::e2e::codegen::mock_url_env_key(&fixture.id);
+                        let base_var = format!(".{}_mock_base_url", arg_name);
+                        setup_lines.push(format!(
+                            "{base_var} <- Sys.getenv(\"{env_key}\", unset = paste0(Sys.getenv(\"MOCK_SERVER_URL\"), \"/fixtures/{}\"))",
+                            fixture.id
+                        ));
+                        format!(
+                            "gsub(\"{}\", {base_var}, jsonlite::toJSON({r_list}, auto_unbox = TRUE), fixed = TRUE)",
+                            crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                        )
+                    } else {
+                        format!("jsonlite::toJSON({r_list}, auto_unbox = TRUE)")
+                    };
+                    let r_value = format!("{type_name}$from_json({json_expr})");
                     return Some(format!("{arg_name} = {r_value}"));
                 }
                 // No options_type: emit as plain R list (backward compat for optional-style args).

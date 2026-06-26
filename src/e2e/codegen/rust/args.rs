@@ -129,7 +129,16 @@ pub fn render_rust_arg(
         return (lines, format!("&{name}"));
     }
     if arg_type == "json_object" {
-        return render_json_object_arg(name, value, optional, owned, element_type, module, vec_inner_is_ref);
+        return render_json_object_arg(
+            name,
+            value,
+            optional,
+            owned,
+            element_type,
+            module,
+            fixture_id,
+            vec_inner_is_ref,
+        );
     }
     if value.is_null() && !optional {
         // Required arg with no fixture value: use a language-appropriate default.
@@ -237,6 +246,7 @@ fn render_json_object_arg(
     owned: bool,
     element_type: Option<&str>,
     _module: &str,
+    fixture_id: &str,
     vec_inner_is_ref: bool,
 ) -> (Vec<String>, String) {
     // Owned params (Vec<T>) are passed by value; ref params (most configs) use &.
@@ -262,14 +272,33 @@ fn render_json_object_arg(
     let json_text = serde_json::to_string(&normalized).unwrap_or_else(|_| "null".to_string());
     let json_literal = rust_raw_string(&json_text);
     let mut lines = Vec::new();
-    lines.push(format!(
-        "let {name}_json: serde_json::Value = serde_json::from_str({json_literal}).unwrap();"
-    ));
+    if super::super::value_contains_mock_url_placeholder(&normalized) {
+        let env_key = super::super::mock_url_env_key(fixture_id);
+        lines.push(format!(
+            "let {name}_mock_base_url = std::env::var(\"{env_key}\").unwrap_or_else(|_| {{ let _ = common::mock_server_url(); std::env::var(\"{env_key}\").unwrap_or_else(|_| format!(\"{{}}/fixtures/{{}}\", common::mock_server_url(), \"{fixture_id}\")) }});"
+        ));
+        lines.push(format!(
+            "let {name}_json_text = {json_literal}.replace(\"{}\", &{name}_mock_base_url);",
+            super::super::MOCK_URL_PLACEHOLDER
+        ));
+        lines.push(format!(
+            "let {name}_json: serde_json::Value = serde_json::from_str(&{name}_json_text).unwrap();"
+        ));
+    } else {
+        lines.push(format!(
+            "let {name}_json: serde_json::Value = serde_json::from_str({json_literal}).unwrap();"
+        ));
+    }
 
     // When an explicit element type is given, annotate with Vec<T> so that
-    // serde_json::from_value can infer the element type for &[T] parameters (A4 fix).
+    // serde_json::from_value can infer either the single DTO type or the element
+    // type for Vec<T> / &[T] parameters.
     let deser_expr = if let Some(elem) = element_type {
-        format!("serde_json::from_value::<Vec<{elem}>>({name}_json).unwrap()")
+        if normalized.is_array() {
+            format!("serde_json::from_value::<Vec<{elem}>>({name}_json).unwrap()")
+        } else {
+            format!("serde_json::from_value::<{elem}>({name}_json).unwrap()")
+        }
     } else {
         format!("serde_json::from_value({name}_json).unwrap()")
     };
@@ -576,5 +605,53 @@ mod tests {
         assert_eq!(expr, "&names");
         let rendered = lines.join("\n");
         assert!(!rendered.contains("names_refs"));
+    }
+
+    #[test]
+    fn json_object_element_type_for_object_emits_single_dto() {
+        let (lines, expr) = render_rust_arg(
+            "input",
+            &serde_json::json!({"kind": "uri", "uri": "sample.txt"}),
+            "json_object",
+            false,
+            "my_crate",
+            "fixture_id",
+            None,
+            true,
+            Some("ExtractInput"),
+            "test_documents",
+            false,
+            None,
+            false,
+        );
+
+        assert_eq!(expr, "input");
+        let rendered = lines.join("\n");
+        assert!(rendered.contains("serde_json::from_value::<ExtractInput>(input_json).unwrap()"));
+        assert!(!rendered.contains("Vec<ExtractInput>"));
+    }
+
+    #[test]
+    fn json_object_mock_url_placeholder_uses_mock_server_base() {
+        let (lines, expr) = render_rust_arg(
+            "input",
+            &serde_json::json!({"kind": "uri", "uri": "$mock_url/document.txt"}),
+            "json_object",
+            false,
+            "my_crate",
+            "url_fixture",
+            None,
+            true,
+            Some("ExtractInput"),
+            "test_documents",
+            false,
+            None,
+            false,
+        );
+
+        assert_eq!(expr, "input");
+        let rendered = lines.join("\n");
+        assert!(rendered.contains("MOCK_SERVER_URL_FIXTURE"));
+        assert!(rendered.contains(".replace(\"$mock_url\", &input_mock_base_url)"));
     }
 }

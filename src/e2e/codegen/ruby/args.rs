@@ -278,8 +278,19 @@ pub(super) fn build_args_and_setup(
                             // Fall through if array is empty or contains non-objects (primitives)
                         }
                     }
-                    // Otherwise handle regular options_type objects
-                    if let (Some(opts_type), Some(obj)) = (options_type, v.as_object()) {
+                    // Otherwise handle regular typed objects
+                    let object_type = crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, v);
+                    if let (Some(opts_type), Some(obj)) = (object_type, v.as_object()) {
+                        let mock_base_var = if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                            let base_var = format!("{}_mock_base_url", arg.name);
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            setup_lines.push(format!(
+                                "{base_var} = ENV.fetch('{env_key}', nil) || \"#{{ENV.fetch('MOCK_SERVER_URL')}}/fixtures/{fixture_id}\""
+                            ));
+                            Some(base_var)
+                        } else {
+                            None
+                        };
                         let kwargs: Vec<String> = obj
                             .iter()
                             .filter_map(|(k, vv)| {
@@ -296,7 +307,20 @@ pub(super) fn build_args_and_setup(
                                     }
                                 }
                                 let snake_key = k.to_snake_case();
-                                let rb_val = json_to_ruby(vv);
+                                let rb_val =
+                                    if let (Some(base_var), Some(raw)) = (mock_base_var.as_deref(), vv.as_str()) {
+                                        if raw.contains(crate::e2e::codegen::MOCK_URL_PLACEHOLDER) {
+                                            format!(
+                                                "{}.gsub('{}', {base_var})",
+                                                json_to_ruby(vv),
+                                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                            )
+                                        } else {
+                                            json_to_ruby(vv)
+                                        }
+                                    } else {
+                                        json_to_ruby(vv)
+                                    };
                                 Some(format!("{snake_key}: {rb_val}"))
                             })
                             .collect();

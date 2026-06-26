@@ -47,9 +47,11 @@ pub(super) fn build_args_and_setup(
             let has_recipe =
                 !element_type.is_empty() && element_constructors.iter().any(|r| r.element_type == element_type);
             let has_wrapper = json_object_wrapper.is_some();
-            let has_from_json = options_via == "from_json" && options_type.is_some();
-            // An optional json_object with no value can safely emit option.None / [].
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field).unwrap_or(&serde_json::Value::Null);
+            let has_from_json = options_via == "from_json"
+                && crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, val).is_some();
+            // An optional json_object with no value can safely emit option.None / [].
             let val = input.get(field);
             let is_null_optional = arg.optional && matches!(val, None | Some(serde_json::Value::Null));
             if !has_recipe && !has_wrapper && !has_from_json && !is_null_optional {
@@ -149,9 +151,11 @@ pub(super) fn build_args_and_setup(
             "json_object" => {
                 // from_json path: use `<snake_type>_from_json(json)` NIF.
                 if options_via == "from_json" {
-                    if let Some(opts_type) = options_type {
-                        let empty_obj = serde_json::Value::Object(Default::default());
-                        let config_val = val.unwrap_or(&empty_obj);
+                    let empty_obj = serde_json::Value::Object(Default::default());
+                    let config_val = val.unwrap_or(&empty_obj);
+                    if let Some(opts_type) =
+                        crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, config_val)
+                    {
                         if !config_val.is_null() {
                             let snake_opts = opts_type.to_snake_case();
                             let json_str = serde_json::to_string(config_val).unwrap_or_default();
