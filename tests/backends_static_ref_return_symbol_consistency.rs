@@ -132,7 +132,7 @@ fn java_does_not_bind_missing_ref_returning_static_symbol() {
 
     for file in &files {
         assert!(
-            !file.content.contains("kreuzberg_registry_global") && !file.content.contains("KREUZBERG_REGISTRY_GLOBAL"),
+            !file.content.contains("kreuzberg_registry_global") && !file.content.contains("XBERG_REGISTRY_GLOBAL"),
             "Java must not resolve the non-existent `kreuzberg_registry_global` symbol \
              (would throw ExceptionInInitializerError); offender: {}",
             file.path.display()
