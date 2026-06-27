@@ -636,7 +636,9 @@ fn test_options_py_imports_data_enums_as_native_classes() {
     // construct), referenced by name in field annotations — not redefined as a flattened union
     // alias that would shadow the public class and reject the documented usage in a type checker.
     assert!(
-        options_py.content.contains("from ._test_lib import (\n    StructureKind,"),
+        options_py
+            .content
+            .contains("from ._test_lib import (\n    StructureKind,"),
         "data enum class must be imported from the native module;\ncontent:\n{}",
         options_py.content
     );

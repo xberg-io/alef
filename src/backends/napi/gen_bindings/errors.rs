@@ -1,7 +1,7 @@
 //! TypeScript declaration file (`.d.ts`) generation for NAPI-RS bindings.
 
 use crate::codegen::naming::{to_node_name, wire_variant_value};
-use crate::codegen::shared::binding_fields;
+use crate::codegen::shared::{binding_fields, substitute_excluded_types};
 use crate::core::config::NodeCapsuleTypeConfig;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
@@ -292,13 +292,13 @@ pub(super) fn gen_dts(
                         .params
                         .iter()
                         .map(|p| ParamDef {
-                            ty: substitute_excluded(&p.ty, &excluded),
+                            ty: substitute_excluded_types(&p.ty, &excluded),
                             ..p.clone()
                         })
                         .collect();
                     let params = dts_params(&sub_params, no_prefix, default_types);
                     let ret = trait_bridge_dts_return_type(
-                        &substitute_excluded(&method.return_type, &excluded),
+                        &substitute_excluded_types(&method.return_type, &excluded),
                         method.is_async,
                         no_prefix,
                     );
@@ -450,23 +450,6 @@ fn trait_bridge_requires_plugin_name(typ: &TypeDef, trait_bridges: &[crate::core
     trait_bridges
         .iter()
         .any(|bridge| bridge.trait_name == typ.name && bridge.super_trait.as_deref().is_some())
-}
-
-/// Replace `Named` references to types excluded from the binding surface (e.g. `InternalDocument`)
-/// with `TypeRef::Json`. Excluded types are never emitted into the `.d.ts`, so a host-interface
-/// method referencing one would be an undefined TS name. The runtime bridge marshals such values as
-/// JSON (`JsonValue`), so that is the faithful stand-in — mirroring the go/pyo3 backends.
-fn substitute_excluded(ty: &TypeRef, excluded: &std::collections::HashSet<&str>) -> TypeRef {
-    match ty {
-        TypeRef::Named(name) if excluded.contains(name.as_str()) => TypeRef::Json,
-        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(substitute_excluded(inner, excluded))),
-        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(substitute_excluded(inner, excluded))),
-        TypeRef::Map(k, v) => TypeRef::Map(
-            Box::new(substitute_excluded(k, excluded)),
-            Box::new(substitute_excluded(v, excluded)),
-        ),
-        other => other.clone(),
-    }
 }
 
 /// TypeScript return type for a trait-bridge host interface method.

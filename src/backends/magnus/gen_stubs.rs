@@ -1,8 +1,8 @@
 use crate::backends::magnus::type_map::rbs_type;
-use crate::codegen::shared::binding_fields;
+use crate::codegen::shared::{binding_fields, substitute_excluded_types};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::hash::{self, CommentStyle};
-use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
 
 pub fn gen_stubs(
     api: &ApiSurface,
@@ -134,22 +134,6 @@ fn plugin_interface_name(trait_name: &str) -> String {
     format!("_{trait_name}")
 }
 
-/// Replace `Named` references to types excluded from the binding surface with `TypeRef::Json` (RBS
-/// `json_value`). Excluded types are never emitted as RBS declarations, so leaving one in an
-/// interface signature is an undefined-type error; the runtime bridge marshals them as JSON.
-fn substitute_excluded(ty: &TypeRef, excluded: &std::collections::HashSet<&str>) -> TypeRef {
-    match ty {
-        TypeRef::Named(name) if excluded.contains(name.as_str()) => TypeRef::Json,
-        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(substitute_excluded(inner, excluded))),
-        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(substitute_excluded(inner, excluded))),
-        TypeRef::Map(k, v) => TypeRef::Map(
-            Box::new(substitute_excluded(k, excluded)),
-            Box::new(substitute_excluded(v, excluded)),
-        ),
-        other => other.clone(),
-    }
-}
-
 /// Generate a host-implementable RBS `interface` for a plugin-pattern trait bridge.
 ///
 /// Returns `None` when the bridge's trait (or its methods) is absent from the API surface — the
@@ -189,7 +173,7 @@ fn gen_plugin_interface_stub(bridge: &TraitBridgeConfig, api: &ApiSurface) -> Op
             .params
             .iter()
             .map(|p| {
-                let param_type = rbs_type(&substitute_excluded(&p.ty, &excluded));
+                let param_type = rbs_type(&substitute_excluded_types(&p.ty, &excluded));
                 if p.optional {
                     format!("?{} {}", param_type, p.name)
                 } else {
@@ -197,7 +181,7 @@ fn gen_plugin_interface_stub(bridge: &TraitBridgeConfig, api: &ApiSurface) -> Op
                 }
             })
             .collect();
-        let return_type = rbs_type(&substitute_excluded(&method.return_type, &excluded));
+        let return_type = rbs_type(&substitute_excluded_types(&method.return_type, &excluded));
         lines.push(format!(
             "    def {}: ({}) -> {}",
             method.name,
