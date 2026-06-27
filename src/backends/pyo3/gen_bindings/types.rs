@@ -26,9 +26,17 @@ fn to_python_enum_variant(name: &str) -> String {
 ///
 /// When `dto.python_output_style() == TypedDict` and a type has `is_return_type = true`,
 /// it is emitted as a `TypedDict` (with `total=False`) instead of a `@dataclass`.
-pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> String {
+pub(super) fn gen_options_py(
+    api: &ApiSurface,
+    module_name: &str,
+    dto: &DtoConfig,
+    reexported_types: &[String],
+) -> String {
     use crate::core::ir::TypeRef;
     use heck::ToSnakeCase;
+    // A type re-exported as a native pyclass is native everywhere — never emit a parallel TypedDict
+    // for it, so a field of this type carries a single, consistent identity (the native class).
+    let reexported_names: AHashSet<&str> = reexported_types.iter().map(String::as_str).collect();
 
     // Collect enum names for type detection (plain unit enums vs data enums)
     let enum_names: AHashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
@@ -52,10 +60,13 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
     // Determine whether any type will be emitted as TypedDict so we know which imports to add.
     let output_style = dto.python_output_style();
     let any_typeddict = output_style == PythonDtoStyle::TypedDict
-        && api
-            .types
-            .iter()
-            .any(|t| t.has_default && t.is_return_type && !t.fields.is_empty() && !t.name.ends_with("Update"));
+        && api.types.iter().any(|t| {
+            t.has_default
+                && t.is_return_type
+                && !t.fields.is_empty()
+                && !t.name.ends_with("Update")
+                && !reexported_names.contains(t.name.as_str())
+        });
 
     // Check whether `Any` is needed: TypeRef::Json maps to `dict[str, Any]`.
     // Data enums now use their concrete type names (imported from native module),
@@ -145,7 +156,11 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             // which only emits `has_default` types: a return type without `has_default` is a native
             // pyclass that is imported, not redefined locally. Marking it local here without the
             // `has_default` guard would leave it neither imported nor emitted (an undefined name).
-            if output_style == PythonDtoStyle::TypedDict && typ.is_return_type && typ.has_default {
+            if output_style == PythonDtoStyle::TypedDict
+                && typ.is_return_type
+                && typ.has_default
+                && !reexported_names.contains(typ.name.as_str())
+            {
                 local.insert(typ.name.as_str());
             }
         }
@@ -331,7 +346,11 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         }
 
         // Use TypedDict for return types when the output style is configured as TypedDict.
-        let use_typeddict = output_style == PythonDtoStyle::TypedDict && typ.is_return_type;
+        // A reexported-native return type is imported and referenced as the native pyclass — never
+        // emitted as a parallel TypedDict here (that second identity is what breaks field typing).
+        let use_typeddict = output_style == PythonDtoStyle::TypedDict
+            && typ.is_return_type
+            && !reexported_names.contains(typ.name.as_str());
 
         // Return types are defined authoritatively by the Rust native module as #[pyclass]
         // structs. Emitting a @dataclass with the same name creates a shadow class that breaks
