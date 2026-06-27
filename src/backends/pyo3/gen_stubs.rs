@@ -284,9 +284,16 @@ pub fn gen_stubs(
         body_lines.push("".to_string());
     }
 
+    // Dataclass-backed config DTOs (e.g. `LlmConfig`): their public name resolves to the
+    // `options.py` `@dataclass`, not the compiled `#[pyclass]` this stub declares. A data-enum
+    // factory param of such a type (e.g. `EmbeddingModelType.llm(llm: LlmConfig)`) is widened to
+    // `options.<Name> | dict[str, Any]` so callers can pass the public dataclass (what
+    // `from <pkg> import LlmConfig` yields) or a dict — the forms the runtime coercion accepts.
+    let coercible_dtos = crate::backends::pyo3::gen_bindings::wire_schema::coercible_dto_names(api, config);
+
     // Generate enum stubs
     for enum_def in &api.enums {
-        body_lines.push(gen_enum_stub(enum_def, emit_docstrings));
+        body_lines.push(gen_enum_stub(enum_def, emit_docstrings, &coercible_dtos));
         body_lines.push("".to_string());
     }
 
@@ -349,22 +356,38 @@ pub fn gen_stubs(
             }
         }
     }
+    // Names already declared as plain functions above (from `api.functions`). A trait bridge's
+    // `clear_fn` is frequently also exposed as a regular registry function (`clear_ocr_backends`),
+    // so emitting it again here would produce a duplicate `def` (mypy `no-redef`). Skip any bridge
+    // function whose name already has a declaration; the register/unregister names are bridge-only.
+    let declared_function_names: std::collections::HashSet<&str> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(&f.name))
+        .map(|f| f.name.as_str())
+        .collect();
     for bridge in trait_bridges {
         if let Some(register_fn) = bridge.register_fn.as_deref() {
-            // Type the `backend` param against the host-implementable Protocol when one was
-            // emitted for this bridge's trait; otherwise fall back to `object`.
-            let backend_type = if protocol_trait_names.contains(&bridge.trait_name) {
-                bridge.trait_name.as_str()
-            } else {
-                "object"
-            };
-            body_lines.push(format!("def {register_fn}(backend: {backend_type}) -> None: ..."));
+            if !declared_function_names.contains(register_fn) {
+                // Type the `backend` param against the host-implementable Protocol when one was
+                // emitted for this bridge's trait; otherwise fall back to `object`.
+                let backend_type = if protocol_trait_names.contains(&bridge.trait_name) {
+                    bridge.trait_name.as_str()
+                } else {
+                    "object"
+                };
+                body_lines.push(format!("def {register_fn}(backend: {backend_type}) -> None: ..."));
+            }
         }
         if let Some(unregister_fn) = bridge.unregister_fn.as_deref() {
-            body_lines.push(format!("def {unregister_fn}(name: str) -> None: ..."));
+            if !declared_function_names.contains(unregister_fn) {
+                body_lines.push(format!("def {unregister_fn}(name: str) -> None: ..."));
+            }
         }
         if let Some(clear_fn) = bridge.clear_fn.as_deref() {
-            body_lines.push(format!("def {clear_fn}() -> None: ..."));
+            if !declared_function_names.contains(clear_fn) {
+                body_lines.push(format!("def {clear_fn}() -> None: ..."));
+            }
         }
     }
 
@@ -383,6 +406,13 @@ pub fn gen_stubs(
     // an explicit `import builtins`. Emit it only when actually referenced so F401 stays clean.
     if contains_word(&body_joined, "builtins") {
         lines.push("import builtins".to_string());
+        lines.push("".to_string());
+    }
+    // A widened factory param (`options.<Dto> | dict[str, Any]`) references the sibling options
+    // module. The import is stub-only (`.pyi` is never executed, so there is no runtime cycle with
+    // `options.py`, which imports from this module). Emit it only when referenced so F401 stays clean.
+    if body_joined.contains("options.") {
+        lines.push("from . import options".to_string());
         lines.push("".to_string());
     }
     if !used_typing.is_empty() {

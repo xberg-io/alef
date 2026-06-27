@@ -93,6 +93,15 @@ fn validate_one(snippet: &Snippet, registry: &ValidatorRegistry, config: &Runner
                     duration_ms: 0,
                 };
             }
+            SnippetAnnotationKind::TypeCheckOnly if config.level > ValidationLevel::TypeCheck => {
+                return ValidationResult {
+                    snippet: snippet.clone(),
+                    status: SnippetStatus::Skip,
+                    level: config.level,
+                    message: Some("annotation limits to typecheck-only".to_string()),
+                    duration_ms: 0,
+                };
+            }
             _ => {}
         }
     }

@@ -2,24 +2,12 @@ use crate::backends::go::type_map::go_type;
 use crate::core::ir::{MethodDef, TypeRef};
 use std::collections::HashSet;
 
-/// Recursively substitute `TypeRef::Named(n)` references where `n` is explicitly excluded
-/// from the binding's public surface (collected from `ApiSurface::excluded_type_paths` and
-/// any `binding_excluded` types) with `TypeRef::Json`. This lets trait-bridge interface
-/// signatures and trampolines fall back to `json.RawMessage`, since the named Go type was
-/// never emitted into `binding.go` and would otherwise produce `undefined: <Name>` build
-/// errors.
-pub(super) fn substitute_excluded_types(ty: &TypeRef, excluded: &HashSet<&str>) -> TypeRef {
-    match ty {
-        TypeRef::Named(name) if excluded.contains(name.as_str()) => TypeRef::Json,
-        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(substitute_excluded_types(inner, excluded))),
-        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(substitute_excluded_types(inner, excluded))),
-        TypeRef::Map(k, v) => TypeRef::Map(
-            Box::new(substitute_excluded_types(k, excluded)),
-            Box::new(substitute_excluded_types(v, excluded)),
-        ),
-        other => other.clone(),
-    }
-}
+/// Recursively substitute `TypeRef::Named(n)` references for types excluded from the binding's
+/// public surface with `TypeRef::Json`. For Go this lets trait-bridge interface signatures and
+/// trampolines fall back to `json.RawMessage`, since the named Go type was never emitted into
+/// `binding.go` and would otherwise produce `undefined: <Name>` build errors. Shared with the
+/// other backends — see [`crate::codegen::shared::substitute_excluded_types`].
+pub(super) use crate::codegen::shared::substitute_excluded_types;
 
 /// Clone a `MethodDef`, substituting any excluded named-type references in its
 /// parameters and return type with `TypeRef::Json`. See [`substitute_excluded_types`].

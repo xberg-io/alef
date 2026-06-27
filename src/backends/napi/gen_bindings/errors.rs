@@ -1,7 +1,7 @@
 //! TypeScript declaration file (`.d.ts`) generation for NAPI-RS bindings.
 
 use crate::codegen::naming::{to_node_name, wire_variant_value};
-use crate::codegen::shared::binding_fields;
+use crate::codegen::shared::{binding_fields, substitute_excluded_types};
 use crate::core::config::NodeCapsuleTypeConfig;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
@@ -268,6 +268,16 @@ pub(super) fn gen_dts(
             Decl::VisitorInterface(typ) => {
                 // Emit visitor trait as a TypeScript interface with optional callback methods.
                 // Each method becomes an optional property with a function signature.
+                //
+                // Types excluded from the binding surface (e.g. `InternalDocument`) are not emitted as
+                // `.d.ts` declarations, so substitute them with their JSON marshaling form in method
+                // signatures — otherwise the interface references an undefined TS name.
+                let excluded: std::collections::HashSet<&str> = api
+                    .excluded_type_paths
+                    .keys()
+                    .map(String::as_str)
+                    .chain(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()))
+                    .collect();
                 lines.extend(format_jsdoc(&typ.doc, ""));
                 lines.push(format!("export interface {} {{", typ.name));
                 if trait_bridge_requires_plugin_name(typ, trait_bridges) {
@@ -278,8 +288,20 @@ pub(super) fn gen_dts(
                     if trait_bridge_requires_plugin_name(typ, trait_bridges) && method.name == "name" {
                         continue;
                     }
-                    let params = dts_params(&method.params, no_prefix, default_types);
-                    let ret = trait_bridge_dts_return_type(&method.return_type, method.is_async, no_prefix);
+                    let sub_params: Vec<ParamDef> = method
+                        .params
+                        .iter()
+                        .map(|p| ParamDef {
+                            ty: substitute_excluded_types(&p.ty, &excluded),
+                            ..p.clone()
+                        })
+                        .collect();
+                    let params = dts_params(&sub_params, no_prefix, default_types);
+                    let ret = trait_bridge_dts_return_type(
+                        &substitute_excluded_types(&method.return_type, &excluded),
+                        method.is_async,
+                        no_prefix,
+                    );
                     lines.extend(format_jsdoc(&method.doc, "  "));
                     let optional_marker = if method.has_default_impl { "?" } else { "" };
                     lines.push(format!("  {js_name}{optional_marker}({params}): {ret}"));

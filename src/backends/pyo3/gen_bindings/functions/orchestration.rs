@@ -71,10 +71,14 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
 
     // Separate data enums (tagged unions exposed as dict-accepting structs) from simple int enums.
     // Data enums are passed through as dicts; simple enums need string→variant lookup.
+    // A sanitized data enum has an unresolvable variant field, so no serde-based `#[new]` is
+    // generated for it — it is a return-only type. Exclude it here so the converter passes an
+    // existing native instance through instead of trying to construct one (which would be a
+    // "too many arguments" type error against a class with no `__init__`).
     let data_enum_names: AHashSet<&str> = api
         .enums
         .iter()
-        .filter(|e| generators::enum_has_data_variants(e))
+        .filter(|e| generators::enum_has_data_variants(e) && !generators::enum_has_sanitized_fields(e))
         .map(|e| e.name.as_str())
         .collect();
 

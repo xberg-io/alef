@@ -59,8 +59,17 @@ pub(super) fn generate_public_api(
 
     let mut files = vec![];
 
+    // Types re-exported in the public package as native pyclasses (e.g. `ExtractionResult`). Such a
+    // type is native everywhere — it must NOT also be emitted as a parallel `options.py` TypedDict,
+    // or fields referencing it would carry a structurally-incompatible second identity.
+    let reexported_types = config
+        .python
+        .as_ref()
+        .map(|c| c.reexported_types.clone())
+        .unwrap_or_default();
+
     // 1. Generate options.py (enums and dataclasses)
-    let options_content = types::gen_options_py(api, &module_name, &config.dto);
+    let options_content = types::gen_options_py(api, &module_name, &config.dto, &reexported_types);
     files.push(GeneratedFile {
         path: output_base.join("options.py"),
         content: options_content,
@@ -77,11 +86,6 @@ pub(super) fn generate_public_api(
         .python
         .as_ref()
         .map(|c| c.capsule_types.clone())
-        .unwrap_or_default();
-    let reexported_types = config
-        .python
-        .as_ref()
-        .map(|c| c.reexported_types.clone())
         .unwrap_or_default();
     let api_content = functions::gen_api_py(
         api,

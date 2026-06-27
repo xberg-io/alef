@@ -1,5 +1,11 @@
 use super::gen_enum_stub;
 use crate::core::ir::{CoreWrapper, EnumDef, EnumVariant, FieldDef, MethodDef, PrimitiveType, TypeRef};
+use ahash::AHashSet;
+
+/// No dataclass-backed config DTOs — factory params map exactly as `python_type` would.
+fn no_dtos() -> AHashSet<&'static str> {
+    AHashSet::new()
+}
 
 fn field(name: &str, ty: TypeRef) -> FieldDef {
     FieldDef {
@@ -87,7 +93,7 @@ fn shape_enum() -> EnumDef {
 
 #[test]
 fn emits_staticmethod_constructor_per_struct_variant() {
-    let stub = gen_enum_stub(&shape_enum(), false);
+    let stub = gen_enum_stub(&shape_enum(), false, &no_dtos());
 
     assert!(stub.contains("class Shape:"), "{stub}");
     assert!(stub.contains("    type: str"), "{stub}");
@@ -115,11 +121,39 @@ fn maps_named_dto_field_to_its_type() {
         )],
     );
 
-    let stub = gen_enum_stub(&def, false);
+    let stub = gen_enum_stub(&def, false, &no_dtos());
 
     assert!(
         stub.contains("    @staticmethod\n    def llm(config: LlmConfig) -> Source: ..."),
         "{stub}"
+    );
+}
+
+#[test]
+fn widens_dataclass_backed_config_dto_factory_param() {
+    // When the payload type is a dataclass-backed config DTO, the factory param must accept the
+    // public `options` dataclass or a dict (what the runtime coercion accepts) — not the compiled
+    // class the bare name resolves to. A primitive sibling param is unaffected.
+    let def = enum_def(
+        "EmbeddingModelType",
+        vec![
+            variant("Llm", vec![field("llm", TypeRef::Named("LlmConfig".to_string()))]),
+            variant("Preset", vec![field("name", TypeRef::String)]),
+        ],
+    );
+    let coercible: AHashSet<&str> = ["LlmConfig"].into_iter().collect();
+
+    let stub = gen_enum_stub(&def, false, &coercible);
+
+    assert!(
+        stub.contains(
+            "    @staticmethod\n    def llm(llm: options.LlmConfig | dict[str, Any]) -> EmbeddingModelType: ..."
+        ),
+        "coercible DTO factory param must accept the public dataclass or a dict: {stub}"
+    );
+    assert!(
+        stub.contains("    @staticmethod\n    def preset(name: str) -> EmbeddingModelType: ..."),
+        "primitive factory param must be unchanged: {stub}"
     );
 }
 
@@ -143,7 +177,7 @@ fn qualifies_builtin_shadowed_by_a_variant_factory_name() {
         ],
     );
 
-    let stub = gen_enum_stub(&def, false);
+    let stub = gen_enum_stub(&def, false, &no_dtos());
 
     assert!(
         stub.contains("    @staticmethod\n    def list(ordered: str) -> NodeContent: ..."),
@@ -176,7 +210,7 @@ fn skips_unit_tuple_excluded_and_sanitized_variants() {
         ],
     );
 
-    let stub = gen_enum_stub(&def, false);
+    let stub = gen_enum_stub(&def, false, &no_dtos());
 
     assert!(!stub.contains("def empty("), "{stub}");
     assert!(!stub.contains("def pair("), "{stub}");
@@ -195,7 +229,7 @@ fn optional_field_is_nilable_with_default() {
         vec![variant("Tag", vec![optional_field("label", TypeRef::String)])],
     );
 
-    let stub = gen_enum_stub(&def, false);
+    let stub = gen_enum_stub(&def, false, &no_dtos());
 
     assert!(
         stub.contains("    @staticmethod\n    def tag(label: str | None = None) -> Source: ..."),
@@ -219,7 +253,7 @@ fn param_after_optional_is_promoted_to_nilable() {
         )],
     );
 
-    let stub = gen_enum_stub(&def, false);
+    let stub = gen_enum_stub(&def, false, &no_dtos());
 
     assert!(
         stub.contains(
@@ -240,7 +274,7 @@ fn yields_to_hand_written_method_of_same_name() {
         ..shape_enum()
     };
 
-    let stub = gen_enum_stub(&def, false);
+    let stub = gen_enum_stub(&def, false, &no_dtos());
 
     assert!(!stub.contains("def circle("), "hand-written method wins: {stub}");
     assert!(

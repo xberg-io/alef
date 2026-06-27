@@ -60,6 +60,14 @@ impl SnippetValidator for CsharpValidator {
                     .args(["build", "--nologo", "-v", "quiet"])
                     .current_dir(dir.path());
             }
+            // Strict type-check: treat all compiler warnings as errors. The project already enables
+            // nullable reference types, so `-warnaserror` surfaces nullability and type issues that a
+            // plain build tolerates. P/Invoke declarations compile without the native library.
+            ValidationLevel::TypeCheck => {
+                command
+                    .args(["build", "--nologo", "-v", "quiet", "-warnaserror"])
+                    .current_dir(dir.path());
+            }
             ValidationLevel::Run => {
                 command.args(["run", "--nologo"]).current_dir(dir.path());
             }

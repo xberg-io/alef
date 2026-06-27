@@ -167,6 +167,12 @@ impl std::str::FromStr for Language {
 pub enum ValidationLevel {
     Syntax,
     Compile,
+    /// Static type-checking without executing the code (e.g. `mypy` for Python, `tsc` for
+    /// TypeScript). Deeper than `Compile` for dynamically-typed languages whose compile step is
+    /// only a bytecode/syntax pass; equivalent to `Compile` for languages whose compiler already
+    /// type-checks. Ordered between `Compile` and `Run` so it is the strongest static guarantee
+    /// short of execution.
+    TypeCheck,
     Run,
 }
 
@@ -175,6 +181,7 @@ impl fmt::Display for ValidationLevel {
         match self {
             Self::Syntax => write!(f, "syntax"),
             Self::Compile => write!(f, "compile"),
+            Self::TypeCheck => write!(f, "typecheck"),
             Self::Run => write!(f, "run"),
         }
     }
@@ -187,6 +194,7 @@ impl std::str::FromStr for ValidationLevel {
         match s.to_lowercase().as_str() {
             "syntax" => Ok(Self::Syntax),
             "compile" => Ok(Self::Compile),
+            "typecheck" | "type-check" => Ok(Self::TypeCheck),
             "run" => Ok(Self::Run),
             _ => Err(format!("unknown validation level: {s}")),
         }
@@ -199,6 +207,7 @@ pub enum SnippetAnnotationKind {
     Skip,
     CompileOnly,
     SyntaxOnly,
+    TypeCheckOnly,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -304,5 +313,32 @@ impl RunSummary {
     #[must_use]
     pub const fn has_failures(&self) -> bool {
         self.failed > 0 || self.errors > 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SnippetAnnotationKind, ValidationLevel};
+
+    #[test]
+    fn validation_level_parses_typecheck_aliases() {
+        assert_eq!("typecheck".parse::<ValidationLevel>(), Ok(ValidationLevel::TypeCheck));
+        assert_eq!("type-check".parse::<ValidationLevel>(), Ok(ValidationLevel::TypeCheck));
+        assert_eq!("TypeCheck".parse::<ValidationLevel>(), Ok(ValidationLevel::TypeCheck));
+        assert_eq!(ValidationLevel::TypeCheck.to_string(), "typecheck");
+    }
+
+    #[test]
+    fn typecheck_orders_between_compile_and_run() {
+        // The runner clamps the requested level with `min(level, validator.max_level())` and gates
+        // annotation ceilings with `>`, so the ordering is load-bearing: type-checking is the
+        // strongest static guarantee short of execution.
+        assert!(ValidationLevel::Compile < ValidationLevel::TypeCheck);
+        assert!(ValidationLevel::TypeCheck < ValidationLevel::Run);
+    }
+
+    #[test]
+    fn typecheck_only_annotation_kind_is_distinct() {
+        assert_ne!(SnippetAnnotationKind::TypeCheckOnly, SnippetAnnotationKind::CompileOnly);
     }
 }

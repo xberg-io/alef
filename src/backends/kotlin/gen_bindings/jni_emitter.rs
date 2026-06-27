@@ -32,3 +32,6 @@ include!("jni_emitter/constructors.rs");
 include!("jni_emitter/binary_json.rs");
 include!("jni_emitter/trait_bridge.rs");
 include!("jni_emitter/paths.rs");
+// Included last so the `#[cfg(test)]` module is the final item in this flattened module
+// (`clippy::items_after_test_module`).
+include!("jni_emitter/tests.rs");

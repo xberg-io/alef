@@ -1,5 +1,6 @@
 use super::{pyi_docstring, python_safe_name, substitute_capsule_type};
 use crate::backends::pyo3::type_map::python_type;
+use crate::codegen::shared::substitute_excluded_types;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::ApiSurface;
 
@@ -24,6 +25,16 @@ pub(super) fn gen_visitor_protocol_stub(
         return None;
     }
     let trait_def = api.types.iter().find(|t| t.name == bridge.trait_name)?;
+
+    // Types excluded from the public binding surface are never emitted as `.pyi` classes; a
+    // Protocol method referencing one (e.g. `-> InternalDocument`) would be an undefined name.
+    // Substitute them with their JSON marshaling form, matching the runtime bridge.
+    let excluded: std::collections::HashSet<&str> = api
+        .excluded_type_paths
+        .keys()
+        .map(String::as_str)
+        .chain(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()))
+        .collect();
 
     let mut lines = vec![format!("class {}(Protocol):", bridge.trait_name)];
 
@@ -51,10 +62,16 @@ pub(super) fn gen_visitor_protocol_stub(
         body_emitted = true;
         let mut params: Vec<String> = vec!["self".to_string()];
         for p in &method.params {
-            let param_type = substitute_capsule_type(&python_type(&p.ty), capsule_names);
+            let param_type = substitute_capsule_type(
+                &python_type(&substitute_excluded_types(&p.ty, &excluded)),
+                capsule_names,
+            );
             params.push(format!("{}: {}", p.name, param_type));
         }
-        let return_type = substitute_capsule_type(&python_type(&method.return_type), capsule_names);
+        let return_type = substitute_capsule_type(
+            &python_type(&substitute_excluded_types(&method.return_type, &excluded)),
+            capsule_names,
+        );
         let safe_name = python_safe_name(&method.name);
         let signature = format!("    def {}({}) -> {}: ...", safe_name, params.join(", "), return_type);
         lines.push(signature);

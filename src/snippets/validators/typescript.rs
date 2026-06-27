@@ -99,7 +99,7 @@ impl SnippetValidator for TypeScriptValidator {
                     .current_dir(dir.path());
                 command
             }
-            ValidationLevel::Compile => {
+            ValidationLevel::Compile | ValidationLevel::TypeCheck => {
                 let mut command = std::process::Command::new("tsc");
                 command.args(["--noEmit", "--pretty", "false"]).current_dir(dir.path());
                 command

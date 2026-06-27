@@ -139,7 +139,9 @@ edition = "2024"
         source_file.write_all(code.as_bytes())?;
 
         let (program, args): (&str, &[&str]) = match level {
-            ValidationLevel::Syntax | ValidationLevel::Compile => ("cargo", &["check", "--quiet"]),
+            ValidationLevel::Syntax | ValidationLevel::Compile | ValidationLevel::TypeCheck => {
+                ("cargo", &["check", "--quiet"])
+            }
             ValidationLevel::Run => ("cargo", &["run", "--quiet"]),
         };
 

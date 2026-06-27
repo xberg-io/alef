@@ -5,7 +5,7 @@ mod capsule_methods;
 mod cfg_fields;
 mod config;
 mod config_opaque;
-mod constructors;
+pub(in crate::backends::pyo3) mod constructors;
 pub mod enums;
 pub mod errors;
 pub mod functions;
@@ -18,7 +18,7 @@ mod support_items;
 #[cfg(test)]
 mod tests;
 pub mod types;
-mod wire_schema;
+pub(in crate::backends::pyo3) mod wire_schema;
 
 use crate::backends::pyo3::type_map::Pyo3Mapper;
 use crate::codegen::builder::RustFileBuilder;

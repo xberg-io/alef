@@ -25,7 +25,10 @@ use ahash::{AHashMap, AHashSet};
 /// fields of these types must accept the public wrapper or a dict — coerced into the core type —
 /// for parity with struct-field `_to_rust_*` coercion. Native-return types stay compiled and are
 /// left untouched. Same source of truth as `gen_init_py`'s import routing.
-pub(super) fn coercible_dto_names<'a>(api: &'a ApiSurface, config: &ResolvedCrateConfig) -> AHashSet<&'a str> {
+pub(in crate::backends::pyo3) fn coercible_dto_names<'a>(
+    api: &'a ApiSurface,
+    config: &ResolvedCrateConfig,
+) -> AHashSet<&'a str> {
     let output_style = config.dto.python_output_style();
     let reexported: AHashSet<&str> = config
         .python

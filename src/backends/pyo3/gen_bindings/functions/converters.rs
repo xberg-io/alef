@@ -44,6 +44,11 @@ pub(super) fn emit_converters(
         let is_typeddict = output_style == PythonDtoStyle::TypedDict
             && typ.is_return_type
             && !reexported_names.contains(type_name.as_str());
+        // A reexported-native type IS the native class — the str/dict branches above already turned
+        // the input into a `_rust.{type_name}` instance, and an already-native input is itself the
+        // result. Reconstructing it field-by-field would call `_to_rust_*` on fields that are already
+        // native (a type error). So the converter returns the value directly instead.
+        let is_reexported = reexported_names.contains(type_name.as_str());
 
         // Helper: emit `value.field` or `value.get("field")` depending on the type kind.
         let field_access = |name: &str| -> String {
@@ -249,9 +254,12 @@ pub(super) fn emit_converters(
                     ));
                 }
                 helper.push_str("    }\n");
-                helper.push_str("    for _k, _cls in _data_enum_coercions.items():\n");
+                // Distinct loop variable from the unit-enum loop above: reusing `_cls` makes a type
+                // checker infer a single `type[...]` for it and flag the second dict's classes as an
+                // incompatible reassignment.
+                helper.push_str("    for _k, _data_cls in _data_enum_coercions.items():\n");
                 helper.push_str(
-                "        if _k in value and value[_k] is not None and not isinstance(value[_k], _cls):\n            value[_k] = _cls(value[_k])\n",
+                "        if _k in value and value[_k] is not None and not isinstance(value[_k], _data_cls):\n            value[_k] = _data_cls(value[_k])\n",
             );
             }
 
@@ -259,6 +267,7 @@ pub(super) fn emit_converters(
                 "converters/return_coerced_type.jinja",
                 minijinja::context! {
                     type_name => type_name,
+                    is_typeddict => is_typeddict,
                 },
             ));
             out.insert_str(insert_pos, &helper);
@@ -296,6 +305,7 @@ pub(super) fn emit_converters(
                 "converters/call_dict_helper.jinja",
                 minijinja::context! {
                     snake => &snake,
+                    is_typeddict => is_typeddict,
                 },
             ));
         } else {
@@ -394,6 +404,11 @@ pub(super) fn emit_converters(
                 type_name => type_name,
             },
         ));
+        if is_reexported {
+            // `value` is already the native class — return it without field-by-field reconstruction.
+            out.push_str("    return value\n\n\n");
+            continue;
+        }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/return_constructed.jinja",
             minijinja::context! {
@@ -401,7 +416,10 @@ pub(super) fn emit_converters(
             },
         ));
 
-        for field in binding_fields(&typ.fields) {
+        // Skip cfg-gated fields: they are conditionally compiled out of the native `#[new]`
+        // constructor (and omitted from the `.pyi` stub, which cannot express `#[cfg]`), so passing
+        // them as keyword arguments would be an unknown-kwarg error. Mirrors the stub's filter.
+        for field in binding_fields(&typ.fields).filter(|f| f.cfg.is_none()) {
             // Check if the field's type is itself a has_default Named type (needs nested conversion)
             let inner_named = match &field.ty {
                 TypeRef::Named(n) => Some(n.as_str()),

@@ -1,6 +1,29 @@
 use super::{pyi_docstring, python_safe_name};
 use crate::backends::pyo3::type_map::python_type;
-use crate::core::ir::EnumDef;
+use crate::core::ir::{EnumDef, TypeRef};
+use ahash::AHashSet;
+
+/// Map a data-enum factory-constructor param type to its stub annotation, widening dataclass-backed
+/// config DTOs. The bare name (`LlmConfig`) resolves to the compiled `#[pyclass]` this stub declares,
+/// but the public name users pass is the `options.py` `@dataclass`, so such a param is widened to
+/// `options.<Name> | dict[str, Any]` — the public wrapper or a dict, matching what the runtime
+/// `__alef_coerce_dto` accepts. Non-DTO types (and the inner of containers) fall back to
+/// [`python_type`], so the output is byte-identical to it wherever no coercible DTO is present.
+fn factory_param_type(ty: &TypeRef, coercible_dtos: &AHashSet<&str>) -> String {
+    match ty {
+        TypeRef::Named(name) if coercible_dtos.contains(name.as_str()) => {
+            format!("options.{name} | dict[str, Any]")
+        }
+        TypeRef::Optional(inner) => format!("{} | None", factory_param_type(inner, coercible_dtos)),
+        TypeRef::Vec(inner) => format!("list[{}]", factory_param_type(inner, coercible_dtos)),
+        TypeRef::Map(k, v) => format!(
+            "dict[{}, {}]",
+            factory_param_type(k, coercible_dtos),
+            factory_param_type(v, coercible_dtos)
+        ),
+        _ => python_type(ty),
+    }
+}
 
 fn to_python_enum_variant(name: &str) -> String {
     use heck::ToShoutySnakeCase;
@@ -8,13 +31,13 @@ fn to_python_enum_variant(name: &str) -> String {
 }
 
 /// Generate a Python enum stub.
-pub(super) fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
+pub(super) fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool, coercible_dtos: &AHashSet<&str>) -> String {
     use crate::codegen::generators::enum_has_data_variants;
     let mut lines = vec![];
 
     if enum_has_data_variants(enum_def) {
         // Data enums: emit a TypedDict per variant and a Union type alias.
-        gen_data_enum_typeddicts(&mut lines, enum_def);
+        gen_data_enum_typeddicts(&mut lines, enum_def, coercible_dtos);
     } else {
         lines.push(format!("class {}:", enum_def.name));
         // Enum-level docstring — gated behind emit_docstrings (ruff PYI021).
@@ -45,7 +68,7 @@ pub(super) fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String
 }
 
 /// Generate TypedDicts for each variant of a data enum, plus a Union type alias.
-fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef) {
+fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef, coercible_dtos: &AHashSet<&str>) {
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let rename_all = enum_def.serde_rename_all.as_deref();
 
@@ -91,7 +114,16 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef) {
     // dunder stubs so type-checkers and IDEs see `Shape.circle(...)` factory calls. The variant
     // selection is shared with the runtime binding via `collect_variant_constructors`, so the
     // declared surface stays in lockstep with the methods PyO3 actually exposes.
-    gen_data_enum_variant_constructor_stubs(lines, enum_def);
+    gen_data_enum_variant_constructor_stubs(lines, enum_def, coercible_dtos);
+    // The runtime wrapper exposes a `#[new]` accepting a tag string, a `{"type": ...}` dict, or
+    // kwargs (see pyo3_data_enum.jinja) — UNLESS a variant field is sanitized, in which case the
+    // serde-based `#[new]` is omitted and the type is return-only. Mirror that here so a converter
+    // constructing `OutputFormat(value)` / `EmbeddingModelType({...})` type-checks.
+    if !crate::codegen::generators::enum_has_sanitized_fields(enum_def) {
+        lines.push(
+            "    def __init__(self, value: dict[str, Any] | str | None = None, **kwargs: Any) -> None: ...".to_string(),
+        );
+    }
     // PYI029: __str__/__repr__ stubs are needed because the pyo3 wrapper implements them
     // via Display/Debug, and downstream callers rely on str(value) returning the serde tag.
     lines.push("    def __str__(self) -> str: ...  # noqa: PYI029".to_string());
@@ -106,7 +138,11 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef) {
 /// type is the enum itself. `collect_variant_constructors` owns the skip rules (unit / tuple /
 /// `binding_excluded` / sanitized-field variants and hand-written method collisions) so the stub
 /// and runtime binding stay aligned.
-fn gen_data_enum_variant_constructor_stubs(lines: &mut Vec<String>, enum_def: &EnumDef) {
+fn gen_data_enum_variant_constructor_stubs(
+    lines: &mut Vec<String>,
+    enum_def: &EnumDef,
+    coercible_dtos: &AHashSet<&str>,
+) {
     use crate::codegen::generators::collect_variant_constructors;
 
     let ctors = collect_variant_constructors(enum_def);
@@ -135,7 +171,9 @@ fn gen_data_enum_variant_constructor_stubs(lines: &mut Vec<String>, enum_def: &E
                 // with a `= None` default. Mirroring it keeps the stub's required/optional split and
                 // defaults identical to the runtime constructor signature.
                 let optional = p.optional || crate::codegen::shared::is_promoted_optional(&ctor.params, idx);
-                let mut py_type = python_type(&p.ty);
+                // Widen dataclass-backed config-DTO params to accept the public dataclass or a dict;
+                // all other types map exactly as `python_type` would.
+                let mut py_type = factory_param_type(&p.ty, coercible_dtos);
                 for builtin in &shadowed {
                     py_type = py_type.replace(&format!("{builtin}["), &format!("builtins.{builtin}["));
                 }

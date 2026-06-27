@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **snippets**: `typecheck` validation level. Ordered between `compile` and `run`, it statically
+  type-checks a snippet without executing it, and for compiled languages without needing the native
+  library. Each language runs its strict static checker: `python -m mypy`, `tsc --noEmit`,
+  `cargo check`, `go vet`, `javac -Xlint:all -Werror`, `dotnet build -warnaserror`,
+  `swiftc -typecheck -warnings-as-errors`, `kotlinc -Werror`, `dart analyze --fatal-infos`, and
+  `cc -fsyntax-only -Wall -Werror`. This catches dual-representation mistakes (a config field typed
+  against a flattened union alias that rejects the documented data-enum constructor) that
+  `py_compile` and a lenient compile cannot see. A matching `snippet:typecheck-only` ceiling
+  annotation sits alongside `syntax-only` and `compile-only`. mypy is optional: when it is not
+  installed the Python snippet is reported as unavailable rather than failing.
+
 ### Fixed
+
+- **pyo3**: the generated Python package now type-checks clean under `mypy`. Data-enum config fields
+  are annotated against their public class (so `EmbeddingConfig(model=EmbeddingModelType.plugin(...))`
+  is accepted) instead of a flattened union alias that shadowed the class; constructors accept the
+  public dataclass/dict for factory parameters; data-enum `__init__` signatures match the runtime
+  `#[new]`; `Json` maps to `dict[str, Any]`; and the duplicate `clear_*` registry stub is no longer
+  emitted twice.
+- **napi**: substitute binding-excluded types (e.g. `InternalDocument`) with `JsonValue` in the
+  `.d.ts` host-interface signatures. Referencing a type that is never emitted produced an undefined
+  TypeScript name; the runtime bridge marshals such values as JSON, so `JsonValue` is the faithful
+  stand-in and `tsc --strict` is clean.
+- **magnus**: apply the same excluded-type substitution (to `json_value`) in generated `.rbs`
+  interfaces and skip re-declaring a bridge `clear_*` function that is already exposed as a registry
+  function, so `rbs validate` no longer reports an undefined type or a duplicated method definition.
 
 - **go/java**: avoid callback return local-name collisions in generated trait
   bridges when a method parameter is named `result`.

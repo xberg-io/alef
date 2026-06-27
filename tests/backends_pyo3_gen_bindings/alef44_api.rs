@@ -560,7 +560,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
 }
 
 #[test]
-fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
+fn test_options_py_imports_data_enums_as_native_classes() {
     let backend = Pyo3Backend;
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
@@ -632,16 +632,26 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
     let files = backend.generate_public_api(&api, &config).expect("generate public API");
     let options_py = files.iter().find(|f| f.path.ends_with("options.py")).unwrap();
 
+    // Data enums are imported from the native module as their class (the same class users
+    // construct), referenced by name in field annotations — not redefined as a flattened union
+    // alias that would shadow the public class and reject the documented usage in a type checker.
     assert!(
-        !options_py
+        options_py
             .content
             .contains("from ._test_lib import (\n    StructureKind,"),
-        "data enum aliases must not be imported from the native module and then redefined;\ncontent:\n{}",
+        "data enum class must be imported from the native module;\ncontent:\n{}",
         options_py.content
     );
     assert!(
-        options_py.content.contains("StructureKind = str"),
-        "data enum alias should still be emitted for Python-side annotations;\ncontent:\n{}",
+        !options_py.content.contains("StructureKind = "),
+        "the flattened data-enum union alias must no longer be emitted;\ncontent:\n{}",
+        options_py.content
+    );
+    // `StructureKind` here has only a payload-carrying variant (no unit/tag-only variant), so the
+    // field is typed as the class alone — no `| str` widening.
+    assert!(
+        options_py.content.contains("kind: StructureKind | None"),
+        "config field must be typed as the data-enum class;\ncontent:\n{}",
         options_py.content
     );
 }
