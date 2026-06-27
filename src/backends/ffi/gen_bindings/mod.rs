@@ -11,7 +11,7 @@ use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 use std::path::PathBuf;
 
-use helpers::{gen_build_rs, gen_cbindgen_toml};
+use helpers::{cbindgen_exclude_type_names, gen_build_rs, gen_cbindgen_toml};
 
 pub struct FfiBackend;
 
@@ -63,6 +63,7 @@ impl Backend for FfiBackend {
         // Drives both the cbindgen forward declarations and the opaque-handle suppression in lib.rs.
         let ffi_capsule_types: std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig> =
             config.ffi.as_ref().map(|c| c.capsule_types.clone()).unwrap_or_default();
+        let cbindgen_exclude_types = cbindgen_exclude_type_names(api, config);
 
         let files = vec![
             GeneratedFile {
@@ -72,7 +73,7 @@ impl Backend for FfiBackend {
             },
             GeneratedFile {
                 path: parent_dir.join("cbindgen.toml"),
-                content: gen_cbindgen_toml(&prefix, api, &ffi_capsule_types),
+                content: gen_cbindgen_toml(&prefix, api, &ffi_capsule_types, &cbindgen_exclude_types),
                 generated_header: false,
             },
             GeneratedFile {

@@ -13,7 +13,7 @@ after_includes = {{ after_includes }}
 [export]
 prefix = "{{ prefix_upper }}"
 include = []
-exclude = []
+exclude = [{% for name in export_exclude %}"{{ name }}"{% if not loop.last %}, {% endif %}{% endfor %}]
 
 [fn]
 args = "vertical"

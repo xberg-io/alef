@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **ffi**: honor `[crates.ffi].exclude_types` when generating `cbindgen.toml`.
+  Excluded Rust-only helper DTOs are now omitted from the header prelude forward
+  declarations and emitted in `[export].exclude`, keeping C and cgo headers from
+  leaking types that the FFI layer does not expose.
+
 - **java/kotlin-android**: route configured trait-bridge lifecycle functions through the generated
   bridge APIs instead of also emitting ordinary FFI wrappers. This keeps raw Rust functions such as
   `register_document_extractor` from shadowing typed host interfaces (`IDocumentExtractor`,
