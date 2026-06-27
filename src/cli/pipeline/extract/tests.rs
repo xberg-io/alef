@@ -1,7 +1,8 @@
+use super::external_types::merge_external_type_roots;
 use super::filtering::{apply_filters, expand_include_list, is_type_excluded};
 use super::sanitizer::{TypeSanitization, sanitize_type_ref, sanitize_unknown_types};
 use super::validation::validate_extracted_api;
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{ResolvedCrateConfig, SourceCrate};
 use crate::core::ir::{ApiSurface, TypeRef};
 use ahash::AHashSet;
 
@@ -393,6 +394,206 @@ fn surface_with(types: Vec<crate::core::ir::TypeDef>, functions: Vec<crate::core
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// external type roots
+// ---------------------------------------------------------------------------
+
+#[test]
+fn merge_external_type_roots_imports_only_transitive_dtos() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("external.rs");
+    std::fs::write(
+        &source,
+        r#"
+pub struct ExternalConfig {
+    pub nested: NestedConfig,
+    #[cfg_attr(alef, alef(skip))]
+    pub skipped: SkippedConfig,
+}
+
+impl ExternalConfig {
+    pub fn method_only(&self) -> MethodOnlyConfig {
+        unimplemented!()
+    }
+}
+
+pub struct NestedConfig {
+    pub mode: ExternalMode,
+}
+
+pub enum ExternalMode {
+    Auto,
+}
+
+pub struct SkippedConfig {
+    pub hidden: HiddenConfig,
+}
+
+pub struct HiddenConfig {
+    pub value: String,
+}
+
+pub struct MethodOnlyConfig {
+    pub value: String,
+}
+
+pub fn external_function() -> ExternalConfig {
+    unimplemented!()
+}
+"#,
+    )
+    .unwrap();
+
+    let mut surface = surface_with(vec![make_typedef("HostConfig")], vec![]);
+    let config = ResolvedCrateConfig {
+        source_crates: vec![SourceCrate {
+            name: "external-core".to_string(),
+            sources: vec![source],
+            roots: vec!["ExternalConfig".to_string()],
+        }],
+        ..Default::default()
+    };
+
+    merge_external_type_roots(&mut surface, &config).unwrap();
+
+    let type_names: AHashSet<_> = surface.types.iter().map(|typ| typ.name.as_str()).collect();
+    let enum_names: AHashSet<_> = surface.enums.iter().map(|enm| enm.name.as_str()).collect();
+
+    assert!(type_names.contains("HostConfig"));
+    assert!(type_names.contains("ExternalConfig"));
+    assert!(type_names.contains("NestedConfig"));
+    assert!(!type_names.contains("SkippedConfig"));
+    assert!(!type_names.contains("HiddenConfig"));
+    assert!(!type_names.contains("MethodOnlyConfig"));
+    assert!(enum_names.contains("ExternalMode"));
+    assert!(
+        surface
+            .types
+            .iter()
+            .find(|typ| typ.name == "ExternalConfig")
+            .is_some_and(|typ| typ.methods.is_empty()),
+        "external DTO methods must be stripped"
+    );
+    assert!(surface.functions.is_empty(), "external functions must not be merged");
+}
+
+#[test]
+fn merge_external_type_roots_rejects_same_name_host_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("external.rs");
+    std::fs::write(&source, "pub struct ExternalConfig { pub value: String }\n").unwrap();
+
+    let mut surface = surface_with(vec![make_typedef("ExternalConfig")], vec![]);
+    let config = ResolvedCrateConfig {
+        source_crates: vec![SourceCrate {
+            name: "external-core".to_string(),
+            sources: vec![source],
+            roots: vec!["ExternalConfig".to_string()],
+        }],
+        ..Default::default()
+    };
+
+    let err = merge_external_type_roots(&mut surface, &config).unwrap_err();
+
+    assert!(
+        err.to_string().contains("conflicts with existing type path"),
+        "expected type conflict error, got: {err:#}"
+    );
+}
+
+#[test]
+fn merge_external_type_roots_validates_qualified_roots_by_rust_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("external.rs");
+    std::fs::write(&source, "pub struct ExternalConfig { pub value: String }\n").unwrap();
+
+    let mut surface = surface_with(vec![], vec![]);
+    let config = ResolvedCrateConfig {
+        source_crates: vec![SourceCrate {
+            name: "external-core".to_string(),
+            sources: vec![source],
+            roots: vec!["other_core::ExternalConfig".to_string()],
+        }],
+        ..Default::default()
+    };
+
+    let err = merge_external_type_roots(&mut surface, &config).unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("external type root `other_core::ExternalConfig` was not found"),
+        "expected qualified root mismatch error, got: {err:#}"
+    );
+}
+
+#[test]
+fn extract_with_external_type_roots_keeps_host_sources_and_field_type() {
+    let dir = tempfile::tempdir().unwrap();
+    let manifest = dir.path().join("Cargo.toml");
+    let host = dir.path().join("host.rs");
+    let external = dir.path().join("external.rs");
+    std::fs::write(&manifest, "[package]\nname = \"host\"\nversion = \"0.1.0\"\n").unwrap();
+    std::fs::write(
+        &host,
+        r#"
+pub struct HostConfig {
+    pub external: external_core::ExternalConfig,
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &external,
+        r#"
+pub struct ExternalConfig {
+    pub nested: NestedConfig,
+}
+
+pub struct NestedConfig {
+    pub enabled: bool,
+}
+"#,
+    )
+    .unwrap();
+
+    let config = ResolvedCrateConfig {
+        name: "host".to_string(),
+        sources: vec![host],
+        source_crates: vec![SourceCrate {
+            name: "external-core".to_string(),
+            sources: vec![external],
+            roots: vec!["external_core::ExternalConfig".to_string()],
+        }],
+        version_from: manifest.to_string_lossy().into_owned(),
+        include: crate::core::config::IncludeConfig {
+            types: vec!["HostConfig".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let api = super::extract(&config, &dir.path().join("alef.toml"), true).unwrap();
+
+    let host_config = api
+        .types
+        .iter()
+        .find(|typ| typ.name == "HostConfig")
+        .expect("host type should survive extraction");
+    let external_field = host_config
+        .fields
+        .iter()
+        .find(|field| field.name == "external")
+        .expect("host field should survive extraction");
+
+    assert!(
+        matches!(&external_field.ty, TypeRef::Named(name) if name == "ExternalConfig"),
+        "external field should remain typed, got {:?}",
+        external_field.ty
+    );
+    assert!(api.types.iter().any(|typ| typ.name == "ExternalConfig"));
+    assert!(api.types.iter().any(|typ| typ.name == "NestedConfig"));
 }
 
 /// Regression for a batch-result include bug: a function listed in

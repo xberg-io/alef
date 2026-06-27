@@ -11,11 +11,19 @@ pub(super) fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> 
     let workspace_root = config.workspace_root.as_deref();
     let default_name = &config.name;
 
-    // Build source groups: use explicit source_crates config when available,
-    // otherwise derive crate names from file paths in the flat sources list.
+    // Build source groups: use explicit primary source_crates config when
+    // available, otherwise derive crate names from file paths in the flat
+    // sources list. Source-crate entries with `roots` are external type-only
+    // seeds and are merged later by the external-types pass; they must not
+    // replace the host crate sources.
     let mut groups: std::collections::BTreeMap<String, Vec<&Path>> = std::collections::BTreeMap::new();
-    if !config.source_crates.is_empty() {
-        for sc in &config.source_crates {
+    let primary_source_crates: Vec<_> = config
+        .source_crates
+        .iter()
+        .filter(|source_crate| source_crate.roots.is_empty())
+        .collect();
+    if !primary_source_crates.is_empty() {
+        for sc in primary_source_crates {
             let crate_name = sc.name.replace('-', "_");
             for source in &sc.sources {
                 groups.entry(crate_name.clone()).or_default().push(source.as_path());

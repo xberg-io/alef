@@ -5039,7 +5039,7 @@
         },
         "source_crates": {
           "default": [],
-          "description": "Multi-crate source groups for workspaces with types spread across\nsibling crates. When non-empty, the top-level `sources` field is ignored.",
+          "description": "Multi-crate source groups for workspaces with types spread across\nsibling crates.\n\nEntries without `roots` are primary source groups. When at least one\nprimary source group exists, the top-level `sources` field is ignored.\nEntries with `roots` are external type-only seeds; they do not suppress\nthe top-level `sources` field and do not expose functions from that crate.",
           "items": {
             "$ref": "#/$defs/SourceCrate"
           },
@@ -5745,6 +5745,14 @@
         "name": {
           "description": "Crate name (hyphens converted to underscores for rust_path).",
           "type": "string"
+        },
+        "roots": {
+          "default": [],
+          "description": "Type roots to import from this crate as external DTOs.\n\nWhen empty, this entry behaves as a normal multi-crate source group.\nWhen non-empty, Alef extracts only the transitive binding-safe type graph\nreachable from these roots and merges those DTOs into the host crate's\nbinding surface without importing functions or services.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "sources": {
           "description": "Source files belonging to this crate.",

@@ -1,3 +1,4 @@
+mod external_types;
 mod filtering;
 mod gitignore;
 mod raw;
@@ -15,6 +16,7 @@ use anyhow::Context as _;
 use std::path::Path;
 use tracing::info;
 
+use external_types::merge_external_type_roots;
 use filtering::apply_filters;
 pub use gitignore::ensure_gitignore;
 use raw::extract_raw;
@@ -34,7 +36,7 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     }
 
     cache::validate_cache_crate_name(&config.name).context("invalid crate name for cache")?;
-    let source_hash = cache::sources_hash(&config.sources).context("failed to compute sources hash")?;
+    let source_hash = cache::sources_hash(&config.source_hash_paths()).context("failed to compute sources hash")?;
     // Mix the resolved workspace version into the cache key. The IR embeds
     // `api.version`, which is read fresh from `version_from` (Cargo.toml) at
     // extract time. Sources alone don't change when the version is bumped, so
@@ -52,6 +54,11 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     }
 
     let mut api = extract_raw(config, config_path)?;
+
+    // Merge configured external DTO roots before include filtering so public
+    // host-crate fields can retain fully typed external config graphs without
+    // exposing unrelated functions from those crates.
+    merge_external_type_roots(&mut api, config)?;
 
     // Apply global filters (includes and excludes)
     api = apply_filters(api, config);

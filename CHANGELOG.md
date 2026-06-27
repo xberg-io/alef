@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **magnus**: apply the same excluded-type substitution (to `json_value`) in generated `.rbs`
   interfaces and skip re-declaring a bridge `clear_*` function that is already exposed as a registry
   function, so `rbs validate` no longer reports an undefined type or a duplicated method definition.
+- **extract**: support root-scoped external DTO source crates so host bindings
+  can expand typed config graphs from sibling crates without exposing sibling
+  functions or importing sibling language packages.
+
 - **extract**: preserve explicit field `type_rust_path` values and reject
   same-name types from different crates, while keeping binding-excluded fields
   out of include-list expansion.

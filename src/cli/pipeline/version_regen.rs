@@ -173,7 +173,7 @@ pub(super) fn regenerate_test_apps_after_sync(
     // → `git diff --exit-code` freshness gate.
     format_regenerated_files(&fresh_config, &files, &base_dir);
 
-    let sources_hash = super::super::cache::sources_hash(&fresh_config.sources)?;
+    let sources_hash = super::super::cache::sources_hash(&fresh_config.source_hash_paths())?;
     let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
     let path_set: std::collections::HashSet<std::path::PathBuf> =
         files.iter().map(|f| base_dir.join(&f.path)).collect();
@@ -264,7 +264,7 @@ pub(super) fn regenerate_scaffold_after_sync(
     // fail the downstream freshness gate.
     format_regenerated_files(&fresh_config, &scaffold_files, &base_dir);
 
-    let sources_hash = super::super::cache::sources_hash(&fresh_config.sources)?;
+    let sources_hash = super::super::cache::sources_hash(&fresh_config.source_hash_paths())?;
     let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
     let path_set: std::collections::HashSet<std::path::PathBuf> =
         scaffold_files.iter().map(|f| base_dir.join(&f.path)).collect();
@@ -280,7 +280,7 @@ pub(super) fn regenerate_readmes(config: &ResolvedCrateConfig, config_path: &std
     let languages = crate::readme::expand_configured_readme_languages(config, &config.languages);
     let readme_files = readme(&api, config, &languages)?;
     let base_dir = std::path::PathBuf::from(".");
-    let sources_hash = super::super::cache::sources_hash(&config.sources)?;
+    let sources_hash = super::super::cache::sources_hash(&config.source_hash_paths())?;
     let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
     let count = super::generate::write_scaffold_files_with_overwrite(&readme_files, &base_dir, true)?;
     let paths: std::collections::HashSet<std::path::PathBuf> =

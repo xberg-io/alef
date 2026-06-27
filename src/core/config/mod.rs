@@ -73,6 +73,14 @@ pub struct SourceCrate {
     pub name: String,
     /// Source files belonging to this crate.
     pub sources: Vec<std::path::PathBuf>,
+    /// Type roots to import from this crate as external DTOs.
+    ///
+    /// When empty, this entry behaves as a normal multi-crate source group.
+    /// When non-empty, Alef extracts only the transitive binding-safe type graph
+    /// reachable from these roots and merges those DTOs into the host crate's
+    /// binding surface without importing functions or services.
+    #[serde(default)]
+    pub roots: Vec<String>,
 }
 
 fn default_true() -> bool {

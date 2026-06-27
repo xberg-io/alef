@@ -173,6 +173,18 @@ pub struct ResolvedCrateConfig {
 }
 
 impl ResolvedCrateConfig {
+    /// Rust source paths that affect extraction and generated output hashes.
+    #[must_use]
+    pub fn source_hash_paths(&self) -> Vec<PathBuf> {
+        let mut sources = self.sources.clone();
+        for source_crate in &self.source_crates {
+            sources.extend(source_crate.sources.iter().cloned());
+        }
+        sources.sort();
+        sources.dedup();
+        sources
+    }
+
     /// Convenience accessor: the resolved output directory for a language.
     /// Returns `None` if this crate does not target the language.
     pub fn output_for(&self, lang: &str) -> Option<&std::path::Path> {

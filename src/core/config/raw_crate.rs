@@ -103,7 +103,12 @@ pub struct RawCrateConfig {
     pub auto_path_mappings: Option<bool>,
 
     /// Multi-crate source groups for workspaces with types spread across
-    /// sibling crates. When non-empty, the top-level `sources` field is ignored.
+    /// sibling crates.
+    ///
+    /// Entries without `roots` are primary source groups. When at least one
+    /// primary source group exists, the top-level `sources` field is ignored.
+    /// Entries with `roots` are external type-only seeds; they do not suppress
+    /// the top-level `sources` field and do not expose functions from that crate.
     #[serde(default)]
     pub source_crates: Vec<SourceCrate>,
 
@@ -316,10 +321,13 @@ sources = ["crates/sample_router-core/src/http.rs"]
 [[source_crates]]
 name = "sample_router-http"
 sources = ["crates/sample_router-http/src/lib.rs"]
+roots = ["HttpConfig"]
 "#;
         let cfg: RawCrateConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.source_crates.len(), 2);
         assert_eq!(cfg.source_crates[0].name, "sample_router-core");
+        assert!(cfg.source_crates[0].roots.is_empty());
+        assert_eq!(cfg.source_crates[1].roots, vec!["HttpConfig"]);
         assert_eq!(cfg.features, vec!["di"]);
     }
 
