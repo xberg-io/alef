@@ -212,6 +212,74 @@ fn rust_bridge_constructor_omits_binding_excluded_fields() {
 }
 
 #[test]
+fn swift_codegen_includes_cfg_default_features_in_field_filtering() {
+    let crawl_config = {
+        let mut ty = make_type(
+            "CrawlConfig",
+            vec![make_field("max_depth", TypeRef::Primitive(PrimitiveType::Usize), false)],
+        );
+        ty.has_default = true;
+        ty.has_serde = true;
+        ty
+    };
+    let url_config = {
+        let mut crawl = make_field("crawl", TypeRef::Named("CrawlConfig".to_string()), false);
+        crawl.cfg = Some("feature = \"url-ingestion\"".to_string());
+        let mut ty = make_type("UrlExtractionConfig", vec![crawl]);
+        ty.has_default = true;
+        ty.has_serde = true;
+        ty
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![url_config, crawl_config],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let swift = &files[0].content;
+    let rust_bridge = files
+        .iter()
+        .find(|file| {
+            file.path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .ends_with("packages/swift/rust/src/lib.rs")
+        })
+        .expect("generated Rust bridge file must exist");
+
+    assert!(
+        swift.contains("public let crawl: CrawlConfig"),
+        "public Swift DTO must include cfg-defaulted crawl field:\n{swift}"
+    );
+    assert!(
+        swift.contains("crawl: CrawlConfig"),
+        "public Swift constructor must include cfg-defaulted crawl field:\n{swift}"
+    );
+    assert!(
+        rust_bridge
+            .content
+            .contains("fn new(crawl: CrawlConfig) -> UrlExtractionConfig;"),
+        "Rust bridge constructor must include cfg-defaulted crawl field:\n{}",
+        rust_bridge.content
+    );
+    assert!(
+        rust_bridge.content.contains("fn crawl(&self) -> CrawlConfig;"),
+        "Rust bridge getter must include cfg-defaulted crawl field:\n{}",
+        rust_bridge.content
+    );
+}
+
+#[test]
 fn struct_with_optional_array_and_dict_fields() {
     // Non-Codable structs become typealiases to RustBridge.X
     let api = ApiSurface {

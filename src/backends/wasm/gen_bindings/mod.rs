@@ -410,6 +410,7 @@ impl Backend for WasmBackend {
                     typ,
                     &mapper,
                     &exclude_types,
+                    &core_import,
                     &prefix,
                     &tagged_data_enum_names,
                 ));

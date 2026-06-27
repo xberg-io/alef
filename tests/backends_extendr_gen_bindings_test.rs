@@ -1685,6 +1685,7 @@ mod trait_bridge {
         config.r = Some(alef::core::config::languages::RConfig {
             package_name: Some("testlib".to_string()),
             features: None,
+            default_features: None,
             serde_rename_all: None,
             exclude_functions: vec!["excluded_func".to_string()],
             exclude_types: vec![],

@@ -336,8 +336,7 @@ impl Backend for MagnusBackend {
                     }
                 }
             } else {
-                let generates_default =
-                    typ.has_default && crate::codegen::generators::can_generate_default_impl(typ, &default_types);
+                let generates_default = typ.has_default;
                 // For Magnus bindings, always emit explicit Default impl when struct has fields.
                 // This ensures serde deserialization uses correct field defaults instead of all-false/zeros.
                 let has_explicit_impl_default = !typ.fields.is_empty();

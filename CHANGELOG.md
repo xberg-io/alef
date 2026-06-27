@@ -35,6 +35,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **magnus**: apply the same excluded-type substitution (to `json_value`) in generated `.rbs`
   interfaces and skip re-declaring a bridge `clear_*` function that is already exposed as a registry
   function, so `rbs validate` no longer reports an undefined type or a duplicated method definition.
+
+- **scaffold**: let managed `.cargo/config.toml` render an explicit
+  `rustc-wrapper`, and make the R Rust crate honor curated feature sets the
+  same way as WASM by disabling core default features and declaring cfg
+  passthrough features without enabling them by default.
+
+- **r**: merge crate-level `extra_dependencies` into the generated R Rust
+  crate so external DTO conversion impls can depend on sibling Rust crates
+  such as `crawlberg`.
+
+- **elixir**: render known generated public DTO fields in struct typespecs as
+  their concrete module types instead of falling back to `map()`.
+
+- **swift**: filter host Swift bindings with the same effective cfg feature set
+  as the generated Rust bridge crate, including default cfg passthrough
+  features.
+
+- **pyo3/magnus/wasm**: delegate generated binding defaults for defaultable
+  DTOs to the core Rust `Default` impl so omitted nested config fields keep
+  semantic core defaults.
+
 - **extract**: support root-scoped external DTO source crates so host bindings
   can expand typed config graphs from sibling crates without exposing sibling
   functions or importing sibling language packages.

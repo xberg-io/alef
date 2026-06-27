@@ -117,6 +117,9 @@ pub struct ScaffoldCargo {
     /// Defaults to 4 (safe for 16 GB dev machines). Set to 0 to disable.
     #[serde(default = "default_build_jobs")]
     pub build_jobs: u32,
+    /// Optional cargo rustc wrapper command, for example `.cargo/rustc-wrapper.sh`.
+    #[serde(default)]
+    pub rustc_wrapper: Option<String>,
     /// Free-form `[env]` entries copied verbatim into the generated file.
     /// Values can be a plain string or `{ value, relative }`. Empty by default.
     #[serde(default)]
@@ -128,6 +131,7 @@ impl Default for ScaffoldCargo {
         Self {
             targets: ScaffoldCargoTargets::default(),
             build_jobs: default_build_jobs(),
+            rustc_wrapper: None,
             env: HashMap::new(),
         }
     }

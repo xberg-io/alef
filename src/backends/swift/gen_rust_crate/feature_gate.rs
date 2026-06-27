@@ -1,11 +1,13 @@
 //! Feature-gate helpers for generated swift-bridge crates.
 
-use crate::core::config::ResolvedCrateConfig;
-use std::collections::HashSet;
+use crate::codegen::cfg::collect_cfg_features;
+use crate::core::config::{Language, ResolvedCrateConfig};
+use crate::core::ir::ApiSurface;
+use std::collections::{BTreeSet, HashSet};
 
 /// Check whether the umbrella source crate exposes the given feature name in its
 /// on-disk Cargo.toml.
-pub(super) fn source_crate_has_feature(config: &ResolvedCrateConfig, core_crate_dir: &str, feature: &str) -> bool {
+pub(crate) fn source_crate_has_feature(config: &ResolvedCrateConfig, core_crate_dir: &str, feature: &str) -> bool {
     let root = match config.workspace_root.as_deref() {
         Some(p) => p.to_path_buf(),
         None => match std::env::current_dir() {
@@ -30,6 +32,36 @@ pub(super) fn source_crate_has_feature(config: &ResolvedCrateConfig, core_crate_
         }
     }
     false
+}
+
+pub(crate) fn configured_swift_features(config: &ResolvedCrateConfig, core_crate_dir: &str) -> Vec<String> {
+    let base_features = config.features_for_language(Language::Swift);
+    let mut features: BTreeSet<String> = base_features.iter().cloned().collect();
+    let ocr_active = features.contains("ocr") || features.contains("full");
+    let ocr_wasm_present = features.contains("ocr-wasm");
+    if ocr_active && !ocr_wasm_present && source_crate_has_feature(config, core_crate_dir, "ocr-wasm") {
+        features.insert("ocr-wasm".to_string());
+    }
+    features.into_iter().collect()
+}
+
+pub(crate) fn effective_swift_codegen_features(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    core_crate_dir: &str,
+) -> Vec<String> {
+    let mut features: BTreeSet<String> = configured_swift_features(config, core_crate_dir).into_iter().collect();
+    let excluded: HashSet<&str> = config
+        .swift
+        .as_ref()
+        .map(|c| c.excluded_default_features.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    for feature in collect_cfg_features(api) {
+        if !excluded.contains(feature.as_str()) {
+            features.insert(feature);
+        }
+    }
+    features.into_iter().collect()
 }
 
 /// Returns `true` when the `cfg` condition is satisfied by `configured_features`.

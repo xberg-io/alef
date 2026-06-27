@@ -29,7 +29,7 @@ pub(super) fn binding_config(core_import: &str, has_serde: bool) -> RustBindingC
         lossy_skip_types: &[],
         serializable_opaque_type_names: &[],
         never_skip_cfg_field_names: &[],
-        emit_delegating_default_impl: false,
+        emit_delegating_default_impl: true,
         skip_methods_when_not_delegatable: false,
     }
 }

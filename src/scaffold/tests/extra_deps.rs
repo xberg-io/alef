@@ -130,6 +130,23 @@ fn test_scaffold_elixir_cargo_extra_deps() {
 }
 
 #[test]
+fn test_scaffold_r_cargo_extra_deps() {
+    let config = config_with_extra_deps();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::R]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = files
+        .iter()
+        .find(|f| f.path.ends_with("packages/r/src/rust/Cargo.toml"))
+        .unwrap();
+    assert!(
+        cargo_toml.content.contains("anyhow = \"1.0\""),
+        "content: {}",
+        cargo_toml.content
+    );
+}
+
+#[test]
 fn test_scaffold_language_level_extra_deps_override_crate_level() {
     let mut config = test_config();
     // Crate-level dep with version "1.0"

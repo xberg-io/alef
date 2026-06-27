@@ -355,6 +355,232 @@ fn test_struct_module_with_named_type_field() {
 }
 
 #[test]
+fn test_struct_module_with_known_named_type_fields() {
+    let url_config = TypeDef {
+        name: "UrlExtractionConfig".to_string(),
+        rust_path: "my_crate::UrlExtractionConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("crawl", TypeRef::Named("CrawlConfig".to_string()), false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+    let crawl_config = TypeDef {
+        name: "CrawlConfig".to_string(),
+        rust_path: "my_crate::CrawlConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            make_field("content", TypeRef::Named("ContentConfig".to_string()), false),
+            make_field("browser", TypeRef::Named("BrowserConfig".to_string()), false),
+            make_field(
+                "proxy",
+                TypeRef::Optional(Box::new(TypeRef::Named("ProxyConfig".to_string()))),
+                false,
+            ),
+            make_field(
+                "ssrf_policy",
+                TypeRef::Optional(Box::new(TypeRef::Named("SsrfPolicy".to_string()))),
+                false,
+            ),
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+    let content_config = TypeDef {
+        name: "ContentConfig".to_string(),
+        rust_path: "my_crate::ContentConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("markdown", TypeRef::Primitive(PrimitiveType::Bool), false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+    let browser_config = TypeDef {
+        name: "BrowserConfig".to_string(),
+        rust_path: "my_crate::BrowserConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+    let proxy_config = TypeDef {
+        name: "ProxyConfig".to_string(),
+        rust_path: "my_crate::ProxyConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("url", TypeRef::String, true)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+    let ssrf_policy = TypeDef {
+        name: "SsrfPolicy".to_string(),
+        rust_path: "my_crate::SsrfPolicy".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field(
+            "allow_loopback",
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    };
+
+    let config = make_config("xberg");
+    let api = ApiSurface {
+        crate_name: "xberg".to_string(),
+        version: "1.0.0".to_string(),
+        functions: vec![],
+        types: vec![
+            url_config,
+            crawl_config,
+            content_config,
+            browser_config,
+            proxy_config,
+            ssrf_policy,
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let backend = RustlerBackend;
+    let generated = backend
+        .generate_public_api(&api, &config)
+        .expect("generation must succeed");
+    let url_module = generated
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("url_extraction_config.ex"))
+        .expect("should generate UrlExtractionConfig module");
+    let crawl_module = generated
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("crawl_config.ex"))
+        .expect("should generate CrawlConfig module");
+
+    assert!(
+        url_module.content.contains("crawl: Xberg.CrawlConfig.t()"),
+        "known nested DTO should use its public module type; got:\n{}",
+        url_module.content
+    );
+    assert!(
+        crawl_module.content.contains("content: Xberg.ContentConfig.t()"),
+        "known nested DTO should use its public module type; got:\n{}",
+        crawl_module.content
+    );
+    assert!(
+        crawl_module.content.contains("browser: Xberg.BrowserConfig.t()"),
+        "known nested DTO should use its public module type; got:\n{}",
+        crawl_module.content
+    );
+    assert!(
+        crawl_module.content.contains("proxy: Xberg.ProxyConfig.t() | nil"),
+        "optional known nested DTO should be nilable; got:\n{}",
+        crawl_module.content
+    );
+    assert!(
+        crawl_module.content.contains("ssrf_policy: Xberg.SsrfPolicy.t() | nil"),
+        "optional known nested DTO should be nilable; got:\n{}",
+        crawl_module.content
+    );
+}
+
+#[test]
 fn test_struct_module_with_vec_fields() {
     // Create a struct with vector fields
     let struct_def = TypeDef {

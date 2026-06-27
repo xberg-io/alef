@@ -88,10 +88,14 @@ impl Backend for SwiftBackend {
         // feature set itself; we hand it `original_api` below. See codegen::fn_dedup.
         let original_api = api;
 
-        // Extract configured features for Swift to match the Rust-side feature set.
-        // This filters cfg-gated struct fields when emitting constructor externs and getters.
-        let base_features = config.features_for_language(crate::core::config::extras::Language::Swift);
-        let configured_features: std::collections::HashSet<&str> = base_features.iter().map(String::as_str).collect();
+        // Use the same effective feature set as the Rust-side bridge crate:
+        // configured Swift dependency features plus cfg passthrough features enabled
+        // by default in the generated Swift Cargo.toml.
+        let core_crate_dir = config.core_crate_for_language(crate::core::config::extras::Language::Swift);
+        let effective_features =
+            gen_rust_crate::feature_gate::effective_swift_codegen_features(original_api, config, &core_crate_dir);
+        let configured_features: std::collections::HashSet<&str> =
+            effective_features.iter().map(String::as_str).collect();
 
         // Drop any type/enum/function whose `#[cfg(feature = "...")]` gate is not satisfied
         // by the Swift feature set BEFORE deduping. The Rust bridge crate filters its

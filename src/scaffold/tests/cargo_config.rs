@@ -44,6 +44,16 @@ fn cargo_config_default_renders_canonical_six_target_template() {
 }
 
 #[test]
+fn cargo_config_renders_optional_rustc_wrapper() {
+    let cargo = ScaffoldCargo {
+        rustc_wrapper: Some(".cargo/rustc-wrapper.sh".to_string()),
+        ..ScaffoldCargo::default()
+    };
+    let rendered = render_cargo_config(&cargo);
+    assert!(rendered.contains("rustc-wrapper = \".cargo/rustc-wrapper.sh\"\n"));
+}
+
+#[test]
 fn cargo_config_re_render_is_byte_identical() {
     let cargo = ScaffoldCargo::default();
     let first = render_cargo_config(&cargo);
@@ -60,6 +70,7 @@ fn cargo_config_disabling_individual_targets_omits_their_blocks() {
             ..ScaffoldCargoTargets::default()
         },
         build_jobs: 4,
+        rustc_wrapper: None,
         env: Default::default(),
     };
     let rendered = render_cargo_config(&cargo);
@@ -79,6 +90,7 @@ fn cargo_config_disabling_macos_omits_dynamic_lookup() {
             ..ScaffoldCargoTargets::default()
         },
         build_jobs: 4,
+        rustc_wrapper: None,
         env: Default::default(),
     };
     let rendered = render_cargo_config(&cargo);
@@ -93,6 +105,7 @@ fn cargo_config_env_plain_string_renders_into_env_block() {
     let cargo = ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
         build_jobs: 4,
+        rustc_wrapper: None,
         env,
     };
     let rendered = render_cargo_config(&cargo);
@@ -113,6 +126,7 @@ fn cargo_config_env_structured_value_renders_with_relative() {
     let cargo = ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
         build_jobs: 4,
+        rustc_wrapper: None,
         env,
     };
     let rendered = render_cargo_config(&cargo);
@@ -129,6 +143,7 @@ fn cargo_config_env_keys_are_sorted_for_determinism() {
     let cargo = ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
         build_jobs: 4,
+        rustc_wrapper: None,
         env,
     };
     let rendered = render_cargo_config(&cargo);
@@ -150,6 +165,7 @@ fn cargo_config_env_string_with_quotes_is_escaped() {
     let cargo = ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
         build_jobs: 4,
+        rustc_wrapper: None,
         env,
     };
     let rendered = render_cargo_config(&cargo);
@@ -172,6 +188,7 @@ fn cargo_config_build_jobs_zero_disables_limit() {
     let cargo = ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
         build_jobs: 0,
+        rustc_wrapper: None,
         env: Default::default(),
     };
     let rendered = render_cargo_config(&cargo);
@@ -186,6 +203,7 @@ fn cargo_config_build_jobs_custom_value_renders() {
     let cargo = ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
         build_jobs: 2,
+        rustc_wrapper: None,
         env: Default::default(),
     };
     let rendered = render_cargo_config(&cargo);
@@ -248,6 +266,7 @@ fn scaffold_emits_cargo_config_with_env_block_for_sample_markup_style_ruby_path(
     let config = cargo_only_config(ScaffoldCargo {
         targets: ScaffoldCargoTargets::default(),
         build_jobs: 4,
+        rustc_wrapper: None,
         env,
     });
     let api = test_api();

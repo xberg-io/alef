@@ -460,6 +460,9 @@ pub fn render_cargo_config(cargo: &ScaffoldCargo) -> String {
     if cargo.build_jobs > 0 {
         out.push_str(&format!("jobs = {}\n", cargo.build_jobs));
     }
+    if let Some(wrapper) = cargo.rustc_wrapper.as_deref() {
+        out.push_str(&format!("rustc-wrapper = \"{}\"\n", escape_toml_string(wrapper)));
+    }
     out.push('\n');
     out.push_str("[net]\ngit-fetch-with-cli = true\n\n");
     out.push_str("[registries.crates-io]\nprotocol = \"sparse\"\n");

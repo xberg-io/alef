@@ -442,6 +442,7 @@ pub(super) fn gen_struct(
     typ: &TypeDef,
     mapper: &WasmMapper,
     exclude_types: &[String],
+    core_import: &str,
     prefix: &str,
     tagged_data_enum_names: &AHashSet<String>,
 ) -> String {
@@ -515,6 +516,7 @@ pub(super) fn gen_struct(
         minijinja::context! {
             struct_name => js_name,
             unprefixed_name => typ.name,
+            derives_default => !typ.has_default,
             fields => fields.iter().map(|(name, ty)| {
                 minijinja::context! {
                     name => name,
@@ -523,6 +525,9 @@ pub(super) fn gen_struct(
             }).collect::<Vec<_>>(),
         },
     ));
+    if typ.has_default {
+        out.push_str(&generators::gen_delegating_default_impl(typ, core_import, prefix));
+    }
     out
 }
 

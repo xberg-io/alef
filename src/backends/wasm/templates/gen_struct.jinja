@@ -1,4 +1,4 @@
-#[derive(Clone, Default)]
+#[derive(Clone{% if derives_default %}, Default{% endif %})]
 #[wasm_bindgen]
 pub struct {{ struct_name }} {
 {%- for field in fields %}

@@ -117,9 +117,8 @@ pub struct RustBindingConfig<'a> {
     ///
     /// Requires that `From<core::Type> for BindingType` is emitted for the type, which is
     /// the case for any non-opaque type that passes `can_generate_conversion(typ, &core_to_binding)`.
-    /// Backends that don't carry struct-level `#[serde(default)]` (e.g. PyO3, NAPI) usually
-    /// don't need this; the bug it fixes is specific to PHP's `#[serde(default)]` + partial
-    /// JSON deserialisation path.
+    /// This is also useful for host constructors that use `Self::default()` or
+    /// `unwrap_or_default()` for omitted nested config fields.
     pub emit_delegating_default_impl: bool,
 
     /// When true, methods that cannot be auto-delegated AND have no adapter override are

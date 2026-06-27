@@ -1111,10 +1111,14 @@ fn test_default_config() {
     // Check for struct generation
     assert!(content.contains("struct Config"), "Should generate Config struct");
 
-    // Check for Default impl generation
+    // Check for Default impl generation that delegates to the core default.
     assert!(
-        content.contains("impl Default for Config") || content.contains("impl core::default::Default"),
+        content.contains("impl Default for Config"),
         "Should generate Default implementation for types with has_default: true"
+    );
+    assert!(
+        content.contains("test_lib::Config::default().into()"),
+        "Default implementation must delegate to the core default; content:\n{content}"
     );
 
     // Check for magnus wrapper

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use super::context::emit_elixir_doc_attr;
 use super::json_values::{
     elixir_field_default, elixir_field_name_with_type, elixir_safe_atom, elixir_safe_attr_name, elixir_safe_param_name,
-    elixir_safe_type_name, elixir_typespec,
+    elixir_safe_type_name, elixir_struct_field_typespec, elixir_typespec,
 };
 
 /// Generate a `defmodule {AppModule}.{TypeName}` file with a `defstruct` for a non-opaque type.
@@ -20,6 +20,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
     app_module: &str,
     enum_defaults: &HashMap<String, String>,
     opaque_types: &AHashSet<String>,
+    known_struct_types: &AHashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(512);
 
@@ -49,7 +50,8 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
     if !fields.is_empty() {
         for (i, field) in fields.iter().enumerate() {
             let field_name = field.name.to_snake_case();
-            let field_type = elixir_typespec(&field.ty, opaque_types, &default_types);
+            let field_type =
+                elixir_struct_field_typespec(&field.ty, app_module, opaque_types, &default_types, known_struct_types);
             let field_defaults_to_nil = matches!(
                 field.ty,
                 TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json

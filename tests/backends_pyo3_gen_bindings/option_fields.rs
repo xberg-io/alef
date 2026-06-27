@@ -180,6 +180,103 @@ fn test_option_fields_on_has_default_type() {
     );
 }
 
+#[test]
+fn test_has_default_struct_delegates_binding_default_to_core_default() {
+    let backend = Pyo3Backend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "CrawlConfig".to_string(),
+                rust_path: "test_lib::CrawlConfig".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("max_depth", TypeRef::Primitive(PrimitiveType::U32), true)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: "Crawl config".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+                version: Default::default(),
+            },
+            TypeDef {
+                name: "UrlExtractionConfig".to_string(),
+                rust_path: "test_lib::UrlExtractionConfig".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("crawl", TypeRef::Named("CrawlConfig".to_string()), false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: "URL config".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+                version: Default::default(),
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = backend
+        .generate_bindings(&api, &make_config())
+        .expect("generate_bindings failed");
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs not generated");
+    let content = &lib_rs.content;
+
+    let struct_start = content
+        .find("pub struct UrlExtractionConfig")
+        .expect("UrlExtractionConfig struct must be emitted");
+    let derive_start = content[..struct_start]
+        .rfind("#[derive")
+        .expect("UrlExtractionConfig derive block must be emitted");
+    let derive_window = &content[derive_start..struct_start];
+    assert!(
+        !derive_window.contains("Default"),
+        "UrlExtractionConfig must not derive field-level Default; content:\n{content}"
+    );
+    assert!(
+        content.contains("impl Default for UrlExtractionConfig"),
+        "UrlExtractionConfig must emit a delegating Default impl; content:\n{content}"
+    );
+    assert!(
+        content.contains("<test_lib::UrlExtractionConfig as Default>::default().into()"),
+        "Default impl must delegate to the core type; content:\n{content}"
+    );
+}
+
 /// Test for Option fields on has_default types WITH serde_rename.
 #[test]
 fn test_option_fields_with_serde_rename_on_has_default() {

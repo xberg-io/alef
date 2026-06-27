@@ -364,6 +364,39 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_typespec(
     }
 }
 
+/// Map a TypeRef to an Elixir struct-field typespec for generated public DTO modules.
+///
+/// Unlike NIF-boundary specs, known generated DTO names can reference their public
+/// Elixir module directly. Unknown named types still fall back to `map()`.
+pub(in crate::backends::rustler::gen_bindings) fn elixir_struct_field_typespec(
+    ty: &TypeRef,
+    app_module: &str,
+    opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
+    known_struct_types: &AHashSet<String>,
+) -> String {
+    match ty {
+        TypeRef::Named(name) if known_struct_types.contains(name) && !opaque_types.contains(name) => {
+            format!("{app_module}.{}.t()", elixir_safe_type_name(name))
+        }
+        TypeRef::Optional(inner) => {
+            let inner_spec =
+                elixir_struct_field_typespec(inner, app_module, opaque_types, default_types, known_struct_types);
+            if inner_spec.ends_with("| nil") {
+                inner_spec
+            } else {
+                format!("{inner_spec} | nil")
+            }
+        }
+        TypeRef::Vec(inner) => {
+            let inner_spec =
+                elixir_struct_field_typespec(inner, app_module, opaque_types, default_types, known_struct_types);
+            format!("[{inner_spec}]")
+        }
+        _ => elixir_typespec(ty, opaque_types, default_types),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

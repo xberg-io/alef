@@ -7,6 +7,11 @@ pub struct RConfig {
     pub package_name: Option<String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Whether the generated R Rust crate should enable the core crate's default features.
+    /// Defaults to true. Set to false with an explicit `features` list for curated targets
+    /// such as `wasm-target`.
+    #[serde(default)]
+    pub default_features: Option<bool>,
     /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]

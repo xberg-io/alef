@@ -4473,6 +4473,14 @@
     },
     "RConfig": {
       "properties": {
+        "default_features": {
+          "default": null,
+          "description": "Whether the generated R Rust crate should enable the core crate's default features.\nDefaults to true. Set to false with an explicit `features` list for curated targets\nsuch as `wasm-target`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "exclude_functions": {
           "default": [],
           "description": "Functions to exclude from R binding generation.",
@@ -5436,6 +5444,14 @@
           "default": {},
           "description": "Free-form `[env]` entries copied verbatim into the generated file.\nValues can be a plain string or `{ value, relative }`. Empty by default.",
           "type": "object"
+        },
+        "rustc_wrapper": {
+          "default": null,
+          "description": "Optional cargo rustc wrapper command, for example `.cargo/rustc-wrapper.sh`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "targets": {
           "$ref": "#/$defs/ScaffoldCargoTargets",

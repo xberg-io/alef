@@ -11,7 +11,7 @@ pub(crate) mod default_construction;
 mod deferred_noop;
 pub(crate) mod enums;
 pub(crate) mod extern_block;
-mod feature_gate;
+pub(crate) mod feature_gate;
 mod json_bridge;
 pub(crate) mod plugin_inbound;
 pub(crate) mod service_app_wrappers;
@@ -63,21 +63,8 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         None => crate_name.replace('-', "_"),
     };
 
-    let base_features = config.features_for_language(Language::Swift);
-    // The IR may record a broad feature condition for a re-exported type whose concrete
-    // module requires a narrower companion feature. Include the companion feature only
-    // when the source crate actually exposes it so we do not inject unknown features.
-    let mut features_owned: Vec<String>;
-    let ocr_active = base_features.iter().any(|f| f == "ocr" || f == "full");
-    let ocr_wasm_present = base_features.iter().any(|f| f == "ocr-wasm");
-    let source_has_ocr_wasm = feature_gate::source_crate_has_feature(config, &core_crate_dir, "ocr-wasm");
-    let features: &[String] = if ocr_active && !ocr_wasm_present && source_has_ocr_wasm {
-        features_owned = base_features.to_vec();
-        features_owned.push("ocr-wasm".to_string());
-        &features_owned
-    } else {
-        base_features
-    };
+    let features_owned = feature_gate::configured_swift_features(config, &core_crate_dir);
+    let features: &[String] = &features_owned;
     let mut exclude_functions: HashSet<String> = config
         .swift
         .as_ref()
@@ -154,7 +141,8 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         api,
         excluded_default_features,
     );
-    let configured_features: HashSet<&str> = features.iter().map(String::as_str).collect();
+    let effective_features = feature_gate::effective_swift_codegen_features(api, config, &core_crate_dir);
+    let configured_features: HashSet<&str> = effective_features.iter().map(String::as_str).collect();
     let lib_rs = emit_lib_rs(
         api,
         config,

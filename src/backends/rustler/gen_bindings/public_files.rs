@@ -26,10 +26,18 @@ pub(super) fn generated_module_files(
 ) -> (String, Vec<GeneratedFile>) {
     let output_dir = elixir_output_dir(config);
     let enum_defaults = enum_defaults(api);
+    let known_struct_types = known_public_struct_types(api, context.exclude_types);
     let mut files = Vec::new();
 
     push_native_module_file(api, config, &context, &output_dir, &mut files);
-    push_struct_module_files(api, &context, &output_dir, &enum_defaults, &mut files);
+    push_struct_module_files(
+        api,
+        &context,
+        &output_dir,
+        &enum_defaults,
+        &known_struct_types,
+        &mut files,
+    );
     push_opaque_module_files(api, config, &context, &output_dir, &mut files);
     push_enum_module_files(api, &context, &output_dir, &mut files);
 
@@ -95,6 +103,15 @@ fn enum_defaults(api: &ApiSurface) -> HashMap<String, String> {
         .collect()
 }
 
+fn known_public_struct_types(api: &ApiSurface, exclude_types: &AHashSet<&str>) -> AHashSet<String> {
+    api.types
+        .iter()
+        .filter(|typ| !typ.is_trait && !typ.is_opaque && !typ.fields.is_empty())
+        .filter(|typ| !exclude_types.contains(typ.name.as_str()))
+        .map(|typ| typ.name.clone())
+        .collect()
+}
+
 fn push_native_module_file(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -125,6 +142,7 @@ fn push_struct_module_files(
     context: &PublicFileContext<'_>,
     output_dir: &str,
     enum_defaults: &HashMap<String, String>,
+    known_struct_types: &AHashSet<String>,
     files: &mut Vec<GeneratedFile>,
 ) {
     for typ in api
@@ -135,7 +153,13 @@ fn push_struct_module_files(
         if typ.is_opaque || typ.fields.is_empty() {
             continue;
         }
-        let struct_content = gen_elixir_struct_module(typ, context.app_module, enum_defaults, context.opaque_types);
+        let struct_content = gen_elixir_struct_module(
+            typ,
+            context.app_module,
+            enum_defaults,
+            context.opaque_types,
+            known_struct_types,
+        );
         let file_name = format!("{}.ex", typ.name.to_snake_case());
         files.push(GeneratedFile {
             path: PathBuf::from(output_dir)

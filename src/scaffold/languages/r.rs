@@ -4,7 +4,7 @@ use crate::core::ir::ApiSurface;
 use crate::core::template_versions as tv;
 use crate::core::version::to_r_version;
 use crate::{
-    scaffold::cargo_package_header, scaffold::core_dep_features, scaffold::detect_workspace_inheritance,
+    scaffold::cargo_package_header, scaffold::detect_workspace_inheritance, scaffold::render_extra_deps,
     scaffold::scaffold_meta,
 };
 use std::path::PathBuf;
@@ -132,7 +132,17 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
 
     // Collect all [dependencies] entries then sort alphabetically so the emitted
     // Cargo.toml is cargo-sort canonical without a post-processing step.
-    let features_str = core_dep_features(config, Language::R);
+    let configured_features = config.features_for_language(Language::R);
+    let core_default_features = config.r.as_ref().and_then(|r| r.default_features).unwrap_or(true);
+    let features_str = if configured_features.is_empty() {
+        String::new()
+    } else if core_default_features {
+        let quoted: Vec<String> = configured_features.iter().map(|f| format!("\"{f}\"")).collect();
+        format!(", features = [{}]", quoted.join(", "))
+    } else {
+        let quoted: Vec<String> = configured_features.iter().map(|f| format!("\"{f}\"")).collect();
+        format!(", default-features = false, features = [{}]", quoted.join(", "))
+    };
     let mut dep_lines: Vec<String> = vec![
         crate::scaffold::render_core_dep(
             &config.name,
@@ -150,6 +160,7 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
     if has_trait_bridges {
         dep_lines.push("async-trait = \"0.1\"".to_owned());
     }
+    dep_lines.extend(render_extra_deps(config, Language::R).lines().map(ToOwned::to_owned));
     dep_lines.sort();
     let deps_section = dep_lines.join("\n");
 
@@ -166,10 +177,12 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
         String::new()
     } else {
         let mut lines: Vec<String> = Vec::with_capacity(cfg_features.len() + 1);
-        // Enable every cfg-forwarded feature by default so the gated wrappers compile
-        // without the caller explicitly activating them.
-        let default_list: Vec<String> = cfg_features.iter().map(|name| format!("\"{name}\"")).collect();
-        lines.push(format!("default = [{}]", default_list.join(", ")));
+        if configured_features.is_empty() || core_default_features {
+            // Enable every cfg-forwarded feature by default when the consumer did not
+            // configure a no-default curated feature set, preserving the historical native R build.
+            let default_list: Vec<String> = cfg_features.iter().map(|name| format!("\"{name}\"")).collect();
+            lines.push(format!("default = [{}]", default_list.join(", ")));
+        }
         for name in &cfg_features {
             lines.push(format!(
                 r#"{name} = ["{core_dep_key}/{name}"]"#,

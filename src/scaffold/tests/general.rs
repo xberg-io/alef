@@ -469,6 +469,62 @@ authors = ["Ada Lovelace <ada@example.com>"]
     toml::from_str::<toml::Value>(&cargo.content).expect("generated R Cargo.toml must be valid TOML");
 }
 
+#[test]
+fn test_scaffold_r_cargo_explicit_features_match_wasm_defaults() {
+    use crate::core::ir::{FunctionDef, TypeDef, TypeRef};
+
+    let config = test_config_from_toml(
+        r#"
+[crates.package_metadata]
+authors = ["Ada Lovelace <ada@example.com>"]
+
+[crates.r]
+features = ["wasm-target"]
+default_features = false
+"#,
+    );
+    let mut api = test_api();
+    api.types = vec![TypeDef {
+        name: "GatedType".to_string(),
+        rust_path: "my_lib::GatedType".to_string(),
+        cfg: Some(r#"any(feature = "wasm-target", feature = "extra")"#.to_string()),
+        ..Default::default()
+    }];
+    api.functions = vec![FunctionDef {
+        name: "extract".to_string(),
+        rust_path: "my_lib::extract".to_string(),
+        return_type: TypeRef::String,
+        cfg: Some("feature = \"url-ingestion\"".to_string()),
+        ..Default::default()
+    }];
+
+    let all_files = scaffold(&api, &config, &[Language::R]).unwrap();
+    let files = language_files(&all_files);
+    let cargo = files
+        .iter()
+        .find(|f| f.path.ends_with("packages/r/src/rust/Cargo.toml"))
+        .expect("R rust crate Cargo.toml must be emitted");
+
+    assert!(
+        cargo.content.contains(
+            r#"my-lib = { version = "0.1.0", path = "../../../../crates/my-lib", default-features = false, features = ["wasm-target"] }"#,
+        ),
+        "R core dependency must disable defaults when explicit features are configured; content:\n{}",
+        cargo.content
+    );
+    assert!(
+        cargo.content.contains(r#"wasm-target = ["my-lib/wasm-target"]"#),
+        "R Cargo.toml must declare cfg passthrough features; content:\n{}",
+        cargo.content
+    );
+    assert!(
+        !cargo.content.contains("default = ["),
+        "R Cargo.toml must not auto-enable cfg passthrough features with explicit configured features; content:\n{}",
+        cargo.content
+    );
+    toml::from_str::<toml::Value>(&cargo.content).expect("generated R Cargo.toml must be valid TOML");
+}
+
 /// When the API surface has no cfg-gated items the R Cargo.toml must omit the
 /// `[features]` block entirely (no empty table).
 #[test]
