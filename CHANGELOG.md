@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.4] - 2026-06-27
+
 ### Changed
 
 - **tooling**: extend the `no-project-special-casing` pre-commit hook to reject the `xberg` and
