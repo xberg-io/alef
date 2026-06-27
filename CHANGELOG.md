@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **dart**: suppress ordinary trait-bridge lifecycle wrappers so FRB only sees the generated
   `{Trait}DartImpl` registration surface.
 
+- **e2e**: emit typed single-call `json_object` inputs for Dart, Swift, and R so unified
+  `extract(input, config)` fixtures pass their `ExtractInput` payload instead of defaulting it away.
+
 ## [0.29.4] - 2026-06-27
 
 ### Changed

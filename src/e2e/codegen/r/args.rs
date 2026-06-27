@@ -89,25 +89,23 @@ pub(super) fn build_args_string(
                 .and_then(|m| m.get(&arg.name).map(String::as_str))
                 .unwrap_or(&arg.name);
 
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let val = input.get(field);
+            let val = crate::e2e::codegen::resolve_field(input, &arg.field);
             // R extendr-generated wrappers do not preserve Option<T> defaults from
             // the Rust signature — every parameter is positional and required at
             // the R level. To keep generated calls valid we must pass a placeholder
             // (`NULL` for `Option<T>`, `<OptionsType>$default()` for typed
             // configs) whenever the fixture omits an optional value.
-            let val = match val {
-                Some(v) if !(v.is_null() && arg.optional) => v,
-                _ => {
-                    if !arg.optional {
-                        return None;
-                    }
-                    if arg.arg_type == "json_object" {
-                        let r_value = r_default_for_config_arg(arg_name, options_type);
-                        return Some(format!("{arg_name} = {r_value}"));
-                    }
-                    return Some(format!("{arg_name} = NULL"));
+            let val = if val.is_null() {
+                if !arg.optional {
+                    return None;
                 }
+                if arg.arg_type == "json_object" {
+                    let r_value = r_default_for_config_arg(arg_name, options_type);
+                    return Some(format!("{arg_name} = {r_value}"));
+                }
+                return Some(format!("{arg_name} = NULL"));
+            } else {
+                val
             };
             // The extendr bindings expect owned PORs (ExternalPtr) for typed
             // config arguments — passing an R `list()` raises

@@ -251,14 +251,42 @@ pub(super) fn build_args_and_setup(
             && arg.element_type.is_some()
             && !is_scalar_element_type(arg.element_type.as_deref())
         {
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let val = input.get(field);
+            let val = super::super::resolve_field(input, &arg.field);
             let elem_type = arg.element_type.as_deref().unwrap_or("Unknown");
             // Convert element type to camelCase for the from-json helper name
             let from_json_fn = format!("{}FromJson", elem_type.to_lower_camel_case());
 
             match val {
-                Some(serde_json::Value::Array(arr)) => {
+                serde_json::Value::Object(_) => {
+                    let json_str = serde_json::to_string(val).unwrap_or_else(|_| "{}".to_string());
+                    let escaped = escape_swift(&json_str);
+                    let json_expr = if crate::e2e::codegen::value_contains_mock_url_placeholder(val) {
+                        let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                        let base_var = format!("{}MockBaseUrl", arg.name.to_lower_camel_case());
+                        let json_var = format!("{}Json", arg.name.to_lower_camel_case());
+                        setup_lines.push(format!(
+                            "let {base_var} = ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (AlefE2EMockServer.baseURL + \"/fixtures/{fixture_id}\")"
+                        ));
+                        setup_lines.push(format!(
+                            "let {json_var} = \"{escaped}\".replacingOccurrences(of: \"{}\", with: {base_var})",
+                            crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                        ));
+                        json_var
+                    } else {
+                        format!("\"{escaped}\"")
+                    };
+
+                    if unnamed_arg_indices.contains(&idx) {
+                        parts.push((idx, json_expr));
+                    } else {
+                        let var_name = format!("{}Obj", arg.name.to_lower_camel_case());
+                        setup_lines.push(format!(
+                            "let {var_name} = try {module_name}.{from_json_fn}({json_expr})"
+                        ));
+                        parts.push((idx, var_name));
+                    }
+                }
+                serde_json::Value::Array(arr) => {
                     let var_name = format!("{}Array", arg.name.to_lower_camel_case());
 
                     if arr.is_empty() {
@@ -311,16 +339,16 @@ pub(super) fn build_args_and_setup(
                         parts.push((idx, var_name));
                     }
                 }
-                None | Some(serde_json::Value::Null) if arg.optional => {
+                serde_json::Value::Null if arg.optional => {
                     if later_emits[idx] {
                         parts.push((idx, "nil".to_string()));
                     }
                 }
-                None | Some(serde_json::Value::Null) => {
+                serde_json::Value::Null => {
                     // Required but missing — emit empty array
                     parts.push((idx, "[]".to_string()));
                 }
-                Some(_other) => {
+                _other => {
                     // Non-array value — emit empty array (shouldn't happen)
                     parts.push((idx, "[]".to_string()));
                 }
