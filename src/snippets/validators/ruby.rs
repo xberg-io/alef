@@ -31,7 +31,7 @@ impl SnippetValidator for RubyValidator {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let mut command = match level {
-            ValidationLevel::Syntax | ValidationLevel::Compile => {
+            ValidationLevel::Syntax | ValidationLevel::Compile | ValidationLevel::TypeCheck => {
                 let mut command = std::process::Command::new("ruby");
                 command.args(["-c", &path]);
                 command

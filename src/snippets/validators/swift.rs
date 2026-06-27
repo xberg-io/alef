@@ -29,7 +29,7 @@ impl SnippetValidator for SwiftValidator {
             ValidationLevel::Syntax => {
                 command.args(["-parse"]).arg(&file);
             }
-            ValidationLevel::Compile => {
+            ValidationLevel::Compile | ValidationLevel::TypeCheck => {
                 let out = dir.path().join("snippet");
                 command.args(["-o"]).arg(&out).arg(&file);
             }

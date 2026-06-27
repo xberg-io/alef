@@ -109,7 +109,7 @@ impl SnippetValidator for JavaValidator {
         std::fs::write(&file, &wrapped)?;
 
         let mut command = match level {
-            ValidationLevel::Syntax | ValidationLevel::Compile => {
+            ValidationLevel::Syntax | ValidationLevel::Compile | ValidationLevel::TypeCheck => {
                 let mut command = std::process::Command::new("javac");
                 command
                     .args(["-Xlint:none", "-nowarn", "-d"])

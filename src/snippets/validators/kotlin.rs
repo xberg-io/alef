@@ -26,7 +26,7 @@ impl SnippetValidator for KotlinValidator {
 
         let mut command = std::process::Command::new("kotlinc");
         match level {
-            ValidationLevel::Syntax | ValidationLevel::Compile => {
+            ValidationLevel::Syntax | ValidationLevel::Compile | ValidationLevel::TypeCheck => {
                 let out = dir.path().join("out");
                 command.args(["-nowarn", "-d"]).arg(&out).arg(&file);
             }

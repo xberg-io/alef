@@ -100,7 +100,7 @@ impl SnippetValidator for GoValidator {
                 command.args(["-e", "-l"]).arg(&file);
                 command
             }
-            ValidationLevel::Compile => {
+            ValidationLevel::Compile | ValidationLevel::TypeCheck => {
                 std::fs::write(dir.path().join("go.mod"), "module snippet\n\ngo 1.21\n")?;
                 let mut command = std::process::Command::new("go");
                 command

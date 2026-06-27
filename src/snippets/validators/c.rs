@@ -44,7 +44,7 @@ impl SnippetValidator for CValidator {
             ValidationLevel::Syntax => {
                 command.args(["-fsyntax-only", &source_path]);
             }
-            ValidationLevel::Compile | ValidationLevel::Run => {
+            ValidationLevel::Compile | ValidationLevel::TypeCheck | ValidationLevel::Run => {
                 let out = NamedTempFile::new()?;
                 let out_path = out.path().to_string_lossy().to_string();
                 drop(out);

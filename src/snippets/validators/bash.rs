@@ -27,7 +27,7 @@ impl SnippetValidator for BashValidator {
 
         let path = temp_file.path().to_string_lossy().to_string();
         let mut command = match level {
-            ValidationLevel::Syntax | ValidationLevel::Compile => {
+            ValidationLevel::Syntax | ValidationLevel::Compile | ValidationLevel::TypeCheck => {
                 let mut command = std::process::Command::new("bash");
                 command.args(["-n", &path]);
                 command
