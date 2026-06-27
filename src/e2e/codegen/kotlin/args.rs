@@ -342,10 +342,27 @@ pub(super) fn build_args_and_setup(
                         // Setup deserialization
                         let json_str = serde_json::to_string(v).unwrap_or_default();
                         let var_name = format!("{}_Config", arg.name);
-                        setup_lines.push(format!(
-                            "val {var_name} = MAPPER.readValue(\"{}\", {config_type}::class.java)",
-                            crate::e2e::escape::escape_kotlin(&json_str)
-                        ));
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            let base_var = format!("{}MockBaseUrl", arg.name);
+                            let json_var = format!("{}Json", var_name);
+                            setup_lines.push(format!(
+                                "val {base_var} = System.getProperty(\"{env_key}\") ?: \"${{System.getProperty(\"MOCK_SERVER_URL\")}}/fixtures/{fixture_id}\""
+                            ));
+                            setup_lines.push(format!(
+                                "val {json_var} = \"{}\".replace(\"{}\", {base_var})",
+                                crate::e2e::escape::escape_kotlin(&json_str),
+                                crate::e2e::escape::escape_kotlin(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                            ));
+                            setup_lines.push(format!(
+                                "val {var_name} = MAPPER.readValue({json_var}, {config_type}::class.java)"
+                            ));
+                        } else {
+                            setup_lines.push(format!(
+                                "val {var_name} = MAPPER.readValue(\"{}\", {config_type}::class.java)",
+                                crate::e2e::escape::escape_kotlin(&json_str)
+                            ));
+                        }
                         parts.push(var_name);
                     }
                     continue;

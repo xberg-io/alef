@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolve `$mock_url` placeholders inside typed JSON-array arguments across
   generated language e2e suites.
 
+- **e2e**: resolve `$mock_url` placeholders for Ruby object arrays, Elixir typed
+  object arguments, and Kotlin/PHP typed object setup while allowing Elixir e2e
+  calls to target keyword-opts public facades.
+
 - **ffi**: honor `[crates.ffi].exclude_types` when generating `cbindgen.toml`.
   Excluded Rust-only helper DTOs are now omitted from the header prelude forward
   declarations and emitted in `[export].exclude`, keeping C and cgo headers from

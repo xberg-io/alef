@@ -428,7 +428,7 @@ pub(super) fn build_args_and_setup(
                                     ));
                                     setup_lines.push(format!(
                                         "{json_var} = str_replace(\"{}\", {base_var}, json_encode({php_value}));",
-                                        crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                        escape_php(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
                                     ));
                                     setup_lines.push(format!(
                                         "{arg_var} = \\{namespace}\\{type_name}::from_json({json_var});"

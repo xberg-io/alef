@@ -309,7 +309,7 @@ pub(super) fn render_test_method(
                 deser_lines.push(format!(
                     "val {var_name}Json = \"{}\".replace(\"{}\", {var_name}MockBaseUrl)",
                     crate::e2e::escape::escape_kotlin(&json_str),
-                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                    crate::e2e::escape::escape_kotlin(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
                 ));
                 deser_lines.push(format!(
                     "val {var_name} = MAPPER.readValue({var_name}Json, {opts_type}::class.java)"

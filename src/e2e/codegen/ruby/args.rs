@@ -271,7 +271,17 @@ pub(super) fn build_args_and_setup(
                                 // Only emit as tagged-enum array if all elements are objects.
                                 // Otherwise fall through to json_to_ruby for primitive arrays (e.g., String, Int).
                                 if !arr.is_empty() && arr.iter().all(|item| item.is_object()) {
-                                    parts.push(emit_ruby_object_array(v));
+                                    let mock_base_var = if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                                        let base_var = format!("{}_mock_base_url", arg.name);
+                                        let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                                        setup_lines.push(format!(
+                                                "{base_var} = ENV.fetch('{env_key}', nil) || \"#{{ENV.fetch('MOCK_SERVER_URL')}}/fixtures/{fixture_id}\""
+                                            ));
+                                        Some(base_var)
+                                    } else {
+                                        None
+                                    };
+                                    parts.push(emit_ruby_object_array_with_mock_base(v, mock_base_var.as_deref()));
                                     continue;
                                 }
                             }
@@ -340,14 +350,27 @@ pub(super) fn build_args_and_setup(
     (setup_lines, parts.join(", "), teardown_lines)
 }
 
-/// Emit Ruby object-array fixture values for a typed `json_object` array.
-pub(super) fn emit_ruby_object_array(arr: &serde_json::Value) -> String {
+/// Emit Ruby object-array fixture values and optionally replace `$mock_url`.
+pub(super) fn emit_ruby_object_array_with_mock_base(arr: &serde_json::Value, mock_base_var: Option<&str>) -> String {
     if let Some(items) = arr.as_array() {
         let item_strs: Vec<String> = items
             .iter()
             .filter_map(|item| {
-                item.as_object()
-                    .map(|obj| json_to_ruby(&serde_json::Value::Object(obj.clone())))
+                item.as_object().map(|obj| {
+                    let object_value = serde_json::Value::Object(obj.clone());
+                    if let Some(base_var) = mock_base_var
+                        && crate::e2e::codegen::value_contains_mock_url_placeholder(&object_value)
+                    {
+                        let json_str = serde_json::to_string(&object_value).unwrap_or_else(|_| "{}".to_string());
+                        format!(
+                            "JSON.parse({}.gsub('{}', {base_var}))",
+                            ruby_string_literal(&json_str),
+                            crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                        )
+                    } else {
+                        json_to_ruby(&object_value)
+                    }
+                })
             })
             .collect();
         format!("[{}]", item_strs.join(", "))

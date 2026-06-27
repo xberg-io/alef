@@ -27,6 +27,7 @@ pub(super) fn build_args_and_setup(
     enums: &[crate::core::ir::EnumDef],
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    force_keyword_args: bool,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -347,6 +348,28 @@ pub(super) fn build_args_and_setup(
                     // applied to JSON-string emission.
                     if let (Some(opts_type), None, Some(obj)) = (object_type, options_default_fn, v.as_object()) {
                         let options_var = "options";
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            let base_var = format!("{}_mock_base_url", arg.name);
+                            let json_var = format!("{}_json", arg.name);
+                            let map_literal = json_to_elixir(v);
+                            setup_lines.push(format!(
+                                "{base_var} = System.get_env(\"{env_key}\") || \"#{{System.get_env(\"MOCK_SERVER_URL\")}}/fixtures/{fixture_id}\""
+                            ));
+                            setup_lines.push(format!(
+                                "{json_var} = Jason.encode!({map_literal}) |> String.replace(\"{}\", {base_var})",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            ));
+                            setup_lines.push(format!(
+                                "{options_var} = struct({module_path}.{opts_type}, Jason.decode!({json_var}, keys: :atoms))"
+                            ));
+                            if use_keyword_form_for_optional_args && arg.optional {
+                                parts.push(format!("{}: {options_var}", arg.name));
+                            } else {
+                                parts.push(options_var.to_string());
+                            }
+                            continue;
+                        }
                         let mut field_strs = Vec::new();
                         for (k, vv) in obj.iter() {
                             let snake_key = k.to_snake_case();
@@ -455,6 +478,23 @@ pub(super) fn build_args_and_setup(
     // Separate positional and keyword args, preserving order within each group.
     // With the keyword-opts threshold applied above (use_keyword_form_for_optional_args),
     // we should never encounter a positional arg after a keyword arg.
+    if force_keyword_args {
+        let args_string = parts
+            .into_iter()
+            .zip(args.iter())
+            .map(|(part, arg)| {
+                let prefix = format!("{}: ", arg.name);
+                if part.starts_with(&prefix) {
+                    part
+                } else {
+                    format!("{}: {part}", arg.name)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        return (setup_lines, args_string);
+    }
+
     let mut positional_args = Vec::new();
     let mut keyword_args = Vec::new();
 

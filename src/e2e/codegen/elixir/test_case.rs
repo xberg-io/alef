@@ -158,6 +158,10 @@ pub(super) fn render_test_case(
         .find(|a| a.name == call_config.function.as_str())
         .and_then(|a| a.request_type.as_deref())
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
+    let force_keyword_args = call_overrides
+        .map(|o| o.keyword_args)
+        .or_else(|| e2e_config.call.overrides.get(lang).map(|o| o.keyword_args))
+        .unwrap_or(false);
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         resolved_args,
@@ -173,6 +177,7 @@ pub(super) fn render_test_case(
         enums,
         config,
         type_defs,
+        force_keyword_args,
     );
 
     // Build visitor if present - it will be injected into the options map.
