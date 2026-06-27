@@ -241,10 +241,10 @@ fn test_java_async_wrappers_respect_generate_override() {
     let api = ApiSurface {
         functions: vec![FunctionDef {
             name: "extract".to_string(),
-            rust_path: "xberg::extract".to_string(),
+            rust_path: "demo::extract".to_string(),
             return_type: TypeRef::Named("ExtractionResult".to_string()),
             is_async: true,
-            error_type: Some("XbergError".to_string()),
+            error_type: Some("DemoError".to_string()),
             ..FunctionDef::default()
         }],
         ..ApiSurface::default()
@@ -264,9 +264,9 @@ fn test_java_async_wrappers_respect_generate_override() {
     let out = gen_main_class(
         &api,
         &config,
-        "io.xberg",
-        "XbergRs",
-        "xberg",
+        "com.example",
+        "ExampleRs",
+        "example",
         &HashSet::new(),
         &HashSet::new(),
         false,

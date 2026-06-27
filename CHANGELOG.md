@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **tooling**: extend the `no-project-special-casing` pre-commit hook to reject the `xberg` and
+  `crawlberg` downstream product names (case-insensitive, including camelCase and separator
+  variants), and consolidate the brand allowlist so the `xberg-io` org namespace and the `xberg.io`
+  domain stay permitted while `xberg-io/xberg` and bare `xberg` mentions are still caught. Neutralize
+  the `xberg`-named Java/enum test fixtures to generic sample names.
+
 ### Fixed
 
 - **e2e**: keep public Ruby and Elixir test calls on configured method names and

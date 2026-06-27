@@ -8,10 +8,12 @@ const PROJECT_MENTION_HOOK_CHUNK_SIZE: usize = 64;
 const SNAPSHOT_FORBIDDEN_MARKERS: &[&str] = &[
     "kreuzberg",
     "kreuzberglib",
+    "xberg",
     "literllmclient",
     "liter-llm",
     "spikard",
     "kreuzcrawl",
+    "crawlberg",
     "html-to-markdown",
 ];
 

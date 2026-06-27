@@ -298,7 +298,7 @@ fn variant_constructors_coerce_dataclass_backed_dto_field() {
     // A payload field whose Named type is a dataclass-backed config DTO accepts the public wrapper
     // (a @dataclass) or a dict via `&Bound<PyAny>` and is coerced through the runtime helper, rather
     // than demanding the compiled `#[pyclass]`. The factory therefore takes `py` and is fallible.
-    // (xberg #1165: enum-variant payloads must coerce like struct fields do.)
+    // (Regression: enum-variant payloads must coerce like struct fields do.)
     let def = enum_def(
         "Wrapper",
         vec![variant(
