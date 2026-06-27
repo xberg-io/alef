@@ -26,7 +26,11 @@ pub fn is_bridge_handle_type_ref(ty: &TypeRef, bridges: &[TraitBridgeConfig]) ->
 
 /// Return true when a function name is emitted by trait-bridge codegen.
 pub fn is_trait_bridge_managed_fn(func_name: &str, bridges: &[TraitBridgeConfig]) -> bool {
-    bridges.iter().any(|b| b.clear_fn.as_deref() == Some(func_name))
+    bridges.iter().any(|bridge| {
+        bridge.register_fn.as_deref() == Some(func_name)
+            || bridge.unregister_fn.as_deref() == Some(func_name)
+            || bridge.clear_fn.as_deref() == Some(func_name)
+    })
 }
 
 /// Find the first function parameter that matches a trait bridge configuration

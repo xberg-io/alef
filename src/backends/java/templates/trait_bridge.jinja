@@ -100,11 +100,11 @@ public final class {{ bridge_class }} implements AutoCloseable {
             {{ unmarshal }}
 {% endfor %}
 {% if method.has_return %}
-            {{ method.return_type }} result = impl.{{ method.name }}({{ method.call_args }});
+            {{ method.return_type }} callbackResult = impl.{{ method.name }}({{ method.call_args }});
 {% if method.raw_result %}
-            MemorySegment jsonCs = arena.allocateFrom(result);
+            MemorySegment jsonCs = arena.allocateFrom(callbackResult);
 {% else %}
-            String json = JSON.writeValueAsString(result);
+            String json = JSON.writeValueAsString(callbackResult);
             MemorySegment jsonCs = arena.allocateFrom(json);
 {% endif %}
             outResult.set(ValueLayout.ADDRESS, 0, jsonCs);

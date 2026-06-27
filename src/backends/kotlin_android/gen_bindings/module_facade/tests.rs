@@ -80,3 +80,34 @@ fn capsule_wrapper_errors_when_host_type_empty() {
         "error must name the missing field. Got:\n{body}"
     );
 }
+
+#[test]
+fn android_trait_bridge_lifecycle_functions_are_managed_by_bridge_object() {
+    let config = crate::core::config::ResolvedCrateConfig {
+        trait_bridges: vec![crate::core::config::TraitBridgeConfig {
+            trait_name: "DocumentExtractor".to_string(),
+            register_fn: Some("register_document_extractor".to_string()),
+            unregister_fn: Some("unregister_document_extractor".to_string()),
+            clear_fn: Some("clear_document_extractors".to_string()),
+            ..crate::core::config::TraitBridgeConfig::default()
+        }],
+        ..crate::core::config::ResolvedCrateConfig::default()
+    };
+
+    assert!(trait_bridge_manages_android_function(
+        "register_document_extractor",
+        &config
+    ));
+    assert!(trait_bridge_manages_android_function(
+        "unregister_document_extractor",
+        &config
+    ));
+    assert!(trait_bridge_manages_android_function(
+        "clear_document_extractors",
+        &config
+    ));
+    assert!(!trait_bridge_manages_android_function(
+        "list_document_extractors",
+        &config
+    ));
+}

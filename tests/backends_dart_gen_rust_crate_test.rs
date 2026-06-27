@@ -1011,6 +1011,112 @@ fn lib_rs_emits_register_forwarder_when_register_fn_configured() {
     );
 }
 
+#[test]
+fn lib_rs_skips_ordinary_lifecycle_functions_when_trait_bridge_manages_them() {
+    let trait_def = make_trait(
+        "OcrBackend",
+        "demo_crate::OcrBackend",
+        vec![make_method(
+            "supports_language",
+            vec![make_param("lang", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let register_fn = FunctionDef {
+        name: "register_ocr_backend".to_string(),
+        rust_path: "demo_crate::register_ocr_backend".to_string(),
+        original_rust_path: String::new(),
+        params: vec![make_param("backend", TypeRef::Named("OcrBackend".to_string()))],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        error_type: Some("Error".to_string()),
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+    let unregister_fn = FunctionDef {
+        name: "unregister_ocr_backend".to_string(),
+        rust_path: "demo_crate::unregister_ocr_backend".to_string(),
+        original_rust_path: String::new(),
+        params: vec![make_param("name", TypeRef::String)],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        error_type: Some("Error".to_string()),
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![register_fn, unregister_fn],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef::core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    }];
+
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        lib.contains("pub fn register_ocr_backend(impl_: OcrBackendDartImpl) -> Result<(), String>"),
+        "trait bridge register forwarder must remain visible: {lib}"
+    );
+    assert!(
+        !lib.contains("pub fn register_ocr_backend(backend: OcrBackend)"),
+        "ordinary wrapper must not expose a bare trait parameter: {lib}"
+    );
+    assert_eq!(
+        lib.match_indices("pub fn register_ocr_backend(").count(),
+        1,
+        "register lifecycle function must be emitted only by the trait bridge: {lib}"
+    );
+    assert_eq!(
+        lib.match_indices("pub fn unregister_ocr_backend(").count(),
+        1,
+        "unregister lifecycle function must be emitted only by the trait bridge: {lib}"
+    );
+}
+
 /// When `register_fn` is unset, no forwarder is emitted — the bridge keeps
 /// only the wrapper struct, trait impl, and factory.
 #[test]

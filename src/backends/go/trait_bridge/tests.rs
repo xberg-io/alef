@@ -532,3 +532,58 @@ fn text_processor_interface_and_bridge_wrapper_emitted() {
         "RegisterTextProcessor must accept the TextProcessor interface;\nactual:\n{out}"
     );
 }
+
+#[test]
+fn trampoline_callback_result_name_does_not_collide_with_param_name() {
+    let method = crate::core::ir::MethodDef {
+        name: "render_result".to_string(),
+        params: vec![crate::core::ir::ParamDef {
+            name: "result".to_string(),
+            ty: TypeRef::Named("ExtractedDocument".to_string()),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: true,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+            vec_inner_is_ref: false,
+            map_is_btree: false,
+            core_wrapper: crate::core::ir::CoreWrapper::None,
+        }],
+        return_type: TypeRef::String,
+        is_async: false,
+        is_static: false,
+        error_type: Some("Error".to_string()),
+        doc: String::new(),
+        receiver: Some(crate::core::ir::ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+    let mut out = String::new();
+
+    gen_trampoline(&mut out, "Renderer", "Renderer", &method);
+
+    assert!(
+        out.contains("callbackResult, err := impl.RenderResult(goResult)"),
+        "callback return local must avoid colliding with the `result` parameter;\nactual:\n{out}"
+    );
+    assert!(
+        !out.contains("result, err := impl.RenderResult(goResult)"),
+        "callback return local must not reuse the parameter name;\nactual:\n{out}"
+    );
+    assert!(
+        out.contains("cResult := C.CString(callbackResult)"),
+        "string result conversion must use the callback return local;\nactual:\n{out}"
+    );
+}

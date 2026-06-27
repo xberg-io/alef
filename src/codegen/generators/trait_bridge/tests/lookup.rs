@@ -47,6 +47,22 @@ fn bridge_handle_path_uses_excluded_alias_path() {
     );
 }
 
+#[test]
+fn managed_function_lookup_matches_trait_bridge_lifecycle_names() {
+    let bridge = TraitBridgeConfig {
+        register_fn: Some("register_renderer".to_string()),
+        unregister_fn: Some("unregister_renderer".to_string()),
+        clear_fn: Some("clear_renderers".to_string()),
+        ..TraitBridgeConfig::default()
+    };
+    let bridges = vec![bridge];
+
+    assert!(is_trait_bridge_managed_fn("register_renderer", &bridges));
+    assert!(is_trait_bridge_managed_fn("unregister_renderer", &bridges));
+    assert!(is_trait_bridge_managed_fn("clear_renderers", &bridges));
+    assert!(!is_trait_bridge_managed_fn("list_renderers", &bridges));
+}
+
 // ---------------------------------------------------------------------------
 // find_bridge_param / find_bridge_field
 // ---------------------------------------------------------------------------

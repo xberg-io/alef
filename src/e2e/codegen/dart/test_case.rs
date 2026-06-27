@@ -460,15 +460,59 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
             }
             "json_object" => {
                 if let Some(elem_type) = &arg_def.element_type {
-                    if elem_type == "String" && arg_value.is_array() {
+                    if arg_value.is_object() {
+                        let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
+                        let escaped_json = escape_dart(&json_str);
+                        let var_name = format!("_{}", arg_def.name);
+                        let dart_fn = type_name_to_create_from_json_dart(elem_type);
+                        let json_source = if crate::e2e::codegen::value_contains_mock_url_placeholder(arg_value) {
+                            setup_lines.push(format!(
+                                "final {var_name}MockBaseUrl = _fixtureUrl(\"{}\");",
+                                fixture.id
+                            ));
+                            setup_lines.push(format!(
+                                "final {var_name}Json = '{escaped_json}'.replaceAll(r'{}', {var_name}MockBaseUrl);",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            ));
+                            format!("{var_name}Json")
+                        } else {
+                            format!("'{escaped_json}'")
+                        };
+                        setup_lines.push(format!("final {var_name} = await {dart_fn}(json: {json_source});"));
+                        if is_frb_bridge_call {
+                            let dart_param_name = snake_to_camel(&arg_def.name);
+                            args.push(format!("{dart_param_name}: {var_name}"));
+                        } else {
+                            args.push(var_name);
+                        }
+                    } else if elem_type == "String" && arg_value.is_array() {
                         // Scalar string array. Direct FRB bridge calls require named parameters.
                         // Facades can declare these as required positional.
+                        let mock_base_var = if crate::e2e::codegen::value_contains_mock_url_placeholder(arg_value) {
+                            let var_name = format!("{}MockBaseUrl", arg_def.name);
+                            setup_lines.push(format!("final {var_name} = _fixtureUrl(\"{}\");", fixture.id));
+                            Some(var_name)
+                        } else {
+                            None
+                        };
                         let items: Vec<String> = arg_value
                             .as_array()
                             .unwrap()
                             .iter()
                             .filter_map(|v| v.as_str())
-                            .map(|s| format!("'{}'", escape_dart(s)))
+                            .map(|s| {
+                                if let Some(base_var) = mock_base_var.as_deref()
+                                    && s.contains(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                                {
+                                    format!(
+                                        "'{}'.replaceAll(r'{}', {base_var})",
+                                        escape_dart(s),
+                                        crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                    )
+                                } else {
+                                    format!("'{}'", escape_dart(s))
+                                }
+                            })
                             .collect();
                         let list_literal = format!("<String>[{}]", items.join(", "));
                         if is_frb_bridge_call {
@@ -483,9 +527,22 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                         // test-run time and convert to typed instances.
                         let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
                         let var_name = arg_def.name.clone();
+                        let json_source = if crate::e2e::codegen::value_contains_mock_url_placeholder(arg_value) {
+                            setup_lines.push(format!(
+                                "final {var_name}MockBaseUrl = _fixtureUrl(\"{}\");",
+                                fixture.id
+                            ));
+                            setup_lines.push(format!(
+                                "final {var_name}Json = r'{json_str}'.replaceAll(r'{}', {var_name}MockBaseUrl);",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            ));
+                            format!("{var_name}Json")
+                        } else {
+                            format!("r'{json_str}'")
+                        };
                         if elem_type == "PageAction" {
                             setup_lines.push(format!(
-                                "final {var_name} = (jsonDecode(r'{json_str}') as List<dynamic>).map((e) => _parsePageAction(e as Map<String, dynamic>)).toList();"
+                                "final {var_name} = (jsonDecode({json_source}) as List<dynamic>).map((e) => _parsePageAction(e as Map<String, dynamic>)).toList();"
                             ));
                         } else {
                             // FRB-generated `create<ElementType>FromJson(json:)` factory
@@ -494,7 +551,7 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                             // matches the binding's parameter type (e.g. List<BatchBytesItem>).
                             let dart_fn = type_name_to_create_from_json_dart(elem_type);
                             setup_lines.push(format!(
-                                "final {var_name} = await Future.wait((jsonDecode(r'{json_str}') as List<dynamic>).cast<Map<String, dynamic>>().map((m) => {dart_fn}(json: jsonEncode(m))));"
+                                "final {var_name} = await Future.wait((jsonDecode({json_source}) as List<dynamic>).cast<Map<String, dynamic>>().map((m) => {dart_fn}(json: jsonEncode(m))));"
                             ));
                         }
                         // For generic arrays, emit named parameter if it's a direct FRB call

@@ -96,10 +96,9 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
     let handle_returned_types = super::super::errors::compute_handle_returned_types(api);
 
     // Generate wrapper methods for functions.
-    // Skip trait-bridge `clear_fn` functions: their registry-clearing API is exposed via the
-    // generated `{Trait}Registry.Clear()` helper in TraitBridges.cs, and the FFI layer exports
-    // no regular `{prefix}_{clear_fn}` symbol for them. Emitting a wrapper here would call a
-    // non-existent NativeMethods entry point.
+    // Skip trait-bridge lifecycle functions: their binding-safe API is exposed via the
+    // generated helpers in TraitBridges.cs. Emitting wrappers here would duplicate or
+    // shadow those helpers.
     for func in api.functions.iter().filter(|f| {
         !exclude_functions.contains(&f.name)
             && !should_skip_ffi_method(f)

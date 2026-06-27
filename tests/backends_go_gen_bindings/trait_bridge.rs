@@ -591,11 +591,11 @@ fn test_trait_bridge_string_return_is_not_json_quoted() {
     let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
 
     assert!(
-        code.contains("cResult := C.CString(result)"),
+        code.contains("cResult := C.CString(callbackResult)"),
         "string callback returns must cross the FFI boundary as raw UTF-8, not JSON: {code}"
     );
     assert!(
-        !code.contains("json.Marshal(result)\n\tcResult := C.CString(string(jsonBytes))"),
+        !code.contains("json.Marshal(callbackResult)\n\tcResult := C.CString(string(jsonBytes))"),
         "string callback return must not be JSON-quoted before Rust decodes it: {code}"
     );
 }

@@ -310,6 +310,12 @@ pub struct CallOverride {
     /// name to use when emitting the keyword argument in generated tests.
     #[serde(default)]
     pub arg_name_map: HashMap<String, String>,
+    /// Emit configured arguments as a single Elixir keyword-list call.
+    ///
+    /// Use this for Elixir public facades that collapse all NIF parameters into
+    /// `opts \\ []`, such as `extract(input: ..., config: ...)`.
+    #[serde(default)]
+    pub keyword_args: bool,
     /// Override the crate name (Rust only).
     #[serde(default)]
     pub crate_name: Option<String>,

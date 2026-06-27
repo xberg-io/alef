@@ -169,7 +169,7 @@ fn gen_result_conversion(out: &mut String, return_type: &TypeRef, is_simple_prim
         // For simple primitives (bool, i32, u64, etc.), cast and return directly
         match return_type {
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
-                out.push_str("\tif result {\n");
+                out.push_str("\tif callbackResult {\n");
                 out.push_str("\t\treturn 1\n");
                 out.push_str("\t}\n");
                 out.push_str("\treturn 0\n");
@@ -192,7 +192,7 @@ fn gen_result_conversion(out: &mut String, return_type: &TypeRef, is_simple_prim
                     Usize => "uintptr_t",
                     Isize => "intptr_t",
                 };
-                out.push_str(&format!("\treturn C.{}(result)\n", c_type));
+                out.push_str(&format!("\treturn C.{}(callbackResult)\n", c_type));
             }
             _ => {
                 // Should not happen if is_simple_primitive is correctly set
@@ -203,15 +203,15 @@ fn gen_result_conversion(out: &mut String, return_type: &TypeRef, is_simple_prim
         // Complex type: marshal into out_result
         match return_type {
             TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                out.push_str("\tcResult := C.CString(result)\n");
+                out.push_str("\tcResult := C.CString(callbackResult)\n");
                 out.push_str("\t*outResult = cResult\n");
             }
             TypeRef::Json => {
-                out.push_str("\tcResult := C.CString(string(result))\n");
+                out.push_str("\tcResult := C.CString(string(callbackResult))\n");
                 out.push_str("\t*outResult = cResult\n");
             }
             _ => {
-                out.push_str("\tjsonBytes, _ := json.Marshal(result)\n");
+                out.push_str("\tjsonBytes, _ := json.Marshal(callbackResult)\n");
                 out.push_str("\tcResult := C.CString(string(jsonBytes))\n");
                 out.push_str("\t*outResult = cResult\n");
             }

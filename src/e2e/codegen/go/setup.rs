@@ -303,22 +303,35 @@ pub(super) fn build_args_and_setup(
                         let is_sum_type = element_type_name.is_some_and(|et| data_enum_names.contains(et));
                         let converted_v = convert_json_for_go(v.clone());
                         let var_name = &arg.name;
+                        let json_str = serde_json::to_string(&converted_v).unwrap_or_default();
+                        let go_literal = go_string_literal(&json_str);
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(&converted_v) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            setup_lines.push(format!(
+                                "{var_name}MockBaseURL := os.Getenv(\"{env_key}\")\n\tif {var_name}MockBaseURL == \"\" {{\n\t\t{var_name}MockBaseURL = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"\n\t}}"
+                            ));
+                            setup_lines.push(format!(
+                                "{var_name}JSON := strings.ReplaceAll({go_literal}, \"{}\", {var_name}MockBaseURL)",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            ));
+                        }
+                        let json_expr = if crate::e2e::codegen::value_contains_mock_url_placeholder(&converted_v) {
+                            format!("{var_name}JSON")
+                        } else {
+                            go_literal
+                        };
 
                         if is_sum_type {
                             let element_type = element_type_name.unwrap();
-                            let json_str = serde_json::to_string(&converted_v).unwrap_or_default();
-                            let go_literal = go_string_literal(&json_str);
                             setup_lines.push(format!(
-                                "var {var_name}Raw []json.RawMessage\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}Raw); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
+                                "var {var_name}Raw []json.RawMessage\n\tif err := json.Unmarshal([]byte({json_expr}), &{var_name}Raw); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
                             ));
                             setup_lines.push(format!(
                                 "var {var_name} {go_slice_type}\n\tfor _, raw := range {var_name}Raw {{\n\t\telem, err := {import_alias}.Unmarshal{element_type}(raw)\n\t\tif err != nil {{\n\t\t\tt.Fatalf(\"unmarshal {element_type} failed: %v\", err)\n\t\t}}\n\t\t{var_name} = append({var_name}, elem)\n\t}}"
                             ));
                         } else {
-                            let json_str = serde_json::to_string(&converted_v).unwrap_or_default();
-                            let go_literal = go_string_literal(&json_str);
                             setup_lines.push(format!(
-                                "var {var_name} {go_slice_type}\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
+                                "var {var_name} {go_slice_type}\n\tif err := json.Unmarshal([]byte({json_expr}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
                             ));
                         }
                         parts.push(var_name.to_string());

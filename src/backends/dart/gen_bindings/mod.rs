@@ -81,9 +81,9 @@ impl Backend for DartBackend {
         let visible_functions: Vec<&FunctionDef> = deduped_functions
             .iter()
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
-            // Skip trait-bridge-managed names (clear_fn) — `emit_trait_bridge_methods`
+            // Skip trait-bridge-managed lifecycle names — `emit_trait_bridge_methods`
             // emits its own static wrapper for them. Without this filter the userland
-            // Dart class declares `clearXxxs()` twice (regular forwarder + bridge
+            // Dart class declares lifecycle methods twice (regular forwarder + bridge
             // wrapper) which Dart rejects with "already declared in this scope".
             .filter(|f| {
                 !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)

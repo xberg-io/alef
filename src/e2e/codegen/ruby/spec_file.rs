@@ -128,16 +128,6 @@ pub(super) fn render_spec_file(
                 out.push_str("  end\n");
                 examples.push(out);
             } else {
-                // Streaming methods do not take the `_async` suffix — Magnus emits
-                // `chat_stream` as a block-yielding method. All other async Rust
-                // methods are bound with the `_async` suffix.
-                let fixture_function_name = if is_streaming {
-                    raw_function_name
-                } else if fixture_call.r#async && !raw_function_name.ends_with("_async") {
-                    format!("{raw_function_name}_async")
-                } else {
-                    raw_function_name
-                };
                 let fixture_result_var = &fixture_call.result_var;
                 // Use fixture.resolved_args() so per-fixture args (e.g. trait-bridge
                 // test_backend stubs) take precedence over the call-config default.
@@ -145,6 +135,15 @@ pub(super) fn render_spec_file(
                 let fixture_client_factory = fixture_call_overrides
                     .and_then(|o| o.client_factory.as_deref())
                     .or(client_factory);
+                let fixture_function_name = if fixture_call.r#async
+                    && !is_streaming
+                    && fixture_client_factory.is_some()
+                    && !raw_function_name.ends_with("_async")
+                {
+                    format!("{raw_function_name}_async")
+                } else {
+                    raw_function_name
+                };
                 let fixture_options_type = fixture_call_overrides
                     .and_then(|o| o.options_type.as_deref())
                     .or(options_type);

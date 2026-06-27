@@ -243,6 +243,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
     }
 
     let needs_assert = body.contains("assert.");
+    let needs_os = needs_os || body.contains("os.");
     let needs_strings = needs_strings || body.contains("strings.");
     let needs_pkg = needs_pkg && body.contains(&format!("{import_alias}."));
     // Even when a fixture *could* need fmt (a CustomTemplate), it might be

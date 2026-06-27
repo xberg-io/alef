@@ -10,6 +10,7 @@ use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::csharp::CSharpCodegen;
 use alef::e2e::codegen::elixir::ElixirCodegen;
 use alef::e2e::codegen::go::GoCodegen;
+use alef::e2e::codegen::kotlin_android::KotlinAndroidE2eCodegen;
 use alef::e2e::codegen::php::PhpCodegen;
 use alef::e2e::codegen::python::PythonE2eCodegen;
 use alef::e2e::codegen::ruby::RubyCodegen;
@@ -85,6 +86,56 @@ fn make_plain_fixture(id: &str) -> Fixture {
     }
 }
 
+fn make_typed_url_fixture(id: &str) -> Fixture {
+    Fixture {
+        id: id.to_string(),
+        category: Some("url".to_string()),
+        description: format!("{id} typed URL fixture"),
+        tags: Vec::new(),
+        skip: None,
+        env: None,
+        setup: Vec::new(),
+        call: None,
+        input: serde_json::json!({
+            "payload": {"kind": "uri", "uri": "$mock_url"},
+            "config": {"mode": "document"},
+            "mock_responses": [
+                {"path": "/", "status_code": 200, "body_inline": "ok"}
+            ]
+        }),
+        mock_response: None,
+        visitor: None,
+        args: Vec::new(),
+        assertion_recipes: Vec::new(),
+        assertions: vec![Assertion {
+            assertion_type: "not_error".to_string(),
+            field: None,
+            value: None,
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        }],
+        source: "url.json".to_string(),
+        http: None,
+    }
+}
+
+fn make_typed_url_batch_fixture(id: &str) -> Fixture {
+    let mut fixture = make_typed_url_fixture(id);
+    fixture.input = serde_json::json!({
+        "inputs": [
+            {"kind": "uri", "uri": "$mock_url"},
+            {"kind": "bytes", "bytes": [111, 107], "mime_type": "text/plain"}
+        ],
+        "mock_responses": [
+            {"path": "/", "status_code": 200, "body_inline": "ok"}
+        ]
+    });
+    fixture
+}
+
 fn build_config(language: &str) -> (alef::e2e::config::E2eConfig, alef::core::config::ResolvedCrateConfig) {
     let toml_src = format!(
         r#"
@@ -133,11 +184,86 @@ import_alias = "demo_crawler"
     (e2e, resolved)
 }
 
+fn build_typed_url_config(
+    language: &str,
+    function: &str,
+    args: &str,
+) -> (alef::e2e::config::E2eConfig, alef::core::config::ResolvedCrateConfig) {
+    let toml_src = format!(
+        r#"
+[workspace]
+languages = ["{language}"]
+
+[[crates]]
+name = "demo_typed"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+java_group_id = "dev.sample_crate"
+
+[crates.e2e.call]
+function = "{function}"
+module = "DemoTyped"
+result_var = "result"
+async = true
+returns_result = true
+args = [
+{args}
+]
+
+[crates.e2e.call.overrides.elixir]
+module = "DemoTyped"
+returns_result = true
+keyword_args = true
+
+[crates.e2e.call.overrides.ruby]
+module = "DemoTyped"
+
+[crates.e2e.call.overrides.php]
+module = "DemoTyped"
+class = "DemoTyped\\DemoTyped"
+
+[crates.e2e.call.overrides.kotlin_android]
+module = "DemoTyped"
+"#
+    );
+    let cfg: NewAlefConfig = toml::from_str(&toml_src).expect("typed URL config parses");
+    let e2e = cfg.crates[0].e2e.clone().unwrap();
+    let resolved = cfg.resolve().expect("typed URL config resolves").remove(0);
+    (e2e, resolved)
+}
+
 fn groups_with(fixtures: Vec<Fixture>) -> Vec<FixtureGroup> {
     vec![FixtureGroup {
         category: "smoke".to_string(),
         fixtures,
     }]
+}
+
+fn generate_typed_url_all(
+    codegen: &dyn E2eCodegen,
+    language: &str,
+    function: &str,
+    args: &str,
+    fixtures: Vec<Fixture>,
+) -> Vec<alef::core::backend::GeneratedFile> {
+    let (e2e, resolved) = build_typed_url_config(language, function, args);
+    let groups = groups_with(fixtures);
+    codegen
+        .generate(&groups, &e2e, &resolved, &[], &[])
+        .expect("typed URL generation succeeds")
+}
+
+fn find_generated_with<'a>(
+    files: &'a [alef::core::backend::GeneratedFile],
+    needle: &str,
+) -> &'a alef::core::backend::GeneratedFile {
+    files
+        .iter()
+        .find(|f| f.content.contains(needle))
+        .unwrap_or_else(|| panic!("generated file containing {needle:?} not found"))
 }
 
 fn generate_all(
@@ -340,6 +466,25 @@ fn php_bootstrap_emits_mock_servers_parsing() {
     );
 }
 
+#[test]
+fn php_typed_object_placeholder_escapes_dollar_literal() {
+    let files = generate_typed_url_all(
+        &PhpCodegen,
+        "php",
+        "extract",
+        r#"  { name = "input", field = "payload", type = "json_object", element_type = "ExtractInput" },
+  { name = "config", field = "config", type = "json_object", optional = true },
+"#,
+        vec![make_typed_url_fixture("url_remote_text_document")],
+    );
+    let test_file = find_generated_with(&files, "str_replace");
+    assert!(
+        test_file.content.contains("str_replace(\"\\$mock_url\""),
+        "PHP must search for a literal $mock_url, not interpolate a PHP variable:\n{}",
+        test_file.content
+    );
+}
+
 // ── Ruby ──────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -387,6 +532,26 @@ fn ruby_spec_helper_emits_mock_servers_parsing() {
         spec_helper.content.contains("MOCK_SERVERS="),
         "expected MOCK_SERVERS= parsing in spec_helper.rb:\n{}",
         spec_helper.content
+    );
+}
+
+#[test]
+fn ruby_typed_object_array_replaces_mock_url() {
+    let files = generate_typed_url_all(
+        &RubyCodegen,
+        "ruby",
+        "extract_batch",
+        r#"  { name = "inputs", field = "inputs", type = "json_object", element_type = "ExtractInput" },
+"#,
+        vec![make_typed_url_batch_fixture("url_batch_mixed_inputs")],
+    );
+    let test_file = find_generated_with(&files, "extract_batch");
+    assert!(
+        test_file
+            .content
+            .contains("JSON.parse('{\"kind\":\"uri\",\"uri\":\"$mock_url\"}'.gsub('$mock_url', inputs_mock_base_url))"),
+        "Ruby object-array items must replace $mock_url before parsing:\n{}",
+        test_file.content
     );
 }
 
@@ -438,6 +603,64 @@ fn elixir_test_helper_emits_mock_servers_parsing() {
         test_helper.content.contains("MOCK_SERVERS="),
         "expected MOCK_SERVERS= parsing in test_helper.exs:\n{}",
         test_helper.content
+    );
+}
+
+#[test]
+fn elixir_typed_object_placeholder_uses_scoped_keyword_arg() {
+    let files = generate_typed_url_all(
+        &ElixirCodegen,
+        "elixir",
+        "extract",
+        r#"  { name = "input", field = "payload", type = "json_object", element_type = "ExtractInput" },
+  { name = "config", field = "config", type = "json_object", optional = true },
+"#,
+        vec![make_typed_url_fixture("url_remote_text_document")],
+    );
+    let test_file = find_generated_with(&files, "DemoTyped.extract");
+    assert!(
+        test_file
+            .content
+            .contains("input_value = %DemoTyped.ExtractInput{kind: \"uri\", uri: String.replace(\"$mock_url\", \"$mock_url\", input_mock_base_url)}"),
+        "Elixir typed object must use an input-scoped variable with placeholder replacement:\n{}",
+        test_file.content
+    );
+    assert!(
+        test_file
+            .content
+            .contains("DemoTyped.extract(input: input_value, config:"),
+        "Elixir public facade calls must use keyword args:\n{}",
+        test_file.content
+    );
+}
+
+// ── Kotlin Android ────────────────────────────────────────────────────────────
+
+#[test]
+fn kotlin_android_typed_object_placeholder_uses_mock_server_properties() {
+    let files = generate_typed_url_all(
+        &KotlinAndroidE2eCodegen,
+        "kotlin_android",
+        "extract",
+        r#"  { name = "input", field = "payload", type = "json_object", element_type = "ExtractInput" },
+  { name = "config", field = "config", type = "json_object", optional = true },
+"#,
+        vec![make_typed_url_fixture("url_remote_text_document")],
+    );
+    let test_file = find_generated_with(&files, "inputMockBaseUrl");
+    assert!(
+        test_file
+            .content
+            .contains("System.getProperty(\"mockServer.url_remote_text_document\", System.getenv(\"MOCK_SERVER_URL_REMOTE_TEXT_DOCUMENT\")"),
+        "Kotlin typed object fallback must use mockServer.<fixture> and MOCK_SERVER_<FIXTURE>:\n{}",
+        test_file.content
+    );
+    assert!(
+        test_file
+            .content
+            .contains(".replace(\"\\$mock_url\", inputMockBaseUrl)"),
+        "Kotlin typed object replacement must escape the dollar literal:\n{}",
+        test_file.content
     );
 }
 

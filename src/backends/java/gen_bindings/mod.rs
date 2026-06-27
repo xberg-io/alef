@@ -110,6 +110,28 @@ fn api_without_excluded_types(api: &ApiSurface, exclude_types: &HashSet<String>)
     filtered
 }
 
+fn trait_bridge_manages_function(func_name: &str, config: &ResolvedCrateConfig, language: Language) -> bool {
+    let language_name = language.to_string();
+    config.trait_bridges.iter().any(|bridge| {
+        !bridge.exclude_languages.contains(&language_name)
+            && (bridge.register_fn.as_deref() == Some(func_name)
+                || bridge.unregister_fn.as_deref() == Some(func_name)
+                || bridge.clear_fn.as_deref() == Some(func_name))
+    })
+}
+
+fn api_without_trait_bridge_managed_functions(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    language: Language,
+) -> ApiSurface {
+    let mut filtered = api.clone();
+    filtered
+        .functions
+        .retain(|func| !trait_bridge_manages_function(&func.name, config, language));
+    filtered
+}
+
 impl Backend for JavaBackend {
     fn name(&self) -> &str {
         "java"
@@ -139,6 +161,17 @@ impl Backend for JavaBackend {
         } else {
             filtered_api = api_without_excluded_types(api, &exclude_types);
             &filtered_api
+        };
+        let bridge_filtered_api;
+        let api = if api
+            .functions
+            .iter()
+            .any(|func| trait_bridge_manages_function(&func.name, config, Language::Java))
+        {
+            bridge_filtered_api = api_without_trait_bridge_managed_functions(api, config, Language::Java);
+            &bridge_filtered_api
+        } else {
+            api
         };
         // Java is a single compiled surface with no Rust-cfg gating at the Java-source level, so
         // same-named cfg-variant functions (real impl + no-ORT stub fallback) must collapse to a
@@ -548,6 +581,17 @@ impl Backend for JavaBackend {
         // The public Java facade is a single compiled surface, so same-named cfg-variant
         // functions must collapse to a single method to avoid `duplicate method` javac
         // errors. See codegen::fn_dedup.
+        let bridge_filtered_api;
+        let api = if api
+            .functions
+            .iter()
+            .any(|func| trait_bridge_manages_function(&func.name, config, Language::Java))
+        {
+            bridge_filtered_api = api_without_trait_bridge_managed_functions(api, config, Language::Java);
+            &bridge_filtered_api
+        } else {
+            api
+        };
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
 
@@ -622,5 +666,52 @@ impl Backend for JavaBackend {
             build_dep: BuildDependency::Ffi,
             post_build: vec![],
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::FunctionDef;
+
+    #[test]
+    fn removes_trait_bridge_managed_functions_from_java_api_functions() {
+        let api = ApiSurface {
+            functions: vec![
+                FunctionDef {
+                    name: "register_document_extractor".to_string(),
+                    ..FunctionDef::default()
+                },
+                FunctionDef {
+                    name: "unregister_document_extractor".to_string(),
+                    ..FunctionDef::default()
+                },
+                FunctionDef {
+                    name: "clear_document_extractors".to_string(),
+                    ..FunctionDef::default()
+                },
+                FunctionDef {
+                    name: "list_document_extractors".to_string(),
+                    ..FunctionDef::default()
+                },
+            ],
+            ..ApiSurface::default()
+        };
+        let config = ResolvedCrateConfig {
+            trait_bridges: vec![TraitBridgeConfig {
+                trait_name: "DocumentExtractor".to_string(),
+                register_fn: Some("register_document_extractor".to_string()),
+                unregister_fn: Some("unregister_document_extractor".to_string()),
+                clear_fn: Some("clear_document_extractors".to_string()),
+                ..TraitBridgeConfig::default()
+            }],
+            ..ResolvedCrateConfig::default()
+        };
+
+        let filtered = api_without_trait_bridge_managed_functions(&api, &config, Language::Java);
+        let function_names: Vec<_> = filtered.functions.iter().map(|func| func.name.as_str()).collect();
+
+        assert_eq!(function_names, vec!["list_document_extractors"]);
     }
 }

@@ -251,14 +251,42 @@ pub(super) fn build_args_and_setup(
             && arg.element_type.is_some()
             && !is_scalar_element_type(arg.element_type.as_deref())
         {
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let val = input.get(field);
+            let val = super::super::resolve_field(input, &arg.field);
             let elem_type = arg.element_type.as_deref().unwrap_or("Unknown");
             // Convert element type to camelCase for the from-json helper name
             let from_json_fn = format!("{}FromJson", elem_type.to_lower_camel_case());
 
             match val {
-                Some(serde_json::Value::Array(arr)) => {
+                serde_json::Value::Object(_) => {
+                    let json_str = serde_json::to_string(val).unwrap_or_else(|_| "{}".to_string());
+                    let escaped = escape_swift(&json_str);
+                    let json_expr = if crate::e2e::codegen::value_contains_mock_url_placeholder(val) {
+                        let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                        let base_var = format!("{}MockBaseUrl", arg.name.to_lower_camel_case());
+                        let json_var = format!("{}Json", arg.name.to_lower_camel_case());
+                        setup_lines.push(format!(
+                            "let {base_var} = ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (AlefE2EMockServer.baseURL + \"/fixtures/{fixture_id}\")"
+                        ));
+                        setup_lines.push(format!(
+                            "let {json_var} = \"{escaped}\".replacingOccurrences(of: \"{}\", with: {base_var})",
+                            crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                        ));
+                        json_var
+                    } else {
+                        format!("\"{escaped}\"")
+                    };
+
+                    if unnamed_arg_indices.contains(&idx) {
+                        parts.push((idx, json_expr));
+                    } else {
+                        let var_name = format!("{}Obj", arg.name.to_lower_camel_case());
+                        setup_lines.push(format!(
+                            "let {var_name} = try {module_name}.{from_json_fn}({json_expr})"
+                        ));
+                        parts.push((idx, var_name));
+                    }
+                }
+                serde_json::Value::Array(arr) => {
                     let var_name = format!("{}Array", arg.name.to_lower_camel_case());
 
                     if arr.is_empty() {
@@ -268,11 +296,32 @@ pub(super) fn build_args_and_setup(
                         // For each JSON item in the array, call the helper to deserialize it
                         let json_strs: Vec<String> =
                             arr.iter().filter_map(|item| serde_json::to_string(item).ok()).collect();
+                        let mock_base_var = if arr.iter().any(crate::e2e::codegen::value_contains_mock_url_placeholder)
+                        {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            let base_var = format!("{}MockBaseUrl", arg.name.to_lower_camel_case());
+                            setup_lines.push(format!(
+                                "let {base_var} = ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (AlefE2EMockServer.baseURL + \"/fixtures/{fixture_id}\")"
+                            ));
+                            Some(base_var)
+                        } else {
+                            None
+                        };
 
                         let mut item_vars = Vec::new();
                         for (i, json_str) in json_strs.iter().enumerate() {
                             let escaped = escape_swift(json_str);
                             let item_var = format!("_item_{var_name}_{i}");
+                            let json_expr = if let Some(base_var) = mock_base_var.as_deref()
+                                && json_str.contains(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                            {
+                                format!(
+                                    "\"{escaped}\".replacingOccurrences(of: \"{}\", with: {base_var})",
+                                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                )
+                            } else {
+                                format!("\"{escaped}\"")
+                            };
                             // Call the wrapper-module's `{type}FromJson` helper rather than the
                             // raw `RustBridge` one so the resulting element is the
                             // wrapper-module's `PageAction` (etc.), matching the type the
@@ -280,7 +329,7 @@ pub(super) fn build_args_and_setup(
                             // `RustBridge.{type}FromJson` which understands the
                             // serde(tag = "type") format.
                             setup_lines.push(format!(
-                                "let {item_var} = try {module_name}.{from_json_fn}(\"{escaped}\")"
+                                "let {item_var} = try {module_name}.{from_json_fn}({json_expr})"
                             ));
                             item_vars.push(item_var);
                         }
@@ -290,21 +339,56 @@ pub(super) fn build_args_and_setup(
                         parts.push((idx, var_name));
                     }
                 }
-                None | Some(serde_json::Value::Null) if arg.optional => {
+                serde_json::Value::Null if arg.optional => {
                     if later_emits[idx] {
                         parts.push((idx, "nil".to_string()));
                     }
                 }
-                None | Some(serde_json::Value::Null) => {
+                serde_json::Value::Null => {
                     // Required but missing — emit empty array
                     parts.push((idx, "[]".to_string()));
                 }
-                Some(_other) => {
+                _other => {
                     // Non-array value — emit empty array (shouldn't happen)
                     parts.push((idx, "[]".to_string()));
                 }
             }
             continue;
+        }
+
+        if arg.arg_type == "json_object" && arg.element_type.as_deref() == Some("String") {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            if let Some(serde_json::Value::Array(arr)) = input.get(field) {
+                let mock_base_var = if arr.iter().any(crate::e2e::codegen::value_contains_mock_url_placeholder) {
+                    let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                    let base_var = format!("{}MockBaseUrl", arg.name.to_lower_camel_case());
+                    setup_lines.push(format!(
+                        "let {base_var} = ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (AlefE2EMockServer.baseURL + \"/fixtures/{fixture_id}\")"
+                    ));
+                    Some(base_var)
+                } else {
+                    None
+                };
+                let items: Vec<String> = arr
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .map(|raw| {
+                        let escaped = escape_swift(raw);
+                        if let Some(base_var) = mock_base_var.as_deref()
+                            && raw.contains(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                        {
+                            format!(
+                                "\"{escaped}\".replacingOccurrences(of: \"{}\", with: {base_var})",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            )
+                        } else {
+                            format!("\"{escaped}\"")
+                        }
+                    })
+                    .collect();
+                parts.push((idx, format!("[{}]", items.join(", "))));
+                continue;
+            }
         }
 
         // json_object non-config args with options_via = "from_json":

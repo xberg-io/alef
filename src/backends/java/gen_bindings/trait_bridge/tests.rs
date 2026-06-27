@@ -315,7 +315,7 @@ fn bridge_class_does_not_json_quote_raw_string_results() {
     let body = files.bridge_content.as_str();
 
     assert!(
-        body.contains("MemorySegment jsonCs = arena.allocateFrom(result);"),
+        body.contains("MemorySegment jsonCs = arena.allocateFrom(callbackResult);"),
         "String callback results must be returned as raw UTF-8, got:\n{body}"
     );
     assert!(
@@ -350,12 +350,67 @@ fn bridge_class_does_not_double_encode_excluded_named_json_results() {
     let body = files.bridge_content.as_str();
 
     assert!(
-        body.contains("String result = impl.render();"),
+        body.contains("String callbackResult = impl.render();"),
         "excluded named return should surface as a raw JSON String, got:\n{body}"
     );
     assert!(
-        body.contains("MemorySegment jsonCs = arena.allocateFrom(result);"),
+        body.contains("MemorySegment jsonCs = arena.allocateFrom(callbackResult);"),
         "excluded named JSON return must be passed through without writeValueAsString, got:\n{body}"
+    );
+}
+
+#[test]
+fn bridge_class_callback_result_name_does_not_collide_with_param_name() {
+    let trait_def = make_trait(
+        "Renderer",
+        vec![make_method(
+            "render_result",
+            TypeRef::String,
+            vec![ParamDef {
+                name: "result".to_string(),
+                ty: TypeRef::Named("ExtractedDocument".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+                map_is_btree: false,
+                core_wrapper: crate::core::ir::CoreWrapper::None,
+            }],
+        )],
+    );
+    let visible = all_named_visible(&trait_def.methods);
+    let excluded = HashSet::new();
+    let files = gen_trait_bridge_files(
+        &trait_def,
+        "krz",
+        "dev.sample_crate",
+        false,
+        None,
+        None,
+        &visible,
+        &excluded,
+        &[],
+    );
+    let body = files.bridge_content.as_str();
+
+    assert!(
+        body.contains("ExtractedDocument result = JSON.readValue(result_json, ExtractedDocument.class);"),
+        "parameter local should keep its semantic name;\nactual:\n{body}"
+    );
+    assert!(
+        body.contains("String callbackResult = impl.render_result(result);"),
+        "callback return local must avoid colliding with the `result` parameter;\nactual:\n{body}"
+    );
+    assert!(
+        !body.contains("String result = impl.render_result(result);"),
+        "callback return local must not reuse the parameter name;\nactual:\n{body}"
     );
 }
 

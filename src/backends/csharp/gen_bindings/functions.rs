@@ -287,10 +287,9 @@ pub(super) fn gen_native_methods(
     }
 
     // Generate P/Invoke declarations for functions.
-    // Skip trait-bridge `clear_fn` functions: the FFI layer does not export a regular
-    // `{prefix}_{clear_fn}` symbol for these — it exports `{prefix}_clear_{trait_snake}`
-    // via the trait bridge layer (declared separately in TraitBridges.cs). Emitting a
-    // regular P/Invoke here would reference a non-existent entry point.
+    // Skip trait-bridge lifecycle functions: the FFI layer exposes the trait-bridge
+    // entry points separately in TraitBridges.cs. Emitting regular P/Invokes here
+    // would duplicate or shadow those binding-safe APIs.
     for func in api.functions.iter().filter(|f| {
         !exclude_functions.contains(&f.name)
             && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, trait_bridges)

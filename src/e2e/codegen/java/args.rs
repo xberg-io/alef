@@ -2,7 +2,9 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::e2e::escape::escape_java;
 use heck::ToUpperCamelCase;
 
-use super::values::{emit_java_object_array, is_numeric_type_hint, json_to_java, json_to_java_typed};
+use super::values::{
+    emit_java_object_array, is_java_builtin_type, is_numeric_type_hint, json_to_java, json_to_java_typed,
+};
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
@@ -254,8 +256,61 @@ pub(super) fn build_args_and_setup(
                     // Array json_object args: emit inline Java list expression.
                     if v.is_array() {
                         if let Some(elem_type) = &arg.element_type {
+                            if elem_type == "String"
+                                && crate::e2e::codegen::value_contains_mock_url_placeholder(v)
+                                && let Some(items) = v.as_array()
+                            {
+                                let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                                let base_var = format!("{}MockBaseUrl", arg.name);
+                                setup_lines.push(format!(
+                                    "String {base_var} = System.getProperty(\"mockServer.{fixture_id}\", System.getenv().getOrDefault(\"{env_key}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\"));"
+                                ));
+                                let item_exprs: Vec<String> = items
+                                    .iter()
+                                    .map(|item| {
+                                        if let Some(raw) = item.as_str()
+                                            && raw.contains(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                                        {
+                                            format!(
+                                                "\"{}\".replace(\"{}\", {base_var})",
+                                                escape_java(raw),
+                                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                            )
+                                        } else {
+                                            json_to_java_typed(item, Some(elem_type))
+                                        }
+                                    })
+                                    .collect();
+                                parts.push(format!("java.util.List.of({})", item_exprs.join(", ")));
+                                continue;
+                            }
                             // For complex types, deserialize each array element via JsonUtil.
-                            if !is_numeric_type_hint(elem_type) {
+                            if !is_numeric_type_hint(elem_type) && !is_java_builtin_type(elem_type) {
+                                if crate::e2e::codegen::value_contains_mock_url_placeholder(v)
+                                    && let Some(items) = v.as_array()
+                                {
+                                    let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                                    let base_var = format!("{}MockBaseUrl", arg.name);
+                                    setup_lines.push(format!(
+                                        "String {base_var} = System.getProperty(\"mockServer.{fixture_id}\", System.getenv().getOrDefault(\"{env_key}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\"));"
+                                    ));
+                                    let item_exprs: Vec<String> = items
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(idx, item)| {
+                                            let json_str = serde_json::to_string(item).unwrap_or_default();
+                                            let escaped = escape_java(&json_str);
+                                            let json_var = format!("{}Json{idx}", arg.name);
+                                            setup_lines.push(format!(
+                                                "String {json_var} = \"{escaped}\".replace(\"{}\", {base_var});",
+                                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                            ));
+                                            format!("JsonUtil.fromJson({json_var}, {elem_type}.class)")
+                                        })
+                                        .collect();
+                                    parts.push(format!("java.util.Arrays.asList({})", item_exprs.join(", ")));
+                                    continue;
+                                }
                                 parts.push(emit_java_object_array(v, elem_type));
                                 continue;
                             }

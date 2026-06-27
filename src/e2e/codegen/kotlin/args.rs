@@ -239,6 +239,16 @@ pub(super) fn build_args_and_setup(
                 // instead of emitting raw JSON strings.
                 if arg.arg_type == "json_object" && v.is_array() && arg.element_type.is_some() {
                     let element_type = arg.element_type.as_deref().unwrap();
+                    let mock_base_var = if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                        let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                        let base_var = format!("{}MockBaseUrl", arg.name);
+                        setup_lines.push(format!(
+                            "val {base_var} = System.getProperty(\"mockServer.{fixture_id}\", System.getenv(\"{env_key}\") ?: (System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") + \"/fixtures/{fixture_id}\"))"
+                        ));
+                        Some(base_var)
+                    } else {
+                        None
+                    };
                     let items: Vec<String> = v
                         .as_array()
                         .map(|arr| {
@@ -248,12 +258,30 @@ pub(super) fn build_args_and_setup(
                                     if item.is_object() {
                                         let normalized = crate::e2e::codegen::transform_json_keys_for_language(item, "snake_case");
                                         let json_str = serde_json::to_string(&normalized).unwrap_or_default();
-                                        format!(
-                                            "MAPPER.readValue(\"{}\", {element_type}::class.java)",
-                                            escape_kotlin(&json_str)
-                                        )
+                                        let escaped = escape_kotlin(&json_str);
+                                        if let Some(base_var) = mock_base_var.as_deref()
+                                            && crate::e2e::codegen::value_contains_mock_url_placeholder(item)
+                                        {
+                                            format!(
+                                                "MAPPER.readValue(\"{escaped}\".replace(\"{}\", {base_var}), {element_type}::class.java)",
+                                                escape_kotlin(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                                            )
+                                        } else {
+                                            format!("MAPPER.readValue(\"{escaped}\", {element_type}::class.java)")
+                                        }
                                     } else if element_type == "String" {
-                                        super::values::json_to_kotlin(item)
+                                        if let Some(raw) = item.as_str()
+                                            && let Some(base_var) = mock_base_var.as_deref()
+                                            && raw.contains(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                                        {
+                                            format!(
+                                                "\"{}\".replace(\"{}\", {base_var})",
+                                                escape_kotlin(raw),
+                                                escape_kotlin(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                                            )
+                                        } else {
+                                            super::values::json_to_kotlin(item)
+                                        }
                                     } else if let Some(path) = item.as_str() {
                                         // For string items (file paths), construct the element with the path
                                         if kotlin_android_style {
@@ -314,10 +342,27 @@ pub(super) fn build_args_and_setup(
                         // Setup deserialization
                         let json_str = serde_json::to_string(v).unwrap_or_default();
                         let var_name = format!("{}_Config", arg.name);
-                        setup_lines.push(format!(
-                            "val {var_name} = MAPPER.readValue(\"{}\", {config_type}::class.java)",
-                            crate::e2e::escape::escape_kotlin(&json_str)
-                        ));
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            let base_var = format!("{}MockBaseUrl", arg.name);
+                            let json_var = format!("{}Json", var_name);
+                            setup_lines.push(format!(
+                                "val {base_var} = System.getProperty(\"mockServer.{fixture_id}\", System.getenv(\"{env_key}\") ?: ((System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\"))"
+                            ));
+                            setup_lines.push(format!(
+                                "val {json_var} = \"{}\".replace(\"{}\", {base_var})",
+                                crate::e2e::escape::escape_kotlin(&json_str),
+                                crate::e2e::escape::escape_kotlin(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                            ));
+                            setup_lines.push(format!(
+                                "val {var_name} = MAPPER.readValue({json_var}, {config_type}::class.java)"
+                            ));
+                        } else {
+                            setup_lines.push(format!(
+                                "val {var_name} = MAPPER.readValue(\"{}\", {config_type}::class.java)",
+                                crate::e2e::escape::escape_kotlin(&json_str)
+                            ));
+                        }
                         parts.push(var_name);
                     }
                     continue;

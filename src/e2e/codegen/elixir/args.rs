@@ -27,6 +27,7 @@ pub(super) fn build_args_and_setup(
     enums: &[crate::core::ir::EnumDef],
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    force_keyword_args: bool,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -309,7 +310,7 @@ pub(super) fn build_args_and_setup(
                         (object_type, options_default_fn, v.as_object())
                     {
                         // Add setup line to initialize options from default function.
-                        let options_var = "options";
+                        let options_var = format!("{}_value", arg.name);
                         setup_lines.push(format!("{options_var} = {module_path}.{options_fn}()"));
 
                         // For each field in the options object, add a struct update line.
@@ -346,23 +347,23 @@ pub(super) fn build_args_and_setup(
                     // form per `use_keyword_form_for_optional_args` to mirror the threshold
                     // applied to JSON-string emission.
                     if let (Some(opts_type), None, Some(obj)) = (object_type, options_default_fn, v.as_object()) {
-                        let options_var = "options";
-                        let mut field_strs = Vec::new();
-                        for (k, vv) in obj.iter() {
-                            let snake_key = k.to_snake_case();
-                            let elixir_val = if enum_fields.contains_key(k) {
-                                if let Some(s) = vv.as_str() {
-                                    let snake_val = s.to_snake_case();
-                                    format!(":{snake_val}")
-                                } else {
-                                    json_to_elixir(vv)
-                                }
+                        let options_var = format!("{}_value", arg.name);
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            let base_var = format!("{}_mock_base_url", arg.name);
+                            setup_lines.push(format!(
+                                "{base_var} = System.get_env(\"{env_key}\") || \"#{{System.get_env(\"MOCK_SERVER_URL\")}}/fixtures/{fixture_id}\""
+                            ));
+                            let fields = render_struct_fields(obj, enum_fields, Some(&base_var));
+                            setup_lines.push(format!("{options_var} = %{module_path}.{opts_type}{{{fields}}}"));
+                            if use_keyword_form_for_optional_args && arg.optional {
+                                parts.push(format!("{}: {options_var}", arg.name));
                             } else {
-                                json_to_elixir(vv)
-                            };
-                            field_strs.push(format!("{snake_key}: {elixir_val}"));
+                                parts.push(options_var.to_string());
+                            }
+                            continue;
                         }
-                        let fields = field_strs.join(", ");
+                        let fields = render_struct_fields(obj, enum_fields, None);
                         setup_lines.push(format!("{options_var} = %{module_path}.{opts_type}{{{fields}}}"));
                         if use_keyword_form_for_optional_args && arg.optional {
                             parts.push(format!("{}: {options_var}", arg.name));
@@ -391,6 +392,27 @@ pub(super) fn build_args_and_setup(
                         // When element_type is set to a simple type (e.g. Vec<String>).
                         // The NIF accepts an Elixir list directly - emit one.
                         if v.is_array() {
+                            if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                                let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                                let base_var = format!("{}_mock_base_url", arg.name);
+                                let json_var = format!("{}_json", arg.name);
+                                let value_var = format!("{}_value", arg.name);
+                                let formatted = json_to_elixir(v);
+                                setup_lines.push(format!(
+                                    "{base_var} = System.get_env(\"{env_key}\") || \"#{{System.get_env(\"MOCK_SERVER_URL\")}}/fixtures/{fixture_id}\""
+                                ));
+                                setup_lines.push(format!(
+                                    "{json_var} = Jason.encode!({formatted}) |> String.replace(\"{}\", {base_var})",
+                                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                ));
+                                setup_lines.push(format!("{value_var} = Jason.decode!({json_var})"));
+                                if arg.optional {
+                                    parts.push(format!("{}: {value_var}", arg.name));
+                                } else {
+                                    parts.push(value_var);
+                                }
+                                continue;
+                            }
                             let formatted = json_to_elixir(v);
                             if arg.optional {
                                 parts.push(format!("{}: {formatted}", arg.name));
@@ -434,6 +456,23 @@ pub(super) fn build_args_and_setup(
     // Separate positional and keyword args, preserving order within each group.
     // With the keyword-opts threshold applied above (use_keyword_form_for_optional_args),
     // we should never encounter a positional arg after a keyword arg.
+    if force_keyword_args {
+        let args_string = parts
+            .into_iter()
+            .zip(args.iter())
+            .map(|(part, arg)| {
+                let prefix = format!("{}: ", arg.name);
+                if part.starts_with(&prefix) {
+                    part
+                } else {
+                    format!("{}: {part}", arg.name)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        return (setup_lines, args_string);
+    }
+
     let mut positional_args = Vec::new();
     let mut keyword_args = Vec::new();
 
@@ -465,6 +504,53 @@ fn apply_rename_all(name: &str, strategy: Option<&str>) -> String {
         Some("SCREAMING-KEBAB-CASE") => name.to_shouty_kebab_case(),
         Some("lowercase") => name.to_lowercase(),
         Some(_) => name.to_snake_case(),
+    }
+}
+
+fn render_struct_fields(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    enum_fields: &HashMap<String, String>,
+    mock_base_var: Option<&str>,
+) -> String {
+    obj.iter()
+        .map(|(k, vv)| {
+            let snake_key = k.to_snake_case();
+            let elixir_val = if enum_fields.contains_key(k) {
+                if let Some(s) = vv.as_str() {
+                    let snake_val = s.to_snake_case();
+                    format!(":{snake_val}")
+                } else {
+                    render_elixir_value(vv, mock_base_var)
+                }
+            } else {
+                render_elixir_value(vv, mock_base_var)
+            };
+            format!("{snake_key}: {elixir_val}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn render_elixir_value(value: &serde_json::Value, mock_base_var: Option<&str>) -> String {
+    if let Some(base_var) = mock_base_var
+        && crate::e2e::codegen::value_contains_mock_url_placeholder(value)
+    {
+        match value {
+            serde_json::Value::String(s) => format!(
+                "String.replace(\"{}\", \"{}\", {base_var})",
+                escape_elixir(s),
+                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+            ),
+            _ => {
+                let value_literal = json_to_elixir(value);
+                format!(
+                    "Jason.decode!(Jason.encode!({value_literal}) |> String.replace(\"{}\", {base_var}), keys: :atoms)",
+                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                )
+            }
+        }
+    } else {
+        json_to_elixir(value)
     }
 }
 

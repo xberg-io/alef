@@ -789,6 +789,11 @@
             "null"
           ]
         },
+        "keyword_args": {
+          "default": false,
+          "description": "Emit configured arguments as a single Elixir keyword-list call.\n\nUse this for Elixir public facades that collapse all NIF parameters into\n`opts \\\\ []`, such as `extract(input: ..., config: ...)`.",
+          "type": "boolean"
+        },
         "module": {
           "default": null,
           "description": "Override the module/import path.",
@@ -7083,7 +7088,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.29.2/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.29.5/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7193,6 +7198,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.29.2",
-  "x-alef-version": "0.29.2"
+  "version": "0.29.5",
+  "x-alef-version": "0.29.5"
 }

@@ -52,7 +52,9 @@ POLICY_FILES = {
 
 PROJECT_NAMES = {
     "kreuzberg": ("kreuz", "berg"),
+    "xberg": ("xberg",),
     "kreuzcrawl": ("kreuzcrawl",),
+    "crawlberg": ("crawl", "berg"),
     "tree-sitter-language-pack": ("tree", "sitter", "language", "pack"),
     "ts-pack": ("ts", "pack"),
     "html-to-markdown": ("html", "to", "markdown"),
@@ -68,17 +70,16 @@ DOWNSTREAM_SAMPLE_NAMES = {
     "sample-crawler": ("sample", "crawler"),
 }
 
+# Alef's own brand/org infrastructure is allowed; downstream product names are not.
+# Masking the `xberg-io` org namespace and the `xberg.io` domain (and every
+# `docs.<repo>.xberg.io` subdomain) keeps Alef's own actions, repos, package owners,
+# and brand references clean while still catching the `xberg` product name itself —
+# e.g. `xberg-io/xberg` masks to `/xberg`, which remains a forbidden mention.
 ALEF_INFRASTRUCTURE_ALLOWLIST = (
-    "xberg-io/actions",
-    "xberg-io/alef",
-    "xberg-io/ai-rulez",
-    "xberg-io/homebrew-tap",
-    "github.com/xberg-io/pre-commit-hooks",
-    "packageName=xberg-io/pre-commit-hooks",
+    "xberg-io",
+    "xberg.io",
     "owner: kreuzberg-dev",
     "kreuzberg-bot",
-    "bot@xberg.io",
-    "docs.<repo>.xberg.io",
     "kreuzberg, inc.",
 )
 

@@ -123,8 +123,10 @@ pub(crate) fn gen_main_class(
         );
         body.push('\n');
 
-        // Also generate async wrapper if marked as async
-        if func.is_async {
+        // Also generate async wrapper if marked as async and the Java backend's
+        // effective generate config allows public runtime wrappers.
+        let generate_config = config.generate_overrides.get("java").unwrap_or(&config.generate);
+        if func.is_async && generate_config.async_wrappers {
             gen_async_wrapper_method(&mut body, func, bridge_param_names, bridge_type_aliases);
             body.push('\n');
         }

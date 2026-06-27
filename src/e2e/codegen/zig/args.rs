@@ -124,7 +124,25 @@ pub(super) fn build_args_and_setup(
                 // literal rather than rendering it as a Zig array/struct.
                 if arg.arg_type == "json_object" {
                     let json_str = serde_json::to_string(v).unwrap_or_default();
-                    parts.push(format!("\"{}\"", escape_zig(&json_str)));
+                    if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                        let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                        let base_var = format!("{}_mock_base_url", arg.name);
+                        let json_var = format!("{}_json", arg.name);
+                        setup_lines.push(format!(
+                            "const {base_var} = if (std.c.getenv(\"{env_key}\")) |_pf| try std.fmt.allocPrint(allocator, \"{{s}}\", .{{std.mem.span(_pf)}}) else try std.fmt.allocPrint(allocator, \"{{s}}/fixtures/{fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |url| std.mem.span(url) else \"http://localhost:8080\"}});"
+                        ));
+                        setup_lines.push(format!("defer allocator.free({base_var});"));
+                        setup_lines.push(format!(
+                            "const {json_var} = try std.mem.replaceOwned(u8, allocator, \"{}\", \"{}\", {base_var});",
+                            escape_zig(&json_str),
+                            crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                        ));
+                        setup_lines.push(format!("defer allocator.free({json_var});"));
+                        parts.push(json_var);
+                        setup_needs_gpa = true;
+                    } else {
+                        parts.push(format!("\"{}\"", escape_zig(&json_str)));
+                    }
                 } else if arg.arg_type == "bytes" {
                     // `bytes` args are file paths in fixtures — read the file into a
                     // local buffer. The cwd is set to test_documents/ at runtime.

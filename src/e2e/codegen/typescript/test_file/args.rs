@@ -278,6 +278,29 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                     if v.is_array() {
                         // Array args use fixture-shaped object literals; element_type is
                         // still used by typed bindings/imports, not product-specific constructors.
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            let var_prefix = sanitize_ident(&arg.name);
+                            setup_lines.push(format!(
+                                "const {var_prefix}MockBaseUrl = process.env.{env_key} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
+                            ));
+                            let json_literal = json_to_js_camel(v);
+                            setup_lines.push(format!(
+                                "const {var_prefix}Json = JSON.stringify({json_literal}).replaceAll(\"{}\", {var_prefix}MockBaseUrl);",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            ));
+                            let array_type = arg
+                                .element_type
+                                .as_deref()
+                                .map(|raw| format!("{}[]", canonical_ts_type_name(lang, raw, config)))
+                                .unwrap_or_else(|| "unknown[]".to_string());
+                            setup_lines.push(format!(
+                                "const {name} = JSON.parse({var_prefix}Json) as {array_type};",
+                                name = arg.name
+                            ));
+                            parts.push(arg.name.clone());
+                            continue;
+                        }
                         parts.push(json_to_js_camel(v));
                     } else if let Some(raw_type) =
                         crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, v)

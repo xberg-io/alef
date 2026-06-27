@@ -338,6 +338,25 @@ pub(super) fn build_args_and_setup(
                     }
                     // Array value: generate a typed List<T> based on element_type.
                     if let Some(arr) = v.as_array() {
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            let base_var = format!("{}_MockBaseUrl", arg.name.to_upper_camel_case());
+                            let json_var = format!("{}_Json", arg.name.to_upper_camel_case());
+                            let json_str = serde_json::to_string(v).unwrap_or_default();
+                            let escaped = escape_csharp(&json_str);
+                            let element_type = arg.element_type.as_deref().unwrap_or("object");
+                            setup_lines.push(format!(
+                                "var {base_var} = Environment.GetEnvironmentVariable(\"{env_key}\") ?? Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";"
+                            ));
+                            setup_lines.push(format!(
+                                "var {json_var} = \"{escaped}\".Replace(\"{}\", {base_var});",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            ));
+                            parts.push(format!(
+                                "JsonSerializer.Deserialize<List<{element_type}>>({json_var}, ConfigOptions)!"
+                            ));
+                            continue;
+                        }
                         parts.push(json_array_to_csharp_list(arr, arg.element_type.as_deref()));
                         continue;
                     }

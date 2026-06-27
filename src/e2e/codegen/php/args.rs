@@ -335,7 +335,20 @@ pub(super) fn build_args_and_setup(
                             // array element to {Type}". Every alef-emitted has_default/has_serde
                             // struct gets a `from_json` static method, so this is the portable path.
                             if v.as_array().is_some() {
-                                parts.push(super::values::emit_php_object_array(v, elem_type));
+                                if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                                    let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                                    let base_var = format!("{}MockBaseUrl", arg.name);
+                                    setup_lines.push(format!(
+                                        "${base_var} = getenv('{env_key}') ?: getenv('MOCK_SERVER_URL') . '/fixtures/{fixture_id}';"
+                                    ));
+                                    parts.push(super::values::emit_php_object_array_with_mock_base(
+                                        v,
+                                        elem_type,
+                                        Some(&base_var),
+                                    ));
+                                } else {
+                                    parts.push(super::values::emit_php_object_array(v, elem_type));
+                                }
                                 continue;
                             }
                         }
@@ -415,7 +428,7 @@ pub(super) fn build_args_and_setup(
                                     ));
                                     setup_lines.push(format!(
                                         "{json_var} = str_replace(\"{}\", {base_var}, json_encode({php_value}));",
-                                        crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                        escape_php(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
                                     ));
                                     setup_lines.push(format!(
                                         "{arg_var} = \\{namespace}\\{type_name}::from_json({json_var});"

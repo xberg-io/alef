@@ -31,7 +31,10 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let visible_functions: Vec<_> = api
         .functions
         .iter()
-        .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        .filter(|f| {
+            !exclude_functions.contains(f.name.as_str())
+                && !trait_bridge_manages_jni_function(f.name.as_str(), config)
+        })
         .collect();
 
     // Opaque type names: Named params of this shape are handles (Long), not JSON (String).
@@ -218,5 +221,45 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         path,
         content,
         generated_header: false,
+    }
+}
+
+fn trait_bridge_manages_jni_function(func_name: &str, config: &ResolvedCrateConfig) -> bool {
+    let language_name = if config.kotlin_android.is_some() {
+        "kotlin_android"
+    } else {
+        "kotlin"
+    };
+    config.trait_bridges.iter().any(|bridge| {
+        !bridge.exclude_languages.iter().any(|lang| lang == language_name)
+            && (bridge.register_fn.as_deref() == Some(func_name)
+                || bridge.unregister_fn.as_deref() == Some(func_name)
+                || bridge.clear_fn.as_deref() == Some(func_name))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::{KotlinAndroidConfig, TraitBridgeConfig};
+
+    #[test]
+    fn jni_bridge_object_treats_android_trait_lifecycle_functions_as_managed() {
+        let config = ResolvedCrateConfig {
+            kotlin_android: Some(KotlinAndroidConfig::default()),
+            trait_bridges: vec![TraitBridgeConfig {
+                trait_name: "Renderer".to_string(),
+                register_fn: Some("register_renderer".to_string()),
+                unregister_fn: Some("unregister_renderer".to_string()),
+                clear_fn: Some("clear_renderers".to_string()),
+                ..TraitBridgeConfig::default()
+            }],
+            ..ResolvedCrateConfig::default()
+        };
+
+        assert!(trait_bridge_manages_jni_function("register_renderer", &config));
+        assert!(trait_bridge_manages_jni_function("unregister_renderer", &config));
+        assert!(trait_bridge_manages_jni_function("clear_renderers", &config));
+        assert!(!trait_bridge_manages_jni_function("list_renderers", &config));
     }
 }

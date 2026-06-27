@@ -560,7 +560,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         if ffi_exclude_functions.contains(&func.name) {
             continue;
         }
-        // clear_fn functions are emitted by the trait bridge layer; emitting them here
+        // Trait-bridge lifecycle functions are emitted by the trait bridge layer; emitting them here
         // too would produce duplicate C symbols in the generated FFI header.
         if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
             continue;

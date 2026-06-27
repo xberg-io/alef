@@ -167,11 +167,11 @@ fn trait_bridge_string_return_is_not_json_quoted() {
         .as_str();
 
     assert!(
-        bridge.contains("MemorySegment jsonCs = arena.allocateFrom(result);"),
+        bridge.contains("MemorySegment jsonCs = arena.allocateFrom(callbackResult);"),
         "Java trait callback string returns must pass raw UTF-8 through: {bridge}"
     );
     assert!(
-        !bridge.contains("String json = JSON.writeValueAsString(result);"),
+        !bridge.contains("String json = JSON.writeValueAsString(callbackResult);"),
         "Java trait callback string returns must not be JSON-quoted: {bridge}"
     );
 }
@@ -3693,7 +3693,30 @@ fn test_trait_bridge_clear_fn_generates_correct_error_handling() {
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
-        types: vec![],
+        types: vec![TypeDef {
+            name: "Validator".to_string(),
+            rust_path: "test_lib::Validator".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        }],
         functions: vec![FunctionDef {
             name: "clear_validators".to_string(),
             rust_path: "test_lib::clear_validators".to_string(),
@@ -3734,26 +3757,53 @@ sources = ["src/lib.rs"]
 [crates.ffi]
 prefix = "test"
 
+[crates.java]
+package = "com.example"
+
 # Configure trait bridge for test
 [[crates.trait_bridges]]
 trait_name = "Validator"
+bind_via = "function_param"
 clear_fn = "clear_validators"
-
-[crates.java]
-package = "com.example"
 "#,
     );
 
     let result = backend.generate_bindings(&api, &config);
     assert!(result.is_ok(), "generation failed: {:?}", result);
     let files = result.unwrap();
+    let facade_result = backend.generate_public_api(&api, &config);
+    assert!(
+        facade_result.is_ok(),
+        "public api generation failed: {:?}",
+        facade_result
+    );
+    let facade_files = facade_result.unwrap();
 
-    // Check main class generates clear_validators method
-    let main_class = files
+    // The raw lifecycle function is owned by the bridge, while the public facade delegates to it.
+    let facade_class = facade_files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("TestLibRs.java"))
-        .expect("TestLibRs.java must be emitted");
-    let content = &main_class.content;
+        .find(|f| f.path.to_string_lossy().contains("TestLib.java"))
+        .expect("TestLib.java must be emitted");
+    let facade_content = &facade_class.content;
+    assert!(
+        facade_content.contains("public static void clearValidators()"),
+        "public facade clearValidators method must exist, got:\n{facade_content}"
+    );
+    assert!(
+        facade_content.contains("ValidatorBridge.clearValidators();"),
+        "public facade must delegate clearValidators to ValidatorBridge, got:\n{facade_content}"
+    );
+
+    let generated_paths = files
+        .iter()
+        .map(|f| f.path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let bridge_class = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("ValidatorBridge.java"))
+        .unwrap_or_else(|| panic!("ValidatorBridge.java must be emitted; generated files:\n{generated_paths}"));
+    let content = &bridge_class.content;
 
     // Verify the method exists
     assert!(
@@ -3763,7 +3813,7 @@ package = "com.example"
 
     // Verify error handling: should allocate outErr, invoke with it, check result code
     assert!(
-        content.contains("var outErr = arena.allocate(ValueLayout.ADDRESS)"),
+        content.contains("MemorySegment outErr = arena.allocate(ValueLayout.ADDRESS)"),
         "Should allocate outErr buffer, got:\n{content}"
     );
 
@@ -3775,8 +3825,8 @@ package = "com.example"
 
     // Verify error code checking
     assert!(
-        content.contains("if (primitiveResult != 0)"),
-        "Should check primitiveResult != 0 for error, got:\n{content}"
+        content.contains("if (rc != 0)"),
+        "Should check rc != 0 for error, got:\n{content}"
     );
 
     // Verify error message extraction from the out-error pointer
@@ -3787,7 +3837,7 @@ package = "com.example"
 
     // Verify exception throwing on error
     assert!(
-        content.contains("throw new TestLibRsException"),
+        content.contains("throw new RuntimeException(\"clearValidators: \" + msg)"),
         "Should throw exception on error, got:\n{content}"
     );
 

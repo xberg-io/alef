@@ -71,6 +71,64 @@ fn reports_dash_underscore_space_and_collapsed_variants() {
 }
 
 #[test]
+fn reports_xberg_and_crawlberg_project_mentions() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let lower = dir.path().join("lower.rs");
+    let camel = dir.path().join("camel.rs");
+    let crawl_dash = dir.path().join("crawl.rs");
+    let product_repo = dir.path().join("repo.toml");
+
+    fs::write(&lower, "const NAME: &str = \"xberg\";\n").expect("write lower fixture");
+    fs::write(&camel, "struct CrawlBergClient;\n").expect("write camel fixture");
+    fs::write(&crawl_dash, forbidden(&["crawl", "berg"], "-")).expect("write crawl fixture");
+    fs::write(&product_repo, "remote = \"github.com/xberg-io/xberg\"\n").expect("write repo fixture");
+
+    let output = run_hook(&[&lower, &camel, &crawl_dash, &product_repo]);
+
+    assert!(
+        !output.status.success(),
+        "hook should reject xberg and crawlberg mentions"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert_eq!(
+        stderr.matches("forbidden project mention `xberg`").count(),
+        2,
+        "stderr: {stderr}"
+    );
+    assert_eq!(
+        stderr.matches("forbidden project mention `crawlberg`").count(),
+        2,
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn accepts_xberg_org_namespace_and_brand_domain() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("infra.yaml");
+    fs::write(
+        &file,
+        concat!(
+            "uses: xberg-io/actions/setup-rust@v1\n",
+            "repo: xberg-io/foo\n",
+            "package: packageName=xberg-io/pre-commit-hooks\n",
+            "landing: xberg.io\n",
+            "docs_host: docs.<repo>.xberg.io\n",
+            "bot: kreuzberg-bot@xberg.io\n",
+        ),
+    )
+    .expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn reports_downstream_sample_pattern_mentions() {
     let dir = tempfile::tempdir().expect("tempdir");
     let backend_dir = dir.path().join("src").join("backends").join("sample");

@@ -357,10 +357,55 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
 // cbindgen.toml generation
 // ---------------------------------------------------------------------------
 
+pub(super) fn cbindgen_exclude_type_names(
+    api: &crate::core::ir::ApiSurface,
+    config: &crate::core::config::ResolvedCrateConfig,
+) -> std::collections::BTreeSet<String> {
+    let mut exclude_types: std::collections::BTreeSet<String> = config
+        .ffi
+        .as_ref()
+        .map(|c| {
+            c.exclude_types
+                .iter()
+                .filter_map(|name| bare_rust_type_name(name))
+                .collect()
+        })
+        .unwrap_or_default();
+    exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
+    exclude_types.extend(api.enums.iter().filter(|e| e.binding_excluded).map(|e| e.name.clone()));
+    exclude_types.extend(api.errors.iter().filter(|e| e.binding_excluded).map(|e| e.name.clone()));
+    let live_binding_type_names: std::collections::BTreeSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| !t.binding_excluded)
+        .map(|t| t.name.as_str())
+        .chain(
+            api.enums
+                .iter()
+                .filter(|e| !e.binding_excluded)
+                .map(|e| e.name.as_str()),
+        )
+        .chain(
+            api.errors
+                .iter()
+                .filter(|e| !e.binding_excluded)
+                .map(|e| e.name.as_str()),
+        )
+        .collect();
+    exclude_types.extend(
+        api.excluded_type_paths
+            .keys()
+            .filter_map(|name| bare_rust_type_name(name))
+            .filter(|name| !live_binding_type_names.contains(name.as_str())),
+    );
+    exclude_types
+}
+
 pub(super) fn gen_cbindgen_toml(
     prefix: &str,
     api: &crate::core::ir::ApiSurface,
     capsule_types: &std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
+    exclude_types: &std::collections::BTreeSet<String>,
 ) -> String {
     let prefix_upper = prefix.to_uppercase();
 
@@ -385,6 +430,7 @@ pub(super) fn gen_cbindgen_toml(
     let mut entries: Vec<(String, String)> = api
         .types
         .iter()
+        .filter(|t| !exclude_types.contains(&t.name))
         .filter(|t| !capsule_types.contains_key(t.name.as_str()) || capsule_used_as_opaque.contains(t.name.as_str()))
         // Use the IR type name verbatim (it already comes from Rust source as
         // PascalCase). `to_pascal_case` mangles names containing all-caps
@@ -410,7 +456,7 @@ pub(super) fn gen_cbindgen_toml(
 
     // Include enum types as well — they may appear as opaque handles in
     // function signatures when used across module boundaries.
-    for e in &api.enums {
+    for e in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
         let c_name = format!("{prefix_upper}{}", e.name);
         if !entries.iter().any(|(n, _)| n == &c_name) {
             entries.push((c_name, e.doc.clone()));
@@ -421,7 +467,7 @@ pub(super) fn gen_cbindgen_toml(
     // (via gen_ffi_error_methods) references *const ErrorType in the FFI
     // signature. Without a forward typedef cbindgen produces an "unknown type
     // name" error in the generated C header.
-    for err in &api.errors {
+    for err in api.errors.iter().filter(|err| !exclude_types.contains(&err.name)) {
         if !err.methods.is_empty() {
             let c_name = format!("{prefix_upper}{}", err.name);
             if !entries.iter().any(|(n, _)| n == &c_name) {
@@ -461,8 +507,14 @@ pub(super) fn gen_cbindgen_toml(
         minijinja::context! {
             prefix_upper => &prefix_upper,
             after_includes => &after_includes,
+            export_exclude => exclude_types.iter().cloned().collect::<Vec<_>>(),
         },
     )
+}
+
+fn bare_rust_type_name(name: &str) -> Option<String> {
+    let bare = name.rsplit("::").next()?.trim();
+    if bare.is_empty() { None } else { Some(bare.to_string()) }
 }
 
 fn toml_multiline_basic_string(value: &str) -> String {

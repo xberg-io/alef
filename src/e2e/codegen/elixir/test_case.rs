@@ -121,11 +121,6 @@ pub(super) fn render_test_case(
     } else {
         super::values::elixir_module_name(&raw_module)
     };
-    let function_name = if call_config.r#async && !base_fn.ends_with("_async") && !base_fn.ends_with("_stream") {
-        format!("{base_fn}_async")
-    } else {
-        base_fn
-    };
     let result_var = call_config.result_var.clone();
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
@@ -163,6 +158,8 @@ pub(super) fn render_test_case(
         .find(|a| a.name == call_config.function.as_str())
         .and_then(|a| a.request_type.as_deref())
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
+    let force_keyword_args = call_overrides.is_some_and(|o| o.keyword_args)
+        || e2e_config.call.overrides.get(lang).is_some_and(|o| o.keyword_args);
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         resolved_args,
@@ -178,6 +175,7 @@ pub(super) fn render_test_case(
         enums,
         config,
         type_defs,
+        force_keyword_args,
     );
 
     // Build visitor if present - it will be injected into the options map.
@@ -221,6 +219,11 @@ pub(super) fn render_test_case(
             .get("elixir")
             .and_then(|o| o.client_factory.as_deref())
     });
+    let function_name = if call_config.r#async && client_factory.is_some() && !base_fn.ends_with("_async") {
+        format!("{base_fn}_async")
+    } else {
+        base_fn
+    };
 
     // Append per-call extra_args (e.g. trailing `nil` for `list_files(client, query)`)
     // so Elixir matches the binding's positional arity. Mirrors the same override the

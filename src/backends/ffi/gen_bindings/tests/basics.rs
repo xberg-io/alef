@@ -186,3 +186,175 @@ fn test_generates_cbindgen_toml() {
     assert!(cbindgen.content.contains("language = \"C\""));
     assert!(cbindgen.content.contains("style = \"both\""));
 }
+
+#[test]
+fn test_cbindgen_toml_omits_excluded_forward_declarations() {
+    let mut api = sample_api();
+
+    let mut hidden_config = api.types[0].clone();
+    hidden_config.name = "HiddenConfig".to_string();
+    hidden_config.rust_path = "my_lib::HiddenConfig".to_string();
+    hidden_config.doc = "Hidden config.".to_string();
+    api.types.push(hidden_config);
+
+    let mut binding_excluded_config = api.types[0].clone();
+    binding_excluded_config.name = "BindingExcludedConfig".to_string();
+    binding_excluded_config.rust_path = "my_lib::BindingExcludedConfig".to_string();
+    binding_excluded_config.binding_excluded = true;
+    binding_excluded_config.binding_exclusion_reason = Some("alef skip".to_string());
+    api.types.push(binding_excluded_config);
+
+    let mut hidden_enum = api.enums[0].clone();
+    hidden_enum.name = "HiddenEnum".to_string();
+    hidden_enum.rust_path = "my_lib::HiddenEnum".to_string();
+    hidden_enum.doc = "Hidden enum.".to_string();
+    api.enums.push(hidden_enum);
+
+    let mut binding_excluded_enum = api.enums[0].clone();
+    binding_excluded_enum.name = "BindingExcludedEnum".to_string();
+    binding_excluded_enum.rust_path = "my_lib::BindingExcludedEnum".to_string();
+    binding_excluded_enum.binding_excluded = true;
+    binding_excluded_enum.binding_exclusion_reason = Some("alef skip".to_string());
+    api.enums.push(binding_excluded_enum);
+
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+exclude_types = ["HiddenConfig", "HiddenEnum"]
+"#,
+    );
+    let backend = FfiBackend;
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+
+    assert!(cbindgen.content.contains("typedef struct MY_LIBConfig MY_LIBConfig;"));
+    assert!(
+        cbindgen
+            .content
+            .contains("typedef struct MY_LIBOutputFormat MY_LIBOutputFormat;")
+    );
+    assert!(!cbindgen.content.contains("MY_LIBHiddenConfig"));
+    assert!(!cbindgen.content.contains("MY_LIBHiddenEnum"));
+    assert!(!cbindgen.content.contains("MY_LIBBindingExcludedConfig"));
+    assert!(!cbindgen.content.contains("MY_LIBBindingExcludedEnum"));
+}
+
+#[test]
+fn test_cbindgen_toml_keeps_live_type_with_excluded_path_duplicate() {
+    let mut api = sample_api();
+    api.excluded_type_paths
+        .insert("Config".to_string(), "my_lib::cfg_gated_stub::Config".to_string());
+
+    let config = sample_config();
+    let backend = FfiBackend;
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+
+    assert!(
+        cbindgen.content.contains("typedef struct MY_LIBConfig MY_LIBConfig;"),
+        "live binding DTO must still be forward-declared when a skipped cfg duplicate exists, got:\n{}",
+        cbindgen.content
+    );
+    assert!(
+        !cbindgen.content.contains(r#"exclude = ["Config"]"#),
+        "live binding DTO must not be added to cbindgen export excludes, got:\n{}",
+        cbindgen.content
+    );
+}
+
+#[test]
+fn test_cbindgen_toml_honors_ffi_exclude_types() {
+    let mut api = sample_api();
+    api.types.push(TypeDef {
+        name: "HiddenOptions".to_string(),
+        rust_path: "my_lib::internal::HiddenOptions".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: "Rust-only helper options.".to_string(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        version: Default::default(),
+    });
+    api.enums.push(EnumDef {
+        name: "HiddenStatus".to_string(),
+        rust_path: "my_lib::internal::HiddenStatus".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![],
+        methods: vec![],
+        doc: "Rust-only helper status.".to_string(),
+        has_serde: true,
+        cfg: None,
+        is_copy: false,
+        has_default: false,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+    });
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "my_lib"
+exclude_types = ["HiddenOptions", "my_lib::internal::HiddenStatus"]
+"#,
+    );
+    let backend = FfiBackend;
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+
+    assert!(
+        cbindgen
+            .content
+            .contains(r#"exclude = ["HiddenOptions", "HiddenStatus"]"#),
+        "expected cbindgen export excludes for bare type names, got:\n{}",
+        cbindgen.content
+    );
+    assert!(
+        !cbindgen
+            .content
+            .contains("typedef struct MY_LIBHiddenOptions MY_LIBHiddenOptions;"),
+        "excluded struct must not be forward-declared, got:\n{}",
+        cbindgen.content
+    );
+    assert!(
+        !cbindgen
+            .content
+            .contains("typedef struct MY_LIBHiddenStatus MY_LIBHiddenStatus;"),
+        "excluded enum must not be forward-declared, got:\n{}",
+        cbindgen.content
+    );
+}

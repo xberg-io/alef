@@ -36,6 +36,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   interfaces and skip re-declaring a bridge `clear_*` function that is already exposed as a registry
   function, so `rbs validate` no longer reports an undefined type or a duplicated method definition.
 
+- **go/java**: avoid callback return local-name collisions in generated trait
+  bridges when a method parameter is named `result`.
+
+- **ffi**: keep cbindgen forward declarations for live binding DTOs when cfg-gated
+  skipped duplicates leave older entries in Alef's excluded type-path map.
+
+- **dart**: suppress ordinary trait-bridge lifecycle wrappers so FRB only sees the generated
+  `{Trait}DartImpl` registration surface.
+
+- **e2e**: emit typed single-call `json_object` inputs for Dart, Swift, and R so unified
+  `extract(input, config)` fixtures pass their `ExtractInput` payload instead of defaulting it away.
+
+## [0.29.4] - 2026-06-27
+
+### Changed
+
+- **tooling**: extend the `no-project-special-casing` pre-commit hook to reject the `xberg` and
+  `crawlberg` downstream product names (case-insensitive, including camelCase and separator
+  variants), and consolidate the brand allowlist so the `xberg-io` org namespace and the `xberg.io`
+  domain stay permitted while `xberg-io/xberg` and bare `xberg` mentions are still caught. Neutralize
+  the `xberg`-named Java/enum test fixtures to generic sample names.
+
+### Fixed
+
+- **e2e**: keep public Ruby and Elixir test calls on configured method names and
+  resolve `$mock_url` placeholders inside typed JSON-array arguments across
+  generated language e2e suites.
+
+- **e2e**: resolve `$mock_url` placeholders for Ruby object arrays, Elixir typed
+  object arguments, and Kotlin/PHP typed object setup while allowing Elixir e2e
+  calls to target keyword-opts public facades.
+
+- **e2e**: avoid Elixir typed-object variable collisions and align Kotlin typed
+  object mock URL fallbacks with the generated mock-server harness.
+
+- **node**: remove downstream internal DTO names from generated trait-bridge
+  return-value comments.
+
+- **ffi**: honor `[crates.ffi].exclude_types` when generating `cbindgen.toml`.
+  Excluded Rust-only helper DTOs are now omitted from the header prelude forward
+  declarations and emitted in `[export].exclude`, keeping C and cgo headers from
+  leaking types that the FFI layer does not expose.
+
+- **java/kotlin-android**: route configured trait-bridge lifecycle functions through the generated
+  bridge APIs instead of also emitting ordinary FFI wrappers. This keeps raw Rust functions such as
+  `register_document_extractor` from shadowing typed host interfaces (`IDocumentExtractor`,
+  `IRenderer`) with dangling `DocumentExtractor`/`Renderer` parameter types or JSON-string JNI
+  declarations.
+
+## [0.29.3] - 2026-06-26
+
+### Fixed
+
+- **java/kotlin-android**: honor per-language `generate.async_wrappers = false` when emitting
+  Java `CompletableFuture` helpers and Kotlin Android suspend convenience wrappers. This keeps
+  bindings that want a single canonical method name from leaking extra `fooAsync` entrypoints while
+  still preserving Rust functions that are themselves named `*_async`.
+
+- **java (scaffold)**: derive the `maven-source-plugin` source include from the Maven group's first
+  path segment instead of a hardcoded `dev/**`. After the `dev.kreuzberg` → `io.xberg` rebrand,
+  generated sources moved to `io/<group>/…`, so the stale `dev/**` include matched nothing, the
+  source jar came out empty, and Sonatype Central rejected the deployment with "Sources must be
+  provided but not found in entries". The include now tracks the group (`io/**` for `io.xberg.*`).
+
 ## [0.29.2] - 2026-06-26
 
 ### Fixed

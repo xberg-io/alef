@@ -8,6 +8,15 @@ use heck::ToLowerCamelCase;
 ///
 /// Emit PHP object array elements for a typed `json_object` array.
 pub(super) fn emit_php_object_array(arr: &serde_json::Value, elem_type: &str) -> String {
+    emit_php_object_array_with_mock_base(arr, elem_type, None)
+}
+
+/// Render a PHP object array and optionally replace `$mock_url` at runtime.
+pub(super) fn emit_php_object_array_with_mock_base(
+    arr: &serde_json::Value,
+    elem_type: &str,
+    mock_base_var: Option<&str>,
+) -> String {
     if let Some(items) = arr.as_array() {
         let item_strs: Vec<String> = items
             .iter()
@@ -16,7 +25,20 @@ pub(super) fn emit_php_object_array(arr: &serde_json::Value, elem_type: &str) ->
                     let json_str = serde_json::to_string(&serde_json::Value::Object(obj.clone()))
                         .unwrap_or_else(|_| "{}".to_string());
                     let php_literal = json_str.replace('\\', "\\\\").replace('\'', "\\'");
-                    Some(format!("{}::from_json('{}')", elem_type, php_literal))
+                    if let Some(base_var) = mock_base_var.filter(|_| {
+                        crate::e2e::codegen::value_contains_mock_url_placeholder(&serde_json::Value::Object(
+                            obj.clone(),
+                        ))
+                    }) {
+                        Some(format!(
+                            "{}::from_json(str_replace('{}', ${base_var}, '{}'))",
+                            elem_type,
+                            crate::e2e::codegen::MOCK_URL_PLACEHOLDER,
+                            php_literal
+                        ))
+                    } else {
+                        Some(format!("{}::from_json('{}')", elem_type, php_literal))
+                    }
                 } else {
                     None
                 }

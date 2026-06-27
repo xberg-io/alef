@@ -573,10 +573,10 @@ fn emit_lib_rs(
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
         .filter(|f| !opaque::has_unbridgeable_param(f))
-        // Skip functions whose name matches a trait_bridge.clear_fn — the trait-bridge
-        // emission path emits its own forwarder; a duplicate `pub fn clear_*` here
-        // would either fail to compile or be silently de-duped by frb_codegen
-        // (which logs noisy warnings on every regen).
+        // Skip functions whose name matches a trait-bridge lifecycle function. The
+        // trait-bridge emission path emits its own binding-safe forwarder; a duplicate
+        // ordinary wrapper here can expose raw Rust trait parameters that FRB cannot
+        // compile.
         .filter(|f| {
             !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
         })
