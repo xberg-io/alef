@@ -374,10 +374,29 @@ pub(super) fn cbindgen_exclude_type_names(
     exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
     exclude_types.extend(api.enums.iter().filter(|e| e.binding_excluded).map(|e| e.name.clone()));
     exclude_types.extend(api.errors.iter().filter(|e| e.binding_excluded).map(|e| e.name.clone()));
+    let live_binding_type_names: std::collections::BTreeSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| !t.binding_excluded)
+        .map(|t| t.name.as_str())
+        .chain(
+            api.enums
+                .iter()
+                .filter(|e| !e.binding_excluded)
+                .map(|e| e.name.as_str()),
+        )
+        .chain(
+            api.errors
+                .iter()
+                .filter(|e| !e.binding_excluded)
+                .map(|e| e.name.as_str()),
+        )
+        .collect();
     exclude_types.extend(
         api.excluded_type_paths
             .keys()
-            .filter_map(|name| bare_rust_type_name(name)),
+            .filter_map(|name| bare_rust_type_name(name))
+            .filter(|name| !live_binding_type_names.contains(name.as_str())),
     );
     exclude_types
 }

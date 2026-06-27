@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **ffi**: keep cbindgen forward declarations for live binding DTOs when cfg-gated
+  skipped duplicates leave older entries in Alef's excluded type-path map.
+
 - **dart**: suppress ordinary trait-bridge lifecycle wrappers so FRB only sees the generated
   `{Trait}DartImpl` registration surface.
 

@@ -248,6 +248,30 @@ exclude_types = ["HiddenConfig", "HiddenEnum"]
 }
 
 #[test]
+fn test_cbindgen_toml_keeps_live_type_with_excluded_path_duplicate() {
+    let mut api = sample_api();
+    api.excluded_type_paths
+        .insert("Config".to_string(), "my_lib::cfg_gated_stub::Config".to_string());
+
+    let config = sample_config();
+    let backend = FfiBackend;
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+
+    assert!(
+        cbindgen.content.contains("typedef struct MY_LIBConfig MY_LIBConfig;"),
+        "live binding DTO must still be forward-declared when a skipped cfg duplicate exists, got:\n{}",
+        cbindgen.content
+    );
+    assert!(
+        !cbindgen.content.contains(r#"exclude = ["Config"]"#),
+        "live binding DTO must not be added to cbindgen export excludes, got:\n{}",
+        cbindgen.content
+    );
+}
+
+#[test]
 fn test_cbindgen_toml_honors_ffi_exclude_types() {
     let mut api = sample_api();
     api.types.push(TypeDef {
