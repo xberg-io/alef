@@ -267,6 +267,7 @@ pub(super) fn emit_converters(
                 "converters/return_coerced_type.jinja",
                 minijinja::context! {
                     type_name => type_name,
+                    is_typeddict => is_typeddict,
                 },
             ));
             out.insert_str(insert_pos, &helper);
@@ -304,6 +305,7 @@ pub(super) fn emit_converters(
                 "converters/call_dict_helper.jinja",
                 minijinja::context! {
                     snake => &snake,
+                    is_typeddict => is_typeddict,
                 },
             ));
         } else {
