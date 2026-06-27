@@ -53,6 +53,9 @@ pub enum PostProcessor {
     /// Inject display-as-text extensions on untagged union types so they can be
     /// stringified in assertions. Stores the set of type names.
     FrbDartInjectTextMethods(Vec<String>),
+    /// Strip trailing whitespace from generated Dart files that `dart format`
+    /// leaves untouched, such as `*.freezed.dart`.
+    DartStripTrailingWhitespace,
 }
 
 /// A post-build processing step.

@@ -22,6 +22,6 @@ mod plugin_trait_stubs_test;
 
 pub use frb_rewrite::{
     filter_excluded_functions, fix_handler_executor_calls, inject_display_as_text_methods,
-    make_struct_fields_with_defaults_optional, rewrite_frb_sealed_variants,
+    make_struct_fields_with_defaults_optional, rewrite_frb_sealed_variants, strip_trailing_whitespace,
 };
 pub use gen_bindings::DartBackend;

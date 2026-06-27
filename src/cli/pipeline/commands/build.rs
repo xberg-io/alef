@@ -562,6 +562,9 @@ pub fn run_post_build(
                         PostProcessor::FrbDartInjectTextMethods(type_names) => {
                             crate::backends::dart::inject_display_as_text_methods(&content, type_names)
                         }
+                        PostProcessor::DartStripTrailingWhitespace => {
+                            crate::backends::dart::strip_trailing_whitespace(&content)
+                        }
                     };
                     if processed != content {
                         std::fs::write(&file_path, &processed)

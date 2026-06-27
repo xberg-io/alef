@@ -86,6 +86,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **e2e**: emit typed single-call `json_object` inputs for Dart, Swift, and R so unified
   `extract(input, config)` fixtures pass their `ExtractInput` payload instead of defaulting it away.
 
+- **pyo3**: include Pyo3-present cfg-gated fields in generated `.pyi` constructor stubs so native
+  signatures and type stubs agree for typed nested configs such as `UrlExtractionConfig.crawl`.
+
+- **dart**: normalize trailing whitespace in FRB-generated Dart files, including `*.freezed.dart`
+  files that `dart format` leaves unchanged.
+
 ## [0.29.4] - 2026-06-27
 
 ### Changed

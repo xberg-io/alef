@@ -42,5 +42,5 @@ mod text_transformations;
 pub use sealed_variants::rewrite_frb_sealed_variants;
 pub use text_transformations::{
     filter_excluded_functions, fix_handler_executor_calls, inject_display_as_text_methods,
-    make_struct_fields_with_defaults_optional,
+    make_struct_fields_with_defaults_optional, strip_trailing_whitespace,
 };

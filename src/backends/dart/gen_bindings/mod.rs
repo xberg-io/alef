@@ -340,6 +340,9 @@ impl DartBackend {
                 // (`field0`) to payload-derived names so callers get an ergonomic API.
                 let lib_dart_dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
                 let lib_dart_path = PathBuf::from(format!("{lib_dart_dir}/{module_name}_bridge_generated/lib.dart"));
+                let lib_freezed_path = PathBuf::from(format!(
+                    "{lib_dart_dir}/{module_name}_bridge_generated/lib.freezed.dart"
+                ));
                 // `frb_generated.dart` carries flutter_rust_bridge's entrypoint and
                 // its default external-library loader config (the build-tree-relative
                 // `ioDirectory`). Post-processing injects a published-package loader
@@ -416,9 +419,16 @@ impl DartBackend {
                 // on callback function parameters. The handler is a function type, not an object
                 // with these methods, so we rewrite the calls to use the RustLib binding instead.
                 post_build_steps.push(PostBuildStep::PostProcessFile {
-                    path: frb_generated_path,
+                    path: frb_generated_path.clone(),
                     processor: PostProcessor::FrbDartFixHandlerExecutorCalls,
                 });
+
+                for path in [lib_dart_path, frb_generated_path.clone(), lib_freezed_path] {
+                    post_build_steps.push(PostBuildStep::PostProcessFile {
+                        path,
+                        processor: PostProcessor::DartStripTrailingWhitespace,
+                    });
+                }
 
                 // Stage prebuilt native libraries from the build output into the Dart package.
                 // This allows flutter_rust_bridge to find the native library at runtime

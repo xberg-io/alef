@@ -193,8 +193,9 @@ fn gen_type_init_stub(
     //
     // For non-has_default types, only fields explicitly marked `optional` (or Duration
     // fields on has_default types) go into the optional partition.
-    let (required, optional): (Vec<_>, Vec<_>) =
-        binding_fields(&typ.fields).filter(|f| f.cfg.is_none()).partition(|f| {
+    let (required, optional): (Vec<_>, Vec<_>) = binding_fields(&typ.fields)
+        .filter(|f| f.cfg.as_deref().is_none_or(cfg_present_for_pyo3_stub))
+        .partition(|f| {
             if typ.has_default {
                 // All fields are optional in the Rust signature — nothing is required.
                 return false;
@@ -301,6 +302,23 @@ fn gen_type_init_stub(
         wrapped.push_str("    ) -> None: ...");
         wrapped
     }
+}
+
+fn cfg_present_for_pyo3_stub(cfg: &str) -> bool {
+    let normalized: String = cfg.chars().filter(|c| !c.is_whitespace()).collect();
+    if normalized == "not(target_arch=\"wasm32\")" {
+        return true;
+    }
+    if normalized.starts_with("feature=") {
+        return true;
+    }
+    if normalized.starts_with("any(") && normalized.ends_with(')') {
+        let inner = &normalized[4..normalized.len() - 1];
+        return inner
+            .split(',')
+            .all(|part| part.starts_with("feature=") || part == "not(target_arch=\"wasm32\")");
+    }
+    false
 }
 
 /// Generate a method stub.
@@ -425,5 +443,75 @@ fn gen_method_stub(
             let suffix = format!("{}) -> {}: ...", indent, return_type);
             emit_params_wrapped(&prefix, &suffix)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::FieldDef;
+    use crate::core::ir::PrimitiveType;
+
+    #[test]
+    fn type_init_stub_keeps_pyo3_present_cfg_fields() {
+        let typ = TypeDef {
+            name: "UrlExtractionConfig".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "mode".to_string(),
+                    ty: TypeRef::Named("UrlExtractionMode".to_string()),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "crawl".to_string(),
+                    ty: TypeRef::Named("CrawlConfig".to_string()),
+                    cfg: Some("any(feature = \"url-ingestion\", feature = \"url-config-types\")".to_string()),
+                    ..Default::default()
+                },
+            ],
+            has_default: true,
+            ..Default::default()
+        };
+        let api = ApiSurface {
+            types: vec![TypeDef {
+                name: "CrawlConfig".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let stub = gen_type_init_stub(
+            &typ,
+            &api,
+            &ResolvedCrateConfig::default(),
+            &OptionsFieldBridges::default(),
+        );
+
+        assert!(stub.contains("mode: UrlExtractionMode | None = None"), "{stub}");
+        assert!(stub.contains("crawl: CrawlConfig | None = None"), "{stub}");
+    }
+
+    #[test]
+    fn type_init_stub_still_omits_non_pyo3_cfg_fields() {
+        let typ = TypeDef {
+            name: "PlatformConfig".to_string(),
+            fields: vec![FieldDef {
+                name: "windows_only".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::Bool),
+                cfg: Some("target_os = \"windows\"".to_string()),
+                ..Default::default()
+            }],
+            has_default: true,
+            ..Default::default()
+        };
+
+        let stub = gen_type_init_stub(
+            &typ,
+            &ApiSurface::default(),
+            &ResolvedCrateConfig::default(),
+            &OptionsFieldBridges::default(),
+        );
+
+        assert!(!stub.contains("windows_only"), "{stub}");
     }
 }

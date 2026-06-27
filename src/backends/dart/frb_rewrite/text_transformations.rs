@@ -1,5 +1,12 @@
 use regex::Regex;
 
+/// Strip trailing whitespace from every line and ensure a final newline.
+pub fn strip_trailing_whitespace(source: &str) -> String {
+    let mut result = source.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
+    result.push('\n');
+    result
+}
+
 /// Fix FRB-generated Dart code that incorrectly calls `executeSync`/`executeNormal`
 /// on callback function parameters.
 ///

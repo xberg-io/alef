@@ -2,6 +2,13 @@ use super::external_library_loader::{frb_init_prologue_replacement, rewrite_frb_
 use super::*;
 
 #[test]
+fn dart_strip_trailing_whitespace_cleans_freezed_blank_lines() {
+    let input = "class AuthConfig_Basic {\n  const AuthConfig_Basic();\n  \n}\n";
+    let out = strip_trailing_whitespace(input);
+    assert_eq!(out, "class AuthConfig_Basic {\n  const AuthConfig_Basic();\n\n}\n");
+}
+
+#[test]
 fn named_struct_payload_preserves_field0() {
     // The factory `field0` is left in place — see `payload_param_name` for
     // the rationale. Renaming here without also patching lib.freezed.dart
