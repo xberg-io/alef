@@ -100,12 +100,21 @@ impl SnippetValidator for GoValidator {
                 command.args(["-e", "-l"]).arg(&file);
                 command
             }
-            ValidationLevel::Compile | ValidationLevel::TypeCheck => {
+            ValidationLevel::Compile => {
                 std::fs::write(dir.path().join("go.mod"), "module snippet\n\ngo 1.21\n")?;
                 let mut command = std::process::Command::new("go");
                 command
                     .args(["build", "-o", "/dev/null", "./..."])
                     .current_dir(dir.path());
+                command
+            }
+            // `go vet` type-checks the package (the build step) and additionally runs the vet
+            // analyzers, so it is strictly stronger than a plain `go build` without needing the
+            // native library — exactly the strict static gate for type-checking generated Go.
+            ValidationLevel::TypeCheck => {
+                std::fs::write(dir.path().join("go.mod"), "module snippet\n\ngo 1.21\n")?;
+                let mut command = std::process::Command::new("go");
+                command.args(["vet", "./..."]).current_dir(dir.path());
                 command
             }
             ValidationLevel::Run => {

@@ -44,7 +44,13 @@ impl SnippetValidator for CValidator {
             ValidationLevel::Syntax => {
                 command.args(["-fsyntax-only", &source_path]);
             }
-            ValidationLevel::Compile | ValidationLevel::TypeCheck | ValidationLevel::Run => {
+            // Strict type-check: parse and type-check with all warnings as errors, without
+            // assembling or linking (`-fsyntax-only`), so generated C headers/sources are verified
+            // without the native library.
+            ValidationLevel::TypeCheck => {
+                command.args(["-fsyntax-only", "-Wall", "-Werror", &source_path]);
+            }
+            ValidationLevel::Compile | ValidationLevel::Run => {
                 let out = NamedTempFile::new()?;
                 let out_path = out.path().to_string_lossy().to_string();
                 drop(out);

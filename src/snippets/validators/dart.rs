@@ -29,9 +29,14 @@ impl SnippetValidator for DartValidator {
             ValidationLevel::Syntax => {
                 command.args(["analyze", "--no-fatal-warnings"]).arg(&file);
             }
-            ValidationLevel::Compile | ValidationLevel::TypeCheck => {
+            ValidationLevel::Compile => {
                 let out = dir.path().join("snippet.aot");
                 command.args(["compile", "exe", "-o"]).arg(&out).arg(&file);
+            }
+            // Strict static analysis: `--fatal-infos` fails on any info/warning/error from the Dart
+            // analyzer (the same type/null-safety checker the IDE runs), without compiling a binary.
+            ValidationLevel::TypeCheck => {
+                command.args(["analyze", "--fatal-infos"]).arg(&file);
             }
             ValidationLevel::Run => {
                 command.arg("run").arg(&file);

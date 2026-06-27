@@ -109,12 +109,20 @@ impl SnippetValidator for JavaValidator {
         std::fs::write(&file, &wrapped)?;
 
         let mut command = match level {
-            ValidationLevel::Syntax | ValidationLevel::Compile | ValidationLevel::TypeCheck => {
+            ValidationLevel::Syntax | ValidationLevel::Compile => {
                 let mut command = std::process::Command::new("javac");
                 command
                     .args(["-Xlint:none", "-nowarn", "-d"])
                     .arg(dir.path())
                     .arg(&file);
+                command
+            }
+            // Strict type-check: enable every lint and treat warnings as errors. `javac` resolves
+            // and checks types without linking a native library, so it is the type-check gate for
+            // generated Java without a full e2e build.
+            ValidationLevel::TypeCheck => {
+                let mut command = std::process::Command::new("javac");
+                command.args(["-Xlint:all", "-Werror", "-d"]).arg(dir.path()).arg(&file);
                 command
             }
             ValidationLevel::Run => {
@@ -133,7 +141,9 @@ impl SnippetValidator for JavaValidator {
     }
 
     fn max_level(&self) -> ValidationLevel {
-        ValidationLevel::Compile
+        // `javac` type-checks but a bare snippet generally cannot be executed, so the deepest
+        // supported level is the static type-check.
+        ValidationLevel::TypeCheck
     }
 
     fn is_dependency_error(&self, output: &str) -> bool {
