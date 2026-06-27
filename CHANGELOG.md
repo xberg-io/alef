@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **e2e**: avoid Elixir typed-object variable collisions and align Kotlin typed
   object mock URL fallbacks with the generated mock-server harness.
 
+- **node**: remove downstream internal DTO names from generated trait-bridge
+  return-value comments.
+
 - **ffi**: honor `[crates.ffi].exclude_types` when generating `cbindgen.toml`.
   Excluded Rust-only helper DTOs are now omitted from the header prelude forward
   declarations and emitted in `[export].exclude`, keeping C and cgo headers from
