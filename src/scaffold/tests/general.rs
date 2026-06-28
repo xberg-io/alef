@@ -36,6 +36,7 @@ fn test_scaffold_wasm_omits_repository_when_unconfigured() {
         "unconfigured WASM manifest must not invent repository metadata:\n{}",
         package_json.content
     );
+    assert_eq!(parsed["engines"]["node"], ">= 22");
 }
 
 #[test]

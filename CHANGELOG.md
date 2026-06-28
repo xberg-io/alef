@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   interfaces and skip re-declaring a bridge `clear_*` function that is already exposed as a registry
   function, so `rbs validate` no longer reports an undefined type or a duplicated method definition.
 
+- **node/wasm**: require Node 22 or newer in generated npm package
+  manifests, and keep Python package generation on Python 3.10 or newer.
+
 - **e2e/dart**: resolve `config` JSON object helper types from compatible
   call overrides so generated tests use concrete helpers such as
   `createExtractionConfigFromJson`.

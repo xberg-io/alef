@@ -9,6 +9,7 @@
 
 use super::PackageArtifact;
 use crate::core::config::ResolvedCrateConfig;
+use crate::core::template_versions as tv;
 use crate::publish::platform::RustTarget;
 use anyhow::{Context, Result};
 use std::fs;
@@ -212,10 +213,11 @@ fn generate_sub_package_json(
   "cpu": ["{cpu}"]{libc_field},
   "main": "{bin_file}",
   "files": ["{bin_file}"],
-  "engines": {{ "node": ">= 18" }},
+  "engines": {{ "node": "{node_engine}" }},
   "publishConfig": {{ "access": "public" }}
 }}
 "#,
+        node_engine = tv::npm::NODE_ENGINE,
     )
 }
 

@@ -8,6 +8,8 @@
 //! add the renovate marker (if applicable), and use the const in templates.
 
 pub mod npm {
+    pub const NODE_ENGINE: &str = ">= 22";
+
     // renovate: datasource=npm depName=@napi-rs/cli
     pub const NAPI_RS_CLI_DEVDEPS: &str = "^3.0.0";
 
@@ -19,6 +21,9 @@ pub mod npm {
 
     // renovate: datasource=npm depName=vitest
     pub const VITEST: &str = "^4.1.5";
+
+    // renovate: datasource=npm depName=@types/node
+    pub const TYPES_NODE: &str = "^22.10.2";
 
     // renovate: datasource=npm depName=rollup
     pub const ROLLUP: &str = "^4.53.3";

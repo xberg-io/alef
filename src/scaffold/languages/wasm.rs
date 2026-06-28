@@ -1,6 +1,7 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::ApiSurface;
+use crate::core::template_versions as tv;
 use crate::scaffold::scaffold_meta;
 use std::path::PathBuf;
 
@@ -59,6 +60,9 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   "main": "pkg/nodejs/{core_crate_file}_wasm.js",
   "module": "pkg/web/{core_crate_file}_wasm.js",
   "types": "pkg/nodejs/{core_crate_file}_wasm.d.ts",
+  "engines": {{
+    "node": "{node_engine}"
+  }},
   "scripts": {{
     "build": "wasm-pack build --target nodejs --out-dir pkg/nodejs",
     "build:ci": "wasm-pack build --release --target nodejs --out-dir pkg/nodejs",
@@ -80,6 +84,7 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         license_block = license_block,
         repository_block = repository_block,
         core_crate_file = core_crate_file,
+        node_engine = tv::npm::NODE_ENGINE,
     );
 
     files.push(GeneratedFile {

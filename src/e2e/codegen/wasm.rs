@@ -501,6 +501,7 @@ fn render_package_json(
             dep_value => dep_value,
             rollup => tv::npm::ROLLUP,
             vitest => tv::npm::VITEST,
+            node_engine => tv::npm::NODE_ENGINE,
         },
     );
     match extras {

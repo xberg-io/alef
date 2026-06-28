@@ -382,7 +382,7 @@ fn test_scaffold_node_package_json_centralizes_platform_metadata() {
         .expect("optionalDependencies must be an object");
     assert!(optional_deps.contains_key("my-lib-win32-arm64-msvc"));
     assert!(optional_deps.contains_key("my-lib-linux-x64-musl"));
-    assert_eq!(parsed["engines"]["node"], ">= 18");
+    assert_eq!(parsed["engines"]["node"], ">= 22");
     assert_eq!(parsed["publishConfig"]["access"], "public");
     assert_eq!(parsed["exports"]["."]["types"], "./index.d.ts");
 

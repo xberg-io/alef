@@ -35,6 +35,8 @@ pub(crate) fn render_package_json(
             pkg_name => pkg_name,
             dep_value => dep_value,
             vitest => tv::npm::VITEST,
+            node_engine => tv::npm::NODE_ENGINE,
+            types_node => tv::npm::TYPES_NODE,
         },
     );
 

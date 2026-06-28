@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": "^22 || ^24"
+    "node": "{{ node_engine }}"
   },
   "scripts": {
     "test": "vitest run"
   },
   "devDependencies": {
     "{{ pkg_name }}": "{{ dep_value }}",
-    "@types/node": "^22.10.2",
+    "@types/node": "{{ types_node }}",
     "vitest": "{{ vitest }}"
   }
 }

@@ -49,6 +49,10 @@ fn test_package_json_includes_node_options_memory_cap() {
         pkg_json.contains("\"test\": \"NODE_OPTIONS=--max-old-space-size=4096 vitest run\""),
         "NODE_OPTIONS must be part of the test script; got:\n{pkg_json}"
     );
+    assert!(
+        pkg_json.contains("\"node\": \">= 22\""),
+        "package.json must require Node 22 or newer; got:\n{pkg_json}"
+    );
 }
 
 #[test]

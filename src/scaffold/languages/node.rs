@@ -478,10 +478,11 @@ fn generate_napi_platform_package_json(
   "files": ["{binary_file}"],
   "os": ["{os}"],
   "cpu": ["{cpu}"]{libc_field},
-  "engines": {{ "node": ">= 18" }},
+  "engines": {{ "node": "{node_engine}" }},
   "publishConfig": {{ "access": "public" }}
 }}
 "#,
+        node_engine = tv::npm::NODE_ENGINE,
     )
 }
 
@@ -567,7 +568,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     "artifacts": "npx --yes -p @napi-rs/cli@{napi_rs_cli_crate} napi artifacts",
     "prepublishOnly": "npx --yes -p @napi-rs/cli@{napi_rs_cli_crate} napi prepublish -t npm --skip-optional-publish"
   }},
-  "engines": {{ "node": ">= 18" }},
+  "engines": {{ "node": "{node_engine}" }},
   "publishConfig": {{ "access": "public" }},
   "devDependencies": {{ "@napi-rs/cli": "{napi_rs_cli_crate}" }}
 }}
@@ -582,6 +583,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         optional_dependencies = optional_dependencies,
         targets = targets,
         napi_rs_cli_crate = tv::npm::NAPI_RS_CLI_CRATE,
+        node_engine = tv::npm::NODE_ENGINE,
         entrypoint = entrypoint,
     );
 
