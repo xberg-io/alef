@@ -133,6 +133,16 @@ pub fn render_test_file(
                 }
             }
         }
+        if lang == "wasm" {
+            for arg in &cc.args {
+                if arg.arg_type == "json_object"
+                    && let Some(element_type) = &arg.element_type
+                    && !is_typescript_primitive_element_type(element_type)
+                {
+                    all_options_types.insert(canonical_ts_type_name(lang, element_type, config));
+                }
+            }
+        }
         if lang == "wasm" && fixture.visitor.is_some() {
             if let Some(binding) = wasm_visitor_binding(config, options_type) {
                 all_options_types.insert(binding.options_type);

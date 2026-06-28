@@ -92,6 +92,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **dart**: normalize trailing whitespace in FRB-generated Dart files, including `*.freezed.dart`
   files that `dart format` leaves unchanged.
 
+- **e2e**: prefer configured config DTO types when rendering Dart `config`
+  JSON objects, preventing fallback helpers such as `createConfigFromJson`.
+
+- **e2e**: include WASM nested DTO imports reached through `json_object`
+  element types, such as per-input file configs nested under extract inputs.
+
+- **elixir**: JSON-encode default-typed single DTO parameters before calling
+  Rustler NIFs, matching the NIF boundary used for unified extract inputs.
+
 ## [0.29.4] - 2026-06-27
 
 ### Changed

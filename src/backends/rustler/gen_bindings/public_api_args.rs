@@ -4,16 +4,20 @@ use ahash::{AHashMap, AHashSet};
 pub(in crate::backends::rustler::gen_bindings) fn json_encode_param_indices(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
 ) -> AHashSet<usize> {
     // The NIF side (`sync_functions.rs::gen_nif_function`) marshals every
-    // `Vec<Named>` whose inner is a *non-opaque* struct as `Option<String>` JSON.
-    // The wrapper must mirror that exact predicate, otherwise `Vec<BatchBytesItem>`
-    // (and similarly-shaped batch items, which have no `Default` impl) reach the
-    // NIF as raw Erlang terms and Rustler raises `ArgumentError`.
+    // default-typed `Named` param and every `Vec<Named>` whose inner is a
+    // *non-opaque* struct as `Option<String>` JSON. The wrapper must mirror
+    // that exact predicate, otherwise structured DTOs reach the NIF as raw
+    // Erlang terms and Rustler raises `ArgumentError`.
     params
         .iter()
         .enumerate()
         .filter_map(|(idx, param)| match &param.ty {
+            TypeRef::Named(name) if default_types.contains(name.as_str()) && !opaque_types.contains(name.as_str()) => {
+                Some(idx)
+            }
             TypeRef::Vec(inner) => match inner.as_ref() {
                 TypeRef::Named(inner_name) if !opaque_types.contains(inner_name) => Some(idx),
                 _ => None,

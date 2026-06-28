@@ -173,7 +173,11 @@ pub(crate) fn json_object_constructor_type<'a>(
     if arg.arg_type != "json_object" || value.is_array() {
         return None;
     }
-    arg.element_type.as_deref().or(options_type)
+    if arg.name == "config" {
+        options_type.or(arg.element_type.as_deref())
+    } else {
+        arg.element_type.as_deref().or(options_type)
+    }
 }
 
 pub(crate) fn trait_bridge_options_type(config: &ResolvedCrateConfig) -> Option<&str> {
@@ -338,6 +342,42 @@ mod tests {
             vec_inner_is_ref: false,
             trait_name: None,
         }
+    }
+
+    fn json_arg(name: &str, element_type: Option<&str>) -> ArgMapping {
+        ArgMapping {
+            name: name.to_string(),
+            field: name.to_string(),
+            arg_type: "json_object".to_string(),
+            optional: false,
+            owned: false,
+            element_type: element_type.map(str::to_string),
+            go_type: None,
+            vec_inner_is_ref: false,
+            trait_name: None,
+        }
+    }
+
+    #[test]
+    fn config_json_constructor_prefers_options_type() {
+        let arg = json_arg("config", Some("RequestConfig"));
+        let value = serde_json::json!({ "enabled": true });
+
+        assert_eq!(
+            json_object_constructor_type(&arg, Some("ExtractionConfig"), &value),
+            Some("ExtractionConfig")
+        );
+    }
+
+    #[test]
+    fn non_config_json_constructor_prefers_element_type() {
+        let arg = json_arg("input", Some("ExtractInput"));
+        let value = serde_json::json!({ "kind": "bytes" });
+
+        assert_eq!(
+            json_object_constructor_type(&arg, Some("ExtractionConfig"), &value),
+            Some("ExtractInput")
+        );
     }
 
     fn handle_arg() -> ArgMapping {

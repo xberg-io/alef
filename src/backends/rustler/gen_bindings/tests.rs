@@ -294,6 +294,58 @@ fn test_tagged_enum_param_invokes_encoder_in_nif_call() {
     );
 }
 
+#[test]
+fn test_default_typed_named_param_is_json_encoded_in_public_wrapper() {
+    use crate::core::ir::{FunctionDef, ParamDef, TypeDef, TypeRef};
+
+    let config = test_config();
+    let mut api = test_api();
+    api.types.push(TypeDef {
+        name: "ExtractInput".to_string(),
+        rust_path: "my_lib::ExtractInput".to_string(),
+        original_rust_path: "my_lib::ExtractInput".to_string(),
+        has_default: true,
+        has_serde: true,
+        ..Default::default()
+    });
+    api.functions.push(FunctionDef {
+        name: "extract".to_string(),
+        rust_path: "my_lib::extract".to_string(),
+        original_rust_path: "my_lib::extract".to_string(),
+        params: vec![ParamDef {
+            name: "input".to_string(),
+            ty: TypeRef::Named("ExtractInput".to_string()),
+            ..Default::default()
+        }],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        error_type: Some("MyError".to_string()),
+        doc: "Extract a document.".to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    });
+
+    let backend = RustlerBackend;
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let wrapper = files
+        .iter()
+        .find(|f| f.path.ends_with("my_lib.ex"))
+        .expect("expected my_lib.ex wrapper");
+    let body = &wrapper.content;
+
+    assert!(
+        body.contains("MyLib.Native.extract(Jason.encode!(input))"),
+        "default-typed Named params must be JSON-encoded before the NIF call; body:\n{body}"
+    );
+}
+
 /// The encoder helper must define dedicated clauses for each variant shape:
 ///   * unit variant accepts bare atom AND tuple form,
 ///   * struct variant accepts tuple form and emits the correct discriminator wire name,

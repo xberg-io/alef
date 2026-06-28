@@ -260,6 +260,77 @@ fn collect_transitive_nested_types_terminates_on_cycles() {
 }
 
 #[test]
+fn wasm_imports_nested_types_from_json_object_element_types() {
+    let mut e2e_config = crate::e2e::config::E2eConfig::default();
+    e2e_config.call.function = "extract".to_string();
+    e2e_config.call.args = vec![crate::e2e::config::ArgMapping {
+        name: "input".to_string(),
+        field: "input".to_string(),
+        arg_type: "json_object".to_string(),
+        optional: false,
+        owned: false,
+        element_type: Some("ExtractInput".to_string()),
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+
+    let fixture = Fixture {
+        id: "extract_input_with_nested_config".to_string(),
+        category: Some("extract".to_string()),
+        description: "extract input with nested config".to_string(),
+        input: serde_json::json!({
+            "kind": "bytes",
+            "config": {
+                "force_ocr": true
+            }
+        }),
+        assertions: vec![crate::e2e::fixture::Assertion {
+            assertion_type: "not_error".to_string(),
+            field: None,
+            value: None,
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        }],
+        ..Default::default()
+    };
+    let extract_input = make_type(
+        "ExtractInput",
+        vec![make_field(
+            "config",
+            TypeRef::Optional(Box::new(TypeRef::Named("FileExtractionConfig".to_string()))),
+        )],
+    );
+    let file_config = make_type("FileExtractionConfig", vec![]);
+    let config = crate::core::config::ResolvedCrateConfig::default();
+
+    let output = render_test_file(
+        "wasm",
+        "extract",
+        &[&fixture],
+        "",
+        "@test/wasm",
+        "extract",
+        &[],
+        Some("WasmExtractionConfig"),
+        None,
+        &e2e_config,
+        &[extract_input, file_config],
+        &[],
+        "Wasm",
+        &config,
+    );
+
+    assert!(
+        output.contains("WasmFileExtractionConfig"),
+        "WASM imports must include nested DTOs reached through json_object element types;\n{output}"
+    );
+}
+
+#[test]
 fn wasm_class_name_prepends_wasm_prefix() {
     assert_eq!(wasm_class_name("ChatMessage", "Wasm"), "WasmChatMessage");
     assert_eq!(wasm_class_name("EmbeddingRequest", "Wasm"), "WasmEmbeddingRequest");
