@@ -150,6 +150,7 @@ fn test_gen_magnus_hash_constructor_generic_type_prefix() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
@@ -237,6 +238,7 @@ fn test_magnus_hash_constructor_no_double_option_when_ty_is_optional() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);

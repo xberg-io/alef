@@ -190,6 +190,7 @@ fn input_dtos_dedup_flag_skips_generation() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -365,6 +366,7 @@ fn gen_input_dto_excludes_binding_excluded_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -443,6 +445,7 @@ fn feature_gated_fields_get_cfg_guards() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 

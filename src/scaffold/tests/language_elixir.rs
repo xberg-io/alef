@@ -468,6 +468,7 @@ fn test_scaffold_elixir_cargo_tokio_when_async_method() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     });
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();

@@ -632,6 +632,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: true, // <-- the key flag
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],

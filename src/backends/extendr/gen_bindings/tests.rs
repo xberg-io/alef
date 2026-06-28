@@ -75,6 +75,7 @@ fn make_api_surface() -> ApiSurface {
             is_variant_wrapper: false,
 
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {

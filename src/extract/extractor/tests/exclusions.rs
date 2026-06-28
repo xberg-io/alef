@@ -46,6 +46,49 @@ fn test_extract_binding_excluded_fields() {
 }
 
 #[test]
+fn test_struct_with_non_pub_field_sets_has_private_fields() {
+    // A `pub(crate)` field is filtered out of the binding surface, but its existence
+    // means the core struct cannot be built with struct-literal syntax from a foreign
+    // crate. `has_private_fields` records that so the conversion generator picks a
+    // non-literal construction strategy.
+    let source = r#"
+        #[derive(Default)]
+        pub struct ResultLike {
+            pub content: String,
+            pub(crate) internal: Option<String>,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let ty = &surface.types[0];
+
+    assert!(
+        ty.has_private_fields,
+        "a struct with a pub(crate) field must set has_private_fields"
+    );
+    assert!(
+        ty.fields.iter().all(|f| f.name != "internal"),
+        "the non-pub field must not appear in the binding surface"
+    );
+}
+
+#[test]
+fn test_struct_all_public_fields_has_no_private_fields() {
+    let source = r#"
+        pub struct AllPublic {
+            pub a: String,
+            pub b: u32,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert!(
+        !surface.types[0].has_private_fields,
+        "an all-pub struct must not set has_private_fields"
+    );
+}
+
+#[test]
 fn test_opaque_struct() {
     let source = r#"
         pub struct Handle {

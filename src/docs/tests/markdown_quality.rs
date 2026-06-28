@@ -111,6 +111,7 @@ fn test_generate_docs_typescript_optional_field_emits_consistent_table_cells() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],

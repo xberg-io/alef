@@ -342,6 +342,7 @@ fn test_skip_sanitized_finalize() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 

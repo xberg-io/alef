@@ -198,6 +198,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/conversions/binding_to_core_impl.jinja"),
     ),
     (
+        "conversions/private_field_from_impl",
+        include_str!("templates/conversions/private_field_from_impl.jinja"),
+    ),
+    (
         "structs/default_impl.jinja",
         include_str!("templates/generators/structs/default_impl.jinja"),
     ),

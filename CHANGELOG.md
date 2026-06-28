@@ -22,6 +22,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **codegen**: generate compiling binding→core conversions for core structs that have private
+  (`pub(crate)`) fields. Such a struct cannot be built with struct-literal syntax from a foreign
+  crate — neither by naming the private field nor by patching it with `..Default::default()` — so
+  the conversion now seeds the core type's `Default` (which fills the private fields inside the
+  defining crate) and assigns only the public fields onto it. The strategy is centralized in a
+  shared helper used by the pyo3/napi/wasm/extendr/rustler/magnus generator and the Dart mirror
+  crate generator; when the core type has private fields but no `Default`, a `compile_error!`
+  guides the author to derive `Default`. A new `has_private_fields` flag on struct IR records the
+  condition during extraction.
+- **pyo3**: marshal owned (by-value) native-struct callback parameters into the host's native
+  binding object via `From<core::T>`, the same way borrowed ones already were. A trait method that
+  takes a serde struct by value (e.g. an extraction-input envelope) previously passed the raw
+  `core::T` across the Python boundary, which has no `IntoPyObject` and failed to compile.
+- **pyo3**: when a core `register_*` free function shares its name with a trait bridge's
+  `register_fn`, emit only the bridge's duck-typed registration. The function loop no longer also
+  emits the auto-wrapped core version, which collided (`E0428`) with the bridge definition and no
+  longer type-checks against a registry that takes `Arc<dyn Trait>`.
 - **pyo3**: the generated Python package now type-checks clean under `mypy`. Data-enum config fields
   are annotated against their public class (so `EmbeddingConfig(model=EmbeddingModelType.plugin(...))`
   is accepted) instead of a flattened union alias that shadowed the class; constructors accept the

@@ -145,6 +145,7 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);

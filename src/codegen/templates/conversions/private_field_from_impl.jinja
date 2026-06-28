@@ -1,0 +1,17 @@
+{%- for attr in allow_attrs %}
+#[allow({{ attr }})]
+{%- endfor %}
+impl From<{{ binding_name }}> for {{ core_path }} {
+    fn from({{ param }}: {{ binding_name }}) -> Self {
+        {%- if construct_error %}
+        let _ = {{ param }};
+        compile_error!("{{ construct_error }}")
+        {%- else %}
+        let mut __result = {{ core_path }}::default();
+        {%- for statement in statements %}
+        {{ statement }}
+        {%- endfor %}
+        __result
+        {%- endif %}
+    }
+}

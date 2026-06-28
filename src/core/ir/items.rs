@@ -78,6 +78,14 @@ pub struct TypeDef {
     /// opaque wrapper newtypes `pub struct Wrapper(pub Source<'static>)`.
     #[serde(default)]
     pub has_lifetime_params: bool,
+    /// True when the core struct has one or more non-`pub` fields (e.g. `pub(crate)`).
+    /// Those fields are filtered out of the binding surface, but their existence means
+    /// the core type cannot be built with struct-literal syntax from a foreign crate
+    /// (`error[E0451]` / "cannot construct ... due to private fields"). Backends use this
+    /// flag to pick a non-literal construction strategy in binding→core conversions
+    /// (public constructor, `Default`-seeded builder, or serde `Deserialize`).
+    #[serde(default)]
+    pub has_private_fields: bool,
     /// Version annotation (since, deprecated).
     #[serde(default)]
     pub version: VersionAnnotation,

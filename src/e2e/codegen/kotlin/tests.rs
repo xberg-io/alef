@@ -305,6 +305,7 @@ fn auto_detected_enum_fields_from_type_defs_route_through_get_value() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
