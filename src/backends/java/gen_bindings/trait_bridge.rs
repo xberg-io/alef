@@ -492,30 +492,31 @@ fn gen_bridge_file(
     // Build stub allocations for lifecycle methods
     let mut stubs: Vec<Value> = vec![];
     if has_super_trait {
-        // Lifecycle stubs return i32 status codes; promote to JAVA_LONG for JBR Win64 compat.
+        // Lifecycle stubs return i32 status codes, so the FunctionDescriptor return layout
+        // must be JAVA_INT (matching the `int` upcall return); JAVA_LONG mis-sizes the value.
         let lifecycle_stubs = vec![
             (
                 "Name",
                 "int.class",
-                "ValueLayout.JAVA_LONG",
+                "ValueLayout.JAVA_INT",
                 ", MemorySegment.class, MemorySegment.class",
             ),
             (
                 "Version",
                 "int.class",
-                "ValueLayout.JAVA_LONG",
+                "ValueLayout.JAVA_INT",
                 ", MemorySegment.class, MemorySegment.class",
             ),
             (
                 "Initialize",
                 "int.class",
-                "ValueLayout.JAVA_LONG",
+                "ValueLayout.JAVA_INT",
                 ", MemorySegment.class",
             ),
             (
                 "Shutdown",
                 "int.class",
-                "ValueLayout.JAVA_LONG",
+                "ValueLayout.JAVA_INT",
                 ", MemorySegment.class",
             ),
         ];
@@ -589,8 +590,10 @@ fn gen_bridge_file(
             handle_name => &handle_name,
             return_type => "int.class",
             method_type_params => method_type_params.join(", "),
-            // Trait method stubs return i32 status codes; promote to JAVA_LONG for JBR Win64 compat.
-            descriptor_return => "ValueLayout.JAVA_LONG",
+            // Trait method stubs return i32 status codes, so the FunctionDescriptor return
+            // layout must be JAVA_INT (matching the `int` upcall return). The companion
+            // bytes-length param above stays JAVA_LONG.
+            descriptor_return => "ValueLayout.JAVA_INT",
             descriptor_params => func_desc_params.join(", "),
             returns_void => false,
         });

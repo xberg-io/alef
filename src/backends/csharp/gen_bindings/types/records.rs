@@ -84,11 +84,12 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
                 _ => false,
             };
 
-        // Non-optional byte[] fields must be serialized as JSON int arrays, not base64.
-        // Emit [JsonConverter(typeof(ByteArrayToIntArrayConverter))] for these fields.
-        let needs_bytes_int_converter = !field.optional && matches!(&field.ty, TypeRef::Bytes);
+        // byte[] fields (optional or not) must be serialized as JSON int arrays, not base64.
+        // Emit [JsonConverter(typeof(ByteArrayJsonConverter))] for these fields. The converter
+        // also accepts a base64 string on read, so either wire convention round-trips.
+        let needs_bytes_int_converter = matches!(&field.ty, TypeRef::Bytes);
         if needs_bytes_int_converter {
-            out.push_str("    [JsonConverter(typeof(ByteArrayToIntArrayConverter))]\n");
+            out.push_str("    [JsonConverter(typeof(ByteArrayJsonConverter))]\n");
         }
 
         // If the field's type is an enum with a custom converter, emit a property-level

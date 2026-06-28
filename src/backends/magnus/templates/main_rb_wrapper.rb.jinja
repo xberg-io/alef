@@ -15,3 +15,12 @@ module {{ module_name }}
   require_relative "{{ gem_name_snake }}/service"
 {% endif %}
 end
+
+# Bring top-level {{ module_name }} classes into the global namespace so callers
+# (and the generated e2e suite) can reference them unqualified. The native
+# extension has already been required above, so every type constant is defined
+# under {{ module_name }} by this point.
+{{ module_name }}.constants.each do |const_name|
+  value = {{ module_name }}.const_get(const_name)
+  ::Object.const_set(const_name, value) if value.is_a?(Module) && !::Object.const_defined?(const_name)
+end

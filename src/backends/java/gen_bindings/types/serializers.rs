@@ -9,7 +9,7 @@ pub(crate) fn gen_byte_array_serializer(package: &str) -> String {
     let imports = [
         "com.fasterxml.jackson.core.JsonGenerator",
         "com.fasterxml.jackson.databind.SerializerProvider",
-        "com.fasterxml.jackson.databind.ser.std.StdSerializer",
+        "com.fasterxml.jackson.databind.JsonSerializer",
     ];
     let mut out = crate::backends::java::template_env::render(
         "java_file_header.jinja",

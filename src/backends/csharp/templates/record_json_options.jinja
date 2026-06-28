@@ -2,7 +2,7 @@
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower), new ByteArrayJsonConverter() },
     };
 
     /// <summary>Options for serializing config/input objects to FFI. Strips nulls
@@ -11,5 +11,5 @@
     private static readonly JsonSerializerOptions JsonSerializationOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower), new ByteArrayJsonConverter() },
     };

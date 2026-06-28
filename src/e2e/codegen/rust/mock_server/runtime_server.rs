@@ -49,6 +49,12 @@ async fn handle_request(State(routes): State<RouteTable>, req: Request<Body>) ->
         }
     }
 
+    // Fall back to serving a raw test document from the docs dir, so HTTP URL
+    // fixtures that reference relative file paths resolve against test_documents.
+    if let Some(response) = serve_test_document(&path) {
+        return response;
+    }
+
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Body::from(format!("No mock route for {path}")))

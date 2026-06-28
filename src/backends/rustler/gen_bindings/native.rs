@@ -370,7 +370,16 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             for imp in &bridge.imports {
                 builder.add_import(imp);
             }
-            builder.add_item(&bridge.code);
+            // Rustler NIFs run synchronously off the BEAM scheduler with no ambient Tokio
+            // runtime, so `tokio::task::spawn_blocking` in the sync trait-callback bodies
+            // panics ("there is no reactor running"). Swap the fire-and-forget reply send
+            // to a plain OS thread. (Canonical home: the `trait_sync_method_body.rs.jinja`
+            // template; patched here to stay within the permitted edit scope.)
+            let bridge_code = bridge.code.replace(
+                "drop(tokio::task::spawn_blocking(move || {",
+                "drop(std::thread::spawn(move || {",
+            );
+            builder.add_item(&bridge_code);
         }
     }
 
@@ -582,6 +591,19 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     }) {
         builder.add_item(&gen_from_json_nif(typ, &core_import));
     }
+
+    // Always-emitted test-support NIF: lets the e2e harness set process environment
+    // variables that native code reads via libc `getenv` (e.g. crawlberg's SSRF loopback
+    // allowlist). Erlang's `os:putenv/2` updates only the BEAM's own env table, not the
+    // C runtime's `environ`, so a dedicated NIF is required. Auto-registered by the
+    // `rustler::init!` module scan; the matching `set_env/2` stub is injected into the
+    // generated `{App}.Native` module by the public-API codegen.
+    builder.add_item(
+        "#[rustler::nif]\npub fn set_env(key: String, value: String) -> bool {\n    \
+         // SAFETY: called once from the e2e harness during setup before extraction\n    \
+         // NIFs run on other scheduler threads, so no concurrent env access.\n    \
+         unsafe { std::env::set_var(&key, &value); }\n    true\n}\n",
+    );
 
     builder.add_item(&gen_nif_init(api, config, &exclude_functions, &exclude_types));
 
