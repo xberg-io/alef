@@ -152,7 +152,7 @@ pub use dto_coercion::{
 };
 pub(crate) use enums::{collect_variant_constructors, variant_field_init};
 pub use enums::{
-    enum_has_data_variants, gen_enum, gen_pyo3_data_enum, gen_pyo3_data_enum_with_coercion,
+    enum_has_data_variants, enum_has_sanitized_fields, gen_enum, gen_pyo3_data_enum, gen_pyo3_data_enum_with_coercion,
     gen_pyo3_data_enum_with_mapper,
 };
 pub use functions::{

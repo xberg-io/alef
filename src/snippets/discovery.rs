@@ -117,6 +117,7 @@ pub fn parse_annotation(comment: &str) -> Option<SnippetAnnotation> {
         "snippet:skip" => SnippetAnnotationKind::Skip,
         "snippet:compile-only" => SnippetAnnotationKind::CompileOnly,
         "snippet:syntax-only" => SnippetAnnotationKind::SyntaxOnly,
+        "snippet:typecheck-only" => SnippetAnnotationKind::TypeCheckOnly,
         _ => return None,
     };
     let reason = parse_reason_attr(inner);
@@ -131,6 +132,7 @@ fn level_annotation(
     let kind = match level {
         crate::snippets::types::ValidationLevel::Syntax => SnippetAnnotationKind::SyntaxOnly,
         crate::snippets::types::ValidationLevel::Compile => SnippetAnnotationKind::CompileOnly,
+        crate::snippets::types::ValidationLevel::TypeCheck => SnippetAnnotationKind::TypeCheckOnly,
         crate::snippets::types::ValidationLevel::Run => return None,
     };
     Some(SnippetAnnotation { kind, reason })
@@ -185,6 +187,10 @@ mod tests {
         assert_eq!(
             parse_annotation("<!-- snippet:syntax-only -->").map(|annotation| annotation.kind),
             Some(SnippetAnnotationKind::SyntaxOnly)
+        );
+        assert_eq!(
+            parse_annotation("<!-- snippet:typecheck-only -->").map(|annotation| annotation.kind),
+            Some(SnippetAnnotationKind::TypeCheckOnly)
         );
     }
 

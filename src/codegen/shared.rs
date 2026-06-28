@@ -1,6 +1,24 @@
 use crate::core::ir::{DefaultValue, FieldDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeRef};
 use ahash::AHashSet;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+/// Recursively replace `Named(n)` references where `n` is excluded from the binding's public surface
+/// (e.g. `InternalDocument`) with `TypeRef::Json`. An excluded type is never emitted as a binding
+/// declaration, so a trait-bridge interface/stub method referencing it would be an undefined name;
+/// the runtime bridge marshals such values as JSON, so `Json` is the faithful stand-in. Shared by
+/// the go/pyo3/napi/magnus excluded-type handling so the substitution stays identical across them.
+pub fn substitute_excluded_types(ty: &TypeRef, excluded: &HashSet<&str>) -> TypeRef {
+    match ty {
+        TypeRef::Named(name) if excluded.contains(name.as_str()) => TypeRef::Json,
+        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(substitute_excluded_types(inner, excluded))),
+        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(substitute_excluded_types(inner, excluded))),
+        TypeRef::Map(k, v) => TypeRef::Map(
+            Box::new(substitute_excluded_types(k, excluded)),
+            Box::new(substitute_excluded_types(v, excluded)),
+        ),
+        other => other.clone(),
+    }
+}
 
 /// Fields that should be emitted in generated binding structs.
 ///

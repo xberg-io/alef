@@ -4,6 +4,31 @@ use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, FieldDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 
+/// Resolve the PyO3 constructor parameter identifier for a field — the single source of truth for
+/// the `#[new]` signature AND the `.pyi` `__init__` stub, so the two cannot drift apart.
+///
+/// Prefers the serde rename (the wire name, deliberately used for constructor params so the public
+/// surface matches the other language bindings — see [`replace_constructor_with_serde_rename`]),
+/// then a per-language `rename_fields` entry, then the bare field name. Only applies a resolved name
+/// when it is a syntactically valid Rust identifier (e.g. `"self-harm"` falls back to the field
+/// name); a valid name that is also a Rust keyword (e.g. `"type"`) is escaped as `r#type`.
+pub(in crate::backends::pyo3) fn resolve_param_ident<'a>(
+    field_name: &'a str,
+    serde_rename: Option<&'a String>,
+    config_renames: Option<&HashMap<String, String>>,
+) -> String {
+    use crate::core::keywords::{is_valid_rust_ident_chars, rust_raw_ident};
+    let wire_name = serde_rename
+        .map(|s| s.as_str())
+        .or_else(|| config_renames.and_then(|r| r.get(field_name)).map(|s| s.as_str()))
+        .unwrap_or(field_name);
+    if is_valid_rust_ident_chars(wire_name) {
+        rust_raw_ident(wire_name)
+    } else {
+        field_name.to_string()
+    }
+}
+
 /// Replace the constructor in an impl block with one that honors serde_rename.
 /// For has_default types, the constructor parameters should use serde_rename names
 /// (the JSON wire names) to match other language bindings' public APIs.
@@ -20,8 +45,6 @@ pub(super) fn replace_constructor_with_serde_rename(
     never_skip_cfg_field_names: &[String],
     api: &ApiSurface,
 ) -> String {
-    use crate::core::keywords::{is_valid_rust_ident_chars, rust_raw_ident};
-
     // When the type already has an explicit static `new()` method in its IR, do not
     // emit a second field-based `#[new]` constructor — the static method will be emitted
     // as `#[staticmethod] pub fn new(...)` and PyO3 forbids two `new` registrations in
@@ -41,43 +64,23 @@ pub(super) fn replace_constructor_with_serde_rename(
         if !typ.has_default || field.optional || matches!(&field.ty, TypeRef::Optional(_)) {
             return false;
         }
-        if let TypeRef::Named(ref type_name) = field.ty {
-            api.types
+        let TypeRef::Named(ref type_name) = field.ty else {
+            return false;
+        };
+        // A nested struct with its own `Default`.
+        if api.types.iter().any(|t| t.name == *type_name && t.has_default) {
+            return true;
+        }
+        // A data enum (tagged union — it lives in `api.enums`, not `api.types`) carried with a serde
+        // default. Such a field is None-able in the public surface, so its `#[new]` param is `Option<T>`
+        // (None falls back to the core default via `unwrap_or_else`). This lets the converter pass the
+        // coerced value or None directly rather than a conditional `**{...}` keyword-spread that no
+        // type checker can verify.
+        field.default.as_deref() == Some("/* serde(default) */")
+            && api
+                .enums
                 .iter()
-                .find(|t| t.name == *type_name)
-                .map(|t| t.has_default)
-                .unwrap_or(false)
-        } else {
-            false
-        }
-    }
-
-    /// Resolve the constructor parameter identifier for a field.
-    ///
-    /// Prefers the serde rename (or config rename) over the bare Rust field name, but only
-    /// when the resolved name is a syntactically valid Rust identifier (i.e. contains only
-    /// `[A-Za-z0-9_]` and does not start with a digit).  Names like `"self-harm"` or
-    /// `"self-harm/intent"` (containing hyphens or slashes) are not valid Rust identifiers
-    /// even with `r#` escaping, so the function falls back to the Rust field name in those
-    /// cases.  When the resolved name is valid but happens to be a Rust keyword (e.g. `"type"`),
-    /// it is escaped as a raw identifier (`r#type`).
-    fn resolve_param_ident<'a>(
-        field_name: &'a str,
-        serde_rename: Option<&'a String>,
-        config_renames: Option<&HashMap<String, String>>,
-    ) -> String {
-        let wire_name = serde_rename
-            .map(|s| s.as_str())
-            .or_else(|| config_renames.and_then(|r| r.get(field_name)).map(|s| s.as_str()))
-            .unwrap_or(field_name);
-        if is_valid_rust_ident_chars(wire_name) {
-            rust_raw_ident(wire_name)
-        } else {
-            // Wire name contains characters that are not valid in a Rust identifier (e.g. hyphens,
-            // slashes in serde renames like "self-harm" or "self-harm/intent").  Fall back to the
-            // Rust field name, which is guaranteed to be a valid identifier.
-            field_name.to_string()
-        }
+                .any(|e| e.name == *type_name && crate::codegen::generators::enum_has_data_variants(e))
     }
 
     // Check if this type has an options-field bridge (e.g., ParseOptions.visitor).

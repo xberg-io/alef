@@ -1,5 +1,5 @@
 use crate::backends::magnus::type_map::rbs_type;
-use crate::codegen::shared::binding_fields;
+use crate::codegen::shared::{binding_fields, substitute_excluded_types};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
@@ -69,27 +69,39 @@ pub fn gen_stubs(
             interface_trait_names.insert(bridge.trait_name.clone());
         }
     }
+    // Names already emitted as module methods above (from `api.functions`). A bridge's `clear_fn`
+    // is often also exposed as a regular registry function (`clear_embedding_backends`), so emitting
+    // it again here would be a duplicate definition (RBS `DuplicatedMethodDefinitionError`). Skip any
+    // bridge function whose name already has a declaration; register/unregister are bridge-only.
+    let declared_function_names: std::collections::HashSet<&str> =
+        api.functions.iter().map(|f| f.name.as_str()).collect();
     for bridge in trait_bridges {
         if let Some(register_fn) = bridge.register_fn.as_deref() {
-            // Type the `backend` param against the host-implementable interface when one was
-            // emitted for this bridge's trait; otherwise fall back to `untyped`.
-            let backend_type = if interface_trait_names.contains(&bridge.trait_name) {
-                plugin_interface_name(&bridge.trait_name)
-            } else {
-                "untyped".to_string()
-            };
-            lines.push(format!(
-                "  def self.{register_fn}: ({backend_type} backend, String name) -> nil"
-            ));
-            lines.push("".to_string());
+            if !declared_function_names.contains(register_fn) {
+                // Type the `backend` param against the host-implementable interface when one was
+                // emitted for this bridge's trait; otherwise fall back to `untyped`.
+                let backend_type = if interface_trait_names.contains(&bridge.trait_name) {
+                    plugin_interface_name(&bridge.trait_name)
+                } else {
+                    "untyped".to_string()
+                };
+                lines.push(format!(
+                    "  def self.{register_fn}: ({backend_type} backend, String name) -> nil"
+                ));
+                lines.push("".to_string());
+            }
         }
         if let Some(unregister_fn) = bridge.unregister_fn.as_deref() {
-            lines.push(format!("  def self.{unregister_fn}: (String name) -> nil"));
-            lines.push("".to_string());
+            if !declared_function_names.contains(unregister_fn) {
+                lines.push(format!("  def self.{unregister_fn}: (String name) -> nil"));
+                lines.push("".to_string());
+            }
         }
         if let Some(clear_fn) = bridge.clear_fn.as_deref() {
-            lines.push(format!("  def self.{clear_fn}: () -> nil"));
-            lines.push("".to_string());
+            if !declared_function_names.contains(clear_fn) {
+                lines.push(format!("  def self.{clear_fn}: () -> nil"));
+                lines.push("".to_string());
+            }
         }
     }
 
@@ -140,6 +152,16 @@ fn gen_plugin_interface_stub(bridge: &TraitBridgeConfig, api: &ApiSurface) -> Op
     }
     api.types.iter().find(|t| t.name == bridge.trait_name)?;
 
+    // Types excluded from the binding surface (e.g. `InternalDocument`) are not emitted as RBS
+    // declarations, so an interface method referencing one would be an undefined RBS type. Substitute
+    // them with their JSON marshaling form, matching the runtime bridge (and the go/pyo3/napi backends).
+    let excluded: std::collections::HashSet<&str> = api
+        .excluded_type_paths
+        .keys()
+        .map(String::as_str)
+        .chain(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()))
+        .collect();
+
     let interface_name = plugin_interface_name(&bridge.trait_name);
     let mut lines = vec![format!("  interface {interface_name}")];
 
@@ -151,7 +173,7 @@ fn gen_plugin_interface_stub(bridge: &TraitBridgeConfig, api: &ApiSurface) -> Op
             .params
             .iter()
             .map(|p| {
-                let param_type = rbs_type(&p.ty);
+                let param_type = rbs_type(&substitute_excluded_types(&p.ty, &excluded));
                 if p.optional {
                     format!("?{} {}", param_type, p.name)
                 } else {
@@ -159,7 +181,7 @@ fn gen_plugin_interface_stub(bridge: &TraitBridgeConfig, api: &ApiSurface) -> Op
                 }
             })
             .collect();
-        let return_type = rbs_type(&method.return_type);
+        let return_type = rbs_type(&substitute_excluded_types(&method.return_type, &excluded));
         lines.push(format!(
             "    def {}: ({}) -> {}",
             method.name,

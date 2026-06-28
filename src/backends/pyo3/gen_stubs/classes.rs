@@ -203,6 +203,25 @@ fn gen_type_init_stub(
             !f.optional && !is_optional_duration
         });
 
+    // Per-language `rename_fields` map, keyed by Rust field name. Combined with each field's
+    // `serde_rename` by the shared `resolve_param_ident` — the SAME resolver the `#[new]`
+    // constructor uses — so the stub param names cannot drift from the runtime constructor (the
+    // constructor deliberately prefers serde-rename wire names for cross-binding API parity).
+    let py_field_renames: std::collections::HashMap<String, String> = typ
+        .fields
+        .iter()
+        .filter_map(|f| {
+            config
+                .resolve_field_name(Language::Python, &typ.name, &f.name)
+                .map(|renamed| (f.name.clone(), renamed))
+        })
+        .collect();
+    let renames_ref = if py_field_renames.is_empty() {
+        None
+    } else {
+        Some(&py_field_renames)
+    };
+
     // Generate required params first, then optional params.
     // For constructor params, use str instead of enum types (PyO3 accepts any string).
     // Field names that are Python reserved keywords are emitted with their escaped name
@@ -211,9 +230,11 @@ fn gen_type_init_stub(
         .iter()
         .map(|f| {
             let param_type = constructor_param_type(&f.ty, api);
-            let param_name = config
-                .resolve_field_name(Language::Python, &typ.name, &f.name)
-                .unwrap_or_else(|| f.name.clone());
+            let param_name = crate::backends::pyo3::gen_bindings::constructors::resolve_param_ident(
+                &f.name,
+                f.serde_rename.as_ref(),
+                renames_ref,
+            );
             format!("{param_name}: {param_type}")
         })
         .collect();
@@ -225,9 +246,11 @@ fn gen_type_init_stub(
         } else {
             type_str
         };
-        let param_name = config
-            .resolve_field_name(Language::Python, &typ.name, &f.name)
-            .unwrap_or_else(|| f.name.clone());
+        let param_name = crate::backends::pyo3::gen_bindings::constructors::resolve_param_ident(
+            &f.name,
+            f.serde_rename.as_ref(),
+            renames_ref,
+        );
         format!("{param_name}: {param_type} = None")
     }));
 

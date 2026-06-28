@@ -1,1 +1,5 @@
+{% if is_typeddict %}
+    return cast("{{ type_name }}", value)
+{% else %}
     return {{ type_name }}(**value)
+{% endif %}

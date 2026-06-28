@@ -9,35 +9,34 @@ pub(super) fn gen_function_stub(
     options_field_bridges: &OptionsFieldBridges<'_>,
     streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
 ) -> String {
-    // Partition params into required (non-optional) and optional
-    let (required, optional): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !p.optional);
-
-    // Generate required params first, then optional params
-    let mut params: Vec<String> = required
+    // Emit params in declaration order, applying the same trailing-optional promotion the PyO3
+    // `#[pyo3(signature = ...)]` (and the api.py wrapper) use: once any param is optional, every
+    // later param is promoted to `T | None = None`. Partitioning required-before-optional instead
+    // would reorder params away from the runtime signature AND drop `| None` from a promoted param
+    // (e.g. `resolve(preset, custom_schema=None, context=None)` where `context: Option<...>`).
+    let mut params: Vec<String> = func
+        .params
         .iter()
-        .map(|p| {
-            let param_type = if bridge_param_names.contains(p.name.as_str()) {
+        .enumerate()
+        .map(|(idx, p)| {
+            let optional = p.optional || crate::codegen::shared::is_promoted_optional(&func.params, idx);
+            let type_str = if bridge_param_names.contains(p.name.as_str()) {
                 "object".to_string()
             } else {
                 substitute_capsule_type(&python_type(&p.ty), capsule_names)
             };
-            format!("{}: {}", p.name, param_type)
+            if optional {
+                let param_type = if type_str.ends_with("| None") {
+                    type_str
+                } else {
+                    format!("{type_str} | None")
+                };
+                format!("{}: {} = None", p.name, param_type)
+            } else {
+                format!("{}: {}", p.name, type_str)
+            }
         })
         .collect();
-
-    params.extend(optional.iter().map(|p| {
-        let type_str = if bridge_param_names.contains(p.name.as_str()) {
-            "object".to_string()
-        } else {
-            substitute_capsule_type(&python_type(&p.ty), capsule_names)
-        };
-        let param_type = if !type_str.ends_with("| None") {
-            format!("{} | None", type_str)
-        } else {
-            type_str
-        };
-        format!("{}: {} = None", p.name, param_type)
-    }));
 
     // If any param's type is the options-type of an OptionsField trait bridge, the PyO3
     // wrapper exposes an additional `{kwarg_name}: {trait_name} | None = None` kwarg.

@@ -401,13 +401,25 @@ pub(super) fn emit_function_wrappers(
     // These functions are emitted as #[pyfunction] in the native Rust module but are not in
     // api.functions — they must be re-exported via api.py so callers can use the public package
     // path (e.g. `sample_core.register_text_backend`) rather than `sample_core._sample_core.register_text_backend`.
-    for register_fn in crate::backends::pyo3::trait_bridge::collect_bridge_register_fns(trait_bridges) {
-        if emitted_function_names.contains(&register_fn) {
+    for bridge in trait_bridges {
+        let Some(register_fn) = bridge.register_fn.as_deref() else {
+            continue;
+        };
+        if emitted_function_names.contains(register_fn) {
             continue;
         }
+        // Type the `backend` param against the host-implementable Protocol (emitted in the `.pyi`
+        // for this bridge's trait) when the trait is resolvable in the API surface; otherwise fall
+        // back to `object`. The native `register_*` and the `.pyi` stub both expect the Protocol,
+        // so a bare `object` here is what makes the pass-through wrapper fail to type-check.
+        let backend_type = if api.types.iter().any(|t| t.name == bridge.trait_name) {
+            bridge.trait_name.as_str()
+        } else {
+            "object"
+        };
         out.push_str(&crate::backends::pyo3::template_env::render(
             "bridge_register_fn.jinja",
-            minijinja::context! { register_fn => &register_fn },
+            minijinja::context! { register_fn => register_fn, backend_type => backend_type },
         ));
     }
 

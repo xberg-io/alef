@@ -10,6 +10,9 @@ use ahash::{AHashMap, AHashSet};
 
 use super::enums::{EmitContext, class_name_to_docstring, sanitize_python_doc};
 
+mod typeddict;
+use typeddict::gen_typeddict;
+
 /// Convert a Rust variant name to snake_case for Python enum members (PEP 8),
 /// escaping any result that collides with a Python reserved keyword or `str` method name
 /// (e.g. `Del` → `del_`, `Title` → `title_`).
@@ -26,9 +29,17 @@ fn to_python_enum_variant(name: &str) -> String {
 ///
 /// When `dto.python_output_style() == TypedDict` and a type has `is_return_type = true`,
 /// it is emitted as a `TypedDict` (with `total=False`) instead of a `@dataclass`.
-pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> String {
+pub(super) fn gen_options_py(
+    api: &ApiSurface,
+    module_name: &str,
+    dto: &DtoConfig,
+    reexported_types: &[String],
+) -> String {
     use crate::core::ir::TypeRef;
     use heck::ToSnakeCase;
+    // A type re-exported as a native pyclass is native everywhere — never emit a parallel TypedDict
+    // for it, so a field of this type carries a single, consistent identity (the native class).
+    let reexported_names: AHashSet<&str> = reexported_types.iter().map(String::as_str).collect();
 
     // Collect enum names for type detection (plain unit enums vs data enums)
     let enum_names: AHashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
@@ -39,14 +50,26 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         .filter(|e| generators::enum_has_data_variants(e))
         .map(|e| e.name.as_str())
         .collect();
+    // Data enums with at least one unit (tag-only) variant additionally accept a bare string
+    // tag on the wire (e.g. `output_format="native"`), so their config fields are typed
+    // `<Class> | str`. Payload-only data enums (e.g. EmbeddingModelType) accept only the class.
+    let str_coercible_data_enums: AHashSet<&str> = api
+        .enums
+        .iter()
+        .filter(|e| data_enum_names.contains(e.name.as_str()) && e.variants.iter().any(|v| v.fields.is_empty()))
+        .map(|e| e.name.as_str())
+        .collect();
 
     // Determine whether any type will be emitted as TypedDict so we know which imports to add.
     let output_style = dto.python_output_style();
     let any_typeddict = output_style == PythonDtoStyle::TypedDict
-        && api
-            .types
-            .iter()
-            .any(|t| t.has_default && t.is_return_type && !t.fields.is_empty() && !t.name.ends_with("Update"));
+        && api.types.iter().any(|t| {
+            t.has_default
+                && t.is_return_type
+                && !t.fields.is_empty()
+                && !t.name.ends_with("Update")
+                && !reexported_names.contains(t.name.as_str())
+        });
 
     // Check whether `Any` is needed: TypeRef::Json maps to `dict[str, Any]`.
     // Data enums now use their concrete type names (imported from native module),
@@ -131,9 +154,16 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             if typ.has_default && !typ.is_return_type {
                 local.insert(typ.name.as_str());
             }
-            // When output_style == TypedDict, return types are also emitted locally
-            // as TypedDicts — they must NOT be imported from the native module.
-            if output_style == PythonDtoStyle::TypedDict && typ.is_return_type {
+            // When output_style == TypedDict, return types are also emitted locally as TypedDicts —
+            // they must NOT be imported from the native module. This must mirror the emission loop,
+            // which only emits `has_default` types: a return type without `has_default` is a native
+            // pyclass that is imported, not redefined locally. Marking it local here without the
+            // `has_default` guard would leave it neither imported nor emitted (an undefined name).
+            if output_style == PythonDtoStyle::TypedDict
+                && typ.is_return_type
+                && typ.has_default
+                && !reexported_names.contains(typ.name.as_str())
+            {
                 local.insert(typ.name.as_str());
             }
         }
@@ -149,24 +179,21 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         .collect();
     native_type_imports.sort();
 
-    // Unit enums (needed_enums) must be imported at runtime (not just under TYPE_CHECKING)
-    // so aliases and monkey-patching code can reference them. Some needed enums are only
-    // reached transitively through data-enum variants and therefore are not present in
-    // native_type_imports, so derive runtime imports directly from needed_enums.
-    let mut runtime_native_imports: Vec<String> = needed_enums
-        .iter()
-        .filter(|n| !data_enum_names.contains(n.as_str()))
-        .cloned()
-        .collect();
+    // Enums (unit AND data) are imported at runtime from the native module and referenced by class
+    // name in field annotations (`model: EmbeddingModelType | None`) — the class users construct,
+    // not a flattened alias. A runtime import keeps the annotation resolvable. Some enums are reached
+    // only transitively through data-enum variants, so derive from needed_enums.
+    let mut runtime_native_imports: Vec<String> = needed_enums.iter().cloned().collect();
     runtime_native_imports.sort();
     runtime_native_imports.dedup();
     let runtime_native_import_names: AHashSet<&str> = runtime_native_imports.iter().map(String::as_str).collect();
     let mut type_checking_only_imports: Vec<String> = native_type_imports
         .iter()
-        .filter(|n| !runtime_native_import_names.contains(n.as_str()) && !data_enum_names.contains(n.as_str()))
+        .filter(|n| !runtime_native_import_names.contains(n.as_str()))
         .cloned()
         .collect();
     type_checking_only_imports.sort();
+    type_checking_only_imports.dedup();
 
     let mut out = String::with_capacity(4096);
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -204,8 +231,8 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             minijinja::context! { names => typing_names },
         ));
     }
-    // Runtime imports for unit enums — needed both for monkey-patching aliases and for
-    // users who import from options.py (e.g. `from sample_markdown.options import NewlineStyle`).
+    // Runtime imports for native enums (unit enums and data-enum classes) — referenced by config
+    // field annotations and importable by users (e.g. `from sample_markdown.options import NewlineStyle`).
     if !runtime_native_imports.is_empty() {
         // Blank line separates stdlib imports from the relative package import (isort E401).
         out.push('\n');
@@ -320,7 +347,11 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         }
 
         // Use TypedDict for return types when the output style is configured as TypedDict.
-        let use_typeddict = output_style == PythonDtoStyle::TypedDict && typ.is_return_type;
+        // A reexported-native return type is imported and referenced as the native pyclass — never
+        // emitted as a parallel TypedDict here (that second identity is what breaks field typing).
+        let use_typeddict = output_style == PythonDtoStyle::TypedDict
+            && typ.is_return_type
+            && !reexported_names.contains(typ.name.as_str());
 
         // Return types are defined authoritatively by the Rust native module as #[pyclass]
         // structs. Emitting a @dataclass with the same name creates a shadow class that breaks
@@ -332,7 +363,12 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         }
 
         if use_typeddict {
-            out.push_str(&gen_typeddict(typ, &enum_names, &data_enum_names));
+            out.push_str(&gen_typeddict(
+                typ,
+                &enum_names,
+                &data_enum_names,
+                &str_coercible_data_enums,
+            ));
         } else {
             out.push_str("@dataclass(frozen=True, slots=True)\n");
             out.push_str(&crate::backends::pyo3::template_env::render(
@@ -376,6 +412,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                     field.optional,
                     &enum_names,
                     &data_enum_names,
+                    &str_coercible_data_enums,
                     EmitContext::OptionsModule,
                 );
 
@@ -391,15 +428,20 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                     };
                     // When the effective default is None (e.g. Duration with Empty typed_default),
                     // add | None to the type hint so the annotation matches the default value.
-                    let hint = if default == "None" && !type_hint.contains('|') {
+                    // Append `| None` unless the hint already admits None. Checking for `None`
+                    // (not just any `|`) matters for str-coercible data enums whose hint is
+                    // already a union (`ChunkSizing | str`) but still needs `| None` for a None default.
+                    let hint = if default == "None" && !type_hint.contains("None") {
                         format!("{} | None", type_hint)
                     } else {
                         type_hint.clone()
                     };
                     (hint, default)
                 } else if field.optional {
-                    // If default is None but type is Named (not already Optional), add | None
-                    let final_hint = if !type_hint.contains('|') && matches!(&field.ty, TypeRef::Named(_)) {
+                    // If default is None but type is Named (not already Optional), add | None.
+                    // A str-coercible data enum's hint is `<Class> | str` (a union without None),
+                    // so guard on the absence of `None` rather than the absence of any `|`.
+                    let final_hint = if !type_hint.contains("None") && matches!(&field.ty, TypeRef::Named(_)) {
                         format!("{} | None", type_hint)
                     } else {
                         type_hint.clone()
@@ -409,7 +451,10 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                     let default = python_zero_value(&field.ty, &enum_names, &data_enum_names);
                     // When the zero value is None (e.g. data enum fields), add | None so the
                     // annotation matches — `dict[str, Any] = None` is a mypy type error.
-                    let hint = if default == "None" && !type_hint.contains('|') {
+                    // Append `| None` unless the hint already admits None. Checking for `None`
+                    // (not just any `|`) matters for str-coercible data enums whose hint is
+                    // already a union (`ChunkSizing | str`) but still needs `| None` for a None default.
+                    let hint = if default == "None" && !type_hint.contains("None") {
                         format!("{} | None", type_hint)
                     } else {
                         type_hint.clone()
@@ -448,233 +493,9 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         }
     }
 
-    // Emit union type aliases for data enums referenced by has_default types.
-    // These are tagged-union enums whose variants map to Python dataclasses or primitive types.
-    // Example: `Message = SystemMessage | UserMessage | AssistantMessage | ...`
-    let mut needed_data_enum_aliases: Vec<&crate::core::ir::EnumDef> = api
-        .enums
-        .iter()
-        .filter(|e| needed_enums.contains(&e.name) && data_enum_names.contains(e.name.as_str()))
-        .collect();
-    // Topological sort: emit enums that are referenced by other enums first.
-    // A data enum that appears in another data enum's variant fields must be
-    // defined before the referencing enum (e.g., ContentPart before UserContent).
-    let alias_names: AHashSet<&str> = needed_data_enum_aliases.iter().map(|e| e.name.as_str()).collect();
-    let refs_name = |e: &crate::core::ir::EnumDef, name: &str| -> bool {
-        e.variants
-            .iter()
-            .any(|v| v.fields.iter().any(|f| f.ty.references_named(name)))
-    };
-    needed_data_enum_aliases.sort_by(|a, b| {
-        let a_refs_b = refs_name(a, &b.name);
-        let b_refs_a = refs_name(b, &a.name);
-        if a_refs_b {
-            std::cmp::Ordering::Greater
-        } else if b_refs_a {
-            std::cmp::Ordering::Less
-        } else {
-            // Stable: enums with fewer cross-references among aliases go first
-            let a_deps = a
-                .variants
-                .iter()
-                .flat_map(|v| &v.fields)
-                .filter(|f| alias_names.iter().any(|n| f.ty.references_named(n)))
-                .count();
-            let b_deps = b
-                .variants
-                .iter()
-                .flat_map(|v| &v.fields)
-                .filter(|f| alias_names.iter().any(|n| f.ty.references_named(n)))
-                .count();
-            a_deps.cmp(&b_deps)
-        }
-    });
-    for enum_def in needed_data_enum_aliases {
-        let member_types: Vec<String> = enum_def
-            .variants
-            .iter()
-            .flat_map(|v| {
-                if v.fields.is_empty() {
-                    // Tag-only variant with no payload: represents a string literal on the wire.
-                    vec!["str".to_string()]
-                } else if v.fields.len() == 1 {
-                    // Single-field variant (positional or named): use the Python type of that field.
-                    vec![python_field_type(
-                        &v.fields[0].ty,
-                        v.fields[0].optional,
-                        &enum_names,
-                        &data_enum_names,
-                        EmitContext::OptionsModule,
-                    )]
-                } else {
-                    // Multi-field variant: emit a Python type per field, joined as a tuple-like union.
-                    v.fields
-                        .iter()
-                        .map(|f| python_field_type(&f.ty, f.optional, &enum_names, &data_enum_names, EmitContext::OptionsModule))
-                        .collect()
-                }
-            })
-            // Deduplicate while preserving order (e.g. two tag-only variants both map to `str`).
-            .fold(Vec::<String>::new(), |mut acc, t| {
-                if !acc.contains(&t) {
-                    acc.push(t);
-                }
-                acc
-            });
+    // Data enums are imported from the native module and referenced by their class name in the
+    // field annotations above — not redefined here as the old flattened union alias.
 
-        if member_types.is_empty() {
-            continue;
-        }
-
-        let doc = if !enum_def.doc.is_empty() {
-            let raw = doc_first_paragraph_joined(&enum_def.doc);
-            let first = sanitize_python_doc(&raw);
-            let content = if first.len() > 89 {
-                first[..89].to_string()
-            } else {
-                first
-            };
-            if content.ends_with(['.', '?', '!']) {
-                content
-            } else {
-                format!("{}.", content)
-            }
-        } else {
-            class_name_to_docstring(&enum_def.name)
-        };
-        out.push_str(&crate::backends::pyo3::template_env::render(
-            "data_enum_comment.jinja",
-            minijinja::context! { doc => &doc },
-        ));
-        out.push('\n');
-
-        if member_types.len() <= 3 {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "data_enum_single_line.jinja",
-                minijinja::context! {
-                    name => &enum_def.name,
-                    types => &member_types,
-                },
-            ));
-        } else {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "data_enum_multi_line_start.jinja",
-                minijinja::context! { name => &enum_def.name },
-            ));
-            out.push('\n');
-            for (i, ty) in member_types.iter().enumerate() {
-                let is_last = i >= member_types.len() - 1;
-                out.push_str(&crate::backends::pyo3::template_env::render(
-                    "data_enum_member.jinja",
-                    minijinja::context! {
-                        type => ty,
-                        is_last => is_last,
-                    },
-                ));
-            }
-            out.push_str(")\n\n");
-        }
-    }
-
-    out
-}
-
-/// Generate a `TypedDict` class for a return type.
-///
-/// TypedDict is emitted with `total=False` because all fields are optional at the
-/// call site — the caller may receive only a subset of keys.  Default values are
-/// not supported by TypedDict, so we only emit field name + type hint.
-///
-/// ```python
-/// class ParseOutput(TypedDict, total=False):
-///     """One-line doc."""
-///
-///     content: str | None
-///     tables: list[ExtractedTable]
-/// ```
-fn gen_typeddict(
-    typ: &crate::core::ir::TypeDef,
-    enum_names: &AHashSet<&str>,
-    data_enum_names: &AHashSet<&str>,
-) -> String {
-    let mut out = String::new();
-    out.push_str(&crate::backends::pyo3::template_env::render(
-        "typeddict_header.jinja",
-        minijinja::context! { name => &typ.name },
-    ));
-    let typeddict_doc = if !typ.doc.is_empty() {
-        let raw = doc_first_paragraph_joined(&typ.doc);
-        let first = sanitize_python_doc(&raw);
-        let content = if first.len() > 89 {
-            first[..89].to_string()
-        } else {
-            first
-        };
-        if content.ends_with(['.', '?', '!']) {
-            content
-        } else {
-            format!("{}.", content)
-        }
-    } else {
-        class_name_to_docstring(&typ.name)
-    };
-    out.push_str(&crate::backends::pyo3::template_env::render(
-        "class_docstring.jinja",
-        minijinja::context! { doc => &typeddict_doc },
-    ));
-    for field in binding_fields(&typ.fields) {
-        let type_hint = python_field_type(
-            &field.ty,
-            field.optional,
-            enum_names,
-            data_enum_names,
-            EmitContext::OptionsModule,
-        );
-        // Ensure Optional-like fields always include `| None`
-        let type_hint_with_none = if field.optional && !type_hint.contains('|') {
-            if matches!(&field.ty, crate::core::ir::TypeRef::Named(_)) {
-                format!("{} | None", type_hint)
-            } else {
-                type_hint
-            }
-        } else {
-            type_hint
-        };
-        let safe_name = crate::core::keywords::python_ident(&field.name);
-        if !field.doc.is_empty() {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "typeddict_field.jinja",
-                minijinja::context! {
-                    name => &safe_name,
-                    type_hint => &type_hint_with_none,
-                },
-            ));
-            out.push('\n');
-            let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
-            // A triple-quoted docstring that ends with `"` would produce `""""` (4 quotes),
-            // which Python parses as an empty string followed by a stray `"`.
-            // Add a trailing space to prevent the collision.
-            let safe_doc = if doc_line.ends_with('"') {
-                format!("{doc_line} ")
-            } else {
-                doc_line
-            };
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "typeddict_field_docstring.jinja",
-                minijinja::context! { doc => &safe_doc },
-            ));
-        } else {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "typeddict_field.jinja",
-                minijinja::context! {
-                    name => &safe_name,
-                    type_hint => &type_hint_with_none,
-                },
-            ));
-            out.push('\n');
-        }
-    }
-    out.push('\n');
     out
 }
 
@@ -683,6 +504,7 @@ pub(super) fn python_field_type(
     optional: bool,
     enum_names: &AHashSet<&str>,
     data_enum_names: &AHashSet<&str>,
+    str_coercible_data_enums: &AHashSet<&str>,
     context: EmitContext,
 ) -> String {
     use crate::core::ir::TypeRef;
@@ -692,23 +514,44 @@ pub(super) fn python_field_type(
             crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64 => "float".to_string(),
             _ => "int".to_string(),
         },
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "str".to_string(),
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "str".to_string(),
+        // A JSON value (serde_json::Value) is exposed as `dict[str, Any]`, matching the native
+        // module's type mapper. Mapping it to `str` instead made the options field disagree with
+        // the compiled config it is converted into (e.g. `paddle_ocr_config`, `additional`).
+        TypeRef::Json => "dict[str, Any]".to_string(),
         TypeRef::Bytes => "bytes".to_string(),
         TypeRef::Vec(inner) => {
             format!(
                 "list[{}]",
-                python_field_type(inner, false, enum_names, data_enum_names, context)
+                python_field_type(
+                    inner,
+                    false,
+                    enum_names,
+                    data_enum_names,
+                    str_coercible_data_enums,
+                    context
+                )
             )
         }
         TypeRef::Map(k, v) => format!(
             "dict[{}, {}]",
-            python_field_type(k, false, enum_names, data_enum_names, context),
-            python_field_type(v, false, enum_names, data_enum_names, context)
+            python_field_type(k, false, enum_names, data_enum_names, str_coercible_data_enums, context),
+            python_field_type(v, false, enum_names, data_enum_names, str_coercible_data_enums, context)
         ),
         TypeRef::Named(name) if data_enum_names.contains(name.as_str()) => match context {
-            // In options.py the data-enum type is defined locally as a union alias; use
-            // the bare name so it resolves to that alias rather than a native import.
-            EmitContext::OptionsModule => name.clone(),
+            // In options.py the bare name resolves to the data-enum class imported from the
+            // native module (under TYPE_CHECKING) — the same class users construct via
+            // `EmbeddingModelType.preset(...)`. Enums with a unit (tag-only) variant also
+            // accept a bare string tag (e.g. `output_format="native"`), so those are widened
+            // to `<Class> | str`; payload-only enums (e.g. EmbeddingModelType) accept only
+            // the class.
+            EmitContext::OptionsModule => {
+                if str_coercible_data_enums.contains(name.as_str()) {
+                    format!("{name} | str")
+                } else {
+                    name.clone()
+                }
+            }
             // In a _native.pyi stub the same bare name resolves to the PyO3 class
             // exported by the native extension — no qualification needed there either,
             // but the branch is kept separate to allow future divergence (e.g. prefixing).
@@ -721,7 +564,14 @@ pub(super) fn python_field_type(
         TypeRef::Optional(inner) => {
             return format!(
                 "{} | None",
-                python_field_type(inner, false, enum_names, data_enum_names, context)
+                python_field_type(
+                    inner,
+                    false,
+                    enum_names,
+                    data_enum_names,
+                    str_coercible_data_enums,
+                    context
+                )
             );
         }
         TypeRef::Unit => "None".to_string(),
@@ -778,7 +628,10 @@ fn typed_default_to_python(
                     crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64 => "0.0".to_string(),
                     _ => "0".to_string(),
                 },
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"".to_string(),
+                TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+                // A JSON field is `dict[str, Any]`; its zero value is None (the field-emitter then
+                // widens the annotation to `... | None`), not the empty string.
+                TypeRef::Json => "None".to_string(),
                 TypeRef::Bytes => "b\"\"".to_string(),
                 // Duration fields with Empty default are Option<u64> in the binding;
                 // use None so the core type's Default provides the real default value.
@@ -805,7 +658,9 @@ fn python_zero_value(
             crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64 => "0.0".to_string(),
             _ => "0".to_string(),
         },
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"".to_string(),
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+        // A JSON field is `dict[str, Any]`; its zero value is None (annotation widened to `| None`).
+        TypeRef::Json => "None".to_string(),
         TypeRef::Bytes => "b\"\"".to_string(),
         TypeRef::Vec(_) => "field(default_factory=list)".to_string(),
         TypeRef::Map(_, _) => "field(default_factory=dict)".to_string(),
@@ -870,99 +725,4 @@ pub(super) fn collect_named_types_filtered(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{EmitContext, python_field_type};
-    use crate::core::ir::{PrimitiveType, TypeRef};
-    use ahash::AHashSet;
-
-    fn make_sets<'a>(enum_names: &[&'a str], data_enum_names: &[&'a str]) -> (AHashSet<&'a str>, AHashSet<&'a str>) {
-        let enums: AHashSet<&'a str> = enum_names.iter().copied().collect();
-        let data_enums: AHashSet<&'a str> = data_enum_names.iter().copied().collect();
-        (enums, data_enums)
-    }
-
-    /// `Map<String, Named("ExtractionPattern")>` in OptionsModule context resolves to the
-    /// locally defined union type alias — bare, unqualified name.
-    #[test]
-    fn test_map_named_data_enum_options_module() {
-        let (enum_names, data_enum_names) = make_sets(&["ExtractionPattern"], &["ExtractionPattern"]);
-        let ty = TypeRef::Map(
-            Box::new(TypeRef::String),
-            Box::new(TypeRef::Named("ExtractionPattern".to_string())),
-        );
-        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::OptionsModule);
-        assert_eq!(result, "dict[str, ExtractionPattern]");
-    }
-
-    /// `Map<String, Named("ExtractionPattern")>` in NativeStub context resolves to the
-    /// native PyO3 class — also bare name (no `_native.` prefix needed in a .pyi file that
-    /// IS the native module).
-    #[test]
-    fn test_map_named_data_enum_native_stub() {
-        let (enum_names, data_enum_names) = make_sets(&["ExtractionPattern"], &["ExtractionPattern"]);
-        let ty = TypeRef::Map(
-            Box::new(TypeRef::String),
-            Box::new(TypeRef::Named("ExtractionPattern".to_string())),
-        );
-        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
-        assert_eq!(result, "dict[str, ExtractionPattern]");
-    }
-
-    /// `Vec<Named("Message")>` in OptionsModule context uses the bare union-alias name.
-    #[test]
-    fn test_vec_named_data_enum_options_module() {
-        let (enum_names, data_enum_names) = make_sets(&["Message"], &["Message"]);
-        let ty = TypeRef::Vec(Box::new(TypeRef::Named("Message".to_string())));
-        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::OptionsModule);
-        assert_eq!(result, "list[Message]");
-    }
-
-    /// `Vec<Named("Message")>` in NativeStub context uses the bare native-class name.
-    #[test]
-    fn test_vec_named_data_enum_native_stub() {
-        let (enum_names, data_enum_names) = make_sets(&["Message"], &["Message"]);
-        let ty = TypeRef::Vec(Box::new(TypeRef::Named("Message".to_string())));
-        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
-        assert_eq!(result, "list[Message]");
-    }
-
-    /// `Optional<Named("ExtractionPattern")>` in OptionsModule context appends `| None`.
-    #[test]
-    fn test_optional_named_data_enum_options_module() {
-        let (enum_names, data_enum_names) = make_sets(&["ExtractionPattern"], &["ExtractionPattern"]);
-        let ty = TypeRef::Optional(Box::new(TypeRef::Named("ExtractionPattern".to_string())));
-        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::OptionsModule);
-        assert_eq!(result, "ExtractionPattern | None");
-    }
-
-    /// `Optional<Named("ExtractionPattern")>` in NativeStub context appends `| None`.
-    #[test]
-    fn test_optional_named_data_enum_native_stub() {
-        let (enum_names, data_enum_names) = make_sets(&["ExtractionPattern"], &["ExtractionPattern"]);
-        let ty = TypeRef::Optional(Box::new(TypeRef::Named("ExtractionPattern".to_string())));
-        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
-        assert_eq!(result, "ExtractionPattern | None");
-    }
-
-    /// Plain (non-data) enum field always uses `EnumName | str` regardless of context.
-    #[test]
-    fn test_plain_enum_field_both_contexts() {
-        let (enum_names, data_enum_names) = make_sets(&["HeadingStyle"], &[]);
-        let ty = TypeRef::Named("HeadingStyle".to_string());
-        let options = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::OptionsModule);
-        let native = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
-        assert_eq!(options, "HeadingStyle | str");
-        assert_eq!(native, "HeadingStyle | str");
-    }
-
-    /// Primitive types are unaffected by context.
-    #[test]
-    fn test_primitive_unaffected_by_context() {
-        let (enum_names, data_enum_names) = make_sets(&[], &[]);
-        let ty = TypeRef::Primitive(PrimitiveType::Bool);
-        let options = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::OptionsModule);
-        let native = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
-        assert_eq!(options, "bool");
-        assert_eq!(native, "bool");
-    }
-}
+mod tests;

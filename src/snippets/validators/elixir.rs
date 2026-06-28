@@ -25,7 +25,7 @@ impl SnippetValidator for ElixirValidator {
         std::fs::write(&snippet_path, &snippet.code)?;
 
         let mut command = match level {
-            ValidationLevel::Syntax | ValidationLevel::Compile => {
+            ValidationLevel::Syntax | ValidationLevel::Compile | ValidationLevel::TypeCheck => {
                 let checker_path = dir.path().join("check.exs");
                 let checker = format!(
                     r#"path = "{}"

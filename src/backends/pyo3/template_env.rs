@@ -277,22 +277,6 @@ static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("class_docstring.jinja", include_str!("templates/class_docstring.jinja")),
     (
-        "data_enum_comment.jinja",
-        include_str!("templates/data_enum_comment.jinja"),
-    ),
-    (
-        "data_enum_single_line.jinja",
-        include_str!("templates/data_enum_single_line.jinja"),
-    ),
-    (
-        "data_enum_multi_line_start.jinja",
-        include_str!("templates/data_enum_multi_line_start.jinja"),
-    ),
-    (
-        "data_enum_member.jinja",
-        include_str!("templates/data_enum_member.jinja"),
-    ),
-    (
         "pyo3_capsule_signature.jinja",
         include_str!("templates/pyo3_capsule_signature.jinja"),
     ),

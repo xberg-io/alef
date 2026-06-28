@@ -27,7 +27,7 @@ impl SnippetValidator for RValidator {
         let path = source.path().to_string_lossy().to_string();
 
         let mut command = match level {
-            ValidationLevel::Syntax | ValidationLevel::Compile => {
+            ValidationLevel::Syntax | ValidationLevel::Compile | ValidationLevel::TypeCheck => {
                 let mut command = std::process::Command::new("Rscript");
                 command.args(["-e", &format!("parse(file = '{path}')")]);
                 command

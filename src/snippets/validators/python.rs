@@ -187,6 +187,15 @@ except SyntaxError as e:
                 command.args(["-m", "py_compile", &path]);
                 command
             }
+            // Static type-checking runs mypy in-process via `python -m mypy`, so the snippet is
+            // checked against the installed target package's type stubs. This is what catches
+            // dual-representation bugs (e.g. a config field typed against a flattened union alias
+            // rejecting the documented data-enum constructor) that `py_compile` cannot see.
+            ValidationLevel::TypeCheck => {
+                let mut command = std::process::Command::new(python);
+                command.args(["-m", "mypy", "--no-error-summary", "--no-color-output", &path]);
+                command
+            }
             ValidationLevel::Run => {
                 let mut command = std::process::Command::new(python);
                 command.arg(&path);
@@ -197,6 +206,13 @@ except SyntaxError as e:
         let (success, output) = run_command(&mut command, timeout_secs)?;
         if success {
             Ok((SnippetStatus::Pass, None))
+        } else if level == ValidationLevel::TypeCheck
+            && (output.contains("No module named mypy") || output.contains("No module named \"mypy\""))
+        {
+            // mypy is an optional dependency: when it is not importable in the active interpreter,
+            // report the snippet as `Unavailable` rather than a spurious failure, mirroring how a
+            // missing toolchain is surfaced for other languages.
+            Ok((SnippetStatus::Unavailable, Some("mypy not installed".to_string())))
         } else {
             Ok((SnippetStatus::Fail, Some(output)))
         }

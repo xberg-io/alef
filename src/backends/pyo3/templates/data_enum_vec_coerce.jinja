@@ -1,1 +1,1 @@
-        {{ name }}={% if optional %}([_rust.{{ enum_name }}(v) for v in {{ accessor }}] if {{ accessor }} is not None else None){% else %}[_rust.{{ enum_name }}(v) for v in {{ accessor }}]{% endif %},
+        {{ name }}={% if optional %}([v if isinstance(v, _rust.{{ enum_name }}) else _rust.{{ enum_name }}(v) for v in {{ accessor }}] if {{ accessor }} is not None else None){% else %}[v if isinstance(v, _rust.{{ enum_name }}) else _rust.{{ enum_name }}(v) for v in {{ accessor }}]{% endif %},

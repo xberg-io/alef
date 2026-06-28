@@ -29,7 +29,7 @@ impl SnippetValidator for ZigValidator {
             ValidationLevel::Syntax => {
                 command.arg("ast-check").arg(&file);
             }
-            ValidationLevel::Compile | ValidationLevel::Run => {
+            ValidationLevel::Compile | ValidationLevel::TypeCheck | ValidationLevel::Run => {
                 command.args(["build-exe", "-fno-emit-bin"]).arg(&file);
             }
         }
