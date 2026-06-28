@@ -107,23 +107,19 @@ fn validate_one(snippet: &Snippet, registry: &ValidatorRegistry, config: &Runner
     }
 
     let Some(validator) = registry.get(snippet.language) else {
-        return ValidationResult {
-            snippet: snippet.clone(),
-            status: SnippetStatus::Unavailable,
-            level: config.level,
-            message: Some(format!("no validator for {}", snippet.language)),
-            duration_ms: 0,
-        };
+        return unavailable_result(
+            snippet,
+            config,
+            format!("no validator for {}", snippet.language),
+        );
     };
 
     if !validator.is_available() {
-        return ValidationResult {
-            snippet: snippet.clone(),
-            status: SnippetStatus::Unavailable,
-            level: config.level,
-            message: Some(format!("{} toolchain not found", snippet.language)),
-            duration_ms: 0,
-        };
+        return unavailable_result(
+            snippet,
+            config,
+            format!("{} toolchain not found", snippet.language),
+        );
     }
 
     let effective_level = config.level.min(validator.max_level());
@@ -133,6 +129,10 @@ fn validate_one(snippet: &Snippet, registry: &ValidatorRegistry, config: &Runner
         Err(err) => (SnippetStatus::Error, Some(err.to_string())),
     };
     let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+    if status == SnippetStatus::Unavailable && config.level >= ValidationLevel::TypeCheck {
+        status = SnippetStatus::Error;
+    }
 
     if status == SnippetStatus::Fail
         && effective_level == ValidationLevel::Syntax
@@ -151,9 +151,87 @@ fn validate_one(snippet: &Snippet, registry: &ValidatorRegistry, config: &Runner
     }
 }
 
+fn unavailable_result(snippet: &Snippet, config: &RunnerConfig, message: String) -> ValidationResult {
+    ValidationResult {
+        snippet: snippet.clone(),
+        status: unavailable_status(config),
+        level: config.level,
+        message: Some(message),
+        duration_ms: 0,
+    }
+}
+
+fn unavailable_status(config: &RunnerConfig) -> SnippetStatus {
+    if config.level >= ValidationLevel::TypeCheck {
+        SnippetStatus::Error
+    } else {
+        SnippetStatus::Unavailable
+    }
+}
+
 fn skip_message(message: &str, reason: Option<&str>) -> String {
     match reason {
         Some(reason) if !reason.is_empty() => format!("{message}: {reason}"),
         _ => message.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::snippets::types::Language;
+    use std::path::PathBuf;
+
+    fn config(level: ValidationLevel) -> RunnerConfig {
+        RunnerConfig {
+            level,
+            parallelism: 1,
+            timeout_secs: 1,
+            fail_fast: false,
+        }
+    }
+
+    fn snippet(language: Language) -> Snippet {
+        Snippet {
+            id: None,
+            path: PathBuf::from("snippet.md"),
+            language,
+            title: None,
+            code: "value = 1".to_string(),
+            start_line: 1,
+            block_index: 0,
+            annotation: None,
+            metadata: Default::default(),
+        }
+    }
+
+    #[test]
+    fn unavailable_remains_nonfatal_for_syntax_level() {
+        assert_eq!(unavailable_status(&config(ValidationLevel::Syntax)), SnippetStatus::Unavailable);
+        assert_eq!(unavailable_status(&config(ValidationLevel::Compile)), SnippetStatus::Unavailable);
+    }
+
+    #[test]
+    fn unavailable_is_error_for_typecheck_or_stronger() {
+        assert_eq!(unavailable_status(&config(ValidationLevel::TypeCheck)), SnippetStatus::Error);
+        assert_eq!(unavailable_status(&config(ValidationLevel::Run)), SnippetStatus::Error);
+    }
+
+    #[test]
+    fn missing_validator_is_unavailable_for_syntax_level() {
+        let registry = ValidatorRegistry::new();
+        let result = validate_one(&snippet(Language::Unknown), &registry, &config(ValidationLevel::Syntax));
+        assert_eq!(result.status, SnippetStatus::Unavailable);
+    }
+
+    #[test]
+    fn missing_validator_is_error_for_typecheck_level() {
+        let registry = ValidatorRegistry::new();
+        let result = validate_one(
+            &snippet(Language::Unknown),
+            &registry,
+            &config(ValidationLevel::TypeCheck),
+        );
+        assert_eq!(result.status, SnippetStatus::Error);
     }
 }
