@@ -385,9 +385,10 @@ impl Pyo3BridgeGenerator {
                     format!("{}::from((*{}).clone())", n, p.name)
                 }
                 // Owned native serde struct (`is_ref == false`): build the native Python object
-                // from the owned core value directly (no deref). Mirrors the borrowed arm above.
+                // from the owned core value directly — move it in rather than cloning (the param
+                // is used once). Mirrors the borrowed arm above, which must clone out of the `&`.
                 (TypeRef::Named(n), false) if self.is_native_struct_param(n) => {
-                    format!("{}::from({}.clone())", n, p.name)
+                    format!("{}::from({})", n, p.name)
                 }
                 // Other Named params (enums, opaque/handle, excluded/unknown) keep the prior
                 // JSON-string representation.
@@ -413,11 +414,12 @@ impl Pyo3BridgeGenerator {
                 (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, &{})", p.name),
                 (TypeRef::Path, true) => format!("{}_str.as_str()", p.name),
                 // Known serde struct (borrowed or owned): the param-cloning preamble owns the
-                // cloned core value in `{name}_owned`; build the native Python object from it here.
+                // core value in `{name}_owned`; build the native Python object from it here.
                 // Owned params (`is_ref == false`, e.g. the by-value `ExtractInput` envelope) need
                 // the same marshalling — passing the raw `xberg::T` has no `IntoPyObject` (E0277).
+                // `{name}_owned` is owned by the closure and consumed once, so move it in.
                 (TypeRef::Named(n), _) if self.is_native_struct_param(n) => {
-                    format!("{}::from({}_owned.clone())", n, p.name)
+                    format!("{}::from({}_owned)", n, p.name)
                 }
                 (TypeRef::Named(_), true) => format!("{}_json.as_str()", p.name),
                 _ => p.name.clone(),

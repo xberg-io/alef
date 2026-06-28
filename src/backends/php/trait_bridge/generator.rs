@@ -73,10 +73,12 @@ impl PhpBridgeGenerator {
             // Borrowed params deref first; owned (by-value) params construct from the value
             // directly — `(*owned)` would not type-check (E0614).
             TypeRef::Named(n) if self.struct_param_types.contains(n.as_str()) => {
+                // Borrowed params must clone out of the `&`; owned params are moved in (the
+                // param — e.g. a by-value `ExtractInput` carrying document bytes — is used once).
                 let core_value = if p.is_ref {
                     format!("(*{}).clone()", p.name)
                 } else {
-                    format!("{}.clone()", p.name)
+                    p.name.clone()
                 };
                 format!(
                     "ext_php_rs::convert::IntoZval::into_zval(ext_php_rs::types::ZendClassObject::new({n}::from({core_value})), false).unwrap_or_default()"
