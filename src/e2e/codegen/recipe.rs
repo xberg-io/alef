@@ -144,6 +144,17 @@ impl<'a> ResolvedE2eCallRecipe<'a> {
             .is_some_and(|ty| ty.has_default)
     }
 
+    /// True when a `json_object` config should be materialized through the configured type.
+    pub fn should_materialize_json_object(&self, arg: &ArgMapping, value: &serde_json::Value) -> bool {
+        if arg.arg_type != "json_object" || self.options_type.is_none() {
+            return false;
+        }
+        if self.options_via == "from_json" {
+            return !value.is_null();
+        }
+        value.is_object() || (value.is_null() && arg.optional && self.json_object_arg_has_default(arg))
+    }
+
     /// Resolve the config type used to materialize a handle argument.
     ///
     /// Handle fixtures create an opaque owner before invoking the target call.

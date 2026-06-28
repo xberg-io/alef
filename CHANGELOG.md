@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   interfaces and skip re-declaring a bridge `clear_*` function that is already exposed as a registry
   function, so `rbs validate` no longer reports an undefined type or a duplicated method definition.
 
+- **e2e/dart**: resolve `config` JSON object helper types from compatible
+  call overrides so generated tests use concrete helpers such as
+  `createExtractionConfigFromJson`.
+
 - **wasm**: filter cfg-gated struct fields with the WASM backend's active feature set so
   inactive fields are omitted and active fields are generated consistently across structs,
   constructors, accessors, and conversions.

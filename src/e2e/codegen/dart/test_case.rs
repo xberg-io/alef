@@ -12,6 +12,8 @@ use super::assertions::{render_assertion_dart, render_streaming_assertion_dart, 
 use super::stubs::emit_test_backend;
 use super::values::{escape_dart, mime_from_extension, type_name_to_create_from_json_dart};
 
+const COMPATIBLE_OPTIONS_TYPE_LANGS: &[&str] = &["csharp", "c", "go", "java", "php", "python", "r"];
+
 pub(super) struct DartTestCaseContext<'a> {
     pub(super) e2e_config: &'a E2eConfig,
     pub(super) lang: &'a str,
@@ -48,7 +50,8 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
         &fixture.tags,
         &fixture.input,
     );
-    let call_recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
+    let call_recipe =
+        crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
     // Build per-call field resolver using the effective field sets for this call.
     let call_field_resolver = FieldResolver::new_with_dart_first_class(
         e2e_config.effective_fields(call_config),
@@ -123,7 +126,7 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
     //                               helper and pass the result as a named parameter `req:`.
     //   All other values (or absent) — existing behaviour (batch arrays, config objects,
     //   generic JSON arrays, or nothing).
-    let options_type: Option<&str> = call_recipe.options_type;
+    let options_type: Option<&str> = call_recipe.compatible_options_type(COMPATIBLE_OPTIONS_TYPE_LANGS);
     let options_via: &str = call_recipe.options_via;
 
     // Build argument list from fixture.input and resolved args (fixture.args or call_config.args).
