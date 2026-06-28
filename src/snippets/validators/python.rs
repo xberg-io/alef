@@ -209,9 +209,8 @@ except SyntaxError as e:
         } else if level == ValidationLevel::TypeCheck
             && (output.contains("No module named mypy") || output.contains("No module named \"mypy\""))
         {
-            // mypy is an optional dependency: when it is not importable in the active interpreter,
-            // report the snippet as `Unavailable` rather than a spurious failure, mirroring how a
-            // missing toolchain is surfaced for other languages.
+            // Report the tool-specific condition as `Unavailable`; the runner promotes unavailable
+            // results to errors when the requested validation level is `typecheck` or stronger.
             Ok((SnippetStatus::Unavailable, Some("mypy not installed".to_string())))
         } else {
             Ok((SnippetStatus::Fail, Some(output)))
