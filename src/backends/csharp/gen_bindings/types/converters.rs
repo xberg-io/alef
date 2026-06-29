@@ -86,3 +86,67 @@ pub(crate) fn gen_byte_array_to_int_array_converter(namespace: &str) -> String {
 
     out
 }
+
+/// Generate `JsonLeniency.cs`: a helper that strips unknown properties from a JSON
+/// object before deserialization, so payloads carrying extra fields still parse into
+/// types that do not declare them.
+pub(crate) fn gen_json_leniency(namespace: &str) -> String {
+    use crate::backends::csharp::template_env::render;
+
+    let mut out = csharp_file_header();
+    out.push_str("using System.Collections.Generic;\n");
+    out.push_str("using System.Text.Json;\n\n");
+
+    out.push_str(&render("namespace_decl.jinja", minijinja::context! { namespace }));
+    out.push('\n');
+
+    out.push_str("/// <summary>\n");
+    out.push_str("/// Utility for lenient JSON deserialization that ignores unknown properties.\n");
+    out.push_str("/// </summary>\n");
+    out.push_str("internal static class JsonLeniency\n");
+    out.push_str("{\n");
+    out.push_str("    /// <summary>\n");
+    out.push_str("    /// Remove unknown properties from a JSON object before deserialization, so JSON\n");
+    out.push_str("    /// carrying extra fields still parses into a type that does not declare them.\n");
+    out.push_str("    /// </summary>\n");
+    out.push_str("    /// <param name=\"json\">The JSON string to filter.</param>\n");
+    out.push_str("    /// <param name=\"knownProperties\">Set of property names that are known/allowed.</param>\n");
+    out.push_str("    /// <returns>A JSON string with unknown properties removed.</returns>\n");
+    out.push_str("    public static string FilterUnknownProperties(string json, HashSet<string> knownProperties)\n");
+    out.push_str("    {\n");
+    out.push_str("        if (string.IsNullOrEmpty(json) || json.Trim() == \"{}\" || json.Trim() == \"[]\" || json.Trim() == \"null\")\n");
+    out.push_str("        {\n");
+    out.push_str("            return json;\n");
+    out.push_str("        }\n\n");
+    out.push_str("        try\n");
+    out.push_str("        {\n");
+    out.push_str("            using var document = JsonDocument.Parse(json);\n");
+    out.push_str("            if (document.RootElement.ValueKind != JsonValueKind.Object)\n");
+    out.push_str("            {\n");
+    out.push_str("                return json;\n");
+    out.push_str("            }\n\n");
+    out.push_str("            using var stream = new System.IO.MemoryStream();\n");
+    out.push_str("            using var writer = new Utf8JsonWriter(stream);\n\n");
+    out.push_str("            writer.WriteStartObject();\n");
+    out.push_str("            foreach (var property in document.RootElement.EnumerateObject())\n");
+    out.push_str("            {\n");
+    out.push_str("                if (knownProperties.Contains(property.Name))\n");
+    out.push_str("                {\n");
+    out.push_str("                    writer.WritePropertyName(property.Name);\n");
+    out.push_str("                    property.Value.WriteTo(writer);\n");
+    out.push_str("                }\n");
+    out.push_str("            }\n");
+    out.push_str("            writer.WriteEndObject();\n");
+    out.push_str("            writer.Flush();\n\n");
+    out.push_str("            return System.Text.Encoding.UTF8.GetString(stream.ToArray());\n");
+    out.push_str("        }\n");
+    out.push_str("        catch\n");
+    out.push_str("        {\n");
+    out.push_str("            // If filtering fails, return the original JSON and let deserialization handle it.\n");
+    out.push_str("            return json;\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+
+    out
+}

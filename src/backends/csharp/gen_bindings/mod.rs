@@ -591,6 +591,15 @@ impl Backend for CsharpBackend {
             });
         }
 
+        // 7b. Generate the JsonLeniency helper (lenient deserialization that drops
+        // unknown properties). Always emitted so it is alef-owned rather than a
+        // hand-maintained support file in the package.
+        files.push(GeneratedFile {
+            path: base_path.join("JsonLeniency.cs"),
+            content: types::gen_json_leniency(&namespace),
+            generated_header: true,
+        });
+
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Csharp)?;
 
