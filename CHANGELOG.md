@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-06-29
+
 ### Fixed
 
 - **tests**: normalize docs-stage generated path assertions across Windows and Unix.
+- **java**: always generate `ByteArraySerializer.java`. The generated ObjectMapper registers
+  `new ByteArraySerializer()` unconditionally, but the class was only emitted when a record had a
+  non-optional `Bytes` field — leaving a dangling reference that fails to compile for packages
+  without one. It is now emitted unconditionally, matching `JsonUtil`.
 
 ## [0.30.0] - 2026-06-29
 

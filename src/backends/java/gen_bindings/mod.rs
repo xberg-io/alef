@@ -377,20 +377,16 @@ impl Backend for JavaBackend {
             }
         }
 
-        // 4a. Utility serializer for byte[] → JSON int-array (needed when any record
-        // has a non-optional Bytes field). Jackson's default byte[] serialiser emits
-        // base64, which Rust's serde Vec<u8> cannot accept. Emit the class once.
-        let needs_bytes_serializer = api
-            .types
-            .iter()
-            .any(|t| !t.is_opaque && t.fields.iter().any(|f| matches!(f.ty, TypeRef::Bytes)));
-        if needs_bytes_serializer {
-            files.push(GeneratedFile {
-                path: base_path.join("ByteArraySerializer.java"),
-                content: gen_byte_array_serializer(&package),
-                generated_header: true,
-            });
-        }
+        // 4a. Utility serializer for byte[] → JSON int-array. Jackson's default byte[]
+        // serialiser emits base64, which Rust's serde Vec<u8> cannot accept. The generated
+        // ObjectMapper registers `new ByteArraySerializer()` unconditionally, so emit the
+        // class unconditionally too (like JsonUtil below) to avoid a dangling reference when
+        // no record field is `Bytes`.
+        files.push(GeneratedFile {
+            path: base_path.join("ByteArraySerializer.java"),
+            content: gen_byte_array_serializer(&package),
+            generated_header: true,
+        });
 
         // 4a. JsonUtil class for centralized JSON deserialization
         files.push(GeneratedFile {
