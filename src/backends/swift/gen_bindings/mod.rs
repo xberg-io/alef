@@ -722,7 +722,18 @@ impl Backend for SwiftBackend {
         }
 
         // Emit Swift{Trait}Box.swift and ZSwiftPluginHelpers.swift for every FunctionParam bridge.
-        for box_file in boxes::emit_function_param_box_files(api, config, &rust_bridge_sources, &exclude_types) {
+        // For Box methods generated in RustBridge, exclude all non-primitive named types
+        // since they cannot be directly imported/used in the RustBridge module.
+        // These types will be marshalled as JSON strings at the trait boundary.
+        let mut box_exclude = exclude_types.clone();
+        for ty in &api.types {
+            // Exclude all non-opaque, non-trait types with serde (struct/record types)
+            // and all non-opaque types that are visible in the binding
+            if !ty.is_trait && !ty.is_opaque && ty.has_serde {
+                box_exclude.insert(ty.name.clone());
+            }
+        }
+        for box_file in boxes::emit_function_param_box_files(api, config, &rust_bridge_sources, &box_exclude) {
             files.push(box_file);
         }
 
@@ -753,7 +764,9 @@ impl Backend for SwiftBackend {
             base_path.join("Sources").join(&module_name)
         };
 
-        for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs, &exclude_types) {
+        for (filename, content) in
+            trait_bridge::gen_trait_bridge_files(&trait_bridge_configs, &box_exclude, &first_class_types)
+        {
             // Trait bridge protocol files (Swift{Trait}Bridge.swift and SwiftPluginBridge.swift)
             // go into the RustBridge target so they are accessible from Box classes in the same target.
             let path = rust_bridge_sources.join(&filename);

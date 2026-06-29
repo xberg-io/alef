@@ -21,12 +21,15 @@ use std::collections::HashSet;
 /// Generate Swift trait bridge protocol and adapter for outbound plugins.
 ///
 /// `exclude_types` is the set of types that are not visible in the generated Swift binding.
-/// These types are marshalled as JSON strings at the trait boundary.
+/// `first_class_types` is the set of types that are emitted as first-class structs (and thus
+/// only available in the Xberg module, not accessible from RustBridge trait bridge code).
+/// Both sets of types are marshalled as JSON strings at the trait boundary.
 ///
 /// Returns a list of (filename, content) tuples ready for emission.
 pub fn gen_trait_bridge_files(
     bridges: &[(String, &TraitBridgeConfig, &TypeDef)],
     exclude_types: &HashSet<String>,
+    first_class_types: &HashSet<String>,
 ) -> Vec<(String, String)> {
     let mut files = Vec::new();
 
@@ -56,7 +59,14 @@ pub fn gen_trait_bridge_files(
             continue;
         }
 
-        let content = gen_single_trait_bridge_file(trait_name, bridge_cfg, trait_def, exclude_types);
+        // Combine excluded types (internal) and first-class types (only in Xberg, not in RustBridge)
+        // Both sets should be marshalled as JSON strings in trait bridge protocols
+        let mut combined_exclude = exclude_types.clone();
+        for first_class in first_class_types {
+            combined_exclude.insert(first_class.clone());
+        }
+
+        let content = gen_single_trait_bridge_file(trait_name, bridge_cfg, trait_def, &combined_exclude);
         // Use the canonical protocol name as the filename base so the filename
         // stays in sync with the protocol declaration.
         let protocol = bridge_protocol_name(trait_name);
