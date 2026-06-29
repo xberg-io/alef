@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **docs**: add a template-driven docs stage for API, CLI, MCP, `llms.txt`, agent skills, and
+  snippet validation. Repos can configure generated reference output, required local templates for
+  `llms.txt` and grouped skill files, static Clap/rmcp source extraction, and docs-specific snippet
+  checks. Alef now warns on explicit skipped docs inputs such as missing configured sources or
+  unavailable snippet toolchains while avoiding noisy warnings for unset optional docs layers.
+
 - **snippets**: `typecheck` validation level. Ordered between `compile` and `run`, it statically
   type-checks a snippet without executing it, and for compiled languages without needing the native
   library. Each language runs its strict static checker: `python -m mypy`, `tsc --noEmit`,

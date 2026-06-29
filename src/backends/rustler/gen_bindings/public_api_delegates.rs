@@ -6,12 +6,14 @@ use ahash::AHashSet;
 use heck::ToSnakeCase;
 
 /// Build the Elixir behaviour module name for a plugin bridge's typed host surface.
-fn behaviour_module(app_module: &str, trait_name: &str) -> String {
-    if app_module.is_empty() {
-        format!("{trait_name}.Host")
-    } else {
-        format!("{app_module}.{trait_name}.Host")
-    }
+///
+/// This name is emitted as a *nested* `defmodule` inside `defmodule {AppModule}`, so it
+/// must be RELATIVE (`{Trait}.Host`). Qualifying it as `{AppModule}.{Trait}.Host` makes
+/// Elixir resolve it relative to the enclosing module, producing the doubly-nested
+/// `{AppModule}.{AppModule}.{Trait}.Host` — which also breaks every `{AppModule}.Native.*`
+/// reference in the surrounding wrapper bodies.
+fn behaviour_module(_app_module: &str, trait_name: &str) -> String {
+    format!("{trait_name}.Host")
 }
 
 /// Build the `@callback` typespec rows for a plugin bridge's typed host surface.

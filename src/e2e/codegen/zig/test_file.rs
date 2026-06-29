@@ -43,6 +43,26 @@ pub(super) fn render_test_file(
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
+    // Propagate the configured e2e environment to native code that reads it via getenv
+    // (e.g. SSRF allow-listing for the loopback mock server). Zig has no per-suite setup
+    // hook, so each test body calls allow_private_network() right after suppress_abort().
+    // The managed environment does not reach libc, so push each value through setenv.
+    if !e2e_config.env.is_empty() {
+        let _ = writeln!(
+            out,
+            "extern \"c\" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;"
+        );
+        let _ = writeln!(out, "fn allow_private_network() void {{");
+        let mut keys: Vec<&String> = e2e_config.env.keys().collect();
+        keys.sort();
+        for k in keys {
+            let v = &e2e_config.env[k];
+            let _ = writeln!(out, "    _ = setenv(\"{k}\", \"{v}\", 1);");
+        }
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+    }
+
     let _ = writeln!(out, "// E2e tests for category: {category}");
     let _ = writeln!(out);
 
@@ -278,6 +298,9 @@ fn render_test_fn(
     let _ = writeln!(out, "test \"{test_name}\" {{");
     let _ = writeln!(out, "    // {description}");
     let _ = writeln!(out, "    suppress_abort();");
+    if !e2e_config.env.is_empty() {
+        let _ = writeln!(out, "    allow_private_network();");
+    }
 
     // Visitor fixtures bypass the high-level `convert(html, options)` wrapper
     // and inline the FFI sequence so we can attach the generated visitor callbacks

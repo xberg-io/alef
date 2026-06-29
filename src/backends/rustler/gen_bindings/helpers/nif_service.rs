@@ -506,6 +506,12 @@ pub(in crate::backends::rustler::gen_bindings) fn collect_types_for_nif_derives(
 
     // Seed with types from method signatures
     for typ in api.types.iter().filter(|t| !t.is_trait) {
+        // Seed the owning type itself when it has receiver methods: gen_nif_method emits
+        // `obj: TypeName` for every non-opaque type with a receiver, so the binding struct
+        // must be defined even when the type does not appear in any function signature.
+        if !typ.is_opaque && typ.methods.iter().any(|m| m.receiver.is_some()) {
+            types.insert(typ.name.clone());
+        }
         for method in &typ.methods {
             collect_named_types_from_ref(&method.return_type, &mut types);
             for param in &method.params {

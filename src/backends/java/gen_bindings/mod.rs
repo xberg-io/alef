@@ -383,10 +383,10 @@ impl Backend for JavaBackend {
         let needs_bytes_serializer = api
             .types
             .iter()
-            .any(|t| !t.is_opaque && t.fields.iter().any(|f| !f.optional && matches!(f.ty, TypeRef::Bytes)));
+            .any(|t| !t.is_opaque && t.fields.iter().any(|f| matches!(f.ty, TypeRef::Bytes)));
         if needs_bytes_serializer {
             files.push(GeneratedFile {
-                path: base_path.join("ByteArrayToIntArraySerializer.java"),
+                path: base_path.join("ByteArraySerializer.java"),
                 content: gen_byte_array_serializer(&package),
                 generated_header: true,
             });

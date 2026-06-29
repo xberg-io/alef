@@ -97,12 +97,12 @@ pub(crate) fn gen_record_type(
         // reflows record components to a single line.
         let needs_non_null = !f.optional && matches!(&resolved_ty, TypeRef::Vec(_)) && !typ.has_serde;
 
-        // Non-optional Bytes fields (byte[]) must be serialised as a JSON array of
+        // Bytes fields (byte[]), optional or not, must be serialised as a JSON array of
         // integers, not as a base64 string. Jackson's default serialiser for byte[]
         // produces base64, but Rust's serde for Vec<u8> expects [n, n, …].
-        // @JsonSerialize(using = ByteArrayToIntArraySerializer.class) overrides the
+        // @JsonSerialize(using = ByteArraySerializer.class) overrides the
         // default Jackson behaviour for this field only.
-        let needs_bytes_int_serialize = !f.optional && matches!(&resolved_ty, TypeRef::Bytes);
+        let needs_bytes_int_serialize = matches!(&resolved_ty, TypeRef::Bytes);
 
         // Emit `@JsonProperty` in three cases:
         // 1. The field has an explicit `#[serde(rename = "...")]` attribute.
@@ -157,7 +157,7 @@ pub(crate) fn gen_record_type(
         // byte[] fields in input DTOs must round-trip as JSON int arrays so Rust's
         // serde Vec<u8> deserialiser accepts them.
         if needs_bytes_int_serialize {
-            decl.push_str("@JsonSerialize(using = ByteArrayToIntArraySerializer.class) ");
+            decl.push_str("@JsonSerialize(using = ByteArraySerializer.class) ");
         }
 
         // Java type annotations on a fully-qualified type (e.g. `java.nio.file.Path`)

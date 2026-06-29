@@ -1,0 +1,227 @@
+use super::*;
+use std::fs;
+
+#[test]
+fn docs_config_merges_workspace_and_crate_layers() {
+    let cfg = config_from_toml(
+        r#"
+[workspace]
+languages = ["python"]
+
+[workspace.docs]
+reference_output = "docs/reference"
+
+[workspace.docs.llms]
+template = "templates/llms.txt.jinja"
+
+[workspace.docs.skills]
+template_dir = "templates/skills"
+outputs = [".codex/skills"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.docs.llms]
+output = "llms.txt"
+adopt_existing = true
+"#,
+    );
+
+    let docs = cfg.docs.expect("docs config resolved");
+    assert_eq!(
+        docs.reference_output.as_deref(),
+        Some(std::path::Path::new("docs/reference"))
+    );
+    assert_eq!(
+        docs.llms.as_ref().and_then(|llms| llms.template.as_deref()),
+        Some(std::path::Path::new("templates/llms.txt.jinja"))
+    );
+    assert_eq!(
+        docs.llms.as_ref().and_then(|llms| llms.output.as_deref()),
+        Some(std::path::Path::new("llms.txt"))
+    );
+    assert!(docs.llms.unwrap().adopt_existing);
+    assert_eq!(
+        docs.skills.unwrap().outputs,
+        vec![std::path::PathBuf::from(".codex/skills")]
+    );
+}
+
+#[test]
+fn generate_docs_stage_renders_reference_llms_and_skills_from_templates() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("templates/skills/api")).unwrap();
+    fs::create_dir_all(root.join("templates/skills/cli")).unwrap();
+    fs::create_dir_all(root.join("templates/skills/mcp")).unwrap();
+    fs::create_dir_all(root.join("docs/snippets/python")).unwrap();
+
+    fs::write(
+        root.join("src/cli.rs"),
+        r#"
+        use clap::{Parser, Subcommand};
+        #[derive(Parser)]
+        #[command(name = "mylib", about = "My CLI")]
+        struct Cli {
+            #[command(subcommand)]
+            command: Commands,
+        }
+        #[derive(Subcommand)]
+        enum Commands {
+            /// Run the thing.
+            Run {
+                /// Input file
+                input: String,
+                /// Output file
+                #[arg(short, long, value_name = "FILE")]
+                output: Option<String>,
+            },
+        }
+        "#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/mcp.rs"),
+        r#"
+        struct Server;
+        #[tool_router]
+        impl Server {
+            #[tool(description = "Run MCP work", annotations(title = "Run Work", read_only_hint = true))]
+            async fn run_work(&self, Parameters(params): Parameters<crate::Params>) {}
+        }
+        "#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("templates/llms.txt.jinja"),
+        "Project {{ krate.name }} has {{ cli.commands | length }} CLI root and {{ mcp.tools | length }} MCP tools.\n{{ \"example.md\" | include_snippet(\"python\") }}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("templates/skills/api/SKILL.md.jinja"),
+        "# API Skill\n{% for ref in api_references %}- {{ ref.path }}\n{% endfor %}",
+    )
+    .unwrap();
+    fs::write(
+        root.join("templates/skills/cli/SKILL.md.jinja"),
+        "# CLI Skill\n{% for command in cli.commands %}- {{ command.path }}\n{% endfor %}",
+    )
+    .unwrap();
+    fs::write(
+        root.join("templates/skills/mcp/SKILL.md.jinja"),
+        "# MCP Skill\n{% for tool in mcp.tools %}- {{ tool.name }}\n{% endfor %}",
+    )
+    .unwrap();
+    fs::write(
+        root.join("docs/snippets/python/example.md"),
+        "```python\nprint('ok')\n```\n",
+    )
+    .unwrap();
+
+    let config = config_from_toml(
+        r#"
+[workspace]
+languages = ["python"]
+
+[workspace.docs.cli]
+sources = ["src/cli.rs"]
+
+[workspace.docs.mcp]
+sources = ["src/mcp.rs"]
+
+[workspace.docs.llms]
+template = "templates/llms.txt.jinja"
+
+[workspace.docs.skills]
+template_dir = "templates/skills"
+outputs = [".codex/skills"]
+
+[workspace.docs.snippets]
+dirs = ["docs/snippets"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+"#,
+    );
+    let api = make_minimal_api("1.0.0");
+
+    let files = generate_docs_stage(&api, &config, &[Language::Python], None, root).unwrap();
+    let paths = files
+        .iter()
+        .map(|file| file.path.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+
+    assert!(paths.contains(&"docs/reference/cli.md".to_string()));
+    assert!(paths.contains(&"docs/reference/mcp.md".to_string()));
+    assert!(paths.contains(&"docs/llms.txt".to_string()));
+    assert!(paths.contains(&".codex/skills/api/SKILL.md".to_string()));
+    assert!(paths.contains(&".codex/skills/cli/SKILL.md".to_string()));
+    assert!(paths.contains(&".codex/skills/mcp/SKILL.md".to_string()));
+
+    let llms = files
+        .iter()
+        .find(|file| file.path == std::path::PathBuf::from("docs/llms.txt"))
+        .unwrap();
+    assert!(llms.content.contains("Project mylib has 1 CLI root and 1 MCP tools"));
+    assert!(llms.content.contains("print('ok')"));
+    assert!(llms.content.contains("auto-generated by alef"));
+
+    let cli_doc = files
+        .iter()
+        .find(|file| file.path == std::path::PathBuf::from("docs/reference/cli.md"))
+        .unwrap();
+    assert!(cli_doc.content.starts_with("---\ntitle: \"CLI Reference\"\n---"));
+    assert!(
+        cli_doc
+            .content
+            .lines()
+            .take(10)
+            .any(|line| line.contains("auto-generated by alef"))
+    );
+    assert!(cli_doc.content.contains("`mylib run`"));
+    assert!(cli_doc.content.contains("`--output`"));
+
+    let api_doc = files
+        .iter()
+        .find(|file| file.path == std::path::PathBuf::from("docs/reference/api-python.md"))
+        .unwrap();
+    assert!(api_doc.content.starts_with("---\n"));
+    assert!(
+        api_doc
+            .content
+            .lines()
+            .take(10)
+            .any(|line| line.contains("auto-generated by alef"))
+    );
+}
+
+#[test]
+fn generate_docs_stage_rejects_unmanaged_llms_output_by_default() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    fs::create_dir_all(root.join("templates")).unwrap();
+    fs::create_dir_all(root.join("docs")).unwrap();
+    fs::write(root.join("templates/llms.txt.jinja"), "Generated {{ krate.name }}\n").unwrap();
+    fs::write(root.join("docs/llms.txt"), "human authored\n").unwrap();
+
+    let config = config_from_toml(
+        r#"
+[workspace]
+languages = ["python"]
+
+[workspace.docs.llms]
+template = "templates/llms.txt.jinja"
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+"#,
+    );
+    let api = make_minimal_api("1.0.0");
+
+    let err = generate_docs_stage(&api, &config, &[Language::Python], None, root).unwrap_err();
+    assert!(err.to_string().contains("not Alef-managed"));
+}

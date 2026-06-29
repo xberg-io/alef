@@ -576,15 +576,16 @@ impl Backend for CsharpBackend {
             });
         }
 
-        // 7. Generate ByteArrayToIntArrayConverter if any non-opaque type has non-optional Bytes fields.
-        // Non-optional byte[] fields must be serialized as JSON int arrays, not base64 strings.
+        // 7. Generate ByteArrayJsonConverter if any non-opaque type has Bytes fields.
+        // byte[] fields must be serialized as JSON int arrays, not base64 strings. The
+        // converter accepts byte[]? so it covers both optional and non-optional fields.
         let needs_byte_array_converter = api
             .types
             .iter()
-            .any(|t| !t.is_opaque && t.fields.iter().any(|f| !f.optional && matches!(f.ty, TypeRef::Bytes)));
+            .any(|t| !t.is_opaque && t.fields.iter().any(|f| matches!(f.ty, TypeRef::Bytes)));
         if needs_byte_array_converter {
             files.push(GeneratedFile {
-                path: base_path.join("ByteArrayToIntArrayConverter.cs"),
+                path: base_path.join("ByteArrayJsonConverter.cs"),
                 content: types::gen_byte_array_to_int_array_converter(&namespace),
                 generated_header: true,
             });

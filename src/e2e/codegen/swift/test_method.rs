@@ -407,7 +407,59 @@ pub(super) fn render_test_method(
     let fixture_root_type: Option<String> = swift_call_result_type(call_config);
     let fixture_resolver = field_resolver.with_swift_root_type(fixture_root_type);
 
+    // Build per-type exclusion maps from the Swift language config so that
+    // assertions referencing fields or types excluded from the Swift binding
+    // can be suppressed before `render_assertion` is called.
+    //
+    // `[languages.swift].exclude_fields` entries are in "TypeName.field_name" format.
+    // `[languages.swift].exclude_types`  entries are bare IR type names.
+    let swift_excluded_fields_by_type: HashMap<String, HashSet<String>> = config
+        .swift
+        .as_ref()
+        .map(|s| {
+            let mut map: HashMap<String, HashSet<String>> = HashMap::new();
+            for entry in &s.exclude_fields {
+                if let Some((type_name, field_name)) = entry.split_once('.') {
+                    map.entry(type_name.to_string())
+                        .or_default()
+                        .insert(field_name.to_string());
+                }
+            }
+            map
+        })
+        .unwrap_or_default();
+    let swift_excluded_types: HashSet<String> = config
+        .swift
+        .as_ref()
+        .map(|s| s.exclude_types.iter().cloned().collect())
+        .unwrap_or_default();
+
     for assertion in &fixture.assertions {
+        // Skip assertions whose field path traverses a field or resolves to a
+        // type that is excluded from the Swift binding.  This prevents compile
+        // errors like "value of type 'ExtractedDocumentRef' has no member
+        // 'extractedKeywords'" when a fixture assertion exercises a feature
+        // (e.g. keyword extraction) whose types are excluded from the Swift
+        // binding via `[languages.swift].exclude_types` /
+        // `[languages.swift].exclude_fields` in `alef.toml`.
+        if let Some(f) = assertion.field.as_deref() {
+            if !f.is_empty() {
+                let resolved_f = fixture_resolver.resolve(f);
+                if is_assertion_field_swift_excluded(
+                    resolved_f,
+                    fixture_resolver.swift_root_type().map(String::as_str),
+                    &swift_first_class_map.field_types,
+                    &swift_excluded_fields_by_type,
+                    &swift_excluded_types,
+                ) {
+                    let _ = writeln!(
+                        out,
+                        "        // skipped: field '{f}' references a field or type excluded from the Swift binding"
+                    );
+                    continue;
+                }
+            }
+        }
         let mut assertion_out = String::new();
         render_assertion(
             &mut assertion_out,
@@ -457,4 +509,72 @@ pub(super) fn render_test_method(
     }
 
     let _ = writeln!(out, "    }}");
+}
+
+/// Returns `true` when the assertion `field_path` traverses a field or resolves to a
+/// type that is excluded from the Swift binding.
+///
+/// Walks the dot/bracket-separated path segments through `field_types` (a map from owner
+/// type → field name → inner named type, populated in `build_swift_first_class_map`),
+/// starting from `root_type`.  At each segment it checks:
+///
+/// 1. Whether `(current_type, segment)` appears in `excluded_fields_by_type` (built
+///    from `[languages.swift].exclude_fields` entries of the form `"TypeName.field_name"`).
+/// 2. Whether the named type the segment advances into appears in `excluded_types` (built
+///    from `[languages.swift].exclude_types`).
+///
+/// As a fallback (used when `root_type` cannot be resolved — `swift_call_result_type`
+/// only returns a type when the call has an explicit `result_type` override), any path
+/// segment whose name matches the field part of *any* `exclude_fields` entry is also
+/// treated as excluded. The excluded leaf names in this binding (`extracted_keywords`,
+/// `internal_document`, `ocr_internal_document`, …) are unique to `ExtractedDocument`,
+/// so this name-based check does not over-skip in practice.
+///
+/// Returns `false` only when both exclusion maps are empty.
+fn is_assertion_field_swift_excluded(
+    field_path: &str,
+    root_type: Option<&str>,
+    field_types: &HashMap<String, HashMap<String, String>>,
+    excluded_fields_by_type: &HashMap<String, HashSet<String>>,
+    excluded_types: &HashSet<String>,
+) -> bool {
+    if excluded_fields_by_type.is_empty() && excluded_types.is_empty() {
+        return false;
+    }
+    // Split the field path on '.', '[', ']', discarding empty tokens and tokens
+    // that are pure numeric indices (e.g. "0" from "results[0].extracted_keywords").
+    let segments: Vec<&str> = field_path
+        .split(|c: char| c == '.' || c == '[' || c == ']')
+        .filter(|s| !s.is_empty() && !s.chars().all(|c: char| c.is_ascii_digit()))
+        .collect();
+    // Name-based fallback: any segment matching an excluded field leaf name.
+    for segment in &segments {
+        if excluded_fields_by_type.values().any(|fields| fields.contains(*segment)) {
+            return true;
+        }
+    }
+    // Type-aware walk (precise when `root_type` is known).
+    let mut current_type: Option<String> = root_type.map(|s| s.to_string());
+    for segment in segments {
+        let Some(owner_str) = current_type.as_deref() else {
+            break;
+        };
+        // 1. Explicitly excluded (owner_type, field_name) pair.
+        if excluded_fields_by_type
+            .get(owner_str)
+            .is_some_and(|fields| fields.contains(segment))
+        {
+            return true;
+        }
+        // Advance the type cursor to the named type that `segment` leads into.
+        let next: Option<String> = field_types.get(owner_str).and_then(|m| m.get(segment).cloned());
+        // 2. The resolved target type is excluded from the Swift binding.
+        if let Some(ref next_type) = next {
+            if excluded_types.contains(next_type.as_str()) {
+                return true;
+            }
+        }
+        current_type = next;
+    }
+    false
 }

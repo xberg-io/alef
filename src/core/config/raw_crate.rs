@@ -23,7 +23,7 @@ use super::languages::{
     RubyConfig, SwiftConfig, WasmConfig, ZigConfig,
 };
 use super::output::{
-    BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
+    BuildCommandConfig, CleanConfig, DocsConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
     ScaffoldConfig, SetupConfig, TestConfig, UpdateConfig,
 };
 use super::package_metadata::PackageMetadataConfig;
@@ -241,6 +241,8 @@ pub struct RawCrateConfig {
     pub package_metadata: Option<PackageMetadataConfig>,
     #[serde(default)]
     pub readme: Option<ReadmeConfig>,
+    #[serde(default)]
+    pub docs: Option<DocsConfig>,
     #[serde(default)]
     pub custom_files: HashMap<String, Vec<PathBuf>>,
     #[serde(default)]

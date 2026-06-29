@@ -58,7 +58,7 @@ pub(super) fn build_args_and_setup(
     // positional argument layout, or can be safely dropped.
     let arg_has_emission = |arg: &crate::e2e::config::ArgMapping| -> bool {
         let val = if arg.field == "input" {
-            Some(input)
+            Some(input.get("extract_input").unwrap_or(input))
         } else {
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             input.get(field)
@@ -243,7 +243,7 @@ pub(super) fn build_args_and_setup(
         }
 
         let val = if arg.field == "input" {
-            Some(input)
+            Some(input.get("extract_input").unwrap_or(input))
         } else {
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             input.get(field)

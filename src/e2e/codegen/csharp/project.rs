@@ -82,6 +82,24 @@ pub(super) fn render_test_setup(
     if needs_mock_server {
         out.push_str("    private static Process? _mockServer;\n\n");
     }
+    // When env vars are configured, emit a libc `setenv` P/Invoke plus a `SetNativeEnv`
+    // helper. Managed `Environment.SetEnvironmentVariable` does not reliably propagate to
+    // the native `getenv` the underlying FFI library reads (e.g. SSRF allow-listing for
+    // loopback mock-server URLs), so push the value through the C runtime as well.
+    if !env.is_empty() {
+        out.push_str("    // libc setenv — Environment.SetEnvironmentVariable does not reliably propagate to the\n");
+        out.push_str("    // native getenv the underlying library reads, so set it through the C runtime directly.\n");
+        out.push_str("    [System.Runtime.InteropServices.DllImport(\"libc\", SetLastError = true)]\n");
+        out.push_str("    private static extern int setenv(string name, string value, int overwrite);\n\n");
+        out.push_str("    private static void SetNativeEnv(string name, string value)\n");
+        out.push_str("    {\n");
+        out.push_str("        Environment.SetEnvironmentVariable(name, value);\n");
+        out.push_str("        if (!OperatingSystem.IsWindows())\n");
+        out.push_str("        {\n");
+        out.push_str("            try { setenv(name, value, 1); } catch { }\n");
+        out.push_str("        }\n");
+        out.push_str("    }\n\n");
+    }
     out.push_str("    [ModuleInitializer]\n");
     out.push_str("    internal static void Init()\n");
     out.push_str("    {\n");
@@ -96,10 +114,7 @@ pub(super) fn render_test_setup(
                 out,
                 "        if (Environment.GetEnvironmentVariable(\"{key}\") == null) {{"
             );
-            let _ = writeln!(
-                out,
-                "            Environment.SetEnvironmentVariable(\"{key}\", \"{value}\");"
-            );
+            let _ = writeln!(out, "            SetNativeEnv(\"{key}\", \"{value}\");");
             out.push_str("        }\n");
         }
         out.push('\n');
@@ -186,6 +201,9 @@ mod tests {
 
         // Should not contain SetEnvironmentVariable calls for empty env
         assert!(!output.contains("Environment.SetEnvironmentVariable("));
+        // The libc setenv P/Invoke is only emitted when env vars are configured.
+        assert!(!output.contains("private static extern int setenv("));
+        assert!(!output.contains("SetNativeEnv"));
     }
 
     #[test]
@@ -195,9 +213,13 @@ mod tests {
 
         let output = render_test_setup(false, "fixtures", "FixtureE2E", &env);
 
-        // Verify null-check pattern: if null, set
+        // Verify null-check pattern: if null, set via the native-aware helper.
         assert!(output.contains("if (Environment.GetEnvironmentVariable(\"TEST_VAR\") == null)"));
-        assert!(output.contains("Environment.SetEnvironmentVariable(\"TEST_VAR\", \"test_value\");"));
+        assert!(output.contains("SetNativeEnv(\"TEST_VAR\", \"test_value\");"));
+        // The libc setenv P/Invoke and helper are emitted when env vars are present.
+        assert!(output.contains("[System.Runtime.InteropServices.DllImport(\"libc\", SetLastError = true)]"));
+        assert!(output.contains("private static extern int setenv(string name, string value, int overwrite);"));
+        assert!(output.contains("private static void SetNativeEnv(string name, string value)"));
     }
 
     #[test]

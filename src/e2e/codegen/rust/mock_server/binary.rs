@@ -19,8 +19,8 @@ const BINARY_INTRO_SOURCE: &str = r####"//
 use std::collections::HashMap;
 use std::io::{self, BufRead};
 use std::net::SocketAddr;
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use axum::Router;
 use axum::body::Body;
@@ -247,6 +247,14 @@ async fn main() {
     let fixtures_dir_arg = std::env::args().nth(1).unwrap_or_else(|| "../../fixtures".to_string());
     let fixtures_dir = Path::new(&fixtures_dir_arg);
 
+    // Resolve the test-documents corpus served as an HTTP fallback. Prefer the
+    // explicit env var; otherwise use the `test_documents` sibling of the fixtures dir.
+    let docs_dir = std::env::var_os("ALEF_TEST_DOCUMENTS_DIR")
+        .map(PathBuf::from)
+        .or_else(|| fixtures_dir.parent().map(|parent| parent.join("test_documents")))
+        .filter(|dir| dir.is_dir());
+    let _ = DOCS_DIR.set(docs_dir);
+
     let loaded = load_routes(fixtures_dir);
     eprintln!("mock-server: loaded {} shared routes from {}", loaded.shared.len(), fixtures_dir.display());
 
@@ -339,6 +347,66 @@ async fn main() {
         let mut lines = stdin.lock().lines();
         while lines.next().is_some() {}
     }
+}
+
+// ---------------------------------------------------------------------------
+// Test-document HTTP fallback
+// ---------------------------------------------------------------------------
+
+/// Directory holding the test-document corpus, resolved once at startup.
+static DOCS_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Map a file extension to the MIME type the extraction core expects for it.
+fn content_type_for(path: &Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+        Some("txt") => "text/plain",
+        Some("md") => "text/markdown",
+        Some("csv") => "text/csv",
+        Some("html" | "htm") => "text/html",
+        Some("json") => "application/json",
+        Some("xml") => "application/xml",
+        Some("pdf") => "application/pdf",
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        Some("hwpx") => "application/hwp+zip",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("zip") => "application/zip",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Resolve `request_path` against the test-documents directory and serve the file
+/// if it exists. Returns `None` when no docs dir is configured or the file is
+/// missing, so the caller can fall through to a 404.
+///
+/// Language suites that ingest documents over HTTP (e.g. Node) request
+/// `/<rel>/<file>` against the shared server; these paths are not fixture routes,
+/// so the router resolves them here against the test-documents directory and
+/// serves the bytes with an extension-derived content-type. Suites that pass
+/// local file paths (Python, Go, Rust) never hit this.
+fn serve_test_document(request_path: &str) -> Option<Response> {
+    let docs_dir = DOCS_DIR.get()?.as_ref()?;
+    let relative = request_path.trim_start_matches('/');
+    if relative.is_empty() {
+        return None;
+    }
+    // Guard against path traversal: reject any `..` component.
+    if relative.split('/').any(|segment| segment == "..") {
+        return None;
+    }
+    let candidate = docs_dir.join(relative);
+    let bytes = std::fs::read(&candidate).ok()?;
+    Some(
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", content_type_for(&candidate))
+            .body(Body::from(bytes))
+            .unwrap()
+            .into_response(),
+    )
 }
 "####;
 

@@ -242,6 +242,14 @@ pub fn generators_for(languages: &[String]) -> Vec<Box<dyn E2eCodegen>> {
 pub(crate) fn resolve_field<'a>(input: &'a serde_json::Value, field_path: &str) -> &'a serde_json::Value {
     // "input" with no subpath means "the entire input object".
     if field_path == "input" {
+        // New fixture schema wraps the call input DTO under `extract_input`
+        // alongside a sibling `mock_responses` array (so a single fixture can both
+        // declare the input and configure the mock server). Unwrap it so the arg
+        // resolves to the actual DTO. Flat fixtures — where `input` *is* the DTO —
+        // have no `extract_input` key and are returned unchanged.
+        if let Some(inner) = input.get("extract_input") {
+            return inner;
+        }
         return input;
     }
     let path = field_path.strip_prefix("input.").unwrap_or(field_path);

@@ -185,7 +185,7 @@ pub fn render_test_file(
                 cc.args.iter().any(|arg| {
                     let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
                     let val = if field == "input" {
-                        Some(&f.input)
+                        Some(f.input.get("extract_input").unwrap_or(&f.input))
                     } else {
                         f.input.get(field)
                     };
@@ -284,7 +284,7 @@ pub fn render_test_file(
                 if lang == "node" && arg.arg_type == "json_object" {
                     let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
                     let val = if field == "input" {
-                        Some(&fixture.input)
+                        Some(fixture.input.get("extract_input").unwrap_or(&fixture.input))
                     } else {
                         fixture.input.get(field)
                     };

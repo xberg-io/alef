@@ -22,7 +22,7 @@ use super::languages::{
     WasmConfig, ZigConfig,
 };
 use super::output::{
-    BuildCommandConfig, CitationConfig, CleanConfig, GeneratedHeaderConfig, LintConfig, OutputTemplate,
+    BuildCommandConfig, CitationConfig, CleanConfig, DocsConfig, GeneratedHeaderConfig, LintConfig, OutputTemplate,
     PrecommitConfig, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
 };
 use super::package_metadata::PackageMetadataConfig;
@@ -246,6 +246,11 @@ pub struct WorkspaceConfig {
     /// CITATION.cff (if any) only has its `version:` line updated.
     #[serde(default)]
     pub citation: Option<CitationConfig>,
+
+    /// Default template-driven docs generation config. Per-crate `[crates.docs]`
+    /// values override this field-by-field.
+    #[serde(default)]
+    pub docs: Option<DocsConfig>,
 }
 
 #[cfg(test)]

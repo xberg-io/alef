@@ -99,9 +99,9 @@ pub(crate) enum Commands {
         /// Comma-separated list of languages.
         #[arg(long, value_delimiter = ',')]
         lang: Option<Vec<String>>,
-        /// Output directory (default: docs/reference).
-        #[arg(long, default_value = "docs/reference")]
-        output: String,
+        /// Override reference output directory.
+        #[arg(long)]
+        output: Option<String>,
     },
     /// Sync version from Cargo.toml to all package manifests.
     ///

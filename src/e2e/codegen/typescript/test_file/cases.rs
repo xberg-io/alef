@@ -379,7 +379,7 @@ pub(super) fn has_later_arg_value(args: &[ArgMapping], from_idx: usize, input: &
     args[from_idx..].iter().any(|arg| {
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = if field == "input" {
-            Some(input)
+            Some(input.get("extract_input").unwrap_or(input))
         } else {
             input.get(field)
         };
@@ -395,7 +395,7 @@ pub(super) fn has_bytes_file_reads(input: &serde_json::Value, args: &[ArgMapping
         }
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = if field == "input" {
-            Some(input)
+            Some(input.get("extract_input").unwrap_or(input))
         } else {
             input.get(field)
         };

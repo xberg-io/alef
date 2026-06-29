@@ -1,11 +1,11 @@
 {%- if native_return_binding %}
 {{ indent }}// Native-object return: the binding struct's `TryConvert` accepts the host's native wrapped
 {{ indent }}// object (and still a Hash/JSON via `to_json`); `From<{{ native_return_binding }}>` yields core.
-{%- if has_error %}
+{% if has_error %}
 {{ indent }}<{{ native_return_binding }} as magnus::TryConvert>::try_convert(val)
 {{ indent }}    .map(Into::into)
 {{ indent }}    .map_err(|e| {{ err_convert }})
-{%- else %}
+{% else %}
 {{ indent }}<{{ native_return_binding }} as magnus::TryConvert>::try_convert(val).map(Into::into).unwrap_or_default()
 {%- endif %}
 {%- elif needs_json %}

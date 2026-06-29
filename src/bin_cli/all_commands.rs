@@ -406,10 +406,11 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     }
                 }
 
-                eprintln!("Generating API docs...");
+                eprintln!("Generating docs...");
                 let docs_api = pipeline::extract(resolved_cfg, config_path, false)?;
                 let doc_languages = resolve_doc_languages(resolved_cfg, None)?;
-                let doc_files = crate::docs::generate_docs(&docs_api, resolved_cfg, &doc_languages, "docs/reference")?;
+                let doc_files =
+                    crate::docs::generate_docs_stage(&docs_api, resolved_cfg, &doc_languages, None, &base_dir)?;
                 let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;
                 for file in &doc_files {
                     current_gen_paths.insert(base_dir.join(&file.path));

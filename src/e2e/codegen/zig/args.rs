@@ -96,7 +96,7 @@ pub(super) fn build_args_and_setup(
         // `input.get("input")` returns `None` and we fall through to `"{}"`,
         // which the FFI rejects as a deserialization error.
         let val = if field.is_empty() || field == "input" {
-            Some(input)
+            Some(input.get("extract_input").unwrap_or(input))
         } else {
             input.get(field)
         };

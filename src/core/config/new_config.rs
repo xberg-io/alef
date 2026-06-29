@@ -308,6 +308,7 @@ impl NewAlefConfig {
                 krate.package_metadata.as_ref(),
             ),
             readme: krate.readme.clone(),
+            docs: super::output::DocsConfig::merge(ws.docs.as_ref(), krate.docs.as_ref()),
             custom_files: krate.custom_files.clone(),
             custom_modules: krate.custom_modules.clone(),
             custom_registrations: krate.custom_registrations.clone(),

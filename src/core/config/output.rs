@@ -210,6 +210,283 @@ pub struct ReadmeConfig {
     pub targets: HashMap<String, JsonValue>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct DocsConfig {
+    /// Directory for generated API/CLI/MCP reference markdown. Defaults to
+    /// `docs/reference` when unset.
+    #[serde(default)]
+    pub reference_output: Option<PathBuf>,
+    /// Static extraction config for Clap-based CLI reference docs.
+    #[serde(default)]
+    pub cli: Option<DocsSourceConfig>,
+    /// Static extraction config for rmcp-style MCP reference docs.
+    #[serde(default)]
+    pub mcp: Option<DocsSourceConfig>,
+    /// Template-rendered llms.txt output.
+    #[serde(default)]
+    pub llms: Option<DocsLlmsConfig>,
+    /// Template-rendered agent skill outputs.
+    #[serde(default)]
+    pub skills: Option<DocsSkillsConfig>,
+    /// Snippet discovery and validation config used by docs templates.
+    #[serde(default)]
+    pub snippets: Option<DocsSnippetsConfig>,
+}
+
+impl DocsConfig {
+    #[must_use]
+    pub fn merge(workspace: Option<&Self>, krate: Option<&Self>) -> Option<Self> {
+        if workspace.is_none() && krate.is_none() {
+            return None;
+        }
+        Some(Self {
+            reference_output: krate
+                .and_then(|cfg| cfg.reference_output.clone())
+                .or_else(|| workspace.and_then(|cfg| cfg.reference_output.clone())),
+            cli: DocsSourceConfig::merge(
+                workspace.and_then(|cfg| cfg.cli.as_ref()),
+                krate.and_then(|cfg| cfg.cli.as_ref()),
+            ),
+            mcp: DocsSourceConfig::merge(
+                workspace.and_then(|cfg| cfg.mcp.as_ref()),
+                krate.and_then(|cfg| cfg.mcp.as_ref()),
+            ),
+            llms: DocsLlmsConfig::merge(
+                workspace.and_then(|cfg| cfg.llms.as_ref()),
+                krate.and_then(|cfg| cfg.llms.as_ref()),
+            ),
+            skills: DocsSkillsConfig::merge(
+                workspace.and_then(|cfg| cfg.skills.as_ref()),
+                krate.and_then(|cfg| cfg.skills.as_ref()),
+            ),
+            snippets: DocsSnippetsConfig::merge(
+                workspace.and_then(|cfg| cfg.snippets.as_ref()),
+                krate.and_then(|cfg| cfg.snippets.as_ref()),
+            ),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct DocsSourceConfig {
+    /// Enable this reference extractor. Defaults to true when the table exists.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// Rust source files to parse for this reference surface. When empty, Alef
+    /// falls back to the crate source list.
+    #[serde(default)]
+    pub sources: Vec<PathBuf>,
+    /// Output markdown file. Relative paths are resolved from the repository root.
+    /// When unset, Alef writes into `reference_output`.
+    #[serde(default)]
+    pub output: Option<PathBuf>,
+    /// Allow the first render to replace an existing unmanaged output file.
+    /// Defaults to false to avoid clobbering hand-authored CLI/MCP docs.
+    #[serde(default)]
+    pub adopt_existing: bool,
+}
+
+impl DocsSourceConfig {
+    #[must_use]
+    pub fn merge(workspace: Option<&Self>, krate: Option<&Self>) -> Option<Self> {
+        if workspace.is_none() && krate.is_none() {
+            return None;
+        }
+        let sources = krate
+            .filter(|cfg| !cfg.sources.is_empty())
+            .map(|cfg| cfg.sources.clone())
+            .or_else(|| {
+                workspace
+                    .filter(|cfg| !cfg.sources.is_empty())
+                    .map(|cfg| cfg.sources.clone())
+            })
+            .unwrap_or_default();
+        Some(Self {
+            enabled: krate
+                .and_then(|cfg| cfg.enabled)
+                .or_else(|| workspace.and_then(|cfg| cfg.enabled)),
+            sources,
+            output: krate
+                .and_then(|cfg| cfg.output.clone())
+                .or_else(|| workspace.and_then(|cfg| cfg.output.clone())),
+            adopt_existing: krate
+                .map(|cfg| cfg.adopt_existing)
+                .unwrap_or_else(|| workspace.map(|cfg| cfg.adopt_existing).unwrap_or(false)),
+        })
+    }
+
+    #[must_use]
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.unwrap_or(true)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct DocsLlmsConfig {
+    /// Minijinja template path for llms.txt. Required when this table is present.
+    #[serde(default)]
+    pub template: Option<PathBuf>,
+    /// Output path. Defaults to `docs/llms.txt`.
+    #[serde(default)]
+    pub output: Option<PathBuf>,
+    /// Allow the first render to replace an existing unmanaged output file.
+    /// Defaults to false to avoid clobbering hand-authored llms.txt files.
+    #[serde(default)]
+    pub adopt_existing: bool,
+}
+
+impl DocsLlmsConfig {
+    #[must_use]
+    pub fn merge(workspace: Option<&Self>, krate: Option<&Self>) -> Option<Self> {
+        if workspace.is_none() && krate.is_none() {
+            return None;
+        }
+        Some(Self {
+            template: krate
+                .and_then(|cfg| cfg.template.clone())
+                .or_else(|| workspace.and_then(|cfg| cfg.template.clone())),
+            output: krate
+                .and_then(|cfg| cfg.output.clone())
+                .or_else(|| workspace.and_then(|cfg| cfg.output.clone())),
+            adopt_existing: krate
+                .map(|cfg| cfg.adopt_existing)
+                .unwrap_or_else(|| workspace.map(|cfg| cfg.adopt_existing).unwrap_or(false)),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct DocsSkillsConfig {
+    /// Base directory for skill templates. When `templates` is empty, Alef expects
+    /// `api/SKILL.md.jinja`, `cli/SKILL.md.jinja`, and `mcp/SKILL.md.jinja`
+    /// below this directory.
+    #[serde(default)]
+    pub template_dir: Option<PathBuf>,
+    /// Agent skill roots to write into, for example `.codex/skills`.
+    #[serde(default)]
+    pub outputs: Vec<PathBuf>,
+    /// Explicit skill templates keyed by skill group.
+    #[serde(default)]
+    pub templates: HashMap<String, DocsSkillTemplateConfig>,
+    /// Allow the first render to replace existing unmanaged skill files.
+    /// Defaults to false to avoid clobbering hand-authored skills.
+    #[serde(default)]
+    pub adopt_existing: bool,
+}
+
+impl DocsSkillsConfig {
+    #[must_use]
+    pub fn merge(workspace: Option<&Self>, krate: Option<&Self>) -> Option<Self> {
+        if workspace.is_none() && krate.is_none() {
+            return None;
+        }
+        let outputs = krate
+            .filter(|cfg| !cfg.outputs.is_empty())
+            .map(|cfg| cfg.outputs.clone())
+            .or_else(|| {
+                workspace
+                    .filter(|cfg| !cfg.outputs.is_empty())
+                    .map(|cfg| cfg.outputs.clone())
+            })
+            .unwrap_or_default();
+        let mut templates = workspace.map(|cfg| cfg.templates.clone()).unwrap_or_default();
+        if let Some(krate) = krate {
+            templates.extend(krate.templates.clone());
+        }
+        Some(Self {
+            template_dir: krate
+                .and_then(|cfg| cfg.template_dir.clone())
+                .or_else(|| workspace.and_then(|cfg| cfg.template_dir.clone())),
+            outputs,
+            templates,
+            adopt_existing: krate
+                .map(|cfg| cfg.adopt_existing)
+                .unwrap_or_else(|| workspace.map(|cfg| cfg.adopt_existing).unwrap_or(false)),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct DocsSkillTemplateConfig {
+    /// Template path. Relative paths are resolved against `skills.template_dir`
+    /// when set, otherwise the repository root.
+    #[serde(default)]
+    pub template: Option<PathBuf>,
+    /// Output path below every configured `skills.outputs` root. Defaults to
+    /// `{group}/SKILL.md`.
+    #[serde(default)]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct DocsSnippetsConfig {
+    /// Snippet roots to discover.
+    #[serde(default)]
+    pub dirs: Vec<PathBuf>,
+    /// Documentation/template roots to scan for MkDocs snippet includes.
+    #[serde(default)]
+    pub docs_dirs: Vec<PathBuf>,
+    /// Required language variants for every language-grouped snippet.
+    #[serde(default)]
+    pub required_languages: Vec<String>,
+    /// Additional base paths used when resolving MkDocs `--8<--` includes.
+    #[serde(default)]
+    pub include_base_paths: Vec<PathBuf>,
+    /// Require YAML frontmatter in snippet markdown files.
+    #[serde(default)]
+    pub require_frontmatter: bool,
+    /// Optional validation level: `syntax`, `compile`, `typecheck`, or `run`.
+    #[serde(default)]
+    pub validation_level: Option<String>,
+    /// Snippet validation timeout in seconds. Defaults to the snippet runner default.
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    /// Stop snippet validation on the first failure.
+    #[serde(default)]
+    pub fail_fast: bool,
+}
+
+impl DocsSnippetsConfig {
+    #[must_use]
+    pub fn merge(workspace: Option<&Self>, krate: Option<&Self>) -> Option<Self> {
+        if workspace.is_none() && krate.is_none() {
+            return None;
+        }
+        Some(Self {
+            dirs: merge_vec(workspace.map(|cfg| &cfg.dirs), krate.map(|cfg| &cfg.dirs)),
+            docs_dirs: merge_vec(workspace.map(|cfg| &cfg.docs_dirs), krate.map(|cfg| &cfg.docs_dirs)),
+            required_languages: merge_vec(
+                workspace.map(|cfg| &cfg.required_languages),
+                krate.map(|cfg| &cfg.required_languages),
+            ),
+            include_base_paths: merge_vec(
+                workspace.map(|cfg| &cfg.include_base_paths),
+                krate.map(|cfg| &cfg.include_base_paths),
+            ),
+            require_frontmatter: krate
+                .map(|cfg| cfg.require_frontmatter)
+                .unwrap_or_else(|| workspace.map(|cfg| cfg.require_frontmatter).unwrap_or(false)),
+            validation_level: krate
+                .and_then(|cfg| cfg.validation_level.clone())
+                .or_else(|| workspace.and_then(|cfg| cfg.validation_level.clone())),
+            timeout_secs: krate
+                .and_then(|cfg| cfg.timeout_secs)
+                .or_else(|| workspace.and_then(|cfg| cfg.timeout_secs)),
+            fail_fast: krate
+                .map(|cfg| cfg.fail_fast)
+                .unwrap_or_else(|| workspace.map(|cfg| cfg.fail_fast).unwrap_or(false)),
+        })
+    }
+}
+
+fn merge_vec<T: Clone>(workspace: Option<&Vec<T>>, krate: Option<&Vec<T>>) -> Vec<T> {
+    krate
+        .filter(|items| !items.is_empty())
+        .cloned()
+        .or_else(|| workspace.filter(|items| !items.is_empty()).cloned())
+        .unwrap_or_default()
+}
+
 /// A value that can be either a single string or a list of strings.
 ///
 /// Deserializes from both `"cmd"` and `["cmd1", "cmd2"]` in TOML/JSON.

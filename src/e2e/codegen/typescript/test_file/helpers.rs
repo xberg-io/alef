@@ -149,7 +149,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn has_later_arg_value(
     args[from_idx..].iter().any(|arg| {
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = if field == "input" {
-            Some(input)
+            Some(input.get("extract_input").unwrap_or(input))
         } else {
             input.get(field)
         };
@@ -168,7 +168,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn has_bytes_file_reads(
         }
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = if field == "input" {
-            Some(input)
+            Some(input.get("extract_input").unwrap_or(input))
         } else {
             input.get(field)
         };
@@ -184,6 +184,10 @@ pub(in crate::e2e::codegen::typescript::test_file) fn has_trait_bridge_args(args
 pub(in crate::e2e::codegen::typescript::test_file) fn strip_setup_metadata(
     input: &serde_json::Value,
 ) -> serde_json::Value {
+    // New fixture schema wraps the call input DTO under `extract_input` alongside a
+    // sibling `mock_responses` array; unwrap it so the runtime input is the DTO.
+    // Flat fixtures (input IS the DTO) have no `extract_input` key.
+    let input = input.get("extract_input").unwrap_or(input);
     match input {
         serde_json::Value::Object(map) => {
             let mut cleaned = map.clone();

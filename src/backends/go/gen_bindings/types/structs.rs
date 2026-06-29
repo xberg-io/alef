@@ -223,7 +223,11 @@ pub(in crate::backends::go::gen_bindings) fn gen_struct_type(
                 && typ.has_default
                 && matches!(&field.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
             let is_collection = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
-            let json_tag = if field.optional || is_collection || use_default_pointer || is_named_enum {
+            // Bytes fields must never carry omitempty: an empty Vec<u8> must serialize as `[]`,
+            // not be omitted. Rust serde for Vec<u8> rejects a missing/null value differently
+            // from an empty sequence, so always emit the tag without omitempty.
+            let is_bytes = matches!(&field.ty, TypeRef::Bytes);
+            let json_tag = if !is_bytes && (field.optional || is_collection || use_default_pointer || is_named_enum) {
                 format!("json:\"{},omitempty\"", json_name)
             } else {
                 format!("json:\"{}\"", json_name)

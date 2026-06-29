@@ -543,34 +543,38 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 let api = pipeline::extract(resolved_cfg, config_path, false)?;
                 let ir_json = serde_json::to_string(&api)?;
                 let stage_hash = cache::compute_stage_hash(&ir_json, "docs", &config_toml, &[]);
-                if cache::is_stage_cached(&resolved_cfg.name, "docs", &stage_hash) {
+                let use_stage_cache = resolved_cfg.docs.is_none();
+                if use_stage_cache && cache::is_stage_cached(&resolved_cfg.name, "docs", &stage_hash) {
                     if multi {
-                        eprintln!("[{}] API docs up to date (cached)", resolved_cfg.name);
+                        eprintln!("[{}] Docs up to date (cached)", resolved_cfg.name);
                     } else {
-                        println!("API docs up to date (cached)");
+                        println!("Docs up to date (cached)");
                     }
                     continue;
                 }
                 if multi {
                     eprintln!(
-                        "[{}] Generating API docs for: {}",
+                        "[{}] Generating docs for: {}",
                         resolved_cfg.name,
                         format_languages(&languages)
                     );
                 } else {
-                    eprintln!("Generating API docs for: {}", format_languages(&languages));
+                    eprintln!("Generating docs for: {}", format_languages(&languages));
                 }
-                let files = crate::docs::generate_docs(&api, resolved_cfg, &languages, &output)?;
+                let files =
+                    crate::docs::generate_docs_stage(&api, resolved_cfg, &languages, output.as_deref(), &base_dir)?;
                 let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
                 let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                 let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
                 let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                 let doc_paths: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
                 pipeline::finalize_hashes(&doc_paths, &sources_hash, &alef_toml_bytes)?;
-                cache::write_stage_hash(&resolved_cfg.name, "docs", &stage_hash, &output_paths)?;
+                if use_stage_cache {
+                    cache::write_stage_hash(&resolved_cfg.name, "docs", &stage_hash, &output_paths)?;
+                }
                 grand_total += count;
             } // end for resolved_cfg in crates_to_process
-            println!("Generated {grand_total} API doc files");
+            println!("Generated {grand_total} doc files");
             Ok(None)
         }
         Commands::SyncVersions {

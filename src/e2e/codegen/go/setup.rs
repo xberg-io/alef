@@ -193,7 +193,7 @@ pub(super) fn build_args_and_setup(
         }
 
         let val: Option<&serde_json::Value> = if arg.field == "input" {
-            Some(input)
+            Some(input.get("extract_input").unwrap_or(input))
         } else {
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             input.get(field)

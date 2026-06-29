@@ -384,11 +384,10 @@ impl Pyo3BridgeGenerator {
                 (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
                     format!("{}::from((*{}).clone())", n, p.name)
                 }
-                // Owned native serde struct (`is_ref == false`): build the native Python object
-                // from the owned core value directly — move it in rather than cloning (the param
-                // is used once). Mirrors the borrowed arm above, which must clone out of the `&`.
+                // By-value native struct: no deref needed; the owned value is moved into the sync
+                // closure, so clone it directly before wrapping in the binding type.
                 (TypeRef::Named(n), false) if self.is_native_struct_param(n) => {
-                    format!("{}::from({})", n, p.name)
+                    format!("{}::from({}.clone())", n, p.name)
                 }
                 // Other Named params (enums, opaque/handle, excluded/unknown) keep the prior
                 // JSON-string representation.
@@ -420,6 +419,11 @@ impl Pyo3BridgeGenerator {
                 // `{name}_owned` is owned by the closure and consumed once, so move it in.
                 (TypeRef::Named(n), _) if self.is_native_struct_param(n) => {
                     format!("{}::from({}_owned)", n, p.name)
+                }
+                // By-value native struct: the param-cloning preamble stores the clone under
+                // the same name (`let {name} = {name}.clone()`); wrap it in the binding type.
+                (TypeRef::Named(n), false) if self.is_native_struct_param(n) => {
+                    format!("{}::from({}.clone())", n, p.name)
                 }
                 (TypeRef::Named(_), true) => format!("{}_json.as_str()", p.name),
                 _ => p.name.clone(),

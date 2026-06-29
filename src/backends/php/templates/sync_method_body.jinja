@@ -19,8 +19,8 @@ match result {
 {%- if native_return_binding %}
         // Native-object return: extract the host's native `#[php_class]` object and convert via
         // `From<{{ native_return_binding }}>` for core, falling back to the array/JSON path.
-        if let Some(native) = <{{ native_return_binding }} as ext_php_rs::convert::FromZval>::from_zval(&val) {
-            Ok(native.into())
+        if let Some(native) = <&{{ native_return_binding }} as ext_php_rs::convert::FromZval>::from_zval(&val) {
+            Ok(native.clone().into())
         } else {
             let json_str = val.string().unwrap_or_default();
             serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})
@@ -46,8 +46,8 @@ match result {
 {% else %}
     Ok(val) => {
 {%- if native_return_binding %}
-        if let Some(native) = <{{ native_return_binding }} as ext_php_rs::convert::FromZval>::from_zval(&val) {
-            native.into()
+        if let Some(native) = <&{{ native_return_binding }} as ext_php_rs::convert::FromZval>::from_zval(&val) {
+            native.clone().into()
         } else {
             let json_str = val.string().unwrap_or_default();
             serde_json::from_str(&json_str).unwrap_or_default()

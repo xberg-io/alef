@@ -223,11 +223,19 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
         }
         Language::Dart => {
             let cmd = wrap(format!("cd {output_dir} && dart test"), ctx.run_wrapper);
+            // The e2e suite is a pure-Dart project generated under e2e/dart/ — it has no
+            // Flutter dependency, only package:test. Using `flutter pub get && flutter test`
+            // (which triggers Flutter's engine and impellerc) fails in headless environments.
+            // Always drive the e2e suite with the Dart SDK toolchain.
+            let e2e_cmd = wrap(
+                "cd e2e/dart && dart pub get && dart test --concurrency=1".to_string(),
+                ctx.run_wrapper,
+            );
             TestConfig {
                 precondition: Some(require_tool("dart")),
                 before: None,
                 command: Some(StringOrVec::Single(cmd.clone())),
-                e2e: None,
+                e2e: Some(StringOrVec::Single(e2e_cmd)),
                 coverage: Some(StringOrVec::Single(cmd)),
             }
         }
@@ -329,11 +337,41 @@ mod tests {
     }
 
     #[test]
-    fn e2e_is_always_none() {
+    fn e2e_is_none_for_non_dart_languages() {
         for lang in all_languages() {
+            if matches!(lang, Language::Dart) {
+                continue;
+            }
             let c = cfg(lang, "packages/test");
             assert!(c.e2e.is_none(), "{lang} e2e should always be None (user-configured)");
         }
+    }
+
+    #[test]
+    fn dart_has_default_e2e_command_using_dart_sdk() {
+        let c = cfg(Language::Dart, "packages/dart");
+        let e2e = c.e2e.expect("dart should have a default e2e command");
+        let cmd = e2e.commands().join(" ");
+        assert!(
+            cmd.contains("e2e/dart"),
+            "dart e2e should target e2e/dart directory, got: {cmd}"
+        );
+        assert!(
+            cmd.contains("dart pub get"),
+            "dart e2e should use dart pub get (not flutter pub get), got: {cmd}"
+        );
+        assert!(
+            cmd.contains("dart test"),
+            "dart e2e should use dart test (not flutter test), got: {cmd}"
+        );
+        assert!(
+            cmd.contains("--concurrency=1"),
+            "dart e2e should run with --concurrency=1, got: {cmd}"
+        );
+        assert!(
+            !cmd.contains("flutter"),
+            "dart e2e must not use flutter (impellerc fails in headless env), got: {cmd}"
+        );
     }
 
     #[test]

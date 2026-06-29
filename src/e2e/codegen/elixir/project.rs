@@ -26,6 +26,70 @@ fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
     out
 }
 
+/// Resolve the Elixir NIF module that exposes `set_env/2`.
+///
+/// Mirrors the module-path resolution used elsewhere in the Elixir e2e codegen
+/// (see `test_case.rs`): a value containing `.` or starting uppercase is used
+/// verbatim; otherwise it is PascalCased. The NIF lives under `<Module>.Native`.
+fn elixir_nif_module(e2e_config: &E2eConfig) -> String {
+    let raw_module = &e2e_config.call.module;
+    let module_path = if raw_module.contains('.') || raw_module.chars().next().is_some_and(|c| c.is_uppercase()) {
+        raw_module.clone()
+    } else {
+        super::values::elixir_module_name(raw_module)
+    };
+    format!("{module_path}.Native")
+}
+
+/// Emit the native env-propagation block and the test-documents chdir.
+///
+/// Elixir's `System.put_env` (Erlang `os:putenv`) does not reach the native C
+/// runtime that an FFI library reads via `getenv`, so each configured `[e2e.env]`
+/// entry is also pushed through the binding's `set_env/2` NIF (libc setenv),
+/// wrapped in `try/rescue` so suites whose binding lacks the NIF still load.
+///
+/// The chdir runs from `test_documents_dir` so relative file URIs resolve,
+/// mirroring the Python/Go suites. Returns an empty string when no `[e2e.env]`
+/// entries are configured — the native propagation and the chdir are only needed
+/// by suites that opt into env-driven setup (and the empty case keeps the
+/// generated `test_helper.exs` free of any `System.get_env` references).
+fn render_native_env_and_chdir(e2e_config: &E2eConfig) -> String {
+    if e2e_config.env.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+
+    let nif_module = elixir_nif_module(e2e_config);
+    out.push_str("# Erlang os:putenv does not propagate to the native C runtime that an FFI\n");
+    out.push_str("# library reads via getenv. Push each value through the binding's set_env NIF\n");
+    out.push_str("# (libc setenv) so the native side observes the same environment.\n");
+    let mut keys: Vec<&String> = e2e_config.env.keys().collect();
+    keys.sort();
+    for k in keys {
+        let v = &e2e_config.env[k];
+        out.push_str("try do\n");
+        let _ = writeln!(out, "  {nif_module}.set_env(\"{k}\", \"{v}\")");
+        out.push_str("rescue\n");
+        out.push_str("  _ -> :ok\n");
+        out.push_str("end\n");
+    }
+    out.push('\n');
+
+    let rel = e2e_config.test_documents_relative_from(1);
+    out.push_str("# Run from the test-documents dir so relative file URIs (e.g. \"text/report.txt\")\n");
+    out.push_str("# resolve, mirroring the other language suites which chdir before running.\n");
+    out.push_str("test_documents_dir =\n");
+    let _ = writeln!(
+        out,
+        "  System.get_env(\"ALEF_TEST_DOCUMENTS_DIR\") || Path.expand(\"{rel}\", __DIR__)"
+    );
+    out.push('\n');
+    out.push_str("if File.dir?(test_documents_dir), do: File.cd!(test_documents_dir)\n\n");
+
+    out
+}
+
 /// Render the non-server-pattern `test/test_helper.exs`.
 ///
 /// Covers the mock-server case (`has_http_tests` = true) and the NIF-only case.
@@ -36,6 +100,7 @@ pub(super) fn render_test_helper(has_http_tests: bool, e2e_config: &E2eConfig) -
     // the Rustler NIF loads (at first module init). render_env_setup_block emits all [e2e.env]
     // vars with System.get_env guards, ensuring they're set early.
     let env_setup = render_env_setup_block(e2e_config);
+    let native_and_chdir = render_native_env_and_chdir(e2e_config);
 
     if has_http_tests {
         let finch_setup = r#"# Start a named Finch pool before ExUnit configured to use HTTP/1 only.
@@ -50,9 +115,9 @@ ExUnit.start()
 "#;
         let mock_server =
             crate::e2e::template_env::render("elixir/test_helper_mock_server.exs.jinja", minijinja::context!());
-        format!("{}{}{}", env_setup, finch_setup, mock_server)
+        format!("{}{}{}{}", env_setup, native_and_chdir, finch_setup, mock_server)
     } else {
-        format!("{}ExUnit.start()\n", env_setup)
+        format!("{}{}ExUnit.start()\n", env_setup, native_and_chdir)
     }
 }
 

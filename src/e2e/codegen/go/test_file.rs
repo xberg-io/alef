@@ -128,7 +128,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
                 return false;
             }
             let v = if a.field == "input" {
-                &f.input
+                f.input.get("extract_input").unwrap_or(&f.input)
             } else {
                 let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
                 f.input.get(field).unwrap_or(&serde_json::Value::Null)
