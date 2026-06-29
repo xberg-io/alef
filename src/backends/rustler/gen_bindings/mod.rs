@@ -4,6 +4,7 @@ mod native;
 mod public_api;
 mod public_api_args;
 mod public_api_delegates;
+mod public_api_patches;
 mod public_files;
 mod rust_items;
 mod service_api;

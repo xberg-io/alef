@@ -345,7 +345,7 @@ mod tests {
     /// Regression: an owned (by-value) native-struct callback param — e.g. the URI-based
     /// `ExtractInput` envelope, which the core API now passes by value — must be marshalled to
     /// the binding's native Python object via `From<core::T>`, not handed to the host raw. A raw
-    /// `xberg::T` has no `IntoPyObject` and fails to compile (E0277). Borrowed native-struct
+    /// core value has no `IntoPyObject` and fails to compile (E0277). Borrowed native-struct
     /// params were already marshalled; owned ones regressed when the param lost its `&`.
     #[test]
     fn trait_callback_owned_native_struct_param_is_marshalled() {

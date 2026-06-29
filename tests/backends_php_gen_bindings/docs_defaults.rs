@@ -42,6 +42,7 @@ fn test_type_stubs_documented_field_emits_var_phpdoc_with_description() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -116,6 +117,7 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -265,6 +267,7 @@ fn test_duration_field_on_default_struct_getter_returns_option() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -354,6 +357,7 @@ fn has_default_struct_emits_delegating_impl_not_derived_default() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -470,6 +474,7 @@ fn has_default_struct_keeps_derived_default_when_delegation_disabled() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 

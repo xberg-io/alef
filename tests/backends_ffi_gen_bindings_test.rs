@@ -53,6 +53,7 @@ fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }
@@ -1144,6 +1145,7 @@ ffi = "crates/mylib-ffi/src/"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -1239,6 +1241,7 @@ ffi = "crates/mylib-ffi/src/"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -1309,6 +1312,7 @@ ffi = "crates/mylib-ffi/src/"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],

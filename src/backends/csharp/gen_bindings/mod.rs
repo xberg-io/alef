@@ -576,13 +576,13 @@ impl Backend for CsharpBackend {
             });
         }
 
-        // 7. Generate ByteArrayJsonConverter if any non-opaque type has Bytes fields.
-        // byte[] fields must be serialized as JSON int arrays, not base64 strings. The
-        // converter accepts byte[]? so it covers both optional and non-optional fields.
+        // 7. Generate ByteArrayJsonConverter if any generated record can reference it.
+        // record_json_options.jinja always registers the converter so generated record
+        // code compiles even before a byte[] field is added.
         let needs_byte_array_converter = api
             .types
             .iter()
-            .any(|t| !t.is_opaque && t.fields.iter().any(|f| matches!(f.ty, TypeRef::Bytes)));
+            .any(|t| !t.is_opaque && !t.is_trait && !exclude_types.contains(&t.name));
         if needs_byte_array_converter {
             files.push(GeneratedFile {
                 path: base_path.join("ByteArrayJsonConverter.cs"),

@@ -28,6 +28,7 @@ fn php_native_and_facade_allow_null_default_config_param() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -135,6 +136,7 @@ fn php_serde_defaults_are_generated_from_typed_default_metadata() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         ..ApiSurface::default()
@@ -227,6 +229,7 @@ fn php_function_path_serde_default_qualifies_crate_local_dto() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         ..ApiSurface::default()
@@ -296,6 +299,7 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -473,6 +477,7 @@ fn type_stubs_honor_php_excludes_and_enum_wire_values() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -587,6 +592,7 @@ fn test_type_mapping() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],

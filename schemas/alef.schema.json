@@ -1599,6 +1599,259 @@
       ],
       "type": "object"
     },
+    "DocsConfig": {
+      "properties": {
+        "cli": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DocsSourceConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Static extraction config for Clap-based CLI reference docs."
+        },
+        "llms": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DocsLlmsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Template-rendered llms.txt output."
+        },
+        "mcp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DocsSourceConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Static extraction config for rmcp-style MCP reference docs."
+        },
+        "reference_output": {
+          "default": null,
+          "description": "Directory for generated API/CLI/MCP reference markdown. Defaults to\n`docs/reference` when unset.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "skills": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DocsSkillsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Template-rendered agent skill outputs."
+        },
+        "snippets": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DocsSnippetsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Snippet discovery and validation config used by docs templates."
+        }
+      },
+      "type": "object"
+    },
+    "DocsLlmsConfig": {
+      "properties": {
+        "adopt_existing": {
+          "default": false,
+          "description": "Allow the first render to replace an existing unmanaged output file.\nDefaults to false to avoid clobbering hand-authored llms.txt files.",
+          "type": "boolean"
+        },
+        "output": {
+          "default": null,
+          "description": "Output path. Defaults to `docs/llms.txt`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "template": {
+          "default": null,
+          "description": "Minijinja template path for llms.txt. Required when this table is present.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "DocsSkillTemplateConfig": {
+      "properties": {
+        "output": {
+          "default": null,
+          "description": "Output path below every configured `skills.outputs` root. Defaults to\n`{group}/SKILL.md`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "template": {
+          "default": null,
+          "description": "Template path. Relative paths are resolved against `skills.template_dir`\nwhen set, otherwise the repository root.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "DocsSkillsConfig": {
+      "properties": {
+        "adopt_existing": {
+          "default": false,
+          "description": "Allow the first render to replace existing unmanaged skill files.\nDefaults to false to avoid clobbering hand-authored skills.",
+          "type": "boolean"
+        },
+        "outputs": {
+          "default": [],
+          "description": "Agent skill roots to write into, for example `.codex/skills`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "template_dir": {
+          "default": null,
+          "description": "Base directory for skill templates. When `templates` is empty, Alef expects\n`api/SKILL.md.jinja`, `cli/SKILL.md.jinja`, and `mcp/SKILL.md.jinja`\nbelow this directory.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "templates": {
+          "additionalProperties": {
+            "$ref": "#/$defs/DocsSkillTemplateConfig"
+          },
+          "default": {},
+          "description": "Explicit skill templates keyed by skill group.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "DocsSnippetsConfig": {
+      "properties": {
+        "dirs": {
+          "default": [],
+          "description": "Snippet roots to discover.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "docs_dirs": {
+          "default": [],
+          "description": "Documentation/template roots to scan for MkDocs snippet includes.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fail_fast": {
+          "default": false,
+          "description": "Stop snippet validation on the first failure.",
+          "type": "boolean"
+        },
+        "include_base_paths": {
+          "default": [],
+          "description": "Additional base paths used when resolving MkDocs `--8<--` includes.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "require_frontmatter": {
+          "default": false,
+          "description": "Require YAML frontmatter in snippet markdown files.",
+          "type": "boolean"
+        },
+        "required_languages": {
+          "default": [],
+          "description": "Required language variants for every language-grouped snippet.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timeout_secs": {
+          "default": null,
+          "description": "Snippet validation timeout in seconds. Defaults to the snippet runner default.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "validation_level": {
+          "default": null,
+          "description": "Optional validation level: `syntax`, `compile`, `typecheck`, or `run`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "DocsSourceConfig": {
+      "properties": {
+        "adopt_existing": {
+          "default": false,
+          "description": "Allow the first render to replace an existing unmanaged output file.\nDefaults to false to avoid clobbering hand-authored CLI/MCP docs.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": null,
+          "description": "Enable this reference extractor. Defaults to true when the table exists.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "output": {
+          "default": null,
+          "description": "Output markdown file. Relative paths are resolved from the repository root.\nWhen unset, Alef writes into `reference_output`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sources": {
+          "default": [],
+          "description": "Rust source files to parse for this reference surface. When empty, Alef\nfalls back to the crate source list.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "DtoConfig": {
       "description": "Per-language DTO/type generation style configuration.\n\nControls what type system is used for generated public API types in each language\n(e.g., Python `@dataclass` vs `TypedDict` vs `pydantic.BaseModel`).",
       "properties": {
@@ -4671,6 +4924,17 @@
           ],
           "default": null
         },
+        "docs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DocsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "dto": {
           "anyOf": [
             {
@@ -6637,6 +6901,18 @@
           "default": null,
           "description": "Default Dart backend settings."
         },
+        "docs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DocsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default template-driven docs generation config. Per-crate `[crates.docs]`\nvalues override this field-by-field."
+        },
         "dto": {
           "$ref": "#/$defs/DtoConfig",
           "default": {
@@ -7134,6 +7410,7 @@
         "client_constructors": {},
         "csharp": null,
         "dart": null,
+        "docs": null,
         "dto": {
           "csharp": "record",
           "elixir": "struct",

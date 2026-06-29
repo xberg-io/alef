@@ -133,6 +133,7 @@ fn make_streaming_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     ApiSurface {
@@ -197,6 +198,7 @@ fn make_trait_carrier_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let public_carrier = TypeDef {
@@ -221,6 +223,7 @@ fn make_trait_carrier_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let mut excluded_type_paths = ::std::collections::HashMap::new();
@@ -423,6 +426,7 @@ fn make_opaque_factory_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let create_client_fn = FunctionDef {
@@ -543,6 +547,7 @@ fn make_handle_only_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let create_engine_fn = FunctionDef {
@@ -742,6 +747,7 @@ fn make_optional_params_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     use alef::core::ir::PrimitiveType;
@@ -1509,6 +1515,7 @@ fn make_convert_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             TypeDef {
@@ -1533,6 +1540,7 @@ fn make_convert_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
         ],
@@ -1700,6 +1708,7 @@ fn make_batch_function_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             TypeDef {
@@ -1724,6 +1733,7 @@ fn make_batch_function_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
         ],
@@ -2115,6 +2125,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             TypeDef {
@@ -2139,6 +2150,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             TypeDef {
@@ -2163,6 +2175,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
         ],
@@ -2344,6 +2357,7 @@ fn make_trait_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     ApiSurface {
@@ -2577,6 +2591,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let skipped_type = TypeDef {
@@ -2620,6 +2635,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         binding_exclusion_reason: Some("alef(skip)".into()),
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let included_enum = EnumDef {
@@ -2881,6 +2897,7 @@ fn make_long_signature_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 

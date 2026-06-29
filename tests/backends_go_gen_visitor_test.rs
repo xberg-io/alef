@@ -63,6 +63,7 @@ fn test_visitor_file_emits_prefixed_struct() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -143,6 +144,7 @@ fn test_visitor_file_uses_configured_function_options_field_and_result() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -221,6 +223,7 @@ fn test_generic_trait_without_compat_callback_types_does_not_emit_fixed_helpers(
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -437,6 +440,7 @@ fn trait_def(name: &str, methods: Vec<alef::core::ir::MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }

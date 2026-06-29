@@ -38,6 +38,7 @@ fn test_capsule_types_end_to_end() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             // Parser — ConstructFrom type (no into_raw; built via sample_language.Parser(language))
@@ -63,6 +64,7 @@ fn test_capsule_types_end_to_end() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
         ],
@@ -426,6 +428,7 @@ fn test_capsule_types_in_methods() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             // Language — capsule round-trip type (no #[pyclass] emitted)
@@ -451,6 +454,7 @@ fn test_capsule_types_in_methods() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
         ],

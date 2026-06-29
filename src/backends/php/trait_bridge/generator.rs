@@ -335,11 +335,11 @@ pub fn gen_trait_bridge(
         // a JSON string.
         let struct_param_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
-        // Return-side: unlike the param side, PHP cannot use the native-object fast-path. A
-        // `#[php_class]` binding struct implements `FromZvalMut` (for `&mut T`) but not `FromZval`
-        // (for `T`), so `<Binding as FromZval>::from_zval(&val)` does not type-check. The bridge
-        // keeps the proven JSON/string return path for every type, which is well-defined for PHP.
-        let struct_return_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Return-side uses the shared classifier too. ext-php-rs implements `FromZval` for
+        // references to `#[php_class]` types, so the generated bridge extracts `&Binding` and
+        // clones through the binding's `From<core::T>` counterpart before falling back to JSON.
+        let struct_return_types =
+            crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api);
         let generator = PhpBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),

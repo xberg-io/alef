@@ -97,6 +97,7 @@ fn make_basic_api() -> ApiSurface {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -507,6 +508,7 @@ fn test_jni_opaque_handle_return_types() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -550,6 +552,7 @@ fn test_jni_opaque_handle_return_types() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 

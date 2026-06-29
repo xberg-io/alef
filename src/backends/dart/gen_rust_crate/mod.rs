@@ -12,6 +12,8 @@ mod enum_conversions;
 mod helpers;
 mod mirror;
 mod mirror_conversions;
+#[cfg(test)]
+mod mirror_conversions_tests;
 mod opaque;
 mod trait_bridge;
 mod trait_types;

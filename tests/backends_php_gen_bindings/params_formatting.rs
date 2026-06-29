@@ -207,6 +207,7 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             TypeDef {
@@ -249,6 +250,7 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
         ],
@@ -353,6 +355,7 @@ fn facade_emits_nullable_marker_for_non_tail_optional_param() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {

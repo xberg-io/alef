@@ -39,6 +39,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -64,6 +65,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -244,6 +246,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -314,6 +317,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -492,6 +496,7 @@ fn test_typeddict_style_reexports_only_listed_results_as_native() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }
     }

@@ -55,6 +55,7 @@ fn test_opaque_streaming_static_wrapper() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             TypeDef {
@@ -94,6 +95,7 @@ fn test_opaque_streaming_static_wrapper() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             TypeDef {
@@ -137,6 +139,7 @@ fn test_opaque_streaming_static_wrapper() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
         ],

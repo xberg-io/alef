@@ -493,7 +493,7 @@ fn gen_bridge_file(
     let mut stubs: Vec<Value> = vec![];
     if has_super_trait {
         // Lifecycle stubs return i32 status codes, so the FunctionDescriptor return layout
-        // must be JAVA_INT (matching the `int` upcall return); JAVA_LONG mis-sizes the value.
+        // must be JAVA_INT (matching the `int` upcall return); JAVA_LONG sizes the value wrongly.
         let lifecycle_stubs = vec![
             (
                 "Name",

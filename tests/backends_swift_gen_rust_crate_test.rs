@@ -75,6 +75,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }
@@ -925,6 +926,7 @@ fn make_trait_type(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> Type
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }
@@ -1305,6 +1307,7 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -1547,6 +1550,7 @@ type = "ChatCompletionRequest"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -1737,6 +1741,7 @@ type = "CompletionRequest"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -1842,6 +1847,7 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -1950,6 +1956,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }

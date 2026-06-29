@@ -179,7 +179,7 @@ fn lifecycle_string_callbacks_use_status_and_out_error() {
         )
     );
     assert!(body.contains(
-        "FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+        "FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
     ));
 }
 

@@ -12,6 +12,7 @@ pub mod functions;
 pub mod methods;
 mod mutex;
 mod opaque_helpers;
+mod postprocess;
 mod public_files;
 pub mod service_api;
 mod support_items;
@@ -861,113 +862,9 @@ impl Backend for Pyo3Backend {
         builder.add_item(&methods::gen_module_init(&config.python_module_name(), api, config));
 
         let mut content = builder.build();
-
-        // Post-process generated code to fix bridge type builder methods.
-        // Builder methods on has_default types with opaque bridge parameters
-        // (e.g., visitor: PyVisitorRef) should not attempt to access .inner,
-        // as there is no From impl from Arc<Py<PyAny>> to the core visitor type.
-        // Replace patterns like .visitor(visitor.as_ref().map(|v| &v.inner))
-        // with .visitor(None) to skip setting the visitor on the core builder.
-        for bridge in &config.trait_bridges {
-            if let Some(field_name) = bridge.resolved_options_field() {
-                let param_name = bridge.param_name.as_deref().unwrap_or(field_name);
-                // Simple string replacement for the pattern:
-                // .visitor(visitor.as_ref().map(|v| &v.inner))  →  .visitor(None)
-                let pattern = format!(".{}({}.as_ref().map(|v| &v.inner))", field_name, param_name);
-                let replacement = format!(".{}(None)", field_name);
-                content = content.replace(&pattern, &replacement);
-            }
-        }
-
-        // Post-process to add visitor fallback in functions with options-field bridges.
-        // When a function parameter is an options type with a visitor field, and the function
-        // also has a separate visitor kwarg, the generated code needs to fallback to
-        // options.visitor when the separate visitor kwarg is None.
-        //
-        // This handles the case where Python calls the function with visitor embedded in
-        // options, but the Rust function expects visitor as a separate parameter.
-        // Replace patterns like:
-        //   let visitor_handle: Option<...> = visitor.map(|v| { ... })
-        // with fallback logic that also checks options.visitor when visitor is None.
-        for bridge in &config.trait_bridges {
-            if bridge.bind_via != crate::core::config::BridgeBinding::OptionsField {
-                continue;
-            }
-            if let Some(field_name) = bridge.resolved_options_field() {
-                // The fallback below references `o.{field_name}` on the binding's options
-                // struct. If the binding does not actually expose that field (e.g. the core
-                // field is `#[cfg(feature = "...")]`-gated and the struct generator strips
-                // cfg-gated fields), referencing it would fail to compile with `E0609 no
-                // field`. Gate the rewrite on the field being present in the binding.
-                let Some(options_type) = bridge.options_type.as_deref() else {
-                    continue;
-                };
-                let field_in_binding = api
-                    .types
-                    .iter()
-                    .filter(|t| t.name == options_type)
-                    .flat_map(|t| t.fields.iter())
-                    .any(|f| f.cfg.is_none() && f.name == field_name);
-                if !field_in_binding {
-                    continue;
-                }
-                // Replace the closing pattern of the visitor.map block with a chained .or_else()
-                // that pulls from options.visitor when the kwarg is None.
-                // Pattern: visitor.map(...) ending with:
-                //   std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {resolved_handle_path}
-                // });
-                //
-                // We need to insert .or_else(|| { ... }) before the });
-                let handle_path =
-                    crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge, &core_import);
-                let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Py", bridge);
-                let closing_pattern =
-                    format!("        std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    }});");
-                if let Some(pos) = content.find(&closing_pattern) {
-                    let before = &content[..pos];
-                    let after = &content[pos + closing_pattern.len()..];
-
-                    // Build the fallback that tries the configured options field when the kwarg is None.
-                    let fallback = format!(
-                        "        std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    }}).or_else(|| {{\n        options.as_ref().and_then(|o| o.{field_name}.as_ref()).map(|v| {{\n            let py_obj: pyo3::Py<pyo3::PyAny> = Python::attach(|py| (*v.inner).clone_ref(py));\n            let bridge = {struct_name}::new(py_obj);\n            std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n        }})\n    }});"
-                    );
-
-                    content = format!("{}{}{}", before, fallback, after);
-                }
-            }
-        }
-
-        // Fix wrapper functions that pass Option<T> params to core functions expecting Option<T>.
-        // When a binding param is Optional<T> and serde deserializes to T, wrap in Some() at call site.
-        // The core function expects Option<ParseOptions>, but serde deserialization produces
-        // ParseOptions (not Optional). Wrap in Some() when passing to core.
-        // Look for patterns like: sample_crate::parse(&source, options_core)
-        // and replace with: sample_crate::parse(&source, Some(options_core))
-        //
-        // CRITICAL: only wrap when the SOURCE param is `Option<T>` — i.e. `param.optional == true`.
-        // When the source is non-Option `T`, the core function expects `T` directly and wrapping
-        // in `Some()` produces a type error. (Discovered via sample_core `embed_texts` taking
-        // `config: EmbeddingConfig` rather than `Option<EmbeddingConfig>`.)
-        for func in &api.functions {
-            // Check if any parameter is a has_default type
-            for param in &func.params {
-                if !param.optional {
-                    continue;
-                }
-                if let crate::core::ir::TypeRef::Named(name) = &param.ty {
-                    // Check if this is a has_default type
-                    if let Some(_typ) = api.types.iter().find(|t| &t.name == name && t.has_default) {
-                        // Generate the variable name (param_name + "_core")
-                        let core_var = format!("{}_core", param.name);
-                        // Pattern: ..., {core_var}) where it appears in a function call
-                        // Look for pattern: core_import::function_name(..., param_name_core)
-                        let call_pattern = format!(", {core_var})");
-                        let call_replacement = format!(", Some({core_var}))");
-                        content = content.replace(&call_pattern, &call_replacement);
-                    }
-                }
-            }
-        }
+        postprocess::clear_bridge_builder_opaque_params(&mut content, config);
+        postprocess::add_options_field_visitor_fallback(&mut content, api, config, &core_import);
+        postprocess::wrap_optional_default_args(&mut content, api);
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("lib.rs"),

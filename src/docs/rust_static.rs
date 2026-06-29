@@ -22,10 +22,8 @@ pub fn extract_cli_surface(sources: &[PathBuf]) -> anyhow::Result<CliSurface> {
                         structs.insert(item.ident.to_string(), item.clone());
                     }
                 }
-                Item::Enum(item) => {
-                    if has_derive(&item.attrs, "Subcommand") {
-                        enums.insert(item.ident.to_string(), item.clone());
-                    }
+                Item::Enum(item) if has_derive(&item.attrs, "Subcommand") => {
+                    enums.insert(item.ident.to_string(), item.clone());
                 }
                 _ => {}
             }

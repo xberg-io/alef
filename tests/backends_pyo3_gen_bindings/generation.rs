@@ -33,6 +33,7 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -200,6 +201,7 @@ fn public_api_converters_accept_json_string_for_dict_coercion() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -298,6 +300,7 @@ fn test_type_mapping() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],

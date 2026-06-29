@@ -22,7 +22,7 @@ use std::collections::HashSet;
 ///
 /// `exclude_types` is the set of types that are not visible in the generated Swift binding.
 /// `first_class_types` is the set of types that are emitted as first-class structs (and thus
-/// only available in the Xberg module, not accessible from RustBridge trait bridge code).
+/// only available in the primary binding module, not accessible from RustBridge trait bridge code).
 /// Both sets of types are marshalled as JSON strings at the trait boundary.
 ///
 /// Returns a list of (filename, content) tuples ready for emission.
@@ -59,7 +59,8 @@ pub fn gen_trait_bridge_files(
             continue;
         }
 
-        // Combine excluded types (internal) and first-class types (only in Xberg, not in RustBridge)
+        // Combine excluded types (internal) and first-class types (only in the primary binding
+        // module, not in RustBridge)
         // Both sets should be marshalled as JSON strings in trait bridge protocols
         let mut combined_exclude = exclude_types.clone();
         for first_class in first_class_types {
@@ -582,7 +583,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("TextBackend");
         let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
         let exclude_types = HashSet::new();
-        let files = gen_trait_bridge_files(&bridges, &exclude_types);
+        let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
 
         // Should emit SwiftPluginBridge.swift first, then SwiftTextBackendBridge.swift
         assert_eq!(files.len(), 2);
@@ -603,7 +604,7 @@ mod tests {
         bridge_cfg.exclude_languages = vec!["swift".to_string()];
         let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
         let exclude_types = HashSet::new();
-        let files = gen_trait_bridge_files(&bridges, &exclude_types);
+        let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
 
         assert!(files.is_empty());
     }
@@ -615,7 +616,7 @@ mod tests {
         bridge_cfg.bind_via = BridgeBinding::OptionsField;
         let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
         let exclude_types = HashSet::new();
-        let files = gen_trait_bridge_files(&bridges, &exclude_types);
+        let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
 
         assert!(files.is_empty());
     }
@@ -710,7 +711,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("DocumentExtractor");
         let bridges = vec![("DocumentExtractor".to_string(), &bridge_cfg, &trait_def)];
         let exclude_types = HashSet::new();
-        let files = gen_trait_bridge_files(&bridges, &exclude_types);
+        let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
 
         // Should emit SwiftPluginBridge.swift first, then SwiftDocumentExtractorBridge.swift
         assert_eq!(files.len(), 2);
@@ -786,7 +787,7 @@ mod tests {
         let mut exclude_types = HashSet::new();
         exclude_types.insert("PrivatePayload".to_string());
 
-        let files = gen_trait_bridge_files(&bridges, &exclude_types);
+        let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
         // Should emit SwiftPluginBridge.swift first, then SwiftDocumentExtractorBridge.swift
         assert_eq!(files.len(), 2);
         let content = &files[1].1;
@@ -944,7 +945,7 @@ mod tests {
         let bridges = vec![("TextExtractor".to_string(), &bridge_cfg, &trait_def)];
         let exclude_types = HashSet::new();
 
-        let files = gen_trait_bridge_files(&bridges, &exclude_types);
+        let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
         assert_eq!(files.len(), 2);
         let content = &files[1].1;
 
@@ -969,7 +970,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("TextProcessor");
         let bridges = vec![("TextProcessor".to_string(), &bridge_cfg, &trait_def)];
         let exclude_types = HashSet::new();
-        let files = gen_trait_bridge_files(&bridges, &exclude_types);
+        let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
 
         // Should emit SwiftPluginBridge.swift first, then SwiftTextProcessorBridge.swift
         let protocol_file = files

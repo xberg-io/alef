@@ -317,7 +317,7 @@ fn test_async_struct_param_passed_as_native_object_not_json_string() {
         "async preamble must clone the core struct value for native construction:\n{body}"
     );
     assert!(
-        body.contains("Opts::from(opts_owned.clone())"),
+        body.contains("Opts::from(opts_owned)"),
         "async struct param must be constructed as the binding's native Python object:\n{body}"
     );
     assert!(

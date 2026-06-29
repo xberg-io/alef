@@ -7,9 +7,9 @@
     trait method and returns the method's result. The dispatching GenServer
     passes the decoded `args` map to the callback for the corresponding method.
     """
-{%- for cb in callbacks %}
+{% for cb in callbacks %}
 
     @doc "Handle the `{{ cb.method }}` trait call."
     @callback {{ cb.name }}({{ cb.params_spec }}) :: {{ cb.return_spec }}
-{%- endfor %}
+{% endfor %}
   end

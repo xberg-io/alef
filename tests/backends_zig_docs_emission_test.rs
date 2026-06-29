@@ -102,6 +102,7 @@ fn struct_fields_emit_zig_doc_comments_above_declaration() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],

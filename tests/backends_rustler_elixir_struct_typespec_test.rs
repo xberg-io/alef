@@ -82,6 +82,7 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -204,6 +205,7 @@ fn test_struct_module_defstruct_defaults_align_with_typespec() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -310,6 +312,7 @@ fn test_struct_module_with_named_type_field() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -378,6 +381,7 @@ fn test_struct_module_with_known_named_type_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let crawl_config = TypeDef {
@@ -415,6 +419,7 @@ fn test_struct_module_with_known_named_type_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let content_config = TypeDef {
@@ -439,6 +444,7 @@ fn test_struct_module_with_known_named_type_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let browser_config = TypeDef {
@@ -463,6 +469,7 @@ fn test_struct_module_with_known_named_type_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let proxy_config = TypeDef {
@@ -487,6 +494,7 @@ fn test_struct_module_with_known_named_type_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let ssrf_policy = TypeDef {
@@ -515,6 +523,7 @@ fn test_struct_module_with_known_named_type_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -617,6 +626,7 @@ fn test_struct_module_with_vec_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 

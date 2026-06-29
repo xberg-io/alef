@@ -73,6 +73,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }
@@ -133,6 +134,7 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }
@@ -740,6 +742,7 @@ fn opaque_handle_with_no_methods_is_emitted() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let get_language_fn = FunctionDef {
@@ -1318,6 +1321,7 @@ fn from_json_params_check_null_and_defer_handle_cleanup() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let api = ApiSurface {
@@ -1419,6 +1423,7 @@ type = "*const std::ffi::c_char"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -1530,6 +1535,7 @@ type = "CrawlStreamRequest"
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -1728,6 +1734,7 @@ type = "CrawlStreamRequest"
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -1824,6 +1831,7 @@ fn named_json_return_guards_against_null_to_json_pointer() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let api = ApiSurface {

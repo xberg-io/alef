@@ -544,7 +544,7 @@ fn is_assertion_field_swift_excluded(
     // Split the field path on '.', '[', ']', discarding empty tokens and tokens
     // that are pure numeric indices (e.g. "0" from "results[0].extracted_keywords").
     let segments: Vec<&str> = field_path
-        .split(|c: char| c == '.' || c == '[' || c == ']')
+        .split(['.', '[', ']'])
         .filter(|s| !s.is_empty() && !s.chars().all(|c: char| c.is_ascii_digit()))
         .collect();
     // Name-based fallback: any segment matching an excluded field leaf name.

@@ -253,6 +253,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 

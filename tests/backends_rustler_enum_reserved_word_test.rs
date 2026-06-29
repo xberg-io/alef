@@ -114,6 +114,7 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
         binding_exclusion_reason: None,
         has_lifetime_params: false,
         is_variant_wrapper: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -271,6 +272,7 @@ fn enum_variant_with_multiple_reserved_words() {
         binding_exclusion_reason: None,
         has_lifetime_params: false,
         is_variant_wrapper: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 

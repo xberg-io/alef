@@ -27,6 +27,7 @@ fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }

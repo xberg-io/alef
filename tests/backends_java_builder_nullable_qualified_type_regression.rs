@@ -101,6 +101,7 @@ fn builder_nullable_qualified_type_emits_correct_annotation_position() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],

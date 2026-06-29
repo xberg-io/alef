@@ -169,6 +169,7 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -251,6 +252,7 @@ fn test_zero_default_dto_skips_functional_options() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -609,6 +611,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -756,6 +759,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 

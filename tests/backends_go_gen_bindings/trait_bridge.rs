@@ -33,6 +33,7 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }
@@ -166,6 +167,7 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             TypeDef {
@@ -193,6 +195,7 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             TypeDef {
@@ -217,6 +220,7 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
         ],

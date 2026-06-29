@@ -419,8 +419,8 @@ fn test_php_native_struct_return_extracts_native_object_first() {
 
     assert!(
         code.code
-            .contains("<Doc as ext_php_rs::convert::FromZval>::from_zval(&val)")
-            && code.code.contains("Ok(native.into())"),
+            .contains("<&Doc as ext_php_rs::convert::FromZval>::from_zval(&val)")
+            && code.code.contains("Ok(native.clone().into())"),
         "native struct return must extract the native php object via FromZval + From<Doc>:\n{}",
         code.code
     );

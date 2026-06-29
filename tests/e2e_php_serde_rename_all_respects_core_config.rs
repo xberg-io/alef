@@ -89,6 +89,7 @@ fn php_respects_serde_rename_all_camel_case_when_present() {
         fields: Vec::new(),
         methods: Vec::new(),
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -162,6 +163,7 @@ fn php_camel_cases_keys_when_core_type_lacks_rename_all() {
         fields: Vec::new(),
         methods: Vec::new(),
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 

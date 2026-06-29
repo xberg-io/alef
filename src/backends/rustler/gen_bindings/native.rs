@@ -597,7 +597,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     }
 
     // Always-emitted test-support NIF: lets the e2e harness set process environment
-    // variables that native code reads via libc `getenv` (e.g. crawlberg's SSRF loopback
+    // variables that native code reads via libc `getenv` (e.g. an SSRF loopback
     // allowlist). Erlang's `os:putenv/2` updates only the BEAM's own env table, not the
     // C runtime's `environ`, so a dedicated NIF is required. Auto-registered by the
     // `rustler::init!` module scan; the matching `set_env/2` stub is injected into the

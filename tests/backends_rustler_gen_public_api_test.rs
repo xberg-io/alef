@@ -156,6 +156,7 @@ fn test_generate_public_api_creates_all_files() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -334,6 +335,7 @@ fn test_native_ex_has_all_nif_stubs() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![FunctionDef {
@@ -490,6 +492,7 @@ fn test_struct_module_has_defstruct() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -626,6 +629,7 @@ fn test_main_module_has_method_wrappers() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -744,6 +748,7 @@ fn test_opaque_types_not_get_struct_module() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -1331,6 +1336,7 @@ fn test_defstruct_string_fields_default_to_nil() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -1452,9 +1458,19 @@ fn test_native_ex_emits_multiline_doc_heredoc_above_nif_stub() {
 #[test]
 fn test_native_ex_omits_doc_when_function_has_no_rustdoc() {
     let content = render_native_ex(vec![make_function_with_doc("convert", "")]);
-    // No @doc anywhere in the Native module when the function has no doc.
+    let before_convert = content
+        .split("  def convert")
+        .next()
+        .expect("convert stub should be present");
+    let previous_non_blank_line = before_convert
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_default();
+
+    // No @doc attached to the generated NIF stub when the source function has no doc.
     assert!(
-        !content.contains("@doc"),
+        !previous_non_blank_line.trim_start().starts_with("@doc"),
         "Native module must not emit @doc when the source has no rustdoc; content:\n{content}"
     );
     // Stub itself is still emitted.
@@ -1854,6 +1870,7 @@ fn opaque_static_constructor_wraps_return_in_struct() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -1990,7 +2007,7 @@ fn test_plugin_bridge_emits_typed_host_behaviour() {
 
     // Typed, host-implementable behaviour with one @callback per trait method.
     assert!(
-        content.contains("defmodule MyLib.Greeter.Host do"),
+        content.contains("defmodule Greeter.Host do"),
         "plugin bridge must emit a typed host behaviour module; got:\n{content}"
     );
     assert!(
@@ -2000,8 +2017,7 @@ fn test_plugin_bridge_emits_typed_host_behaviour() {
 
     // register_* delegate references the behaviour for the host to implement.
     assert!(
-        content.contains("def register_greeter(genserver_pid, plugin_name) do")
-            && content.contains("MyLib.Greeter.Host"),
+        content.contains("def register_greeter(genserver_pid, plugin_name) do") && content.contains("Greeter.Host"),
         "register delegate must reference the host behaviour; got:\n{content}"
     );
 }

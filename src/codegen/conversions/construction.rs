@@ -23,7 +23,7 @@ pub struct FieldAssign {
 
 /// Inputs for emitting a private-field `From<Binding> for Core` impl.
 pub struct PrivateFieldImpl<'a> {
-    /// Fully-qualified core type path (e.g. `xberg::OcrExtractionResult`).
+    /// Fully-qualified core type path (e.g. `sample_core::ExtractionResult`).
     pub core_path: &'a str,
     /// Binding mirror type name (e.g. `JsOcrExtractionResult`, `OcrExtractionResult`).
     pub binding_name: &'a str,

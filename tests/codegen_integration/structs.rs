@@ -62,6 +62,7 @@ fn test_gen_opaque_struct_arc_inner() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let cfg = default_cfg();
@@ -121,6 +122,7 @@ fn test_gen_opaque_struct_mutex_when_ref_mut_method() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     typ.is_opaque = true;
@@ -162,6 +164,7 @@ fn test_gen_opaque_struct_trait_uses_dyn() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let cfg = default_cfg();
@@ -253,6 +256,7 @@ fn test_gen_struct_default_impl_optional_field_uses_none() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
 
@@ -317,6 +321,7 @@ fn test_can_generate_default_impl_named_not_in_known_set() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let known: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -369,6 +374,7 @@ fn test_can_generate_default_impl_named_in_known_set() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let mut known: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -426,6 +432,7 @@ fn test_gen_struct_with_opaque_field_skips_serde_derives() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let mapper = RustMapper;
