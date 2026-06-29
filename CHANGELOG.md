@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-06-29
+
 ### Added
 
 - **docs**: add a template-driven docs stage for API, CLI, MCP, `llms.txt`, agent skills, and
