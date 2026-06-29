@@ -193,14 +193,13 @@ pub(super) fn emit_trait_bridge_method(
                 ));
             }
         } else {
-            out.push_str("        let __ret_bridge = std::thread::spawn(|| {\n            ::tokio::runtime::Builder::new_current_thread()\n                .build()\n                .expect(\"build alef visitor tokio runtime\")\n");
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_block_on.jinja",
                 minijinja::context! {
                     call_expr => call_expr.as_str(),
+                    result_var => "__ret_bridge",
                 },
             ));
-            out.push_str("        }).join().expect(\"thread panicked\");\n");
             if method.error_type.is_some() {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_excluded_block_on_result_return.rs.jinja",
@@ -257,14 +256,13 @@ pub(super) fn emit_trait_bridge_method(
             // FRB workers run inside flutter_rust_bridge's active tokio runtime.
             // Spawn a dedicated OS thread with its own tokio runtime to avoid
             // "Cannot start a runtime from within a runtime" panic.
-            out.push_str("        let __result = std::thread::spawn(|| {\n            ::tokio::runtime::Builder::new_current_thread()\n                .build()\n                .expect(\"build alef visitor tokio runtime\")\n");
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_block_on.jinja",
                 minijinja::context! {
                     call_expr => call_expr.as_str(),
+                    result_var => "__result",
                 },
             ));
-            out.push_str("        }).join().expect(\"thread panicked\");\n");
             if named_return_default {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_method_default_from_result.jinja",
@@ -311,14 +309,13 @@ pub(super) fn emit_trait_bridge_method(
         // FRB workers run inside flutter_rust_bridge's active tokio runtime.
         // Spawn a dedicated OS thread with its own tokio runtime to avoid
         // "Cannot start a runtime from within a runtime" panic.
-        out.push_str("        let __result = std::thread::spawn(|| {\n            ::tokio::runtime::Builder::new_current_thread()\n                .build()\n                .expect(\"build alef visitor tokio runtime\")\n");
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_method_block_on.jinja",
             minijinja::context! {
                 call_expr => call_expr.as_str(),
+                result_var => "__result",
             },
         ));
-        out.push_str("        }).join().expect(\"thread panicked\");\n");
         if named_return_default {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_default_from_result.jinja",

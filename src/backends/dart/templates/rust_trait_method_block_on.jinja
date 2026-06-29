@@ -1,1 +1,7 @@
-            .block_on(async { {{ call_expr }}.await })
+        let __fut = {{ call_expr }};
+        let {{ result_var }} = std::thread::spawn(move || {
+            ::tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("build alef visitor tokio runtime")
+                .block_on(__fut)
+        }).join().expect("thread panicked");
