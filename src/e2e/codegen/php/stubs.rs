@@ -124,19 +124,34 @@ pub fn emit_test_backend_with_ns(
             .map(|p| format!("${}", sanitize_ident(&p.name)))
             .collect();
         let param_str = params.join(", ");
-        // The PHP interface declares every method as `: mixed` (uniform catch-all
-        // return type), so stubs must match — including Unit-returning Rust
-        // methods like PostProcessor::process. Emit a null return for Unit so
-        // the stub is callable; the registry never reads its result.
+        // The PHP trait interface types scalar returns (e.g. `dimensions(): int`) and uses
+        // `mixed` for everything else — see `rust_type_to_php_type` in the php trait-bridge
+        // backend. The stub's return type MUST match the interface (PHP rejects a wider
+        // `mixed` override of a typed `int` method as incompatible), so mirror that mapping.
+        let php_return_type = match &method.return_type {
+            TypeRef::String => "string",
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "bool",
+            TypeRef::Primitive(
+                crate::core::ir::PrimitiveType::I32
+                | crate::core::ir::PrimitiveType::I64
+                | crate::core::ir::PrimitiveType::U32
+                | crate::core::ir::PrimitiveType::U64
+                | crate::core::ir::PrimitiveType::Usize,
+            ) => "int",
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64) => "float",
+            _ => "mixed",
+        };
+        // Unit-returning methods (e.g. PostProcessor::process) map to `mixed`; emit a null
+        // return so the stub is callable — the registry never reads the result.
         if matches!(method.return_type, TypeRef::Unit) {
             let _ = writeln!(
                 setup,
-                "    public function {php_name}({param_str}): mixed {{ return null; }}"
+                "    public function {php_name}({param_str}): {php_return_type} {{ return null; }}"
             );
         } else {
             let _ = writeln!(
                 setup,
-                "    public function {php_name}({param_str}): mixed {{ return {default_val}; }}"
+                "    public function {php_name}({param_str}): {php_return_type} {{ return {default_val}; }}"
             );
         }
     }
