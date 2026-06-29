@@ -180,11 +180,27 @@ pub(crate) fn render_extra_deps(config: &ResolvedCrateConfig, lang: Language) ->
         return String::new();
     }
     let member_versions = workspace_member_versions(config);
+    let ws_dep_specs = workspace_dep_specs(config);
     let mut lines: Vec<String> = deps
         .iter()
         .map(|(name, value)| match value {
             toml::Value::String(version) => format!("{name} = \"{version}\""),
             toml::Value::Table(table) => {
+                // Resolve `{ workspace = true }` to the concrete spec from the
+                // root `[workspace.dependencies]` so out-of-workspace binding
+                // crates (e.g. the R package at `packages/r/src/rust/`, which is
+                // excluded from the cargo workspace) build without a parent
+                // workspace — otherwise cargo fails with "failed to find a
+                // workspace root".
+                if table.get("workspace").and_then(|v| v.as_bool()) == Some(true) {
+                    if let Some(concrete) = ws_dep_specs.get(name) {
+                        return format!("{name} = {concrete}");
+                    }
+                    // No workspace root resolvable, or the dep is absent from
+                    // [workspace.dependencies]: emit verbatim so cargo surfaces a
+                    // clear error rather than a silently-dropped dependency.
+                    return format!("{name} = {value}");
+                }
                 // Inject the resolved workspace version into path-only member
                 // tables so cargo-package flows can resolve them from the
                 // registry. Leave non-members and already-versioned tables as-is.
@@ -219,6 +235,41 @@ fn workspace_member_versions(config: &ResolvedCrateConfig) -> std::collections::
     match crate::publish::workspace::workspace_member_crates(root) {
         Ok(members) => members.versions,
         Err(_) => std::collections::BTreeMap::new(),
+    }
+}
+
+/// Read the root `Cargo.toml`'s `[workspace.dependencies]` table and return the
+/// concrete dependency specs keyed by crate name.
+///
+/// Used to resolve `{ workspace = true }` extra-dependency entries to concrete
+/// specs so out-of-workspace binding crates (e.g. the R package at
+/// `packages/r/src/rust/`) compile without a parent workspace. Returns an empty
+/// map when no workspace root is configured, the root `Cargo.toml` is absent, or
+/// the TOML cannot be parsed.
+fn workspace_dep_specs(config: &ResolvedCrateConfig) -> std::collections::BTreeMap<String, toml::Value> {
+    // `workspace_root` is only populated for release flows; during `alef generate`
+    // it is None, so fall back to discovering the workspace manifest by walking up
+    // from the current directory (generation runs from the repo root) until a
+    // `Cargo.toml` containing a `[workspace]` table is found.
+    let start = config.workspace_root.clone().or_else(|| std::env::current_dir().ok());
+    let Some(mut dir) = start else {
+        return std::collections::BTreeMap::new();
+    };
+    loop {
+        if let Ok(contents) = std::fs::read_to_string(dir.join("Cargo.toml")) {
+            if let Ok(doc) = contents.parse::<toml::Value>() {
+                if let Some(deps) = doc
+                    .get("workspace")
+                    .and_then(|w| w.get("dependencies"))
+                    .and_then(|d| d.as_table())
+                {
+                    return deps.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                }
+            }
+        }
+        if !dir.pop() {
+            return std::collections::BTreeMap::new();
+        }
     }
 }
 
