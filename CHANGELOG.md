@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **php**: generate the correct return type for `serde(default = "...")` helpers on fields whose
+  core type is mirrored into a binding DTO. The helper returned the core type (e.g.
+  `crawlberg::SsrfPolicy`) while the field is rendered as the crate-root mirror, so the generated
+  php crate failed to compile (`expected SsrfPolicy, found crawlberg::SsrfPolicy`). The helper now
+  returns the mirror and converts the core value via `.into()`.
+
 ## [0.30.1] - 2026-06-29
 
 ### Fixed
