@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **tests**: normalize docs-stage generated path assertions across Windows and Unix.
+
 ## [0.30.0] - 2026-06-29
 
 ### Added

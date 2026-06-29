@@ -151,7 +151,7 @@ sources = ["src/lib.rs"]
     let files = generate_docs_stage(&api, &config, &[Language::Python], None, root).unwrap();
     let paths = files
         .iter()
-        .map(|file| file.path.to_string_lossy().to_string())
+        .map(|file| file.path.to_string_lossy().replace('\\', "/"))
         .collect::<Vec<_>>();
 
     assert!(paths.contains(&"docs/reference/cli.md".to_string()));
