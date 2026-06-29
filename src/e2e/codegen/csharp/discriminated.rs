@@ -11,6 +11,10 @@ use super::json_to_csharp;
 /// Pattern: `metadata.format.<variant_name>.<field_name>`
 /// Returns: Some((accessor, variant_name, inner_field)) if matched, otherwise None
 pub(super) fn parse_discriminated_union_access(field: &str) -> Option<(String, String, String)> {
+    // Strip a leading list-index prefix (e.g. "results[0].") so both single-result
+    // (`metadata.format.excel.sheet_count`) and list-result
+    // (`results[0].metadata.format.excel.sheet_count`) field paths are recognized.
+    let field = field.split_once("].").map(|(_, rest)| rest).unwrap_or(field);
     let parts: Vec<&str> = field.split('.').collect();
     if parts.len() >= 3 && parts.len() <= 4 {
         // Check if this is metadata.format.{variant}.{field} pattern

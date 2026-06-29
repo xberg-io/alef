@@ -17,6 +17,10 @@ use super::values::json_to_kotlin;
 /// Pattern: `metadata.format.<variant_name>(.<inner_field>)?`
 /// Returns: Some((variant_pascal, inner_field_snake)) if matched.
 pub(super) fn parse_discriminated_union_access(field: &str) -> Option<(String, String)> {
+    // Strip a leading list-index prefix (e.g. "results[0].") so both single-result
+    // (`metadata.format.excel.sheet_count`) and list-result
+    // (`results[0].metadata.format.excel.sheet_count`) field paths are recognized.
+    let field = field.split_once("].").map(|(_, rest)| rest).unwrap_or(field);
     let parts: Vec<&str> = field.split('.').collect();
     if !(parts.len() == 3 || parts.len() == 4) {
         return None;
