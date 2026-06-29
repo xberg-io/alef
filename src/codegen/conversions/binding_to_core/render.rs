@@ -81,6 +81,31 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         );
     }
 
+    // Types with an explicit static `new()` constructor (private fields) but no lifetime params:
+    // attempt to synthesise a constructor call; fall back to compile_error! if no suitable
+    // constructor is found in the IR.
+    if has_explicit_static_new {
+        if let Some(call) = gen_from_explicit_new_constructor(typ, &core_path, &binding_name, config) {
+            return call;
+        }
+        return crate::codegen::template_env::render(
+            "conversions/binding_to_core_impl",
+            minijinja::context! {
+                core_path => &core_path,
+                binding_name => &binding_name,
+                has_lifetime_params => false,
+                is_newtype => false,
+                has_explicit_static_new => true,
+                newtype_inner_expr => String::new(),
+                builder_mode => false,
+                uses_builder_pattern => false,
+                has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+                statements => vec![] as Vec<String>,
+                fields => vec![] as Vec<String>,
+            },
+        );
+    }
+
     // Determine if we're using the builder pattern
     let uses_builder_pattern = (config.option_duration_on_defaults
         && typ.has_default
@@ -416,6 +441,97 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             fields => fields,
         },
     )
+}
+
+/// Generate `impl From<BindingType> for CoreType` using a static constructor method.
+///
+/// Used for types without lifetime params but with private fields (indicated by
+/// `has_explicit_static_new`). Finds a static method (no receiver) whose parameters
+/// cover all binding fields, then emits `Self::<method>(...)` using
+/// `field_conversion_to_core_cfg` for each argument.
+///
+/// Returns `None` when no suitable constructor is found.
+pub fn gen_from_explicit_new_constructor(
+    typ: &TypeDef,
+    core_path: &str,
+    binding_name: &str,
+    config: &ConversionConfig,
+) -> Option<String> {
+    let field_names: std::collections::HashSet<&str> = typ
+        .fields
+        .iter()
+        .filter(|f| !f.binding_excluded)
+        .map(|f| f.name.as_str())
+        .collect();
+
+    // Find a static method whose params cover all binding fields.
+    // Prefer non-borrowed variants (same heuristic as gen_from_lifetime_type_constructor).
+    let constructor = typ
+        .methods
+        .iter()
+        .find(|m| {
+            m.receiver.is_none()
+                && !m.name.contains("borrowed")
+                && field_names
+                    .iter()
+                    .all(|fname| m.params.iter().any(|p| p.name == *fname))
+        })
+        .or_else(|| {
+            typ.methods.iter().find(|m| {
+                m.receiver.is_none()
+                    && field_names
+                        .iter()
+                        .all(|fname| m.params.iter().any(|p| p.name == *fname))
+            })
+        })?;
+
+    // Build args in param order using standard field conversion expressions.
+    let mut args: Vec<String> = Vec::new();
+    for param in &constructor.params {
+        if let Some(field) = typ.fields.iter().find(|f| f.name == param.name) {
+            let binding_field = config.binding_field_name_owned(&typ.name, &field.name);
+            // Use standard field conversion (owned — no lifetime constraint needed here).
+            let expr = field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config);
+            // Strip "name: " prefix to obtain just the value expression.
+            let expr = if let Some(e) = expr.strip_prefix(&format!("{}: ", field.name)) {
+                e.to_string()
+            } else {
+                expr
+            };
+            // Apply keyword-escaped field name substitution.
+            let expr = if binding_field != field.name {
+                expr.replace(&format!("val.{}", field.name), &format!("val.{binding_field}"))
+            } else {
+                expr
+            };
+            args.push(expr);
+        } else {
+            // No matching binding field — use Default or empty collection.
+            match &param.ty {
+                TypeRef::Map(_, _) => args.push("Default::default()".to_string()),
+                _ => {
+                    if param.is_ref {
+                        args.push("&Default::default()".to_string());
+                    } else {
+                        args.push("Default::default()".to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let args_str = args.join(",\n        ");
+    Some(format!(
+        "#[allow(clippy::redundant_closure, clippy::useless_conversion)]\n\
+         impl From<{binding_name}> for {core_path} {{\n\
+             fn from(val: {binding_name}) -> Self {{\n\
+                 Self::{constructor_name}(\n\
+                     {args_str},\n\
+                 )\n\
+             }}\n\
+         }}\n",
+        constructor_name = constructor.name,
+    ))
 }
 
 /// Generate a `From<Binding> for CoreType<'_>` impl using a static constructor method.
