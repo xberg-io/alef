@@ -70,10 +70,20 @@ impl PhpBridgeGenerator {
             // Known serde struct: hand PHP the binding's native object, not a JSON string. The
             // bare `#[php_class]` struct is not `IntoZval`; box it in a `ZendClassObject` (which
             // is) so the host receives a real class instance rather than a serialized string.
-            TypeRef::Named(n) if self.struct_param_types.contains(n.as_str()) => format!(
-                "ext_php_rs::convert::IntoZval::into_zval(ext_php_rs::types::ZendClassObject::new({n}::from((*{}).clone())), false).unwrap_or_default()",
-                p.name
-            ),
+            // Borrowed params deref first; owned (by-value) params construct from the value
+            // directly — `(*owned)` would not type-check (E0614).
+            TypeRef::Named(n) if self.struct_param_types.contains(n.as_str()) => {
+                // Borrowed params must clone out of the `&`; owned params are moved in (the
+                // param — e.g. a by-value `ExtractInput` carrying document bytes — is used once).
+                let core_value = if p.is_ref {
+                    format!("(*{}).clone()", p.name)
+                } else {
+                    p.name.clone()
+                };
+                format!(
+                    "ext_php_rs::convert::IntoZval::into_zval(ext_php_rs::types::ZendClassObject::new({n}::from({core_value})), false).unwrap_or_default()"
+                )
+            }
             // Other Named params (enums, opaque/handle, excluded/unknown) keep the JSON string.
             TypeRef::Named(_) => format!(
                 "ext_php_rs::types::Zval::try_from(serde_json::to_string(&{}).unwrap_or_default()).unwrap_or_default()",
@@ -325,14 +335,11 @@ pub fn gen_trait_bridge(
         // a JSON string.
         let struct_param_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
-        // Return-side counterpart, gated on the binding->core conversion actually being generated
-        // (`convertible_types`); for a type that does not qualify, keep the proven serde path.
-        let binding_to_core = crate::codegen::conversions::convertible_types(api);
-        let struct_return_types: std::collections::HashSet<String> =
-            crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api)
-                .into_iter()
-                .filter(|name| binding_to_core.contains(name.as_str()))
-                .collect();
+        // Return-side: unlike the param side, PHP cannot use the native-object fast-path. A
+        // `#[php_class]` binding struct implements `FromZvalMut` (for `&mut T`) but not `FromZval`
+        // (for `T`), so `<Binding as FromZval>::from_zval(&val)` does not type-check. The bridge
+        // keeps the proven JSON/string return path for every type, which is well-defined for PHP.
+        let struct_return_types: std::collections::HashSet<String> = std::collections::HashSet::new();
         let generator = PhpBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),

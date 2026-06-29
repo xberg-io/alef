@@ -26,6 +26,17 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
 
     if has_async {
+        // Provision a worker-thread stack large enough for deep async pipelines. The default
+        // pyo3-async-runtimes multi-thread runtime gives workers a small (~2 MB) stack; a deep
+        // consumer future (e.g. a multi-stage document/OCR pipeline) overflows it and aborts the
+        // process with SIGBUS. This runs at import, before the first `future_into_py` builds the
+        // lazy runtime. `tokio` is a direct dependency of every async pyo3 binding crate.
+        lines.push("    {".to_string());
+        lines.push("        let mut __rt_builder = tokio::runtime::Builder::new_multi_thread();".to_string());
+        lines.push("        __rt_builder.enable_all();".to_string());
+        lines.push("        __rt_builder.thread_stack_size(16 * 1024 * 1024);".to_string());
+        lines.push("        pyo3_async_runtimes::tokio::init(__rt_builder);".to_string());
+        lines.push("    }".to_string());
         lines.push("    m.add_function(wrap_pyfunction!(init_async_runtime, m)?)?;".to_string());
     }
 
@@ -191,7 +202,7 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
 #[cfg(test)]
 mod tests {
     use super::{gen_async_runtime_init, gen_module_init};
-    use crate::core::ir::ApiSurface;
+    use crate::core::ir::{ApiSurface, FunctionDef};
 
     fn make_config() -> crate::core::config::ResolvedCrateConfig {
         let cfg: crate::core::config::NewAlefConfig = toml::from_str(
@@ -237,5 +248,42 @@ module_name = "_test_lib"
         let result = gen_module_init("_test_lib", &api, &config);
         assert!(result.contains("#[pymodule]"));
         assert!(result.contains("Ok(())"));
+        // Sync-only API: no async runtime, so no worker-stack provisioning.
+        assert!(!result.contains("thread_stack_size"));
+    }
+
+    /// When the API has async functions, the module init provisions an enlarged worker-thread
+    /// stack on the pyo3-async-runtimes runtime before the first `future_into_py`. Without it,
+    /// a deep async pipeline (e.g. OCR) overflows the default ~2 MB worker stack and the process
+    /// aborts with SIGBUS.
+    #[test]
+    fn gen_module_init_provisions_async_runtime_worker_stack() {
+        let api = ApiSurface {
+            crate_name: "test-lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![FunctionDef {
+                name: "do_async".to_string(),
+                is_async: true,
+                ..Default::default()
+            }],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+            unsupported_public_items: Vec::new(),
+        };
+        let config = make_config();
+        let result = gen_module_init("_test_lib", &api, &config);
+        assert!(
+            result.contains("thread_stack_size"),
+            "async module init must enlarge the worker-thread stack:\n{result}"
+        );
+        assert!(
+            result.contains("pyo3_async_runtimes::tokio::init"),
+            "the enlarged-stack runtime must be installed before first use:\n{result}"
+        );
     }
 }

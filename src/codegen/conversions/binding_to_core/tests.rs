@@ -27,6 +27,7 @@ fn type_with_field(field: FieldDef) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }
@@ -296,5 +297,82 @@ fn binding_excluded_field_on_type_without_default_uses_per_field_fallback() {
         !out.contains("..Default::default()"),
         "the spread trailer must not be emitted when the core type does not \
          derive/impl Default — it would fail to compile (E0277); got:\n{out}"
+    );
+}
+
+fn string_field(name: &str) -> FieldDef {
+    FieldDef {
+        name: name.to_string(),
+        ty: TypeRef::String,
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        original_type: None,
+    }
+}
+
+/// A core type with private (`pub(crate)`) fields cannot be built with struct-literal
+/// syntax from a foreign crate. When it derives `Default`, the conversion must seed a
+/// `T::default()` base (which fills the private fields) and assign only the public fields.
+#[test]
+fn private_fields_type_with_default_uses_builder() {
+    let mut typ = type_with_field(string_field("content"));
+    typ.has_private_fields = true;
+    typ.has_default = true;
+    typ.has_serde = true;
+
+    let out = gen_from_binding_to_core(&typ, "crate");
+
+    assert!(
+        out.contains("crate::ProcessConfig::default()"),
+        "builder must seed the core Default to fill private fields; got:\n{out}"
+    );
+    assert!(
+        out.contains("__result.content = "),
+        "builder must assign public fields onto the default base; got:\n{out}"
+    );
+    assert!(
+        !out.contains("content: val.content"),
+        "must not emit a struct-literal field for a type with private fields; got:\n{out}"
+    );
+}
+
+/// A core type with private fields and NO `Default` impl cannot be constructed by the
+/// builder strategy (no base to seed) and a struct literal is impossible (private fields).
+/// The generator must emit a guiding `compile_error!` rather than broken code — even when
+/// the type derives serde, because per-field serde construction is fragile (`into()` target
+/// ambiguity). The contract is: derive `Default` (or expose a constructor) on such a type.
+#[test]
+fn private_fields_type_without_default_emits_compile_error() {
+    let mut typ = type_with_field(string_field("content"));
+    typ.has_private_fields = true;
+    typ.has_default = false;
+    typ.has_serde = true; // serde alone is not accepted as a construction strategy
+
+    let out = gen_from_binding_to_core(&typ, "crate");
+
+    assert!(
+        out.contains("compile_error!"),
+        "a private-field type without Default must emit a guiding compile_error!; got:\n{out}"
+    );
+    assert!(
+        out.contains("Default"),
+        "the compile_error must guide the author to derive Default; got:\n{out}"
+    );
+    assert!(
+        !out.contains("content: val.content"),
+        "must not emit a struct-literal field for a type with private fields; got:\n{out}"
     );
 }

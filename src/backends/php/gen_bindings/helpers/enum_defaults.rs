@@ -81,16 +81,12 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
         }
     }
 
-    let mut out = String::with_capacity(512);
-    out.push_str(&crate::backends::php::template_env::render(
-        "php_impl_from_begin.jinja",
-        context! {
-            binding_type => &typ.name,
-            core_type => &core_path,
-            has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
-        },
-    ));
     let has_binding_excluded_fields = typ.fields.iter().any(|f| f.binding_excluded);
+    // Collect `(core_field, rhs_expr)` pairs, then emit either a struct literal or — for core
+    // types whose private (`pub(crate)`) fields forbid struct-literal construction — a
+    // `Default`-seeded builder via the shared construction strategy (the same one the
+    // pyo3/napi/wasm/dart generators use).
+    let mut fields: Vec<(&str, String)> = Vec::new();
     for field in &typ.fields {
         if field.binding_excluded {
             if !typ.has_default {
@@ -100,13 +96,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
                 // field. This loses any custom core-level Default behaviour for
                 // these fields, but is the only way to construct the struct literal
                 // when the core type lacks a Default impl.
-                out.push_str(&crate::backends::php::template_env::render(
-                    "php_struct_field_assignment.jinja",
-                    context! {
-                        field_name => field.name.as_str(),
-                        field_expr => "Default::default()",
-                    },
-                ));
+                fields.push((field.name.as_str(), "Default::default()".to_string()));
                 continue;
             }
             // Skip binding_excluded fields entirely; the trailing `..Default::default()`
@@ -138,56 +128,25 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             // PHP opaque structs wrap the core handle in Arc<VisitorHandle>; extract via deref.
             // The PHP binding struct stores the field as Option<T> (opaque naming convention),
             // so map over the option rather than direct deref.
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_struct_field_assignment.jinja",
-                context! {
-                    field_name => name.as_str(),
-                    field_expr => &format!("val.{name}.map(|v| (*v.inner).clone())"),
-                },
-            ));
+            fields.push((name.as_str(), format!("val.{name}.map(|v| (*v.inner).clone())")));
         } else if field.sanitized {
             // Sanitized fields (e.g. Duration→u64, Vec<T>→Vec<String>) use Default::default()
             // since they can't be round-tripped from the PHP binding representation.
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_struct_field_assignment.jinja",
-                context! {
-                    field_name => name.as_str(),
-                    field_expr => "Default::default()",
-                },
-            ));
+            fields.push((name.as_str(), "Default::default()".to_string()));
         } else if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
             // Direct enum-Named field: generate string->enum match
             let conversion =
                 gen_string_to_enum_expr(&format!("val.{name}"), &enum_name, field.optional, enums, core_import);
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_struct_field_assignment.jinja",
-                context! {
-                    field_name => name.as_str(),
-                    field_expr => &conversion,
-                },
-            ));
+            fields.push((name.as_str(), conversion));
         } else if let Some(enum_name) = get_vec_enum_named(&field.ty, enum_names) {
             // Vec<Enum-Named> field: element-wise string->enum parsing
             let elem_conversion = gen_string_to_enum_expr("s", &enum_name, false, enums, core_import);
-            if field.optional {
-                let conversion = format!("val.{name}.map(|v| v.into_iter().map(|s| {elem_conversion}).collect())");
-                out.push_str(&crate::backends::php::template_env::render(
-                    "php_struct_field_assignment.jinja",
-                    context! {
-                        field_name => name.as_str(),
-                        field_expr => &conversion,
-                    },
-                ));
+            let conversion = if field.optional {
+                format!("val.{name}.map(|v| v.into_iter().map(|s| {elem_conversion}).collect())")
             } else {
-                let conversion = format!("val.{name}.into_iter().map(|s| {elem_conversion}).collect()");
-                out.push_str(&crate::backends::php::template_env::render(
-                    "php_struct_field_assignment.jinja",
-                    context! {
-                        field_name => name.as_str(),
-                        field_expr => &conversion,
-                    },
-                ));
-            }
+                format!("val.{name}.into_iter().map(|s| {elem_conversion}).collect()")
+            };
+            fields.push((name.as_str(), conversion));
         } else if !field.optional
             && matches!(field.ty, TypeRef::Duration)
             && config.option_duration_on_defaults
@@ -207,13 +166,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
                     field_name => name.as_str(),
                 },
             );
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_struct_field_assignment.jinja",
-                context! {
-                    field_name => name.as_str(),
-                    field_expr => &conversion,
-                },
-            ));
+            fields.push((name.as_str(), conversion));
         } else if matches!(field.ty, TypeRef::Bytes)
             || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes))
         {
@@ -223,13 +176,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             } else {
                 format!("val.{name}.into()")
             };
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_struct_field_assignment.jinja",
-                context! {
-                    field_name => name.as_str(),
-                    field_expr => &conversion,
-                },
-            ));
+            fields.push((name.as_str(), conversion));
         } else {
             // Non-enum field (may reference other tainted types, which have their own From)
             let conversion =
@@ -286,18 +233,58 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             // php_struct_field_assignment.jinja already adds "{{ field_name }}: " so we strip
             // the prefix here to avoid "name: name: expr" duplication.
             let field_expr = conversion.strip_prefix(&format!("{name}: ")).unwrap_or(&conversion);
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_struct_field_assignment.jinja",
-                context! {
-                    field_name => name.as_str(),
-                    field_expr => field_expr,
-                },
-            ));
+            fields.push((name.as_str(), field_expr.to_string()));
         }
+    }
+    // Core types with private (`pub(crate)`) fields cannot be built with struct-literal
+    // syntax from a foreign crate. Delegate to the shared construction strategy: a
+    // `Default`-seeded builder (assigning only public fields), or a guiding `compile_error!`
+    // when the core type has no `Default`. Pure-`Default::default()` assignments are dropped —
+    // the seeded base already holds them.
+    if typ.has_private_fields {
+        let assignments: Vec<_> = fields
+            .into_iter()
+            .filter(|(_, expr)| expr != "Default::default()")
+            .map(
+                |(core_field, expr)| crate::codegen::conversions::construction::FieldAssign {
+                    core_field: core_field.to_string(),
+                    expr,
+                },
+            )
+            .collect();
+        return crate::codegen::conversions::construction::gen_private_field_from_impl(
+            &crate::codegen::conversions::construction::PrivateFieldImpl {
+                core_path: &core_path,
+                binding_name: &typ.name,
+                param: "val",
+                has_default: typ.has_default,
+                assignments: &assignments,
+                allow_attrs: &["clippy::useless_conversion"],
+            },
+        );
+    }
+
+    // Struct-literal path for types whose fields are all public.
+    let mut out = crate::backends::php::template_env::render(
+        "php_impl_from_begin.jinja",
+        context! {
+            binding_type => &typ.name,
+            core_type => &core_path,
+            has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+        },
+    );
+    for &(field_name, ref field_expr) in &fields {
+        out.push_str(&crate::backends::php::template_env::render(
+            "php_struct_field_assignment.jinja",
+            context! {
+                field_name => field_name,
+                field_expr => field_expr,
+            },
+        ));
     }
     // Only emit the trailing `..Default::default()` spread when the core type
     // derives Default — otherwise E0277 blocks compilation. For binding-excluded
-    // fields the loop above already emitted explicit `field: Default::default()`
+    // fields the loop above already pushed explicit `field: Default::default()`
     // assignments when `!typ.has_default`.
     let emit_default_spread = typ.has_default && (typ.has_stripped_cfg_fields || has_binding_excluded_fields);
     out.push_str(&crate::backends::php::template_env::render(

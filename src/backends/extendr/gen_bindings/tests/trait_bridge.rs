@@ -162,6 +162,7 @@ fn regression_namespace_exports_functions_types_enums() {
         is_variant_wrapper: false,
 
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     });
     // Add a flat data enum (has variant with data, single field)
@@ -300,6 +301,7 @@ clear_fn = "clear_greeters"
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let doc_ty = TypeDef {
@@ -389,6 +391,7 @@ fn r_field_long_descriptions_are_truncated_to_fit_120_char_lines() {
             is_variant_wrapper: false,
 
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],

@@ -322,6 +322,7 @@ fn trait_bridge_register_uses_c_vtable_helper_and_free_string_callback() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
@@ -406,6 +407,7 @@ fn register_c_call_passes_vtable_by_value() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
@@ -481,6 +483,7 @@ fn text_processor_interface_and_bridge_wrapper_emitted() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {

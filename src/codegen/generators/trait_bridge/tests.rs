@@ -61,6 +61,7 @@ fn make_type_def(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDe
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }

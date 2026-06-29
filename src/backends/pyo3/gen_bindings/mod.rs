@@ -326,6 +326,20 @@ impl Backend for Pyo3Backend {
             .as_ref()
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
+        // A trait bridge with a `registry_getter` emits its own duck-typed `register_*`
+        // (`Py<PyAny>` → host wrapper → registry) below in `gen_trait_bridge`. The core also
+        // exposes a same-named `register_*` free function, which the api.functions loop would
+        // otherwise emit as a SECOND `#[pyfunction]` of the same Rust name — a redefinition
+        // (E0428). It is broken regardless: the core registration now takes `Arc<dyn Trait>`,
+        // so the auto-wrapped visitor body fails to type-check (E0308). Collect these names so
+        // the loop skips them and the duck-typed registration is the single definition.
+        // (Mirrors the stub generator's `declared_function_names` dedup for bridge functions.)
+        let bridge_duck_register_fns: AHashSet<&str> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| b.registry_getter.is_some() && api.types.iter().any(|t| t.is_trait && t.name == b.trait_name))
+            .filter_map(|b| b.register_fn.as_deref())
+            .collect();
         let mut py_exclude_types: ahash::AHashSet<String> = config
             .python
             .as_ref()
@@ -643,6 +657,11 @@ impl Backend for Pyo3Backend {
         }
         for f in &api.functions {
             if py_exclude_functions.contains(&f.name) {
+                continue;
+            }
+            // Skip a core `register_*` free function when its name belongs to a trait bridge
+            // that emits a duck-typed registration below — emitting both produces a redefinition.
+            if bridge_duck_register_fns.contains(f.name.as_str()) {
                 continue;
             }
             // Check whether any parameter's type matches a trait bridge type_alias (function-param binding).

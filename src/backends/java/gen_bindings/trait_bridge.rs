@@ -513,12 +513,7 @@ fn gen_bridge_file(
                 "ValueLayout.JAVA_INT",
                 ", MemorySegment.class",
             ),
-            (
-                "Shutdown",
-                "int.class",
-                "ValueLayout.JAVA_INT",
-                ", MemorySegment.class",
-            ),
+            ("Shutdown", "int.class", "ValueLayout.JAVA_INT", ", MemorySegment.class"),
         ];
         for (pascal, return_type, descriptor_return, extra_param) in lifecycle_stubs {
             let handle = format!("handle{pascal}");

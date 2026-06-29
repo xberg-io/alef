@@ -36,6 +36,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
             // Opaque RouteBuilder with static new constructor
@@ -114,6 +115,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                has_private_fields: false,
                 version: Default::default(),
             },
         ],
@@ -346,6 +348,7 @@ fn opaque_with_named_constructor_api() -> ApiSurface {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],

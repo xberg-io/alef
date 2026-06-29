@@ -3,8 +3,11 @@ use heck::{ToPascalCase, ToSnakeCase};
 
 pub(in crate::backends::napi::gen_bindings) fn gen_tokio_runtime() -> String {
     "static WORKER_POOL: std::sync::LazyLock<tokio::runtime::Runtime> = std::sync::LazyLock::new(|| {
+    // 16 MB worker stack: a deep consumer future (e.g. a multi-stage OCR pipeline) overflows the
+    // default (~2 MB) worker stack and aborts the process with SIGBUS.
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        .thread_stack_size(16 * 1024 * 1024)
         .build()
         .expect(\"Failed to create Tokio runtime\")
 });"

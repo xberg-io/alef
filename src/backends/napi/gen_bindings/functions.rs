@@ -329,10 +329,15 @@ fn can_delegate_with_named_let_bindings(func: &FunctionDef, opaque_types: &AHash
 mod tests {
     use super::gen_tokio_runtime;
 
-    /// gen_tokio_runtime produces a static TOKIO_RUNTIME definition.
+    /// gen_tokio_runtime produces a static runtime with an enlarged worker stack so deep
+    /// consumer futures (e.g. an OCR pipeline) do not overflow the default ~2 MB stack (SIGBUS).
     #[test]
     fn gen_tokio_runtime_contains_runtime() {
         let result = gen_tokio_runtime();
         assert!(result.contains("TOKIO_RUNTIME") || result.contains("Runtime") || result.contains("tokio"));
+        assert!(
+            result.contains("thread_stack_size"),
+            "worker pool must enlarge the stack:\n{result}"
+        );
     }
 }

@@ -87,12 +87,8 @@ pub(super) fn render_test_setup(
     // the native `getenv` the underlying FFI library reads (e.g. SSRF allow-listing for
     // loopback mock-server URLs), so push the value through the C runtime as well.
     if !env.is_empty() {
-        out.push_str(
-            "    // libc setenv — Environment.SetEnvironmentVariable does not reliably propagate to the\n",
-        );
-        out.push_str(
-            "    // native getenv the underlying library reads, so set it through the C runtime directly.\n",
-        );
+        out.push_str("    // libc setenv — Environment.SetEnvironmentVariable does not reliably propagate to the\n");
+        out.push_str("    // native getenv the underlying library reads, so set it through the C runtime directly.\n");
         out.push_str("    [System.Runtime.InteropServices.DllImport(\"libc\", SetLastError = true)]\n");
         out.push_str("    private static extern int setenv(string name, string value, int overwrite);\n\n");
         out.push_str("    private static void SetNativeEnv(string name, string value)\n");

@@ -48,6 +48,7 @@ fn make_config_type_with_duration_default() -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }
@@ -136,6 +137,7 @@ fn make_request_type_with_multiword_fields() -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }
@@ -298,6 +300,7 @@ fn flatten_json_field_forces_builder_emission_below_auto_threshold() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let out = gen_record_type(

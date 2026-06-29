@@ -1001,11 +1001,7 @@ fn patch_native_stub_module(files: &mut [GeneratedFile], config: &ResolvedCrateC
 
     // (2) `register_*` stub arities → `(_pid, _name)`.
     for bridge in &config.trait_bridges {
-        if bridge
-            .exclude_languages
-            .iter()
-            .any(|l| l == "elixir" || l == "rustler")
-        {
+        if bridge.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler") {
             continue;
         }
         let Some(register_fn) = bridge.register_fn.as_deref() else {

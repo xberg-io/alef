@@ -168,6 +168,7 @@ fn test_generate_docs_with_type_renders_fields_and_doc() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],

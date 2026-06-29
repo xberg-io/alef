@@ -465,6 +465,40 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
         ty.rust_path.replace('-', "_")
     };
 
+    // Core types with private (non-`pub`) fields cannot be built with struct-literal syntax
+    // from the mirror crate. Seed the core `Default` (which fills the private fields) and
+    // assign the public fields onto it — via the shared construction strategy used by every
+    // backend. Excluded / lossily-sanitized fields are left at their default on the base.
+    if ty.has_private_fields {
+        let mut assignments = Vec::new();
+        for field in &ty.fields {
+            if field.binding_excluded {
+                continue;
+            }
+            let safe_sanitized_string = matches!(field.ty, TypeRef::String) && field.core_wrapper == CoreWrapper::Cow;
+            if field.sanitized && !safe_sanitized_string {
+                continue;
+            }
+            assignments.push(crate::codegen::conversions::construction::FieldAssign {
+                core_field: field.name.clone(),
+                expr: field_from_expr_to_core(field, source_crate_name),
+            });
+        }
+        out.push_str(&crate::codegen::conversions::construction::gen_private_field_from_impl(
+            &crate::codegen::conversions::construction::PrivateFieldImpl {
+                core_path: &core_ty,
+                binding_name: name,
+                param: "v",
+                has_default: ty.has_default,
+                assignments: &assignments,
+                allow_attrs: &[
+                    "clippy::field_reassign_with_default, clippy::let_and_return, clippy::useless_conversion",
+                ],
+            },
+        ));
+        return;
+    }
+
     // The generated literal ends with `..Default::default()` whenever some core
     // fields are intentionally omitted from the explicit field list AND the core
     // type derives Default (the spread itself requires Default — otherwise E0277).

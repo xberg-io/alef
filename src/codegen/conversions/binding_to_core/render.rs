@@ -3,7 +3,7 @@ use crate::codegen::conversions::helpers::{
     core_prim_str, core_type_path_remapped, field_references_excluded_type, is_newtype, needs_f64_cast, needs_i32_cast,
     needs_i64_cast,
 };
-use crate::core::ir::{CoreWrapper, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 
 use super::fields::field_conversion_to_core_cfg;
 use super::wrappers::apply_core_wrapper_to_core;
@@ -223,6 +223,16 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
 
     let optionalized = config.optionalize_defaults && typ.has_default;
 
+    // Types with private (non-`pub`) core fields cannot be built with struct-literal
+    // syntax from a foreign crate (`E0451` / "cannot construct ... due to private
+    // fields") — and the `..Default::default()` spread cannot patch a private field
+    // either. When the existing optionalize-builder path does not already cover the
+    // type, pick a non-literal construction strategy: a `Default`-seeded builder, or a
+    // guiding `compile_error!` when the core type provides no way to construct it.
+    if typ.has_private_fields && !optionalized {
+        return gen_private_field_construction(typ, &core_path, &binding_name, config);
+    }
+
     // Pre-compute all fields
     let mut fields = Vec::new();
     let mut statements = Vec::new();
@@ -290,120 +300,8 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             continue;
         }
         let field_was_optionalized = optionalized && !field.optional;
-        let conversion = if (field.sanitized && field.core_wrapper != CoreWrapper::Cow) || references_excluded {
-            format!("{}: Default::default()", field.name)
-        } else if field_was_optionalized {
-            // Field was wrapped in Option<T> for JS ergonomics but core expects T.
-            // Convert the supplied value as T; omitted fields keep the core type's Default value.
-            field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
-        } else {
-            field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
-        };
-        // Newtype wrapping: when the field was resolved from a newtype (e.g. NodeIndex → u32),
-        // wrap the binding value back into the newtype for the core struct.
-        // e.g. `source: val.source` → `source: sample_core::NodeIndex(val.source)`
-        //      `parent: val.parent` → `parent: val.parent.map(sample_core::NodeIndex)`
-        //      `children: val.children` → `children: val.children.into_iter().map(sample_core::NodeIndex).collect()`
-        let conversion = if let Some(newtype_path) = &field.newtype_wrapper {
-            if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
-                // When `optional=true` and `ty` is a plain Primitive (not TypeRef::Optional), the core
-                // field is actually `Option<NewtypeT>`, so we must use `.map(NewtypeT)` not `NewtypeT(...)`.
-                match &field.ty {
-                    TypeRef::Optional(_) => format!("{}: ({expr}).map({newtype_path})", field.name),
-                    TypeRef::Vec(_) => {
-                        // When the inner expr already ends with .collect() (e.g. because of a
-                        // primitive cast), the compiler cannot infer the intermediate Vec type
-                        // without an explicit type annotation. Use collect::<Vec<_>>() to make
-                        // the intermediate collection type unambiguous before mapping to newtype.
-                        let inner_expr = if let Some(prefix) = expr.strip_suffix(".collect()") {
-                            format!("{prefix}.collect::<Vec<_>>()")
-                        } else {
-                            expr.to_string()
-                        };
-                        format!(
-                            "{}: ({inner_expr}).into_iter().map({newtype_path}).collect()",
-                            field.name
-                        )
-                    }
-                    _ if field.optional => format!("{}: ({expr}).map({newtype_path})", field.name),
-                    _ => format!("{}: {newtype_path}({expr})", field.name),
-                }
-            } else {
-                conversion
-            }
-        } else {
-            conversion
-        };
-        // Box<T> fields: wrap the converted value in Box::new()
-        let conversion = if field.is_boxed && matches!(&field.ty, TypeRef::Named(_)) {
-            if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
-                if field.optional {
-                    // Option<Box<T>> field: map inside the Option
-                    format!("{}: {}.map(Box::new)", field.name, expr)
-                } else {
-                    format!("{}: Box::new({})", field.name, expr)
-                }
-            } else {
-                conversion
-            }
-        } else {
-            conversion
-        };
-        // CoreWrapper: apply Cow/Arc/Bytes wrapping for binding→core direction.
-        //
-        // Special case: opaque Named field with CoreWrapper::Arc.
-        // The binding wrapper already holds `inner: Arc<CoreT>`, so the correct
-        // conversion is to extract `.inner` directly rather than calling `.into()`
-        // (which requires `From<BindingType> for CoreT`, a non-existent impl) and
-        // then wrapping in `Arc::new` (which would double-wrap the Arc).
-        let is_opaque_arc_field = field.core_wrapper == CoreWrapper::Arc
-            && matches!(&field.ty, TypeRef::Named(n) if config
-                .opaque_types
-                .is_some_and(|opaque| opaque.contains(n.as_str())));
-        // Opaque Named fields without CoreWrapper::Arc (e.g. visitor: Object<'static>) cannot be
-        // auto-converted via Into — the binding stores a raw JS object that needs a bridge.
-        // Emit Default::default() and let the caller (e.g. the convert function) set it separately.
-        let is_opaque_no_wrapper_field = field.core_wrapper == CoreWrapper::None
-            && matches!(&field.ty, TypeRef::Named(n) if config
-                .opaque_types
-                .is_some_and(|opaque| opaque.contains(n.as_str())));
-        let conversion = if is_opaque_arc_field {
-            if field.optional {
-                format!("{}: val.{}.map(|v| v.inner)", field.name, field.name)
-            } else {
-                format!("{}: val.{}.inner", field.name, field.name)
-            }
-        } else if is_opaque_no_wrapper_field {
-            // Trait-bridge OptionsField fields: the binding wrapper holds `inner: Arc<core::T>`.
-            // Clone out of the Arc so the visitor (or other bridge handle) is forwarded instead
-            // of silently dropped. Fall back to Default::default() when no Arc wrapper is present.
-            if config.trait_bridge_field_is_arc_wrapper(&field.name) {
-                if field.optional {
-                    format!("{}: val.{}.map(|v| (*v.inner).clone())", field.name, field.name)
-                } else {
-                    format!("{}: (*val.{}.inner).clone()", field.name, field.name)
-                }
-            } else {
-                format!("{}: Default::default()", field.name)
-            }
-        } else {
-            apply_core_wrapper_to_core(
-                &conversion,
-                &field.name,
-                &field.core_wrapper,
-                &field.vec_inner_core_wrapper,
-                field.optional,
-            )
-        };
-        // When the binding struct uses a keyword-escaped field name (e.g. `class_` for `class`),
-        // replace `val.{field.name}` access patterns in the conversion expression with
-        // `val.{binding_name}` so the generated From impl compiles.
         let binding_name_field = config.binding_field_name_owned(&typ.name, &field.name);
-        let conversion = if binding_name_field != field.name {
-            conversion.replace(&format!("val.{}", field.name), &format!("val.{binding_name_field}"))
-        } else {
-            conversion
-        };
+        let conversion = field_core_conversion(field, typ, config, field_was_optionalized, references_excluded);
         if optionalized {
             if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
                 if field_was_optionalized {
@@ -441,6 +339,205 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             fields => fields,
         },
     )
+}
+
+/// Build a `From<Binding> for Core` impl for a type whose core struct has private
+/// (non-`pub`) fields.
+///
+/// Such a type cannot be constructed with struct-literal syntax from a foreign crate, so
+/// we seed the core type's `Default` — which fills the private fields with their defaults
+/// inside the defining crate — and assign only the public binding fields onto it.
+///
+/// When the core type does not implement `Default`, there is no foreign-crate construction
+/// path (a struct literal cannot set the private fields, and there is no base to seed), so
+/// we emit a `compile_error!` guiding the core author to derive `Default` (or otherwise
+/// expose a constructor / exclude the type from this backend). Per-field serde `Deserialize`
+/// is deliberately not used as a fallback: it suffers from `into()` target-type ambiguity
+/// and fragile placeholder generation, which would trade a clear compile error for a subtle
+/// runtime one.
+fn gen_private_field_construction(
+    typ: &TypeDef,
+    core_path: &str,
+    binding_name: &str,
+    config: &ConversionConfig,
+) -> String {
+    // Default-seeded builder: assign each public binding field onto `Core::default()`.
+    // Excluded / cfg-stripped / excluded-type fields are filled by the seeded `Default`
+    // and are never assigned here.
+    let mut assignments = Vec::new();
+    for field in &typ.fields {
+        if field.binding_excluded {
+            continue;
+        }
+        let references_excluded =
+            !config.exclude_types.is_empty() && field_references_excluded_type(&field.ty, config.exclude_types);
+        if references_excluded && typ.has_stripped_cfg_fields {
+            continue;
+        }
+        if field.cfg.is_some()
+            && !config.never_skip_cfg_field_names.contains(&field.name)
+            && config.strip_cfg_fields_from_binding_struct
+        {
+            continue;
+        }
+        let conversion = field_core_conversion(field, typ, config, false, references_excluded);
+        let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) else {
+            continue;
+        };
+        // Sanitized / opaque-no-wrapper fields convert to `Default::default()`, which the
+        // seeded base already holds — skip the redundant assignment.
+        if expr == "Default::default()" {
+            continue;
+        }
+        assignments.push(crate::codegen::conversions::construction::FieldAssign {
+            core_field: field.name.clone(),
+            expr: expr.to_string(),
+        });
+    }
+
+    crate::codegen::conversions::construction::gen_private_field_from_impl(
+        &crate::codegen::conversions::construction::PrivateFieldImpl {
+            core_path,
+            binding_name,
+            param: "val",
+            has_default: typ.has_default,
+            assignments: &assignments,
+            allow_attrs: &[
+                "clippy::field_reassign_with_default, clippy::let_and_return",
+                "clippy::redundant_closure, clippy::useless_conversion",
+            ],
+        },
+    )
+}
+
+/// Compute a single field's binding→core conversion as a `"name: expr"` fragment.
+///
+/// Applies, in order: the sanitized/excluded-type `Default::default()` fallback, the
+/// per-type conversion (`field_conversion_to_core_cfg`), newtype re-wrapping, `Box`
+/// wrapping, core-wrapper (Cow/Arc/Bytes) wrapping and opaque-handle special-casing, and
+/// finally keyword-escaped binding field-name substitution. Shared by the struct-literal
+/// loop and the private-field construction strategies so both stay byte-for-byte identical.
+fn field_core_conversion(
+    field: &FieldDef,
+    typ: &TypeDef,
+    config: &ConversionConfig,
+    field_was_optionalized: bool,
+    references_excluded: bool,
+) -> String {
+    let conversion = if (field.sanitized && field.core_wrapper != CoreWrapper::Cow) || references_excluded {
+        format!("{}: Default::default()", field.name)
+    } else if field_was_optionalized {
+        // Field was wrapped in Option<T> for JS ergonomics but core expects T.
+        // Convert the supplied value as T; omitted fields keep the core type's Default value.
+        field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
+    } else {
+        field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
+    };
+    // Newtype wrapping: when the field was resolved from a newtype (e.g. NodeIndex → u32),
+    // wrap the binding value back into the newtype for the core struct.
+    // e.g. `source: val.source` → `source: sample_core::NodeIndex(val.source)`
+    //      `parent: val.parent` → `parent: val.parent.map(sample_core::NodeIndex)`
+    //      `children: val.children` → `children: val.children.into_iter().map(sample_core::NodeIndex).collect()`
+    let conversion = if let Some(newtype_path) = &field.newtype_wrapper {
+        if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
+            // When `optional=true` and `ty` is a plain Primitive (not TypeRef::Optional), the core
+            // field is actually `Option<NewtypeT>`, so we must use `.map(NewtypeT)` not `NewtypeT(...)`.
+            match &field.ty {
+                TypeRef::Optional(_) => format!("{}: ({expr}).map({newtype_path})", field.name),
+                TypeRef::Vec(_) => {
+                    // When the inner expr already ends with .collect() (e.g. because of a
+                    // primitive cast), the compiler cannot infer the intermediate Vec type
+                    // without an explicit type annotation. Use collect::<Vec<_>>() to make
+                    // the intermediate collection type unambiguous before mapping to newtype.
+                    let inner_expr = if let Some(prefix) = expr.strip_suffix(".collect()") {
+                        format!("{prefix}.collect::<Vec<_>>()")
+                    } else {
+                        expr.to_string()
+                    };
+                    format!(
+                        "{}: ({inner_expr}).into_iter().map({newtype_path}).collect()",
+                        field.name
+                    )
+                }
+                _ if field.optional => format!("{}: ({expr}).map({newtype_path})", field.name),
+                _ => format!("{}: {newtype_path}({expr})", field.name),
+            }
+        } else {
+            conversion
+        }
+    } else {
+        conversion
+    };
+    // Box<T> fields: wrap the converted value in Box::new()
+    let conversion = if field.is_boxed && matches!(&field.ty, TypeRef::Named(_)) {
+        if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
+            if field.optional {
+                // Option<Box<T>> field: map inside the Option
+                format!("{}: {}.map(Box::new)", field.name, expr)
+            } else {
+                format!("{}: Box::new({})", field.name, expr)
+            }
+        } else {
+            conversion
+        }
+    } else {
+        conversion
+    };
+    // CoreWrapper: apply Cow/Arc/Bytes wrapping for binding→core direction.
+    //
+    // Special case: opaque Named field with CoreWrapper::Arc.
+    // The binding wrapper already holds `inner: Arc<CoreT>`, so the correct
+    // conversion is to extract `.inner` directly rather than calling `.into()`
+    // (which requires `From<BindingType> for CoreT`, a non-existent impl) and
+    // then wrapping in `Arc::new` (which would double-wrap the Arc).
+    let is_opaque_arc_field = field.core_wrapper == CoreWrapper::Arc
+        && matches!(&field.ty, TypeRef::Named(n) if config
+            .opaque_types
+            .is_some_and(|opaque| opaque.contains(n.as_str())));
+    // Opaque Named fields without CoreWrapper::Arc (e.g. visitor: Object<'static>) cannot be
+    // auto-converted via Into — the binding stores a raw JS object that needs a bridge.
+    // Emit Default::default() and let the caller (e.g. the convert function) set it separately.
+    let is_opaque_no_wrapper_field = field.core_wrapper == CoreWrapper::None
+        && matches!(&field.ty, TypeRef::Named(n) if config
+            .opaque_types
+            .is_some_and(|opaque| opaque.contains(n.as_str())));
+    let conversion = if is_opaque_arc_field {
+        if field.optional {
+            format!("{}: val.{}.map(|v| v.inner)", field.name, field.name)
+        } else {
+            format!("{}: val.{}.inner", field.name, field.name)
+        }
+    } else if is_opaque_no_wrapper_field {
+        // Trait-bridge OptionsField fields: the binding wrapper holds `inner: Arc<core::T>`.
+        // Clone out of the Arc so the visitor (or other bridge handle) is forwarded instead
+        // of silently dropped. Fall back to Default::default() when no Arc wrapper is present.
+        if config.trait_bridge_field_is_arc_wrapper(&field.name) {
+            if field.optional {
+                format!("{}: val.{}.map(|v| (*v.inner).clone())", field.name, field.name)
+            } else {
+                format!("{}: (*val.{}.inner).clone()", field.name, field.name)
+            }
+        } else {
+            format!("{}: Default::default()", field.name)
+        }
+    } else {
+        apply_core_wrapper_to_core(
+            &conversion,
+            &field.name,
+            &field.core_wrapper,
+            &field.vec_inner_core_wrapper,
+            field.optional,
+        )
+    };
+    // When the binding struct uses a keyword-escaped field name (e.g. `class_` for `class`),
+    // replace `val.{field.name}` access patterns in the conversion expression with
+    // `val.{binding_name}` so the generated From impl compiles.
+    let binding_name_field = config.binding_field_name_owned(&typ.name, &field.name);
+    if binding_name_field != field.name {
+        conversion.replace(&format!("val.{}", field.name), &format!("val.{binding_name_field}"))
+    } else {
+        conversion
+    }
 }
 
 /// Generate `impl From<BindingType> for CoreType` using a static constructor method.

@@ -172,6 +172,7 @@ fn find_bridge_field_detects_field_via_alias() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let func = make_func(
@@ -229,6 +230,7 @@ fn find_bridge_field_returns_none_for_function_param_bridge() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let func = make_func(

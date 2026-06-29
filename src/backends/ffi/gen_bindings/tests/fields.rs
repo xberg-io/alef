@@ -54,6 +54,7 @@ fn test_option_option_primitive_getter_returns_primitive_type() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            has_private_fields: false,
             version: Default::default(),
         }],
         functions: vec![],
@@ -140,6 +141,7 @@ fn api_with_named_field(field_type: &str, is_clone: bool) -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     // The type referenced by the Named field
@@ -165,6 +167,7 @@ fn api_with_named_field(field_type: &str, is_clone: bool) -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     ApiSurface {

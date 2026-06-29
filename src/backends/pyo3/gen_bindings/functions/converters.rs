@@ -625,6 +625,21 @@ pub(super) fn emit_converters(
                 accessor.clone()
             };
 
+            // JSON (`serde_json::Value`) config fields are stored as `String` in the pyo3
+            // binding — PyO3 cannot expose a settable `serde_json::Value` field the way NAPI
+            // does — while the public dataclass and `.pyi` stub type them as `dict[str, Any]`.
+            // Serialize a dict/list to a JSON string here so the documented dict form reaches
+            // `_rust` as the `str` it expects; a `str` (already-JSON) or `None` passes through.
+            let is_json_field = matches!(field.ty, TypeRef::Json)
+                || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json));
+            let final_accessor = if is_json_field {
+                format!(
+                    "(json.dumps({final_accessor}) if isinstance({final_accessor}, (dict, list)) else {final_accessor})"
+                )
+            } else {
+                final_accessor
+            };
+
             // When a field has serde_rename, use it for pyo3 binding compatibility.
             // The pyo3 constructor parameter names match serde-renamed field names.
             let pyo3_param_name = field.serde_rename.as_deref().unwrap_or(&field.name);

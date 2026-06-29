@@ -342,6 +342,83 @@ mod tests {
         }
     }
 
+    /// Regression: an owned (by-value) native-struct callback param — e.g. the URI-based
+    /// `ExtractInput` envelope, which the core API now passes by value — must be marshalled to
+    /// the binding's native Python object via `From<core::T>`, not handed to the host raw. A raw
+    /// `xberg::T` has no `IntoPyObject` and fails to compile (E0277). Borrowed native-struct
+    /// params were already marshalled; owned ones regressed when the param lost its `&`.
+    #[test]
+    fn trait_callback_owned_native_struct_param_is_marshalled() {
+        use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+        use std::collections::{HashMap, HashSet};
+
+        let trait_def = TypeDef {
+            name: "SampleExtractor".to_owned(),
+            rust_path: "sample_core::SampleExtractor".to_owned(),
+            is_trait: true,
+            is_opaque: true,
+            ..TypeDef::default()
+        };
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "SampleExtractor".to_owned(),
+            register_fn: Some("register_sample".to_owned()),
+            registry_getter: Some("sample_core::registry::get".to_owned()),
+            ..TraitBridgeConfig::default()
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge_cfg,
+            core_import: "sample_core",
+            wrapper_prefix: "Py",
+            type_paths: HashMap::new(),
+            lifetime_type_names: HashSet::new(),
+            error_type: "SampleError".to_owned(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_owned(),
+        };
+        // `Input` is on the native-marshalled struct-param allowlist.
+        let generator = super::Pyo3BridgeGenerator {
+            core_import: "sample_core".to_owned(),
+            type_paths: HashMap::new(),
+            error_type: "SampleError".to_owned(),
+            struct_param_types: HashSet::from(["Input".to_owned()]),
+            struct_return_types: HashSet::new(),
+        };
+
+        let make_method = |is_async: bool| MethodDef {
+            name: "handle".to_owned(),
+            // Owned (by-value) native-struct param — no `&`.
+            params: vec![ParamDef {
+                name: "input".to_owned(),
+                ty: TypeRef::Named("Input".to_owned()),
+                is_ref: false,
+                ..ParamDef::default()
+            }],
+            return_type: TypeRef::Unit,
+            is_async,
+            error_type: Some("SampleError".to_owned()),
+            receiver: Some(ReceiverKind::Ref),
+            ..MethodDef::default()
+        };
+
+        for is_async in [true, false] {
+            let body = if is_async {
+                generator.gen_async_method_body(&make_method(true), &spec)
+            } else {
+                generator.gen_sync_method_body(&make_method(false), &spec)
+            };
+            assert!(
+                body.contains("Input::from("),
+                "owned native-struct param must be marshalled via From<core::T> (is_async={is_async}):\n{body}"
+            );
+            assert!(
+                !body.contains("(bound_method, input)") && !body.contains("(bound_method, input,"),
+                "owned native-struct param must not be handed to the host raw (is_async={is_async}):\n{body}"
+            );
+        }
+    }
+
     #[test]
     fn visitor_bridge_uses_configured_context_and_result_metadata() {
         let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();

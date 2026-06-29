@@ -86,6 +86,7 @@ fn simple_type() -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }
@@ -716,6 +717,7 @@ fn arc_field_type(field: FieldDef) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     }
 }

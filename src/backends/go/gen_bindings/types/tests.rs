@@ -103,6 +103,7 @@ fn test_gen_struct_type_emits_json_tags() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let out = gen_struct_type(
@@ -220,6 +221,7 @@ fn gen_struct_type_marshal_optional_bytes_field_does_not_dereference() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let out = gen_struct_type(
@@ -264,6 +266,7 @@ fn gen_config_options_defaults_data_enum_field_to_nil_not_composite_literal() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let mut data_enum_names = std::collections::HashSet::new();
@@ -317,6 +320,7 @@ fn test_gen_struct_type_emits_no_config_options_by_default() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     let out = gen_struct_type(
@@ -374,6 +378,7 @@ fn test_gen_config_options_emitted_when_in_allowlist() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     };
     // Simulate the config allowing DialOptions for functional-options

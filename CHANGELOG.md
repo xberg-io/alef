@@ -28,6 +28,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **napi**: give the generated streaming `WORKER_POOL` tokio runtime a 16 MB worker stack, so a
+  deep consumer future does not overflow the default (~2 MB) worker stack and abort with `SIGBUS`.
+- **pyo3**: provision an enlarged worker-thread stack on the generated module's async runtime.
+  pyo3-async-runtimes' default multi-thread runtime gives workers a small (~2 MB) stack, which a
+  deep consumer future (e.g. a multi-stage OCR pipeline) overflows — aborting the whole process
+  with `SIGBUS`. The `#[pymodule]` init now installs a `tokio` runtime with a 16 MB
+  `thread_stack_size` before the first `future_into_py`.
+- **pyo3**: serialize `dict`/`list` values for JSON (`serde_json::Value`) config fields in the
+  generated `api.py` converters. PyO3 cannot expose a settable `serde_json::Value` field, so the
+  binding stores such fields as `str`, while the public dataclass and `.pyi` stub type them as
+  `dict[str, Any]`. The converter forwarded the dict straight through, so the documented dict form
+  raised `TypeError: 'dict' object is not an instance of 'str'` at runtime; it now `json.dumps`es a
+  dict/list (passing `str`/`None` through unchanged).
+- **codegen**: generate compiling binding→core conversions for core structs that have private
+  (`pub(crate)`) fields. Such a struct cannot be built with struct-literal syntax from a foreign
+  crate — neither by naming the private field nor by patching it with `..Default::default()` — so
+  the conversion now seeds the core type's `Default` (which fills the private fields inside the
+  defining crate) and assigns only the public fields onto it. The strategy is centralized in a
+  shared helper used by the pyo3/napi/wasm/extendr/rustler/magnus generator, the Dart mirror crate
+  generator, and the PHP enum-tainted conversion path; when the core type has private fields but no
+  `Default`, a `compile_error!` guides the author to derive `Default`. A new `has_private_fields`
+  flag on struct IR records the condition during extraction.
+- **php**: marshal owned (by-value) native-struct callback parameters by value rather than
+  dereferencing them as a borrow (`(*input)` does not type-check on an owned `core::T`), and stop
+  emitting the native-object return fast-path — a PHP `#[php_class]` binding struct implements
+  `FromZvalMut` (for `&mut T`) but not `FromZval` (for `T`), so the bridge keeps the JSON return
+  path that is well-defined for PHP.
+- **pyo3**: marshal owned (by-value) native-struct callback parameters into the host's native
+  binding object via `From<core::T>`, the same way borrowed ones already were. A trait method that
+  takes a serde struct by value (e.g. an extraction-input envelope) previously passed the raw
+  `core::T` across the Python boundary, which has no `IntoPyObject` and failed to compile.
+- **pyo3**: when a core `register_*` free function shares its name with a trait bridge's
+  `register_fn`, emit only the bridge's duck-typed registration. The function loop no longer also
+  emits the auto-wrapped core version, which collided (`E0428`) with the bridge definition and no
+  longer type-checks against a registry that takes `Arc<dyn Trait>`.
 - **pyo3**: the generated Python package now type-checks clean under `mypy`. Data-enum config fields
   are annotated against their public class (so `EmbeddingConfig(model=EmbeddingModelType.plugin(...))`
   is accepted) instead of a flattened union alias that shadowed the class; constructors accept the

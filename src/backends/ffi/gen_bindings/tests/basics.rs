@@ -296,6 +296,7 @@ fn test_cbindgen_toml_honors_ffi_exclude_types() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        has_private_fields: false,
         version: Default::default(),
     });
     api.enums.push(EnumDef {

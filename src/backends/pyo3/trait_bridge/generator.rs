@@ -412,10 +412,13 @@ impl Pyo3BridgeGenerator {
             .map(|p| match (&p.ty, p.is_ref) {
                 (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, &{})", p.name),
                 (TypeRef::Path, true) => format!("{}_str.as_str()", p.name),
-                // Known serde struct: the param-cloning preamble owns the cloned core value in
-                // `{name}_owned`; build the native Python object from it here.
-                (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
-                    format!("{}::from({}_owned.clone())", n, p.name)
+                // Known serde struct (borrowed or owned): the param-cloning preamble owns the
+                // core value in `{name}_owned`; build the native Python object from it here.
+                // Owned params (`is_ref == false`, e.g. the by-value `ExtractInput` envelope) need
+                // the same marshalling — passing the raw `xberg::T` has no `IntoPyObject` (E0277).
+                // `{name}_owned` is owned by the closure and consumed once, so move it in.
+                (TypeRef::Named(n), _) if self.is_native_struct_param(n) => {
+                    format!("{}::from({}_owned)", n, p.name)
                 }
                 // By-value native struct: the param-cloning preamble stores the clone under
                 // the same name (`let {name} = {name}.clone()`); wrap it in the binding type.

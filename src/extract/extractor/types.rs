@@ -91,6 +91,15 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
     let cfg = extract_cfg_condition(&item.attrs);
     let name = item.ident.to_string();
 
+    // Record whether any named field is non-`pub` (e.g. `pub(crate)`). Such fields are
+    // filtered out of the binding surface below, but their presence forbids struct-literal
+    // construction of the core type from a foreign crate. The conversion generator reads
+    // this to pick a non-literal construction strategy.
+    let has_private_fields = match &item.fields {
+        syn::Fields::Named(named) => named.named.iter().any(|f| !is_pub(&f.vis)),
+        _ => false,
+    };
+
     // Detect single-field tuple structs (newtype wrappers like `pub struct Foo(String)`).
     // These get a single field named `_0` so the post-processing pass in `extract()`
     // can identify them and resolve `TypeRef::Named("Foo")` → inner type transparently.
@@ -175,6 +184,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
         ..Default::default()
     };
     typedef.has_lifetime_params = has_lifetime_params;
+    typedef.has_private_fields = has_private_fields;
     Some(typedef)
 }
 
