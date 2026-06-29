@@ -41,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dict[str, Any]`. The converter forwarded the dict straight through, so the documented dict form
   raised `TypeError: 'dict' object is not an instance of 'str'` at runtime; it now `json.dumps`es a
   dict/list (passing `str`/`None` through unchanged).
+- **pyo3**: re-point each re-exported exception's `__module__` at the public package in the
+  generated `exceptions.py`. The classes are the native ones (`create_exception!` sets their
+  module to the compiled `_native` extension), so tracebacks and `repr()` previously read
+  `_native.DownloadError` instead of the public name, and the exceptions were not picklable under
+  their public path. `exceptions.py` now reassigns `__module__` for every name in `__all__`
+  (tree-sitter-language-pack issue #147).
 - **codegen**: generate compiling binding→core conversions for core structs that have private
   (`pub(crate)`) fields. Such a struct cannot be built with struct-literal syntax from a foreign
   crate — neither by naming the private field nor by patching it with `..Default::default()` — so

@@ -139,6 +139,20 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface, module_name: &str) -> String {
     }
     out.push_str("]\n");
 
+    // Re-point each re-exported exception's `__module__` at the public package. The objects are
+    // the native ones (`create_exception!` sets their module to the compiled extension), so
+    // tracebacks and `repr()` otherwise read `_native.DownloadError` instead of the public name.
+    // This is cosmetic and also makes them picklable under their public path (GitHub issue #147).
+    out.push_str(concat!(
+        "\n",
+        "# Re-point each exception's __module__ at the public package so tracebacks show the\n",
+        "# public name (e.g. \"DownloadError\"), not the native module name (GitHub issue #147).\n",
+        "_public_module = __name__.rsplit(\".\", 1)[0]\n",
+        "for _name in __all__:\n",
+        "    globals()[_name].__module__ = _public_module\n",
+        "del _name, _public_module\n",
+    ));
+
     out
 }
 
@@ -594,6 +608,16 @@ mod tests {
         assert!(result.contains("IoError"), "missing variant IoError in:\n{result}");
         // __all__ lists the re-exported names.
         assert!(result.contains("__all__"), "missing __all__ in:\n{result}");
+        // Each re-exported exception's __module__ is re-pointed at the public package so
+        // tracebacks read the public name, not `_native.*` (GitHub issue #147).
+        assert!(
+            result.contains("__module__ = _public_module"),
+            "exceptions.py must re-point __module__ at the public package, got:\n{result}",
+        );
+        assert!(
+            result.contains("__name__.rsplit"),
+            "exceptions.py must derive the public package from __name__, got:\n{result}",
+        );
     }
 
     /// gen_exceptions_py with no errors produces a file with only the header.
