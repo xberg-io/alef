@@ -199,10 +199,17 @@ pub(super) fn render_assertion(
         if let Some(f) = assertion.field.as_deref().filter(|f| !f.is_empty()) {
             if let Some((variant_pascal, inner_field)) = super::discriminated::parse_discriminated_union_access(f) {
                 let variant_var = format!("format{variant_pascal}");
-                let _ = writeln!(
-                    out,
-                    "        when (val {variant_var} = {result_var}.metadata.format) {{"
-                );
+                // Resolve the discriminated-union container (`…metadata.format`) through the
+                // field resolver so list-result field paths (`results[0].metadata.format.…`)
+                // index into `.results.first()` like the flat-field assertions do, instead of
+                // hardcoding `{result_var}.metadata.format` (metadata lives on each result,
+                // not the top-level ExtractionResult, so batch results would not compile).
+                let format_path = match f.find(".format") {
+                    Some(idx) => &f[..idx + ".format".len()],
+                    None => f,
+                };
+                let container = field_resolver.accessor(format_path, "kotlin_android", result_var);
+                let _ = writeln!(out, "        when (val {variant_var} = {container}) {{");
                 let _ = writeln!(out, "            is FormatMetadata.{variant_pascal} -> {{");
                 super::discriminated::render_discriminated_union_assertion(out, assertion, &variant_var, &inner_field);
                 let _ = writeln!(out, "            }}");

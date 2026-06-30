@@ -373,9 +373,25 @@ pub(super) fn render_assertion(
             inner_field.hash(&mut hasher);
             let var_hash = format!("{:x}", hasher.finish());
             let variant_var = format!("variant_{}", &var_hash[..8]);
+            // Resolve the discriminated-union container (`…Metadata.Format`) through the
+            // field resolver so list-result field paths (`results[0].metadata.format.…`)
+            // index into `.Results[0]` exactly like the flat-field assertions do, instead
+            // of hardcoding `{effective_result_var}.Metadata.Format` (which assumes the
+            // metadata lives on the top-level `ExtractionResult`, breaking batch results).
+            let container = assertion
+                .field
+                .as_ref()
+                .map(|f| {
+                    let format_path = match f.find(".format") {
+                        Some(idx) => &f[..idx + ".format".len()],
+                        None => f.as_str(),
+                    };
+                    field_resolver.accessor(format_path, "csharp", &effective_result_var)
+                })
+                .unwrap_or_else(|| format!("{effective_result_var}.Metadata.Format"));
             let _ = writeln!(
                 out,
-                "        if ({effective_result_var}.Metadata.Format is FormatMetadata.{} {})",
+                "        if ({container} is FormatMetadata.{} {})",
                 variant_name, &variant_var
             );
             let _ = writeln!(out, "        {{");
