@@ -81,8 +81,12 @@ const RUMDL_DISABLE: &[&str] = &[
 /// which fires on generated extension stubs (a codegen-shaped suggestion, not a
 /// defect in the binding surface). Scoped here rather than narrowed to tests
 /// because the generated binding code is already clean of the rest.
-const MAGO_IGNORE: &[&str] =
-    &["strict-assertions", "use-specific-assertions", "no-redundant-variable", "sensitive-parameter"];
+const MAGO_IGNORE: &[&str] = &[
+    "strict-assertions",
+    "use-specific-assertions",
+    "no-redundant-variable",
+    "sensitive-parameter",
+];
 
 /// Cross-engine rule codes relaxed for the GENERATED test/e2e suites
 /// (`tests/`, `e2e/`, `test_apps/`). These are conventional test-code allowances
@@ -135,6 +139,10 @@ const TEST_IGNORES: &[&str] = &[
     "RUF015",
     "F541",
     "EXE001",
+    // Generated e2e tests take an `input` param shadowing the Python builtin (A001);
+    // generated plugin trait-bridge stub classes aren't CapWords (N801).
+    "A001",
+    "N801",
 ];
 
 /// Render a TOML array of strings indented under `key = [`, one entry per line
@@ -204,7 +212,7 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
         out.push_str(
             "\"**/api.py\" = [ \"F401\", \"I001\", \"TC006\", \"UP035\" ]\n\
              \"**/*.pyi\" = [ \"A002\", \"F401\", \"I001\", \"PYI033\", \"TC006\", \"UP035\" ]\n\
-             \"**/options.py\" = [ \"F401\", \"RUF100\" ]\n\
+             \"**/options.py\" = [ \"F401\", \"I001\", \"RUF100\" ]\n\
              \"**/__init__.py\" = [ \"I001\" ]\n",
         );
     }

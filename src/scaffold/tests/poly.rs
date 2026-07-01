@@ -173,7 +173,9 @@ fn poly_toml_extra_excludes_appear_in_discovery_and_hooks() {
     // The same extra globs must be mirrored into all three builtin excludes.
     let polylint_pos = c.find("polylint = { exclude =").expect("polylint builtin present");
     let polyfmt_pos = c.find("polyfmt = { exclude =").expect("polyfmt builtin present");
-    let filesafety_pos = c.find("file_safety = { exclude =").expect("file_safety builtin present");
+    let filesafety_pos = c
+        .find("file_safety = { exclude =")
+        .expect("file_safety builtin present");
 
     // A simple content check: the string appears after each builtin key.
     // Because the same merged `excludes` variable is used for all three, a

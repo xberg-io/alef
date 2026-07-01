@@ -25,7 +25,6 @@ use crate::core::config::SourceCrate;
 use crate::core::config::dto::DtoConfig;
 use crate::core::config::e2e::E2eConfig;
 use crate::core::config::extras::{AdapterConfig, Language};
-use crate::core::config::poly::PolyConfig;
 use crate::core::config::languages::{
     CSharpConfig, CustomModulesConfig, CustomRegistrationsConfig, DartConfig, ElixirConfig, FfiConfig, GleamConfig,
     GoConfig, JavaConfig, JniConfig, KotlinAndroidConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig,
@@ -36,6 +35,7 @@ use crate::core::config::output::{
     OutputConfig, ReadmeConfig, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
 };
 use crate::core::config::package_metadata::PackageMetadataConfig;
+use crate::core::config::poly::PolyConfig;
 use crate::core::config::publish::PublishConfig;
 use crate::core::config::service::{HandlerContractConfig, ServiceConfig};
 use crate::core::config::tools::ToolsConfig;

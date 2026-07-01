@@ -266,7 +266,7 @@ pub mod maven {
     pub const JACKSON_ANNOTATIONS: &str = "2.21";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
-    pub const JACKSON_E2E: &str = "2.18.2";
+    pub const JACKSON_E2E: &str = "2.22.0";
 
     // renovate: datasource=maven depName=org.assertj:assertj-core
     pub const ASSERTJ: &str = "4.0.0-M1";
@@ -446,5 +446,5 @@ pub mod precommit {
     pub const SHARED_PRE_COMMIT_HOOKS_REV: &str = "v2.1.0";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.30.2";
+    pub const ALEF_REV: &str = "v0.30.3";
 }
