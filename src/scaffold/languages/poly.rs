@@ -34,6 +34,10 @@ use std::path::PathBuf;
 const EXCLUDES: &[&str] = &[
     "**/*.freezed.dart",
     "**/*.g.dart",
+    // Jinja templates (readme + e2e harness) contain `{{ ... }}` and are NOT valid
+    // standalone source; poly must not lint or reformat them (reformatting corrupts
+    // the template placeholders).
+    "**/*.jinja",
     "**/*.lock",
     "**/Cargo.lock",
     "**/go.sum",
@@ -47,7 +51,11 @@ const EXCLUDES: &[&str] = &[
     "docs/snippets/**",
     "fixtures/**",
     "node_modules/**",
+    // Readme templates are Jinja-in-Markdown (`{{ package_name }}` etc.); the two
+    // conventional locations across repos. Same corruption risk as `**/*.jinja`.
+    "readme_templates/**",
     "target/**",
+    "templates/readme/**",
     "test_documents/**",
     "vendor/**",
 ];
@@ -69,10 +77,12 @@ const RUMDL_DISABLE: &[&str] = &[
 ];
 
 /// mago rules suppressed: test-assertion style/consistency checks that fire on
-/// the generated PHP e2e suites (phpunit assertions) without indicating a real
-/// defect in the binding surface. Scoped here rather than narrowed to tests
-/// because the generated binding code is already clean of them.
-const MAGO_IGNORE: &[&str] = &["strict-assertions", "use-specific-assertions", "no-redundant-variable"];
+/// the generated PHP e2e suites (phpunit assertions), plus `sensitive-parameter`
+/// which fires on generated extension stubs (a codegen-shaped suggestion, not a
+/// defect in the binding surface). Scoped here rather than narrowed to tests
+/// because the generated binding code is already clean of the rest.
+const MAGO_IGNORE: &[&str] =
+    &["strict-assertions", "use-specific-assertions", "no-redundant-variable", "sensitive-parameter"];
 
 /// Cross-engine rule codes relaxed for the GENERATED test/e2e suites
 /// (`tests/`, `e2e/`, `test_apps/`). These are conventional test-code allowances
@@ -106,6 +116,24 @@ const TEST_IGNORES: &[&str] = &[
     "no-unused-vars",
     "no-literal-password",
     "no-unescaped-output",
+    // Generated Python e2e/test-app suites carry codegen-shaped nits that are not
+    // defects in the binding surface: redundant `# noqa` (RUF100), unused/duplicate
+    // imports and redefinitions (F401/F811/I001), pytest composite asserts (PT018),
+    // unused harness parameters (ARG001/ARG002), and assorted style/upgrade nits
+    // (D403/UP035/UP012/RUF015/F541/EXE001).
+    "RUF100",
+    "F401",
+    "F811",
+    "I001",
+    "PT018",
+    "ARG001",
+    "ARG002",
+    "D403",
+    "UP035",
+    "UP012",
+    "RUF015",
+    "F541",
+    "EXE001",
 ];
 
 /// Render a TOML array of strings indented under `key = [`, one entry per line
@@ -173,7 +201,8 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
     out.push_str("[per-file-ignores]\n");
     if has(Language::Python) {
         out.push_str(
-            "\"**/api.py\" = [ \"F401\", \"I001\", \"UP035\" ]\n\
+            "\"**/api.py\" = [ \"F401\", \"I001\", \"TC006\", \"UP035\" ]\n\
+             \"**/*.pyi\" = [ \"A002\", \"F401\", \"I001\", \"PYI033\", \"TC006\", \"UP035\" ]\n\
              \"**/options.py\" = [ \"F401\", \"RUF100\" ]\n\
              \"**/__init__.py\" = [ \"I001\" ]\n",
         );
