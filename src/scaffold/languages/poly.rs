@@ -122,7 +122,11 @@ fn toml_array(entries: &[&str]) -> String {
 /// Generate the repo-root `poly.toml` from the configured language set.
 pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[Language]) -> Vec<GeneratedFile> {
     let has = |lang: Language| languages.contains(&lang);
-    let excludes = toml_array(EXCLUDES);
+
+    // Build the merged exclude list: built-in defaults first, then repo extras.
+    let extra_excludes: Vec<&str> = config.poly.exclude.iter().map(String::as_str).collect();
+    let all_excludes: Vec<&str> = EXCLUDES.iter().copied().chain(extra_excludes).collect();
+    let excludes = toml_array(&all_excludes);
 
     let mut out = String::new();
 
@@ -177,6 +181,12 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
     let test_ignores = toml_array(TEST_IGNORES);
     for glob in ["**/tests/**", "**/e2e/**", "**/test_apps/**"] {
         out.push_str(&format!("\"{glob}\" = {test_ignores}\n"));
+    }
+    // Repo-specific per-file suppressions from [workspace.poly.per-file-ignores].
+    // BTreeMap iteration is deterministic (alphabetical key order).
+    for (glob, codes) in &config.poly.per_file_ignores {
+        let code_refs: Vec<&str> = codes.iter().map(String::as_str).collect();
+        out.push_str(&format!("\"{glob}\" = {}\n", toml_array(&code_refs)));
     }
     out.push('\n');
 

@@ -25,6 +25,7 @@ use crate::core::config::SourceCrate;
 use crate::core::config::dto::DtoConfig;
 use crate::core::config::e2e::E2eConfig;
 use crate::core::config::extras::{AdapterConfig, Language};
+use crate::core::config::poly::PolyConfig;
 use crate::core::config::languages::{
     CSharpConfig, CustomModulesConfig, CustomRegistrationsConfig, DartConfig, ElixirConfig, FfiConfig, GleamConfig,
     GoConfig, JavaConfig, JniConfig, KotlinAndroidConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig,
@@ -171,6 +172,11 @@ pub struct ResolvedCrateConfig {
     /// should receive an additional `Text()` / `text()` display-text accessor.
     /// Empty by default — no accessors are emitted.
     pub untagged_union_text_types: Vec<String>,
+
+    /// Repository-level `poly.toml` customisations inherited from the workspace
+    /// config.  Every resolved crate receives the same repo-wide poly settings.
+    /// The poly emitter merges these into its generated output.
+    pub poly: PolyConfig,
 }
 
 impl ResolvedCrateConfig {

@@ -26,6 +26,7 @@ use super::output::{
     ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
 };
 use super::package_metadata::PackageMetadataConfig;
+use super::poly::PolyConfig;
 use super::tools::ToolsConfig;
 use super::{FormatConfig, GenerateConfig};
 
@@ -246,6 +247,14 @@ pub struct WorkspaceConfig {
     /// values override this field-by-field.
     #[serde(default)]
     pub docs: Option<DocsConfig>,
+
+    /// Repository-level `poly.toml` customisations merged into the emitter's
+    /// generated output.  Because `poly.toml` is regenerated on every `alef`
+    /// run, any per-repo lint suppressions must live here to survive regen.
+    ///
+    /// See [`PolyConfig`] for the full set of configurable knobs.
+    #[serde(default)]
+    pub poly: PolyConfig,
 }
 
 #[cfg(test)]

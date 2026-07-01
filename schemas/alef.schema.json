@@ -4339,6 +4339,32 @@
       ],
       "type": "string"
     },
+    "PolyConfig": {
+      "additionalProperties": false,
+      "description": "Repo-specific `poly.toml` overrides merged into the emitter's generated\noutput.\n\nDeclared under `[workspace.poly]` in `alef.toml`.  An empty (or absent)\n`[workspace.poly]` section leaves the generated output byte-identical to the\ndefault.\n\n```toml\n[workspace.poly]\nexclude = [\"vendor/generated/**\", \"third-party/**\"]\n\n[workspace.poly.per-file-ignores]\n\"**/legacy_api.py\" = [\"ANN\", \"D103\"]\n\"**/compat.py\"     = [\"UP035\", \"F401\"]\n```",
+      "properties": {
+        "exclude": {
+          "default": [],
+          "description": "Extra gitignore-style globs appended to the emitter's default\n`[discovery] exclude` list.  The same merged list is also mirrored into\nthe `polylint`, `polyfmt`, and `file_safety` builtin hook excludes (the\ngit-hook path that filters per-builtin rather than via discovery).\n\nDefault globs are always emitted first; extra globs follow in the order\ngiven here.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "per-file-ignores": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "default": {},
+          "description": "Repo-specific cross-engine per-file rule suppressions merged into the\nemitted `[per-file-ignores]` table.\n\nKeys are gitignore-style glob patterns; values are lists of rule codes.\nRule codes are engine-agnostic — an unknown code simply no-ops on files\nof other languages.\n\nUses [`BTreeMap`] so entries are written to `poly.toml` in\ndeterministic (alphabetical key) order.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "PublishConfig": {
       "description": "Configuration for the `alef publish` command group.",
       "properties": {
@@ -7093,6 +7119,14 @@
           "default": null,
           "description": "Default PHP backend settings."
         },
+        "poly": {
+          "$ref": "#/$defs/PolyConfig",
+          "default": {
+            "exclude": [],
+            "per-file-ignores": {}
+          },
+          "description": "Repository-level `poly.toml` customisations merged into the emitter's\ngenerated output.  Because `poly.toml` is regenerated on every `alef`\nrun, any per-repo lint suppressions must live here to survive regen.\n\nSee [`PolyConfig`] for the full set of configurable knobs."
+        },
         "python": {
           "anyOf": [
             {
@@ -7396,6 +7430,10 @@
         },
         "package_metadata": null,
         "php": null,
+        "poly": {
+          "exclude": [],
+          "per-file-ignores": {}
+        },
         "python": null,
         "r": null,
         "ruby": null,

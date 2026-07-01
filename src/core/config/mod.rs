@@ -14,6 +14,7 @@ pub mod manifest_extras;
 pub mod new_config;
 pub mod output;
 pub mod package_metadata;
+pub mod poly;
 pub mod publish;
 pub mod raw_crate;
 pub mod resolve_helpers;
@@ -54,6 +55,7 @@ pub use output::{
     UpdateConfig,
 };
 pub use package_metadata::PackageMetadataConfig;
+pub use poly::PolyConfig;
 pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
 pub use raw_crate::RawCrateConfig;
 pub use resolve_helpers::{detect_serde_available, resolve_output_dir};
