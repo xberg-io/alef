@@ -7345,7 +7345,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.30.1/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.30.2/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7459,6 +7459,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.30.1",
-  "x-alef-version": "0.30.1"
+  "version": "0.30.2",
+  "x-alef-version": "0.30.2"
 }
