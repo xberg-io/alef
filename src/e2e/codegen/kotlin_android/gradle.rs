@@ -21,12 +21,11 @@ pub(super) fn render_build_gradle_kotlin_android(
 ) -> String {
     // Forward `[crates.e2e.env]` vars into the Gradle test worker's *process*
     // environment via `environment(...)`. The worker is a forked JVM, and the
-    // JNI-loaded native library reads these via libc `getenv` — e.g. the
-    // crawlberg SSRF loopback allowlist (`CRAWLBERG_ALLOW_PRIVATE_NETWORK`) that
-    // lets URL fixtures reach the loopback mock server. Java has no portable way
-    // to mutate `environ` in-process (unlike C#'s `Environment.SetEnvironmentVariable`
-    // or Elixir's `set_env` NIF), so it must be set at worker-fork time. Sorted
-    // for deterministic output.
+    // JNI-loaded native library reads these via libc `getenv` — e.g. a downstream
+    // service allowlist env var that lets URL fixtures reach the loopback mock
+    // server. Java has no portable way to mutate `environ` in-process (unlike
+    // C#'s `Environment.SetEnvironmentVariable` or Elixir's `set_env` NIF), so
+    // it must be set at worker-fork time. Sorted for deterministic output.
     let test_env_block = {
         let mut keys: Vec<&String> = e2e_env.keys().collect();
         keys.sort();
@@ -532,13 +531,12 @@ mod tests {
 
     /// Regression: `[crates.e2e.env]` vars must be forwarded into the Gradle test
     /// worker's process environment via `environment(...)` so the JNI-loaded native
-    /// library reads them through libc `getenv` (e.g. the crawlberg SSRF loopback
-    /// allowlist that lets URL fixtures reach the loopback mock server). Java cannot
-    /// mutate `environ` in-process, so it must be set at worker-fork time.
+    /// library reads them through libc `getenv`. Java cannot mutate `environ`
+    /// in-process, so it must be set at worker-fork time.
     #[test]
     fn build_gradle_kotlin_android_forwards_e2e_env_to_test_worker() {
         let mut env = std::collections::HashMap::new();
-        env.insert("CRAWLBERG_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("MY_SERVICE_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         for dep_mode in [
             crate::e2e::config::DependencyMode::Registry,
             crate::e2e::config::DependencyMode::Local,
@@ -552,7 +550,7 @@ mod tests {
                 &env,
             );
             assert!(
-                output.contains(r#"environment("CRAWLBERG_ALLOW_PRIVATE_NETWORK", "true")"#),
+                output.contains(r#"environment("MY_SERVICE_ALLOW_PRIVATE_NETWORK", "true")"#),
                 "build.gradle.kts ({dep_mode:?}) must forward e2e env vars to the test worker, got:\n{output}"
             );
         }

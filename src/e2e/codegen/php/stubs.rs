@@ -83,9 +83,9 @@ fn native_struct_php_return(
     if !is_native {
         return None;
     }
-    // The stub lives in the e2e test namespace (e.g. `Xberg\E2e`), so an unqualified
+    // The stub lives in the e2e test namespace (e.g. `MyLib\E2e`), so an unqualified
     // class name would resolve there and fail. The binding interface declares the type
-    // relative to ITS namespace (`Xberg\ExtractedDocument`); emit the absolute form so
+    // relative to ITS namespace (`MyLib\SomeType`); emit the absolute form so
     // the two are the same class. Mirrors how the interface name is qualified above.
     let qualified = if binding_namespace.is_empty() {
         leaf.to_string()
@@ -174,23 +174,25 @@ pub fn emit_test_backend_with_ns(
         // PHP return types are covariant, so a wider `mixed` override of a typed `int` or
         // `ExtractedDocument` method is a fatal "must be compatible" error. Mirror that mapping
         // exactly, resolving native structs against the e2e `type_defs` IR first.
-        let php_return_type: String =
-            native_struct_php_return(&method.return_type, type_defs, binding_namespace).unwrap_or_else(|| {
-            match &method.return_type {
-                TypeRef::String => "string",
-                TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "bool",
-                TypeRef::Primitive(
-                    crate::core::ir::PrimitiveType::I32
-                    | crate::core::ir::PrimitiveType::I64
-                    | crate::core::ir::PrimitiveType::U32
-                    | crate::core::ir::PrimitiveType::U64
-                    | crate::core::ir::PrimitiveType::Usize,
-                ) => "int",
-                TypeRef::Primitive(crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64) => "float",
-                _ => "mixed",
-            }
-            .to_string()
-        });
+        let php_return_type: String = native_struct_php_return(&method.return_type, type_defs, binding_namespace)
+            .unwrap_or_else(|| {
+                match &method.return_type {
+                    TypeRef::String => "string",
+                    TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "bool",
+                    TypeRef::Primitive(
+                        crate::core::ir::PrimitiveType::I32
+                        | crate::core::ir::PrimitiveType::I64
+                        | crate::core::ir::PrimitiveType::U32
+                        | crate::core::ir::PrimitiveType::U64
+                        | crate::core::ir::PrimitiveType::Usize,
+                    ) => "int",
+                    TypeRef::Primitive(crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64) => {
+                        "float"
+                    }
+                    _ => "mixed",
+                }
+                .to_string()
+            });
         // Unit-returning methods (e.g. PostProcessor::process) map to `mixed`; emit a null
         // return so the stub is callable — the registry never reads the result.
         if matches!(method.return_type, TypeRef::Unit) {

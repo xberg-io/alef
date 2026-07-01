@@ -137,7 +137,7 @@ mod tests {
 
     fn config_with_field(field: FieldDef) -> TypeDef {
         TypeDef {
-            name: "CrawlConfig".to_string(),
+            name: "FetchConfig".to_string(),
             has_default: true,
             fields: vec![field],
             ..Default::default()
@@ -146,23 +146,28 @@ mod tests {
 
     // A core type that is also mirrored into a crate-root DTO: the field renders as
     // the mirror, so the helper must return the mirror and `.into()`-convert the core
-    // value. Regression for the crawlberg `SsrfPolicy` E0308.
+    // value. Regression: a mirrored core type must not emit the core path as the return
+    // type (would cause a type mismatch compile error).
     #[test]
     fn mirrored_core_type_default_returns_mirror_and_converts() {
         let config = config_with_field(foreign_default_field(
             "ssrf",
             "SsrfPolicy",
-            "crawlberg::SsrfPolicy",
-            "crawlberg::SsrfPolicy::from_env",
+            "mylib::SsrfPolicy",
+            "mylib::SsrfPolicy::from_env",
         ));
-        let mirror = TypeDef { name: "SsrfPolicy".to_string(), ..Default::default() };
-        let api = ApiSurface { types: vec![config, mirror], ..Default::default() };
+        let mirror = TypeDef {
+            name: "SsrfPolicy".to_string(),
+            ..Default::default()
+        };
+        let api = ApiSurface {
+            types: vec![config, mirror],
+            ..Default::default()
+        };
 
         let module = gen_serde_defaults_module(&api).expect("module generated");
         assert!(
-            module.contains(
-                "pub fn crawl_config_ssrf() -> crate::SsrfPolicy { crawlberg::SsrfPolicy::from_env().into() }"
-            ),
+            module.contains("pub fn fetch_config_ssrf() -> crate::SsrfPolicy { mylib::SsrfPolicy::from_env().into() }"),
             "expected mirror return type with `.into()` conversion, got:\n{module}"
         );
     }
@@ -174,16 +179,17 @@ mod tests {
         let config = config_with_field(foreign_default_field(
             "ssrf",
             "SsrfPolicy",
-            "crawlberg::SsrfPolicy",
-            "crawlberg::SsrfPolicy::from_env",
+            "mylib::SsrfPolicy",
+            "mylib::SsrfPolicy::from_env",
         ));
-        let api = ApiSurface { types: vec![config], ..Default::default() };
+        let api = ApiSurface {
+            types: vec![config],
+            ..Default::default()
+        };
 
         let module = gen_serde_defaults_module(&api).expect("module generated");
         assert!(
-            module.contains(
-                "pub fn crawl_config_ssrf() -> crawlberg::SsrfPolicy { crawlberg::SsrfPolicy::from_env() }"
-            ),
+            module.contains("pub fn fetch_config_ssrf() -> mylib::SsrfPolicy { mylib::SsrfPolicy::from_env() }"),
             "expected core return type without conversion, got:\n{module}"
         );
     }
