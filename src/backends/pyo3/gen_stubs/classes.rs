@@ -193,8 +193,13 @@ fn gen_type_init_stub(
     //
     // For non-has_default types, only fields explicitly marked `optional` (or Duration
     // fields on has_default types) go into the optional partition.
+    // Exclude the OptionsField trait-bridge field: it is emitted below as the dedicated
+    // bridge kwarg (mirroring the `#[new]` constructor, which also filters it out), so
+    // emitting it here too would duplicate the parameter in the `__init__` stub.
+    let bridge_field_name = options_field_bridges.get(typ.name.as_str()).map(|(kwarg, _, _)| *kwarg);
     let (required, optional): (Vec<_>, Vec<_>) = binding_fields(&typ.fields)
         .filter(|f| f.cfg.as_deref().is_none_or(cfg_present_for_pyo3_stub))
+        .filter(|f| bridge_field_name != Some(f.name.as_str()))
         .partition(|f| {
             if typ.has_default {
                 // All fields are optional in the Rust signature — nothing is required.
