@@ -520,11 +520,36 @@ pub(super) fn render_test_file(
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
 
+    // A test that registers a Dart-backed plugin leaves the callback in the *process-global*
+    // Rust plugin registry. Because each `dart test` file runs in its own isolate, a callback
+    // left registered here is later invoked by another file's (now-dead) isolate and deadlocks
+    // on the block_on that drives the DartFnFuture. Clear every registry this file populated in
+    // `tearDownAll`. A `register_*` fixture existing guarantees the paired `clear*` fn exists.
+    let clear_pairs: &[(&str, &str)] = &[
+        ("register_embedding_backend", "clearEmbeddingBackends"),
+        ("register_ocr_backend", "clearOcrBackends"),
+        ("register_post_processor", "clearPostProcessors"),
+        ("register_reranker_backend", "clearRerankerBackends"),
+        ("register_renderer", "clearRenderers"),
+        ("register_validator", "clearValidators"),
+    ];
+    let mut needed_clears: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for f in fixtures {
+        for (reg, clear) in clear_pairs {
+            if f.id.contains(reg) {
+                needed_clears.insert(*clear);
+            }
+        }
+    }
+
     // Always emit tearDownAll to dispose of RustLib singleton and close resources.
     // RustLib is initialized in setUpAll and must be cleaned up after all tests, but
     // only dispatch `dispose()` when init succeeded — see `_rustLibInitialized` above.
     let _ = writeln!(out, "  tearDownAll(() async {{");
     let _ = writeln!(out, "    if (_rustLibInitialized) {{");
+    for clear in &needed_clears {
+        let _ = writeln!(out, "      await {bridge_class}.{clear}();");
+    }
     let _ = writeln!(out, "      RustLib.dispose();");
     let _ = writeln!(out, "    }}");
     if has_http_fixtures {
