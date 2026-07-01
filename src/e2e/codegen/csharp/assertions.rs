@@ -10,6 +10,24 @@ use super::{
     build_csharp_method_call, json_to_csharp, parse_discriminated_union_access, render_discriminated_union_assertion,
 };
 
+fn render_synthetic_bool_assertion(out: &mut String, field: &str, assertion_type: &str, pred: String) -> bool {
+    let pred_type = match assertion_type {
+        "is_true" => "is_true",
+        "is_false" => "is_false",
+        _ => {
+            out.push_str(&format!(
+                "        // skipped: unsupported assertion type on synthetic field '{field}'\n"
+            ));
+            return false;
+        }
+    };
+    out.push_str(&crate::e2e::template_env::render(
+        "csharp/assertion.jinja",
+        minijinja::context! { assertion_type => "synthetic_assertion", synthetic_pred => pred, synthetic_pred_type => pred_type },
+    ));
+    true
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_assertion(
     out: &mut String,
@@ -72,99 +90,39 @@ pub(super) fn render_assertion(
     if let Some(f) = &assertion.field {
         match f.as_str() {
             "chunks_have_content" => {
-                let synthetic_pred =
-                    format!("({result_var}.Chunks ?? new()).All(c => !string.IsNullOrEmpty(c.Content))");
-                let synthetic_pred_type = match assertion.assertion_type.as_str() {
-                    "is_true" => "is_true",
-                    "is_false" => "is_false",
-                    _ => {
-                        out.push_str(&format!(
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
-                        ));
-                        return;
-                    }
-                };
-                let rendered = crate::e2e::template_env::render(
-                    "csharp/assertion.jinja",
-                    minijinja::context! {
-                        assertion_type => "synthetic_assertion",
-                        synthetic_pred => synthetic_pred,
-                        synthetic_pred_type => synthetic_pred_type,
-                    },
+                render_synthetic_bool_assertion(
+                    out,
+                    f,
+                    &assertion.assertion_type,
+                    format!("({result_var}.Chunks ?? new()).All(c => !string.IsNullOrEmpty(c.Content))"),
                 );
-                out.push_str(&rendered);
                 return;
             }
             "chunks_have_embeddings" => {
-                let synthetic_pred =
-                    format!("({result_var}.Chunks ?? new()).All(c => c.Embedding != null && c.Embedding.Count > 0)");
-                let synthetic_pred_type = match assertion.assertion_type.as_str() {
-                    "is_true" => "is_true",
-                    "is_false" => "is_false",
-                    _ => {
-                        out.push_str(&format!(
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
-                        ));
-                        return;
-                    }
-                };
-                let rendered = crate::e2e::template_env::render(
-                    "csharp/assertion.jinja",
-                    minijinja::context! {
-                        assertion_type => "synthetic_assertion",
-                        synthetic_pred => synthetic_pred,
-                        synthetic_pred_type => synthetic_pred_type,
-                    },
+                render_synthetic_bool_assertion(
+                    out,
+                    f,
+                    &assertion.assertion_type,
+                    format!("({result_var}.Chunks ?? new()).All(c => c.Embedding != null && c.Embedding.Count > 0)"),
                 );
-                out.push_str(&rendered);
                 return;
             }
             "chunks_have_heading_context" => {
-                let synthetic_pred =
-                    format!("({result_var}.Chunks ?? new()).All(c => c.Metadata?.HeadingContext != null)");
-                let synthetic_pred_type = match assertion.assertion_type.as_str() {
-                    "is_true" => "is_true",
-                    "is_false" => "is_false",
-                    _ => {
-                        out.push_str(&format!(
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
-                        ));
-                        return;
-                    }
-                };
-                let rendered = crate::e2e::template_env::render(
-                    "csharp/assertion.jinja",
-                    minijinja::context! {
-                        assertion_type => "synthetic_assertion",
-                        synthetic_pred => synthetic_pred,
-                        synthetic_pred_type => synthetic_pred_type,
-                    },
+                render_synthetic_bool_assertion(
+                    out,
+                    f,
+                    &assertion.assertion_type,
+                    format!("({result_var}.Chunks ?? new()).All(c => c.Metadata?.HeadingContext != null)"),
                 );
-                out.push_str(&rendered);
                 return;
             }
             "first_chunk_starts_with_heading" => {
-                let synthetic_pred =
-                    format!("({result_var}.Chunks ?? new()).FirstOrDefault()?.Metadata?.HeadingContext != null");
-                let synthetic_pred_type = match assertion.assertion_type.as_str() {
-                    "is_true" => "is_true",
-                    "is_false" => "is_false",
-                    _ => {
-                        out.push_str(&format!(
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
-                        ));
-                        return;
-                    }
-                };
-                let rendered = crate::e2e::template_env::render(
-                    "csharp/assertion.jinja",
-                    minijinja::context! {
-                        assertion_type => "synthetic_assertion",
-                        synthetic_pred => synthetic_pred,
-                        synthetic_pred_type => synthetic_pred_type,
-                    },
+                render_synthetic_bool_assertion(
+                    out,
+                    f,
+                    &assertion.assertion_type,
+                    format!("({result_var}.Chunks ?? new()).FirstOrDefault()?.Metadata?.HeadingContext != null"),
                 );
-                out.push_str(&rendered);
                 return;
             }
             // ---- EmbedResponse virtual fields ----
