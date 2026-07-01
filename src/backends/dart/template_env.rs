@@ -560,6 +560,22 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/rust_trait_method_ok_block_on.jinja"),
     ),
     (
+        "rust_trait_method_await_plain_spawn_blocking.jinja",
+        include_str!("templates/rust_trait_method_await_plain_spawn_blocking.jinja"),
+    ),
+    (
+        "rust_trait_method_await_result_spawn_blocking.jinja",
+        include_str!("templates/rust_trait_method_await_result_spawn_blocking.jinja"),
+    ),
+    (
+        "rust_trait_method_default_await_spawn_blocking.jinja",
+        include_str!("templates/rust_trait_method_default_await_spawn_blocking.jinja"),
+    ),
+    (
+        "rust_trait_method_ok_await_spawn_blocking.jinja",
+        include_str!("templates/rust_trait_method_ok_await_spawn_blocking.jinja"),
+    ),
+    (
         "rust_trait_excluded_async_result_return.rs.jinja",
         include_str!("templates/rust_trait_excluded_async_result_return.rs.jinja"),
     ),
