@@ -7,8 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.2] - 2026-07-01
+
+### Added
+
+- **config**: a `[workspace.poly]` section in `alef.toml` for repo-specific poly.toml overrides —
+  extra `exclude` globs and cross-engine `per-file-ignores` that the scaffolder merges into the
+  generated `poly.toml`, so repo-local lint suppressions survive regeneration.
+
+### Changed
+
+- **scaffold**: emit a single repo-root `poly.toml` that drives lint, format, git hooks, and
+  commit-message policy, replacing `.pre-commit-config.yaml` and the per-tool config files
+  (`[tool.ruff]`, `[tool.mypy]`, `phpstan.neon`, `.php-cs-fixer.dist.php`, `.lintr`, `.typos.toml`,
+  `.rumdl.toml`). Python type-checking moves from mypy to pyrefly. The emitted config excludes
+  Jinja templates from poly (reformatting them corrupts `{{ }}` placeholders) and carries
+  generated-test-code lint allowances so regenerated e2e/test-app suites stay clean.
+
 ### Fixed
 
+- **pyo3**: strip the Rust raw-identifier prefix in `.pyi` constructor params — PyO3 exposes a
+  field declared `r#type` to Python as `type`, but the stub emitted `r#type` verbatim (invalid
+  Python that ruff cannot parse). The `#[new]` signature keeps `r#` to compile.
+- **pyo3**: drop the duplicate OptionsField trait-bridge parameter from the `.pyi __init__` stub.
+  The field was emitted both as a regular param and as the dedicated bridge kwarg, producing a
+  duplicate parameter; the stub now filters the bridge field out, mirroring `#[new]`.
 - **pyo3**: drop the redundant closure when wrapping a zero-argument sync core call in
   `py.detach`. `py.detach(|| xberg::list_supported_formats())` tripped `clippy::redundant_closure`
   and failed `clippy -D warnings`; zero-arg calls now pass the function path directly
