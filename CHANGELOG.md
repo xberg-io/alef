@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.9] - 2026-07-02
+
 ### Fixed
 
 - **codegen/ffi**: complete the service-owner forward-declaration fix from 0.30.8. The new
