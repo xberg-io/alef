@@ -66,13 +66,24 @@ pub(crate) fn scaffold_elixir_cargo(
     // Collect all [dependencies] entries then sort alphabetically so the emitted
     // Cargo.toml is cargo-sort canonical without a post-processing step.
     let features_str = core_dep_features(config, Language::Elixir);
+    let core_overrides = config
+        .elixir
+        .as_ref()
+        .map(|c| c.target_dep_overrides.as_slice())
+        .unwrap_or(&[]);
+    let (core_dep_line, core_target_blocks) = crate::scaffold::render_core_dep_with_overrides(
+        &config.name,
+        &format!("../../../../crates/{core_crate_dir}"),
+        &features_str,
+        version,
+        core_overrides,
+    );
+    let core_target_blocks_section = if core_target_blocks.is_empty() {
+        String::new()
+    } else {
+        format!("\n{core_target_blocks}")
+    };
     let mut dep_lines: Vec<String> = vec![
-        crate::scaffold::render_core_dep(
-            &config.name,
-            &format!("../../../../crates/{core_crate_dir}"),
-            &features_str,
-            version,
-        ),
         format!("rustler = \"{}\"", tv::cargo::RUSTLER),
         "serde = { version = \"1\", features = [\"derive\"] }".to_owned(),
         "serde_json = \"1\"".to_owned(),
@@ -108,6 +119,9 @@ pub(crate) fn scaffold_elixir_cargo(
     dep_lines.push("alloc-no-stdlib = \"=2.0.4\"".to_owned());
     dep_lines.push("alloc-stdlib = \"=0.2.2\"".to_owned());
     dep_lines.push("brotli-decompressor = \"=5.0.1\"".to_owned());
+    if !core_dep_line.is_empty() {
+        dep_lines.push(core_dep_line);
+    }
     dep_lines.sort();
     let deps_section = dep_lines.join("\n");
 
@@ -232,7 +246,7 @@ name = "{nif_name}"
 crate-type = ["cdylib"]
 
 {features_table}[dependencies]
-{deps_section}{check_cfg_block}"#,
+{deps_section}{core_target_blocks_section}{check_cfg_block}"#,
         pkg_header = pkg_header,
         machete_section = machete_section,
         nif_name = nif_name,
@@ -240,6 +254,7 @@ crate-type = ["cdylib"]
         features_table = features_table,
         check_cfg_block = check_cfg_block,
         deps_section = deps_section,
+        core_target_blocks_section = core_target_blocks_section,
     );
 
     Ok(vec![GeneratedFile {

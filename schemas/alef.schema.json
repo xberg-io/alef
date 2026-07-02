@@ -2215,6 +2215,14 @@
             "string",
             "null"
           ]
+        },
+        "target_dep_overrides": {
+          "default": [],
+          "description": "Per-target overrides for the core-crate dependency emitted into the\ngenerated `Cargo.toml`. See [`super::FfiConfig::target_dep_overrides`].",
+          "items": {
+            "$ref": "#/$defs/FfiTargetDepOverride"
+          },
+          "type": "array"
         }
       },
       "type": "object"
@@ -3793,6 +3801,14 @@
             "null"
           ]
         },
+        "target_dep_overrides": {
+          "default": [],
+          "description": "Per-target overrides for the core-crate dependency emitted into the\ngenerated `Cargo.toml`. See [`super::FfiConfig::target_dep_overrides`].",
+          "items": {
+            "$ref": "#/$defs/FfiTargetDepOverride"
+          },
+          "type": "array"
+        },
         "tokio_util_features": {
           "default": null,
           "description": "Features for the auto-emitted `tokio-util` dependency that backs napi trait-bridge\ncancellation tokens. Defaults to `[\"rt\"]` because `tokio_util::sync::CancellationToken`\nis gated behind the `rt` feature in tokio-util 0.7+. Override when a consumer needs\nadditional tokio-util features (e.g. `[\"rt\", \"codec\"]`).",
@@ -4328,6 +4344,14 @@
           ],
           "default": null,
           "description": "Output directory for generated PHP facade / stubs (e.g., `packages/php/src/`)."
+        },
+        "target_dep_overrides": {
+          "default": [],
+          "description": "Per-target overrides for the core-crate dependency emitted into the\ngenerated `Cargo.toml`. See [`super::FfiConfig::target_dep_overrides`].",
+          "items": {
+            "$ref": "#/$defs/FfiTargetDepOverride"
+          },
+          "type": "array"
         }
       },
       "type": "object"
@@ -4684,6 +4708,14 @@
               "type": "null"
             }
           ]
+        },
+        "target_dep_overrides": {
+          "default": [],
+          "description": "Per-target overrides for the core-crate dependency emitted into the\ngenerated `Cargo.toml`. Mirrors [`super::FfiConfig::target_dep_overrides`]:\nwhen non-empty, the core dependency is wrapped in\n`[target.'cfg(not(<any-cfg>))'.dependencies]` plus one\n`[target.'cfg(<cfg>)'.dependencies]` block per override, so a specific\ntarget can swap the core crate's feature set.",
+          "items": {
+            "$ref": "#/$defs/FfiTargetDepOverride"
+          },
+          "type": "array"
         }
       },
       "type": "object"
@@ -5652,6 +5684,14 @@
               "type": "null"
             }
           ]
+        },
+        "target_dep_overrides": {
+          "default": [],
+          "description": "Per-target overrides for the core-crate dependency emitted into the\ngenerated `Cargo.toml`. See [`super::FfiConfig::target_dep_overrides`].",
+          "items": {
+            "$ref": "#/$defs/FfiTargetDepOverride"
+          },
+          "type": "array"
         }
       },
       "type": "object"

@@ -75,12 +75,23 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     // Build [dependencies] block alphabetically sorted to match cargo-sort.
     // Order: async-trait?, ext-php-rs, futures-util?, <core-crate>,
     // serde, serde_json, tokio.
-    let core_dep_php = crate::scaffold::render_core_dep(
+    let core_overrides = config
+        .php
+        .as_ref()
+        .map(|c| c.target_dep_overrides.as_slice())
+        .unwrap_or(&[]);
+    let (core_dep_php, core_target_blocks) = crate::scaffold::render_core_dep_with_overrides(
         &config.name,
         &format!("../{core_crate_dir}"),
         &core_dep_features(config, Language::Php),
         version,
+        core_overrides,
     );
+    let core_target_blocks_section = if core_target_blocks.is_empty() {
+        String::new()
+    } else {
+        format!("\n{core_target_blocks}")
+    };
     let mut dep_entries: Vec<String> = vec![
         format!("ext-php-rs = \"{}\"", tv::cargo::EXT_PHP_RS),
         "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
@@ -139,10 +150,11 @@ extension-module = []
 {cfg_forwarding}
 [dependencies]
 {dep_block}
-
+{core_target_blocks_section}
 "#,
         pkg_header = pkg_header,
         dep_block = dep_block,
+        core_target_blocks_section = core_target_blocks_section,
         machete_ignored_str = machete_ignored_str,
         cfg_forwarding = cfg_forwarding,
     );

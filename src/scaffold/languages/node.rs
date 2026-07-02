@@ -221,12 +221,23 @@ pub(crate) fn scaffold_node_cargo(
     // Build [dependencies] block alphabetically sorted to match cargo-sort.
     // Order: async-trait?, futures-util?, <core-crate>, napi,
     // napi-derive, serde, serde_json, + any extra deps.
-    let core_dep = crate::scaffold::render_core_dep(
+    let core_overrides = config
+        .node
+        .as_ref()
+        .map(|c| c.target_dep_overrides.as_slice())
+        .unwrap_or(&[]);
+    let (core_dep, core_target_blocks) = crate::scaffold::render_core_dep_with_overrides(
         &config.name,
         &format!("../{core_crate_dir}"),
         &core_dep_features(config, Language::Node),
         version,
+        core_overrides,
     );
+    let core_target_blocks_section = if core_target_blocks.is_empty() {
+        String::new()
+    } else {
+        format!("{core_target_blocks}\n")
+    };
     let mut dep_entries: Vec<String> = vec![
         format!(
             "napi = {{ version = \"{napi}\", features = [{napi_features_str}] }}",
@@ -288,12 +299,13 @@ crate-type = ["cdylib"]
 {features_table}[dependencies]
 {dep_block}
 
-[build-dependencies]
+{core_target_blocks_section}[build-dependencies]
 napi-build = "{napi_build}"
 
 "#,
         pkg_header = pkg_header,
         dep_block = dep_block,
+        core_target_blocks_section = core_target_blocks_section,
         features_table = features_table,
         machete_ignored_str = machete_ignored_str,
         napi_build = tv::cargo::NAPI_BUILD,

@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use super::FfiTargetDepOverride;
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ElixirConfig {
     pub app_name: Option<String>,
@@ -55,4 +57,8 @@ pub struct ElixirConfig {
     /// `aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu`.
     #[serde(default)]
     pub nif_targets: Vec<String>,
+    /// Per-target overrides for the core-crate dependency emitted into the
+    /// generated `Cargo.toml`. See [`super::FfiConfig::target_dep_overrides`].
+    #[serde(default)]
+    pub target_dep_overrides: Vec<FfiTargetDepOverride>,
 }

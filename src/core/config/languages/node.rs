@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use super::FfiTargetDepOverride;
+
 /// Configuration for a single capsule type entry in `NodeConfig::capsule_types`.
 ///
 /// When set, the named Rust type is NOT emitted as a `#[napi]` opaque wrapper.
@@ -125,4 +127,8 @@ pub struct NodeConfig {
     /// Extra paths to append to default lint commands (format, check, typecheck).
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Per-target overrides for the core-crate dependency emitted into the
+    /// generated `Cargo.toml`. See [`super::FfiConfig::target_dep_overrides`].
+    #[serde(default)]
+    pub target_dep_overrides: Vec<FfiTargetDepOverride>,
 }

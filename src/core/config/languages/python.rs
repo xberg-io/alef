@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::StubsConfig;
+use super::{FfiTargetDepOverride, StubsConfig};
 
 /// Configuration for a single capsule type entry in `PythonConfig::capsule_types`.
 ///
@@ -143,4 +143,12 @@ pub struct PythonConfig {
     /// `ExtractionResult` instead of `_rust.ExtractionResult`.
     #[serde(default)]
     pub reexported_types: Vec<String>,
+    /// Per-target overrides for the core-crate dependency emitted into the
+    /// generated `Cargo.toml`. Mirrors [`super::FfiConfig::target_dep_overrides`]:
+    /// when non-empty, the core dependency is wrapped in
+    /// `[target.'cfg(not(<any-cfg>))'.dependencies]` plus one
+    /// `[target.'cfg(<cfg>)'.dependencies]` block per override, so a specific
+    /// target can swap the core crate's feature set.
+    #[serde(default)]
+    pub target_dep_overrides: Vec<FfiTargetDepOverride>,
 }
