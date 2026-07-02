@@ -281,10 +281,14 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     // Types returned directly by free functions — these live in the native module,
     // not .options. Function return type annotations must qualify them with _rust,
     // UNLESS they are in reexported_types (re-exported in public __init__.py).
+    // Capsule types (both raw round-trip and ConstructFrom) are excluded: they resolve to
+    // a host type imported from another package (e.g. `tree_sitter.Parser`), not a native
+    // pyclass, so qualifying them with `_rust.` produces an annotation that raises
+    // AttributeError at import on Pythons with eager annotations (<3.14).
     let return_type_names: AHashSet<String> = api
         .types
         .iter()
-        .filter(|t| t.is_return_type)
+        .filter(|t| t.is_return_type && !capsule_types.contains_key(&t.name))
         .map(|t| t.name.clone())
         .collect();
     // All non-enum IR type names (used to distinguish structs from enums in classification).
