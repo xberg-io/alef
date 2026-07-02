@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.30.9] - 2026-07-02
+## [0.30.10] - 2026-07-02
+
+### Fixed
+
+- **pyo3**: exclude capsule types from `_rust`-qualified return annotations. Capsule types (both raw
+  round-trip and `ConstructFrom`) resolve to a host type imported from another package (e.g.
+  `tree_sitter.Parser`), not a native pyclass. Qualifying them with `_rust.` in a free function's
+  return annotation produced an attribute (`_rust.Parser`) that no longer exists, raising
+  `AttributeError` at import on Pythons with eager annotations (<3.14). They are now excluded from
+  `return_type_names`, consistent with how they are special-cased elsewhere in api.py generation.
+- **swift**: nil-safe accessor for non-optional JSON-bridged `Vec<T>` fields. Wrapping such a field in
+  `Option<>` makes swift-bridge emit the nil-checked accessor, matching sibling accessors, so a null
+  bridged pointer degrades gracefully instead of segfaulting. Defensive fix; the underlying
+  null-pointer root cause is not yet confirmed.
+
+### Changed
+
+- **chore**: consolidate the typos allowlist into `poly.toml` and drop dead configs.
 
 ### Fixed
 
