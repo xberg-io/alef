@@ -115,6 +115,9 @@ fn emit_lib_rs(
     // works for both wrapped and unwrapped string keys/values.
     content.push_str("    clippy::useless_conversion,\n");
     content.push_str(")]\n");
+    if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(&config.extra_clippy_allows) {
+        content.push_str(&format!("#![{extra_attr}]\n"));
+    }
     // Declare frb_generated after the crate-level attrs so FRB doesn't inject it at line 1.
     content.push_str("mod frb_generated;\n");
     content.push_str("use flutter_rust_bridge::frb;\n");

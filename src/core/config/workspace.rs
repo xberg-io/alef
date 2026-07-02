@@ -255,6 +255,22 @@ pub struct WorkspaceConfig {
     /// See [`PolyConfig`] for the full set of configurable knobs.
     #[serde(default)]
     pub poly: PolyConfig,
+
+    /// Extra clippy lints to allow in every generated Rust binding file, merged
+    /// (union, de-duplicated) with each backend's built-in default allow-list.
+    ///
+    /// Entries may be bare lint names (`"single_match"`) or `clippy::`-prefixed
+    /// (`"clippy::single_match"`); both forms are accepted and normalised
+    /// internally.  When absent or empty the emitted allow-list is byte-identical
+    /// to the backend default — no diff in consumers that do not set this field.
+    ///
+    /// Example:
+    /// ```toml
+    /// [workspace]
+    /// extra_clippy_allows = ["single_match", "collapsible_match"]
+    /// ```
+    #[serde(default)]
+    pub extra_clippy_allows: Vec<String>,
 }
 
 #[cfg(test)]

@@ -79,6 +79,9 @@ impl Backend for ExtendrBackend {
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::unnecessary_cast, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)");
+        if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(&config.extra_clippy_allows) {
+            builder.add_inner_attribute(&extra_attr);
+        }
         builder.add_import("extendr_api::prelude::*");
         // HashMap is needed for fields of type HashMap<K, V> (extendr prelude does not re-export it)
         builder.add_import("std::collections::HashMap");

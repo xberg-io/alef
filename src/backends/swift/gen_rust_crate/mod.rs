@@ -217,7 +217,11 @@ fn emit_lib_rs(
     // swift-bridge can map it to a Swift initializer; deriving Default doesn't
     // help downstream because Swift can't call it through the bridge.
     out.push_str("    clippy::new_without_default,\n");
-    out.push_str(")]\n\n");
+    out.push_str(")]\n");
+    if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(&config.extra_clippy_allows) {
+        out.push_str(&format!("#![{extra_attr}]\n"));
+    }
+    out.push('\n');
 
     // Emit the process-wide tokio runtime accessor. Async swift-bridge wrappers
     // share this single runtime instead of building one per call — the per-call

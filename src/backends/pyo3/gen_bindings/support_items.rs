@@ -1,6 +1,7 @@
 use crate::codegen::builder::RustFileBuilder;
+use crate::codegen::shared::format_extra_clippy_allows;
 
-pub(super) fn add_generated_module_attributes(builder: &mut RustFileBuilder) {
+pub(super) fn add_generated_module_attributes(builder: &mut RustFileBuilder, extras: &[String]) {
     // Suppress documentation and cast lints in generated code. Python stubs carry
     // docs, and numeric casts are intentional FFI conversions.
     builder.add_inner_attribute("allow(missing_docs)");
@@ -14,6 +15,9 @@ pub(super) fn add_generated_module_attributes(builder: &mut RustFileBuilder) {
     );
     builder.add_inner_attribute("allow(clippy::multiple_unsafe_ops_per_block)");
     builder.add_inner_attribute("allow(unsafe_code)");
+    if let Some(extra_attr) = format_extra_clippy_allows(extras) {
+        builder.add_inner_attribute(&extra_attr);
+    }
 }
 
 pub(super) fn add_py_visitor_ref(builder: &mut RustFileBuilder) {

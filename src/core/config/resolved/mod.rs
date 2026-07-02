@@ -177,6 +177,10 @@ pub struct ResolvedCrateConfig {
     /// config.  Every resolved crate receives the same repo-wide poly settings.
     /// The poly emitter merges these into its generated output.
     pub poly: PolyConfig,
+
+    /// Extra clippy lints to allow in generated Rust binding files, inherited
+    /// from `[workspace] extra_clippy_allows`. Empty by default.
+    pub extra_clippy_allows: Vec<String>,
 }
 
 impl ResolvedCrateConfig {

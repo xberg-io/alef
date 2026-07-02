@@ -6902,6 +6902,14 @@
           "default": null,
           "description": "Default Elixir/Rustler backend settings."
         },
+        "extra_clippy_allows": {
+          "default": [],
+          "description": "Extra clippy lints to allow in every generated Rust binding file, merged\n(union, de-duplicated) with each backend's built-in default allow-list.\n\nEntries may be bare lint names (`\"single_match\"`) or `clippy::`-prefixed\n(`\"clippy::single_match\"`); both forms are accepted and normalised\ninternally.  When absent or empty the emitted allow-list is byte-identical\nto the backend default — no diff in consumers that do not set this field.\n\nExample:\n```toml\n[workspace]\nextra_clippy_allows = [\"single_match\", \"collapsible_match\"]\n```",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "ffi": {
           "anyOf": [
             {
@@ -7381,6 +7389,7 @@
           "ruby": "struct"
         },
         "elixir": null,
+        "extra_clippy_allows": [],
         "ffi": null,
         "format": {
           "command": null,

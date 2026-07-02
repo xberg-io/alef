@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **config**: `[workspace] extra_clippy_allows` — a string list of additional clippy lints
+  to allow in every generated Rust binding file.  Entries may be bare lint names
+  (`"single_match"`) or `clippy::`-prefixed (`"clippy::single_match"`); both forms are
+  accepted and normalised internally.  The configured lints are merged (union,
+  de-duplicated; defaults first, extras appended) with each backend's built-in default
+  allow-list, and a single extra `#![allow(...)]` attribute is emitted after the defaults.
+  When the list is absent or empty the generated output is byte-identical to the previous
+  behaviour.  Affected backends: pyo3, napi, magnus, php, rustler, extendr, wasm, dart,
+  swift.
+
+  Example:
+  ```toml
+  [workspace]
+  extra_clippy_allows = ["single_match", "collapsible_match"]
+  ```
+
 ## [0.30.10] - 2026-07-02
 
 ### Fixed
@@ -25,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **chore**: consolidate the typos allowlist into `poly.toml` and drop dead configs.
+
+## [0.30.9] - 2026-07-02
 
 ### Fixed
 

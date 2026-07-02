@@ -610,3 +610,35 @@ fn config_constructor_parts_inner(
 
     (param_list, defaults, assignments.join(", "))
 }
+
+/// Format extra clippy allows for insertion into generated Rust binding files.
+///
+/// Accepts bare lint names (`"single_match"`) or `clippy::`-prefixed names
+/// (`"clippy::single_match"`); both forms are normalised to the `clippy::` prefix.
+///
+/// Returns `None` when `extras` is empty — callers must skip emission entirely in
+/// that case so output is byte-identical to the no-config baseline.
+///
+/// Returns `Some(attr)` where `attr` is the inner content of an `allow(...)` call,
+/// e.g. `"allow(clippy::single_match, clippy::collapsible_match)"`.  Pass this
+/// directly to [`crate::codegen::builder::RustFileBuilder::add_inner_attribute`]
+/// or format it into a raw `#![allow(...)]` attribute string.
+pub fn format_extra_clippy_allows(extras: &[String]) -> Option<String> {
+    if extras.is_empty() {
+        return None;
+    }
+    let mut seen = HashSet::new();
+    let normalized: Vec<String> = extras
+        .iter()
+        .map(|s| {
+            let trimmed = s.trim();
+            if trimmed.starts_with("clippy::") {
+                trimmed.to_string()
+            } else {
+                format!("clippy::{trimmed}")
+            }
+        })
+        .filter(|s| seen.insert(s.clone()))
+        .collect();
+    Some(format!("allow({})", normalized.join(", ")))
+}

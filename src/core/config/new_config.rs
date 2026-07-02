@@ -314,6 +314,7 @@ impl NewAlefConfig {
             suppress_validation_codes: krate.suppress_validation_codes.clone(),
             untagged_union_text_types: krate.untagged_union_text_types.clone(),
             poly: ws.poly.clone(),
+            extra_clippy_allows: ws.extra_clippy_allows.clone(),
         })
     }
 }

@@ -220,6 +220,9 @@ impl Backend for WasmBackend {
             "allow(dead_code, unused_imports, unused_variables, unreachable_patterns, missing_docs)",
         );
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::unnecessary_cast, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::useless_conversion, clippy::arc_with_non_send_sync, clippy::collapsible_if, clippy::clone_on_copy, clippy::should_implement_trait, clippy::await_holding_refcell_ref, clippy::new_without_default)");
+        if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(&config.extra_clippy_allows) {
+            builder.add_inner_attribute(&extra_attr);
+        }
         builder.add_import("wasm_bindgen::prelude::*");
 
         // Hand-written Rust modules: declare `pub mod <name>;` at the top of lib.rs
