@@ -6,6 +6,29 @@ use heck::ToSnakeCase;
 
 type OptionsFieldBridges<'a> = AHashMap<&'a str, (&'a str, &'a str, Option<&'a str>)>;
 
+/// Check if a cfg condition is present in the pyo3 build (i.e., the field should be
+/// included in the pyo3-compiled binding). This mirrors the logic in gen_stubs/classes.rs
+/// to ensure the converter includes the same fields as the .pyi stub.
+fn cfg_present_for_pyo3(cfg: &str) -> bool {
+    let normalized: String = cfg.chars().filter(|c| !c.is_whitespace()).collect();
+    // Accept `not(target_arch="wasm32")` — always true on native Python.
+    if normalized == "not(target_arch=\"wasm32\")" {
+        return true;
+    }
+    // Accept feature gates — pyo3 features are statically enabled/disabled.
+    if normalized.starts_with("feature=") {
+        return true;
+    }
+    // Accept `any(...)` containing only feature gates and native-target gates.
+    if normalized.starts_with("any(") && normalized.ends_with(')') {
+        let inner = &normalized[4..normalized.len() - 1];
+        return inner
+            .split(',')
+            .all(|part| part.starts_with("feature=") || part == "not(target_arch=\"wasm32\")");
+    }
+    false
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn emit_converters(
     out: &mut String,
@@ -416,10 +439,11 @@ pub(super) fn emit_converters(
             },
         ));
 
-        // Skip cfg-gated fields: they are conditionally compiled out of the native `#[new]`
-        // constructor (and omitted from the `.pyi` stub, which cannot express `#[cfg]`), so passing
-        // them as keyword arguments would be an unknown-kwarg error. Mirrors the stub's filter.
-        for field in binding_fields(&typ.fields).filter(|f| f.cfg.is_none()) {
+        // Include fields that are in the pyo3 `#[new]` constructor: all non-binding-excluded fields
+        // whose cfg condition (if any) is present in the pyo3 build. This mirrors the .pyi stub's filter
+        // to ensure the converter passes the same field set to the Rust constructor call.
+        // #[serde(skip)] does NOT affect this — it only affects serialization, not construction.
+        for field in binding_fields(&typ.fields).filter(|f| f.cfg.as_deref().is_none_or(cfg_present_for_pyo3)) {
             // Check if the field's type is itself a has_default Named type (needs nested conversion)
             let inner_named = match &field.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
@@ -684,5 +708,38 @@ pub(super) fn emit_converters(
         }
 
         out.push_str("    )\n\n\n");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cfg_present_for_pyo3;
+
+    #[test]
+    fn cfg_present_for_pyo3_accepts_feature_gates() {
+        assert!(cfg_present_for_pyo3("feature = \"my-feature\""));
+        assert!(cfg_present_for_pyo3("feature=\"my-feature\""));
+    }
+
+    #[test]
+    fn cfg_present_for_pyo3_accepts_non_wasm_gate() {
+        // pyo3 is always a native (non-wasm) target.
+        assert!(cfg_present_for_pyo3("not(target_arch = \"wasm32\")"));
+    }
+
+    #[test]
+    fn cfg_present_for_pyo3_accepts_any_of_feature_gates() {
+        // The `crawl` field: #[cfg(any(feature = "url-ingestion", feature = "url-config-types"))].
+        assert!(cfg_present_for_pyo3(
+            "any(feature = \"url-ingestion\", feature = \"url-config-types\")"
+        ));
+    }
+
+    #[test]
+    fn cfg_present_for_pyo3_rejects_unsupported_gates() {
+        assert!(!cfg_present_for_pyo3("target_os = \"windows\""));
+        assert!(!cfg_present_for_pyo3("target_arch = \"x86_64\""));
+        // An `any(...)` group mixing a platform gate is not statically present.
+        assert!(!cfg_present_for_pyo3("any(feature = \"x\", target_os = \"windows\")"));
     }
 }
