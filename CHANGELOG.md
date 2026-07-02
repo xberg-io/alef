@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.8] - 2026-07-02
+
 ### Fixed
 
 - **codegen/ffi**: the C header no longer references an undeclared service-owner type. The cbindgen
