@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.7] - 2026-07-02
+
+### Fixed
+
+- **codegen/pyo3**: `_to_rust_*` converters dropped all cfg-gated fields from the Rust constructor
+  call (filter was `f.cfg.is_none()`). Feature-gated fields such as `UrlExtractionConfig.crawl`
+  (gated on `any(feature = "url-ingestion", feature = "url-config-types")`) ARE compiled into the
+  pyo3 `#[new]` constructor, so omitting them left them unset. Added `cfg_present_for_pyo3`
+  (mirroring the `.pyi` stub's `cfg_present_for_pyo3_stub`): keep fields with no cfg or whose cfg
+  resolves to present in the native pyo3 build (feature gates, `not(target_arch = "wasm32")`, or
+  `any(...)` of those), while still dropping genuinely platform-specific fields.
+- **maven**: pin jackson to `2.19.0`. jackson 2.20+ adopted a 2-component scheme (2.20/2.21/2.22)
+  only partially on Maven Central (jackson-core/databind 2.22 and any x.y.0 return 404), breaking
+  generated Java/Kotlin e2e dependency resolution. `2.19.0` is fully present across all five jackson
+  artifacts.
+
 ## [0.30.6] - 2026-07-02
 
 ### Fixed
