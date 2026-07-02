@@ -260,13 +260,16 @@ pub mod maven {
     pub const JSPECIFY: &str = "1.0.0";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
-    pub const JACKSON: &str = "2.22.0";
+    // 2.20+ adopted a 2-component scheme (2.20/2.21/2.22) that is only partially on Maven
+    // Central (jackson-core/databind 2.22 and any x.y.0 return 404). 2.19.0 is fully present
+    // across all five jackson artifacts — pin here until the new scheme is fully published.
+    pub const JACKSON: &str = "2.19.0";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-annotations
-    pub const JACKSON_ANNOTATIONS: &str = "2.21";
+    pub const JACKSON_ANNOTATIONS: &str = "2.19.0";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
-    pub const JACKSON_E2E: &str = "2.22.0";
+    pub const JACKSON_E2E: &str = "2.19.0";
 
     // renovate: datasource=maven depName=org.assertj:assertj-core
     pub const ASSERTJ: &str = "4.0.0-M1";
