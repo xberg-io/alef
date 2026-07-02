@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.11] - 2026-07-02
+
 ### Added
 
 - **config**: `[workspace] extra_clippy_allows` — a string list of additional clippy lints
