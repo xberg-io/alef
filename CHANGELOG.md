@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.13] - 2026-07-02
+
+### Fixed
+
+- **swift**: revert the broken Option-wrapping of non-optional JSON-bridged
+  `Vec<T>` extern-block return types (introduced in 0.30.10). The wrapper
+  declared `Option<String>` while the impl returned bare `String`, producing an
+  E0308 type mismatch that failed every consuming swift binding's compile. The
+  swift codegen now emits consistent `String`/`String`. (Does not address the
+  separate `ExtractedDocument.tables()` opaque-`Vec` marshaling SIGSEGV.)
+
 ## [0.30.12] - 2026-07-02
 
 ### Added
