@@ -248,6 +248,37 @@ exclude_types = ["HiddenConfig", "HiddenEnum"]
 }
 
 #[test]
+fn test_cbindgen_toml_forward_declares_service_owner() {
+    // A service owner (e.g. `App`) is emitted as the opaque `inner` pointer of its
+    // `{PREFIX}{Service}Opaque` handle but lives in `api.services`, not `api.types`.
+    // It must still be forward-declared or cbindgen reports "unknown type name".
+    let mut api = sample_api();
+    api.services.push(ServiceDef {
+        name: "App".to_string(),
+        rust_path: "my_lib::App".to_string(),
+        constructor: MethodDef {
+            name: "new".to_string(),
+            ..Default::default()
+        },
+        configurators: vec![],
+        registrations: vec![],
+        entrypoints: vec![],
+        doc: "Application builder.".to_string(),
+        cfg: None,
+    });
+
+    let config = sample_config();
+    let files = FfiBackend.generate_bindings(&api, &config).unwrap();
+    let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
+
+    assert!(
+        cbindgen.content.contains("typedef struct MY_LIBApp MY_LIBApp;"),
+        "cbindgen.toml must forward-declare the service owner referenced as the opaque `inner` pointer, got:\n{}",
+        cbindgen.content
+    );
+}
+
+#[test]
 fn test_cbindgen_toml_keeps_live_type_with_excluded_path_duplicate() {
     let mut api = sample_api();
     api.excluded_type_paths

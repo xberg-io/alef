@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **codegen/ffi**: the C header no longer references an undeclared service-owner type. The cbindgen
+  forward-declaration pass iterated `api.types`/`enums`/`errors` but not `api.services`, so a service
+  owner (e.g. `App`) emitted as the opaque `inner` pointer of its `{PREFIX}{Service}Opaque` handle
+  (`{PREFIX}App *inner`) had no `typedef struct {PREFIX}App {PREFIX}App;` — cbindgen then failed the
+  downstream C/Go build with "unknown type name". Service owners are now forward-declared too
+  (filtered by `exclude_types`). Declaring the owner in `[workspace.opaque_types]` is not required.
 - **sync-versions**: three alef-emitted version sites were left at the prior version on every bump.
   - Root `Package.swift`: the `.binaryTarget` artifactbundle URL
     (`releases/download/vX.Y.Z/…`) was only updated via the `v__ALEF_SWIFT_VERSION__` placeholder,
