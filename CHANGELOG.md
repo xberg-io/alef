@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **codegen/ffi**: complete the service-owner forward-declaration fix from 0.30.8. The new
+  `api.services` loop filtered by `exclude_types`, but a service owner is `binding_excluded` by
+  construction and therefore always in that set — so the owner (`App`) was still dropped and the
+  `typedef struct {PREFIX}App {PREFIX}App;` never emitted. Service owners are now forward-declared
+  unconditionally (their `{PREFIX}{Service}Opaque.inner` pointer references them regardless of
+  exclusion). Regression test tightened to mark the owner `binding_excluded`.
+
 ## [0.30.8] - 2026-07-02
 
 ### Fixed

@@ -478,11 +478,12 @@ pub(super) fn gen_cbindgen_toml(
 
     // Include service owner types — each service is emitted as the opaque `inner`
     // pointer of its generated `{PREFIX}{Service}Opaque` handle (e.g.
-    // `{PREFIX}App *inner`). Owners live in `api.services` (and are mirrored into
-    // `types` as `binding_excluded`, so the `api.types` loop above skips them).
-    // Without a forward typedef cbindgen reports "unknown type name" for the
-    // `inner` pointer field in the generated C header.
-    for svc in api.services.iter().filter(|svc| !exclude_types.contains(&svc.name)) {
+    // `{PREFIX}App *inner`). Owners live in `api.services` and are mirrored into
+    // `types` as `binding_excluded`, which places them in `exclude_types` — so they
+    // are intentionally NOT filtered by `exclude_types` here (unlike the type/enum/
+    // error loops above). The `{Service}Opaque.inner` pointer references the owner
+    // regardless, so without a forward typedef cbindgen reports "unknown type name".
+    for svc in api.services.iter() {
         let c_name = format!("{prefix_upper}{}", svc.name);
         if !entries.iter().any(|(n, _)| n == &c_name) {
             entries.push((c_name, svc.doc.clone()));

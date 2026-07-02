@@ -253,6 +253,17 @@ fn test_cbindgen_toml_forward_declares_service_owner() {
     // `{PREFIX}{Service}Opaque` handle but lives in `api.services`, not `api.types`.
     // It must still be forward-declared or cbindgen reports "unknown type name".
     let mut api = sample_api();
+    // Mirror reality: the owner is ALSO present in `types` as a `binding_excluded`
+    // opaque, so it lands in the cbindgen exclude set. The forward declaration must
+    // still be emitted (regression guard: the naive `!exclude_types.contains` filter
+    // would wrongly drop it).
+    let mut owner_type = api.types[0].clone();
+    owner_type.name = "App".to_string();
+    owner_type.rust_path = "my_lib::App".to_string();
+    owner_type.binding_excluded = true;
+    owner_type.is_opaque = true;
+    owner_type.fields = vec![];
+    api.types.push(owner_type);
     api.services.push(ServiceDef {
         name: "App".to_string(),
         rust_path: "my_lib::App".to_string(),
