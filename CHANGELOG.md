@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.6] - 2026-07-02
+
 ### Fixed
 
 - `core_to_binding_convertible_types` false-negative: types whose only non-convertible binding
