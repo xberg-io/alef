@@ -4,7 +4,7 @@ description: >-
   Cut, tag, and publish an alef release end-to-end. Use this skill any time the
   user asks for a release, a version bump, a hotfix tag, or a CHANGELOG roll-up
   in this repo. Covers the full pipeline: changelog, version sync via Taskfile,
-  Cargo.toml verification, prek lint pass, atomic commit (no AI signatures, no
+  Cargo.toml verification, poly lint pass, atomic commit (no AI signatures, no
   --no-verify when avoidable), git tag, and `gh release create` (not just a tag).
 license: MIT
 ---
@@ -28,8 +28,8 @@ Every release step has a concrete verification — never assume; always check.
    bullet per user-visible change. Move entries from `[Unreleased]` into the new
    version section. Group under `### Added`, `### Changed (BREAKING)`,
    `### Fixed`, `### Removed`. Never tag a version with an empty section.
-2. **Always run `prek run --all-files`** to fix lint/format issues before
-   publishing. Re-stage anything the hooks rewrite. Only commit with
+2. **Always run `poly fmt --fix .` then `poly lint .`** to fix lint/format issues before
+   publishing. Re-stage anything the formatter rewrites. Only commit with
    `--no-verify` if a hook is genuinely broken in a way unrelated to the change
    — and then file an issue.
 3. **No AI signatures** in commit messages, tag messages, or release notes.
@@ -96,10 +96,11 @@ All three must match `X.Y.Z` (the `ALEF_REV` line includes a leading `v`).
 ### 3. Lint pass
 
 ```bash
-prek run --all-files
+poly fmt --fix .
+poly lint .
 ```
 
-Re-stage any files the hooks rewrote. If a hook fails for a real reason, fix
+Re-stage any files the formatter rewrote. If a lint fails for a real reason, fix
 that reason — never bypass with `--no-verify` to push past a lint failure.
 
 ### 4. Tests for changed behavior
@@ -181,7 +182,7 @@ PR that bumps the pin. Don't bundle that into the release commit.
 | Pre-flight | `git status && git fetch origin`                                   | Clean tree + remote state   |
 | Changelog  | manual edit of `CHANGELOG.md`                                      | Every change is documented |
 | Version    | `task set-version -- X.Y.Z` then `grep -E '^version' Cargo.toml`   | Crate version updated      |
-| Lint       | `prek run --all-files`                                             | Pre-commit clean           |
+| Lint       | `poly fmt --fix . && poly lint .`                                  | Lint clean                 |
 | Commit     | `git commit -m "chore(release): X.Y.Z"`                            | Atomic release commit      |
 | Tag        | `git tag -a vX.Y.Z -m "vX.Y.Z" && git push --tags`                 | Tag exists remotely        |
 | Publish    | `gh release create vX.Y.Z --notes-from-tag --verify-tag`           | GitHub release exists      |
