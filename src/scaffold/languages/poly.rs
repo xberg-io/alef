@@ -254,9 +254,21 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
         ));
     }
 
-    vec![GeneratedFile {
-        path: PathBuf::from("poly.toml"),
-        content: out,
-        generated_header: true,
-    }]
+    // Canonical rustfmt config. poly's Rust formatter defers to rustfmt's own
+    // config discovery (matching `cargo fmt`), so an explicit `rustfmt.toml`
+    // pins the width both tools use. Without it rustfmt falls back to its 100
+    // default; every alef repo standardizes on 120 to match poly's global
+    // `line_length` default and stay consistent across the polyglot ecosystem.
+    vec![
+        GeneratedFile {
+            path: PathBuf::from("poly.toml"),
+            content: out,
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from("rustfmt.toml"),
+            content: "max_width = 120\n".to_string(),
+            generated_header: true,
+        },
+    ]
 }

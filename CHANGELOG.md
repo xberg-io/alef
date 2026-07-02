@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **scaffold**: the poly scaffold now also emits a canonical repo-root `rustfmt.toml`
+  (`max_width = 120`, alef-managed). poly's Rust formatter defers to rustfmt's own
+  config discovery (matching `cargo fmt`), so this pins the width both tools use;
+  without it rustfmt falls back to its 100 default. Every alef-managed repo
+  standardizes on 120 to match poly's global `line_length` default.
+
 ## [0.30.11] - 2026-07-02
 
 ### Added

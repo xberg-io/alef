@@ -78,6 +78,24 @@ fn emits_a_generated_poly_toml_replacing_precommit() {
 }
 
 #[test]
+fn emits_a_canonical_rustfmt_toml_at_width_120() {
+    let config = test_config();
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
+
+    let rustfmt = files
+        .iter()
+        .find(|f| f.path.to_string_lossy() == "rustfmt.toml")
+        .expect("scaffold should emit a repo-root rustfmt.toml");
+    assert!(rustfmt.generated_header, "rustfmt.toml must be alef-managed");
+    assert!(
+        rustfmt.content.contains("max_width = 120"),
+        "rustfmt.toml must pin width 120 (poly defers to rustfmt discovery); got {:?}",
+        rustfmt.content
+    );
+}
+
+#[test]
 fn poly_toml_drives_hooks_builtins_and_excludes() {
     let config = test_config();
     let api = test_api();
