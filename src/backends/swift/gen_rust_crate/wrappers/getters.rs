@@ -486,10 +486,7 @@ fn emit_vec_getter(
             _ if is_enum => format!("{wrapper}::from(elem.clone())"),
             _ => format!("{wrapper}(elem.clone())"),
         };
-        // Non-optional Vec<Named> fields that need JSON bridge must be defensively wrapped
-        // in Option<> at the FFI boundary (see extern_block.rs for reasoning).
-        let is_json_bridged = !field.optional && needs_json_bridge(&field.ty);
-        if field.optional || is_json_bridged {
+        if field.optional {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_vec_named_optional.jinja",
                 minijinja::context! {

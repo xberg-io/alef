@@ -173,12 +173,6 @@ pub(crate) fn emit_extern_block_for_type(
             } else {
                 format!("Option<{bridge_ty}>")
             }
-        } else if !field.optional && matches!(&field.ty, TypeRef::Vec(_)) && needs_json_bridge(&field.ty) {
-            // Non-optional Vec<T> fields that require JSON serialization can fail at the FFI
-            // boundary (serde_json::to_string errors). Defensively wrap in Option<> so
-            // swift-bridge generates an optional accessor with nil-checking, preventing
-            // segfault on RustVec(ptr: nil).
-            format!("Option<{bridge_ty}>")
         } else {
             bridge_ty
         };
