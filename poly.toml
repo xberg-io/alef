@@ -1,0 +1,151 @@
+[discovery]
+exclude = [
+    "**/*.jinja",
+    "**/*.lock",
+    "**/Cargo.lock",
+    "**/package-lock.json",
+    "**/pnpm-lock.yaml",
+    "**/uv.lock",
+    ".alef/**",
+    ".basemind/**",
+    "crates/**",
+    "node_modules/**",
+    "schemas/**",
+    "target/**",
+    "templates/**",
+    "**/templates/**",
+    "tests/snapshots/**",
+]
+
+[lint.markdown.rumdl]
+disable = ["MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076"]
+
+[fmt.markdown.rumdl]
+disable = ["MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076"]
+
+[lint.python.ruff]
+select = ["ALL"]
+ignore = [
+    "ANN401",
+    "ASYNC109",
+    "ASYNC110",
+    "BLE001",
+    "COM812",
+    "D100",
+    "D104",
+    "D107",
+    "D205",
+    "E501",
+    "EM",
+    "FBT",
+    "FIX",
+    "ISC001",
+    "PD011",
+    "PGH003",
+    "PLR2004",
+    "PLW0603",
+    "S104",
+    "S110",
+    "S603",
+    "TD",
+    "TRY",
+]
+mccabe_max_complexity = 15
+pydocstyle_convention = "google"
+pylint_max_args = 10
+pylint_max_branches = 15
+pylint_max_returns = 10
+
+[per-file-ignores]
+"hooks/**/*.py" = [
+    "ANN",
+    "ASYNC",
+    "B007",
+    "C901",
+    "D",
+    "F401",
+    "INP001",
+    "N806",
+    "PLR0912",
+    "PLR0915",
+    "Q001",
+    "RET504",
+    "RUF100",
+    "S",
+    "T201",
+]
+"scripts/**/*.py" = [
+    "ANN",
+    "ASYNC",
+    "B007",
+    "C901",
+    "D",
+    "F401",
+    "INP001",
+    "N806",
+    "PLR0912",
+    "PLR0915",
+    "Q001",
+    "RET504",
+    "RUF100",
+    "S",
+    "T201",
+]
+
+[hooks]
+stages = ["pre-commit"]
+
+[hooks.builtin]
+polylint = { exclude = [
+    "**/*.jinja",
+    "**/*.lock",
+    "**/Cargo.lock",
+    "**/package-lock.json",
+    "**/pnpm-lock.yaml",
+    "**/uv.lock",
+    ".alef/**",
+    ".basemind/**",
+    "crates/**",
+    "node_modules/**",
+    "schemas/**",
+    "target/**",
+    "templates/**",
+    "**/templates/**",
+    "tests/snapshots/**",
+] }
+polyfmt = { exclude = [
+    "**/*.jinja",
+    "**/*.lock",
+    "**/Cargo.lock",
+    "**/package-lock.json",
+    "**/pnpm-lock.yaml",
+    "**/uv.lock",
+    ".alef/**",
+    ".basemind/**",
+    "crates/**",
+    "node_modules/**",
+    "schemas/**",
+    "target/**",
+    "templates/**",
+    "**/templates/**",
+    "tests/snapshots/**",
+] }
+file_safety = { exclude = [
+    "**/*.jinja",
+    "**/*.lock",
+    "**/Cargo.lock",
+    "**/package-lock.json",
+    "**/pnpm-lock.yaml",
+    "**/uv.lock",
+    ".alef/**",
+    ".basemind/**",
+    "crates/**",
+    "node_modules/**",
+    "schemas/**",
+    "target/**",
+    "templates/**",
+    "**/templates/**",
+    "tests/snapshots/**",
+] }
+cargo = true
+commit = { stages = ["commit-msg"] }

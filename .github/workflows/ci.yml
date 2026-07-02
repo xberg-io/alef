@@ -44,6 +44,26 @@ jobs:
       - name: Check Cargo.toml sorting
         run: cargo sort --check --workspace
 
+  lint:
+    name: Lint (poly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: xberg-io/actions/setup-rust@v1
+        with:
+          components: "rustfmt, clippy"
+          install-llvm-cov: "false"
+          macos-dynamic-lookup: "false"
+      - uses: xberg-io/actions/setup-python-env@v1
+        with:
+          python-version: "3.13"
+      - name: Install poly
+        uses: Goldziher/polylint@v0
+      - name: Lint (poly)
+        run: poly lint .
+      - name: Format check (poly)
+        run: poly fmt --check .
+
   test:
     name: Test (${{ matrix.os }})
     needs: validate

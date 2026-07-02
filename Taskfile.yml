@@ -8,18 +8,15 @@ tasks:
     desc: "Set up the development environment"
     cmds:
       - rustup update stable
-      - cargo install prek || true
       - cargo install cargo-deny || true
       - cargo install cargo-machete || true
       - cargo install cargo-sort || true
       - cargo install cargo-edit || true
-      - prek install
-      - prek install --hook-type commit-msg
+      - poly hooks install
 
   update:
-    desc: "Update dependencies and pre-commit hooks"
+    desc: "Update dependencies"
     cmds:
-      - prek autoupdate
       - cargo update
       - gau --update .
 
@@ -60,14 +57,29 @@ tasks:
       - cargo check --workspace
 
   fmt:
-    desc: "Format all code"
+    desc: "Format all code via poly"
     cmds:
-      - cargo fmt --all
+      - poly fmt --fix .
+
+  format:
+    desc: "Format all code via poly"
+    cmds:
+      - poly fmt --fix .
+
+  format:check:
+    desc: "Check formatting via poly (CI)"
+    cmds:
+      - poly fmt --check .
 
   lint:
-    desc: "Run all linters via prek"
+    desc: "Run all linters via poly"
     cmds:
-      - prek run --all-files
+      - poly lint .
+
+  lint:check:
+    desc: "Run check-only linting via poly (CI)"
+    cmds:
+      - poly lint .
 
   set-version:
     desc: "Set package version (usage: task set-version -- 0.18.0 or 0.18.0-rc.1)"
