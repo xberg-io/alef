@@ -315,6 +315,40 @@ pub(super) fn sync_swift_first_party_from(content: &str, repo_url: &str, new_ver
     if changed { Some(new_content) } else { None }
 }
 
+/// Rewrite the version segment of the artifactbundle release-download URL in a
+/// root `Package.swift`.
+///
+/// `scaffold_swift` emits the `.binaryTarget` URL with a
+/// `releases/download/v__ALEF_SWIFT_VERSION__/…` placeholder that the first
+/// `sync-versions` substitutes to a concrete `releases/download/vX.Y.Z/…`.  On
+/// every *subsequent* bump the placeholder is already gone, so the plain
+/// placeholder substitution is a no-op and the URL stays pinned at the
+/// previously-released tag — a downstream consumer resolving `from: "X.Y.Z"`
+/// then downloads the wrong (older) artifactbundle.  This helper rewrites the
+/// concrete `releases/download/vX.Y.Z/` segment to `new_version` so the URL
+/// always tracks the workspace version.  It mirrors the check that
+/// `verify_versions` already performs against the exact same URL shape.
+///
+/// The regex is anchored to the literal `releases/download/v` prefix and the
+/// trailing `/`, so unrelated `vX.Y.Z` text elsewhere in the manifest (target
+/// names, comments) is never touched.  Returns `Some(new_content)` only when a
+/// version segment actually changed — idempotent otherwise.
+pub(super) fn sync_swift_binary_release_url(content: &str, new_version: &str) -> Option<String> {
+    static RELEASE_URL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(releases/download/v)(\d+\.\d+\.\d+(?:-[a-zA-Z0-9._]+)*)(/)").expect("valid regex")
+    });
+    let mut changed = false;
+    let new_content = RELEASE_URL_RE
+        .replace_all(content, |caps: &regex::Captures<'_>| {
+            if &caps[2] != new_version {
+                changed = true;
+            }
+            format!("{}{}{}", &caps[1], new_version, &caps[3])
+        })
+        .into_owned();
+    if changed { Some(new_content) } else { None }
+}
+
 /// Normalise a repository URL for first-party comparison: drop the scheme, a
 /// trailing `.git`, and any trailing slash so `https://host/org/repo`,
 /// `https://host/org/repo.git`, and `host/org/repo/` all compare equal.
@@ -612,6 +646,12 @@ pub(super) fn replace_version_pattern(content: &str, pattern: &str, version: &st
         p if p.contains("\"version\"") && p.contains("\"") => format!(r#""version": "{version}""#),
         p if p.contains("spec") => format!("spec.version = \"{version}\""),
         p if p.contains("<version>") => format!("<version>{version}</version>"),
+        // C# `.csproj` `<InformationalVersion>`: distinct from `<Version>` and must
+        // be matched first, since the generic `<Version>` arm below would otherwise
+        // emit the wrong tag name for this pattern.
+        p if p.contains("<InformationalVersion>") => {
+            format!("<InformationalVersion>{version}</InformationalVersion>")
+        }
         p if p.contains("<Version>") => format!("<Version>{version}</Version>"),
         p if p.contains("@version") => format!(r#"@version "{version}""#),
         p if p.contains("version:") && p.contains(":") => format!(r#"version: "{version}""#),

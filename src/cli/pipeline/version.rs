@@ -4,7 +4,9 @@ use std::sync::LazyLock;
 use tracing::{debug, info, warn};
 
 use super::helpers::{run_command, run_optional};
-use super::version_core::{bump_version, read_version, to_pep440, write_version_to_cargo_toml};
+use super::version_core::{
+    bump_version, patch_workspace_dep_versions, read_version, to_pep440, write_version_to_cargo_toml,
+};
 use super::version_python::sync_python_versions;
 use super::version_regen::{regenerate_readmes, regenerate_scaffold_after_sync, regenerate_test_apps_after_sync};
 use super::version_registry::sync_registry_package_versions;
@@ -13,6 +15,7 @@ use super::version_text::{
     read_workspace_license, remove_stale_kotlin_android_plugin, render_citation_cff, replace_citation_version,
     replace_gradle_project_version, replace_version_pattern, restore_gleam_dep_ranges, sync_cargo_lock_path_versions,
     sync_docs_version_badges, sync_e2e_dart_pubspec_lock, sync_e2e_go_mod, sync_e2e_java_pom, sync_gemfile_lock,
+    sync_swift_binary_release_url,
 };
 use super::version_workspace::sync_workspace_cargo_toml_versions;
 use crate::core::version::{to_r_version, to_rubygems_prerelease};
@@ -163,6 +166,34 @@ pub fn sync_versions(
         }
     }
 
+    // Ruby native (Magnus) crate Cargo.toml: the rb-sys/magnus binding crate lives
+    // under `packages/ruby/ext/<gem>_rb/native/` and pins the core crate as
+    // `<core> = { version = "X.Y.Z", path = "..." }` (see `scaffold::render_core_dep`).
+    // This crate is compiled by rb-sys at gem-install time and is NOT a workspace
+    // member, so the workspace dep-pin pass (`sync_workspace_cargo_toml_versions`)
+    // never sees it and the pinned version drifts on every release — a source-gem
+    // `cargo build` then resolves the wrong core version. Patch the core-crate dep
+    // pin directly, reusing the same toml_edit rewrite used for workspace members.
+    {
+        let core_member: std::collections::HashSet<String> = std::iter::once(config.name.clone()).collect();
+        for entry in glob::glob("packages/ruby/ext/*/native/Cargo.toml")
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let path_str = entry.to_string_lossy().to_string();
+            match patch_workspace_dep_versions(&path_str, &version, &core_member) {
+                Ok(true) => {
+                    if !updated.contains(&path_str) {
+                        updated.push(path_str);
+                    }
+                }
+                Ok(false) => {}
+                Err(e) => debug!("Could not patch core dep pin in {path_str}: {e}"),
+            }
+        }
+    }
+
     // PHP: composer.json
     if let Ok(content) = std::fs::read_to_string("packages/php/composer.json") {
         if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
@@ -218,15 +249,33 @@ pub fn sync_versions(
         }
     }
 
-    // C#: *.csproj (recursive under packages/csharp)
+    // C#: *.csproj (recursive under packages/csharp).
+    //
+    // Two version-bearing elements live in the csproj and BOTH must track the
+    // workspace version: `<Version>` (the NuGet package version) and
+    // `<InformationalVersion>` (the assembly's informational/product version,
+    // surfaced by `dotnet list package` and runtime `AssemblyInformationalVersion`).
+    // Bumping only `<Version>` leaves `<InformationalVersion>` pinned at the prior
+    // release, so the shipped assembly reports a stale version. Apply both rewrites.
     for entry in glob::glob("packages/csharp/**/*.csproj")
         .into_iter()
         .flatten()
         .flatten()
     {
         if let Ok(content) = std::fs::read_to_string(&entry) {
-            if let Some(new_content) = replace_version_pattern(&content, r#"<Version>[^<]*</Version>"#, &version) {
-                std::fs::write(&entry, &new_content)?;
+            let mut working = content.clone();
+            if let Some(rewritten) = replace_version_pattern(&working, r#"<Version>[^<]*</Version>"#, &version) {
+                working = rewritten;
+            }
+            if let Some(rewritten) = replace_version_pattern(
+                &working,
+                r#"<InformationalVersion>[^<]*</InformationalVersion>"#,
+                &version,
+            ) {
+                working = rewritten;
+            }
+            if working != content {
+                std::fs::write(&entry, &working)?;
                 updated.push(entry.to_string_lossy().to_string());
             }
         }
@@ -420,9 +469,15 @@ pub fn sync_versions(
     // the app is run against a freshly cut tag — causing 404s or wrong-version failures.
     // The glob crate (0.3.x) does not support brace alternatives, so we run separate passes.
 
-    // Root Package.swift (seed file with binary URL placeholder)
+    // Root Package.swift (seed file with binary URL placeholder).
+    // First substitute the `v__ALEF_SWIFT_VERSION__` placeholder (present only in
+    // the freshly-scaffolded seed), then rewrite the concrete
+    // `releases/download/vX.Y.Z/` segment. The second pass is what keeps an
+    // already-substituted (committed) manifest tracking the workspace version on
+    // every subsequent bump, since the placeholder is gone after the first sync.
     if let Ok(content) = std::fs::read_to_string("Package.swift") {
-        let new_content = content.replace("v__ALEF_SWIFT_VERSION__", &format!("v{version}"));
+        let placeholder_applied = content.replace("v__ALEF_SWIFT_VERSION__", &format!("v{version}"));
+        let new_content = sync_swift_binary_release_url(&placeholder_applied, &version).unwrap_or(placeholder_applied);
         if new_content != content {
             std::fs::write("Package.swift", &new_content)?;
             updated.push("Package.swift".to_string());
@@ -908,7 +963,9 @@ pub fn sync_versions(
         // and SwiftPM consumers using `from: "X.Y.Z"` get the correct checksum
         // without needing a separate `swift-X.Y.Z` namespace tag.
         if let Ok(content) = std::fs::read_to_string("Package.swift") {
-            let new_content = content.replace("v__ALEF_SWIFT_VERSION__", &format!("v{version}"));
+            let placeholder_applied = content.replace("v__ALEF_SWIFT_VERSION__", &format!("v{version}"));
+            let new_content =
+                sync_swift_binary_release_url(&placeholder_applied, &version).unwrap_or(placeholder_applied);
             if new_content != content {
                 std::fs::write("Package.swift", &new_content)?;
                 if !updated.iter().any(|p| p == "Package.swift") {

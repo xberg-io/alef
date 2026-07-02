@@ -680,6 +680,213 @@ fn sync_versions_patches_dep_tables_on_version_change() {
     );
 }
 
+// -----------------------------------------------------------------------
+// sync-versions coverage gaps: swift binary URL, csproj InformationalVersion,
+// ruby native core dep pin
+// -----------------------------------------------------------------------
+
+/// `sync_versions` must rewrite the concrete `releases/download/vX.Y.Z/` segment
+/// of a root `Package.swift` binary-target URL on every bump — not just when the
+/// `v__ALEF_SWIFT_VERSION__` placeholder is present.
+///
+/// After the first sync the placeholder is gone (substituted to a concrete tag),
+/// so a subsequent bump used to leave the URL pinned at the previously-released
+/// tag, and downstream `from: "X.Y.Z"` consumers downloaded the wrong artifact.
+#[test]
+fn sync_versions_bumps_concrete_swift_binary_release_url() {
+    use crate::core::config::NewAlefConfig;
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace.package]\nversion = \"1.0.0-rc.3\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+    )
+    .expect("write Cargo.toml");
+
+    // Committed Package.swift already carries a CONCRETE (stale) version tag —
+    // the placeholder was substituted by a prior release.
+    let pkg_swift = concat!(
+        "// swift-tools-version: 6.0\n",
+        "import PackageDescription\n",
+        "let package = Package(\n",
+        "  name: \"Xberg\",\n",
+        "  targets: [\n",
+        "    .binaryTarget(\n",
+        "      name: \"XbergBridge\",\n",
+        "      url: \"https://github.com/xberg-io/xberg/releases/download/v1.0.0-rc.2/Xberg-rs.artifactbundle.zip\",\n",
+        "      checksum: \"abc123\"\n",
+        "    ),\n",
+        "  ]\n",
+        ")\n",
+    );
+    std::fs::write(root.join("Package.swift"), pkg_swift).expect("write Package.swift");
+
+    let alef_toml = format!(
+        "[workspace]\nlanguages = [\"swift\"]\n[[crates]]\nname = \"xberg\"\nsources = []\nversion_from = \"{}\"\n",
+        root.join("Cargo.toml").display().to_string().replace('\\', "/")
+    );
+    let alef_toml_path = root.join("alef.toml");
+    std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+    let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+    let mut resolved = cfg.resolve().expect("resolve config");
+    let resolved_cfg = resolved.remove(0);
+
+    std::env::set_current_dir(root).expect("set_current_dir");
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
+    let _ = std::env::set_current_dir(&original_cwd);
+    sync_result.expect("sync_versions ok");
+
+    let out = std::fs::read_to_string(root.join("Package.swift")).expect("read Package.swift");
+    assert!(
+        out.contains("releases/download/v1.0.0-rc.3/Xberg-rs.artifactbundle.zip"),
+        "artifactbundle URL must track the new version, got:\n{out}"
+    );
+    assert!(
+        !out.contains("v1.0.0-rc.2"),
+        "stale version tag must be gone from the URL, got:\n{out}"
+    );
+}
+
+/// `sync_versions` must rewrite BOTH `<Version>` and `<InformationalVersion>` in
+/// a C# `.csproj`. Only `<Version>` was covered before, leaving the shipped
+/// assembly's informational version pinned at the prior release.
+#[test]
+fn sync_versions_bumps_csproj_informational_version() {
+    use crate::core::config::NewAlefConfig;
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace.package]\nversion = \"1.0.0-rc.3\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+    )
+    .expect("write Cargo.toml");
+
+    std::fs::create_dir_all(root.join("packages/csharp/Xberg")).expect("mkdir csharp pkg");
+    std::fs::write(
+        root.join("packages/csharp/Xberg/Xberg.csproj"),
+        concat!(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n",
+            "  <PropertyGroup>\n",
+            "    <Version>1.0.0-rc.2</Version>\n",
+            "    <InformationalVersion>1.0.0-rc.2</InformationalVersion>\n",
+            "  </PropertyGroup>\n",
+            "</Project>\n",
+        ),
+    )
+    .expect("write csproj");
+
+    let alef_toml = format!(
+        "[workspace]\nlanguages = [\"csharp\"]\n[[crates]]\nname = \"xberg\"\nsources = []\nversion_from = \"{}\"\n",
+        root.join("Cargo.toml").display().to_string().replace('\\', "/")
+    );
+    let alef_toml_path = root.join("alef.toml");
+    std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+    let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+    let mut resolved = cfg.resolve().expect("resolve config");
+    let resolved_cfg = resolved.remove(0);
+
+    std::env::set_current_dir(root).expect("set_current_dir");
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
+    let _ = std::env::set_current_dir(&original_cwd);
+    sync_result.expect("sync_versions ok");
+
+    let out = std::fs::read_to_string(root.join("packages/csharp/Xberg/Xberg.csproj")).expect("read csproj");
+    assert!(
+        out.contains("<Version>1.0.0-rc.3</Version>"),
+        "<Version> must be bumped, got:\n{out}"
+    );
+    assert!(
+        out.contains("<InformationalVersion>1.0.0-rc.3</InformationalVersion>"),
+        "<InformationalVersion> must be bumped, got:\n{out}"
+    );
+    assert!(
+        !out.contains("1.0.0-rc.2"),
+        "stale version must be gone from csproj, got:\n{out}"
+    );
+}
+
+/// `sync_versions` must bump the core-crate dependency pin in the Ruby native
+/// (Magnus) crate manifest at `packages/ruby/ext/<gem>_rb/native/Cargo.toml`.
+/// That crate is not a workspace member, so the workspace dep-pin pass never
+/// touched it and the `<core> = { version = "..." }` pin drifted every release.
+#[test]
+fn sync_versions_bumps_ruby_native_core_dep_pin() {
+    use crate::core::config::NewAlefConfig;
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace.package]\nversion = \"1.0.0-rc.3\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+    )
+    .expect("write Cargo.toml");
+
+    let native_dir = root.join("packages/ruby/ext/xberg_rb/native");
+    std::fs::create_dir_all(&native_dir).expect("mkdir ruby native");
+    std::fs::write(
+        native_dir.join("Cargo.toml"),
+        concat!(
+            "[package]\n",
+            "name = \"xberg-rb\"\n",
+            "version = \"1.0.0-rc.2\"\n",
+            "edition = \"2024\"\n",
+            "\n",
+            "[dependencies]\n",
+            "magnus = \"0.7\"\n",
+            "xberg = { version = \"1.0.0-rc.2\", path = \"../../../../../crates/xberg\", features = [\"full\"] }\n",
+        ),
+    )
+    .expect("write ruby native Cargo.toml");
+
+    let alef_toml = format!(
+        "[workspace]\nlanguages = [\"ruby\"]\n[[crates]]\nname = \"xberg\"\nsources = []\nversion_from = \"{}\"\n",
+        root.join("Cargo.toml").display().to_string().replace('\\', "/")
+    );
+    let alef_toml_path = root.join("alef.toml");
+    std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+    let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+    let mut resolved = cfg.resolve().expect("resolve config");
+    let resolved_cfg = resolved.remove(0);
+
+    std::env::set_current_dir(root).expect("set_current_dir");
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
+    let _ = std::env::set_current_dir(&original_cwd);
+    sync_result.expect("sync_versions ok");
+
+    let out = std::fs::read_to_string(native_dir.join("Cargo.toml")).expect("read ruby native Cargo.toml");
+    assert!(
+        out.contains(r#"xberg = { version = "1.0.0-rc.3""#),
+        "core dep pin must be bumped to the workspace version, got:\n{out}"
+    );
+    assert!(
+        out.contains(r#"path = "../../../../../crates/xberg""#),
+        "path field must be preserved, got:\n{out}"
+    );
+    assert!(
+        out.contains(r#"features = ["full"]"#),
+        "features must be preserved, got:\n{out}"
+    );
+    // The external `magnus` pin must remain untouched.
+    assert!(
+        out.contains(r#"magnus = "0.7""#),
+        "external magnus dep must not be touched, got:\n{out}"
+    );
+}
+
 #[test]
 fn run_optional_logs_but_does_not_fail_on_missing_binary() {
     // Verify that run_optional gracefully handles a binary that doesn't exist.

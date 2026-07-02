@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **sync-versions**: three alef-emitted version sites were left at the prior version on every bump.
+  - Root `Package.swift`: the `.binaryTarget` artifactbundle URL
+    (`releases/download/vX.Y.Z/…`) was only updated via the `v__ALEF_SWIFT_VERSION__` placeholder,
+    which is gone after the first sync — so subsequent bumps left the concrete tag stale (downstream
+    `from: "X.Y.Z"` consumers fetched the wrong artifact). Now rewrites the concrete
+    `releases/download/vX.Y.Z/` segment too, matching the shape `verify_versions` already checks.
+  - C# `.csproj`: `<InformationalVersion>` was never rewritten (only `<Version>` was). Both are now
+    bumped.
+  - Ruby native (Magnus) crate `packages/ruby/ext/*/native/Cargo.toml`: the core-crate dependency
+    pin (`<core> = { version = "X.Y.Z", path = "…" }`) drifted because this crate is not a workspace
+    member and the workspace dep-pin pass never saw it. The pin now tracks the workspace version.
+
 ## [0.30.7] - 2026-07-02
 
 ### Fixed
