@@ -398,6 +398,14 @@ impl Backend for Pyo3Backend {
         // core types whose `impl Default` is `#[alef(skip)]`'d (so `has_default` is false on the
         // type itself) yet are still required to be `Default` by a Default-deriving parent.
         let default_required_types = cfg_fields::default_required_types(api);
+        // Pre-compute the set of types that will receive a core→binding From impl so the
+        // delegating Default is only emitted when From<core::T> will also be emitted.
+        // A type that is excluded from core→binding conversion (e.g. because it has a field
+        // whose type is not in the convertible set) must keep #[derive(Default)] instead of
+        // the delegating impl — otherwise the binding crate fails to compile (E0277).
+        let core_to_binding_for_default = crate::codegen::conversions::core_to_binding_convertible_types(api);
+        cfg.emit_delegating_default_for_types = Some(&core_to_binding_for_default);
+        cfg_unsendable.emit_delegating_default_for_types = Some(&core_to_binding_for_default);
         for typ in api
             .types
             .iter()

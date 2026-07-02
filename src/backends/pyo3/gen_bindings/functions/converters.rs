@@ -510,7 +510,7 @@ pub(super) fn emit_converters(
                         //   Optional[T], and we must omit the kwarg so PyO3's default applies
                         let has_serde_default = field.default.as_deref() == Some("/* serde(default) */");
                         let is_optional = matches!(field.ty, TypeRef::Optional(_)) || field.optional;
-                        let needs_none_guard = is_optional || (has_serde_default && !is_optional);
+                        let needs_none_guard = is_optional || has_serde_default;
 
                         if needs_none_guard {
                             // Use dict-splat to omit the kwarg when None

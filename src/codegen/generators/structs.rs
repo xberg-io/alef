@@ -135,7 +135,16 @@ pub fn gen_struct_with_per_field_attrs(
     // Binding structs normally derive `Default` so host constructors and serde fallback paths
     // can fill omitted fields. When requested for source types with a custom core `Default`,
     // suppress the derive and emit a delegating impl below to preserve semantic defaults.
-    let suppress_default_derive = cfg.emit_delegating_default_impl && typ.has_default;
+    // The delegating impl calls `.into()`, requiring `From<core::T>` — so it is only eligible
+    // when the matching From impl will be emitted (gated via `emit_delegating_default_for_types`
+    // when set). Skipping the delegating impl for non-convertible types restores `#[derive(Default)]`
+    // so the struct still compiles without a From<core::T>.
+    let delegating_eligible = cfg.emit_delegating_default_impl
+        && typ.has_default
+        && cfg
+            .emit_delegating_default_for_types
+            .is_none_or(|s| s.contains(&typ.name));
+    let suppress_default_derive = delegating_eligible;
     if !suppress_default_derive {
         sb.add_derive("Default");
     }
@@ -172,8 +181,13 @@ pub fn gen_struct_with_per_field_attrs(
         sb.add_field_with_doc(&field.name, &ty, attrs, &sanitize_field_doc(&field.doc));
     }
     let mut result = sb.build();
-    if suppress_default_derive {
-        result.push_str(&gen_delegating_default_impl(typ, cfg.core_import, cfg.type_name_prefix));
+    if delegating_eligible {
+        result.push_str(&gen_delegating_default_impl(
+            typ,
+            cfg.core_import,
+            cfg.type_name_prefix,
+            cfg.source_crate_remaps,
+        ));
     }
     result
 }
@@ -230,7 +244,12 @@ pub fn gen_struct_with_rename(
         .collect();
     // See `gen_struct_with_per_field_attrs` for the rationale on suppressing the derived
     // `Default` when emitting a delegating impl.
-    let suppress_default_derive = cfg.emit_delegating_default_impl && typ.has_default;
+    let delegating_eligible = cfg.emit_delegating_default_impl
+        && typ.has_default
+        && cfg
+            .emit_delegating_default_for_types
+            .is_none_or(|s| s.contains(&typ.name));
+    let suppress_default_derive = delegating_eligible;
     if !suppress_default_derive {
         sb.add_derive("Default");
     }
@@ -286,8 +305,13 @@ pub fn gen_struct_with_rename(
         sb.add_field_with_doc(&emit_name, &ty, attrs, &sanitize_field_doc(&field.doc));
     }
     let mut result = sb.build();
-    if suppress_default_derive {
-        result.push_str(&gen_delegating_default_impl(typ, cfg.core_import, cfg.type_name_prefix));
+    if delegating_eligible {
+        result.push_str(&gen_delegating_default_impl(
+            typ,
+            cfg.core_import,
+            cfg.type_name_prefix,
+            cfg.source_crate_remaps,
+        ));
     }
     result
 }
@@ -324,7 +348,12 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         .collect();
     // See `gen_struct_with_per_field_attrs` for the rationale on suppressing the derived
     // `Default` when emitting a delegating impl.
-    let suppress_default_derive = cfg.emit_delegating_default_impl && typ.has_default;
+    let delegating_eligible = cfg.emit_delegating_default_impl
+        && typ.has_default
+        && cfg
+            .emit_delegating_default_for_types
+            .is_none_or(|s| s.contains(&typ.name));
+    let suppress_default_derive = delegating_eligible;
     if !suppress_default_derive {
         sb.add_derive("Default");
     }
@@ -369,8 +398,13 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         sb.add_field_with_doc(&emit_name, &ty, attrs, &sanitize_field_doc(&field.doc));
     }
     let mut result = sb.build();
-    if suppress_default_derive {
-        result.push_str(&gen_delegating_default_impl(typ, cfg.core_import, cfg.type_name_prefix));
+    if delegating_eligible {
+        result.push_str(&gen_delegating_default_impl(
+            typ,
+            cfg.core_import,
+            cfg.type_name_prefix,
+            cfg.source_crate_remaps,
+        ));
     }
     result
 }
@@ -386,14 +420,22 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
 /// The generated impl requires that `From<core::Type> for {type_name_prefix}{Type}` exists.
 /// For PHP this is satisfied by `gen_from_core_to_binding_cfg`, which is emitted for every
 /// non-opaque convertible type in the binding crate.
-pub fn gen_delegating_default_impl(typ: &TypeDef, core_import: &str, type_name_prefix: &str) -> String {
+pub fn gen_delegating_default_impl(
+    typ: &TypeDef,
+    core_import: &str,
+    type_name_prefix: &str,
+    source_crate_remaps: &[(&str, &str)],
+) -> String {
     let binding_name = format!("{type_name_prefix}{}", typ.name);
     let core_path = typ.rust_path.replace('-', "_");
     // If the type's rust_path resolved to a fully-qualified core path (contains `::`), use it
-    // directly. Otherwise compose `{core_import}::{TypeName}` as the fallback (covers test
-    // fixtures and minimal IR inputs that leave `rust_path` empty).
+    // after applying any source_crate_remaps (e.g. rewriting `spikard::T` → `spikard_http::T`
+    // when `core_crate_override` is set for a language). Without the remap the Default body
+    // references the original source crate which may not be importable in the binding.
+    // When rust_path is bare (no `::`) fall back to `{core_import}::{TypeName}` — covers
+    // test fixtures and minimal IR inputs that leave rust_path empty.
     let core_qualified = if core_path.contains("::") {
-        core_path
+        crate::codegen::conversions::apply_crate_remaps(&core_path, source_crate_remaps)
     } else {
         format!("{core_import}::{}", typ.name)
     };

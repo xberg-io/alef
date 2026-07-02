@@ -66,6 +66,8 @@ impl NapiBackend {
             // suppress-derive + delegate-impl pattern.
             emit_delegating_default_impl: false,
             skip_methods_when_not_delegatable: false,
+            source_crate_remaps: &[],
+            emit_delegating_default_for_types: None,
         }
     }
 }

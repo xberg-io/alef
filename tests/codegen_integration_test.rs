@@ -63,6 +63,8 @@ fn default_cfg<'a>() -> RustBindingConfig<'a> {
         never_skip_cfg_field_names: &[],
         emit_delegating_default_impl: false,
         skip_methods_when_not_delegatable: false,
+        source_crate_remaps: &[],
+        emit_delegating_default_for_types: None,
     }
 }
 

@@ -732,6 +732,8 @@ fn gen_pyo3_unit_enum_emits_string_methods() {
         never_skip_cfg_field_names: &[],
         emit_delegating_default_impl: false,
         skip_methods_when_not_delegatable: false,
+        source_crate_remaps: &[],
+        emit_delegating_default_for_types: None,
     };
     let generated = gen_enum(&enum_def("StructureKind", vec![variant("Function", Vec::new())]), &cfg);
 

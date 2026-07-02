@@ -31,6 +31,10 @@ pub(super) fn binding_config(core_import: &str, has_serde: bool) -> RustBindingC
         never_skip_cfg_field_names: &[],
         emit_delegating_default_impl: true,
         skip_methods_when_not_delegatable: false,
+        source_crate_remaps: &[],
+        // Populated in gen_bindings before the type loop so that the delegating Default
+        // is only emitted when the matching From<core::T> impl will also be emitted.
+        emit_delegating_default_for_types: None,
     }
 }
 

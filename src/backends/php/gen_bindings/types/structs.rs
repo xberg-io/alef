@@ -392,6 +392,8 @@ pub(crate) fn gen_php_struct(
             never_skip_cfg_field_names: cfg.never_skip_cfg_field_names,
             emit_delegating_default_impl: has_custom_core_default,
             skip_methods_when_not_delegatable: cfg.skip_methods_when_not_delegatable,
+            source_crate_remaps: cfg.source_crate_remaps,
+            emit_delegating_default_for_types: cfg.emit_delegating_default_for_types,
         };
         // The shared struct generator handles the delegating `impl Default` automatically
         // when `emit_delegating_default_impl` is enabled and `typ.has_default` is true.

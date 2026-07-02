@@ -417,6 +417,7 @@ impl Backend for WasmBackend {
                     &core_import,
                     &prefix,
                     &tagged_data_enum_names,
+                    &source_remaps_borrowed,
                 ));
                 builder.add_item(&gen_struct_methods(
                     typ,

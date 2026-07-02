@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **codegen/pyo3**: suppress delegating `Default` impl for types absent from `core_to_binding_convertible_types`. The struct generator emitted a delegating `impl Default` (calling `<core::T as Default>::default().into()`) for every `has_default` type, but `gen_from_core_to_binding` is only emitted when a type passes `can_generate_conversion`. A type with `has_default=true` whose fields include an unconvertible nested type received no `From<core::T>` impl, causing E0277 in the pyo3 backend (e.g. `ServerConfig`). Fixed by adding `emit_delegating_default_for_types: Option<&AHashSet<String>>` to `RustBindingConfig` and pre-computing the eligible set in the pyo3 backend before the type loop.
+- **codegen/wasm**: apply `source_crate_remaps` inside `gen_delegating_default_impl`. When a `core_crate_override` remaps the leading crate segment (e.g. `spikard` → `spikard_http`), the delegating `Default` body used the raw `rust_path` verbatim, emitting `<spikard::ServerConfig as Default>::default().into()` instead of `<spikard_http::ServerConfig as Default>::default().into()`, causing E0433 in wasm. Fixed by calling `apply_crate_remaps` on the qualified path in `gen_delegating_default_impl` and threading `source_crate_remaps` through `RustBindingConfig`.
+
 ## [0.30.4] - 2026-07-02
 
 ### Fixed

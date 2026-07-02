@@ -507,3 +507,246 @@ fn test_gen_opaque_impl_block_generates_impl_with_method() {
     assert!(result.contains("impl MyConfig {"), "should generate impl block");
     assert!(result.contains("pub fn run"), "should contain the method");
 }
+
+// ==============================================================================
+// Bug B regression: source_crate_remaps applied in delegating Default body
+// ==============================================================================
+
+/// When `core_crate_override` remaps a source crate (e.g. `spikard` → `spikard_http`),
+/// `gen_delegating_default_impl` must rewrite the Default body so it references the
+/// override crate instead of the original source crate. Without the fix the body emits
+/// `<spikard::ServerConfig as Default>::default()` → E0433 in the wasm binding.
+#[test]
+fn delegating_default_body_applies_source_crate_remaps() {
+    let typ = TypeDef {
+        name: "ServerConfig".to_string(),
+        rust_path: "spikard::ServerConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        has_private_fields: false,
+        version: Default::default(),
+    };
+
+    let remaps = [("spikard", "spikard_http")];
+    let result = alef::codegen::generators::gen_delegating_default_impl(&typ, "spikard_http", "", &remaps);
+
+    assert!(
+        result.contains("<spikard_http::ServerConfig as Default>::default()"),
+        "Default body must reference the overridden crate, not the original; got:\n{result}"
+    );
+    assert!(
+        !result.contains("<spikard::ServerConfig"),
+        "Default body must NOT reference the original source crate after remapping; got:\n{result}"
+    );
+}
+
+/// Without remaps, the Default body falls through to the original rust_path unchanged.
+#[test]
+fn delegating_default_body_without_remaps_uses_original_path() {
+    let typ = TypeDef {
+        name: "ServerConfig".to_string(),
+        rust_path: "spikard::ServerConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        has_private_fields: false,
+        version: Default::default(),
+    };
+
+    let result = alef::codegen::generators::gen_delegating_default_impl(&typ, "spikard", "", &[]);
+
+    assert!(
+        result.contains("<spikard::ServerConfig as Default>::default()"),
+        "Default body must use original rust_path when no remaps; got:\n{result}"
+    );
+}
+
+// ==============================================================================
+// Bug A regression: delegating Default/From emission consistency
+// ==============================================================================
+
+/// When `emit_delegating_default_for_types` is set and the type is NOT in the set
+/// (i.e. no From<core::T> impl will be emitted), the struct must keep `#[derive(Default)]`
+/// and must NOT emit a delegating `impl Default`. Emitting the delegating impl without
+/// From<core::T> causes E0277 at compilation.
+#[test]
+fn delegating_default_suppressed_when_type_not_in_convertible_set() {
+    use ahash::AHashSet;
+
+    let typ = TypeDef {
+        name: "ServerConfig".to_string(),
+        rust_path: "spikard::ServerConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![FieldDef {
+            name: "nested".to_string(),
+            // A Named field whose type is excluded from conversion — causes the parent
+            // type to be absent from core_to_binding_convertible_types.
+            ty: TypeRef::Named("ExcludedOpaque".to_string()),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            original_type: None,
+        }],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        has_private_fields: false,
+        version: Default::default(),
+    };
+    let mapper = RustMapper;
+
+    // The convertible set does NOT include ServerConfig (simulating exclusion due to
+    // an unconvertible nested field).
+    let convertible_set: AHashSet<String> = AHashSet::new();
+    let mut cfg = default_cfg();
+    cfg.emit_delegating_default_impl = true;
+    cfg.emit_delegating_default_for_types = Some(&convertible_set);
+
+    let result = gen_struct(&typ, &mapper, &cfg);
+
+    assert!(
+        result.contains("#[derive(") && result.contains("Default"),
+        "ServerConfig must keep #[derive(Default)] when not in the convertible set; got:\n{result}"
+    );
+    assert!(
+        !result.contains("impl Default for ServerConfig"),
+        "ServerConfig must NOT have a delegating impl Default when excluded from convertible set; got:\n{result}"
+    );
+}
+
+/// When the type IS in `emit_delegating_default_for_types`, the delegating Default IS emitted
+/// and `#[derive(Default)]` is suppressed — unchanged from the original behavior for
+/// types that do have a matching From<core::T>.
+#[test]
+fn delegating_default_emitted_when_type_in_convertible_set() {
+    use ahash::AHashSet;
+
+    let typ = TypeDef {
+        name: "Config".to_string(),
+        rust_path: "my_crate::Config".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![FieldDef {
+            name: "value".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            original_type: None,
+        }],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        has_private_fields: false,
+        version: Default::default(),
+    };
+    let mapper = RustMapper;
+
+    let mut convertible_set: AHashSet<String> = AHashSet::new();
+    convertible_set.insert("Config".to_string());
+    let mut cfg = default_cfg();
+    cfg.core_import = "my_crate";
+    cfg.emit_delegating_default_impl = true;
+    cfg.emit_delegating_default_for_types = Some(&convertible_set);
+
+    let result = gen_struct(&typ, &mapper, &cfg);
+
+    assert!(
+        result.contains("impl Default for Config"),
+        "Config must have delegating impl Default when in convertible set; got:\n{result}"
+    );
+    assert!(
+        result.contains("<my_crate::Config as Default>::default().into()"),
+        "delegating Default must delegate via core type; got:\n{result}"
+    );
+    // The auto-derived Default must be suppressed — we only want the delegating impl.
+    let derive_block = result.split("pub struct Config").next().unwrap_or("");
+    assert!(
+        !derive_block.contains("Default"),
+        "#[derive(Default)] must be suppressed when delegating impl is emitted; got:\n{derive_block}"
+    );
+}

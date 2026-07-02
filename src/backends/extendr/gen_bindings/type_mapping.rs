@@ -58,6 +58,8 @@ impl ExtendrBackend {
             // Vec<EnumVariant> or Result<Vec<NamedStruct>> shapes the extendr_api
             // converters do not implement) rather than emitting an unimplemented stub.
             skip_methods_when_not_delegatable: true,
+            source_crate_remaps: &[],
+            emit_delegating_default_for_types: None,
         }
     }
 }

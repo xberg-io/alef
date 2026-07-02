@@ -413,6 +413,7 @@ pub(super) fn gen_struct(
     core_import: &str,
     prefix: &str,
     tagged_data_enum_names: &AHashSet<String>,
+    source_crate_remaps: &[(&str, &str)],
 ) -> String {
     use super::field_references_excluded_type;
 
@@ -494,7 +495,12 @@ pub(super) fn gen_struct(
         },
     ));
     if typ.has_default {
-        out.push_str(&generators::gen_delegating_default_impl(typ, core_import, prefix));
+        out.push_str(&generators::gen_delegating_default_impl(
+            typ,
+            core_import,
+            prefix,
+            source_crate_remaps,
+        ));
     }
     out
 }

@@ -127,6 +127,18 @@ pub struct RustBindingConfig<'a> {
     /// language cannot meaningfully panic at startup (e.g. extendr's `#[extendr]` macro
     /// fails to expand around `compile_error!` bodies, breaking the whole crate).
     pub skip_methods_when_not_delegatable: bool,
+    /// Remaps the leading crate segment in IR `rust_path` values when building the
+    /// delegating `impl Default` body. When `core_crate_override` is set for a language,
+    /// IR rust_paths still reference the original source crate; these remaps rewrite the
+    /// Default body so it references the override crate instead.
+    /// E.g. `[("mylib_core", "mylib_http")]` rewrites `mylib_core::T` → `mylib_http::T`.
+    pub source_crate_remaps: &'a [(&'a str, &'a str)],
+    /// When `Some(set)`, the delegating `impl Default` (and the corresponding suppression
+    /// of `#[derive(Default)]`) is restricted to types whose name is in this set. Ensures
+    /// that a delegating Default is only emitted when the matching `From<core::T>` impl
+    /// will also be emitted. When `None`, all `has_default` types get the delegating impl
+    /// (backward-compatible behaviour for backends that do not need the restriction).
+    pub emit_delegating_default_for_types: Option<&'a ahash::AHashSet<String>>,
 }
 
 /// Method names that conflict with standard trait methods.
