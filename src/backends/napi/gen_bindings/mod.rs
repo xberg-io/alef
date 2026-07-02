@@ -544,7 +544,7 @@ impl Backend for NapiBackend {
         }
 
         let binding_to_core = crate::codegen::conversions::convertible_types(api);
-        let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api);
+        let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
         let input_types = crate::codegen::conversions::input_type_names(api);
         // NOTE: NAPI does NOT populate `trait_bridge_arc_wrapper_field_names`. Unlike
         // PHP/WASM which wrap their visitor handle as `WrapperType { inner: Arc<...> }`,

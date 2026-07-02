@@ -4589,3 +4589,90 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
         "bridge module must be glob-re-exported so its symbols are reachable"
     );
 }
+
+// ==============================================================================
+// Bug 2 regression: wasm gen_struct emitted delegating Default unconditionally
+// ==============================================================================
+
+/// A `has_default = true` type whose field type is NOT in `exclude_types` but IS
+/// non-convertible (because the field type is absent from the surface) must receive
+/// `#[derive(Default)]`, NOT the delegating `impl Default` that calls
+/// `<core::T as Default>::default().into()`. The delegating impl requires
+/// `From<core::T>` to exist; when the type is not in the convertible set that
+/// impl is not generated, causing E0277 at binding crate compile time.
+#[test]
+fn has_default_non_convertible_type_derives_default_not_delegating_impl() {
+    let backend = WasmBackend;
+
+    // ServerConfig has `has_default = true` and a field `internal: ExternalHandle`
+    // where ExternalHandle is NOT defined in the surface (simulating an external type).
+    // This makes ServerConfig non-convertible via core_to_binding_convertible_types.
+    // The wasm config has no exclusions, so ExternalHandle is not in exclude_types.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ServerConfig".to_string(),
+            rust_path: "test_lib::ServerConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
+                // ExternalHandle is not in the surface → non-convertible field
+                make_field("internal", TypeRef::Named("ExternalHandle".to_string()), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            has_private_fields: false,
+            version: Default::default(),
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+
+    let result = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings must succeed");
+    let lib_file = result
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs must be generated");
+    let content = &lib_file.content;
+
+    // The delegating impl calls `<core::ServerConfig as Default>::default().into()`,
+    // which requires `From<core::ServerConfig> for WasmServerConfig`.
+    // Since ServerConfig is NOT convertible, that From impl is not generated → E0277.
+    // After the fix, the struct must instead derive Default directly.
+    assert!(
+        !content.contains("<test_lib::ServerConfig as Default>::default().into()"),
+        "non-convertible has_default type must NOT emit delegating Default impl; got:\n{content}"
+    );
+    // #[derive(Default)] must be present on the struct.
+    let struct_section = content.split("pub struct WasmServerConfig").next().unwrap_or("");
+    assert!(
+        struct_section.contains("Default"),
+        "non-convertible has_default type must derive Default; struct header:\n{struct_section}"
+    );
+}

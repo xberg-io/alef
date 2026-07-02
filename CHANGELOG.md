@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `core_to_binding_convertible_types` false-negative: types whose only non-convertible binding
+  fields are excluded from the backend surface (e.g. wasm `exclude_types`) were wrongly removed
+  from the convertible set. The function now accepts `excluded_field_types: &[String]` and skips
+  those fields in the predicate. All non-wasm backends pass `&[]`; the wasm backend passes its
+  `exclude_types` list so structs with core-only omitted fields are correctly convertible.
+- Wasm `gen_struct` emitted the delegating `impl Default` unconditionally for `has_default` types
+  without checking convertibility, causing E0277 when `From<core::T>` was not generated.
+  Non-convertible `has_default` wasm structs now correctly keep `#[derive(Default)]` instead.
+
 ## [0.30.5] - 2026-07-02
 
 ### Fixed

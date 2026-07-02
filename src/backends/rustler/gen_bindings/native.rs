@@ -444,7 +444,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     }
 
     let binding_to_core = crate::codegen::conversions::convertible_types(api);
-    let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api);
+    let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
     let input_types = crate::codegen::conversions::input_type_names(api);
     // Flat data enums are output-only structs with no binding→core From impl.
     // Pass their names as `from_binding_skip_types` so that containing structs

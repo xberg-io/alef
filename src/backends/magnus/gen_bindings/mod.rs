@@ -499,7 +499,7 @@ impl Backend for MagnusBackend {
         // Magnus binding types are separate structs from core types and need From impls
         // for delegation. Generate both directions where possible.
         let binding_to_core = crate::codegen::conversions::convertible_types(api);
-        let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api);
+        let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
         let input_types = crate::codegen::conversions::input_type_names(api);
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque || exclude_types.contains(typ.name.as_str()) {

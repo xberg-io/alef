@@ -1,3 +1,4 @@
+use crate::codegen::conversions::helpers::type_discovery::field_references_excluded_type;
 use crate::codegen::shared::binding_fields;
 use crate::core::ir::{ApiSurface, EnumDef, FieldDef, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
@@ -5,7 +6,13 @@ use ahash::{AHashMap, AHashSet};
 /// Build the set of types that can have core→binding From safely generated.
 /// More permissive than binding→core: allows sanitized fields (uses format!("{:?}"))
 /// and accepts data enums (data discarded with `..` in match arms).
-pub fn core_to_binding_convertible_types(surface: &ApiSurface) -> AHashSet<String> {
+///
+/// `excluded_field_types` lists type names that the calling backend excludes from
+/// its binding surface (e.g. wasm `exclude_types`). Fields whose type appears in
+/// this list are skipped in the binding struct AND the From impl, so they cannot
+/// make a parent type non-convertible. Pass `&[]` from backends that have no
+/// such exclusions.
+pub fn core_to_binding_convertible_types(surface: &ApiSurface, excluded_field_types: &[String]) -> AHashSet<String> {
     let convertible_enums: AHashSet<&str> = surface
         .enums
         .iter()
@@ -54,6 +61,12 @@ pub fn core_to_binding_convertible_types(surface: &ApiSurface) -> AHashSet<Strin
             if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {
                 let ok = binding_fields(&typ.fields).all(|f| {
                     if f.sanitized {
+                        true
+                    } else if !excluded_field_types.is_empty()
+                        && field_references_excluded_type(&f.ty, excluded_field_types)
+                    {
+                        // Field is excluded from the binding surface by the backend;
+                        // its type does not need to be convertible.
                         true
                     } else if field_has_path_mismatch(f, &enum_paths, &type_paths) {
                         false

@@ -403,7 +403,7 @@ impl Backend for Pyo3Backend {
         // A type that is excluded from core→binding conversion (e.g. because it has a field
         // whose type is not in the convertible set) must keep #[derive(Default)] instead of
         // the delegating impl — otherwise the binding crate fails to compile (E0277).
-        let core_to_binding_for_default = crate::codegen::conversions::core_to_binding_convertible_types(api);
+        let core_to_binding_for_default = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
         cfg.emit_delegating_default_for_types = Some(&core_to_binding_for_default);
         cfg_unsendable.emit_delegating_default_for_types = Some(&core_to_binding_for_default);
         for typ in api
@@ -593,7 +593,8 @@ impl Backend for Pyo3Backend {
                 // Inject from_json staticmethod into the existing #[pymethods] block when serde
                 // is available and a core→binding conversion exists. Injecting into the same block
                 // avoids requiring the `multiple-pymethods` pyo3 feature.
-                if has_serde && crate::codegen::conversions::core_to_binding_convertible_types(api).contains(&typ.name)
+                if has_serde
+                    && crate::codegen::conversions::core_to_binding_convertible_types(api, &[]).contains(&typ.name)
                 {
                     let from_json_method = "    #[staticmethod]\n    \
                          fn from_json(json_str: String) -> pyo3::PyResult<Self> {\n        \
@@ -802,7 +803,7 @@ impl Backend for Pyo3Backend {
         }
 
         let binding_to_core = crate::codegen::conversions::convertible_types(api);
-        let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api);
+        let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
         let input_types = crate::codegen::conversions::input_type_names(api);
         // Build a rename map for all fields that needed keyword escaping so that From impls
         // use the correct binding struct field names (e.g. `class_` not `class`).

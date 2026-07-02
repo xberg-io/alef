@@ -406,6 +406,7 @@ fn gen_opaque_static_method(
 }
 
 /// Generate a wasm-bindgen struct definition with private fields.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_struct(
     typ: &TypeDef,
     mapper: &WasmMapper,
@@ -414,6 +415,7 @@ pub(super) fn gen_struct(
     prefix: &str,
     tagged_data_enum_names: &AHashSet<String>,
     source_crate_remaps: &[(&str, &str)],
+    is_core_to_binding_convertible: bool,
 ) -> String {
     use super::field_references_excluded_type;
 
@@ -480,12 +482,19 @@ pub(super) fn gen_struct(
         fields.push((field.name.clone(), field_type));
     }
 
+    // Derive Default when:
+    // - the type has no custom Default (always safe to derive), OR
+    // - the type has a custom Default but is NOT in the core→binding convertible set
+    //   (the delegating impl would reference a From<core::T> that doesn't exist).
+    // When the type IS convertible, suppress #[derive(Default)] and emit the delegating
+    // impl instead so Default delegates through the From conversion.
+    let derives_default = !typ.has_default || !is_core_to_binding_convertible;
     out.push_str(&crate::backends::wasm::template_env::render(
         "gen_struct",
         minijinja::context! {
             struct_name => js_name,
             unprefixed_name => typ.name,
-            derives_default => !typ.has_default,
+            derives_default => derives_default,
             fields => fields.iter().map(|(name, ty)| {
                 minijinja::context! {
                     name => name,
@@ -494,7 +503,7 @@ pub(super) fn gen_struct(
             }).collect::<Vec<_>>(),
         },
     ));
-    if typ.has_default {
+    if typ.has_default && is_core_to_binding_convertible {
         out.push_str(&generators::gen_delegating_default_impl(
             typ,
             core_import,
@@ -545,9 +554,11 @@ pub(super) fn gen_struct_methods(
             prefix,
             &tagged_data_enum_names,
         ));
-        // Skip synthetic Default factory when the IR already exposes an
-        // explicit static method named `default` (it will be emitted below
-        // through the methods loop and would otherwise conflict).
+        // The wasm wrapper always has a Default impl — either #[derive(Default)] or the
+        // delegating impl, gated complementarily in gen_struct — so the synthetic default()
+        // factory (which delegates to `<Wrapper as Default>::default()`) is always valid.
+        // Skip it only when the IR already exposes an explicit static `default` method (it
+        // will be emitted below through the methods loop and would otherwise conflict).
         if !typ.methods.iter().any(|m| m.name == "default") {
             impl_builder.add_method(&gen_default_method(typ, prefix));
         }

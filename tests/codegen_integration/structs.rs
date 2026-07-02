@@ -750,3 +750,120 @@ fn delegating_default_emitted_when_type_in_convertible_set() {
         "#[derive(Default)] must be suppressed when delegating impl is emitted; got:\n{derive_block}"
     );
 }
+
+// ==============================================================================
+// Bug 1 regression: false-negative in core_to_binding_convertible_types
+// ==============================================================================
+
+/// When a struct has a field whose type appears in `excluded_field_types`, that field
+/// is excluded from the binding surface AND the From impl, so it cannot make the
+/// parent struct non-convertible. Without the fix, `ServerConfig` was wrongly excluded
+/// because `CorsConfig` (a type not defined in the surface) failed `is_field_convertible`.
+///
+/// With `excluded_field_types = ["CorsConfig"]`, the `cors` field is skipped in the
+/// predicate, so `ServerConfig` stays in the convertible set.
+#[test]
+fn core_to_binding_convertible_excludes_excluded_type_fields() {
+    // Build a surface with ServerConfig having two fields:
+    // - compression: String  (trivially convertible)
+    // - cors: CorsConfig     (type NOT defined in the surface → unknown → non-convertible)
+    //
+    // CorsConfig is intentionally absent from surface.types to simulate an external type
+    // that a backend excludes from the binding surface (wasm exclude_types, for example).
+    let server_config = TypeDef {
+        name: "ServerConfig".to_string(),
+        rust_path: "my_crate::ServerConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            FieldDef {
+                name: "compression".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                original_type: None,
+            },
+            FieldDef {
+                name: "cors".to_string(),
+                ty: TypeRef::Named("CorsConfig".to_string()),
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                original_type: None,
+            },
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        has_private_fields: false,
+        version: Default::default(),
+    };
+
+    let surface = ApiSurface {
+        crate_name: "my_crate".to_string(),
+        version: "0.1.0".to_string(),
+        // CorsConfig is intentionally absent — it's an external type excluded by the backend.
+        types: vec![server_config],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: vec![],
+    };
+
+    // Without hint: CorsConfig is unknown → ServerConfig fails the predicate → not convertible.
+    let without_hint = alef::codegen::conversions::core_to_binding_convertible_types(&surface, &[]);
+    assert!(
+        !without_hint.contains("ServerConfig"),
+        "ServerConfig must be absent when CorsConfig is unknown and no excluded_field_types hint is given; got set: {without_hint:?}"
+    );
+
+    // With hint: CorsConfig field is skipped → ServerConfig stays in the convertible set.
+    let cors_excluded = vec!["CorsConfig".to_string()];
+    let with_hint = alef::codegen::conversions::core_to_binding_convertible_types(&surface, &cors_excluded);
+    assert!(
+        with_hint.contains("ServerConfig"),
+        "ServerConfig must be present when CorsConfig is in excluded_field_types; got set: {with_hint:?}"
+    );
+}

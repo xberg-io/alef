@@ -572,7 +572,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     }
 
     let convertible = crate::codegen::conversions::convertible_types(api);
-    let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api);
+    let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
     let input_types = crate::codegen::conversions::input_type_names(api);
     // From/Into conversions with PHP-specific i64 casts.
     // Types with enum Named fields (or that reference such types transitively) can't

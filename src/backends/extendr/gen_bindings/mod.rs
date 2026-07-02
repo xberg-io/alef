@@ -561,7 +561,7 @@ impl Backend for ExtendrBackend {
         // the core Rust types.  Without these impls the generated `convert` and
         // builder methods fail with E0277 unsatisfied trait bound errors.
         let binding_to_core = crate::codegen::conversions::convertible_types(api);
-        let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api);
+        let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
         let input_types = crate::codegen::conversions::input_type_names(api);
 
         // Collect all types that appear in the R binding surface: parameters, return types,

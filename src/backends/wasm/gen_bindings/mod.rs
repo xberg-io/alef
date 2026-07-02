@@ -377,6 +377,13 @@ impl Backend for WasmBackend {
             .cloned()
             .collect();
 
+        // Compute the core→binding convertible set before the struct loop so we can
+        // pass `is_core_to_binding_convertible` into gen_struct for each type.
+        // Pass `exclude_types` so fields whose type is excluded from the wasm surface
+        // are not counted against the parent type's convertibility.
+        let core_to_binding_convertible_for_structs =
+            crate::codegen::conversions::core_to_binding_convertible_types(api, &exclude_types);
+
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if exclude_types.contains(&typ.name) {
                 continue;
@@ -408,8 +415,9 @@ impl Backend for WasmBackend {
                     builder.add_item(&ctor_impl);
                 }
             } else {
-                // gen_struct adds #[derive(Default)] when typ.has_default is true,
-                // so no separate Default impl is needed.
+                let is_core_to_binding_convertible = core_to_binding_convertible_for_structs.contains(&typ.name);
+                // gen_struct gates #[derive(Default)] and the delegating Default impl on
+                // is_core_to_binding_convertible; see types.rs for the exact logic.
                 builder.add_item(&gen_struct(
                     typ,
                     &mapper,
@@ -418,6 +426,7 @@ impl Backend for WasmBackend {
                     &prefix,
                     &tagged_data_enum_names,
                     &source_remaps_borrowed,
+                    is_core_to_binding_convertible,
                 ));
                 builder.add_item(&gen_struct_methods(
                     typ,
@@ -628,7 +637,8 @@ impl Backend for WasmBackend {
             ..Default::default()
         };
         let convertible = crate::codegen::conversions::convertible_types(api);
-        let core_to_binding_convertible = crate::codegen::conversions::core_to_binding_convertible_types(api);
+        let core_to_binding_convertible =
+            crate::codegen::conversions::core_to_binding_convertible_types(api, &exclude_types);
         let input_types = crate::codegen::conversions::input_type_names(api);
         // From/Into conversions using shared parameterized generators
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
