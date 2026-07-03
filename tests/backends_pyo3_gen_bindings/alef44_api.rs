@@ -260,6 +260,7 @@ fn test_api_py_uses_keyword_arguments() {
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
         reexported_types: Vec::new(),
+        target_dep_overrides: Vec::new(),
     });
 
     let files = backend
@@ -366,6 +367,7 @@ fn test_async_function_emits_async_def_and_await() {
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
         reexported_types: Vec::new(),
+        target_dep_overrides: Vec::new(),
     });
 
     let files = backend
@@ -473,6 +475,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
         reexported_types: Vec::new(),
+        target_dep_overrides: Vec::new(),
     });
     // Configure two trait bridges with register_fn
     config.trait_bridges = vec![

@@ -194,3 +194,111 @@ fn test_scaffold_dev_path_build_form_preserved() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// target_dep_overrides for the scripting backends (python/node/ruby/php/elixir).
+//
+// Mirrors the FFI/Dart backends: when overrides are configured, the core
+// dependency moves out of `[dependencies]` into a `cfg(not(...))` default block
+// plus one `[target.'cfg(<cfg>)'.dependencies]` block per override.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn render_core_dep_with_overrides_no_overrides_matches_plain() {
+    let (line, blocks) = render_core_dep_with_overrides("my-lib", "../my-lib", ", features = [\"full\"]", "1.2.3", &[]);
+    assert_eq!(
+        line,
+        r#"my-lib = { version = "1.2.3", path = "../my-lib", features = ["full"] }"#
+    );
+    assert!(blocks.is_empty(), "no overrides must produce no target blocks");
+}
+
+#[test]
+fn render_core_dep_with_overrides_emits_default_and_override_blocks() {
+    let overrides = vec![crate::core::config::FfiTargetDepOverride {
+        cfg: "all(target_os = \"macos\", target_arch = \"x86_64\")".to_string(),
+        features: vec!["macos-intel-target".to_string()],
+    }];
+    let (line, blocks) =
+        render_core_dep_with_overrides("my-lib", "../my-lib", ", features = [\"full\"]", "1.2.3", &overrides);
+    assert!(line.is_empty(), "with overrides the core dep moves into target blocks");
+    assert!(
+        blocks.contains(r#"[target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]"#),
+        "default block gated on the negated cfg:\n{blocks}"
+    );
+    assert!(
+        blocks.contains(r#"features = ["full"]"#),
+        "default block keeps the base features:\n{blocks}"
+    );
+    assert!(
+        blocks.contains(r#"[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]"#),
+        "override block gated on the cfg:\n{blocks}"
+    );
+    assert!(
+        blocks.contains(r#"features = ["macos-intel-target"]"#),
+        "override block uses the override features:\n{blocks}"
+    );
+}
+
+#[test]
+fn scripting_backends_emit_target_dep_override_blocks() {
+    let override_for = |lang: &str| {
+        format!(
+            "\n[[crates.{lang}.target_dep_overrides]]\ncfg = 'all(target_os = \"macos\", target_arch = \"x86_64\")'\nfeatures = [\"macos-intel-target\"]\n"
+        )
+    };
+    let overrides: String = ["python", "node", "ruby", "php", "elixir"]
+        .iter()
+        .map(|l| override_for(l))
+        .collect();
+    let toml = format!(
+        r#"
+[workspace]
+languages = ["python", "node", "ruby", "php", "elixir"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+features = ["full"]
+
+[crates.scaffold]
+description = "Test library"
+license = "MIT"
+repository = "https://github.com/test/my-lib"
+authors = ["Alice"]
+keywords = ["test"]
+{overrides}"#
+    );
+    let cfg: crate::core::config::new_config::NewAlefConfig =
+        toml::from_str(&toml).expect("override config must parse");
+    let config = cfg.resolve().expect("override config must resolve").remove(0);
+    let api = test_api();
+
+    for lang in [
+        Language::Python,
+        Language::Node,
+        Language::Ruby,
+        Language::Php,
+        Language::Elixir,
+    ] {
+        let all_files = scaffold(&api, &config, &[lang]).unwrap();
+        let content = language_files(&all_files)
+            .iter()
+            .find(|f| f.path.ends_with("Cargo.toml") && f.content.contains("[target.'cfg"))
+            .map(|f| f.content.clone())
+            .unwrap_or_else(|| panic!("no target-gated Cargo.toml emitted for {lang:?}"));
+
+        assert!(
+            content.contains(r#"[target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]"#),
+            "{lang:?} must gate the default core dep:\n{content}"
+        );
+        assert!(
+            content.contains(r#"[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]"#),
+            "{lang:?} must emit the override block:\n{content}"
+        );
+        assert!(
+            content.contains(r#"features = ["macos-intel-target"]"#),
+            "{lang:?} override must use the override features:\n{content}"
+        );
+    }
+}

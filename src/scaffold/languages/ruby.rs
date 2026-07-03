@@ -39,13 +39,24 @@ pub(crate) fn scaffold_ruby_cargo(
     // Collect all [dependencies] entries then sort alphabetically so the emitted
     // Cargo.toml is cargo-sort canonical without a post-processing step.
     let features_str = core_dep_features(config, Language::Ruby);
+    let core_overrides = config
+        .ruby
+        .as_ref()
+        .map(|c| c.target_dep_overrides.as_slice())
+        .unwrap_or(&[]);
+    let (core_dep_line, core_target_blocks) = crate::scaffold::render_core_dep_with_overrides(
+        &config.name,
+        &format!("../../../../../crates/{core_crate_dir}"),
+        &features_str,
+        version,
+        core_overrides,
+    );
+    let core_target_blocks_section = if core_target_blocks.is_empty() {
+        String::new()
+    } else {
+        format!("\n{core_target_blocks}")
+    };
     let mut dep_lines: Vec<String> = vec![
-        crate::scaffold::render_core_dep(
-            &config.name,
-            &format!("../../../../../crates/{core_crate_dir}"),
-            &features_str,
-            version,
-        ),
         format!("magnus = \"{}\"", tv::cargo::MAGNUS),
         // rb-sys 0.9.128 ships a mingw cross sysroot whose Ruby 4.0.2
         // `<ruby/defines.h>` pulls `<sys/select.h>`, which clang cannot find
@@ -79,6 +90,9 @@ pub(crate) fn scaffold_ruby_cargo(
         {
             dep_lines.push(trimmed.to_owned());
         }
+    }
+    if !core_dep_line.is_empty() {
+        dep_lines.push(core_dep_line);
     }
     dep_lines.sort();
     let deps_section = dep_lines.join("\n");
@@ -130,12 +144,13 @@ path = "../src/lib.rs"
 crate-type = ["cdylib"]
 
 {features_table}[dependencies]
-{deps_section}"#,
+{deps_section}{core_target_blocks_section}"#,
         pkg_header = pkg_header,
         machete_section = machete_section,
         lib_name = lib_name,
         features_table = features_table,
         deps_section = deps_section,
+        core_target_blocks_section = core_target_blocks_section,
     );
 
     Ok(vec![GeneratedFile {

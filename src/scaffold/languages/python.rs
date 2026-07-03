@@ -157,12 +157,25 @@ pub(crate) fn scaffold_python_cargo(
         .collect::<Vec<_>>()
         .join(", ");
     // Build [dependencies] block alphabetically sorted to match cargo-sort.
-    let core_dep_py = crate::scaffold::render_core_dep(
+    // When target_dep_overrides are configured, the core dep moves into
+    // `[target.'cfg(...)'.dependencies]` blocks (core_dep_py is then empty).
+    let core_overrides = config
+        .python
+        .as_ref()
+        .map(|p| p.target_dep_overrides.as_slice())
+        .unwrap_or(&[]);
+    let (core_dep_py, core_target_blocks) = crate::scaffold::render_core_dep_with_overrides(
         &config.name,
         &format!("../{core_crate_dir}"),
         &core_dep_features(config, Language::Python),
         version,
+        core_overrides,
     );
+    let core_target_blocks_section = if core_target_blocks.is_empty() {
+        String::new()
+    } else {
+        format!("\n{core_target_blocks}")
+    };
     let mut dep_entries: Vec<String> = vec![
         format!("pyo3 = {{ version = \"{}\" }}", tv::cargo::PYO3),
         format!(
@@ -207,11 +220,12 @@ extension-module = ["pyo3/extension-module", "pyo3/abi3-py310"]
 
 [dependencies]
 {dep_block}
-
+{core_target_blocks_section}
 "#,
         pkg_header = pkg_header,
         module_name = module_name,
         dep_block = dep_block,
+        core_target_blocks_section = core_target_blocks_section,
         machete_ignored_str = machete_ignored_str,
     );
 

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::StubsConfig;
+use super::{FfiTargetDepOverride, StubsConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PhpConfig {
@@ -62,4 +62,8 @@ pub struct PhpConfig {
     /// Extra paths to append to default lint commands (format, check, typecheck).
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Per-target overrides for the core-crate dependency emitted into the
+    /// generated `Cargo.toml`. See [`super::FfiConfig::target_dep_overrides`].
+    #[serde(default)]
+    pub target_dep_overrides: Vec<FfiTargetDepOverride>,
 }

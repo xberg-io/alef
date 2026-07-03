@@ -155,6 +155,60 @@ pub(crate) fn render_core_dep(crate_name: &str, rel_path: &str, features: &str, 
     }
 }
 
+/// Like [`render_core_dep`] but honours per-target overrides, mirroring the
+/// FFI/Dart backends. Returns `(core_dep_line, target_blocks)`:
+///
+/// - with no overrides, `core_dep_line` is the single `[dependencies]` line and
+///   `target_blocks` is empty (behaviour identical to [`render_core_dep`]);
+/// - with overrides, `core_dep_line` is empty and `target_blocks` holds a
+///   `[target.'cfg(not(any(<cfg…>)))'.dependencies]` default block plus one
+///   `[target.'cfg(<cfg>)'.dependencies]` block per override.
+///
+/// `default_features` is the pre-formatted feature suffix (e.g. `, features =
+/// ["a", "b"]` or `""`), matching [`render_core_dep`]. Callers place
+/// `core_dep_line` inside `[dependencies]` when non-empty and append
+/// `target_blocks` after that table.
+pub(crate) fn render_core_dep_with_overrides(
+    crate_name: &str,
+    rel_path: &str,
+    default_features: &str,
+    version: &str,
+    overrides: &[crate::core::config::FfiTargetDepOverride],
+) -> (String, String) {
+    if overrides.is_empty() {
+        return (
+            render_core_dep(crate_name, rel_path, default_features, version),
+            String::new(),
+        );
+    }
+
+    let combined_cfg = if overrides.len() == 1 {
+        overrides[0].cfg.clone()
+    } else {
+        let cfgs: Vec<String> = overrides.iter().map(|o| o.cfg.clone()).collect();
+        format!("any({})", cfgs.join(", "))
+    };
+
+    let mut blocks = format!(
+        "[target.'cfg(not({combined_cfg}))'.dependencies]\n{}\n",
+        render_core_dep(crate_name, rel_path, default_features, version)
+    );
+    for override_ in overrides {
+        let feats = if override_.features.is_empty() {
+            String::new()
+        } else {
+            let quoted: Vec<String> = override_.features.iter().map(|f| format!("\"{f}\"")).collect();
+            format!(", features = [{}]", quoted.join(", "))
+        };
+        blocks.push_str(&format!(
+            "\n[target.'cfg({})'.dependencies]\n{}\n",
+            override_.cfg,
+            render_core_dep(crate_name, rel_path, &feats, version)
+        ));
+    }
+    (String::new(), blocks)
+}
+
 ///
 /// Merges crate-level `extra_dependencies` with per-language overrides via
 /// `extra_deps_for_language`, then serializes each entry as a TOML line suitable
