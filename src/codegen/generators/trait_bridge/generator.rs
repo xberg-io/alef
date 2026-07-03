@@ -63,6 +63,21 @@ pub trait TraitBridgeGenerator {
     fn async_trait_is_send(&self) -> bool {
         true
     }
+
+    /// Presence-check expression for a Rust-defaulted trait method.
+    ///
+    /// Return `Some(expr)` — a Rust expression, valid inside the bridge's trait-impl
+    /// methods, evaluating to `true` when the wrapped foreign object provides
+    /// `method` — to opt the method in to defaulted-method forwarding: the bridge
+    /// then calls the host implementation when the host defines the method and
+    /// falls back to the trait's genuine Rust default body (via a per-method
+    /// delegate) otherwise.
+    ///
+    /// The default `None` keeps the prior behavior: the method is omitted from the
+    /// bridge impl and the Rust default always runs, ignoring host implementations.
+    fn gen_method_presence_check(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        None
+    }
 }
 
 pub struct BridgeOutput {
@@ -101,6 +116,13 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 
     // Trait impl
     out.push_str(&gen_bridge_trait_impl(spec, generator));
+
+    // Default delegates — only when the generator forwards defaulted methods
+    let delegates = super::gen_bridge_default_delegates(spec, generator);
+    if !delegates.is_empty() {
+        out.push_str("\n\n");
+        out.push_str(&delegates);
+    }
 
     // Registration function — only when register_fn is configured
     if let Some(reg_fn_code) = gen_bridge_registration_fn(spec, generator) {

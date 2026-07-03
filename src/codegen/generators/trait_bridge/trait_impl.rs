@@ -1,27 +1,28 @@
-use super::{TraitBridgeGenerator, TraitBridgeSpec, format_param_type_with_lifetimes, format_return_type};
+use super::{
+    TraitBridgeGenerator, TraitBridgeSpec, default_delegate_name, forwarded_defaulted_methods, trait_method_signature,
+};
 
 pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
     let wrapper = spec.wrapper_name();
     let trait_path = spec.trait_path();
 
-    // Check if the trait has async methods (needed for async_trait macro compatibility).
-    // Only own, required (non-default) methods need this check — those are the ones we emit.
-    let has_async_methods = spec
-        .trait_def
-        .methods
-        .iter()
-        .any(|m| m.is_async && m.trait_source.is_none() && !m.has_default_impl);
-    let async_trait_is_send = generator.async_trait_is_send();
-
-    // Filter out:
-    // - Methods inherited from super-traits (handled by gen_bridge_plugin_impl)
-    // - Methods with a default impl (let the trait's own default take effect)
+    // Own methods the bridge emits:
+    // - required methods (no default impl) — always emitted, host must provide them;
+    // - defaulted methods the generator opted in to forwarding — emitted with a
+    //   presence guard that falls back to the trait's default body via the
+    //   per-method delegate (see `gen_bridge_default_delegates`).
+    // Methods inherited from super-traits are handled by gen_bridge_plugin_impl.
+    let forwarded = forwarded_defaulted_methods(spec, generator);
     let own_methods: Vec<_> = spec
         .trait_def
         .methods
         .iter()
-        .filter(|m| m.trait_source.is_none() && !m.has_default_impl)
+        .filter(|m| m.trait_source.is_none() && (!m.has_default_impl || forwarded.iter().any(|f| f.name == m.name)))
         .collect();
+
+    // Check if the trait has async methods (needed for async_trait macro compatibility).
+    let has_async_methods = own_methods.iter().any(|m| m.is_async);
+    let async_trait_is_send = generator.async_trait_is_send();
 
     // Build method code with proper indentation
     let mut methods_code = String::with_capacity(1024);
@@ -30,54 +31,41 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
             methods_code.push_str("\n\n");
         }
 
-        // Build the method signature
-        let async_kw = if method.is_async { "async " } else { "" };
-        let receiver = match &method.receiver {
-            Some(crate::core::ir::ReceiverKind::Ref) => "&self",
-            Some(crate::core::ir::ReceiverKind::RefMut) => "&mut self",
-            Some(crate::core::ir::ReceiverKind::Owned) => "self",
-            None => "",
-        };
-
-        // Build params (excluding self), using format_param_type_with_lifetimes to respect
-        // is_ref/is_mut and emit `<'_>` for core types that carry lifetime parameters.
-        let params: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| {
-                format!(
-                    "{}: {}",
-                    p.name,
-                    format_param_type_with_lifetimes(p, &spec.type_paths, &spec.lifetime_type_names)
-                )
-            })
-            .collect();
-
-        let all_params = if receiver.is_empty() {
-            params.join(", ")
-        } else if params.is_empty() {
-            receiver.to_string()
-        } else {
-            format!("{}, {}", receiver, params.join(", "))
-        };
-
-        // Return type — override the IR's error type with the configured crate error type
-        // so the impl matches the actual trait definition (the IR may extract a different
-        // error type like anyhow::Error from re-exports or type alias resolution).
-        // Pass `returns_ref` so Vec<T> is emitted as `&[elem]` when the trait returns a slice.
-        let error_override = method.error_type.as_ref().map(|_| spec.error_path());
-        let ret = format_return_type(
-            &method.return_type,
-            error_override.as_deref(),
-            &spec.type_paths,
-            method.returns_ref,
-        );
+        // Build the method signature. Return type overrides the IR's error type with the
+        // configured crate error type so the impl matches the actual trait definition (the
+        // IR may extract a different error type like anyhow::Error from re-exports or type
+        // alias resolution); `returns_ref` makes Vec<T> emit as `&[elem]` for slice returns.
+        let sig = trait_method_signature(method, spec);
+        let (async_kw, all_params, ret) = (sig.async_kw, sig.all_params, sig.ret);
 
         // Generate body: async methods use Box::pin, sync methods call directly
-        let raw_body = if method.is_async {
+        let host_body = if method.is_async {
             generator.gen_async_method_body(method, spec)
         } else {
             generator.gen_sync_method_body(method, spec)
+        };
+
+        // Defaulted methods get a presence guard: when the host object doesn't define
+        // the method, fall back to the trait's genuine Rust default body through the
+        // per-method delegate instead of calling a missing host method.
+        let raw_body = match generator
+            .gen_method_presence_check(method, spec)
+            .filter(|_| method.has_default_impl)
+        {
+            Some(presence) => {
+                let guard = crate::codegen::template_env::render(
+                    "generators/trait_bridge/default_method_guard.jinja",
+                    minijinja::context! {
+                        presence => presence,
+                        delegate_name => default_delegate_name(spec, method),
+                        method_name => &method.name,
+                        arg_names => &sig.arg_names,
+                        is_async => method.is_async,
+                    },
+                );
+                format!("{guard}{host_body}")
+            }
+            None => host_body,
         };
 
         // When the trait method returns `&[&str]` (i.e. Vec<String> + returns_ref), the

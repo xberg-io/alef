@@ -449,6 +449,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "generators/trait_bridge/trait_method.jinja",
         include_str!("templates/generators/trait_bridge/trait_method.jinja"),
     ),
+    (
+        "generators/trait_bridge/default_method_guard.jinja",
+        include_str!("templates/generators/trait_bridge/default_method_guard.jinja"),
+    ),
+    (
+        "generators/trait_bridge/default_delegate.jinja",
+        include_str!("templates/generators/trait_bridge/default_delegate.jinja"),
+    ),
     ("doc_jsdoc_param.jinja", include_str!("templates/doc_jsdoc_param.jinja")),
     (
         "doc_jsdoc_param_desc.jinja",

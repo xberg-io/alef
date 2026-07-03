@@ -1,0 +1,3 @@
+if !({{ presence }}) {
+    return {{ delegate_name }}(self).{{ method_name }}({{ arg_names }}){% if is_async %}.await{% endif %};
+}

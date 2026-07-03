@@ -1,0 +1,46 @@
+/// Runs `{{ method_name }}`'s Rust default body for [`{{ wrapper_name }}`] while routing
+/// every other trait method back through the bridge, so the default body's `self.*`
+/// calls still reach host overrides.
+#[derive(Debug)]
+struct {{ delegate_name }}<'a>(&'a {{ wrapper_name }});
+
+{%- if super_trait_path %}
+
+impl {{ super_trait_path }} for {{ delegate_name }}<'_> {
+    fn name(&self) -> &str {
+        {{ super_trait_path }}::name(self.0)
+    }
+
+    fn version(&self) -> String {
+        {{ super_trait_path }}::version(self.0)
+    }
+
+    fn initialize(&self) -> std::result::Result<(), {{ error_path }}> {
+        {{ super_trait_path }}::initialize(self.0)
+    }
+
+    fn shutdown(&self) -> std::result::Result<(), {{ error_path }}> {
+        {{ super_trait_path }}::shutdown(self.0)
+    }
+}
+{%- endif %}
+
+{%- if has_async_methods %}
+{%- if async_trait_is_send %}
+
+#[async_trait::async_trait]
+{%- else %}
+
+#[async_trait::async_trait(?Send)]
+{%- endif %}
+{%- else %}
+{% endif %}
+impl {{ trait_path }} for {{ delegate_name }}<'_> {
+{%- for m in methods %}
+    {{ m.async_kw }}fn {{ m.name }}({{ m.all_params }}) -> {{ m.ret }} {
+        {{ m.forward_call }}
+    }
+{% if not loop.last %}
+{% endif %}
+{%- endfor %}
+}

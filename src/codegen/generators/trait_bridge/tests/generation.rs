@@ -450,3 +450,175 @@ fn test_gen_bridge_all_ordering_struct_before_trait_impl() {
         .unwrap();
     assert!(struct_pos < impl_pos, "struct should appear before trait impl");
 }
+
+// ---------------------------------------------------------------------------
+// Defaulted-method forwarding (gen_method_presence_check hook)
+// ---------------------------------------------------------------------------
+
+/// Mock generator that opts in to defaulted-method forwarding.
+struct MockForwardingGenerator;
+
+impl TraitBridgeGenerator for MockForwardingGenerator {
+    fn foreign_object_type(&self) -> &str {
+        MockBridgeGenerator.foreign_object_type()
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        MockBridgeGenerator.bridge_imports()
+    }
+
+    fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        MockBridgeGenerator.gen_sync_method_body(method, spec)
+    }
+
+    fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        MockBridgeGenerator.gen_async_method_body(method, spec)
+    }
+
+    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+        MockBridgeGenerator.gen_constructor(spec)
+    }
+
+    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        MockBridgeGenerator.gen_registration_fn(spec)
+    }
+
+    fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        Some(format!("self.host_has(\"{}\")", method.name))
+    }
+}
+
+fn ocr_like_trait() -> TypeDef {
+    make_type_def(
+        "OcrBackend",
+        "mylib::OcrBackend",
+        vec![
+            make_method(
+                "process_image",
+                vec![make_param("image_bytes", TypeRef::Bytes, true)],
+                TypeRef::Named("ExtractionResult".to_string()),
+                true,
+                false,
+                None,
+                Some("MyError"),
+            ),
+            make_method(
+                "supports_language",
+                vec![],
+                TypeRef::Primitive(PrimitiveType::Bool),
+                false,
+                false,
+                None,
+                None,
+            ),
+            make_method(
+                "supports_table_detection",
+                vec![],
+                TypeRef::Primitive(PrimitiveType::Bool),
+                false,
+                true,
+                None,
+                None,
+            ),
+            make_method(
+                "process_document",
+                vec![make_param("path", TypeRef::Path, true)],
+                TypeRef::Named("ExtractionResult".to_string()),
+                true,
+                true,
+                None,
+                Some("MyError"),
+            ),
+        ],
+    )
+}
+
+#[test]
+fn trait_impl_without_hook_still_skips_defaulted_methods() {
+    let trait_def = ocr_like_trait();
+    let config = make_trait_bridge_config(Some("Plugin"), Some("register_ocr_backend"));
+    let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+    let result = gen_bridge_trait_impl(&spec, &MockBridgeGenerator);
+    assert!(
+        !result.contains("fn supports_table_detection"),
+        "defaulted method must stay omitted without the presence hook:\n{result}"
+    );
+}
+
+#[test]
+fn trait_impl_with_hook_forwards_defaulted_methods_with_guard() {
+    let trait_def = ocr_like_trait();
+    let config = make_trait_bridge_config(Some("Plugin"), Some("register_ocr_backend"));
+    let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+    let result = gen_bridge_trait_impl(&spec, &MockForwardingGenerator);
+    assert!(
+        result.contains("fn supports_table_detection"),
+        "defaulted method must be emitted when the generator opts in:\n{result}"
+    );
+    assert!(
+        result.contains("self.host_has(\"supports_table_detection\")"),
+        "presence guard must use the generator's check expression:\n{result}"
+    );
+    assert!(
+        result.contains("PyOcrBackendBridgeDefaultSupportsTableDetection(self).supports_table_detection()"),
+        "fallback must delegate to the trait's default body via the per-method delegate:\n{result}"
+    );
+    assert!(
+        result.contains("PyOcrBackendBridgeDefaultProcessDocument(self).process_document(path).await"),
+        "async fallback must await the delegate call:\n{result}"
+    );
+}
+
+#[test]
+fn default_delegates_route_other_methods_back_through_bridge() {
+    let trait_def = ocr_like_trait();
+    let config = make_trait_bridge_config(Some("Plugin"), Some("register_ocr_backend"));
+    let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+    let output = gen_bridge_all(&spec, &MockForwardingGenerator);
+    let code = &output.code;
+    assert!(
+        code.contains("struct PyOcrBackendBridgeDefaultSupportsTableDetection<'a>(&'a PyOcrBackendBridge);"),
+        "delegate struct missing:\n{code}"
+    );
+    // The delegate for supports_table_detection must forward every OTHER own method to the
+    // bridge (so the default body's `self.*` calls see host overrides) and must NOT override
+    // supports_table_detection itself (so the genuine Rust default body runs).
+    let delegate_impl_start = code
+        .find("impl mylib::OcrBackend for PyOcrBackendBridgeDefaultSupportsTableDetection<'_>")
+        .expect("delegate trait impl missing");
+    let delegate_impl = &code[delegate_impl_start..];
+    let delegate_impl_end = delegate_impl
+        .find("\n}\n")
+        .map(|i| &delegate_impl[..i])
+        .unwrap_or(delegate_impl);
+    assert!(
+        delegate_impl_end.contains("fn process_image"),
+        "delegate must forward required methods:\n{delegate_impl_end}"
+    );
+    assert!(
+        delegate_impl_end.contains("fn process_document"),
+        "delegate must forward the other defaulted method back through the bridge:\n{delegate_impl_end}"
+    );
+    assert!(
+        !delegate_impl_end.contains("fn supports_table_detection"),
+        "delegate must not override its own method:\n{delegate_impl_end}"
+    );
+    // Plugin super-trait must be forwarded so default bodies can call lifecycle/name methods.
+    assert!(
+        code.contains("impl mylib::Plugin for PyOcrBackendBridgeDefaultSupportsTableDetection<'_>"),
+        "delegate must forward the Plugin super-trait:\n{code}"
+    );
+}
+
+#[test]
+fn no_delegates_emitted_without_hook() {
+    let trait_def = ocr_like_trait();
+    let config = make_trait_bridge_config(Some("Plugin"), Some("register_ocr_backend"));
+    let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+    let output = gen_bridge_all(&spec, &MockBridgeGenerator);
+    assert!(
+        !output.code.contains("DefaultSupportsTableDetection"),
+        "delegates must not be emitted when the generator does not opt in:\n{}",
+        output.code
+    );
+}

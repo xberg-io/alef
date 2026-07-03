@@ -205,7 +205,10 @@ fn poly_toml_never_enables_system_native_formatters() {
         "[fmt.gleam.gleamfmt]",
         "[fmt.r.styler]",
     ] {
-        assert!(!c.contains(header), "{header} must NOT be enabled (pure-Rust policy); got:\n{c}");
+        assert!(
+            !c.contains(header),
+            "{header} must NOT be enabled (pure-Rust policy); got:\n{c}"
+        );
     }
 }
 
@@ -217,7 +220,10 @@ fn poly_toml_excludes_only_cargo_toml_from_formatting() {
     let c = &poly_toml(&files).content;
     // Cargo.toml is excluded (cargo sort owns it); Elixir is NOT excluded —
     // poly's tier-2 formats `.ex`/`.exs` now (no `mix format` residual).
-    assert!(c.contains("\"**/Cargo.toml\","), "Cargo.toml must be excluded from poly; got:\n{c}");
+    assert!(
+        c.contains("\"**/Cargo.toml\","),
+        "Cargo.toml must be excluded from poly; got:\n{c}"
+    );
     assert!(
         !c.contains("packages/elixir/**/*.ex"),
         "Elixir must NOT be excluded (poly tier-2 formats it now); got:\n{c}"
