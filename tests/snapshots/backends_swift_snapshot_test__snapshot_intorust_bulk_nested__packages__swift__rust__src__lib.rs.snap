@@ -62,7 +62,7 @@ mod ffi {
         #[swift_bridge(init)]
         fn new(language: String, diagnostics: Vec<Diagnostic>, tags: Vec<String>) -> ProcessResult;
         fn language(&self) -> String;
-        fn diagnostics(&self) -> Vec<Diagnostic>;
+        fn diagnostics(&self) -> Vec<String>;
         fn tags(&self) -> Vec<String>;
     }
 
@@ -160,8 +160,8 @@ impl ProcessResult {
     pub fn language(&self) -> String {
         self.0.language.clone()
     }
-    pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        self.0.diagnostics.iter().map(|elem| Diagnostic(elem.clone())).collect()
+    pub fn diagnostics(&self) -> Vec<String> {
+        self.0.diagnostics.iter().map(|elem| serde_json::to_string(elem).unwrap_or_else(|_| "null".to_string())).collect()
     }
     pub fn tags(&self) -> Vec<String> {
         ::serde_json::to_value(&self.0.tags).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default()

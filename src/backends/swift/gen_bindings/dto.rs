@@ -68,6 +68,7 @@ pub(super) fn emit_first_class_struct(
     known_dto_names: &HashSet<String>,
     unit_enum_names: &HashSet<String>,
     untagged_enum_names: &HashSet<String>,
+    serde_struct_names: &HashSet<String>,
     error_type_name: &str,
     configured_features: &std::collections::HashSet<&str>,
     out: &mut String,
@@ -203,6 +204,44 @@ pub(super) fn emit_first_class_struct(
                 // compiles; the JSON path on `intoRust()` covers the round-trip.
                 let swift_ty = mapper.map_type(&field.ty);
                 format!("try JSONDecoder().decode({swift_ty}.self, from: Data(\"null\".utf8))")
+            }
+        } else if is_vec_of_serde_struct(&field.ty, serde_struct_names) {
+            // Vec<Struct> where Struct has serde: the Rust getter returns Vec<String> (JSON-encoded).
+            // swift-bridge marshals this as RustVec<RustString>. Decode each element via JSONDecoder.
+            //
+            // Optional<Vec<Struct>> (field.optional=true with TypeRef::Vec) is bridged as plain String
+            // (single JSON-encoded array, with "null" representing None).
+            // Decode the entire array via JSONDecoder with optional handling.
+            let swift_ty = mapper.map_type(&field.ty);
+            let swift_ty_with_opt = if is_optional && !matches!(&field.ty, TypeRef::Optional(_)) {
+                format!("{swift_ty}?")
+            } else {
+                swift_ty
+            };
+
+            if is_optional && matches!(&field.ty, TypeRef::Vec(_)) {
+                // Optional<Vec<Struct>> is bridged as String (single JSON-encoded array or "null").
+                // The getter returns RustString (NOT optional), so no optional chaining on the getter.
+                // Decode using JSONDecoder, which naturally handles the "null" JSON value as None.
+                let accessor_with_chain = format!("rb.{rust_accessor}().toString()");
+                format!(
+                    "try JSONDecoder().decode({swift_ty_with_opt}.self, from: \
+                     (({accessor_with_chain}).data(using: .utf8) ?? Data(\"null\".utf8)))"
+                )
+            } else if let TypeRef::Vec(inner) = &field.ty {
+                // Vec<Struct> (non-optional) is bridged as Vec<String>, which marshals as RustVec<RustString>.
+                // Each element is a RustStringRef containing JSON, so decode each one.
+                if let TypeRef::Named(inner_struct_name) = inner.as_ref() {
+                    format!(
+                        "try rb.{rust_accessor}().map {{ (s: RustStringRef) -> {inner_struct_name} in \
+                         let d = s.as_str().toString().data(using: .utf8) ?? Data(); \
+                         return try JSONDecoder().decode({inner_struct_name}.self, from: d) }}"
+                    )
+                } else {
+                    format!("rb.{rust_accessor}()")
+                }
+            } else {
+                format!("rb.{rust_accessor}()")
             }
         } else if is_untagged_enum_type(&field.ty, untagged_enum_names) {
             // Untagged-enum field (`#[serde(untagged)]`): the swift-bridge accessor returns a
@@ -793,6 +832,23 @@ fn is_untagged_enum_type(ty: &TypeRef, untagged_enum_names: &HashSet<String>) ->
     match ty {
         TypeRef::Named(n) => untagged_enum_names.contains(n),
         TypeRef::Optional(inner) => is_untagged_enum_type(inner, untagged_enum_names),
+        _ => false,
+    }
+}
+
+/// Returns true when `ty` is a `Vec<Named(struct)>` or `Option<Vec<Named(struct)>>` where
+/// the struct has serde derives. These are JSON-bridged at the Rust boundary and need
+/// JSON decoding on the Swift side instead of the `.map { try Struct($0) }` pattern.
+fn is_vec_of_serde_struct(ty: &TypeRef, serde_struct_names: &HashSet<String>) -> bool {
+    match ty {
+        TypeRef::Vec(inner) => {
+            if let TypeRef::Named(name) = inner.as_ref() {
+                serde_struct_names.contains(name)
+            } else {
+                false
+            }
+        }
+        TypeRef::Optional(inner) => is_vec_of_serde_struct(inner, serde_struct_names),
         _ => false,
     }
 }

@@ -1455,12 +1455,14 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         swift_file.content
     );
 
-    // ProcessResult.init(_ rb:) must use .map conversions for Vec fields.
+    // ProcessResult.init(_ rb:) must use .map conversions for Vec<Diagnostic> fields,
+    // but the Diagnostic type has serde, so each element is JSON-encoded in a RustString.
+    // Must decode each element individually via JSONDecoder.
     assert!(
         swift_file
             .content
-            .contains("try rb.diagnostics().map { try Diagnostic($0) }"),
-        "ProcessResult init must convert Vec<Diagnostic> via .map:\n{}",
+            .contains("try rb.diagnostics().map { (s: RustStringRef) -> Diagnostic in let d = s.as_str().toString().data(using: .utf8) ?? Data(); return try JSONDecoder().decode(Diagnostic.self, from: d) }"),
+        "ProcessResult init must convert Vec<Diagnostic> via JSONDecoder .map:\n{}",
         swift_file.content
     );
     assert!(

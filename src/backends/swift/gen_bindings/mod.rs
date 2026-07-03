@@ -230,6 +230,16 @@ impl Backend for SwiftBackend {
             .map(|e| e.name.clone())
             .collect();
 
+        // Compute all struct types that have serde derives (not just those that can be
+        // emitted as first-class structs). Used by the Swift wrapper to detect
+        // Vec<Named(struct_with_serde)> fields that are JSON-bridged at the Rust boundary.
+        let serde_struct_names: std::collections::HashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !exclude_types.contains(&t.name))
+            .map(|t| t.name.clone())
+            .collect();
+
         // Seed with unit serde enum names + every data-variant Codable enum name (tagged +
         // untagged, all collected above). All are Codable and can appear as struct fields.
         // They are included so that `first_class_field_supported` accepts them as valid
@@ -305,6 +315,7 @@ impl Backend for SwiftBackend {
                     &known_dto_names,
                     &unit_serde_enum_names,
                     &untagged_enum_names,
+                    &serde_struct_names,
                     &dto_error_name,
                     &configured_features,
                     &mut body,

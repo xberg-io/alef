@@ -96,7 +96,7 @@ public struct ProcessResult: Codable, Sendable, Hashable {
 internal extension ProcessResult {
     init(_ rb: RustBridge.ProcessResultRef) throws {
         self.language = rb.language().toString()
-        self.diagnostics = try rb.diagnostics().map { try Diagnostic($0) }
+        self.diagnostics = try rb.diagnostics().map { (s: RustStringRef) -> Diagnostic in let d = s.as_str().toString().data(using: .utf8) ?? Data(); return try JSONDecoder().decode(Diagnostic.self, from: d) }
         self.tags = rb.tags().map { $0.as_str().toString() }
     }
 
