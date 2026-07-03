@@ -1,11 +1,11 @@
 //! Post-generation formatter support for e2e test projects.
 //!
-//! Formatting is delegated to poly (polylint) in-process — the same engine the
-//! main generate pipeline uses (see `cli::pipeline::format`). For each language
-//! directory that had files generated, `run_formatters` runs a single
-//! `poly_format` pass, which formats every language poly supports (Python via
-//! ruff, JS/TS/JSON via oxc, Rust via rustfmt, Go via gofmt, …) with zero host
-//! toolchain required for the in-process backends.
+//! Formatting is delegated to the `poly` (polylint) CLI as a system dependency —
+//! the same tool the main generate pipeline uses (see `cli::pipeline::format`).
+//! For each language directory that had files generated, `run_formatters` runs a
+//! single `poly fmt --fix` pass, which formats every language poly supports
+//! (Python via ruff, JS/TS/JSON via oxc, Rust via rustfmt, Go via gofmt, …). A
+//! missing `poly` binary is a best-effort no-op.
 //!
 //! Two escape hatches remain:
 //! * a per-language `E2eConfig.format` override (`sh -c`, with `{dir}` expanded)
@@ -49,7 +49,7 @@ pub fn run_formatters(files: &[GeneratedFile], e2e_config: &E2eConfig) {
             continue;
         }
 
-        // Default: poly formats the directory in-process. `poly_format` walks up
+        // Default: shell out to `poly fmt --fix` over the directory. poly walks up
         // from `dir_path` for a `poly.toml` (falling back to poly's zero-config
         // defaults when none is found).
         eprintln!("  Formatting {lang} with poly: {dir}");
@@ -114,12 +114,15 @@ mod tests {
 
         assert!(!sentinel.exists());
         run_formatters(&files, &e2e_config);
-        assert!(sentinel.exists(), "user override command must run with {{dir}} expanded");
+        assert!(
+            sentinel.exists(),
+            "user override command must run with {{dir}} expanded"
+        );
     }
 
-    /// The default path formats generated Python via poly's in-process ruff
-    /// backend (always available — compiled in), with no host toolchain.
-    #[cfg(feature = "poly-fmt")]
+    /// The default path shells out to `poly fmt --fix`. When `poly` is installed a
+    /// badly-spaced Python file ends up ruff-formatted; when it is absent the pass
+    /// is a best-effort no-op (file untouched, no panic).
     #[test]
     fn default_path_formats_python_with_poly() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -140,7 +143,14 @@ mod tests {
         run_formatters(&files, &e2e_config);
 
         let formatted = std::fs::read_to_string(&py).unwrap();
-        assert_eq!(formatted, "x = 1\n", "poly's ruff backend must reformat the e2e Python file");
+        if which::which("poly").is_ok() {
+            assert_eq!(
+                formatted, "x = 1\n",
+                "with poly installed, `poly fmt --fix` must reformat the e2e Python file"
+            );
+        } else {
+            assert_eq!(formatted, "x=1", "without poly the file must be left untouched");
+        }
     }
 
     /// A language poly does not know still runs cleanly (poly no-ops on unknown

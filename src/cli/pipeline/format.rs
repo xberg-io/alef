@@ -14,15 +14,16 @@ struct ResidualStep {
 
 /// Run language-native formatters on emitted packages after generation.
 ///
-/// Formatting is delegated to poly (polylint) in-process: a single
-/// `polylint_core::format` pass over the generated repo formats every language
+/// Formatting is delegated to the `poly` (polylint) CLI as a system dependency:
+/// a single `poly fmt --fix` pass over the generated repo formats every language
 /// poly supports (Python, JS/TS/JSON, PHP, Ruby, Rust, Go, Markdown, TOML, YAML,
-/// CSS, Java, Kotlin, R, Swift, Dart, Gleam, Zig, Shell). A small set of residual
+/// CSS, Java, Kotlin, R, Swift, Dart, Gleam, Zig, Shell), collapsing what used to
+/// be ~19 per-language formatter shell-outs into one tool. A small set of residual
 /// native passes runs afterwards for the project-wide tools poly cannot wrap
 /// (`cargo sort`, `mix format`, `dotnet format`).
 ///
-/// Best-effort: a poly error or a missing residual tool is logged as a warning
-/// and never aborts the generate command.
+/// Best-effort: a missing `poly` binary, a poly error, or a missing residual tool
+/// is logged as a warning and never aborts the generate command.
 pub fn format_generated(
     files: &[(Language, Vec<crate::core::backend::GeneratedFile>)],
     config: &ResolvedCrateConfig,
@@ -31,7 +32,11 @@ pub fn format_generated(
 ) {
     // Deduplicated languages present in this batch, in first-seen order.
     let mut seen = HashSet::new();
-    let present: Vec<Language> = files.iter().map(|(lang, _)| *lang).filter(|lang| seen.insert(*lang)).collect();
+    let present: Vec<Language> = files
+        .iter()
+        .map(|(lang, _)| *lang)
+        .filter(|lang| seen.insert(*lang))
+        .collect();
 
     // Languages that should be formatted by poly's default pass. Custom overrides
     // run immediately (they bypass the only_languages filter — an explicit
@@ -117,36 +122,25 @@ fn poly_paths(
     }
 }
 
-/// Run the in-process poly formatter over `paths`, writing changed files in place.
-/// `config_start` is where poly begins its walk-up search for `poly.toml`.
-/// Best-effort: config-load or format errors are logged and never propagated.
-#[cfg(feature = "poly-fmt")]
+/// Format `paths` by invoking the `poly` CLI (`poly fmt --fix`), rewriting changed
+/// files in place. `config_start` is poly's working directory; it walks up from
+/// there for `poly.toml`. Best-effort: a missing `poly` binary or a non-zero exit
+/// is logged and never propagated (matching the per-language formatter contract).
 pub(crate) fn poly_format(paths: &[PathBuf], config_start: &Path) {
     if paths.is_empty() {
         return;
     }
-    let cfg = match polylint_core::Config::load(config_start) {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            warn!("poly config load failed (non-fatal): {e:#}");
-            return;
-        }
-    };
-    let opts = polylint_core::RunOptions {
-        no_cache: false,
-        jobs: None,
-        exclude: vec![],
-        explicit_config: false,
-    };
-    match polylint_core::format(paths, &cfg, &opts, true, false) {
-        Ok(_) => debug!("poly format over {} path(s) ok", paths.len()),
-        Err(e) => warn!("poly format failed (non-fatal): {e:#}"),
+    if !is_tool_available("poly") {
+        warn!("poly not found on PATH (skipping post-generation formatting)");
+        return;
     }
-}
-
-#[cfg(not(feature = "poly-fmt"))]
-pub(crate) fn poly_format(_paths: &[PathBuf], _config_start: &Path) {
-    warn!("poly-fmt feature disabled: skipping post-generation formatting");
+    let mut args: Vec<String> = vec!["fmt".to_owned(), "--fix".to_owned()];
+    args.extend(paths.iter().map(|path| path.to_string_lossy().into_owned()));
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    match run_formatter("poly", &arg_refs, config_start) {
+        Ok(()) => debug!("poly fmt over {} path(s) ok", paths.len()),
+        Err(e) => warn!("poly fmt failed (non-fatal): {e}"),
+    }
 }
 
 /// Build the residual formatter steps for a language. The only residual is
@@ -186,7 +180,10 @@ fn language_residuals(config: &ResolvedCrateConfig, lang: Language, base_dir: &P
             vec![cargo_sort(vec![native_subdir], base_dir.join("packages/elixir"))]
         }
         // The extendr R crate is workspace-excluded.
-        Language::R => vec![cargo_sort(vec!["packages/r/src/rust".to_owned()], base_dir.to_path_buf())],
+        Language::R => vec![cargo_sort(
+            vec!["packages/r/src/rust".to_owned()],
+            base_dir.to_path_buf(),
+        )],
         // C# is formatted by poly's tier-2 tier — no `dotnet format` residual.
         _ => vec![],
     }

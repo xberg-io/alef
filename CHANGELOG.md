@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **format**: generated code is now formatted by the `poly` (polylint) CLI as a
+  single system dependency — one `poly fmt --fix` pass replaces the previous ~19
+  per-language formatter shell-outs (ruff, oxfmt, rubocop, php-cs-fixer, gofmt,
+  google-java-format, ktfmt, swift-format, dart, gleam, zig, shfmt, …). poly is
+  invoked as a subprocess rather than compiled in, keeping alef's build lean and
+  its dependency tree unchanged; a missing `poly` binary is a best-effort no-op.
+  The scaffolded `poly.toml` drives lint, format, cargo interop
+  (clippy/sort/machete/deny), and the pre-commit + commit-msg hooks. A residual
+  `cargo sort` still runs at generation time for workspace-excluded binding
+  crates so `alef verify` stays hash-stable.
+
 ## [0.30.17] - 2026-07-03
 
 ### Fixed

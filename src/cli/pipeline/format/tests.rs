@@ -44,7 +44,11 @@ fn wasm_residual_is_cargo_sort_on_the_crate_dir() {
         vec!["sort", "crates/sample-model-wasm"],
         "cargo sort arg must be the wasm crate directory"
     );
-    assert_eq!(steps[0].work_dir, Path::new("/repo"), "wasm cargo sort runs at repo root");
+    assert_eq!(
+        steps[0].work_dir,
+        Path::new("/repo"),
+        "wasm cargo sort runs at repo root"
+    );
 }
 
 #[test]
@@ -158,7 +162,11 @@ fn languages_without_residuals_have_none() {
 fn poly_paths_full_regen_is_repo_root() {
     let config = make_config("sample-model");
     let paths = poly_paths(&config, Path::new("/repo"), None, &[Language::Python]);
-    assert_eq!(paths, vec![PathBuf::from("/repo")], "full regen formats the whole repo once");
+    assert_eq!(
+        paths,
+        vec![PathBuf::from("/repo")],
+        "full regen formats the whole repo once"
+    );
 }
 
 #[test]
@@ -171,7 +179,11 @@ fn poly_paths_partial_regen_scopes_to_existing_package_dirs() {
 
     let only: HashSet<Language> = [Language::Python].into_iter().collect();
     let paths = poly_paths(&config, base, Some(&only), &[Language::Python]);
-    assert_eq!(paths, vec![py_dir], "partial regen scopes to the changed language's package dir");
+    assert_eq!(
+        paths,
+        vec![py_dir],
+        "partial regen scopes to the changed language's package dir"
+    );
 }
 
 #[test]
@@ -259,12 +271,11 @@ sources = ["src/lib.rs"]
     );
 }
 
-// Behavioral: poly formats generated Python in-process via the bundled ruff
-// backend (always available — it is compiled in), so a badly-spaced file ends
-// up ruff-formatted without any host toolchain.
-#[cfg(feature = "poly-fmt")]
+// Behavioral: when the `poly` CLI is installed, `format_generated` shells out to
+// it and a badly-spaced Python file ends up ruff-formatted. When `poly` is absent
+// the pass is a best-effort no-op — the file is left untouched and nothing panics.
 #[test]
-fn poly_pass_formats_generated_python_in_process() {
+fn poly_pass_formats_generated_python_when_poly_installed() {
     let dir = tempfile::tempdir().expect("tempdir");
     let base = dir.path();
     let py_path = base.join("packages/python/foo.py");
@@ -296,5 +307,13 @@ sources = ["src/lib.rs"]
     format_generated(&files, &config, base, None);
 
     let formatted = std::fs::read_to_string(&py_path).unwrap();
-    assert_eq!(formatted, "x = 1\n", "poly's ruff backend must reformat the generated Python file");
+    if is_tool_available("poly") {
+        assert_eq!(
+            formatted, "x = 1\n",
+            "with poly installed, `poly fmt --fix` must reformat the generated Python file"
+        );
+    } else {
+        // Best-effort: no poly on PATH means no reformat and no crash.
+        assert_eq!(formatted, "x=1", "without poly the file must be left untouched");
+    }
 }
