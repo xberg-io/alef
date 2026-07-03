@@ -429,7 +429,7 @@ pub fn gen_delegating_default_impl(
     let binding_name = format!("{type_name_prefix}{}", typ.name);
     let core_path = typ.rust_path.replace('-', "_");
     // If the type's rust_path resolved to a fully-qualified core path (contains `::`), use it
-    // after applying any source_crate_remaps (e.g. rewriting `spikard::T` → `spikard_http::T`
+    // after applying any source_crate_remaps (e.g. rewriting `acme::T` → `acme_http::T`
     // when `core_crate_override` is set for a language). Without the remap the Default body
     // references the original source crate which may not be importable in the binding.
     // When rust_path is bare (no `::`) fall back to `{core_import}::{TypeName}` — covers
