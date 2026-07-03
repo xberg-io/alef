@@ -166,7 +166,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // bindings, otherwise we rewrite hundreds of files on every warm
                 // run for no net change.
                 if resolved_cfg.generate.public_api {
-                    let public_api_files = pipeline::generate_public_api(&api, resolved_cfg, &languages)?;
+                    let public_api_files = pipeline::generate_public_api(&api, resolved_cfg, &languages, config_path)?;
                     if !public_api_files.is_empty() {
                         let api_hashes: Vec<(String, String)> = public_api_files
                             .iter()

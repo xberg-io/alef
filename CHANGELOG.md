@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **extension**: new `Extension::public_api_additions(api, cfg, language)`
+  hook. Extensions can now contribute raw lines to a package's public-API
+  init file (e.g. Python's `__init__.py`) during public-API generation, once
+  per resolved language. Returned lines are appended verbatim with exact-line
+  de-duplication so re-runs are idempotent; the extension owns all language
+  semantics (imports, `__all__` merges). The default implementation returns an
+  empty list. The appended content does not feed the generation-inputs hash,
+  so `alef verify` is unaffected.
+
 ## [0.30.15] - 2026-07-03
 
 ### Fixed

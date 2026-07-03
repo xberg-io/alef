@@ -107,6 +107,28 @@ pub trait Extension: Send + Sync {
         Ok(())
     }
 
+    /// Contribute raw lines to the package's public-API init file for one
+    /// language (e.g. Python's `__init__.py`).
+    ///
+    /// Called during public-API generation, once per resolved language, after
+    /// the backend produced the package init file. Returned lines are appended
+    /// verbatim to that file with exact-line de-duplication, so the extension
+    /// owns all language semantics and idempotency (import statements, `__all__`
+    /// merges, etc.). Core only appends; it never rewrites existing lines.
+    ///
+    /// This hook does not feed alef's generation-inputs hash, so additions never
+    /// affect `alef verify`.
+    ///
+    /// Default: returns an empty list.
+    fn public_api_additions(
+        &self,
+        _api: &ApiSurface,
+        _cfg: &ExtensionConfig,
+        _language: Language,
+    ) -> Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+
     /// Emit e2e test files for one language.
     ///
     /// Called during `alef e2e generate` after the built-in generators run,

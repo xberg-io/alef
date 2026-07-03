@@ -151,11 +151,61 @@ pub fn generate_service_api(
     Ok(results)
 }
 
+/// Filename convention for a language's package public-API init file.
+///
+/// Extensions may only contribute [`crate::core::extension::Extension::public_api_additions`]
+/// to languages whose init-file convention alef recognizes here; for any other
+/// language the additions are a silent no-op.
+fn package_init_filename(language: Language) -> Option<&'static str> {
+    match language {
+        Language::Python => Some("__init__.py"),
+        _ => None,
+    }
+}
+
+/// Append `lines` to the package-init file for `language` within `files`.
+///
+/// Core stays dumb: it only appends, skipping any line already present so
+/// repeated application (or re-runs) is idempotent. The extension owns all
+/// language semantics of the appended lines. No-op when `lines` is empty, the
+/// language has no known init-file convention, or no matching file is present.
+fn append_public_api_additions(files: &mut [GeneratedFile], language: Language, lines: &[String]) {
+    if lines.is_empty() {
+        return;
+    }
+    let Some(init_name) = package_init_filename(language) else {
+        return;
+    };
+    let Some(init_file) = files
+        .iter_mut()
+        .find(|f| f.path.file_name().is_some_and(|n| n == init_name))
+    else {
+        return;
+    };
+
+    let mut seen: std::collections::HashSet<String> = init_file.content.lines().map(str::to_string).collect();
+    let mut appended = String::new();
+    for line in lines {
+        if seen.insert(line.clone()) {
+            appended.push_str(line);
+            appended.push('\n');
+        }
+    }
+    if appended.is_empty() {
+        return;
+    }
+    if !init_file.content.is_empty() && !init_file.content.ends_with('\n') {
+        init_file.content.push('\n');
+    }
+    init_file.content.push_str(&appended);
+}
+
 /// Generate public API wrappers for given languages.
 pub fn generate_public_api(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     languages: &[Language],
+    config_path: &Path,
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
     let validated_api = validate_generation_api(api, config, languages)?;
 
@@ -165,7 +215,28 @@ pub fn generate_public_api(
             let Some(backend) = registry::try_get_backend(lang) else {
                 return Ok((lang, Vec::new()));
             };
-            let files = backend.generate_public_api_checked(validated_api, config)?;
+            let mut files = backend.generate_public_api_checked(validated_api, config)?;
+
+            // Let registered extensions contribute raw lines to the package
+            // public-API init file. This mirrors the bindings pass: each
+            // extension receives its `[extensions.<name>]` config, and core only
+            // appends (with exact-line de-dup). The appended content does not
+            // feed the generation-inputs hash, so `alef verify` is unaffected.
+            crate::with_extensions(|exts| {
+                for ext in exts {
+                    let raw = crate::core::extension::read_extension_config(config_path, ext.name())
+                        .with_context(|| format!("extension `{}`: failed to read config from alef.toml", ext.name()))?;
+                    let cfg = ext
+                        .parse_config(raw.as_ref())
+                        .with_context(|| format!("extension `{}`: failed to parse config", ext.name()))?;
+                    let additions = ext
+                        .public_api_additions(validated_api.api(), &cfg, lang)
+                        .with_context(|| format!("extension `{}`: public_api_additions({lang}) failed", ext.name()))?;
+                    append_public_api_additions(&mut files, lang, &additions);
+                }
+                Ok::<(), anyhow::Error>(())
+            })?;
+
             Ok((lang, files))
         })
         .collect::<anyhow::Result<Vec<_>>>()?
@@ -173,4 +244,95 @@ pub fn generate_public_api(
         .filter(|(_, files)| !files.is_empty())
         .collect();
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::extension::{Extension, ExtensionConfig};
+
+    struct AdditionsExtension;
+    impl Extension for AdditionsExtension {
+        fn name(&self) -> &str {
+            "additions"
+        }
+        fn public_api_additions(
+            &self,
+            _api: &ApiSurface,
+            _cfg: &ExtensionConfig,
+            _language: Language,
+        ) -> anyhow::Result<Vec<String>> {
+            Ok(vec![
+                "from ._extra import thing".to_string(),
+                "__all__ = [*__all__, \"thing\"]".to_string(),
+            ])
+        }
+    }
+
+    fn init_files(content: &str) -> Vec<GeneratedFile> {
+        vec![GeneratedFile {
+            path: std::path::PathBuf::from("packages/python/pkg/__init__.py"),
+            content: content.to_string(),
+            generated_header: true,
+        }]
+    }
+
+    #[test]
+    fn public_api_additions_appended_and_idempotent() {
+        let ext = AdditionsExtension;
+        let api = ApiSurface::default();
+        let cfg = ExtensionConfig::empty();
+        let additions = ext.public_api_additions(&api, &cfg, Language::Python).unwrap();
+
+        let mut files = init_files("__all__ = [\"Existing\"]\n");
+        append_public_api_additions(&mut files, Language::Python, &additions);
+        let content = &files[0].content;
+        assert!(content.contains("from ._extra import thing"));
+        assert!(content.contains("__all__ = [*__all__, \"thing\"]"));
+        assert!(content.contains("__all__ = [\"Existing\"]"));
+
+        // Applying the same additions again must not duplicate any line.
+        append_public_api_additions(&mut files, Language::Python, &additions);
+        let content = &files[0].content;
+        assert_eq!(content.matches("from ._extra import thing").count(), 1);
+        assert_eq!(content.matches("__all__ = [*__all__, \"thing\"]").count(), 1);
+    }
+
+    #[test]
+    fn public_api_additions_noop_without_init_convention() {
+        let additions = vec!["some line".to_string()];
+        let mut files = vec![GeneratedFile {
+            path: std::path::PathBuf::from("packages/go/pkg.go"),
+            content: "package pkg\n".to_string(),
+            generated_header: true,
+        }];
+        append_public_api_additions(&mut files, Language::Go, &additions);
+        assert_eq!(files[0].content, "package pkg\n");
+    }
+
+    #[test]
+    fn public_api_additions_noop_when_no_matching_file() {
+        let additions = vec!["some line".to_string()];
+        let mut files = vec![GeneratedFile {
+            path: std::path::PathBuf::from("packages/python/pkg/options.py"),
+            content: "X = 1\n".to_string(),
+            generated_header: true,
+        }];
+        append_public_api_additions(&mut files, Language::Python, &additions);
+        assert_eq!(files[0].content, "X = 1\n");
+    }
+
+    #[test]
+    fn default_public_api_additions_is_empty() {
+        struct Noop;
+        impl Extension for Noop {
+            fn name(&self) -> &str {
+                "noop"
+            }
+        }
+        let api = ApiSurface::default();
+        let cfg = ExtensionConfig::empty();
+        let out = Noop.public_api_additions(&api, &cfg, Language::Python).unwrap();
+        assert!(out.is_empty());
+    }
 }
