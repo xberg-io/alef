@@ -2,4 +2,7 @@
 pub struct {{ wrapper_name }} {
     inner: {{ foreign_type }},
     cached_name: String,
+{%- for f in extra_fields %}
+    {{ f.name }}: {{ f.ty }},
+{%- endfor %}
 }

@@ -6,6 +6,12 @@ pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBr
     let wrapper = spec.wrapper_name();
     let foreign_type = generator.foreign_object_type();
 
+    let extra_fields: Vec<minijinja::Value> = generator
+        .extra_bridge_fields(spec)
+        .into_iter()
+        .map(|(name, ty)| minijinja::context! { name => name, ty => ty })
+        .collect();
+
     crate::codegen::template_env::render(
         "generators/trait_bridge/wrapper_struct.jinja",
         minijinja::context! {
@@ -13,6 +19,7 @@ pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBr
             trait_name => &spec.trait_def.name,
             wrapper_name => wrapper,
             foreign_type => foreign_type,
+            extra_fields => extra_fields,
         },
     )
 }

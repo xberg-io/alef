@@ -78,6 +78,16 @@ pub trait TraitBridgeGenerator {
     fn gen_method_presence_check(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
         None
     }
+
+    /// Extra fields on the wrapper struct, as `(name, rust_type)` pairs.
+    ///
+    /// Backends whose foreign objects cannot be probed safely at call time
+    /// (thread-affine values like Ruby `Value`s or JS objects behind an env)
+    /// cache method-presence flags here at construction; their
+    /// `gen_constructor` must initialize every declared field.
+    fn extra_bridge_fields(&self, _spec: &TraitBridgeSpec) -> Vec<(String, String)> {
+        Vec::new()
+    }
 }
 
 pub struct BridgeOutput {
