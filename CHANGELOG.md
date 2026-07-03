@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **config**: scaffold language-specific tests (`test_scaffold_python`,
+  `test_scaffold_node`, and 12 others) no longer fail after
+  `feat(scaffold): emit canonical rustfmt.toml`.  `rustfmt.toml` is a
+  repo-level file like `poly.toml`; the `language_files` test helper now
+  filters it out so file-count assertions in language-specific tests remain
+  stable.  The `crates/alpha/Cargo.toml` fixture in the
+  `sync_versions_patches_dep_tables_on_version_change` test now includes a
+  minimal `src/lib.rs` stub so `cargo update --workspace --offline` no longer
+  prints a "no targets specified in the manifest" error to the test output.
+
 - **cli**: `alef sync-versions` no longer regenerates test_apps/ and scaffold
   files by default, which was causing ~20min hangs on large repos. The command
   now only updates version fields in manifests and alef.toml; regeneration is

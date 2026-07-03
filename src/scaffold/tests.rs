@@ -71,6 +71,9 @@ fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
         .filter(|f| {
             let p = f.path.to_string_lossy();
             p != "poly.toml"
+                // rustfmt.toml is a repo-level config emitted alongside poly.toml;
+                // exclude it here so language-specific file-count assertions stay stable.
+                && p != "rustfmt.toml"
                 && !p.ends_with("rust-toolchain.toml")
                 && !p.ends_with(".cargo/config.toml")
                 && p != ".gitattributes"

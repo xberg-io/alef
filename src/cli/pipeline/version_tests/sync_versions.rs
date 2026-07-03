@@ -596,18 +596,26 @@ fn sync_versions_patches_dep_tables_on_version_change() {
     );
 
     // crates/alpha: upstream crate, no intra-workspace deps.
+    // A minimal src/lib.rs is required: `cargo update --workspace --offline` loads
+    // every workspace member manifest and validates that declared targets have
+    // discoverable source files.  Without src/lib.rs (or an explicit [lib].path)
+    // cargo prints "can't find library `alpha`" to stderr even though run_optional
+    // suppresses the exit code.  The empty stub silences that noise.
     write_file(
         root,
         "crates/alpha/Cargo.toml",
         "[package]\nname = \"alpha\"\nversion = \"5.0.0-rc.1\"\n\n[dependencies]\nserde = \"1.0\"\n",
     );
+    write_file(root, "crates/alpha/src/lib.rs", "");
 
     // crates/beta: all four dep-table shapes referencing alpha.
+    // Same stub rationale as crates/alpha.
     write_file(
         root,
         "crates/beta/Cargo.toml",
         "[package]\nname = \"beta\"\nversion = \"5.0.0-rc.1\"\n\n[dependencies]\nalpha = { path = \"../alpha\", version = \"5.0.0-rc.1\", optional = true }\nserde = \"1.0\"\n\n[dev-dependencies]\nalpha = { path = \"../alpha\", version = \"5.0.0-rc.1\" }\ntempfile = \"3\"\n\n[build-dependencies]\nalpha = { path = \"../alpha\", version = \"5.0.0-rc.1\" }\n\n[target.'cfg(unix)'.dependencies]\nalpha = { path = \"../alpha\", version = \"5.0.0-rc.1\", features = [\"unix\"] }\nlibc = \"0.2\"\n",
     );
+    write_file(root, "crates/beta/src/lib.rs", "");
 
     // Normalize backslashes to / so the path is a valid TOML basic string on Windows.
     let alef_toml_content = format!(
