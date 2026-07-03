@@ -219,7 +219,9 @@ pub(crate) fn bridge_type_enum_and_serde_struct_aware(
                 // 2. Vec<Named(struct)> with serde — swift-bridge's Vec<OpaqueType> marshaling crashes
                 let is_enum = enum_names.contains(n.as_str());
                 let has_serde = !no_serde_names.contains(n.as_str());
-                if is_enum || (has_serde && !is_enum) {
+                // Vec<String> for Vec<Named(enum)> (Vectorizable broken) or a
+                // serde-capable Vec<Named(struct)> (opaque-Vec marshaling crashes).
+                if is_enum || has_serde {
                     return "Vec<String>".to_string();
                 }
             }
