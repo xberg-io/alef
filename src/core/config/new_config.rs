@@ -351,8 +351,8 @@ fn resolve_source_crates(
                     ))
                 })?;
 
-            let crate_dir = super::registry::resolve_crate_source_dir(&root, &sc.name)
-                .map_err(ResolveError::RegistryResolution)?;
+            let crate_dir =
+                super::registry::resolve_crate_source_dir(&root, &sc.name).map_err(ResolveError::RegistryResolution)?;
 
             let rebased_sources = sc.sources.iter().map(|rel| crate_dir.join(rel)).collect();
 

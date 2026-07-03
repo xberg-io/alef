@@ -47,8 +47,8 @@ pub fn resolve_crate_source_dir(workspace_root: &Path, crate_name: &str) -> Resu
 ///
 /// This is a pure function and is unit-testable without running cargo.
 pub fn resolve_crate_source_dir_from_metadata(metadata_json: &str, crate_name: &str) -> Result<PathBuf, String> {
-    let metadata: serde_json::Value = serde_json::from_str(metadata_json)
-        .map_err(|e| format!("failed to parse cargo metadata JSON: {e}"))?;
+    let metadata: serde_json::Value =
+        serde_json::from_str(metadata_json).map_err(|e| format!("failed to parse cargo metadata JSON: {e}"))?;
 
     let packages = metadata["packages"]
         .as_array()
@@ -95,9 +95,7 @@ mod tests {
     fn fake_metadata_json(packages: &[(&str, &str)]) -> String {
         let pkg_entries: Vec<String> = packages
             .iter()
-            .map(|(name, manifest_path)| {
-                format!(r#"{{"name": "{name}", "manifest_path": "{manifest_path}"}}"#)
-            })
+            .map(|(name, manifest_path)| format!(r#"{{"name": "{name}", "manifest_path": "{manifest_path}"}}"#))
             .collect();
         format!(r#"{{"packages": [{}]}}"#, pkg_entries.join(","))
     }

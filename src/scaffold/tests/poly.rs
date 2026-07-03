@@ -335,12 +335,20 @@ PyMuPDF = "PyMuPDF"
     let files = scaffold(&api, &config, &[Language::Python]).unwrap();
     let c = &poly_toml(&files).content;
 
-    assert!(c.contains("[lint.typos.extend_words]\n"), "extend_words must be emitted");
-    assert!(c.contains("[lint.typos.extend_identifiers]\n"), "extend_identifiers must be emitted");
+    assert!(
+        c.contains("[lint.typos.extend_words]\n"),
+        "extend_words must be emitted"
+    );
+    assert!(
+        c.contains("[lint.typos.extend_identifiers]\n"),
+        "extend_identifiers must be emitted"
+    );
 
     // extend_words comes before extend_identifiers.
     let words_pos = c.find("[lint.typos.extend_words]").expect("extend_words present");
-    let idents_pos = c.find("[lint.typos.extend_identifiers]").expect("extend_identifiers present");
+    let idents_pos = c
+        .find("[lint.typos.extend_identifiers]")
+        .expect("extend_identifiers present");
     let per_file_pos = c.find("[per-file-ignores]").expect("per-file-ignores present");
     assert!(words_pos < idents_pos, "extend_words must precede extend_identifiers");
     assert!(idents_pos < per_file_pos, "typos tables must precede per-file-ignores");
@@ -378,5 +386,8 @@ flate = "flate"
     let flate_pos = c.find("flate =").expect("flate entry present");
     let zensical_pos = c.find("zensical =").expect("zensical entry present");
     assert!(arange_pos < flate_pos, "arange must come before flate (alphabetical)");
-    assert!(flate_pos < zensical_pos, "flate must come before zensical (alphabetical)");
+    assert!(
+        flate_pos < zensical_pos,
+        "flate must come before zensical (alphabetical)"
+    );
 }
