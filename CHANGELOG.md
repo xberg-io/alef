@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **trait-bridge**: dynamic-backend bridges (pyo3, magnus, php, napi, wasm,
+  rustler, extendr) now forward Rust-defaulted trait methods to the host
+  object when it implements them, falling back to the genuine Rust default
+  body otherwise. Previously a host implementation of a defaulted method
+  (e.g. `supports_table_detection`, `process_document`) was silently ignored
+  and the Rust default always won (#167).
+- **trait-bridge**: generated host surfaces (Python `Protocol`, Ruby `.rbs`,
+  PHP `interface`, Elixir behaviour, Java/Kotlin interfaces) now match the
+  runtime contract: Rust-defaulted methods are optional (or given
+  language-level defaults) instead of required, and the `Plugin` lifecycle
+  methods the bridge actually calls are part of the surface. Bridges treat a
+  missing `initialize`/`shutdown` as a no-op instead of failing registration.
+  On magnus the bridge no longer invokes `initialize` — which is the Ruby
+  constructor — on host objects (#166).
+- **pyo3**: plugin `Protocol` config parameters are now typed as the public
+  options dataclass the package exports, and the bridge passes that type to
+  the host, so an implementer typed against the public API conforms to the
+  Protocol (#165).
+- **rustler**: behaviour `@callback` specs now declare natively-marshalled
+  struct params as `map()` instead of the stale JSON `String.t()` (#168).
+
 ## [0.30.18] - 2026-07-03
 
 ### Added
