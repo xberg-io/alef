@@ -38,7 +38,7 @@ poly-fmt = ["dep:polylint-core"]
 [dependencies]
 ahash = "0.8"
 anyhow = "1"
-polylint-core = { git = "https://github.com/Goldziher/polylint", rev = "e9b54a364e589c114b2cdc67a3299aefe10fd8fd", optional = true }
+polylint-core = { git = "https://github.com/Goldziher/polylint", rev = "26da091c9b9a2a3965543d5ed15ef329bfed233d", optional = true }
 base64 = "0.22"
 blake3 = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

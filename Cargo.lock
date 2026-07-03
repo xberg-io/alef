@@ -4697,7 +4697,7 @@ dependencies = [
 [[package]]
 name = "poly-cache"
 version = "0.2.0"
-source = "git+https://github.com/Goldziher/polylint?rev=e9b54a364e589c114b2cdc67a3299aefe10fd8fd#e9b54a364e589c114b2cdc67a3299aefe10fd8fd"
+source = "git+https://github.com/Goldziher/polylint?rev=26da091c9b9a2a3965543d5ed15ef329bfed233d#26da091c9b9a2a3965543d5ed15ef329bfed233d"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4707,7 +4707,7 @@ dependencies = [
 [[package]]
 name = "poly-catalog"
 version = "0.2.0"
-source = "git+https://github.com/Goldziher/polylint?rev=e9b54a364e589c114b2cdc67a3299aefe10fd8fd#e9b54a364e589c114b2cdc67a3299aefe10fd8fd"
+source = "git+https://github.com/Goldziher/polylint?rev=26da091c9b9a2a3965543d5ed15ef329bfed233d#26da091c9b9a2a3965543d5ed15ef329bfed233d"
 dependencies = [
  "anyhow",
  "serde",
@@ -4717,7 +4717,7 @@ dependencies = [
 [[package]]
 name = "poly-config"
 version = "0.2.0"
-source = "git+https://github.com/Goldziher/polylint?rev=e9b54a364e589c114b2cdc67a3299aefe10fd8fd#e9b54a364e589c114b2cdc67a3299aefe10fd8fd"
+source = "git+https://github.com/Goldziher/polylint?rev=26da091c9b9a2a3965543d5ed15ef329bfed233d#26da091c9b9a2a3965543d5ed15ef329bfed233d"
 dependencies = [
  "anyhow",
  "poly-catalog",
@@ -4728,7 +4728,7 @@ dependencies = [
 [[package]]
 name = "polylint-core"
 version = "0.2.0"
-source = "git+https://github.com/Goldziher/polylint?rev=e9b54a364e589c114b2cdc67a3299aefe10fd8fd#e9b54a364e589c114b2cdc67a3299aefe10fd8fd"
+source = "git+https://github.com/Goldziher/polylint?rev=26da091c9b9a2a3965543d5ed15ef329bfed233d#26da091c9b9a2a3965543d5ed15ef329bfed233d"
 dependencies = [
  "alejandra",
  "anyhow",
