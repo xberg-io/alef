@@ -32,8 +32,7 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .functions
         .iter()
         .filter(|f| {
-            !exclude_functions.contains(f.name.as_str())
-                && !trait_bridge_manages_jni_function(f.name.as_str(), config)
+            !exclude_functions.contains(f.name.as_str()) && !trait_bridge_manages_jni_function(f.name.as_str(), config)
         })
         .collect();
 
@@ -46,11 +45,12 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .collect();
 
     // Host-native capsule (Language) passthrough configuration from kotlin_android.capsule_types.
-    let kotlin_android_capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig> = config
-        .kotlin_android
-        .as_ref()
-        .map(|c| c.capsule_types.clone())
-        .unwrap_or_default();
+    let kotlin_android_capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig> =
+        config
+            .kotlin_android
+            .as_ref()
+            .map(|c| c.capsule_types.clone())
+            .unwrap_or_default();
 
     let mut body = String::new();
     // Suppress detekt TooManyFunctions: the bridge object has one external fun

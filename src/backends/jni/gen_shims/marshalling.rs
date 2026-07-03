@@ -252,7 +252,9 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             out.push_str(&format!("{indent}match v {{\n"));
             out.push_str(&format!("{indent}    None => std::ptr::null_mut(),\n"));
             out.push_str(&format!("{indent}    Some(inner) => {{\n"));
-            out.push_str(&format!("{indent}        let s = match serde_json::to_string(&inner) {{\n"));
+            out.push_str(&format!(
+                "{indent}        let s = match serde_json::to_string(&inner) {{\n"
+            ));
             out.push_str(&format!("{indent}            Ok(s) => s,\n"));
             out.push_str(&format!(
                 "{indent}            Err(e) => {{ throw_jni_error(env, &format!(\"serialize: {{e}}\")); return {ret_null}; }}\n"

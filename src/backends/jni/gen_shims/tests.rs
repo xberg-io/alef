@@ -41,7 +41,10 @@ mod tests {
     #[test]
     fn bytes_call_arg_optional_ref_uses_as_deref() {
         // Option<&[u8]>: Option<Vec<u8>> does not coerce, must deref.
-        assert_eq!(bytes_call_arg("document_bytes", true, true), "document_bytes.as_deref()");
+        assert_eq!(
+            bytes_call_arg("document_bytes", true, true),
+            "document_bytes.as_deref()"
+        );
         // Option<Vec<u8>>: owned, pass through.
         assert_eq!(bytes_call_arg("document_bytes", true, false), "document_bytes");
         // &[u8]: &Vec<u8> coerces.

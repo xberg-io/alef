@@ -143,10 +143,16 @@ fn type_ref_to_core_path_with_btree(ty: &TypeRef, core_prefix: &str, map_is_btre
         TypeRef::Primitive(p) => primitive_rust_type(p).to_string(),
         TypeRef::Named(n) => format!("{core_prefix}::{n}"),
         TypeRef::Optional(inner) => {
-            format!("Option<{}>", type_ref_to_core_path_with_btree(inner, core_prefix, map_is_btree))
+            format!(
+                "Option<{}>",
+                type_ref_to_core_path_with_btree(inner, core_prefix, map_is_btree)
+            )
         }
         TypeRef::Vec(inner) => {
-            format!("Vec<{}>", type_ref_to_core_path_with_btree(inner, core_prefix, map_is_btree))
+            format!(
+                "Vec<{}>",
+                type_ref_to_core_path_with_btree(inner, core_prefix, map_is_btree)
+            )
         }
         TypeRef::Map(k, v) => {
             let container = if map_is_btree {

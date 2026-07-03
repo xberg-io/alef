@@ -142,7 +142,14 @@ pub fn emit_jni_client_class(
             .iter()
             .filter(|m| !m.sanitized && !m.is_static && !exclude_functions.contains(m.name.as_str()))
         {
-            emit_jni_client_method(method, class_name, &bridge_name, &mut body, &mut imports, &opaque_type_names);
+            emit_jni_client_method(
+                method,
+                class_name,
+                &bridge_name,
+                &mut body,
+                &mut imports,
+                &opaque_type_names,
+            );
         }
 
         // Streaming methods owned by this client type.

@@ -101,7 +101,14 @@ fn emit_method_shim(
             && (matches!(base_ty, TypeRef::Bytes)
                 || matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)))
                 || !matches!(base_ty, TypeRef::Vec(_) | TypeRef::Path | TypeRef::String));
-        emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null, unmarshal_produces_option, p.map_is_btree);
+        emit_single_param_unmarshal(
+            out,
+            &rust_name,
+            base_ty,
+            ret_null,
+            unmarshal_produces_option,
+            p.map_is_btree,
+        );
         // `&Vec<String>` coerces to `&[String]` so plain `&<name>` covers every
         // Vec<String> method call we currently emit. The previous special-case
         // that converted to `Vec<&str>` produced `&[&str]` which is incompatible
@@ -170,7 +177,9 @@ fn emit_method_shim(
                 // Re-bind the `String` extracted from the request map as a `PathBuf`.
                 // (The `path_unmarshal` template targets the single-param path, where the
                 // raw string lives in `req_str`; here the value is already bound to `name`.)
-                out.push_str(&format!("    let {rust_name} = std::path::PathBuf::from({rust_name});\n"));
+                out.push_str(&format!(
+                    "    let {rust_name} = std::path::PathBuf::from({rust_name});\n"
+                ));
             }
             // `&Vec<String>` coerces to `&[String]`; the previous Vec<&str>
             // special-case produced `&[&str]` incompatible with `&[String]` core

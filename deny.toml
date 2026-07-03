@@ -11,19 +11,19 @@ ignore = []
 
 [licenses]
 allow = [
-  "Apache-2.0",
-  "Apache-2.0 WITH LLVM-exception",
-  "MIT",
-  "MIT-0",
-  "BSD-2-Clause",
-  "BSD-3-Clause",
-  "ISC",
-  "CDLA-Permissive-2.0",
-  "Zlib",
-  "Unlicense",
-  "CC0-1.0",
-  "Unicode-3.0",
-  "BSL-1.0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "CDLA-Permissive-2.0",
+    "Zlib",
+    "Unlicense",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "BSL-1.0",
 ]
 confidence-threshold = 0.8
 
@@ -41,11 +41,11 @@ external-default-features = "allow"
 # hashbrown 0.16 (via referencing/jsonschema) and 0.17 (via indexmap/serde_yaml)
 # coexist as transitive deps — can't resolve without upstream changes.
 skip = [
-  { crate = "hashbrown@0.16", reason = "transitive via referencing/jsonschema" },
-  { crate = "getrandom@0.2", reason = "transitive via ring/rustls; getrandom 0.3 comes from ahash" },
-  { crate = "getrandom@0.4", reason = "transitive via tempfile; getrandom 0.3 comes from ahash" },
-  { crate = "r-efi@5.3", reason = "transitive via getrandom 0.3; r-efi 6 comes from getrandom 0.4" },
-  { crate = "windows-sys@0.52", reason = "transitive via ring; current tooling uses windows-sys 0.61" },
+    { crate = "hashbrown@0.16", reason = "transitive via referencing/jsonschema" },
+    { crate = "getrandom@0.2", reason = "transitive via ring/rustls; getrandom 0.3 comes from ahash" },
+    { crate = "getrandom@0.4", reason = "transitive via tempfile; getrandom 0.3 comes from ahash" },
+    { crate = "r-efi@5.3", reason = "transitive via getrandom 0.3; r-efi 6 comes from getrandom 0.4" },
+    { crate = "windows-sys@0.52", reason = "transitive via ring; current tooling uses windows-sys 0.61" },
 ]
 allow = []
 deny = []

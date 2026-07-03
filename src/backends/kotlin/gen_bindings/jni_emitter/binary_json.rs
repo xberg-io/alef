@@ -43,10 +43,7 @@ fn needs_json_deserialize(ty: &TypeRef) -> bool {
 ///
 /// Opaque types that are known handles do NOT need JSON deserialization — they return Long.
 /// Data types (structs, enums, maps, etc.) return JSON String and need deserialization.
-fn needs_json_deserialize_for_method(
-    ty: &TypeRef,
-    opaque_type_names: &std::collections::HashSet<&str>,
-) -> bool {
+fn needs_json_deserialize_for_method(ty: &TypeRef, opaque_type_names: &std::collections::HashSet<&str>) -> bool {
     // If it's an opaque type name, it's a handle that returns Long (not JSON)
     if let TypeRef::Named(n) = ty {
         if opaque_type_names.contains(n.as_str()) {
