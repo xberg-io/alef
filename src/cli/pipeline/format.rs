@@ -143,6 +143,34 @@ pub(crate) fn poly_format(paths: &[PathBuf], config_start: &Path) {
     }
 }
 
+/// Best-effort wiring of poly's git-hook shims (`poly hooks install`) into the
+/// generated repo. This installs the pre-commit + commit-msg stages declared in
+/// the scaffolded `poly.toml` `[hooks]` section — polylint, polyfmt, file_safety,
+/// the `cargo` builtin (clippy / cargo-sort / machete / deny), and the
+/// conventional-commit `commit` hook — so every generated repository lints,
+/// formats, and validates on commit without any per-repo manual setup.
+///
+/// No-op when `poly` is absent from PATH or `base_dir` is not a git repository.
+/// Idempotent — `poly hooks install` re-writes the same shims, so it is safe to
+/// run on every scaffold pass. Never aborts generation.
+pub(crate) fn install_poly_hooks(base_dir: &Path) {
+    if !base_dir.join(".git").exists() {
+        debug!(
+            "not a git repository at {}, skipping poly hooks install",
+            base_dir.display()
+        );
+        return;
+    }
+    if !is_tool_available("poly") {
+        warn!("poly not found on PATH (skipping poly hooks install)");
+        return;
+    }
+    match run_formatter("poly", &["hooks", "install"], base_dir) {
+        Ok(()) => debug!("poly hooks install ok"),
+        Err(e) => warn!("poly hooks install failed (non-fatal): {e}"),
+    }
+}
+
 /// Build the residual formatter steps for a language. The only residual is
 /// `cargo sort` for binding crates whose `Cargo.toml` is excluded from the poly
 /// pass — a dependency-ordering tool (not a formatter) that ships with cargo and

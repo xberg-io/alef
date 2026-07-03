@@ -317,3 +317,12 @@ sources = ["src/lib.rs"]
         assert_eq!(formatted, "x=1", "without poly the file must be left untouched");
     }
 }
+
+// `install_poly_hooks` is a best-effort no-op outside a git repository: a temp
+// dir with no `.git` must not panic and must not shell out.
+#[test]
+fn install_poly_hooks_is_noop_outside_git_repo() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // No `.git` directory present → returns cleanly regardless of poly on PATH.
+    install_poly_hooks(dir.path());
+}

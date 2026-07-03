@@ -460,6 +460,10 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 grand_total += count;
             } // end for resolved_cfg in crates_to_process
 
+            // Wire poly's git hooks (pre-commit lint/format/cargo + commit-msg)
+            // from the freshly scaffolded poly.toml. Best-effort, idempotent.
+            pipeline::install_poly_hooks(&base_dir);
+
             // Patch [workspace.lints.rust] to allowlist the `alef-meta` cfg key so
             // downstream crates can use `#[cfg_attr(feature = "alef-meta", alef(since = "..."))]`
             // without declaring it as a real feature (which would cause

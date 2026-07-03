@@ -468,6 +468,10 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 grand_doc_count += doc_count;
             } // end for resolved_cfg in crates_to_process
 
+            // Wire poly's git hooks (pre-commit lint/format/cargo + commit-msg)
+            // from the scaffolded poly.toml. Best-effort, idempotent.
+            pipeline::install_poly_hooks(&base_dir);
+
             println!(
                 "Done: {grand_binding_count} binding files, {grand_stub_count} stub files, {grand_api_count} API files, {grand_scaffold_count} scaffold files, {grand_readme_count} readme files, {grand_e2e_count} e2e files, {grand_doc_count} doc files"
             );

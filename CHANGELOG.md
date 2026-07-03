@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **hooks**: `alef all`, `alef scaffold`, and `alef init` now run `poly hooks
+  install` after scaffolding, wiring poly's pre-commit + commit-msg git hooks
+  (polylint, polyfmt, file_safety, the `cargo` builtin — clippy / cargo-sort /
+  machete / deny — and the conventional-commit hook) from the generated
+  `poly.toml`. Best-effort and idempotent: a no-op when `poly` is absent or the
+  target is not a git repository.
+
 ### Changed
 
 - **format**: generated code is now formatted by the `poly` (polylint) CLI as a

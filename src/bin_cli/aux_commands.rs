@@ -51,7 +51,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 all_paths.insert(base_dir.join(&file.path));
             }
 
-            // Format generated code with poly (polylint) in-process when
+            // Format generated code by shelling out to the `poly` CLI when
             // --format is requested. Best-effort: a poly error never aborts init.
             if format {
                 eprintln!("  Formatting...");
@@ -61,6 +61,10 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             // Finalise per-file hashes after formatting.
             let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
             pipeline::finalize_hashes(&all_paths, &sources_hash, &alef_toml_bytes)?;
+
+            // Wire poly's git hooks from the scaffolded poly.toml. Best-effort,
+            // idempotent; a no-op until the project is a git repository.
+            pipeline::install_poly_hooks(&base_dir);
 
             println!("Initialized: {binding_count} binding files, {scaffold_count} scaffold files");
             Ok(None)
