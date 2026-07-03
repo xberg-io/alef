@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.14] - 2026-07-03
+
+### Fixed
+
+- **swift**: fix the `ExtractedDocument.tables()` opaque-`Vec` marshaling SIGSEGV
+  (called out as still-open in 0.30.13). A `Vec<Named struct>` getter on a serde
+  type was emitted as an opaque `RustVec<Table>`, which swift-bridge cannot
+  marshal safely — dereferencing it (e.g. `.tables().count`) crashed at runtime
+  with SIGSEGV. Such getters are now bridged as a JSON `Vec<String>` (mirroring
+  the existing `Vec<Named enum>` handling), yielding a countable, safely
+  marshaled swift collection.
+
+### Added
+
+- **scaffold**: honor per-target core-dependency overrides in the scripting
+  bindings (#164).
+
+### Changed
+
+- **style**: apply canonical poly formatting (rustfmt `max_width = 120`, taplo,
+  oxc) across the jni/kotlin emitters, `deny.toml`, `renovate.json`, `.mcp.json`,
+  and the e2e fixture schema.
+
 ## [0.30.13] - 2026-07-02
 
 ### Fixed
@@ -33,16 +56,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **config**: `[workspace] extra_clippy_allows` — a string list of additional clippy lints
-  to allow in every generated Rust binding file.  Entries may be bare lint names
+  to allow in every generated Rust binding file. Entries may be bare lint names
   (`"single_match"`) or `clippy::`-prefixed (`"clippy::single_match"`); both forms are
-  accepted and normalised internally.  The configured lints are merged (union,
+  accepted and normalised internally. The configured lints are merged (union,
   de-duplicated; defaults first, extras appended) with each backend's built-in default
   allow-list, and a single extra `#![allow(...)]` attribute is emitted after the defaults.
   When the list is absent or empty the generated output is byte-identical to the previous
-  behaviour.  Affected backends: pyo3, napi, magnus, php, rustler, extendr, wasm, dart,
+  behaviour. Affected backends: pyo3, napi, magnus, php, rustler, extendr, wasm, dart,
   swift.
 
   Example:
+
   ```toml
   [workspace]
   extra_clippy_allows = ["single_match", "collapsible_match"]

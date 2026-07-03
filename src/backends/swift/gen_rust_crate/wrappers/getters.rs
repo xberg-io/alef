@@ -180,7 +180,7 @@ pub(super) fn emit_getters(
         } else if let TypeRef::Named(wrapper) = &field.ty {
             emit_named_getter(field, wrapper, &ctx, enum_names, out);
         } else if let TypeRef::Vec(inner) = &field.ty {
-            emit_vec_getter(ty, field, inner, &ctx, enum_names, out);
+            emit_vec_getter(ty, field, inner, &ctx, enum_names, no_serde_names, out);
         } else if matches!(
             field.ty,
             TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json
@@ -396,6 +396,43 @@ fn emit_vec_enum_string_getter(
     }
 }
 
+/// Emit a `Vec<String>`-returning getter for a `Vec<Named(struct)>` field with serde.
+///
+/// Serializes each struct element to JSON string to avoid swift-bridge's broken
+/// `Vec<OpaqueRustType>` Vectorizable codegen. Mirrors the enum case which already
+/// avoids the same issue (see `emit_vec_enum_string_getter` comment).
+///
+/// The getter returns `Vec<String>` where each element is the serde JSON representation
+/// of the struct. Swift can call `.count` and iterate without issues.
+fn emit_vec_struct_serde_getter(field: &crate::core::ir::FieldDef, ctx: &GetterCtx, out: &mut String) {
+    let name = &ctx.name;
+    let getter_name = &ctx.getter_name;
+
+    // For each element, serialize to JSON string. Use serde_json::to_string to match
+    // the enum tagged case which also uses JSON serialization.
+    let elem_expr = "serde_json::to_string(elem).unwrap_or_else(|_| \"null\".to_string())".to_string();
+
+    if field.optional {
+        out.push_str(&crate::backends::swift::template_env::render(
+            "getter_vec_enum_string_optional.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                name => name,
+                elem_expr => elem_expr,
+            },
+        ));
+    } else {
+        out.push_str(&crate::backends::swift::template_env::render(
+            "getter_vec_enum_string.jinja",
+            minijinja::context! {
+                getter_name => getter_name,
+                name => name,
+                elem_expr => elem_expr,
+            },
+        ));
+    }
+}
+
 fn emit_named_getter(
     field: &crate::core::ir::FieldDef,
     wrapper: &str,
@@ -470,6 +507,7 @@ fn emit_vec_getter(
     inner: &TypeRef,
     ctx: &GetterCtx,
     enum_names: &HashSet<&str>,
+    no_serde_names: &HashSet<&str>,
     out: &mut String,
 ) {
     let _name = &ctx.name;
@@ -477,35 +515,45 @@ fn emit_vec_getter(
     let _bridge_ty_owned = &ctx.bridge_ty_owned;
     if let TypeRef::Named(wrapper) = inner {
         let is_enum = enum_names.contains(wrapper.as_str());
-        // When the source field is Vec<Arc<T>>, cloning an element
-        // yields Arc<SourceT>; we must deref before wrapping.
-        let elem_expr = match field.vec_inner_core_wrapper {
-            // elem is &Arc<T>; (*elem) is Arc<T>; (**elem) is T — deref twice.
-            CoreWrapper::Arc if !is_enum => format!("{wrapper}((**elem).clone())"),
-            CoreWrapper::Arc => format!("{wrapper}::from((**elem).clone())"),
-            _ if is_enum => format!("{wrapper}::from(elem.clone())"),
-            _ => format!("{wrapper}(elem.clone())"),
-        };
-        if field.optional {
-            out.push_str(&crate::backends::swift::template_env::render(
-                "getter_vec_named_optional.jinja",
-                minijinja::context! {
-                    getter_name => &ctx.getter_name,
-                    wrapper => wrapper,
-                    name => &ctx.name,
-                    elem_expr => &elem_expr,
-                },
-            ));
+        // For Vec<Named(struct)> with serde, use JSON marshaling to avoid swift-bridge's
+        // broken Vec<OpaqueType> Vectorizable codegen. This mirrors the enum case which
+        // already converts Vec<Named(enum)> to Vec<String> to avoid the same issue.
+        let has_serde = !no_serde_names.contains(wrapper.as_str());
+        if !is_enum && has_serde {
+            // Vec<Named(struct)> with serde: emit each element as JSON string.
+            emit_vec_struct_serde_getter(field, ctx, out);
         } else {
-            out.push_str(&crate::backends::swift::template_env::render(
-                "getter_vec_named.jinja",
-                minijinja::context! {
-                    getter_name => &ctx.getter_name,
-                    wrapper => wrapper,
-                    name => &ctx.name,
-                    elem_expr => &elem_expr,
-                },
-            ));
+            // Vec<Named(enum)> or Vec<Named(struct without serde)>: use opaque wrapper.
+            // When the source field is Vec<Arc<T>>, cloning an element
+            // yields Arc<SourceT>; we must deref before wrapping.
+            let elem_expr = match field.vec_inner_core_wrapper {
+                // elem is &Arc<T>; (*elem) is Arc<T>; (**elem) is T — deref twice.
+                CoreWrapper::Arc if !is_enum => format!("{wrapper}((**elem).clone())"),
+                CoreWrapper::Arc => format!("{wrapper}::from((**elem).clone())"),
+                _ if is_enum => format!("{wrapper}::from(elem.clone())"),
+                _ => format!("{wrapper}(elem.clone())"),
+            };
+            if field.optional {
+                out.push_str(&crate::backends::swift::template_env::render(
+                    "getter_vec_named_optional.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        wrapper => wrapper,
+                        name => &ctx.name,
+                        elem_expr => &elem_expr,
+                    },
+                ));
+            } else {
+                out.push_str(&crate::backends::swift::template_env::render(
+                    "getter_vec_named.jinja",
+                    minijinja::context! {
+                        getter_name => &ctx.getter_name,
+                        wrapper => wrapper,
+                        name => &ctx.name,
+                        elem_expr => &elem_expr,
+                    },
+                ));
+            }
         }
     } else if !matches!(inner, TypeRef::Primitive(_) | TypeRef::Bytes) {
         // Vec<non-Primitive, non-Bytes>: use JSON round-trip for serde structs.

@@ -198,6 +198,37 @@ pub(crate) fn is_enum_named(ty: &TypeRef, enum_names: &HashSet<&str>) -> bool {
     }
 }
 
+/// Like `bridge_type_enum_aware_ref` but also treats `Vec<Named(struct)>` with serde as `Vec<String>`.
+///
+/// In addition to enums (which use Vectorizable), swift-bridge also fails to correctly marshal
+/// `Vec<OpaqueRustType>` for serde-capable structs, producing a SIGSEGV at runtime. Convert
+/// these to `Vec<String>` (JSON serialization) to avoid the broken codegen.
+///
+/// This is called from the extern block generator which has access to `no_serde_names`.
+pub(crate) fn bridge_type_enum_and_serde_struct_aware(
+    ty: &TypeRef,
+    enum_names: &HashSet<&str>,
+    no_serde_names: &HashSet<&str>,
+) -> String {
+    match ty {
+        TypeRef::Named(n) if enum_names.contains(n.as_str()) => "String".to_string(),
+        TypeRef::Vec(inner) => {
+            if let TypeRef::Named(n) = inner.as_ref() {
+                // Return Vec<String> for both:
+                // 1. Vec<Named(enum)> — swift-bridge's Vectorizable is broken for enums
+                // 2. Vec<Named(struct)> with serde — swift-bridge's Vec<OpaqueType> marshaling crashes
+                let is_enum = enum_names.contains(n.as_str());
+                let has_serde = !no_serde_names.contains(n.as_str());
+                if is_enum || (has_serde && !is_enum) {
+                    return "Vec<String>".to_string();
+                }
+            }
+            bridge_type(ty)
+        }
+        _ => bridge_type(ty),
+    }
+}
+
 /// Returns `true` when a `Vec<Named(T)>` field has T as an enum.
 pub(crate) fn is_vec_of_enum(ty: &TypeRef, enum_names: &HashSet<&str>) -> bool {
     match ty {
