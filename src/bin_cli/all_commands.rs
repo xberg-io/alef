@@ -442,15 +442,9 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     }
                 }
 
-                // Formatters run by default. They are best-effort: a missing
-                // formatter or non-zero exit must not abort the pipeline.
-                // Two passes when enabled:
-                //  1. `format_generated` runs language-native defaults (cargo fmt,
-                //     ruff format, mix format, oxfmt, etc.) on the freshly
-                //     emitted files.
-                //  2. `fmt_post_generate` runs any extra repo-configured
-                //     `[lint.<lang>].format` commands (linters, custom passes).
-                // Both are scoped to languages that actually regenerated this run.
+                // Formatting runs by default via poly (polylint) in-process. It is
+                // best-effort: a poly error must not abort the pipeline. Scoped to
+                // the languages that actually regenerated this run.
                 if format && !changed_languages.is_empty() {
                     eprintln!("Formatting generated files...");
                     // Include stubs in the format pass so that languages where only
@@ -458,10 +452,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     let mut files_to_format = bindings.clone();
                     files_to_format.extend(stubs.clone());
                     pipeline::format_generated(&files_to_format, resolved_cfg, &base_dir, Some(&changed_languages));
-
-                    eprintln!("Running formatters...");
-                    let changed_list: Vec<crate::core::config::Language> = changed_languages.iter().copied().collect();
-                    pipeline::fmt_post_generate(resolved_cfg, &changed_list);
                 }
 
                 // Finalise per-file hashes after every formatter has run.

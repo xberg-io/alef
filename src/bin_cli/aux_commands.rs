@@ -51,10 +51,11 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 all_paths.insert(base_dir.join(&file.path));
             }
 
-            // Format generated code only when --format is requested.
+            // Format generated code with poly (polylint) in-process when
+            // --format is requested. Best-effort: a poly error never aborts init.
             if format {
                 eprintln!("  Formatting...");
-                pipeline::fmt_post_generate(resolved_cfg, &languages);
+                pipeline::format_generated(&bindings, resolved_cfg, &base_dir, None);
             }
 
             // Finalise per-file hashes after formatting.

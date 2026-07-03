@@ -313,8 +313,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     let mut files_to_format = files.clone();
                     files_to_format.extend(stub_files.clone());
                     pipeline::format_generated(&files_to_format, resolved_cfg, &base_dir, Some(&changed_languages));
-                    let changed_list: Vec<crate::core::config::Language> = changed_languages.iter().copied().collect();
-                    pipeline::fmt_post_generate(resolved_cfg, &changed_list);
                 }
 
                 // Finalise per-file hashes after all formatters have run.
@@ -399,9 +397,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // mix format, …) reformat those files the hash no longer matches and
                 // `alef verify` reports them as stale.  Formatter failures are warnings —
                 // they must not abort the stubs command.
-                let stub_langs: Vec<crate::core::config::Language> = files.iter().map(|(lang, _)| *lang).collect();
                 pipeline::format_generated(&files, resolved_cfg, &base_dir, None);
-                pipeline::fmt_post_generate(resolved_cfg, &stub_langs);
 
                 // Finalise per-file hashes for the freshly written (and formatted) stubs.
                 let stub_paths: std::collections::HashSet<PathBuf> = files
