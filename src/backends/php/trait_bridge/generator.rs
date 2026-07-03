@@ -34,6 +34,10 @@ pub struct PhpBridgeGenerator {
     /// For such a return the bridge first extracts the host's native `#[php_class]` object via
     /// `FromZval` and converts via `From<Binding>`, falling back to the `val.string()` + serde path.
     pub struct_return_types: std::collections::HashSet<String>,
+    /// Rust-defaulted trait methods the bridge forwards to the host when the PHP
+    /// object's class defines them (per the shared `forwardable_defaulted_method_names`
+    /// rule). Methods absent here keep the trait's Rust default unconditionally.
+    pub forwardable_defaulted: std::collections::HashSet<String>,
 }
 
 impl PhpBridgeGenerator {
@@ -114,6 +118,15 @@ impl PhpBridgeGenerator {
 }
 
 impl TraitBridgeGenerator for PhpBridgeGenerator {
+    fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        self.forwardable_defaulted.contains(&method.name).then(|| {
+            format!(
+                "{{\n    // SAFETY: PHP objects are single-threaded; reads are safe within a request.\n    let __class = unsafe {{ (*self.inner).get_class_name().unwrap_or_default() }};\n    ext_php_rs::zend::Function::try_from_method(&__class, \"{}\").is_some()\n}}",
+                method.name
+            )
+        })
+    }
+
     fn foreign_object_type(&self) -> &str {
         "*mut ext_php_rs::types::ZendObject"
     }
@@ -340,12 +353,17 @@ pub fn gen_trait_bridge(
         // clones through the binding's `From<core::T>` counterpart before falling back to JSON.
         let struct_return_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api);
+        // Rust-defaulted methods the bridge can forward to the host (host-defined
+        // implementations win; the Rust default runs otherwise).
+        let forwardable_defaulted =
+            crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = PhpBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             struct_param_types,
             struct_return_types,
+            forwardable_defaulted,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types
@@ -364,5 +382,62 @@ pub fn gen_trait_bridge(
             error_constructor: error_constructor.to_string(),
         };
         gen_bridge_all(&spec, &generator)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn presence_check_emitted_only_for_forwardable_defaulted_methods() {
+        let mut generator = PhpBridgeGenerator {
+            core_import: "sample_core".to_string(),
+            type_paths: HashMap::new(),
+            error_type: "SampleError".to_string(),
+            struct_param_types: std::collections::HashSet::new(),
+            struct_return_types: std::collections::HashSet::new(),
+            forwardable_defaulted: std::collections::HashSet::new(),
+        };
+        let trait_def = crate::core::ir::TypeDef {
+            name: "OcrBackend".to_string(),
+            rust_path: "sample_core::OcrBackend".to_string(),
+            is_trait: true,
+            is_opaque: true,
+            ..Default::default()
+        };
+        let bridge = crate::core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            ..crate::core::config::TraitBridgeConfig::default()
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge,
+            core_import: "sample_core",
+            wrapper_prefix: "Php",
+            type_paths: HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
+            error_type: "SampleError".to_string(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_string(),
+        };
+        let method = crate::core::ir::MethodDef {
+            name: "supports_table_detection".to_string(),
+            has_default_impl: true,
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            ..Default::default()
+        };
+        assert!(generator.gen_method_presence_check(&method, &spec).is_none());
+        generator
+            .forwardable_defaulted
+            .insert("supports_table_detection".to_string());
+        let check = generator.gen_method_presence_check(&method, &spec).unwrap();
+        assert!(
+            check.contains("Function::try_from_method"),
+            "php presence check must look the method up on the class: {check}"
+        );
+        assert!(
+            !check.contains("try_call_method"),
+            "presence must not invoke the method: {check}"
+        );
     }
 }
