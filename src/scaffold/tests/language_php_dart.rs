@@ -21,20 +21,33 @@ fn test_scaffold_php_omits_phpstan_and_cs_fixer_configs() {
             .any(|p| p.ends_with("phpstan.neon") || p.ends_with("phpstan-baseline.neon")),
         "must not emit phpstan config; got {paths:?}"
     );
-    let composer = all_files
+    // Both emitted manifests — the repo-root composer.json (Packagist/PIE) and
+    // the package-dir packages/php/composer.json (dev manifest) — are rendered
+    // from one builder; assert neither carries a retired PHP tool dep or script.
+    let composers: Vec<&GeneratedFile> = all_files
         .iter()
-        .find(|f| f.path.to_string_lossy() == "composer.json")
-        .expect("composer.json must be emitted");
-    assert!(
-        !composer.content.contains("phpstan") && !composer.content.contains("php-cs-fixer"),
-        "composer.json must not reference phpstan/php-cs-fixer; content:\n{}",
-        composer.content
+        .filter(|f| f.path.to_string_lossy().ends_with("composer.json"))
+        .collect();
+    assert_eq!(
+        composers.len(),
+        2,
+        "expected root + package composer.json; got {:?}",
+        composers.iter().map(|f| f.path.display().to_string()).collect::<Vec<_>>()
     );
-    assert!(
-        composer.content.contains("\"lint\": \"poly lint\""),
-        "composer.json lint script must call poly; content:\n{}",
-        composer.content
-    );
+    for composer in &composers {
+        assert!(
+            !composer.content.contains("phpstan") && !composer.content.contains("php-cs-fixer"),
+            "{} must not reference phpstan/php-cs-fixer; content:\n{}",
+            composer.path.display(),
+            composer.content
+        );
+        assert!(
+            composer.content.contains("\"lint\": \"poly lint\""),
+            "{} lint script must call poly; content:\n{}",
+            composer.path.display(),
+            composer.content
+        );
+    }
 }
 
 #[test]

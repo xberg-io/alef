@@ -193,8 +193,9 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 
     // Composer manifests are emitted twice with one structural difference: the
     // PSR-4 autoload src path. The package manifest at `{pkg_dir}/composer.json`
-    // is the dev manifest used by phpstan/phpunit/php-cs-fixer inside the
-    // package directory and points at `src/`. The root manifest at
+    // is the dev manifest used by phpunit inside the package directory and points
+    // at `src/` (lint+format are poly-native via mago — no phpstan/php-cs-fixer).
+    // The root manifest at
     // `composer.json` is the one Packagist indexes and PIE installs read — it
     // must point at `{pkg_dir}/src/` so the same PSR-4 classes resolve from
     // the repo root. Everything else (name, php-ext block, require/require-dev,

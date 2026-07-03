@@ -440,14 +440,7 @@ pub mod cran {
 }
 
 pub mod precommit {
-    // renovate: datasource=github-tags packageName=Goldziher/gitfluff
-    pub const GITFLUFF_REV: &str = "v0.8.0";
-
-    // The shared pre-commit hooks repo bundles the file-safety, cargo, rumdl,
-    // typos, and pyproject-fmt hooks under a single rev. Renovate bumps this on every release.
-    // renovate: datasource=github-tags packageName=xberg-io/pre-commit-hooks
-    pub const SHARED_PRE_COMMIT_HOOKS_REV: &str = "v2.1.0";
-
-    // alef rev: managed by sync-versions hook, no renovate marker
+    // alef rev: managed by sync-versions hook, no renovate marker. Folded into
+    // the generated `alef:hash:` inputs digest (see `core::hash`).
     pub const ALEF_REV: &str = "v0.30.15";
 }
