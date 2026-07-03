@@ -219,27 +219,43 @@ pub(super) fn emit_first_class_struct(
                 swift_ty
             };
 
-            if is_optional && matches!(&field.ty, TypeRef::Vec(_)) {
+            // The field is optional if the field flag is set OR the type itself is `Optional(...)`.
+            // `Option<Vec<Struct>>` reaches this arm in both shapes: `Vec` with the optional flag
+            // (how most DTOs model it) and an explicit `Optional(Vec<Struct>)` type.
+            let field_is_optional = is_optional || matches!(&field.ty, TypeRef::Optional(_));
+            // The inner `Vec<Named>` struct name, reached through an optional wrapper if present.
+            let inner_vec_named: Option<&str> = match &field.ty {
+                TypeRef::Vec(inner) => match inner.as_ref() {
+                    TypeRef::Named(name) => Some(name.as_str()),
+                    _ => None,
+                },
+                TypeRef::Optional(opt_inner) => match opt_inner.as_ref() {
+                    TypeRef::Vec(inner) => match inner.as_ref() {
+                        TypeRef::Named(name) => Some(name.as_str()),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            };
+
+            if field_is_optional {
                 // Optional<Vec<Struct>> is bridged as String (single JSON-encoded array or "null").
                 // The getter returns RustString (NOT optional), so no optional chaining on the getter.
-                // Decode using JSONDecoder, which naturally handles the "null" JSON value as None.
+                // Decode the whole array via JSONDecoder, which handles the "null" JSON value as None.
                 let accessor_with_chain = format!("rb.{rust_accessor}().toString()");
                 format!(
                     "try JSONDecoder().decode({swift_ty_with_opt}.self, from: \
                      (({accessor_with_chain}).data(using: .utf8) ?? Data(\"null\".utf8)))"
                 )
-            } else if let TypeRef::Vec(inner) = &field.ty {
+            } else if let Some(inner_struct_name) = inner_vec_named {
                 // Vec<Struct> (non-optional) is bridged as Vec<String>, which marshals as RustVec<RustString>.
                 // Each element is a RustStringRef containing JSON, so decode each one.
-                if let TypeRef::Named(inner_struct_name) = inner.as_ref() {
-                    format!(
-                        "try rb.{rust_accessor}().map {{ (s: RustStringRef) -> {inner_struct_name} in \
-                         let d = s.as_str().toString().data(using: .utf8) ?? Data(); \
-                         return try JSONDecoder().decode({inner_struct_name}.self, from: d) }}"
-                    )
-                } else {
-                    format!("rb.{rust_accessor}()")
-                }
+                format!(
+                    "try rb.{rust_accessor}().map {{ (s: RustStringRef) -> {inner_struct_name} in \
+                     let d = s.as_str().toString().data(using: .utf8) ?? Data(); \
+                     return try JSONDecoder().decode({inner_struct_name}.self, from: d) }}"
+                )
             } else {
                 format!("rb.{rust_accessor}()")
             }

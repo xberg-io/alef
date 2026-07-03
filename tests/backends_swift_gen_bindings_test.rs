@@ -2475,9 +2475,9 @@ fn first_class_struct_field_emits_doc_comment_above_let() {
     );
 }
 
-/// A DTO with a `Vec<Named>` field referencing another DTO in the same API must be
-/// emitted as a first-class `public struct`, with the correct `[T]` stored property
-/// and `try rb.field().map { try T($0) }` in `init(_ rb:)`.
+/// A DTO with a `Vec<Named>` field referencing another serde DTO in the same API must be
+/// emitted as a first-class `public struct`, with the correct `[T]` stored property and a
+/// per-element `JSONDecoder` map in `init(_ rb:)` (the Rust getter returns `Vec<String>`).
 #[test]
 fn complex_dto_with_vec_named_field_emits_first_class_struct() {
     let mut message_type = make_type("Message", vec![make_field("content", TypeRef::String, false)]);
@@ -2537,10 +2537,15 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
         "Vec<Message> field must emit [Message]; got:\n{content}"
     );
 
-    // init(_ rb:) must convert Vec<Named> via .map.
+    // init(_ rb:) must decode each Vec<Named-serde> element via JSONDecoder: the Rust getter
+    // returns Vec<String> (per-element JSON), marshaled as RustVec<RustString>.
     assert!(
-        content.contains("try rb.messages().map { try Message($0) }"),
-        "init must convert RustVec<Message> via .map; got:\n{content}"
+        content.contains(
+            "try rb.messages().map { (s: RustStringRef) -> Message in \
+             let d = s.as_str().toString().data(using: .utf8) ?? Data(); \
+             return try JSONDecoder().decode(Message.self, from: d) }"
+        ),
+        "init must JSON-decode each RustVec<Message> element; got:\n{content}"
     );
 
     // intoRust() must fall back to JSON (no direct constructor for complex type).
@@ -2618,8 +2623,9 @@ fn complex_dto_with_named_struct_field_emits_first_class_struct() {
     );
 }
 
-/// A DTO with an `Optional<Vec<Named>>` field (TypeRef::Optional wrapping) must be
-/// emitted as first-class, with `?.map` conversion in `init(_ rb:)`.
+/// A DTO with an `Optional<Vec<Named>>` field (TypeRef::Optional wrapping) must be emitted as
+/// first-class, with a whole-array `JSONDecoder` decode in `init(_ rb:)` (the Rust getter returns
+/// a single `String` — one JSON array, or "null" for None — so there is no per-element `.map`).
 #[test]
 fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
     let mut tool_type = make_type("Tool", vec![make_field("name", TypeRef::String, false)]);
@@ -2672,10 +2678,14 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
         "Optional<Vec<Tool>> must emit [Tool]?; got:\n{content}"
     );
 
-    // init must handle Optional<Vec<Named>> via ?.map.
+    // init must whole-array JSON-decode Optional<Vec<Named-serde>>: the Rust getter returns a
+    // single String (one JSON-encoded array, or "null" for None), not RustVec<RustString>.
     assert!(
-        content.contains("try rb.tools()?.map { try Tool($0) }"),
-        "init must convert Optional<Vec<Tool>> via ?.map; got:\n{content}"
+        content.contains(
+            "try JSONDecoder().decode([Tool]?.self, from: \
+             ((rb.tools().toString()).data(using: .utf8) ?? Data(\"null\".utf8)))"
+        ),
+        "init must whole-array JSON-decode Optional<Vec<Tool>>; got:\n{content}"
     );
 }
 
