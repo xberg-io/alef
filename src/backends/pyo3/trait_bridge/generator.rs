@@ -27,11 +27,24 @@ pub struct Pyo3BridgeGenerator {
     /// return the bridge first tries to extract the host's native Python object and convert it via
     /// `From<Binding>` for the core type, falling back to the JSON/mapping path otherwise.
     pub struct_return_types: std::collections::HashSet<String>,
+    /// Rust-defaulted trait methods the bridge forwards to the host when the Python
+    /// object defines them (per the shared `forwardable_defaulted_method_names` rule).
+    /// Methods absent here keep the trait's Rust default unconditionally.
+    pub forwardable_defaulted: std::collections::HashSet<String>,
 }
 
 impl TraitBridgeGenerator for Pyo3BridgeGenerator {
     fn foreign_object_type(&self) -> &str {
         "Py<PyAny>"
+    }
+
+    fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        self.forwardable_defaulted.contains(&method.name).then(|| {
+            format!(
+                "Python::attach(|py| self.inner.bind(py).hasattr(\"{}\").unwrap_or(false))",
+                method.name
+            )
+        })
     }
 
     fn bridge_imports(&self) -> Vec<String> {

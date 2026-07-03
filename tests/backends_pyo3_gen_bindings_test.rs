@@ -139,6 +139,7 @@ fn make_bridge_generator(core_import: &str) -> Pyo3BridgeGenerator {
         error_type: "Error".to_string(),
         struct_param_types: std::collections::HashSet::new(),
         struct_return_types: std::collections::HashSet::new(),
+        forwardable_defaulted: std::collections::HashSet::new(),
     }
 }
 

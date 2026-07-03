@@ -84,12 +84,17 @@ pub fn gen_trait_bridge(
         // bridge extracts and converts via `From<Binding>` (falling back to the mapping/JSON path).
         let struct_return_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api);
+        // Rust-defaulted methods the bridge can forward to the host (host-defined
+        // implementations win; the Rust default runs otherwise).
+        let forwardable_defaulted =
+            crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = Pyo3BridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             struct_param_types,
             struct_return_types,
+            forwardable_defaulted,
         };
         let lifetime_type_names: HashSet<String> = api
             .types
@@ -160,6 +165,7 @@ mod tests {
             error_type: "SampleError".to_owned(),
             struct_param_types: HashSet::new(),
             struct_return_types: HashSet::new(),
+            forwardable_defaulted: HashSet::new(),
         };
 
         let make_method = |is_async: bool| MethodDef {
@@ -238,6 +244,7 @@ mod tests {
             error_type: "SampleError".to_owned(),
             struct_param_types: HashSet::new(),
             struct_return_types: HashSet::new(),
+            forwardable_defaulted: HashSet::new(),
         };
 
         // A trait method returning a struct `Doc` exercises the json.dumps -> from_str path.
@@ -308,6 +315,7 @@ mod tests {
             error_type: "SampleError".to_owned(),
             struct_param_types: HashSet::new(),
             struct_return_types: HashSet::from(["Doc".to_owned()]),
+            forwardable_defaulted: HashSet::new(),
         };
 
         let make_method = |is_async: bool| MethodDef {
@@ -384,6 +392,7 @@ mod tests {
             error_type: "SampleError".to_owned(),
             struct_param_types: HashSet::from(["Input".to_owned()]),
             struct_return_types: HashSet::new(),
+            forwardable_defaulted: HashSet::new(),
         };
 
         let make_method = |is_async: bool| MethodDef {
