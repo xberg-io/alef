@@ -709,7 +709,7 @@ fn test_trait_bridge_unregister_and_clear_specs_match_atom_returns() {
     let content = &main.content;
 
     assert!(
-        content.contains("@spec unregister_ocr_backend(String.t()) :: :ok | :error")
+        content.contains("@spec unregister_ocr_backend(String.t() | keyword(String.t())) :: :ok | :error")
             && content.contains("@spec clear_ocr_backends() :: :ok | :error"),
         "unregister/clear specs must match Rustler NIF atom returns; got:\n{content}"
     );
