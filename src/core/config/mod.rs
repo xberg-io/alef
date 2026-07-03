@@ -17,6 +17,7 @@ pub mod package_metadata;
 pub mod poly;
 pub mod publish;
 pub mod raw_crate;
+pub mod registry;
 pub mod resolve_helpers;
 pub mod resolved;
 pub mod schema;
@@ -75,6 +76,13 @@ pub struct SourceCrate {
     /// Crate name (hyphens converted to underscores for rust_path).
     pub name: String,
     /// Source files belonging to this crate.
+    ///
+    /// When [`from_registry`](Self::from_registry) is `false` (the default), these paths are
+    /// resolved relative to the consumer workspace root — a sibling checkout must be present.
+    ///
+    /// When `from_registry = true`, each path is treated as **relative to the crate's
+    /// source directory in the cargo registry** (e.g. `~/.cargo/registry/src/…`). Alef
+    /// locates that directory via `cargo metadata` so no sibling checkout is required.
     pub sources: Vec<std::path::PathBuf>,
     /// Type roots to import from this crate as external DTOs.
     ///
@@ -84,6 +92,17 @@ pub struct SourceCrate {
     /// binding surface without importing functions or services.
     #[serde(default)]
     pub roots: Vec<String>,
+    /// Resolve sources from the cargo registry instead of a sibling workspace checkout.
+    ///
+    /// When `true`, Alef runs `cargo metadata` against the consumer workspace and
+    /// rebases each entry in [`sources`](Self::sources) against the registry source
+    /// directory of the crate named [`name`](Self::name). This makes regeneration
+    /// hermetic: CI, worktrees, and fresh clones do not need a sibling checkout of
+    /// the dependency.
+    ///
+    /// Defaults to `false` for full backward compatibility.
+    #[serde(default)]
+    pub from_registry: bool,
 }
 
 fn default_true() -> bool {

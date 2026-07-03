@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **config**: resolve `[[crates.source_crates]]` from the cargo registry via
+  `from_registry = true`. When set, each `sources` entry is treated as relative
+  to the crate's published source root (resolved through `cargo metadata`)
+  instead of a workspace-relative sibling path, making regeneration hermetic in
+  worktrees, CI, and fresh clones. Default (`false`) behavior is unchanged.
+
 ## [0.30.14] - 2026-07-03
 
 ### Fixed

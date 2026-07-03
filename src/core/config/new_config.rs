@@ -1,7 +1,7 @@
 //! `NewAlefConfig` and `ResolveError` — the multi-crate config schema.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,10 @@ pub enum ResolveError {
     /// A crate has an invalid or incompatible configuration.
     #[error("{0}")]
     InvalidConfig(String),
+
+    /// Registry resolution for a `from_registry = true` source crate failed.
+    #[error("registry resolution failed for source crate: {0}")]
+    RegistryResolution(String),
 }
 
 /// Top-level multi-crate configuration (new schema).
@@ -235,10 +239,12 @@ impl NewAlefConfig {
             }
         }
 
+        let source_crates = resolve_source_crates(&krate.source_crates, krate.workspace_root.as_deref())?;
+
         Ok(ResolvedCrateConfig {
             name: krate.name.clone(),
             sources: krate.sources.clone(),
-            source_crates: krate.source_crates.clone(),
+            source_crates,
             version_from: krate.version_from.clone().unwrap_or_else(|| "Cargo.toml".to_string()),
             core_import: krate.core_import.clone(),
             workspace_root: krate.workspace_root.clone(),
@@ -317,6 +323,47 @@ impl NewAlefConfig {
             extra_clippy_allows: ws.extra_clippy_allows.clone(),
         })
     }
+}
+
+/// Resolve a list of `SourceCrate` entries, rebasing sources for any entry with
+/// `from_registry = true` against the cargo registry path of that crate.
+///
+/// Entries with `from_registry = false` are returned unchanged.
+fn resolve_source_crates(
+    source_crates: &[super::SourceCrate],
+    workspace_root: Option<&Path>,
+) -> Result<Vec<super::SourceCrate>, ResolveError> {
+    source_crates
+        .iter()
+        .map(|sc| {
+            if !sc.from_registry {
+                return Ok(sc.clone());
+            }
+
+            let root = workspace_root
+                .map(|p| p.to_path_buf())
+                .or_else(|| std::env::current_dir().ok())
+                .ok_or_else(|| {
+                    ResolveError::RegistryResolution(format!(
+                        "source_crate `{}` has `from_registry = true` but `workspace_root` is not \
+                         set and `std::env::current_dir()` failed",
+                        sc.name
+                    ))
+                })?;
+
+            let crate_dir = super::registry::resolve_crate_source_dir(&root, &sc.name)
+                .map_err(ResolveError::RegistryResolution)?;
+
+            let rebased_sources = sc.sources.iter().map(|rel| crate_dir.join(rel)).collect();
+
+            Ok(super::SourceCrate {
+                name: sc.name.clone(),
+                sources: rebased_sources,
+                roots: sc.roots.clone(),
+                from_registry: sc.from_registry,
+            })
+        })
+        .collect()
 }
 
 fn merge_scaffold(

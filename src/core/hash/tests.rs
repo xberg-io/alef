@@ -447,6 +447,7 @@ fn crate_sources_hash_includes_source_crates() {
                     name: "extra-crate".to_string(),
                     sources: source_crate_sources,
                     roots: vec![],
+                    from_registry: false,
                 }]
             };
             ResolvedCrateConfig {
@@ -553,6 +554,7 @@ fn compute_crate_sources_hash_dedupes_overlapping_paths() {
                     name: "extra-crate".to_string(),
                     sources: source_crate_sources,
                     roots: vec![],
+                    from_registry: false,
                 }]
             };
             ResolvedCrateConfig {

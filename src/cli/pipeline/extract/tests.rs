@@ -453,6 +453,7 @@ pub fn external_function() -> ExternalConfig {
             name: "external-core".to_string(),
             sources: vec![source],
             roots: vec!["ExternalConfig".to_string()],
+            from_registry: false,
         }],
         ..Default::default()
     };
@@ -492,6 +493,7 @@ fn merge_external_type_roots_rejects_same_name_host_conflict() {
             name: "external-core".to_string(),
             sources: vec![source],
             roots: vec!["ExternalConfig".to_string()],
+            from_registry: false,
         }],
         ..Default::default()
     };
@@ -516,6 +518,7 @@ fn merge_external_type_roots_validates_qualified_roots_by_rust_path() {
             name: "external-core".to_string(),
             sources: vec![source],
             roots: vec!["other_core::ExternalConfig".to_string()],
+            from_registry: false,
         }],
         ..Default::default()
     };
@@ -566,6 +569,7 @@ pub struct NestedConfig {
             name: "external-core".to_string(),
             sources: vec![external],
             roots: vec!["external_core::ExternalConfig".to_string()],
+            from_registry: false,
         }],
         version_from: manifest.to_string_lossy().into_owned(),
         include: crate::core::config::IncludeConfig {
