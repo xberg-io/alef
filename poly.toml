@@ -22,7 +22,7 @@ exclude = [
 # regexes) is not portable to poly and is dropped — poly's tokenizer + 3-char
 # minimum already suppress hex-hash noise.
 [lint.typos]
-extend_words = { Prelease = "Prelease", wrkspace = "wrkspace", abl = "abl", unparseable = "unparseable", tring = "tring", ser = "ser" }
+extend_words = { Prelease = "Prelease", wrkspace = "wrkspace", abl = "abl", unparseable = "unparseable", tring = "tring", ser = "ser", arange = "arange", delocate = "delocate", flate = "flate" }
 
 [lint.markdown.rumdl]
 disable = ["MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076"]
