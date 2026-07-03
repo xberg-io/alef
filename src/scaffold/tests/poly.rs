@@ -169,6 +169,67 @@ fn poly_toml_omits_language_tables_when_language_absent() {
     assert!(c.contains("\"**/e2e/**\""), "test/e2e per-file-ignores always emitted");
 }
 
+// ── opt-in native-tool FORMAT enables + format excludes ─────────────────────
+
+#[test]
+fn poly_toml_never_enables_system_native_formatters() {
+    // Pure-Rust policy: alef never enables poly's opt-in system-toolchain
+    // formatters (they'd make output environment-dependent and break `alef
+    // verify`). Even with every relevant language present, none is enabled —
+    // poly formats them via its deterministic tier-2 tree-sitter tier.
+    let config = test_config();
+    let api = test_api();
+    let files = scaffold(
+        &api,
+        &config,
+        &[
+            Language::Zig,
+            Language::Java,
+            Language::Kotlin,
+            Language::KotlinAndroid,
+            Language::Swift,
+            Language::Dart,
+            Language::Gleam,
+            Language::R,
+        ],
+    )
+    .unwrap();
+    let c = &poly_toml(&files).content;
+    for header in [
+        "[fmt.shell.shfmt]",
+        "[fmt.zig.zigfmt]",
+        "[fmt.java.google-java-format]",
+        "[fmt.kotlin.ktfmt]",
+        "[fmt.swift.swift-format]",
+        "[fmt.dart.dartfmt]",
+        "[fmt.gleam.gleamfmt]",
+        "[fmt.r.styler]",
+    ] {
+        assert!(!c.contains(header), "{header} must NOT be enabled (pure-Rust policy); got:\n{c}");
+    }
+}
+
+#[test]
+fn poly_toml_excludes_only_cargo_toml_from_formatting() {
+    let config = test_config();
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let c = &poly_toml(&files).content;
+    // Cargo.toml is excluded (cargo sort owns it); Elixir is NOT excluded —
+    // poly's tier-2 formats `.ex`/`.exs` now (no `mix format` residual).
+    assert!(c.contains("\"**/Cargo.toml\","), "Cargo.toml must be excluded from poly; got:\n{c}");
+    assert!(
+        !c.contains("packages/elixir/**/*.ex"),
+        "Elixir must NOT be excluded (poly tier-2 formats it now); got:\n{c}"
+    );
+    // Mirrored into the builtin hook excludes too (git-hook path).
+    let polyfmt_pos = c.find("polyfmt = { exclude =").expect("polyfmt builtin present");
+    assert!(
+        c[polyfmt_pos..].contains("\"**/Cargo.toml\","),
+        "Cargo.toml exclude must be mirrored into the polyfmt builtin"
+    );
+}
+
 // ── [workspace.poly] merge tests ────────────────────────────────────────────
 
 #[test]

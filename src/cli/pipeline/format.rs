@@ -1,606 +1,226 @@
-use crate::core::config::{Language, ResolvedCrateConfig};
+use crate::core::config::{FormatConfig, Language, ResolvedCrateConfig};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use tracing::{debug, warn};
 
-/// One formatter invocation (command + args).
-struct FormatterCommand {
+/// One residual formatter invocation poly cannot perform (project-wide tools that
+/// don't fit poly's per-file model): `cargo sort`, `mix format`, `dotnet format`.
+struct ResidualStep {
     command: String,
     args: Vec<String>,
+    work_dir: PathBuf,
 }
 
-/// Post-generation formatter configuration.
-/// Each language may run a sequence of formatter commands in a working directory.
-struct FormatterSpec {
-    /// Commands to run in sequence; on first failure the rest are skipped (warning logged).
-    commands: Vec<FormatterCommand>,
-    /// Working directory relative to project root; empty string = project root.
-    work_dir: String,
-}
-
-/// Get the default formatter spec for a language.
+/// Run language-native formatters on emitted packages after generation.
 ///
-/// Notes on Rust formatting: backends that emit Rust code (FFI, PyO3, NAPI, Magnus,
-/// ext-php-rs, Rustler, wasm-bindgen) all live inside the consumer workspace, so a
-/// single `cargo fmt --all` from the project root covers every generated `.rs` file.
-/// We attach this to `Language::Ffi` because FFI is always present when any of the
-/// C-FFI-bridged languages (Go/Java/C#) are enabled, and harmless when only WASM
-/// or pure-Rust bindings are used.
-fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option<FormatterSpec> {
-    match lang {
-        // ruff check --fix runs lint autofixes (unused imports, missing TypeAlias
-        // annotations, import sorting); ruff format applies whitespace formatting.
-        // Both must run — `format` alone leaves I001/F401/TC008 issues that fail CI.
-        Language::Python => {
-            let package_path = config
-                .python
-                .as_ref()
-                .and_then(|python| python.stubs.as_ref())
-                .map(|stubs| stubs.output.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "packages/python/".to_owned());
-            Some(FormatterSpec {
-                commands: vec![
-                    FormatterCommand {
-                        command: "ruff".to_owned(),
-                        args: vec!["check".to_owned(), "--fix".to_owned(), package_path.clone()],
-                    },
-                    FormatterCommand {
-                        command: "ruff".to_owned(),
-                        args: vec!["format".to_owned(), package_path],
-                    },
-                ],
-                work_dir: String::new(),
-            })
+/// Formatting is delegated to poly (polylint) in-process: a single
+/// `polylint_core::format` pass over the generated repo formats every language
+/// poly supports (Python, JS/TS/JSON, PHP, Ruby, Rust, Go, Markdown, TOML, YAML,
+/// CSS, Java, Kotlin, R, Swift, Dart, Gleam, Zig, Shell). A small set of residual
+/// native passes runs afterwards for the project-wide tools poly cannot wrap
+/// (`cargo sort`, `mix format`, `dotnet format`).
+///
+/// Best-effort: a poly error or a missing residual tool is logged as a warning
+/// and never aborts the generate command.
+pub fn format_generated(
+    files: &[(Language, Vec<crate::core::backend::GeneratedFile>)],
+    config: &ResolvedCrateConfig,
+    base_dir: &Path,
+    only_languages: Option<&HashSet<Language>>,
+) {
+    // Deduplicated languages present in this batch, in first-seen order.
+    let mut seen = HashSet::new();
+    let present: Vec<Language> = files.iter().map(|(lang, _)| *lang).filter(|lang| seen.insert(*lang)).collect();
+
+    // Languages that should be formatted by poly's default pass. Custom overrides
+    // run immediately (they bypass the only_languages filter — an explicit
+    // declaration that the formatter must run whenever the language's files are
+    // present, so the embedded `alef:hash:` is computed over formatted content).
+    let mut poly_langs: Vec<Language> = Vec::new();
+    for &lang in &present {
+        let lang_str = lang.to_string().to_lowercase();
+        let fmt_cfg = effective_format_cfg(config, lang);
+
+        // `[workspace.format] enabled = false` (or a per-language override) skips
+        // formatting for that language entirely — including the poly pass.
+        if !fmt_cfg.enabled {
+            debug!("  [{lang_str}] formatting disabled, skipping");
+            continue;
         }
-        Language::Node => Some(FormatterSpec {
-            // Run the Oxc formatter and linter from the repo root so package,
-            // e2e, and registry-mode test app output are normalized consistently.
-            //
-            // Exclude TOML: oxfmt also reformats `.toml` (collapsing multi-line
-            // arrays, stripping inner-bracket spaces), which fights the consumer's
-            // own TOML tooling — `pyproject-fmt` (which wants `[ "x" ]`) and
-            // `cargo-sort`/`cargo fmt`. Letting oxfmt touch pyproject.toml/Cargo.toml
-            // strips spacing that those hooks re-add post-`finalize_hashes`, breaking
-            // `alef verify` (and producing a format/regen loop). The `!**/*.toml`
-            // exclude scopes oxfmt to the JS/TS/JSON/CSS files it owns.
-            commands: vec![
-                FormatterCommand {
-                    command: "pnpm".to_owned(),
-                    args: vec![
-                        "dlx".to_owned(),
-                        "oxfmt".to_owned(),
-                        ".".to_owned(),
-                        "!**/*.toml".to_owned(),
-                    ],
-                },
-                FormatterCommand {
-                    command: "pnpm".to_owned(),
-                    args: vec![
-                        "dlx".to_owned(),
-                        "oxlint".to_owned(),
-                        "--fix".to_owned(),
-                        ".".to_owned(),
-                    ],
-                },
-            ],
-            work_dir: ".".to_owned(),
-        }),
-        // Ruby's native crate (`packages/ruby/ext/<gem>/native/Cargo.toml`) is
-        // listed in the consumer workspace's `exclude` set, so `cargo sort -w`
-        // attached to the FFI formatter never visits it. Without an explicit
-        // pass, prek's `cargo-sort` hook rewrites the feature-array
-        // indentation after `finalize_hashes`, making `alef verify` report
-        // the file as stale on the next run. Run `cargo sort` against the
-        // native crate directly so the emitted Cargo.toml is already
-        // cargo-sort canonical at the moment its hash is finalised.
-        Language::Ruby => {
-            let gem_name = config.ruby_gem_name();
-            let native_subdir = format!("ext/{gem_name}/native");
-            Some(FormatterSpec {
-                commands: vec![
-                    FormatterCommand {
-                        command: "rubocop".to_owned(),
-                        args: vec!["-A".to_owned(), "--no-server".to_owned()],
-                    },
-                    FormatterCommand {
-                        command: "cargo".to_owned(),
-                        args: vec!["sort".to_owned(), native_subdir],
-                    },
-                ],
-                work_dir: "packages/ruby/".to_owned(),
-            })
-        }
-        Language::Php => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "php-cs-fixer".to_owned(),
-                args: vec!["fix".to_owned()],
-            }],
-            work_dir: "packages/php/".to_owned(),
-        }),
-        // Elixir's native NIF crate lives at
-        // `packages/elixir/native/<app>_nif/Cargo.toml` and is `exclude`d from
-        // the consumer's cargo workspace, so `cargo sort -w` from the FFI
-        // formatter does not reach it. Run cargo sort directly against the NIF
-        // crate so prek's `cargo-sort` hook is a no-op on every regen instead
-        // of rewriting feature indentation post-finalize and breaking
-        // `alef verify`.
-        Language::Elixir => {
-            let app_name = config.elixir_app_name();
-            let native_subdir = format!("native/{app_name}_nif");
-            Some(FormatterSpec {
-                commands: vec![
-                    FormatterCommand {
-                        command: "mix".to_owned(),
-                        args: vec!["format".to_owned()],
-                    },
-                    FormatterCommand {
-                        command: "cargo".to_owned(),
-                        args: vec!["sort".to_owned(), native_subdir],
-                    },
-                ],
-                work_dir: "packages/elixir/".to_owned(),
-            })
-        }
-        // Go formatting must match prek's `go-fmt` hook byte-for-byte so
-        // regenerated bindings survive prek without re-rewrites. The upstream
-        // hook runs `gofmt -s -w` and, when available, additionally runs
-        // `goimports -w`. Mirror exactly: `-s` enables simplifications and
-        // `goimports` handles import grouping that `gofmt` does not.
-        // `is_tool_available` skips a missing goimports with a warning.
-        Language::Go => Some(FormatterSpec {
-            commands: vec![
-                FormatterCommand {
-                    command: "gofmt".to_owned(),
-                    args: vec!["-s".to_owned(), "-w".to_owned(), ".".to_owned()],
-                },
-                FormatterCommand {
-                    command: "goimports".to_owned(),
-                    args: vec!["-w".to_owned(), ".".to_owned()],
-                },
-            ],
-            work_dir: "packages/go/".to_owned(),
-        }),
-        // google-java-format requires explicit file paths — no recursive flag.
-        // We collect *.java files from the work_dir at runtime and pass them as args.
-        // The command is built dynamically in `format_generated`; this spec carries
-        // only the base args (the file list is appended before invocation).
-        Language::Java => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "google-java-format".to_owned(),
-                args: vec!["-i".to_owned()],
-            }],
-            work_dir: "packages/java/src/".to_owned(),
-        }),
-        // Bug fix: when both a .csproj and a .slnx exist in packages/csharp/, `dotnet
-        // format` without a workspace argument aborts. Use the project_file from config
-        // when available so the correct project is targeted unambiguously.
-        Language::Csharp => {
-            let mut args = vec!["format".to_owned()];
-            let work_dir = "packages/csharp/".to_owned();
-            if let Some(project_file) = config.project_file_for_language(Language::Csharp) {
-                // project_file is a path relative to the project root (e.g.
-                // "packages/csharp/SampleLlm.csproj"). Strip the work_dir prefix so the
-                // argument is relative to work_dir where the command runs.
-                let relative = Path::new(project_file)
-                    .strip_prefix(&work_dir)
-                    .unwrap_or(Path::new(project_file));
-                args.push(relative.to_string_lossy().into_owned());
+
+        // Custom command replaces poly for this language and always runs.
+        if let Some(custom) = &fmt_cfg.command {
+            if let Err(e) = run_custom_formatter(custom, base_dir) {
+                warn!("[{lang_str}] custom formatter failed: {e}");
             }
-            Some(FormatterSpec {
-                commands: vec![FormatterCommand {
-                    command: "dotnet".to_owned(),
-                    args,
-                }],
-                work_dir,
-            })
+            continue;
         }
-        // Format the resolved wasm binding crate directly. The crate may be excluded
-        // from the root workspace, so `cargo fmt -p <pkg>` is not reliable.
-        // `cargo sort` normalises the generated Cargo.toml so prek's cargo-sort hook
-        // is a no-op; without it, cargo-sort reformats feature indentation after the
-        // hash is finalised, making alef verify report the file as stale.
-        //
-        // No oxfmt step: oxfmt's default TOML style (2-space indent, collapsed
-        // multi-line arrays) collides with cargo-sort's preserved 4-space
-        // indent, producing an infinite format/regen loop on the embedded hash.
-        // cargo-sort alone is enough to canonicalise the wasm Cargo.toml.
+
+        // Default (poly) formatters respect the only_languages filter so warming
+        // the cache (no file writes) avoids unnecessary formatting work.
+        if let Some(filter) = only_languages
+            && !filter.contains(&lang)
+        {
+            continue;
+        }
+        poly_langs.push(lang);
+    }
+
+    if poly_langs.is_empty() {
+        return;
+    }
+
+    // Single in-process poly pass. When only_languages is None (full regen) format
+    // the whole repo once; when Some (partial regen) scope to just the changed
+    // languages' package directories so unchanged languages are not reformatted.
+    let paths = poly_paths(config, base_dir, only_languages, &poly_langs);
+    poly_format(&paths, base_dir);
+
+    // Residual native passes poly cannot perform.
+    for &lang in &poly_langs {
+        let lang_str = lang.to_string().to_lowercase();
+        for step in language_residuals(config, lang, base_dir) {
+            run_residual(&step, &lang_str);
+        }
+    }
+}
+
+/// Resolve the effective format config for a language: a per-language
+/// `[workspace.format_overrides.<lang>]` shadows the `[workspace.format]` default.
+fn effective_format_cfg(config: &ResolvedCrateConfig, lang: Language) -> &FormatConfig {
+    let lang_str = lang.to_string().to_lowercase();
+    config.format_overrides.get(&lang_str).unwrap_or(&config.format)
+}
+
+/// Paths to hand to poly. Full regen → the repo root (one pass). Partial regen →
+/// the package directory of each changed language (existing dirs only, deduped).
+fn poly_paths(
+    config: &ResolvedCrateConfig,
+    base_dir: &Path,
+    only_languages: Option<&HashSet<Language>>,
+    poly_langs: &[Language],
+) -> Vec<PathBuf> {
+    match only_languages {
+        None => vec![base_dir.to_path_buf()],
+        Some(_) => {
+            let mut seen = HashSet::new();
+            let mut dirs = Vec::new();
+            for &lang in poly_langs {
+                let dir = base_dir.join(config.package_dir(lang));
+                if seen.insert(dir.clone()) && dir.exists() {
+                    dirs.push(dir);
+                }
+            }
+            dirs
+        }
+    }
+}
+
+/// Run the in-process poly formatter over `paths`, writing changed files in place.
+/// `config_start` is where poly begins its walk-up search for `poly.toml`.
+/// Best-effort: config-load or format errors are logged and never propagated.
+#[cfg(feature = "poly-fmt")]
+pub(crate) fn poly_format(paths: &[PathBuf], config_start: &Path) {
+    if paths.is_empty() {
+        return;
+    }
+    let cfg = match polylint_core::Config::load(config_start) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            warn!("poly config load failed (non-fatal): {e:#}");
+            return;
+        }
+    };
+    let opts = polylint_core::RunOptions {
+        no_cache: false,
+        jobs: None,
+        exclude: vec![],
+        explicit_config: false,
+    };
+    match polylint_core::format(paths, &cfg, &opts, true, false) {
+        Ok(_) => debug!("poly format over {} path(s) ok", paths.len()),
+        Err(e) => warn!("poly format failed (non-fatal): {e:#}"),
+    }
+}
+
+#[cfg(not(feature = "poly-fmt"))]
+pub(crate) fn poly_format(_paths: &[PathBuf], _config_start: &Path) {
+    warn!("poly-fmt feature disabled: skipping post-generation formatting");
+}
+
+/// Build the residual formatter steps for a language. The only residual is
+/// `cargo sort` for binding crates whose `Cargo.toml` is excluded from the poly
+/// pass — a dependency-ordering tool (not a formatter) that ships with cargo and
+/// is always present in alef's build environment. Everything else, including
+/// Elixir and C#, is formatted by poly's deterministic pure-Rust tier-2 tier
+/// (no `mix format` / `dotnet format` system-toolchain dependency).
+fn language_residuals(config: &ResolvedCrateConfig, lang: Language, base_dir: &Path) -> Vec<ResidualStep> {
+    match lang {
+        // The wasm binding crate is often excluded from the root workspace, so
+        // `cargo sort -w` never reaches it. Sort its Cargo.toml directly so it is
+        // already canonical when its hash is finalised.
         Language::Wasm => {
             let crate_dir = config
                 .output_for("wasm")
                 .map(resolve_crate_dir)
                 .unwrap_or_else(|| Path::new("crates").join(format!("{}-wasm", config.name)));
-            // Cargo accepts / on every platform; emit POSIX-style paths so CI
-            // behaviour on Windows matches Linux/macOS and the snapshot tests.
-            let manifest_path = crate_dir
-                .join("Cargo.toml")
-                .to_string_lossy()
-                .into_owned()
-                .replace('\\', "/");
+            // Cargo accepts `/` on every platform; emit POSIX paths for cross-OS parity.
             let crate_dir_str = crate_dir.to_string_lossy().into_owned().replace('\\', "/");
-            Some(FormatterSpec {
-                commands: vec![
-                    FormatterCommand {
-                        command: "cargo".to_owned(),
-                        args: vec!["fmt".to_owned(), "--manifest-path".to_owned(), manifest_path],
-                    },
-                    FormatterCommand {
-                        command: "cargo".to_owned(),
-                        args: vec!["sort".to_owned(), crate_dir_str],
-                    },
-                ],
-                work_dir: String::new(),
-            })
+            vec![cargo_sort(vec![crate_dir_str], base_dir.to_path_buf())]
         }
-        // FFI runs `cargo fmt --all` from project root: this formats every generated
-        // Rust crate in the consumer workspace (FFI, PyO3, NAPI-RS, Magnus, ext-php-rs,
-        // Rustler, wasm-bindgen). Was previously `cargo fmt` in `packages/ffi/` —
-        // which has no Cargo.toml, so it silently no-op'd and CI's `cargo fmt --check`
-        // would fail on the unformatted FFI lib.rs.
-        // `cargo sort -w` normalises all workspace Cargo.toml files so prek's
-        // cargo-sort hook is a no-op; without it the hook reformats feature
-        // indentation after finalize_hashes, making alef verify report stale files.
-        //
-        // No oxfmt step here. The shared SampleCrate pre-commit `oxfmt` hook is scoped
-        // to `[javascript, jsx, ts, tsx, json, css]` only (see pre-commit-hooks
-        // `.pre-commit-hooks.yaml`), so any JS/TS/JSON files that need oxfmt-shape
-        // formatting are picked up by the per-language scaffold + the consumer's
-        // own oxfmt hook on next commit. Running `pnpm dlx oxfmt .` from here would
-        // additionally reformat every TOML in the workspace — oxfmt's default
-        // settings differ from `cargo-sort` / hand-maintained Cargo.toml styles
-        // (collapses multi-line arrays, 2-space indent), which produced an
-        // infinite format/regen loop for any consumer whose hand-maintained
-        // Cargo.toml didn't already match oxfmt's TOML defaults.
-        Language::Ffi => Some(FormatterSpec {
-            commands: vec![
-                FormatterCommand {
-                    command: "cargo".to_owned(),
-                    args: vec!["fmt".to_owned(), "--all".to_owned()],
-                },
-                FormatterCommand {
-                    command: "cargo".to_owned(),
-                    args: vec!["sort".to_owned(), "-w".to_owned()],
-                },
-            ],
-            work_dir: String::new(),
-        }),
-        // R's extendr rust crate lives at `packages/r/src/rust/Cargo.toml`
-        // and is `exclude`d from the consumer's cargo workspace, so the FFI
-        // formatter's `cargo sort -w` never visits it. Run cargo sort
-        // explicitly so prek's `cargo-sort` hook doesn't rewrite feature
-        // indentation after `finalize_hashes` and break `alef verify`.
-        Language::R => Some(FormatterSpec {
-            commands: vec![
-                FormatterCommand {
-                    command: "Rscript".to_owned(),
-                    args: vec!["-e".to_owned(), "styler::style_pkg('packages/r')".to_owned()],
-                },
-                FormatterCommand {
-                    command: "cargo".to_owned(),
-                    args: vec!["sort".to_owned(), "packages/r/src/rust".to_owned()],
-                },
-            ],
-            work_dir: String::new(),
-        }),
-        // Kotlin (JVM, non-Android) formatting matches prek's `ktfmt` hook
-        // byte-for-byte: ktfmt + `--kotlinlang-style` is Google's reference
-        // formatter and produces a different canonical shape than ktlint
-        // (parameter wrapping, expression body inference, single-line bodies).
-        // Files are appended dynamically in `format_generated` to match
-        // prek's per-file invocation pattern; ktlint stays at the linter layer.
-        Language::Kotlin => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "ktfmt".to_owned(),
-                args: vec!["--kotlinlang-style".to_owned()],
-            }],
-            work_dir: "packages/kotlin/src".to_owned(),
-        }),
-        Language::KotlinAndroid => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "ktfmt".to_owned(),
-                args: vec!["--kotlinlang-style".to_owned()],
-            }],
-            work_dir: "packages/kotlin-android/src".to_owned(),
-        }),
-        Language::Swift => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "swift".to_owned(),
-                args: vec![
-                    "format".to_owned(),
-                    "--in-place".to_owned(),
-                    "--recursive".to_owned(),
-                    "Sources".to_owned(),
-                ],
-            }],
-            work_dir: "packages/swift/".to_owned(),
-        }),
-        Language::Dart => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "dart".to_owned(),
-                args: vec!["format".to_owned(), ".".to_owned()],
-            }],
-            work_dir: "packages/dart/".to_owned(),
-        }),
-        Language::Gleam => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "gleam".to_owned(),
-                args: vec!["format".to_owned()],
-            }],
-            work_dir: "packages/gleam/".to_owned(),
-        }),
-        Language::Zig => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "zig".to_owned(),
-                args: vec!["fmt".to_owned(), "src".to_owned()],
-            }],
-            work_dir: "packages/zig/".to_owned(),
-        }),
-        // C is an e2e test consumer of the FFI layer — no generated files to format.
-        // Jni output is Rust source formatted by `cargo fmt --all` (triggered by the Ffi formatter).
-        Language::Rust | Language::C | Language::Jni => None,
+        // Workspace-wide cargo sort normalises every in-workspace binding crate's
+        // Cargo.toml (FFI, PyO3, NAPI-RS, Magnus, ext-php-rs, Rustler, wasm-bindgen).
+        Language::Ffi => vec![cargo_sort(vec!["-w".to_owned()], base_dir.to_path_buf())],
+        // Ruby's native crate lives outside the consumer workspace.
+        Language::Ruby => {
+            let gem_name = config.ruby_gem_name();
+            let native_subdir = format!("ext/{gem_name}/native");
+            vec![cargo_sort(vec![native_subdir], base_dir.join("packages/ruby"))]
+        }
+        // Elixir: cargo sort for the workspace-excluded NIF crate. The `.ex`/
+        // `.exs` sources are formatted by poly's tier-2 tier (no `mix format`).
+        Language::Elixir => {
+            let app_name = config.elixir_app_name();
+            let native_subdir = format!("native/{app_name}_nif");
+            vec![cargo_sort(vec![native_subdir], base_dir.join("packages/elixir"))]
+        }
+        // The extendr R crate is workspace-excluded.
+        Language::R => vec![cargo_sort(vec!["packages/r/src/rust".to_owned()], base_dir.to_path_buf())],
+        // C# is formatted by poly's tier-2 tier — no `dotnet format` residual.
+        _ => vec![],
     }
 }
 
-/// Detect whether the consumer's Java package configures Spotless via
-/// `spotless-maven-plugin`. The walked pom is `<base>/<work_dir>/../pom.xml`
-/// (one level up from `packages/java/src/`, which is `packages/java/pom.xml`).
-///
-/// Returns the path to the pom when Spotless is configured, otherwise `None`.
-/// The check is conservative — a literal substring match on the plugin
-/// artifactId — because parsing a full pom is wildly out of scope for a
-/// formatter-selection heuristic.
-fn detect_spotless_pom(base_dir: &Path, java_work_dir: &str) -> Option<PathBuf> {
-    let pom = base_dir.join(java_work_dir).parent()?.join("pom.xml");
-    if !pom.is_file() {
-        return None;
-    }
-    let content = std::fs::read_to_string(&pom).ok()?;
-    if content.contains("spotless-maven-plugin") {
-        Some(pom)
-    } else {
-        None
+/// Construct a `cargo sort` residual step.
+fn cargo_sort(mut sort_args: Vec<String>, work_dir: PathBuf) -> ResidualStep {
+    let mut args = vec!["sort".to_owned()];
+    args.append(&mut sort_args);
+    ResidualStep {
+        command: "cargo".to_owned(),
+        args,
+        work_dir,
     }
 }
 
-/// Collect all `.java` files under `dir` recursively (up to `limit` paths).
-/// Returns an empty vec if the directory does not exist or cannot be read.
-fn collect_java_files(dir: &Path, limit: usize) -> Vec<PathBuf> {
-    let pattern = format!("{}/**/*.java", dir.display());
-    let Ok(entries) = glob::glob(&pattern) else {
-        return vec![];
-    };
-    entries.flatten().filter(|p| p.is_file()).take(limit).collect()
-}
-
-/// Collect all `.kt` and `.kts` files under `dir` recursively (up to `limit` paths).
-/// Returns an empty vec if the directory does not exist or cannot be read.
-///
-/// ktfmt requires explicit per-file arguments to produce byte-stable output that
-/// matches prek's ktfmt hook (which is also invoked per-file by pre-commit).
-/// Without per-file invocation the two passes drift even with identical version+flags.
-fn collect_kotlin_files(dir: &Path, limit: usize) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for ext in ["kt", "kts"] {
-        let pattern = format!("{}/**/*.{ext}", dir.display());
-        let Ok(entries) = glob::glob(&pattern) else { continue };
-        for entry in entries.flatten() {
-            if entry.is_file() {
-                out.push(entry);
-                if out.len() >= limit {
-                    return out;
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Run language-native formatters on emitted packages after generation.
-/// For each language in the output, if formatting is enabled and the formatter binary
-/// is available, run the formatter in the package directory.
-/// Formatter errors are logged as warnings and do not fail the generate command.
-pub fn format_generated(
-    files: &[(Language, Vec<crate::core::backend::GeneratedFile>)],
-    config: &ResolvedCrateConfig,
-    base_dir: &Path,
-    only_languages: Option<&std::collections::HashSet<Language>>,
-) {
-    let mut formatted_langs = std::collections::HashSet::new();
-
-    for (lang, _) in files {
-        // Skip if already formatted in this batch
-        if formatted_langs.contains(lang) {
-            continue;
-        }
-
-        // Resolve format config for this language (check overrides first)
-        let lang_str = lang.to_string().to_lowercase();
-        let format_cfg = config
-            .format_overrides
-            .get(&lang_str)
-            .cloned()
-            .unwrap_or_else(|| config.format.clone());
-
-        // Languages with a custom format_override command bypass the only_languages
-        // filter. A custom command is an explicit declaration that this formatter
-        // must run whenever the language's files are present in the output — even
-        // when the generated content is identical to on-disk content (i.e., files
-        // were not re-written this run). Skipping in that case would leave the
-        // embedded alef:hash: computed over pre-formatter content, causing prek's
-        // own formatter hook to rewrite the files post-hash and break alef verify.
-        // Default formatters still respect only_languages so that warming the cache
-        // (no file writes) avoids unnecessary ruff/mix-format/etc. invocations.
-        let has_custom_command = format_cfg.command.is_some();
-        if !has_custom_command {
-            if let Some(filter) = only_languages {
-                if !filter.contains(lang) {
-                    continue;
-                }
-            }
-        }
-
-        if !format_cfg.enabled {
-            debug!("  [{lang_str}] formatting disabled, skipping");
-            continue;
-        }
-
-        // Get the formatter command (custom or default)
-        let formatter_cmd = if let Some(custom) = format_cfg.command {
-            // Custom command: run as-is in the package directory
-            if let Err(e) = run_custom_formatter(&custom, base_dir) {
-                warn!("[{lang_str}] custom formatter failed: {e}");
-            }
-            formatted_langs.insert(*lang);
-            continue;
-        } else if let Some(spec) = get_default_formatter(config, *lang) {
-            // For Java, prefer the project's Spotless pipeline when configured in
-            // packages/java/pom.xml — running the same tool the project's prek
-            // hook would run keeps `alef-verify` stable. Falling back to
-            // google-java-format would produce different bytes than Spotless,
-            // and the embedded `alef:hash:` value would invalidate as soon as
-            // prek's `mvn spotless:apply` ran. See issue parser-pack/v1.8.0-rc.14.
-            if *lang == Language::Java
-                && let Some(pom) = detect_spotless_pom(base_dir, &spec.work_dir)
-            {
-                debug!(
-                    "  [java] spotless detected at {}, using mvn spotless:apply",
-                    pom.display()
-                );
-                FormatterSpec {
-                    commands: vec![FormatterCommand {
-                        command: "mvn".to_owned(),
-                        args: vec![
-                            "-f".to_owned(),
-                            pom.to_string_lossy().into_owned(),
-                            "spotless:apply".to_owned(),
-                            "-q".to_owned(),
-                        ],
-                    }],
-                    work_dir: spec.work_dir,
-                }
-            } else {
-                spec
-            }
-        } else {
-            // No formatter for this language (e.g., Rust is formatted in-memory before writing)
-            debug!("  [{lang_str}] no default formatter configured");
-            continue;
-        };
-
-        // Resolve work dir (empty string = project root)
-        let work_dir = if formatter_cmd.work_dir.is_empty() {
-            base_dir.to_path_buf()
-        } else {
-            base_dir.join(&formatter_cmd.work_dir)
-        };
-        if !work_dir.exists() {
-            debug!(
-                "  [{lang_str}] package directory does not exist: {}, skipping",
-                work_dir.display()
-            );
-            continue;
-        }
-
-        // Run each command in sequence; stop on first failure (warning logged)
-        for step in &formatter_cmd.commands {
-            if !is_tool_available(&step.command) {
-                warn!("[{lang_str}] formatter not found: {} (skipping format)", step.command);
-                break;
-            }
-
-            // For Java, google-java-format requires explicit file paths: collect them now.
-            // Spotless and other Maven-driven formatters operate on the pom and don't
-            // take per-file arguments, so the collection is skipped for them.
-            //
-            // For Kotlin-Android, ktfmt also requires explicit per-file paths to produce
-            // byte-stable output that matches prek's ktfmt hook (also per-file). Without
-            // this, alef's post-format pass and prek's hook drift even with identical
-            // version + flag set.
-            let extra_args: Vec<String> = if *lang == Language::Java && step.command == "google-java-format" {
-                const JAVA_FILE_BATCH_LIMIT: usize = 200;
-                let java_files = collect_java_files(&work_dir, JAVA_FILE_BATCH_LIMIT);
-                if java_files.is_empty() {
-                    debug!(
-                        "  [{lang_str}] no .java files found in {}, skipping",
-                        work_dir.display()
-                    );
-                    break;
-                }
-                java_files
-                    .into_iter()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .collect()
-            } else if (*lang == Language::KotlinAndroid || *lang == Language::Kotlin) && step.command == "ktfmt" {
-                const KOTLIN_FILE_BATCH_LIMIT: usize = 500;
-                let kotlin_files = collect_kotlin_files(&work_dir, KOTLIN_FILE_BATCH_LIMIT);
-                if kotlin_files.is_empty() {
-                    debug!(
-                        "  [{lang_str}] no .kt/.kts files found in {}, skipping",
-                        work_dir.display()
-                    );
-                    break;
-                }
-                kotlin_files
-                    .into_iter()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .collect()
-            } else {
-                vec![]
-            };
-
-            let mut all_args: Vec<&str> = step.args.iter().map(String::as_str).collect();
-            let extra_refs: Vec<&str> = extra_args.iter().map(String::as_str).collect();
-            all_args.extend_from_slice(&extra_refs);
-
-            match run_formatter(&step.command, &all_args, &work_dir) {
-                Ok(()) => {
-                    debug!("  [{lang_str}] {} {:?} ok", step.command, all_args);
-                }
-                Err(e) => {
-                    warn!("[{lang_str}] {} {:?} failed: {}", step.command, all_args, e);
-                    break;
-                }
-            }
-        }
-
-        formatted_langs.insert(*lang);
-    }
-
-    // Workspace-wide shell-script normalization. Several backends emit shell
-    // scripts (`download_ffi.sh` for C/Go FFI bootstrap, `install.sh` for PHP
-    // PIE setup, `run_tests.sh` for homebrew e2e). Without an explicit shfmt
-    // pass, prek's `shfmt` hook rewrites the redirection spacing (`>"$M"` vs
-    // `> "$M"`) after generation, then `alef verify` keeps reporting drift on
-    // every regen. Mirror prek's invocation (`shfmt -w -i 2`) so alef's
-    // output is already canonical at the moment hashes are finalised.
-    shfmt_emitted_scripts(files, base_dir);
-}
-
-/// Run `shfmt -w -i 2` on every emitted `.sh` file across all backends.
-///
-/// Path arguments are batched into a single invocation. `shfmt` rewrites files
-/// in place and returns non-zero only for unrecoverable parse errors; we log
-/// any non-success exit as a warning and continue — matching
-/// `format_generated`'s best-effort contract. Missing `shfmt` is a warning,
-/// not a fatal error.
-fn shfmt_emitted_scripts(files: &[(Language, Vec<crate::core::backend::GeneratedFile>)], base_dir: &Path) {
-    let scripts: Vec<String> = files
-        .iter()
-        .flat_map(|(_, lang_files)| lang_files.iter())
-        .filter(|f| f.path.extension().is_some_and(|e| e == "sh"))
-        .map(|f| base_dir.join(&f.path).to_string_lossy().into_owned())
-        .collect();
-    if scripts.is_empty() {
+/// Run a single residual step, best-effort: a missing work dir or tool is a
+/// warning/skip, a non-zero exit is a warning. Never aborts generation.
+fn run_residual(step: &ResidualStep, lang_str: &str) {
+    if !step.work_dir.exists() {
+        debug!(
+            "  [{lang_str}] residual work dir does not exist: {}, skipping",
+            step.work_dir.display()
+        );
         return;
     }
-    if !is_tool_available("shfmt") {
-        warn!("shfmt not found on PATH (skipping shell-script format)");
+    if !is_tool_available(&step.command) {
+        warn!("[{lang_str}] residual formatter not found: {} (skipping)", step.command);
         return;
     }
-    let mut args: Vec<&str> = vec!["-w", "-i", "2"];
-    args.extend(scripts.iter().map(String::as_str));
-    match run_formatter("shfmt", &args, base_dir) {
-        Ok(()) => debug!("  [shell] shfmt over {} script(s) ok", scripts.len()),
-        Err(e) => warn!("[shell] shfmt failed: {e}"),
+    let args: Vec<&str> = step.args.iter().map(String::as_str).collect();
+    match run_formatter(&step.command, &args, &step.work_dir) {
+        Ok(()) => debug!("  [{lang_str}] {} {:?} ok", step.command, args),
+        Err(e) => warn!("[{lang_str}] {} {:?} failed: {e}", step.command, args),
     }
 }
 

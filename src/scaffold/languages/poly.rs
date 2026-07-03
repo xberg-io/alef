@@ -60,6 +60,22 @@ const EXCLUDES: &[&str] = &[
     "vendor/**",
 ];
 
+/// Globs excluded specifically to keep poly's whole-repo format pass from
+/// fighting alef's residual native passes (see `cli::pipeline::format`):
+///
+/// * `**/Cargo.toml` — poly's taplo and `cargo sort` (run as a residual + by the
+///   `cargo` hook) canonicalize TOML differently; letting both touch Cargo.toml
+///   produces an infinite format/regen loop on the embedded hash. cargo-sort owns
+///   Cargo.toml.
+/// * `packages/elixir/**/*.ex` / `*.exs` — poly's tree-sitter tier would reindent
+///   Elixir before the residual `mix format` runs, breaking hash stability. mix
+///   owns Elixir source.
+// `Cargo.toml` is excluded from poly's whole-repo format pass: `cargo sort`
+// (a residual step) owns dependency ordering there, and poly's taplo would fight
+// its array formatting. Everything else — including Elixir `.ex`/`.exs` — is
+// formatted by poly's tier-2 tree-sitter tier.
+const POLY_FORMAT_EXCLUDES: &[&str] = &["**/Cargo.toml"];
+
 /// Ruff rules ignored repo-wide for generated Python (ported verbatim from the
 /// former pyproject `[tool.ruff] lint.ignore`).
 const RUFF_IGNORE: &[&str] = &[
@@ -162,7 +178,12 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
 
     // Build the merged exclude list: built-in defaults first, then repo extras.
     let extra_excludes: Vec<&str> = config.poly.exclude.iter().map(String::as_str).collect();
-    let all_excludes: Vec<&str> = EXCLUDES.iter().copied().chain(extra_excludes).collect();
+    let all_excludes: Vec<&str> = EXCLUDES
+        .iter()
+        .copied()
+        .chain(POLY_FORMAT_EXCLUDES.iter().copied())
+        .chain(extra_excludes)
+        .collect();
     let excludes = toml_array(&all_excludes);
 
     let mut out = String::new();
@@ -174,6 +195,17 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
     let md_disable = toml_array(RUMDL_DISABLE);
     out.push_str(&format!("[lint.markdown.rumdl]\ndisable = {md_disable}\n\n"));
     out.push_str(&format!("[fmt.markdown.rumdl]\ndisable = {md_disable}\n\n"));
+
+    // NOTE: alef deliberately does NOT enable poly's opt-in native-toolchain
+    // formatters (shfmt, zig fmt, google-java-format, ktfmt, swift-format, dart
+    // format, gleam format, styler). Those require the language's system
+    // toolchain and make the formatted output environment-dependent — which
+    // would break `alef verify` hash stability across machines. Instead every
+    // language without a pure-Rust tier-1 poly engine is formatted by poly's
+    // deterministic, zero-dependency tree-sitter (tier-2) generic formatter.
+    // Go (gofmt) and Rust (rustfmt) stay at poly's default-on: alef already
+    // requires those toolchains (Layer B formats Rust/Go in-memory pre-hash),
+    // and consumer Go/Rust CI expects canonical gofmt/rustfmt output.
 
     // Native lint/format tables — only for languages needing non-default config.
     if has(Language::Python) {

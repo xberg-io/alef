@@ -21,7 +21,7 @@ pkg-fmt = "tgz"
 pkg-fmt = "zip"
 
 [package.metadata.cargo-machete]
-ignored = ["tracing"]
+ignored = ["tracing", "polylint-core"]
 [lib]
 name = "alef"
 path = "src/lib.rs"
@@ -31,11 +31,14 @@ name = "alef"
 path = "src/main.rs"
 
 [features]
+default = ["poly-fmt"]
 dylib-loader = []
+poly-fmt = ["dep:polylint-core"]
 
 [dependencies]
 ahash = "0.8"
 anyhow = "1"
+polylint-core = { git = "https://github.com/Goldziher/polylint", rev = "e9b54a364e589c114b2cdc67a3299aefe10fd8fd", optional = true }
 base64 = "0.22"
 blake3 = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
