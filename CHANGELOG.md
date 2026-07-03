@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **poly**: `[workspace.poly.typos]` in `alef.toml` now feeds typos
+  spell-checker allowlists into the generated `poly.toml`. Declare
+  `[workspace.poly.typos.extend-words]` and
+  `[workspace.poly.typos.extend-identifiers]` (each a `word = "word"` table)
+  to preserve repo-specific allowlists across every `alef all` regeneration.
+  Previously, `alef generate` clobbered hand-edited `[lint.typos.*]` sections
+  in `poly.toml`; those customisations must now live in `alef.toml` under
+  `[workspace.poly.typos]` (fixes #66, enables #67).
+
 - **config**: resolve `[[crates.source_crates]]` from the cargo registry via
   `from_registry = true`. When set, each `sources` entry is treated as relative
   to the crate's published source root (resolved through `cargo metadata`)

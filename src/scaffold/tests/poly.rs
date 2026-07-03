@@ -262,3 +262,121 @@ fn poly_toml_empty_poly_config_leaves_output_unchanged() {
         "empty [workspace.poly] must produce byte-identical poly.toml"
     );
 }
+
+// ── [workspace.poly.typos] merge tests ───────────────────────────────────────
+
+#[test]
+fn poly_toml_typos_extend_words_emitted_before_per_file_ignores() {
+    let config = test_config_with_workspace_toml(
+        r#"[workspace.poly.typos.extend-words]
+flate = "flate"
+arange = "arange"
+"#,
+    );
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let c = &poly_toml(&files).content;
+
+    // Section header must be present.
+    assert!(
+        c.contains("[lint.typos.extend_words]\n"),
+        "[lint.typos.extend_words] section must be emitted; got:\n{c}"
+    );
+    // Entries appear in BTreeMap (alphabetical) order.
+    assert!(c.contains("arange = \"arange\""), "arange entry must appear");
+    assert!(c.contains("flate = \"flate\""), "flate entry must appear");
+
+    // Typos tables must precede [per-file-ignores].
+    let typos_pos = c.find("[lint.typos.extend_words]").expect("extend_words present");
+    let per_file_pos = c.find("[per-file-ignores]").expect("per-file-ignores present");
+    assert!(
+        typos_pos < per_file_pos,
+        "[lint.typos.*] must appear before [per-file-ignores]"
+    );
+}
+
+#[test]
+fn poly_toml_typos_extend_identifiers_emitted() {
+    let config = test_config_with_workspace_toml(
+        r#"[workspace.poly.typos.extend-identifiers]
+PyMuPDF = "PyMuPDF"
+PDFium = "PDFium"
+"#,
+    );
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let c = &poly_toml(&files).content;
+
+    assert!(
+        c.contains("[lint.typos.extend_identifiers]\n"),
+        "[lint.typos.extend_identifiers] section must be emitted; got:\n{c}"
+    );
+    assert!(c.contains("PDFium = \"PDFium\""), "PDFium identifier must appear");
+    assert!(c.contains("PyMuPDF = \"PyMuPDF\""), "PyMuPDF identifier must appear");
+
+    // No extend_words section when it is empty.
+    assert!(
+        !c.contains("[lint.typos.extend_words]"),
+        "extend_words must not be emitted when empty"
+    );
+}
+
+#[test]
+fn poly_toml_typos_both_tables_emitted_with_correct_ordering() {
+    let config = test_config_with_workspace_toml(
+        r#"[workspace.poly.typos.extend-words]
+flate = "flate"
+
+[workspace.poly.typos.extend-identifiers]
+PyMuPDF = "PyMuPDF"
+"#,
+    );
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let c = &poly_toml(&files).content;
+
+    assert!(c.contains("[lint.typos.extend_words]\n"), "extend_words must be emitted");
+    assert!(c.contains("[lint.typos.extend_identifiers]\n"), "extend_identifiers must be emitted");
+
+    // extend_words comes before extend_identifiers.
+    let words_pos = c.find("[lint.typos.extend_words]").expect("extend_words present");
+    let idents_pos = c.find("[lint.typos.extend_identifiers]").expect("extend_identifiers present");
+    let per_file_pos = c.find("[per-file-ignores]").expect("per-file-ignores present");
+    assert!(words_pos < idents_pos, "extend_words must precede extend_identifiers");
+    assert!(idents_pos < per_file_pos, "typos tables must precede per-file-ignores");
+}
+
+#[test]
+fn poly_toml_empty_typos_config_emits_no_typos_tables() {
+    // Default config (no [workspace.poly.typos]) must not emit any [lint.typos.*] tables.
+    let config = test_config();
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let c = &poly_toml(&files).content;
+
+    assert!(
+        !c.contains("[lint.typos."),
+        "no [lint.typos.*] tables must be emitted when TyposConfig is empty; got:\n{c}"
+    );
+}
+
+#[test]
+fn poly_toml_typos_entries_are_alphabetically_ordered() {
+    // BTreeMap guarantees alphabetical key order — verify it in the output.
+    let config = test_config_with_workspace_toml(
+        r#"[workspace.poly.typos.extend-words]
+zensical = "zensical"
+arange = "arange"
+flate = "flate"
+"#,
+    );
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let c = &poly_toml(&files).content;
+
+    let arange_pos = c.find("arange =").expect("arange entry present");
+    let flate_pos = c.find("flate =").expect("flate entry present");
+    let zensical_pos = c.find("zensical =").expect("zensical entry present");
+    assert!(arange_pos < flate_pos, "arange must come before flate (alphabetical)");
+    assert!(flate_pos < zensical_pos, "flate must come before zensical (alphabetical)");
+}

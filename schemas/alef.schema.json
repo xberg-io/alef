@@ -4365,7 +4365,7 @@
     },
     "PolyConfig": {
       "additionalProperties": false,
-      "description": "Repo-specific `poly.toml` overrides merged into the emitter's generated\noutput.\n\nDeclared under `[workspace.poly]` in `alef.toml`.  An empty (or absent)\n`[workspace.poly]` section leaves the generated output byte-identical to the\ndefault.\n\n```toml\n[workspace.poly]\nexclude = [\"vendor/generated/**\", \"third-party/**\"]\n\n[workspace.poly.per-file-ignores]\n\"**/legacy_api.py\" = [\"ANN\", \"D103\"]\n\"**/compat.py\"     = [\"UP035\", \"F401\"]\n```",
+      "description": "Repo-specific `poly.toml` overrides merged into the emitter's generated\noutput.\n\nDeclared under `[workspace.poly]` in `alef.toml`.  An empty (or absent)\n`[workspace.poly]` section leaves the generated output byte-identical to the\ndefault.\n\n```toml\n[workspace.poly]\nexclude = [\"vendor/generated/**\", \"third-party/**\"]\n\n[workspace.poly.typos.extend-words]\nflate = \"flate\"\n\n[workspace.poly.typos.extend-identifiers]\nPyMuPDF = \"PyMuPDF\"\n\n[workspace.poly.per-file-ignores]\n\"**/legacy_api.py\" = [\"ANN\", \"D103\"]\n\"**/compat.py\"     = [\"UP035\", \"F401\"]\n```",
       "properties": {
         "exclude": {
           "default": [],
@@ -4385,6 +4385,14 @@
           "default": {},
           "description": "Repo-specific cross-engine per-file rule suppressions merged into the\nemitted `[per-file-ignores]` table.\n\nKeys are gitignore-style glob patterns; values are lists of rule codes.\nRule codes are engine-agnostic — an unknown code simply no-ops on files\nof other languages.\n\nUses [`BTreeMap`] so entries are written to `poly.toml` in\ndeterministic (alphabetical key) order.",
           "type": "object"
+        },
+        "typos": {
+          "$ref": "#/$defs/TyposConfig",
+          "default": {
+            "extend-identifiers": {},
+            "extend-words": {}
+          },
+          "description": "Typos spell-checker word and identifier allowlists.\n\nMerged into `[lint.typos.extend_words]` and\n`[lint.typos.extend_identifiers]` in the generated poly.toml.\nWhen all sub-tables are empty, no `[lint.typos.*]` sections are emitted."
         }
       },
       "type": "object"
@@ -6023,6 +6031,11 @@
     "SourceCrate": {
       "description": "A source crate group for multi-crate extraction.",
       "properties": {
+        "from_registry": {
+          "default": false,
+          "description": "Resolve sources from the cargo registry instead of a sibling workspace checkout.\n\nWhen `true`, Alef runs `cargo metadata` against the consumer workspace and\nrebases each entry in [`sources`](Self::sources) against the registry source\ndirectory of the crate named [`name`](Self::name). This makes regeneration\nhermetic: CI, worktrees, and fresh clones do not need a sibling checkout of\nthe dependency.\n\nDefaults to `false` for full backward compatibility.",
+          "type": "boolean"
+        },
         "name": {
           "description": "Crate name (hyphens converted to underscores for rust_path).",
           "type": "string"
@@ -6036,7 +6049,7 @@
           "type": "array"
         },
         "sources": {
-          "description": "Source files belonging to this crate.",
+          "description": "Source files belonging to this crate.\n\nWhen [`from_registry`](Self::from_registry) is `false` (the default), these paths are\nresolved relative to the consumer workspace root — a sibling checkout must be present.\n\nWhen `from_registry = true`, each path is treated as **relative to the crate's\nsource directory in the cargo registry** (e.g. `~/.cargo/registry/src/…`). Alef\nlocates that directory via `cargo metadata` so no sibling checkout is required.",
           "items": {
             "type": "string"
           },
@@ -6601,6 +6614,29 @@
       "required": [
         "trait_name"
       ],
+      "type": "object"
+    },
+    "TyposConfig": {
+      "additionalProperties": false,
+      "description": "Typos spell-checker customisations emitted under `[lint.typos.*]`.\n\nDeclared under `[workspace.poly.typos]` in `alef.toml`. When all\nsub-tables are absent or empty, no `[lint.typos.*]` tables are emitted.\n\n```toml\n[workspace.poly.typos.extend-words]\n# \"typo\" = \"correct\" — set both equal to suppress without correcting.\nflate = \"flate\"\ndelocate = \"delocate\"\n\n[workspace.poly.typos.extend-identifiers]\nPyMuPDF = \"PyMuPDF\"\nPDFium  = \"PDFium\"\n```",
+      "properties": {
+        "extend-identifiers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Extra identifier corrections for the typos spell-checker.\n\nSame semantics as `extend_words` but applied to CamelCase / PascalCase\nidentifiers in source code.\n\nUses [`BTreeMap`] so entries are written in deterministic order.\n\nEmitted as `[lint.typos.extend_identifiers]` in the generated poly.toml.",
+          "type": "object"
+        },
+        "extend-words": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Extra word corrections for the typos spell-checker.\n\nKey = the \"incorrect\" spelling typos would flag; value = the intended\nspelling. Set both equal to suppress a false-positive without\nauto-correcting it (e.g. `flate = \"flate\"` keeps `flate` unchanged).\n\nUses [`BTreeMap`] so entries are written to `poly.toml` in\ndeterministic (alphabetical key) order.\n\nEmitted as `[lint.typos.extend_words]` in the generated poly.toml.",
+          "type": "object"
+        }
+      },
       "type": "object"
     },
     "UpdateConfig": {
@@ -7171,7 +7207,11 @@
           "$ref": "#/$defs/PolyConfig",
           "default": {
             "exclude": [],
-            "per-file-ignores": {}
+            "per-file-ignores": {},
+            "typos": {
+              "extend-identifiers": {},
+              "extend-words": {}
+            }
           },
           "description": "Repository-level `poly.toml` customisations merged into the emitter's\ngenerated output.  Because `poly.toml` is regenerated on every `alef`\nrun, any per-repo lint suppressions must live here to survive regen.\n\nSee [`PolyConfig`] for the full set of configurable knobs."
         },
@@ -7481,7 +7521,11 @@
         "php": null,
         "poly": {
           "exclude": [],
-          "per-file-ignores": {}
+          "per-file-ignores": {},
+          "typos": {
+            "extend-identifiers": {},
+            "extend-words": {}
+          }
         },
         "python": null,
         "r": null,

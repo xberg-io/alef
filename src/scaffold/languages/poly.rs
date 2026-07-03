@@ -205,6 +205,24 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
         ));
     }
 
+    // Typos spell-checker allowlists from [workspace.poly.typos].
+    // Only emitted when at least one sub-table is non-empty; omitted entirely
+    // when the consumer declares no typos overrides.
+    if !config.poly.typos.extend_words.is_empty() {
+        out.push_str("[lint.typos.extend_words]\n");
+        for (word, correct) in &config.poly.typos.extend_words {
+            out.push_str(&format!("{word} = \"{correct}\"\n"));
+        }
+        out.push('\n');
+    }
+    if !config.poly.typos.extend_identifiers.is_empty() {
+        out.push_str("[lint.typos.extend_identifiers]\n");
+        for (ident, correct) in &config.poly.typos.extend_identifiers {
+            out.push_str(&format!("{ident} = \"{correct}\"\n"));
+        }
+        out.push('\n');
+    }
+
     // Cross-engine per-file suppressions. Always emitted: every alef repo ships
     // generated test/e2e suites. Python repos add wrapper-specific relaxations.
     out.push_str("[per-file-ignores]\n");
@@ -227,10 +245,6 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
         out.push_str(&format!("\"{glob}\" = {}\n", toml_array(&code_refs)));
     }
     out.push('\n');
-
-    // typos runs via the polylint builtin with its default dictionary; alef
-    // emits no project-specific allowlist (repos add `[lint.<lang>.typos]
-    // extend_ignore_words` as needed).
 
     // Git-hook orchestration.
     out.push_str("[hooks]\nstages = [ \"pre-commit\" ]\n\n[hooks.builtin]\n");
