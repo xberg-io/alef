@@ -659,7 +659,16 @@ end
   def register(impl_module) do
     plugin_name = impl_module.name()
     {{:ok, pid}} = start_link(impl_module)
-    {native_mod}.register_{trait_name_snake}(pid, plugin_name)
+
+    # Names of the functions the implementation module exports. Rust-defaulted
+    # trait methods outside this list keep their Rust default behavior instead
+    # of being dispatched to the module.
+    implemented_methods =
+      impl_module.__info__(:functions)
+      |> Enum.map(fn {{name, _arity}} -> Atom.to_string(name) end)
+      |> Enum.uniq()
+
+    {native_mod}.register_{trait_name_snake}(pid, plugin_name, implemented_methods)
   end
 end
 "#,

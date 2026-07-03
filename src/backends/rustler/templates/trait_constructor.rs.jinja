@@ -3,7 +3,13 @@ impl {{ wrapper_name }} {
     ///
     /// The PID is stored directly (it is Copy + Send + Sync).
     /// Messages are dispatched via the trait methods using channels for sync/async dispatch.
-    pub fn new(pid: rustler::LocalPid, name: String) -> Self {
-        Self { inner: pid, cached_name: name }
+    /// `implemented_methods` lists the functions the implementation module exports;
+    /// Rust-defaulted trait methods outside this set fall back to their default bodies.
+    pub fn new(pid: rustler::LocalPid, name: String, implemented_methods: Vec<String>) -> Self {
+        Self {
+            inner: pid,
+            cached_name: name,
+            implemented_methods: implemented_methods.into_iter().collect(),
+        }
     }
 }
