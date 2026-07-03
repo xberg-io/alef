@@ -103,25 +103,25 @@ mod tests {
     #[test]
     fn resolves_registry_path_from_metadata() {
         let json = fake_metadata_json(&[(
-            "crawlberg",
-            "/home/user/.cargo/registry/src/index.crates.io-abc/crawlberg-0.1.0/Cargo.toml",
+            "sample-crate",
+            "/home/user/.cargo/registry/src/index.crates.io-abc/sample-crate-0.1.0/Cargo.toml",
         )]);
 
-        let dir = resolve_crate_source_dir_from_metadata(&json, "crawlberg").unwrap();
+        let dir = resolve_crate_source_dir_from_metadata(&json, "sample-crate").unwrap();
         assert_eq!(
             dir,
-            PathBuf::from("/home/user/.cargo/registry/src/index.crates.io-abc/crawlberg-0.1.0")
+            PathBuf::from("/home/user/.cargo/registry/src/index.crates.io-abc/sample-crate-0.1.0")
         );
     }
 
     #[test]
     fn rebases_multiple_sources() {
         let json = fake_metadata_json(&[(
-            "crawlberg",
-            "/home/user/.cargo/registry/src/index.crates.io-abc/crawlberg-0.1.0/Cargo.toml",
+            "sample-crate",
+            "/home/user/.cargo/registry/src/index.crates.io-abc/sample-crate-0.1.0/Cargo.toml",
         )]);
 
-        let crate_dir = resolve_crate_source_dir_from_metadata(&json, "crawlberg").unwrap();
+        let crate_dir = resolve_crate_source_dir_from_metadata(&json, "sample-crate").unwrap();
         let rel_sources = [
             PathBuf::from("src/types/config.rs"),
             PathBuf::from("src/types/discovery.rs"),
@@ -129,7 +129,7 @@ mod tests {
         ];
         let rebased: Vec<PathBuf> = rel_sources.iter().map(|p| crate_dir.join(p)).collect();
 
-        let base = "/home/user/.cargo/registry/src/index.crates.io-abc/crawlberg-0.1.0";
+        let base = "/home/user/.cargo/registry/src/index.crates.io-abc/sample-crate-0.1.0";
         assert_eq!(rebased[0], PathBuf::from(format!("{base}/src/types/config.rs")));
         assert_eq!(rebased[1], PathBuf::from(format!("{base}/src/types/discovery.rs")));
         assert_eq!(rebased[2], PathBuf::from(format!("{base}/src/net/ssrf.rs")));
@@ -166,20 +166,20 @@ mod tests {
     #[test]
     fn error_when_crate_not_found() {
         let json = fake_metadata_json(&[("other-crate", "/some/path/Cargo.toml")]);
-        let err = resolve_crate_source_dir_from_metadata(&json, "crawlberg").unwrap_err();
-        assert!(err.contains("crate `crawlberg` not found"), "got: {err}");
+        let err = resolve_crate_source_dir_from_metadata(&json, "sample-crate").unwrap_err();
+        assert!(err.contains("crate `sample-crate` not found"), "got: {err}");
         assert!(err.contains("other-crate"), "got: {err}");
     }
 
     #[test]
     fn error_on_invalid_json() {
-        let err = resolve_crate_source_dir_from_metadata("not json", "crawlberg").unwrap_err();
+        let err = resolve_crate_source_dir_from_metadata("not json", "sample-crate").unwrap_err();
         assert!(err.contains("failed to parse cargo metadata JSON"), "got: {err}");
     }
 
     #[test]
     fn error_when_packages_missing() {
-        let err = resolve_crate_source_dir_from_metadata("{}", "crawlberg").unwrap_err();
+        let err = resolve_crate_source_dir_from_metadata("{}", "sample-crate").unwrap_err();
         assert!(err.contains("missing `packages` array"), "got: {err}");
     }
 }
