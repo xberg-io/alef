@@ -86,8 +86,7 @@ for crate, dest in MODULE_MOVES:
 
 # Public re-export names (lib-test use paths)
 LIB_PATH_REWRITES: dict[str, str] = {
-    rust_name: path.replace("crate::", "alef::")
-    for rust_name, path in CRATE_TO_USE_PATH.items()
+    rust_name: path.replace("crate::", "alef::") for rust_name, path in CRATE_TO_USE_PATH.items()
 }
 
 
@@ -414,7 +413,7 @@ def write_root_cargo_toml() -> None:
     #
     # The simplest reliable approach: hand-author the new Cargo.toml here.
     # We've audited the deps already — see plan + audit.
-    new = '''[package]
+    new = """[package]
 name = "alef"
 version = "0.18.0"
 edition = "2024"
@@ -501,7 +500,7 @@ harness = false
 [[bench]]
 name = "backends_zig_emit"
 harness = false
-'''
+"""
     (REPO / "Cargo.toml").write_text(new)
     run(["git", "add", "Cargo.toml"])
 
@@ -509,18 +508,9 @@ harness = false
 def rewrite_all_use_paths() -> None:
     """Rewrite alef_<crate>:: prefixes throughout src/, tests/, benches/."""
     src_changed = rewrite_uses_in_tree(SRC_DIR, in_tests=False)
-    tests_changed = (
-        rewrite_uses_in_tree(TESTS_DIR, in_tests=True) if TESTS_DIR.exists() else 0
-    )
-    benches_changed = (
-        rewrite_uses_in_tree(BENCHES_DIR, in_tests=True)
-        if BENCHES_DIR.exists()
-        else 0
-    )
-    print(
-        f"INFO: rewrote use-paths in {src_changed} src files, "
-        f"{tests_changed} tests, {benches_changed} benches"
-    )
+    tests_changed = rewrite_uses_in_tree(TESTS_DIR, in_tests=True) if TESTS_DIR.exists() else 0
+    benches_changed = rewrite_uses_in_tree(BENCHES_DIR, in_tests=True) if BENCHES_DIR.exists() else 0
+    print(f"INFO: rewrote use-paths in {src_changed} src files, {tests_changed} tests, {benches_changed} benches")
 
 
 def update_alef_toml() -> None:

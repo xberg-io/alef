@@ -18,11 +18,11 @@ exclude = [
 ]
 
 # Typo allowlist (ported from .typos.toml [default.extend-words]). poly reads
-# this table natively. The former extend-ignore-re (commit-hash / "ANDed"
+# this table natively. The former extend-ignore-re (commit-hash / bitwise-AND
 # regexes) is not portable to poly and is dropped — poly's tokenizer + 3-char
 # minimum already suppress hex-hash noise.
 [lint.typos]
-extend_words = { Prelease = "Prelease", wrkspace = "wrkspace", abl = "abl", unparseable = "unparseable", tring = "tring" }
+extend_words = { Prelease = "Prelease", wrkspace = "wrkspace", abl = "abl", unparseable = "unparseable", tring = "tring", ser = "ser" }
 
 [lint.markdown.rumdl]
 disable = ["MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076"]

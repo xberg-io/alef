@@ -46,14 +46,11 @@ TOP_LEVEL_MODULES = {
 _PUB_ITEM = re.compile(
     r"^pub(\s*\(\s*crate\s*\))?\s+"
     r"(?:fn|struct|enum|trait|type|const|static|use\s+[A-Za-z_:][\w:]*\s+as\s+)"
-    r"\s*([A-Za-z_][A-Za-z0-9_]*)"
-    , re.MULTILINE
+    r"\s*([A-Za-z_][A-Za-z0-9_]*)",
+    re.MULTILINE,
 )
 # Also pub use foo::bar; — captures the LAST identifier (re-export name)
-_PUB_USE = re.compile(
-    r"^pub\s+use\s+[A-Za-z_:][\w:]*::([A-Za-z_][A-Za-z0-9_]*)(?:\s*;|\s+as\b)"
-    , re.MULTILINE
-)
+_PUB_USE = re.compile(r"^pub\s+use\s+[A-Za-z_:][\w:]*::([A-Za-z_][A-Za-z0-9_]*)(?:\s*;|\s+as\b)", re.MULTILINE)
 # pub use self::foo::* — captures the module name
 _PUB_USE_GLOB = re.compile(
     r"^pub\s+use\s+(?:self::|crate::)?([A-Za-z_][A-Za-z0-9_]*)(?:::[^;]*)?\s*;",
@@ -108,9 +105,7 @@ def rewrite_module(module_dir: Path, module_name: str) -> int:
     if not safe_children:
         return 0
 
-    pattern_pieces = "|".join(
-        re.escape(c) for c in sorted(safe_children, key=len, reverse=True)
-    )
+    pattern_pieces = "|".join(re.escape(c) for c in sorted(safe_children, key=len, reverse=True))
     pattern_path = re.compile(rf"\bcrate::({pattern_pieces})::")
     pattern_end = re.compile(rf"\bcrate::({pattern_pieces})\b(?!::)")
 

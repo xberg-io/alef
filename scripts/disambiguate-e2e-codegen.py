@@ -32,9 +32,7 @@ _PUB_ITEM_RE = re.compile(
 def collect_module_names(mod_dir: Path) -> set[str]:
     """Submodule names + pub items defined at mod_dir/mod.rs root."""
     names: set[str] = {
-        p.stem if p.suffix == ".rs" else p.name
-        for p in mod_dir.iterdir()
-        if p.name not in {"mod.rs", "templates"}
+        p.stem if p.suffix == ".rs" else p.name for p in mod_dir.iterdir() if p.name not in {"mod.rs", "templates"}
     }
     mod_rs = mod_dir / "mod.rs"
     if mod_rs.exists():
