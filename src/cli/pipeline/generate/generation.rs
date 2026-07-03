@@ -151,35 +151,51 @@ pub fn generate_service_api(
     Ok(results)
 }
 
-/// Filename convention for a language's package public-API init file.
+/// Candidate filenames for a language's package public-API entry file.
 ///
-/// Extensions may only contribute [`crate::core::extension::Extension::public_api_additions`]
-/// to languages whose init-file convention alef recognizes here; for any other
-/// language the additions are a silent no-op.
-fn package_init_filename(language: Language) -> Option<&'static str> {
+/// The package entry file is where an
+/// [`crate::core::extension::Extension::public_api_additions`] contribution is
+/// appended (e.g. Python's `__init__.py`, Ruby's `<gem>.rb`). Some conventions
+/// are dynamic — the Ruby gem entry is named after the gem — so this resolves
+/// against the crate config rather than returning a fixed string. Languages with
+/// no recognized entry-file convention (or whose entry file is produced outside
+/// this public-API pass) return an empty list, making the additions a silent
+/// no-op. New languages are added here as their entry file is produced within
+/// this pass.
+fn package_entry_filenames(language: Language, config: &ResolvedCrateConfig) -> Vec<String> {
     match language {
-        Language::Python => Some("__init__.py"),
-        _ => None,
+        Language::Python => vec!["__init__.py".to_string()],
+        // The magnus backend emits the gem entry `lib/<gem_name_snake>.rb` in this
+        // pass, where `<gem_name_snake>` is `ruby_gem_name()` with dashes normalized.
+        Language::Ruby => vec![format!("{}.rb", config.ruby_gem_name().replace('-', "_"))],
+        _ => Vec::new(),
     }
 }
 
-/// Append `lines` to the package-init file for `language` within `files`.
+/// Append `lines` to the package entry file for `language` within `files`.
 ///
 /// Core stays dumb: it only appends, skipping any line already present so
 /// repeated application (or re-runs) is idempotent. The extension owns all
 /// language semantics of the appended lines. No-op when `lines` is empty, the
-/// language has no known init-file convention, or no matching file is present.
-fn append_public_api_additions(files: &mut [GeneratedFile], language: Language, lines: &[String]) {
+/// language has no known entry-file convention, or no matching file is present.
+fn append_public_api_additions(
+    files: &mut [GeneratedFile],
+    language: Language,
+    config: &ResolvedCrateConfig,
+    lines: &[String],
+) {
     if lines.is_empty() {
         return;
     }
-    let Some(init_name) = package_init_filename(language) else {
+    let names = package_entry_filenames(language, config);
+    if names.is_empty() {
         return;
-    };
-    let Some(init_file) = files
-        .iter_mut()
-        .find(|f| f.path.file_name().is_some_and(|n| n == init_name))
-    else {
+    }
+    let Some(init_file) = files.iter_mut().find(|f| {
+        f.path
+            .file_name()
+            .is_some_and(|n| names.iter().any(|t| n == t.as_str()))
+    }) else {
         return;
     };
 
@@ -232,7 +248,7 @@ pub fn generate_public_api(
                     let additions = ext
                         .public_api_additions(validated_api.api(), &cfg, lang)
                         .with_context(|| format!("extension `{}`: public_api_additions({lang}) failed", ext.name()))?;
-                    append_public_api_additions(&mut files, lang, &additions);
+                    append_public_api_additions(&mut files, lang, config, &additions);
                 }
                 Ok::<(), anyhow::Error>(())
             })?;
@@ -277,6 +293,13 @@ mod tests {
         }]
     }
 
+    fn test_cfg() -> ResolvedCrateConfig {
+        ResolvedCrateConfig {
+            name: "pkg".to_string(),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn public_api_additions_appended_and_idempotent() {
         let ext = AdditionsExtension;
@@ -285,14 +308,14 @@ mod tests {
         let additions = ext.public_api_additions(&api, &cfg, Language::Python).unwrap();
 
         let mut files = init_files("__all__ = [\"Existing\"]\n");
-        append_public_api_additions(&mut files, Language::Python, &additions);
+        append_public_api_additions(&mut files, Language::Python, &test_cfg(), &additions);
         let content = &files[0].content;
         assert!(content.contains("from ._extra import thing"));
         assert!(content.contains("__all__ = [*__all__, \"thing\"]"));
         assert!(content.contains("__all__ = [\"Existing\"]"));
 
         // Applying the same additions again must not duplicate any line.
-        append_public_api_additions(&mut files, Language::Python, &additions);
+        append_public_api_additions(&mut files, Language::Python, &test_cfg(), &additions);
         let content = &files[0].content;
         assert_eq!(content.matches("from ._extra import thing").count(), 1);
         assert_eq!(content.matches("__all__ = [*__all__, \"thing\"]").count(), 1);
@@ -306,8 +329,56 @@ mod tests {
             content: "package pkg\n".to_string(),
             generated_header: true,
         }];
-        append_public_api_additions(&mut files, Language::Go, &additions);
+        append_public_api_additions(&mut files, Language::Go, &test_cfg(), &additions);
         assert_eq!(files[0].content, "package pkg\n");
+    }
+
+    #[test]
+    fn public_api_additions_ruby_gem_entry_appended_and_idempotent() {
+        // The gem entry file name is dynamic (`<gem_name_snake>.rb`); the append
+        // must resolve it from config and leave sibling files untouched.
+        let additions = vec!["require_relative 'pkg/app'".to_string()];
+        let mut files = vec![
+            GeneratedFile {
+                path: std::path::PathBuf::from("packages/ruby/lib/pkg.rb"),
+                content: "# frozen_string_literal: true\nrequire_relative 'pkg/native'\n".to_string(),
+                generated_header: true,
+            },
+            GeneratedFile {
+                path: std::path::PathBuf::from("packages/ruby/lib/pkg/native.rb"),
+                content: "# native\n".to_string(),
+                generated_header: true,
+            },
+        ];
+
+        append_public_api_additions(&mut files, Language::Ruby, &test_cfg(), &additions);
+        assert!(files[0].content.contains("require_relative 'pkg/app'"));
+        // Sibling (non-entry) file is never touched.
+        assert_eq!(files[1].content, "# native\n");
+
+        // Idempotent on re-apply.
+        append_public_api_additions(&mut files, Language::Ruby, &test_cfg(), &additions);
+        assert_eq!(files[0].content.matches("require_relative 'pkg/app'").count(), 1);
+    }
+
+    #[test]
+    fn public_api_additions_ruby_normalizes_dashed_name_to_snake_entry() {
+        // The gem entry file is `<gem_name_snake>.rb`; `ruby_gem_name()` falls back
+        // to the crate name, and the resolver normalizes dashes so it matches the
+        // magnus backend's `gem_name_snake` (dashes → underscores).
+        let config = ResolvedCrateConfig {
+            name: "my-gem".to_string(),
+            ..Default::default()
+        };
+        let additions = vec!["require_relative 'my_gem/app'".to_string()];
+        let mut files = vec![GeneratedFile {
+            path: std::path::PathBuf::from("packages/ruby/lib/my_gem.rb"),
+            content: "# frozen_string_literal: true\n".to_string(),
+            generated_header: true,
+        }];
+
+        append_public_api_additions(&mut files, Language::Ruby, &config, &additions);
+        assert!(files[0].content.contains("require_relative 'my_gem/app'"));
     }
 
     #[test]
@@ -318,7 +389,7 @@ mod tests {
             content: "X = 1\n".to_string(),
             generated_header: true,
         }];
-        append_public_api_additions(&mut files, Language::Python, &additions);
+        append_public_api_additions(&mut files, Language::Python, &test_cfg(), &additions);
         assert_eq!(files[0].content, "X = 1\n");
     }
 

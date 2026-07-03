@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **extension**: `Extension::public_api_additions` is now honored for **Ruby**,
+  not just Python. `package_init_filename` is generalized to
+  `package_entry_filenames(language, &ResolvedCrateConfig)`, which resolves each
+  language's package entry file — including dynamic conventions like Ruby's
+  `lib/<gem_name_snake>.rb` — so an extension can wire its public API into the
+  gem entry. Additions remain append-only with exact-line de-dup and still do
+  not feed the generation-inputs hash (`alef verify` unaffected). Languages
+  whose entry file is produced outside the public-API pass continue to be a
+  silent no-op.
 - **hooks**: `alef all`, `alef scaffold`, and `alef init` now run `poly hooks
   install` after scaffolding, wiring poly's pre-commit + commit-msg git hooks
   (polylint, polyfmt, file_safety, the `cargo` builtin — clippy / cargo-sort /
