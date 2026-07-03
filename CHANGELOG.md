@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.17] - 2026-07-03
+
+### Fixed
+
+- **swift**: getters returning `Vec<T>` or `Option<Vec<T>>` where `T` is a
+  serde-serializable struct now JSON-decode each bridged element. The Rust
+  bridge serializes such collections to `Vec<String>` (per-element JSON) or a
+  single JSON `String`, but the generated swift wrapper previously emitted
+  `.map { try T($0) }`, which only compiles for scalar `RustVec<RustString>`
+  getters and left the binding uncompilable. It now decodes with `JSONDecoder`
+  (per-element for `Vec<T>`, whole-array for `Option<Vec<T>>`). Fixes generated
+  bindings for core types such as `CellChange`, `PageRange`, `PageSignals`,
+  `LayoutDetection`, and `PageInfo`.
+
 ## [0.30.16] - 2026-07-03
 
 ### Added
