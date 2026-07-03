@@ -20,6 +20,12 @@ pub struct NapiBridgeGenerator {
     /// Enums, opaque/handle types, and excluded/unknown `Named` params are absent and keep their
     /// prior representation.
     pub struct_param_types: std::collections::HashSet<String>,
+    /// Rust-defaulted trait methods the bridge forwards to the host when the JS
+    /// object defines them. Presence is cached as `has_<method>` bool fields at
+    /// construction (on the JS thread) because async bridge bodies run off the
+    /// event loop where the object cannot be probed. Methods absent here keep
+    /// the trait's Rust default unconditionally.
+    pub forwardable_defaulted: std::collections::HashSet<String>,
     /// Node type-name prefix (e.g. `"Js"`) used to name the native DTO wrapper for a struct param
     /// (`Js{TypeName}`), matching the binding's emitted `#[napi(object)]` struct.
     pub type_prefix: String,
@@ -28,6 +34,24 @@ pub struct NapiBridgeGenerator {
 impl TraitBridgeGenerator for NapiBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
         "napi::bindgen_prelude::Object<'static>"
+    }
+
+    fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        // The flag is captured at construction (see `gen_constructor`) because the
+        // JS object cannot be probed off the event-loop thread in async bodies.
+        self.forwardable_defaulted
+            .contains(&method.name)
+            .then(|| format!("self.has_{}", method.name))
+    }
+
+    fn extra_bridge_fields(&self, spec: &TraitBridgeSpec) -> Vec<(String, String)> {
+        // Iterate the trait's method order (not the set) so field order is deterministic.
+        spec.trait_def
+            .methods
+            .iter()
+            .filter(|m| self.forwardable_defaulted.contains(&m.name))
+            .map(|m| (format!("has_{}", m.name), "bool".to_string()))
+            .collect()
     }
 
     fn bridge_imports(&self) -> Vec<String> {
@@ -197,11 +221,28 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             })
             .collect::<Vec<_>>();
 
+        // Presence flags for forwarded defaulted methods, captured once on the JS
+        // thread. Trait method order keeps the emission deterministic. Both the
+        // camelCase and snake_case property names count, matching method dispatch.
+        let optional_methods = spec
+            .trait_def
+            .methods
+            .iter()
+            .filter(|m| self.forwardable_defaulted.contains(&m.name))
+            .map(|m| {
+                minijinja::context! {
+                    name => to_camel_case(&m.name),
+                    snake_case_name => &m.name,
+                }
+            })
+            .collect::<Vec<_>>();
+
         crate::backends::napi::template_env::render(
             "trait_bridge_constructor.jinja",
             minijinja::context! {
                 wrapper_name => wrapper,
                 required_methods => required_methods,
+                optional_methods => optional_methods,
                 requires_plugin_name => spec.bridge_config.super_trait.is_some(),
             },
         )

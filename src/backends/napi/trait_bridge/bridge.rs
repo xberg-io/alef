@@ -62,12 +62,17 @@ pub fn gen_trait_bridge(
         // same prefix the bridge uses for its wrapper struct and the binding's default node prefix.
         let struct_param_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
+        // Rust-defaulted methods the bridge can forward to the host (host-defined
+        // implementations win; the Rust default runs otherwise).
+        let forwardable_defaulted =
+            crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = NapiBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             struct_param_types,
             type_prefix: "Js".to_string(),
+            forwardable_defaulted,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types
@@ -93,10 +98,16 @@ pub fn gen_trait_bridge(
 
         // Custom NAPI struct with cancellation_token field
         let wrapper_name = spec.wrapper_name();
+        let extra_fields: Vec<minijinja::Value> = generator
+            .extra_bridge_fields(&spec)
+            .into_iter()
+            .map(|(name, ty)| minijinja::context! { name => name, ty => ty })
+            .collect();
         code.push_str(&crate::backends::napi::template_env::render(
             "napi_bridge_struct.jinja",
             minijinja::context! {
                 wrapper_name => wrapper_name,
+                extra_fields => extra_fields,
             },
         ));
         code.push_str("\n\n");
@@ -119,6 +130,13 @@ pub fn gen_trait_bridge(
         code.push_str(&crate::codegen::generators::trait_bridge::gen_bridge_trait_impl(
             &spec, &generator,
         ));
+
+        // Default delegates — only when the generator forwards defaulted methods
+        let delegates = crate::codegen::generators::trait_bridge::gen_bridge_default_delegates(&spec, &generator);
+        if !delegates.is_empty() {
+            code.push_str("\n\n");
+            code.push_str(&delegates);
+        }
 
         // Registration function — only when register_fn is configured
         if let Some(reg_fn_code) =

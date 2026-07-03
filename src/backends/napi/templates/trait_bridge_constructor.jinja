@@ -57,6 +57,10 @@ impl {{ wrapper_name }} {
             obj_ref: std::sync::Mutex::new(Some(obj_ref)),
             cached_name,
             cancellation_token: std::sync::Arc::new(tokio_util::sync::CancellationToken::new()),
+{%- for method in optional_methods %}
+            has_{{ method.snake_case_name }}: js_obj.has_named_property("{{ method.name }}").unwrap_or(false)
+                || js_obj.has_named_property("{{ method.snake_case_name }}").unwrap_or(false),
+{%- endfor %}
         })
     }
 
