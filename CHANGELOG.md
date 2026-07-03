@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **cli**: `alef sync-versions` no longer regenerates test_apps/ and scaffold
+  files by default, which was causing ~20min hangs on large repos. The command
+  now only updates version fields in manifests and alef.toml; regeneration is
+  the responsibility of explicit `alef generate`, `alef all`, or `task
+  alef:generate` invocations. Use `--regen` flag to opt into the old behavior
+  (expensive, not recommended for routine version syncs).
+
 ### Added
 
 - **config**: resolve `[[crates.source_crates]]` from the cargo registry via

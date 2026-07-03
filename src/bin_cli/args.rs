@@ -105,11 +105,10 @@ pub(crate) enum Commands {
     },
     /// Sync version from Cargo.toml to all package manifests.
     ///
-    /// After updating manifest versions and alef.toml registry package pins,
-    /// automatically regenerates test_apps/ scaffold files so generated files
-    /// (pyproject.toml, mix.exs, build.zig.zon, Package.swift, etc.) reflect
-    /// the new version atomically. Use --no-regen to opt out of this behaviour
-    /// and keep the legacy two-step workflow (sync-versions + alef:generate).
+    /// Updates version fields in all package manifests and alef.toml registry
+    /// package pins atomically. Does not regenerate code — use `alef generate`,
+    /// `alef all`, or `task alef:generate` to regenerate test_apps/ and scaffold
+    /// files after syncing versions.
     SyncVersions {
         /// Bump version before syncing (major, minor, patch).
         #[arg(long)]
@@ -117,10 +116,11 @@ pub(crate) enum Commands {
         /// Set version explicitly (e.g., "0.1.0-rc.1").
         #[arg(long)]
         set: Option<String>,
-        /// Skip automatic test_apps/ regeneration after syncing registry package
-        /// versions. Use when you want to run alef:generate separately.
+        /// Regenerate test_apps/ and scaffold files after syncing versions.
+        /// By default, sync-versions only updates manifests; use this flag to
+        /// also regenerate code (expensive, normally run separately as `alef generate`).
         #[arg(long)]
-        no_regen: bool,
+        regen: bool,
         /// Skip the swift artifactbundle build and checksum substitution.
         /// Use when Xcode / the required Apple targets are not available on the
         /// current host, or during fast dev iterations where the checksum

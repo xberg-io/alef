@@ -328,8 +328,8 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 pipeline::finalize_hashes(&current_gen_paths, &sources_hash, &alef_toml_bytes)?;
 
                 // Always re-sync versions across user-owned manifests.
-                // Pass no_regen=true: alef generate owns the test_apps/ stage
-                // itself and will regenerate them in its own pass below.
+                // Pass no_regen=true: alef all owns the full codegen stage
+                // and will regenerate test_apps/ and scaffold in its own passes below.
                 if let Err(e) = pipeline::sync_versions(resolved_cfg, config_path, None, true, true, None) {
                     tracing::warn!("version sync failed: {e}");
                 }
@@ -580,7 +580,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
         Commands::SyncVersions {
             bump,
             set,
-            no_regen,
+            regen,
             skip_swift_checksum,
             release_date,
         } => {
@@ -605,7 +605,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     resolved_cfg,
                     config_path,
                     bump.as_deref(),
-                    no_regen,
+                    !regen,
                     skip_swift_checksum,
                     release_date.as_deref(),
                 )?;
