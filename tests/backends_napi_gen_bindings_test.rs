@@ -2218,6 +2218,7 @@ package_name = "test-lib"
         run_wrapper: None,
         extra_lint_paths: vec![],
         crate_dir: None,
+        target_dep_overrides: Vec::new(),
     });
     resolved
 }

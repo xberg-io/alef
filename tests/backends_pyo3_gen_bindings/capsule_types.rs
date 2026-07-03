@@ -203,6 +203,7 @@ fn test_capsule_types_end_to_end() {
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
         reexported_types: Vec::new(),
+        target_dep_overrides: Vec::new(),
     });
 
     let files = backend
@@ -494,6 +495,7 @@ fn test_capsule_types_in_methods() {
         extra_lint_paths: Vec::new(),
         extra_init_imports: std::collections::BTreeMap::new(),
         reexported_types: Vec::new(),
+        target_dep_overrides: Vec::new(),
     });
 
     let files = backend
