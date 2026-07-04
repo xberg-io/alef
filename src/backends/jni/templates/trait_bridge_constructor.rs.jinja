@@ -1,0 +1,54 @@
+impl {{ wrapper_name }} {
+    /// Create a bridge over the JVM `{{ trait_name }}JniDispatcher` object.
+    ///
+    /// Caches a global reference, the `JavaVM` for thread attachment, the host's
+    /// implemented-method names (for defaulted-method forwarding), and the plugin
+    /// name.
+    pub fn new(
+        env: &mut Env<'_>,
+        dispatcher: JObject<'_>,
+{% if not has_super_trait %}
+        name: String,
+{% endif %}
+    ) -> std::result::Result<Self, String> {
+        let inner = env
+            .new_global_ref(&dispatcher)
+            .map_err(|e| format!("global ref: {e}"))?;
+        let jvm = env.get_java_vm().map_err(|e| format!("JavaVM: {e}"))?;
+        let implemented_json = jni_call_string_method(
+            env,
+            dispatcher,
+            "implementedMethods",
+            "()Ljava/lang/String;",
+        )
+        .map_err(|e| format!("implementedMethods: {e}"))?;
+        let implemented_methods: std::collections::HashSet<String> =
+            serde_json::from_str(&implemented_json).unwrap_or_default();
+
+        let mut bridge = Self {
+            inner,
+            cached_name: String::new(),
+            jvm,
+            implemented_methods,
+        };
+{% if has_super_trait %}
+        bridge.cached_name = bridge
+            .__alef_dispatch("name", "{}")
+            .ok()
+            .and_then(|resp| serde_json::from_str::<serde_json::Value>(&resp).ok())
+            .and_then(|v| v.get("ok").and_then(|o| o.as_str()).map(str::to_string))
+            .unwrap_or_else(|| "unknown".to_string());
+{% else %}
+        bridge.cached_name = name;
+{% endif %}
+        Ok(bridge)
+    }
+
+    /// Route one trait method call to the dispatcher on an attached JVM thread.
+    fn __alef_dispatch(&self, method: &str, args_json: &str) -> std::result::Result<String, String> {
+        let result: std::result::Result<String, jni::errors::Error> = self
+            .jvm
+            .attach_current_thread(|env| jni_dispatch_json(env, self.inner.as_obj(), method, args_json));
+        result.map_err(|e| e.to_string())
+    }
+}

@@ -1,0 +1,51 @@
+let args_json = serde_json::json!({
+{% for a in args %}
+    "{{ a.name }}": {{ a.expr }},
+{% endfor %}
+})
+.to_string();
+let __resp = match self.__alef_dispatch("{{ method_name }}", &args_json) {
+    Ok(v) => v,
+    Err(e) => {
+{% if has_error %}
+        return Err({{ dispatch_error_expr }});
+{% else %}
+        let _ = e;
+        return Default::default();
+{% endif %}
+    }
+};
+let mut __value: serde_json::Value = match serde_json::from_str(&__resp) {
+    Ok(v) => v,
+    Err(e) => {
+{% if has_error %}
+        return Err({{ parse_error_expr }});
+{% else %}
+        let _ = e;
+        return Default::default();
+{% endif %}
+    }
+};
+if let Some(e) = __value.get("err").and_then(|v| v.as_str()) {
+{% if has_error %}
+    return Err({{ host_error_expr }});
+{% else %}
+    let _ = e;
+    return Default::default();
+{% endif %}
+}
+{% if is_unit %}
+{% if has_error %}
+Ok(())
+{% endif %}
+{% else %}
+let __ok = __value
+    .get_mut("ok")
+    .map(serde_json::Value::take)
+    .unwrap_or(serde_json::Value::Null);
+{% if has_error %}
+serde_json::from_value::<{{ return_ty }}>(__ok).map_err(|e| {{ deser_error_expr }})
+{% else %}
+serde_json::from_value::<{{ return_ty }}>(__ok).unwrap_or_default()
+{% endif %}
+{% endif %}

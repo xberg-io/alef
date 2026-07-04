@@ -11,6 +11,18 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trait_register_shim.rs.jinja"),
     ),
     (
+        "trait_bridge_constructor.rs.jinja",
+        include_str!("templates/trait_bridge_constructor.rs.jinja"),
+    ),
+    (
+        "trait_bridge_method_body.rs.jinja",
+        include_str!("templates/trait_bridge_method_body.rs.jinja"),
+    ),
+    (
+        "trait_bridge_register_shim.rs.jinja",
+        include_str!("templates/trait_bridge_register_shim.rs.jinja"),
+    ),
+    (
         "trait_unregister_shim.rs.jinja",
         include_str!("templates/trait_unregister_shim.rs.jinja"),
     ),

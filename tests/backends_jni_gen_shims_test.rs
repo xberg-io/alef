@@ -1987,3 +1987,146 @@ fn lib_rs_dedupes_trait_paths_by_last_segment() {
         "shorter path must be picked; got:\n{content}"
     );
 }
+
+fn text_backend_api() -> ApiSurface {
+    use alef::core::ir::{MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
+    let trait_def = TypeDef {
+        name: "TextBackend".into(),
+        rust_path: "demo::TextBackend".into(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![
+            MethodDef {
+                name: "process".into(),
+                params: vec![
+                    ParamDef {
+                        name: "image_bytes".into(),
+                        ty: TypeRef::Bytes,
+                        is_ref: true,
+                        ..Default::default()
+                    },
+                    ParamDef {
+                        name: "config".into(),
+                        ty: TypeRef::Named("TextConfig".into()),
+                        is_ref: true,
+                        ..Default::default()
+                    },
+                ],
+                return_type: TypeRef::Named("TextResult".into()),
+                is_async: true,
+                receiver: Some(ReceiverKind::Ref),
+                error_type: Some("DemoError".into()),
+                ..Default::default()
+            },
+            MethodDef {
+                name: "supports_language".into(),
+                params: vec![ParamDef {
+                    name: "lang".into(),
+                    ty: TypeRef::String,
+                    is_ref: true,
+                    ..Default::default()
+                }],
+                return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            },
+            MethodDef {
+                name: "supports_tables".into(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                receiver: Some(ReceiverKind::Ref),
+                has_default_impl: true,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let config_ty = TypeDef {
+        name: "TextConfig".into(),
+        rust_path: "demo::TextConfig".into(),
+        has_serde: true,
+        ..Default::default()
+    };
+    let result_ty = TypeDef {
+        name: "TextResult".into(),
+        rust_path: "demo::TextResult".into(),
+        has_serde: true,
+        is_return_type: true,
+        ..Default::default()
+    };
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def, config_ty, result_ty],
+        ..Default::default()
+    }
+}
+
+/// With the trait definition present, the register shim must build a real
+/// bridge and hand it to the host register_fn — not discard the object.
+#[test]
+fn trait_bridge_register_shim_dispatches_to_host_object() {
+    let api = text_backend_api();
+    let config = trait_bridge_config(&[]);
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("pub struct JniTextBackendBridge"),
+        "bridge wrapper struct must be emitted: {content}"
+    );
+    assert!(
+        !content.contains("does not marshal trait method calls"),
+        "the registration stub must be gone: {content}"
+    );
+    assert!(
+        content.contains("core_crate::register_text_backend("),
+        "registration must call the host register_fn: {content}"
+    );
+    assert!(
+        content.contains("self.__alef_dispatch(\"supports_language\", &args_json)"),
+        "bridge methods must dispatch through the JVM dispatcher: {content}"
+    );
+    assert!(
+        content.contains("jni_dispatch_json(env, self.inner.as_obj(), method, args_json)"),
+        "the dispatch helper must route through the shared JSON entry point: {content}"
+    );
+    // Bytes params cross as base64 strings inside the args JSON.
+    assert!(
+        content.contains("base64::Engine::encode"),
+        "bytes params must be base64-encoded into the args JSON: {content}"
+    );
+    // Rust-defaulted methods are forwarded via the implemented-methods set with
+    // the shared default-delegate fallback.
+    assert!(
+        content.contains("self.implemented_methods.contains(\"supports_tables\")"),
+        "defaulted methods must be presence-guarded: {content}"
+    );
+    assert!(
+        content.contains("JniTextBackendBridgeDefaultSupportsTables(self).supports_tables()"),
+        "fallback must run the Rust default via the shared delegate: {content}"
+    );
+    // Lifecycle hooks are no-ops when the host doesn't implement them.
+    assert!(
+        content.contains("self.implemented_methods.contains(\"initialize\")"),
+        "initialize must be guarded by the implemented set: {content}"
+    );
+}
+
+/// Without the trait definition (excluded from the surface) the shim keeps the
+/// registration-accepting stub so linking still succeeds.
+#[test]
+fn trait_bridge_register_shim_stub_without_trait_def() {
+    let api = empty_api();
+    let config = trait_bridge_config(&[]);
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+    assert!(
+        content.contains("nativeRegisterTextBackend"),
+        "register symbol must still exist: {content}"
+    );
+    assert!(
+        !content.contains("pub struct JniTextBackendBridge"),
+        "no bridge without the trait definition: {content}"
+    );
+}

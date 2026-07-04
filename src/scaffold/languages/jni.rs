@@ -118,6 +118,7 @@ pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     // umbrella dep is named after `config.name` which is consumer-dependent,
     // so the sort must run at codegen time rather than baking a static order.
     let mut dep_lines: Vec<String> = vec![
+        "async-trait = \"0.1\"".to_owned(),
         "base64 = \"0.22\"".to_owned(),
         "futures-util = \"0.3\"".to_owned(),
         "jni = \"0.22\"".to_owned(),
@@ -165,7 +166,7 @@ license.workspace = true
 # List them here so `cargo machete` doesn't flag the no-async-no-streaming
 # case as a real finding.
 [package.metadata.cargo-machete]
-ignored = ["base64", "futures-util", "serde_json", "tokio"]
+ignored = ["async-trait", "base64", "futures-util", "serde_json", "tokio"]
 
 [lib]
 name = "{jni_lib_name}"

@@ -38,8 +38,30 @@ fn emit_trait_bridge_shims(
         if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
             let native_name = format!("nativeRegister{trait_pascal}");
             let symbol = jni_symbol(package, bridge, &native_name);
-            let has_super_trait = bridge_cfg.super_trait.is_some();
-            emit_trait_register_shim(out, &symbol, &trait_pascal, register_fn, trait_def, has_super_trait);
+            match trait_def {
+                // With the trait definition available, emit the real bridge: wrapper
+                // struct, dispatching trait impl, default delegates, and a registration
+                // shim that hands the bridge to the host register_fn.
+                Some(trait_def) if !trait_def.methods.is_empty() => {
+                    let bridge_output = crate::backends::jni::trait_bridge::gen_plugin_trait_bridge(
+                        trait_def,
+                        bridge_cfg,
+                        &symbol,
+                        "core_crate",
+                        &config.error_type_name(),
+                        &config.error_constructor_expr(),
+                        api,
+                    );
+                    out.push_str(&bridge_output.code);
+                    out.push_str("\n\n");
+                }
+                // Without the trait definition (excluded from the surface) keep the
+                // registration-accepting stub so linking still succeeds.
+                _ => {
+                    let has_super_trait = bridge_cfg.super_trait.is_some();
+                    emit_trait_register_shim(out, &symbol, &trait_pascal, register_fn, trait_def, has_super_trait);
+                }
+            }
         }
         if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
             let native_name = format!("nativeUnregister{trait_pascal}");

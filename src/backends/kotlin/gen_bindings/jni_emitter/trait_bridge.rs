@@ -26,10 +26,12 @@ fn emit_trait_bridge_jni_external_funs(
     out.push_str("\n    // JNI trait-bridge external funs — implementations are Rust JNI shims.\n");
     for bridge in &bridges {
         let trait_pascal = to_pascal_case(&bridge.trait_name);
-        // The managed Kotlin interface lives in the same package as the bridge object;
-        // the fully-qualified reference is used so callers can pass any class that
-        // implements I<Trait> without an extra import in the bridge file.
-        let iface_fqn = format!("{kotlin_package}.I{trait_pascal}");
+        // Registration receives the generated <Trait>JniDispatcher (which wraps the
+        // user's I<Trait>), not the interface itself: the dispatcher exposes the
+        // non-suspend JSON dispatch entry point the Rust bridge calls. It lives in
+        // the same package as the bridge object; the fully-qualified reference
+        // avoids an extra import in the bridge file.
+        let dispatcher_fqn = format!("{kotlin_package}.{trait_pascal}JniDispatcher");
         if bridge.register_fn.is_some() {
             let native_name = format!("nativeRegister{trait_pascal}");
             // Skip if already emitted from the API.
@@ -38,7 +40,7 @@ fn emit_trait_bridge_jni_external_funs(
                 push_jni_external_fun(
                     out,
                     &native_name,
-                    &format!("impl: {iface_fqn}"),
+                    &format!("impl: {dispatcher_fqn}"),
                     None,
                     Some(exception_class),
                 );
