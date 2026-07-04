@@ -9,14 +9,14 @@ public static class {{ trait_pascal }}Registry {
         if (impl == null)
             throw new ArgumentNullException(nameof(impl));
 
-        var bridge = new {{ trait_pascal }}Bridge(impl);
-        var userData = bridge._bridgeId;
-        var name = {% if has_super_trait %}impl.Name{% else %}"bridge_" + Guid.NewGuid().ToString(){% endif %};
-
-        lock ({{ trait_pascal }}Bridge._registryLock) {
-            {{ trait_pascal }}Bridge._bridgeRegistry[userData] = bridge;
-        }
-        return userData;
+        // Delegate to Register, which builds the bridge, stores it, AND calls the
+        // native Register{{ trait_pascal }} so Rust actually learns about the impl.
+        // (The previous body stored the bridge but never registered it natively.)
+{% if has_super_trait %}
+        return Register(impl);
+{% else %}
+        return Register(impl, "bridge_" + Guid.NewGuid().ToString());
+{% endif %}
     }
 
     /// <summary>Register a {{ trait_pascal }} implementation and return its native handle</summary>

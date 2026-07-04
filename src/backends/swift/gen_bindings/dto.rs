@@ -997,6 +997,7 @@ fn is_field_unbridgeable_for_init(
 /// Emit a public instance method for a non-opaque first-class struct.
 ///
 /// Calls the Rust bridge extern to invoke the method, converting parameters and return values.
+/// The method serializes self to JSON, calls a Rust wrapper extern, and deserializes the result.
 fn emit_instance_method_for_first_class_struct(
     method: &MethodDef,
     type_name: &str,
@@ -1008,41 +1009,92 @@ fn emit_instance_method_for_first_class_struct(
         return;
     }
 
-    let method_name = swift_case_ident(&method.name.to_lower_camel_case());
-    let extern_fn_name = format!("{}_{}", AsSnakeCase(type_name), method.name.to_snake_case());
+    // Instance methods on first-class Swift value types are bridged by:
+    // 1. Serializing self to JSON
+    // 2. Calling a Rust wrapper extern that takes JSON, deserializes, calls the method, serializes result
+    // 3. Deserializing the result back to the expected Swift type
 
-    // Build parameter list (no receiver param; we're calling on self).
-    let mut param_strs: Vec<String> = Vec::new();
+    let method_swift_name = swift_case_ident(&method.name.to_lower_camel_case());
+    let method_snake = method.name.to_snake_case();
+    let type_snake = type_name.to_snake_case();
+    let extern_fn_name = format!("{type_snake}_{method_snake}_from_json");
+    let extern_swift_name = swift_ident(&extern_fn_name.to_lower_camel_case());
+
+    // Build parameter list
+    let mut param_decls = Vec::new();
+    let mut param_names = Vec::new();
     for param in &method.params {
-        if param.sanitized {
-            continue;
-        }
-        let param_name = swift_ident(&param.name.to_snake_case());
-        let param_type = mapper.map_type(&param.ty);
-        param_strs.push(format!("{param_name}: {param_type}"));
+        let param_swift_type = mapper.map_type(&param.ty);
+        let param_swift_name = swift_case_ident(&param.name.to_lower_camel_case());
+
+        let param_type = if param.optional && !matches!(&param.ty, TypeRef::Optional(_)) {
+            format!("{param_swift_type}?")
+        } else {
+            param_swift_type
+        };
+
+        param_decls.push(format!("{param_swift_name}: {param_type}"));
+        param_names.push(param_swift_name);
     }
-    let param_list = param_strs.join(", ");
+    let params_signature = param_decls.join(", ");
 
-    // Map return type.
-    let return_type = mapper.map_type(&method.return_type);
-
-    // For now, emit a basic method body that calls the extern.
-    // In a full implementation, this would:
-    // 1. Serialize self to JSON (via intoRust()) or reconstruct from fields
-    // 2. Call the extern function with self + params
-    // 3. Deserialize the return value
-    //
-    // For this PoC, emit a placeholder that shows the method signature.
-    let method_sig = if param_list.is_empty() {
-        format!("    public func {method_name}() -> {return_type}")
+    // Determine the Swift return type. The Rust wrapper extern returns
+    // `Result<String, String>`, which swift-bridge maps to a THROWING call that
+    // yields the ok `String` — a method's own error and any JSON failure both
+    // surface as a thrown error. So the Swift method always `throws` and returns
+    // the plain ok type (never a `Result`), matching the parity bindings.
+    let return_swift_type = if matches!(method.return_type, TypeRef::Unit) {
+        "Void".to_string()
     } else {
-        format!("    public func {method_name}({param_list}) -> {return_type}")
+        mapper.map_type(&method.return_type)
     };
 
-    out.push_str(&method_sig);
-    out.push_str(" {\n");
-    out.push_str("        fatalError(\"Not yet implemented: ");
-    out.push_str(&extern_fn_name);
-    out.push_str("\")\n");
+    // Build method signature
+    let return_clause = if return_swift_type == "Void" {
+        String::new()
+    } else {
+        format!(" -> {return_swift_type}")
+    };
+
+    // Methods with errors or needing JSON serialization must throw
+    let throws_clause = "throws ";
+
+    out.push_str(&format!(
+        "    public func {method_swift_name}({params_signature}) {throws_clause}{return_clause} {{\n",
+    ));
+
+    // Method body
+    // 1. Serialize self to JSON
+    out.push_str("        let jsonSelf = try JSONEncoder().encode(self)\n");
+    out.push_str("        let selfString = String(data: jsonSelf, encoding: .utf8) ?? \"{}\"\n");
+
+    // 2. Call the Rust extern. swift-bridge generates the function with UNLABELED params
+    //    (`_ json`, `_ param`) and a `RustString` return (it unwraps the Rust `Result`,
+    //    throwing on error), so the call uses no argument labels.
+    let call_args = if param_names.is_empty() {
+        "selfString".to_string()
+    } else {
+        format!("selfString, {}", param_names.join(", "))
+    };
+
+    if matches!(method.return_type, TypeRef::Unit) {
+        // Void: invoke for its effect and error propagation; nothing to decode.
+        out.push_str(&format!(
+            "        _ = try RustBridge.{extern_swift_name}({call_args})\n"
+        ));
+    } else {
+        // 3. Convert the returned `RustString` to a Swift `String`, then decode the JSON
+        //    payload the wrapper serialized (every non-unit return — including `String` —
+        //    is a serde_json document) into the Swift ok type.
+        out.push_str(&format!(
+            "        let resultJson = try RustBridge.{extern_swift_name}({call_args}).toString()\n"
+        ));
+        out.push_str("        let data = resultJson.data(using: .utf8) ?? Data()\n");
+        out.push_str(&format!(
+            "        return try JSONDecoder().decode({}.self, from: data)\n",
+            return_swift_type
+        ));
+    }
+
     out.push_str("    }\n\n");
 }

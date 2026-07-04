@@ -405,6 +405,80 @@ pub(crate) fn emit_extern_block_for_type_constructor(ty: &TypeDef) -> Option<Str
     Some(block)
 }
 
+/// Emit wrapper externs for instance methods on first-class (non-opaque) DTOs.
+///
+/// First-class DTOs in Swift are value types (Codable structs) that swift-bridge
+/// cannot bridge directly as opaque types. Instead, we emit helper externs that
+/// marshal self through JSON:
+/// - Input: JSON string of self + method parameters
+/// - Output: JSON string of return value
+///
+/// The Rust implementation (in `wrappers/methods.rs`) handles deserialization,
+/// calling the actual method, and serializing the result back.
+pub(crate) fn emit_extern_block_for_first_class_dto_methods(
+    ty: &TypeDef,
+    _handle_returned_types: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<&str>,
+) -> Option<String> {
+    // Only emit for non-opaque types with instance methods
+    if ty.is_opaque {
+        return None;
+    }
+
+    let instance_methods: Vec<_> = ty.methods.iter().filter(|m| !m.sanitized && !m.is_static).collect();
+    if instance_methods.is_empty() {
+        return None;
+    }
+
+    let mut block = String::new();
+    block.push_str("    extern \"Rust\" {\n");
+
+    for method in instance_methods {
+        let type_snake = ty.name.to_snake_case();
+        let method_snake = method.name.to_snake_case();
+        let fn_name = format!("{type_snake}_{method_snake}_from_json");
+        let swift_name = swift_ident(&fn_name.to_lower_camel_case());
+
+        // Params: json string of self, then method parameters
+        let mut params: Vec<String> = vec!["json: String".to_string()];
+        for p in &method.params {
+            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
+            let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
+                format!("Option<{bridge_ty}>")
+            } else {
+                bridge_ty
+            };
+            let name = swift_ident(&p.name.to_snake_case());
+            params.push(format!("{name}: {bridge_ty}"));
+        }
+        let params_str = params.join(", ");
+
+        // Return type: always Result<String, String> (JSON result or error)
+        // The String is the JSON-serialized return value
+        let return_ty = "Result<String, String>";
+
+        if swift_name != fn_name {
+            block.push_str(&crate::backends::swift::template_env::render(
+                "extern_swift_name_attr.jinja",
+                minijinja::context! {
+                    swift_name => &swift_name,
+                },
+            ));
+        }
+        block.push_str(&crate::backends::swift::template_env::render(
+            "extern_fn_decl.jinja",
+            minijinja::context! {
+                fn_name => &fn_name,
+                params => &params_str,
+                return_type => return_ty,
+            },
+        ));
+    }
+
+    block.push_str("    }\n\n");
+    Some(block)
+}
+
 pub(crate) fn emit_extern_block_for_functions(
     functions: &[FunctionDef],
     handle_returned_types: &HashSet<String>,

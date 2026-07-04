@@ -427,6 +427,15 @@ fn emit_lib_rs(
                 extern_blocks.push(format!("{cfg_open}{method_block}"));
             }
         }
+        // Emit wrapper externs for instance methods on first-class (non-opaque) DTOs.
+        // These marshal self through JSON to bridge value-type methods that swift-bridge
+        // cannot handle directly. Runs for every type — the emitter returns None for opaque
+        // ones — so it must sit OUTSIDE the `is_opaque` branch above.
+        if let Some(dto_method_block) =
+            extern_block::emit_extern_block_for_first_class_dto_methods(ty, &handle_returned_types, &enum_names)
+        {
+            extern_blocks.push(format!("{cfg_open}{dto_method_block}"));
+        }
     }
     for en in &visible_enums {
         // Skip result-type enums from the bridge — they're first-class Swift enums
@@ -795,6 +804,15 @@ fn emit_lib_rs(
                 &enum_names,
             ));
             out.push('\n');
+        }
+
+        // Emit wrappers for first-class DTO instance methods (JSON marshaling). Runs for
+        // every type — the emitter returns "" for opaque ones — so it sits OUTSIDE the
+        // `is_opaque` branch above (non-opaque DTOs are where these methods live).
+        let dto_wrappers =
+            wrappers::emit_first_class_dto_method_wrappers(ty, &source_crate, &type_paths, &unit_enum_names);
+        if !dto_wrappers.is_empty() {
+            out.push_str(&dto_wrappers);
         }
     }
 

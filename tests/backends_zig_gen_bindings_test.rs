@@ -174,7 +174,7 @@ fn struct_emits_zig_struct() {
 }
 
 #[test]
-fn trait_bridge_complex_return_is_explicitly_unsupported() {
+fn trait_bridge_complex_return_serializes_to_json() {
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -213,15 +213,21 @@ fn trait_bridge_complex_return_is_explicitly_unsupported() {
     let files = ZigBackend.generate_bindings(&api, &make_trait_bridge_config()).unwrap();
     let content = &files[0].content;
 
-    // The Zig backend currently emits a placeholder thunk carrying an unsupported marker
-    // for complex trait-vtable return types — the prior @compileError contract
-    // was softened so downstream packages compile even when a slot is not yet
-    // wired. The unsupported marker is the load-bearing invariant: it ensures a
-    // regression to a silent default still surfaces. See alef issue tracking
-    // JSON serialization for complex trait-vtable return types.
+    // Complex trait-vtable return types are serialized to JSON and handed back as a
+    // caller-owned, NUL-terminated C string via `out_result` — replacing the earlier
+    // placeholder that silently wrote null. Assert the serialize + NUL-terminate path
+    // so a regression to the silent-null stub surfaces.
     assert!(
-        content.contains("Unsupported: JSON serialization for this complex return type"),
-        "complex Zig trait-vtable return must carry an unsupported marker so it isn't silently shipped: {content}"
+        content.contains("std.json.fmt("),
+        "complex Zig trait-vtable return must serialize the host value to JSON: {content}"
+    );
+    assert!(
+        content.contains("dupeZ(u8, _json_slice)"),
+        "serialized JSON must be copied to a NUL-terminated C string for the caller: {content}"
+    );
+    assert!(
+        !content.contains("Unsupported: JSON serialization for this complex return type"),
+        "the silent-null placeholder marker must be gone: {content}"
     );
 }
 

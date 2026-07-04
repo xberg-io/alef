@@ -99,10 +99,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trait_bridge/visitor_method.jinja"),
     ),
     (
-        "trait_bridge/bridge_function.jinja",
-        include_str!("templates/trait_bridge/bridge_function.jinja"),
-    ),
-    (
         "trait_bridge/function_wrapper.jinja",
         include_str!("templates/trait_bridge/function_wrapper.jinja"),
     ),

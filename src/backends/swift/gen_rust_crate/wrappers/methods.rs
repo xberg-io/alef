@@ -389,3 +389,125 @@ pub(crate) fn emit_type_method_shims(
 
     out
 }
+
+/// Emit wrapper functions for instance methods on first-class (non-opaque) DTOs.
+///
+/// These wrappers handle JSON marshaling since swift-bridge cannot directly bridge
+/// instance methods on value types. Each wrapper:
+/// 1. Deserializes the JSON string of `self`
+/// 2. Calls the actual method on the deserialized value
+/// 3. Serializes the result back to JSON
+/// 4. Returns Result<String, String> (JSON result or error)
+pub(crate) fn emit_first_class_dto_method_wrappers(
+    ty: &TypeDef,
+    source_crate: &str,
+    type_paths: &HashMap<String, String>,
+    _unit_enum_names: &HashSet<&str>,
+) -> String {
+    // Only emit for non-opaque types with instance methods
+    if ty.is_opaque {
+        return String::new();
+    }
+
+    let instance_methods: Vec<_> = ty.methods.iter().filter(|m| !m.sanitized && !m.is_static).collect();
+    if instance_methods.is_empty() {
+        return String::new();
+    }
+
+    let type_name = &ty.name;
+    let type_snake = type_name.to_snake_case();
+    // Deserialize `self` into the CORE type, not the swift-bridge wrapper newtype
+    // (which derives no serde impls) — mirrors the constructor converters, which
+    // deserialize into `<source_crate>::<TypeName>` before wrapping.
+    let core_ty = type_paths
+        .get(type_name.as_str())
+        .map(|p| p.replace('-', "_"))
+        .unwrap_or_else(|| format!("{source_crate}::{type_name}"));
+    let mut out = String::new();
+
+    for method in instance_methods {
+        let method_snake = method.name.to_snake_case();
+        let fn_name = format!("{type_snake}_{method_snake}_from_json");
+
+        // Function signature: takes JSON string of self + method params, returns Result<String, String>
+        let mut params = vec!["json: String".to_string()];
+        for p in &method.params {
+            let ty_str = match &p.ty {
+                TypeRef::Primitive(prim) => format!("{:?}", prim).to_lowercase(),
+                TypeRef::String => "String".to_string(),
+                TypeRef::Named(n) => n.clone(),
+                _ => "String".to_string(), // Fallback
+            };
+            let name = p.name.to_snake_case();
+            params.push(format!("{name}: {ty_str}"));
+        }
+
+        out.push_str(&format!("pub fn {fn_name}("));
+        out.push_str(&params.join(", "));
+        out.push_str(") -> Result<String, String> {\n");
+
+        // Deserialize self from JSON. Only `&mut self` methods need a mutable
+        // binding; `&self`/owned-`self` methods would otherwise warn `unused_mut`.
+        let self_binding = if matches!(method.receiver, Some(ReceiverKind::RefMut)) {
+            "let mut __self"
+        } else {
+            "let __self"
+        };
+        out.push_str(&format!(
+            "    {self_binding}: {core_ty} = serde_json::from_str(&json)\n"
+        ));
+        out.push_str(&format!(
+            "        .map_err(|e| format!(\"Failed to deserialize {type_name}: {{}}\", e))?;\n"
+        ));
+
+        // Build the method call. String params bind as owned `String` in the
+        // wrapper signature; core methods take them by reference (`&str`), so
+        // pass `&name` — `&String` coerces to `&str`. Primitives pass by value.
+        let method_call_args: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| {
+                let name = p.name.to_snake_case();
+                match &p.ty {
+                    // Path params arrive as `String` from the bridge; core takes `PathBuf`/`&Path`.
+                    TypeRef::Path if p.optional && p.is_ref => {
+                        format!("{name}.as_ref().map(::std::path::Path::new)")
+                    }
+                    TypeRef::Path if p.optional => format!("{name}.map(::std::path::PathBuf::from)"),
+                    TypeRef::Path if p.is_ref => format!("::std::path::Path::new(&{name})"),
+                    TypeRef::Path => format!("::std::path::PathBuf::from({name})"),
+                    TypeRef::String | TypeRef::Named(_) => format!("&{name}"),
+                    _ => name,
+                }
+            })
+            .collect();
+        out.push_str(&format!(
+            "    let __result = __self.{}({});\n",
+            method.name,
+            method_call_args.join(", ")
+        ));
+
+        // Handle the return value
+        if method.error_type.is_some() {
+            // Result type: serialize the Ok value
+            out.push_str("    let __value = __result.map_err(|e| e.to_string())?;\n");
+            if matches!(method.return_type, TypeRef::Unit) {
+                out.push_str("    Ok(\"{}\".to_string())\n");
+            } else {
+                out.push_str("    serde_json::to_string(&__value)\n");
+                out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
+            }
+        } else if matches!(method.return_type, TypeRef::Unit) {
+            // Unit return: just return empty JSON
+            out.push_str("    Ok(\"{}\".to_string())\n");
+        } else {
+            // Normal return: serialize it
+            out.push_str("    serde_json::to_string(&__result)\n");
+            out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
+        }
+
+        out.push_str("}\n\n");
+    }
+
+    out
+}

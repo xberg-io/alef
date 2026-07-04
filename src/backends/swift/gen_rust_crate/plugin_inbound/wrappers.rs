@@ -133,6 +133,7 @@ pub(crate) fn emit_inbound_wrapper(
             error_type,
             emit_plugin,
             &lifetime_type_names,
+            api,
         );
     }
     out.push_str("}\n\n");

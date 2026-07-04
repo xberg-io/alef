@@ -1,8 +1,25 @@
 use crate::backends::swift::gen_rust_crate::type_bridge::swift_bridge_rust_type;
-use crate::core::ir::{MethodDef, ParamDef, TypeRef};
+use crate::core::ir::{ApiSurface, MethodDef, ParamDef, TypeRef};
 use heck::ToSnakeCase;
 
 use super::{inbound_bridge_type, needs_inbound_json_bridge};
+
+/// Returns true if `ty` references a `Named(name)` at any depth where `name` resolves
+/// to a trait — either present in `api.types` or stripped from the binding surface
+/// (`api.excluded_trait_names`). Such methods return references to trait objects
+/// (`&dyn Trait`, `Option<&dyn Trait>`, `Box<dyn Trait>`) which the Rust IR flattens
+/// to `Named(name)`. They cannot be bridged across the Swift FFI, so the trait-bridge
+/// generator skips them and falls back to the trait's default impl.
+fn return_type_references_trait(ty: &TypeRef, api: &ApiSurface) -> bool {
+    match ty {
+        TypeRef::Named(name) => {
+            api.types.iter().any(|t| t.is_trait && &t.name == name) || api.excluded_trait_names.contains(name)
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => return_type_references_trait(inner, api),
+        TypeRef::Map(k, v) => return_type_references_trait(k, api) || return_type_references_trait(v, api),
+        _ => false,
+    }
+}
 
 /// Emit one `impl Trait for SwiftWrapper` method body.
 #[allow(clippy::too_many_arguments)]
@@ -15,16 +32,17 @@ pub(super) fn emit_inbound_method_impl(
     error_type: &str,
     emit_plugin: bool,
     lifetime_type_names: &std::collections::HashSet<String>,
+    api: &ApiSurface,
 ) {
-    // For Plugin super-trait bridges: methods with a default impl are left to the
-    // trait's own default (e.g. `as_sync_extractor` returning `Option<&dyn Sync…>`
+    // For Plugin super-trait bridges: methods whose return type references a trait are left to the
+    // trait's own default (e.g. `as_sync_extractor` returning `Option<&dyn SyncExtractor>`
     // cannot round-trip via the swift FFI). Skip them.
     //
-    // For non-Plugin trait bridges: we must emit method bodies for ALL non-lifecycle
-    // methods (including those with defaults) so Swift visitor callbacks actually fire.
-    // If we skip them, the trait's no-op default runs and Swift callbacks are never
-    // invoked — a silent bug.
-    if emit_plugin && method.has_default_impl {
+    // For non-Plugin trait bridges, or for Plugin bridges where the return type is bridgeable:
+    // we must emit method bodies for ALL bridgeable methods (including those with defaults)
+    // so Swift visitor/plugin callbacks actually fire. If we skip them, the trait's no-op
+    // default runs and Swift callbacks are never invoked — a silent bug.
+    if emit_plugin && return_type_references_trait(&method.return_type, api) {
         return;
     }
 
