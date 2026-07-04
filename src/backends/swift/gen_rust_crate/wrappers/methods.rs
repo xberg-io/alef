@@ -432,11 +432,21 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
         // Function signature: takes JSON string of self + method params, returns Result<String, String>
         let mut params = vec!["json: String".to_string()];
         for p in &method.params {
-            let ty_str = match &p.ty {
+            let base_ty = match &p.ty {
                 TypeRef::Primitive(prim) => format!("{:?}", prim).to_lowercase(),
                 TypeRef::String => "String".to_string(),
                 TypeRef::Named(n) => n.clone(),
                 _ => "String".to_string(), // Fallback
+            };
+            // Optional params take `Option<T>` in the wrapper signature so the call
+            // site matches the core method's `Option<T>` parameter instead of a bare
+            // `T` (which tripped E0308 for e.g. `Response::set_cookie`'s `max_age`).
+            // Mirror the extern-block condition exactly (`!needs_json_bridge`) so the
+            // `#[swift_bridge::bridge]` declaration and this impl stay in agreement.
+            let ty_str = if p.optional && !needs_json_bridge(&p.ty) {
+                format!("Option<{base_ty}>")
+            } else {
+                base_ty
             };
             let name = p.name.to_snake_case();
             params.push(format!("{name}: {ty_str}"));
@@ -460,9 +470,9 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
             "        .map_err(|e| format!(\"Failed to deserialize {type_name}: {{}}\", e))?;\n"
         ));
 
-        // Build the method call. String params bind as owned `String` in the
-        // wrapper signature; core methods take them by reference (`&str`), so
-        // pass `&name` — `&String` coerces to `&str`. Primitives pass by value.
+        // Build the method call. Borrow a param only when the core method takes it
+        // by reference (`is_ref`, set for `&T` and `Option<&T>` params); owned
+        // `String`/`Option<String>` params pass by value. Primitives pass through.
         let method_call_args: Vec<String> = method
             .params
             .iter()
@@ -476,7 +486,15 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
                     TypeRef::Path if p.optional => format!("{name}.map(::std::path::PathBuf::from)"),
                     TypeRef::Path if p.is_ref => format!("::std::path::Path::new(&{name})"),
                     TypeRef::Path => format!("::std::path::PathBuf::from({name})"),
-                    TypeRef::String | TypeRef::Named(_) => format!("&{name}"),
+                    // core takes `Option<&str>` — borrow the inner str.
+                    TypeRef::String if p.optional && p.is_ref => format!("{name}.as_deref()"),
+                    // core takes `&str` — `&String` coerces.
+                    TypeRef::String if p.is_ref => format!("&{name}"),
+                    // core takes `Option<&T>` — borrow the inner value.
+                    TypeRef::Named(_) if p.optional && p.is_ref => format!("{name}.as_ref()"),
+                    // core takes `&T`.
+                    TypeRef::Named(_) if p.is_ref => format!("&{name}"),
+                    // Owned `String`/`Option<String>`/`T`/`Option<T>` and primitives: pass by value.
                     _ => name,
                 }
             })
