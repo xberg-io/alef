@@ -66,105 +66,121 @@ pub fn gen_trait_bridge_files(
         files.push((format!("{bridge_obj}.kt"), content));
     }
 
-    // Emit the JNI dispatcher: the JSON entry point the native trait bridge calls.
-    // Suspend interface methods cannot be invoked over raw JNI (they need a
-    // continuation), so the dispatcher bridges them with runBlocking.
-    {
-        use heck::ToLowerCamelCase;
-
-        let visible_type_names: std::collections::HashSet<&str> = api
-            .types
-            .iter()
-            .filter(|t| !t.binding_excluded && !effective_excluded_types.contains(&t.name))
-            .map(|t| t.name.as_str())
-            .chain(api.enums.iter().map(|e| e.name.as_str()))
-            .collect();
-
-        let mut imports = BTreeSet::new();
-        imports.insert("com.fasterxml.jackson.module.kotlin.jacksonObjectMapper".to_string());
-        let mut any_async = false;
-
-        let own_methods: Vec<&crate::core::ir::MethodDef> = trait_def
-            .methods
-            .iter()
-            .filter(|m| !m.sanitized && !m.is_static)
-            .collect();
-
-        let methods: Vec<minijinja::Value> = own_methods
-            .iter()
-            .map(|method| {
-                let method_camel = method.name.to_lower_camel_case();
-                let args = method
-                    .params
-                    .iter()
-                    .map(|p| {
-                        let ty_ref = substitute_trait_carrier_type(api, bridge_cfg, &p.ty);
-                        let ty = kotlin_type_str_visible(&ty_ref, p.optional, &visible_type_names, &mut imports);
-                        format!(
-                            "mapper.convertValue(args.get(\"{}\"), object : com.fasterxml.jackson.core.type.TypeReference<{}>() {{}})",
-                            p.name, ty
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let call = format!("impl.{method_camel}({args})");
-                let call = if method.is_async {
-                    any_async = true;
-                    format!("runBlocking {{ {call} }}")
-                } else {
-                    call
-                };
-                let call_expr = if matches!(method.return_type, crate::core::ir::TypeRef::Unit) {
-                    format!("{{
-                        {call}
-                        null
-                    }}")
-                } else {
-                    call
-                };
-                minijinja::context! {
-                    rust_name => &method.name,
-                    call_expr => call_expr,
-                }
-            })
-            .collect();
-
-        if any_async {
-            imports.insert("kotlinx.coroutines.runBlocking".to_string());
-        }
-
-        // The interface currently makes every trait method abstract, so a host
-        // provides all of them; lifecycle hooks are interface defaults and always
-        // dispatchable. When interface defaults land for Rust-defaulted methods,
-        // this switches to reflection-based overridden detection.
-        let mut implemented: Vec<&str> = own_methods.iter().map(|m| m.name.as_str()).collect();
-        if bridge_cfg.super_trait.is_some() {
-            implemented.extend(["name", "version", "initialize", "shutdown"]);
-        }
-
-        let body = template_env::render(
-            "trait_bridge_dispatcher.jinja",
-            minijinja::context! {
-                trait_name => trait_name,
-                has_super_trait => bridge_cfg.super_trait.is_some(),
-                methods => methods,
-                implemented => implemented,
-            },
-        );
-
-        let mut final_imports = BTreeSet::new();
-        for import_line in &imports {
-            if let Some(stripped) = import_line.strip_prefix("import ") {
-                final_imports.insert(stripped.to_string());
-            } else {
-                final_imports.insert(import_line.clone());
-            }
-        }
-        let content = assemble_kt_content(package, &final_imports, &body);
-        files.push((format!("{trait_name}JniDispatcher.kt"), content));
-    }
+    files.push(gen_jni_dispatcher_file(
+        package,
+        trait_name,
+        bridge_cfg,
+        trait_def,
+        api,
+        effective_excluded_types,
+    ));
 
     files
+}
+
+/// Emit the `<Trait>JniDispatcher.kt` file: the JSON entry point the native
+/// trait bridge calls. Suspend interface methods cannot be invoked over raw JNI
+/// (they need a continuation), so the dispatcher bridges them with `runBlocking`.
+///
+/// Also used by the plain kotlin backend's JNI ffi-style output, whose Bridge
+/// object declares the same dispatcher-typed `nativeRegister*` externs.
+pub fn gen_jni_dispatcher_file(
+    package: &str,
+    trait_name: &str,
+    bridge_cfg: &TraitBridgeConfig,
+    trait_def: &TypeDef,
+    api: &crate::core::ir::ApiSurface,
+    effective_excluded_types: &std::collections::HashSet<String>,
+) -> (String, String) {
+    use heck::ToLowerCamelCase;
+
+    let visible_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| !t.binding_excluded && !effective_excluded_types.contains(&t.name))
+        .map(|t| t.name.as_str())
+        .chain(api.enums.iter().map(|e| e.name.as_str()))
+        .collect();
+
+    let mut imports = BTreeSet::new();
+    imports.insert("com.fasterxml.jackson.module.kotlin.jacksonObjectMapper".to_string());
+    let mut any_async = false;
+
+    let own_methods: Vec<&crate::core::ir::MethodDef> = trait_def
+        .methods
+        .iter()
+        .filter(|m| !m.sanitized && !m.is_static)
+        .collect();
+
+    let methods: Vec<minijinja::Value> = own_methods
+        .iter()
+        .map(|method| {
+            let method_camel = method.name.to_lower_camel_case();
+            let args = method
+                .params
+                .iter()
+                .map(|p| {
+                    let ty_ref = substitute_trait_carrier_type(api, bridge_cfg, &p.ty);
+                    let ty = kotlin_type_str_visible(&ty_ref, p.optional, &visible_type_names, &mut imports);
+                    format!(
+                        "mapper.convertValue(args.get(\"{}\"), object : com.fasterxml.jackson.core.type.TypeReference<{}>() {{}})",
+                        p.name, ty
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let call = format!("impl.{method_camel}({args})");
+            let call = if method.is_async {
+                any_async = true;
+                format!("runBlocking {{ {call} }}")
+            } else {
+                call
+            };
+            let call_expr = if matches!(method.return_type, crate::core::ir::TypeRef::Unit) {
+                format!("{{\n                        {call}\n                        null\n                    }}")
+            } else {
+                call
+            };
+            minijinja::context! {
+                rust_name => &method.name,
+                call_expr => call_expr,
+            }
+        })
+        .collect();
+
+    if any_async {
+        imports.insert("kotlinx.coroutines.runBlocking".to_string());
+    }
+
+    // The interface currently makes every trait method abstract, so a host
+    // provides all of them; lifecycle hooks are interface defaults and always
+    // dispatchable. When interface defaults land for Rust-defaulted methods,
+    // this switches to reflection-based overridden detection.
+    let mut implemented: Vec<&str> = own_methods.iter().map(|m| m.name.as_str()).collect();
+    if bridge_cfg.super_trait.is_some() {
+        implemented.extend(["name", "version", "initialize", "shutdown"]);
+    }
+
+    let body = template_env::render(
+        "trait_bridge_dispatcher.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+            has_super_trait => bridge_cfg.super_trait.is_some(),
+            methods => methods,
+            implemented => implemented,
+        },
+    );
+
+    let mut final_imports = BTreeSet::new();
+    for import_line in &imports {
+        if let Some(stripped) = import_line.strip_prefix("import ") {
+            final_imports.insert(stripped.to_string());
+        } else {
+            final_imports.insert(import_line.clone());
+        }
+    }
+    let content = assemble_kt_content(package, &final_imports, &body);
+    (format!("{trait_name}JniDispatcher.kt"), content)
 }
 
 /// Generate the bridge object (legacy entry point for compatibility).
