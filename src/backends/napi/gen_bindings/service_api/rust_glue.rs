@@ -270,7 +270,7 @@ fn gen_run_napi_function(
 
     // Build the function signature
     let mut rust_params = vec![
-        "registrations: Vec<(String, Vec<serde_json::Value>, ThreadsafeFunction<serde_json::Value, serde_json::Value>)>".to_owned(),
+        "registrations: Vec<(String, Vec<serde_json::Value>, ThreadsafeFunction<serde_json::Value, Either<Promise<HandlerReturn>, HandlerReturn>>)>".to_owned(),
     ];
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
@@ -402,7 +402,9 @@ fn gen_base_registration_napi_method(
         // so `(*name.inner).clone()` produces a fresh `T`.
         unwrap_lines.push_str(&format!("        let {0} = (*{0}.inner).clone();\n", p.name));
     }
-    rust_params.push("handler: ThreadsafeFunction<serde_json::Value, serde_json::Value>".to_string());
+    rust_params.push(
+        "handler: ThreadsafeFunction<serde_json::Value, Either<Promise<HandlerReturn>, HandlerReturn>>".to_string(),
+    );
     let param_sig = rust_params.join(", ");
 
     let doc = reg
@@ -549,7 +551,9 @@ fn gen_variant_napi_method(
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
         rust_params.push(format!("{}: {}", p.name, rust_ty));
     }
-    rust_params.push("handler: ThreadsafeFunction<serde_json::Value, serde_json::Value>".to_string());
+    rust_params.push(
+        "handler: ThreadsafeFunction<serde_json::Value, Either<Promise<HandlerReturn>, HandlerReturn>>".to_string(),
+    );
     let param_sig = rust_params.join(", ");
 
     let doc = variant.doc.as_deref().unwrap_or("").trim();

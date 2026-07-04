@@ -4,3 +4,28 @@ use napi::bindgen_prelude::*;
 use napi::threadsafe_function::ThreadsafeFunction;
 use napi_derive::napi;
 use std::sync::Arc;
+
+/// Wrapper that lets an arbitrary JSON handler return participate in
+/// `Either<Promise<_>, _>`. Both `Either` arms and `Promise<T>` require
+/// `ValidateNapiValue`, which `serde_json::Value` does not implement. A handler
+/// return is always the response-envelope object, so `value_type()` is `Object`;
+/// the default `validate` then routes a plain object to the value arm and a
+/// thenable to the promise arm — supporting both sync and async JS handlers.
+pub struct HandlerReturn(serde_json::Value);
+
+impl TypeName for HandlerReturn {
+    fn type_name() -> &'static str {
+        "HandlerReturn"
+    }
+    fn value_type() -> ValueType {
+        ValueType::Object
+    }
+}
+
+impl ValidateNapiValue for HandlerReturn {}
+
+impl FromNapiValue for HandlerReturn {
+    unsafe fn from_napi_value(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> Result<Self> {
+        Ok(Self(unsafe { serde_json::Value::from_napi_value(env, napi_val)? }))
+    }
+}

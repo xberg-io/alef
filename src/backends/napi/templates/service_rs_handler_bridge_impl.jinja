@@ -8,10 +8,18 @@ impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
             let outcome: {{ wire_output }} = async move {
                 let req_json = serde_json::to_value(&{{ wire_name }})
                     .map_err(|e| Box::new(e) as {{ box_err }})?;
-                let resp_json = self.handler_fn
+                // The JS handler may be sync (returns the response object) or
+                // async (returns a Promise). `Either<Promise<_>, _>` routes a
+                // thenable to the `Promise` arm (awaited here) and a plain object
+                // to the value arm, so both handler styles work.
+                let resp_either = self.handler_fn
                     .call_async(Ok(req_json))
                     .await
                     .map_err(|e| Box::new(e) as {{ box_err }})?;
+                let resp_json = match resp_either {
+                    Either::A(promise) => promise.await.map_err(|e| Box::new(e) as {{ box_err }})?.0,
+                    Either::B(value) => value.0,
+                };
                 serde_json::from_value(resp_json)
                     .map_err(|e| Box::new(e) as {{ box_err }})
             }

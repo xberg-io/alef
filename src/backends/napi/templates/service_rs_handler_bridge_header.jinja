@@ -3,12 +3,12 @@
 /// Wraps a JavaScript callable (async) via ThreadsafeFunction
 /// so it can be used as `Arc<dyn {{ trait_name }}>` from Rust async code.
 pub struct {{ bridge_name }} {
-    handler_fn: ThreadsafeFunction<serde_json::Value, serde_json::Value>,
+    handler_fn: ThreadsafeFunction<serde_json::Value, Either<Promise<HandlerReturn>, HandlerReturn>>,
 }
 
 impl {{ bridge_name }} {
     /// Create a bridge from a JavaScript callable.
-    pub fn new(handler_fn: ThreadsafeFunction<serde_json::Value, serde_json::Value>) -> Self {
+    pub fn new(handler_fn: ThreadsafeFunction<serde_json::Value, Either<Promise<HandlerReturn>, HandlerReturn>>) -> Self {
         Self { handler_fn }
     }
 }
