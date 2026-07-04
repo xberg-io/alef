@@ -38,6 +38,13 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         "Py<PyAny>"
     }
 
+    fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        Some(format!(
+            "Python::attach(|py| self.inner.bind(py).hasattr(\"{}\").unwrap_or(false))",
+            method.name
+        ))
+    }
+
     fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
         self.forwardable_defaulted.contains(&method.name).then(|| {
             format!(

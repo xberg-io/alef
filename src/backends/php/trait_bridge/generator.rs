@@ -118,6 +118,13 @@ impl PhpBridgeGenerator {
 }
 
 impl TraitBridgeGenerator for PhpBridgeGenerator {
+    fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        Some(format!(
+            "{{\n    // SAFETY: PHP objects are single-threaded; reads are safe within a request.\n    let __class = unsafe {{ (*self.inner).get_class_name().unwrap_or_default() }};\n    ext_php_rs::zend::Function::try_from_method(&__class, \"{}\").is_some()\n}}",
+            method.name
+        ))
+    }
+
     fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
         self.forwardable_defaulted.contains(&method.name).then(|| {
             format!(

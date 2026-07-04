@@ -79,6 +79,17 @@ pub trait TraitBridgeGenerator {
         None
     }
 
+    /// Presence-check expression for a `Plugin` lifecycle method (`initialize`,
+    /// `shutdown`) synthesized by the super-trait impl.
+    ///
+    /// Return `Some(expr)` to make the bridge treat a host object that doesn't
+    /// define the method as a no-op (`Ok(())`) instead of failing at
+    /// registration/unregistration. The default `None` keeps the prior behavior
+    /// (the generated body decides, typically erroring on a missing method).
+    fn gen_lifecycle_presence_check(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        None
+    }
+
     /// Extra fields on the wrapper struct, as `(name, rust_type)` pairs.
     ///
     /// Backends whose foreign objects cannot be probed safely at call time

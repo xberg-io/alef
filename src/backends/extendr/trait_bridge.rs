@@ -77,14 +77,26 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             .then(|| format!("self.has_{}", method.name))
     }
 
+    fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        // Same construction-time flag as trait methods: a host list without the
+        // function makes the lifecycle hook a no-op.
+        Some(format!("self.has_{}", method.name))
+    }
+
     fn extra_bridge_fields(&self, spec: &TraitBridgeSpec) -> Vec<(String, String)> {
         // Iterate the trait's method order (not the set) so field order is deterministic.
-        spec.trait_def
+        let mut fields: Vec<(String, String)> = spec
+            .trait_def
             .methods
             .iter()
             .filter(|m| self.forwardable_defaulted.contains(&m.name))
             .map(|m| (format!("has_{}", m.name), "bool".to_string()))
-            .collect()
+            .collect();
+        if spec.bridge_config.super_trait.is_some() {
+            fields.push(("has_initialize".to_string(), "bool".to_string()));
+            fields.push(("has_shutdown".to_string(), "bool".to_string()));
+        }
+        fields
     }
 
     fn bridge_imports(&self) -> Vec<String> {
@@ -313,13 +325,18 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         let required_methods: Vec<String> = spec.required_methods().iter().map(|m| m.name.clone()).collect();
         // Presence flags for forwarded defaulted methods, captured once on the R
         // main thread. Trait method order keeps the emission deterministic.
-        let optional_methods: Vec<String> = spec
+        let mut optional_methods: Vec<String> = spec
             .trait_def
             .methods
             .iter()
             .filter(|m| self.forwardable_defaulted.contains(&m.name))
             .map(|m| m.name.clone())
             .collect();
+        // Lifecycle hooks are optional too; a missing function makes the hook a no-op.
+        if spec.bridge_config.super_trait.is_some() {
+            optional_methods.push("initialize".to_string());
+            optional_methods.push("shutdown".to_string());
+        }
 
         crate::backends::extendr::template_env::render(
             "bridge_constructor.jinja",

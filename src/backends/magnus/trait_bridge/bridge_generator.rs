@@ -197,14 +197,28 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             .then(|| format!("self.has_{}", method.name))
     }
 
+    fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        // Same construction-time flag as trait methods. Note `respond_to(..., false)`
+        // excludes private methods, and Ruby constructors (`def initialize`) are
+        // private — so a host's constructor never counts as the plugin lifecycle
+        // hook and is never re-invoked at registration.
+        Some(format!("self.has_{}", method.name))
+    }
+
     fn extra_bridge_fields(&self, spec: &TraitBridgeSpec) -> Vec<(String, String)> {
         // Iterate the trait's method order (not the set) so field order is deterministic.
-        spec.trait_def
+        let mut fields: Vec<(String, String)> = spec
+            .trait_def
             .methods
             .iter()
             .filter(|m| self.forwardable_defaulted.contains(&m.name))
             .map(|m| (format!("has_{}", m.name), "bool".to_string()))
-            .collect()
+            .collect();
+        if spec.bridge_config.super_trait.is_some() {
+            fields.push(("has_initialize".to_string(), "bool".to_string()));
+            fields.push(("has_shutdown".to_string(), "bool".to_string()));
+        }
+        fields
     }
 
     fn bridge_imports(&self) -> Vec<String> {
@@ -357,13 +371,19 @@ let cached_name_for_blocking = cached_name.clone();\n\
         let required_methods: Vec<_> = spec.required_methods().iter().map(|m| m.name.as_str()).collect();
         // Presence flags for forwarded defaulted methods, captured once under the GVL.
         // Trait method order keeps the emission deterministic.
-        let optional_methods: Vec<_> = spec
+        let mut optional_methods: Vec<_> = spec
             .trait_def
             .methods
             .iter()
             .filter(|m| self.forwardable_defaulted.contains(&m.name))
             .map(|m| m.name.as_str())
             .collect();
+        // Lifecycle hooks are optional too; a missing (or private — Ruby
+        // constructors are private) method makes the hook a no-op.
+        if spec.bridge_config.super_trait.is_some() {
+            optional_methods.push("initialize");
+            optional_methods.push("shutdown");
+        }
 
         crate::backends::magnus::template_env::render(
             "trait_bridge_constructor.rs.jinja",

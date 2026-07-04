@@ -68,6 +68,13 @@ pub struct WasmBridgeGenerator {
 }
 
 impl TraitBridgeGenerator for WasmBridgeGenerator {
+    fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        Some(format!(
+            "js_sys::Reflect::get(&self.inner, &wasm_bindgen::JsValue::from_str(\"{}\")).map(|v| v.is_function()).unwrap_or(false)",
+            method.name
+        ))
+    }
+
     fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
         self.forwardable_defaulted.contains(&method.name).then(|| {
             format!(

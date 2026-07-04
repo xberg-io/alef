@@ -622,3 +622,64 @@ fn no_delegates_emitted_without_hook() {
         output.code
     );
 }
+
+/// Mock generator that also opts lifecycle methods in to no-op tolerance.
+struct MockLifecycleGenerator;
+
+impl TraitBridgeGenerator for MockLifecycleGenerator {
+    fn foreign_object_type(&self) -> &str {
+        MockBridgeGenerator.foreign_object_type()
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        MockBridgeGenerator.bridge_imports()
+    }
+
+    fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        MockBridgeGenerator.gen_sync_method_body(method, spec)
+    }
+
+    fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
+        MockBridgeGenerator.gen_async_method_body(method, spec)
+    }
+
+    fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+        MockBridgeGenerator.gen_constructor(spec)
+    }
+
+    fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        MockBridgeGenerator.gen_registration_fn(spec)
+    }
+
+    fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        Some(format!("self.host_has(\"{}\")", method.name))
+    }
+}
+
+#[test]
+fn lifecycle_methods_noop_when_host_lacks_them() {
+    let trait_def = ocr_like_trait();
+    let config = make_trait_bridge_config(Some("Plugin"), Some("register_ocr_backend"));
+    let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+    let result = gen_bridge_plugin_impl(&spec, &MockLifecycleGenerator).expect("plugin impl");
+    assert!(
+        result.contains("if !(self.host_has(\"initialize\")) {"),
+        "initialize must be guarded by the lifecycle presence check:\n{result}"
+    );
+    assert!(
+        result.contains("if !(self.host_has(\"shutdown\")) {"),
+        "shutdown must be guarded by the lifecycle presence check:\n{result}"
+    );
+}
+
+#[test]
+fn lifecycle_methods_unguarded_without_hook() {
+    let trait_def = ocr_like_trait();
+    let config = make_trait_bridge_config(Some("Plugin"), Some("register_ocr_backend"));
+    let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+    let result = gen_bridge_plugin_impl(&spec, &MockBridgeGenerator).expect("plugin impl");
+    assert!(
+        !result.contains("host_has"),
+        "no guard without the lifecycle hook:\n{result}"
+    );
+}

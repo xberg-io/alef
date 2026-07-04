@@ -8,6 +8,10 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         "rustler::LocalPid"
     }
 
+    fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        Some(format!("self.implemented_methods.contains(\"{}\")", method.name))
+    }
+
     fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
         // The exported-function set is supplied by the Elixir side at registration
         // (the GenServer bridge knows its impl_module) and cached on the wrapper.
