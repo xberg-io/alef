@@ -1,6 +1,6 @@
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn {{ register_fn }}(env: rustler::Env<'_>, genserver_pid: rustler::LocalPid, plugin_name: String) -> rustler::Atom {
-    let wrapper = {{ wrapper_name }}::new(genserver_pid, plugin_name);
+pub fn {{ register_fn }}(env: rustler::Env<'_>, genserver_pid: rustler::LocalPid, plugin_name: String, implemented_methods: Vec<String>) -> rustler::Atom {
+    let wrapper = {{ wrapper_name }}::new(genserver_pid, plugin_name, implemented_methods);
     let arc: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(wrapper);
 
     match {{ registry_getter }}()

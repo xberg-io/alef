@@ -63,6 +63,42 @@ pub trait TraitBridgeGenerator {
     fn async_trait_is_send(&self) -> bool {
         true
     }
+
+    /// Presence-check expression for a Rust-defaulted trait method.
+    ///
+    /// Return `Some(expr)` — a Rust expression, valid inside the bridge's trait-impl
+    /// methods, evaluating to `true` when the wrapped foreign object provides
+    /// `method` — to opt the method in to defaulted-method forwarding: the bridge
+    /// then calls the host implementation when the host defines the method and
+    /// falls back to the trait's genuine Rust default body (via a per-method
+    /// delegate) otherwise.
+    ///
+    /// The default `None` keeps the prior behavior: the method is omitted from the
+    /// bridge impl and the Rust default always runs, ignoring host implementations.
+    fn gen_method_presence_check(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        None
+    }
+
+    /// Presence-check expression for a `Plugin` lifecycle method (`initialize`,
+    /// `shutdown`) synthesized by the super-trait impl.
+    ///
+    /// Return `Some(expr)` to make the bridge treat a host object that doesn't
+    /// define the method as a no-op (`Ok(())`) instead of failing at
+    /// registration/unregistration. The default `None` keeps the prior behavior
+    /// (the generated body decides, typically erroring on a missing method).
+    fn gen_lifecycle_presence_check(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        None
+    }
+
+    /// Extra fields on the wrapper struct, as `(name, rust_type)` pairs.
+    ///
+    /// Backends whose foreign objects cannot be probed safely at call time
+    /// (thread-affine values like Ruby `Value`s or JS objects behind an env)
+    /// cache method-presence flags here at construction; their
+    /// `gen_constructor` must initialize every declared field.
+    fn extra_bridge_fields(&self, _spec: &TraitBridgeSpec) -> Vec<(String, String)> {
+        Vec::new()
+    }
 }
 
 pub struct BridgeOutput {
@@ -101,6 +137,13 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 
     // Trait impl
     out.push_str(&gen_bridge_trait_impl(spec, generator));
+
+    // Default delegates — only when the generator forwards defaulted methods
+    let delegates = super::gen_bridge_default_delegates(spec, generator);
+    if !delegates.is_empty() {
+        out.push_str("\n\n");
+        out.push_str(&delegates);
+    }
 
     // Registration function — only when register_fn is configured
     if let Some(reg_fn_code) = gen_bridge_registration_fn(spec, generator) {

@@ -6,6 +6,12 @@ pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBr
     let wrapper = spec.wrapper_name();
     let foreign_type = generator.foreign_object_type();
 
+    let extra_fields: Vec<minijinja::Value> = generator
+        .extra_bridge_fields(spec)
+        .into_iter()
+        .map(|(name, ty)| minijinja::context! { name => name, ty => ty })
+        .collect();
+
     crate::codegen::template_env::render(
         "generators/trait_bridge/wrapper_struct.jinja",
         minijinja::context! {
@@ -13,6 +19,7 @@ pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBr
             trait_name => &spec.trait_def.name,
             wrapper_name => wrapper,
             foreign_type => foreign_type,
+            extra_fields => extra_fields,
         },
     )
 }
@@ -99,7 +106,12 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         binding_exclusion_reason: None,
         version: Default::default(),
     };
-    let init_body = generator.gen_sync_method_body(&init_method, spec);
+    let mut init_body = generator.gen_sync_method_body(&init_method, spec);
+    // A host that doesn't define initialize() opted out of the lifecycle hook —
+    // treat it as a no-op instead of failing registration.
+    if let Some(presence) = generator.gen_lifecycle_presence_check(&init_method, spec) {
+        init_body = format!("if !({presence}) {{\n    return Ok(());\n}}\n{init_body}");
+    }
 
     // shutdown() -> Result<(), ErrorType>
     let shutdown_method = MethodDef {
@@ -121,7 +133,11 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         binding_exclusion_reason: None,
         version: Default::default(),
     };
-    let shutdown_body = generator.gen_sync_method_body(&shutdown_method, spec);
+    let mut shutdown_body = generator.gen_sync_method_body(&shutdown_method, spec);
+    // Same no-op tolerance for shutdown() at unregistration.
+    if let Some(presence) = generator.gen_lifecycle_presence_check(&shutdown_method, spec) {
+        shutdown_body = format!("if !({presence}) {{\n    return Ok(());\n}}\n{shutdown_body}");
+    }
 
     // Split method bodies into lines for template iteration
     let version_lines: Vec<&str> = version_body.lines().collect();

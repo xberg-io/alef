@@ -282,6 +282,11 @@ pub(super) fn gen_dts(
                 lines.push(format!("export interface {} {{", typ.name));
                 if trait_bridge_requires_plugin_name(typ, trait_bridges) {
                     lines.push("  name(): string".to_string());
+                    // Lifecycle hooks the bridge calls when present (no-op otherwise) —
+                    // part of the host surface so they are discoverable and type-checked.
+                    lines.push("  version?(): string".to_string());
+                    lines.push("  initialize?(): void".to_string());
+                    lines.push("  shutdown?(): void".to_string());
                 }
                 for method in &typ.methods {
                     let js_name = to_node_name(&method.name);

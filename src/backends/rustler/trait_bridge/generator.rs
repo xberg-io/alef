@@ -22,6 +22,12 @@ pub struct RustlerBridgeGenerator {
     /// natural native terms (strings, numbers, booleans, lists); enums/opaque/unknown `Named` params
     /// fall back to a debug string term.
     pub struct_param_types: std::collections::HashSet<String>,
+    /// Rust-defaulted trait methods the bridge forwards to the host when the
+    /// implementation module exports them. The exported-function names are
+    /// supplied by the Elixir side at registration (the GenServer bridge knows
+    /// its impl_module) and stored on the wrapper as `implemented_methods`.
+    /// Methods absent here keep the trait's Rust default unconditionally.
+    pub forwardable_defaulted: std::collections::HashSet<String>,
 }
 
 /// Generate all trait bridge code for a given trait type and bridge config.
@@ -89,11 +95,16 @@ pub fn gen_trait_bridge(
         // terms.
         let struct_param_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
+        // Rust-defaulted methods the bridge can forward to the host (host-exported
+        // implementations win; the Rust default runs otherwise).
+        let forwardable_defaulted =
+            crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = super::generator::RustlerBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             struct_param_types,
+            forwardable_defaulted,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types

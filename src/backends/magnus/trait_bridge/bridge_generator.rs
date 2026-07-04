@@ -83,6 +83,10 @@ pub fn gen_trait_bridge(
                 .into_iter()
                 .filter(|name| binding_to_core.contains(name.as_str()))
                 .collect();
+        // Rust-defaulted methods the bridge can forward to the host (host-defined
+        // implementations win; the Rust default runs otherwise).
+        let forwardable_defaulted =
+            crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = MagnusBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
@@ -90,6 +94,7 @@ pub fn gen_trait_bridge(
             error_constructor: error_constructor.to_string(),
             struct_param_types,
             struct_return_types,
+            forwardable_defaulted,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types
@@ -155,6 +160,12 @@ struct MagnusBridgeGenerator {
     /// the native wrapped object as well as a Hash/JSON via `to_json`) and converts via
     /// `From<Binding> for core`, instead of `serde_json::from_str` into core directly.
     struct_return_types: std::collections::HashSet<String>,
+    /// Rust-defaulted trait methods the bridge forwards to the host when the Ruby
+    /// object responds to them. Presence is cached as `has_<method>` bool fields at
+    /// construction (under the GVL) because async bridge bodies run on worker
+    /// threads where the Ruby object cannot be probed. Methods absent here keep
+    /// the trait's Rust default unconditionally.
+    forwardable_defaulted: std::collections::HashSet<String>,
 }
 
 impl MagnusBridgeGenerator {
@@ -176,6 +187,38 @@ impl MagnusBridgeGenerator {
 impl TraitBridgeGenerator for MagnusBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
         "magnus::value::Opaque<magnus::Value>"
+    }
+
+    fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        // The flag is captured at construction (see `gen_constructor`) because the
+        // Ruby object cannot be probed off the GVL in async bridge bodies.
+        self.forwardable_defaulted
+            .contains(&method.name)
+            .then(|| format!("self.has_{}", method.name))
+    }
+
+    fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        // Same construction-time flag as trait methods. Note `respond_to(..., false)`
+        // excludes private methods, and Ruby constructors (`def initialize`) are
+        // private — so a host's constructor never counts as the plugin lifecycle
+        // hook and is never re-invoked at registration.
+        Some(format!("self.has_{}", method.name))
+    }
+
+    fn extra_bridge_fields(&self, spec: &TraitBridgeSpec) -> Vec<(String, String)> {
+        // Iterate the trait's method order (not the set) so field order is deterministic.
+        let mut fields: Vec<(String, String)> = spec
+            .trait_def
+            .methods
+            .iter()
+            .filter(|m| self.forwardable_defaulted.contains(&m.name))
+            .map(|m| (format!("has_{}", m.name), "bool".to_string()))
+            .collect();
+        if spec.bridge_config.super_trait.is_some() {
+            fields.push(("has_initialize".to_string(), "bool".to_string()));
+            fields.push(("has_shutdown".to_string(), "bool".to_string()));
+        }
+        fields
     }
 
     fn bridge_imports(&self) -> Vec<String> {
@@ -326,12 +369,28 @@ let cached_name_for_blocking = cached_name.clone();\n\
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
         let required_methods: Vec<_> = spec.required_methods().iter().map(|m| m.name.as_str()).collect();
+        // Presence flags for forwarded defaulted methods, captured once under the GVL.
+        // Trait method order keeps the emission deterministic.
+        let mut optional_methods: Vec<_> = spec
+            .trait_def
+            .methods
+            .iter()
+            .filter(|m| self.forwardable_defaulted.contains(&m.name))
+            .map(|m| m.name.as_str())
+            .collect();
+        // Lifecycle hooks are optional too; a missing (or private — Ruby
+        // constructors are private) method makes the hook a no-op.
+        if spec.bridge_config.super_trait.is_some() {
+            optional_methods.push("initialize");
+            optional_methods.push("shutdown");
+        }
 
         crate::backends::magnus::template_env::render(
             "trait_bridge_constructor.rs.jinja",
             minijinja::context! {
                 wrapper => wrapper,
                 required_methods => required_methods,
+                optional_methods => optional_methods,
             },
         )
     }
@@ -573,5 +632,101 @@ impl MagnusBridgeGenerator {
             ),
             _ => var.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod forwarding_tests {
+    use super::*;
+
+    fn make_generator() -> MagnusBridgeGenerator {
+        MagnusBridgeGenerator {
+            core_import: "sample_core".to_string(),
+            type_paths: HashMap::new(),
+            error_type: "SampleError".to_string(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_string(),
+            struct_param_types: std::collections::HashSet::new(),
+            struct_return_types: std::collections::HashSet::new(),
+            forwardable_defaulted: std::collections::HashSet::new(),
+        }
+    }
+
+    fn make_trait() -> crate::core::ir::TypeDef {
+        crate::core::ir::TypeDef {
+            name: "OcrBackend".to_string(),
+            rust_path: "sample_core::OcrBackend".to_string(),
+            is_trait: true,
+            is_opaque: true,
+            methods: vec![
+                crate::core::ir::MethodDef {
+                    name: "supports_language".to_string(),
+                    receiver: Some(crate::core::ir::ReceiverKind::Ref),
+                    return_type: crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+                    ..Default::default()
+                },
+                crate::core::ir::MethodDef {
+                    name: "supports_table_detection".to_string(),
+                    has_default_impl: true,
+                    receiver: Some(crate::core::ir::ReceiverKind::Ref),
+                    return_type: crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn presence_uses_construction_time_flag_and_wrapper_gains_field() {
+        let mut generator = make_generator();
+        generator
+            .forwardable_defaulted
+            .insert("supports_table_detection".to_string());
+        let trait_def = make_trait();
+        let bridge = crate::core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            ..crate::core::config::TraitBridgeConfig::default()
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge,
+            core_import: "sample_core",
+            wrapper_prefix: "Rb",
+            type_paths: HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
+            error_type: "SampleError".to_string(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_string(),
+        };
+
+        let check = generator
+            .gen_method_presence_check(&trait_def.methods[1], &spec)
+            .unwrap();
+        assert_eq!(check, "self.has_supports_table_detection");
+
+        let fields = generator.extra_bridge_fields(&spec);
+        assert_eq!(
+            fields,
+            vec![("has_supports_table_detection".to_string(), "bool".to_string())]
+        );
+
+        let ctor = generator.gen_constructor(&spec);
+        assert!(
+            ctor.contains("has_supports_table_detection: rb_obj.respond_to(\"supports_table_detection\", false)"),
+            "constructor must capture the flag under the GVL:\n{ctor}"
+        );
+
+        let output = crate::codegen::generators::trait_bridge::gen_bridge_all(&spec, &generator);
+        assert!(
+            output.code.contains("has_supports_table_detection: bool,"),
+            "wrapper struct must declare the flag field:\n{}",
+            output.code
+        );
+        assert!(
+            output
+                .code
+                .contains("RbOcrBackendBridgeDefaultSupportsTableDetection(self).supports_table_detection()"),
+            "fallback must run the Rust default via the delegate:\n{}",
+            output.code
+        );
     }
 }

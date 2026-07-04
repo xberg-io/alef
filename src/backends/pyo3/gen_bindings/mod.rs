@@ -19,6 +19,7 @@ mod support_items;
 #[cfg(test)]
 mod tests;
 pub mod types;
+pub(in crate::backends::pyo3) use types::options_dataclass_type_names;
 pub(in crate::backends::pyo3) mod wire_schema;
 
 use crate::backends::pyo3::type_map::Pyo3Mapper;
@@ -762,6 +763,19 @@ impl Backend for Pyo3Backend {
             if opaque_types.is_empty() {
                 builder.add_import("std::sync::Arc");
             }
+            let reexported_types = config
+                .python
+                .as_ref()
+                .map(|c| c.reexported_types.clone())
+                .unwrap_or_default();
+            // One-time helper for lifting native callback params into the public
+            // options dataclasses (see Pyo3BridgeGenerator::options_lift_expr).
+            builder.add_item(&crate::backends::pyo3::template_env::render(
+                "trait_bridge/options_from_native_helper.jinja",
+                minijinja::context! {
+                    options_module => format!("{}.options", config.python_module_name()),
+                },
+            ));
             for bridge_cfg in &config.trait_bridges {
                 if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
                     let bridge = crate::backends::pyo3::trait_bridge::gen_trait_bridge(
@@ -771,6 +785,7 @@ impl Backend for Pyo3Backend {
                         &config.error_type_name(),
                         &config.error_constructor_expr(),
                         api,
+                        &reexported_types,
                     )?;
                     for imp in &bridge.imports {
                         builder.add_import(imp);

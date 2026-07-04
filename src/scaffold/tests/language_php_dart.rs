@@ -32,7 +32,10 @@ fn test_scaffold_php_omits_phpstan_and_cs_fixer_configs() {
         composers.len(),
         2,
         "expected root + package composer.json; got {:?}",
-        composers.iter().map(|f| f.path.display().to_string()).collect::<Vec<_>>()
+        composers
+            .iter()
+            .map(|f| f.path.display().to_string())
+            .collect::<Vec<_>>()
     );
     for composer in &composers {
         assert!(

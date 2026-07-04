@@ -86,6 +86,7 @@ fn generator_with(struct_params: &[&str]) -> ExtendrBridgeGenerator {
         error_type: "SampleError".to_string(),
         struct_param_types: struct_params.iter().map(|s| s.to_string()).collect(),
         struct_return_types: std::collections::HashSet::new(),
+        forwardable_defaulted: Default::default(),
     }
 }
 
@@ -179,6 +180,7 @@ fn native_struct_return_unwraps_external_ptr_before_json() {
         error_type: "SampleError".to_string(),
         struct_param_types: std::collections::HashSet::new(),
         struct_return_types: std::collections::HashSet::from(["Doc".to_string()]),
+        forwardable_defaulted: Default::default(),
     };
     let trait_def = greeter_trait_with(vec![]);
     let bridge_cfg = TraitBridgeConfig::default();

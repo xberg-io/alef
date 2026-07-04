@@ -3,8 +3,13 @@
 
   The GenServer should dispatch `{:trait_call, ...}` messages to a module that
   implements the `{{ behaviour_module }}` behaviour.
+
+  The optional `implemented_methods` lists the function names the implementation
+  module exports; Rust-defaulted trait methods outside this list keep their Rust
+  default behavior. The scaffolded bridge module's `register/1` fills it in
+  automatically from the implementation module's exports.
   """
-  @spec {{ func_name }}(pid(), String.t()) :: :ok | :error
-  def {{ func_name }}(genserver_pid, plugin_name) do
-    {{ native_mod }}.{{ func_name }}(genserver_pid, plugin_name)
+  @spec {{ func_name }}(pid(), String.t(), [String.t()]) :: :ok | :error
+  def {{ func_name }}(genserver_pid, plugin_name, implemented_methods \\ []) do
+    {{ native_mod }}.{{ func_name }}(genserver_pid, plugin_name, implemented_methods)
   end

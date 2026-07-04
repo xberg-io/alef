@@ -2090,3 +2090,133 @@ fn test_pyi_plugin_bridge_emits_typed_protocol_and_typed_register() {
         "register fn must type its backend param against the Protocol:\n{content}"
     );
 }
+
+#[test]
+fn test_pyi_plugin_protocol_omits_defaulted_methods_and_documents_them() {
+    // Plugin trait with one required and one Rust-defaulted method: the Protocol
+    // must require only the former (the runtime contract) and document the latter
+    // as optional — a minimal, valid backend must conform structurally.
+    let backend = Pyo3Backend;
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        register_fn: Some("register_greeter".to_string()),
+        registry_getter: Some("test_lib::registry::get".to_string()),
+        super_trait: Some("Plugin".to_string()),
+        bind_via: alef::core::config::BridgeBinding::FunctionParam,
+        ..Default::default()
+    }];
+
+    let greeter = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "test_lib::Greeter".to_string(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![
+            MethodDef {
+                name: "process".to_string(),
+                params: vec![],
+                return_type: TypeRef::String,
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            },
+            MethodDef {
+                name: "supports_table_detection".to_string(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                receiver: Some(ReceiverKind::Ref),
+                has_default_impl: true,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![greeter],
+        ..Default::default()
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    assert!(
+        content.contains("class Greeter(Protocol):"),
+        "plugin bridge must emit a Protocol:\n{content}"
+    );
+    assert!(
+        content.contains("def process(self)"),
+        "required method must stay in the Protocol:\n{content}"
+    );
+    assert!(
+        !content.contains("def supports_table_detection"),
+        "Rust-defaulted method must not be a required Protocol member:\n{content}"
+    );
+    assert!(
+        content.contains("`supports_table_detection`") && content.contains("Optional methods"),
+        "defaulted method must be documented as optional:\n{content}"
+    );
+    assert!(
+        content.contains("`initialize()`"),
+        "lifecycle hooks must be documented as optional:\n{content}"
+    );
+}
+
+#[test]
+fn test_pyi_plugin_protocol_types_config_params_as_options_dataclass() {
+    // A config struct exported as an options dataclass must appear as `options.X`
+    // in plugin Protocol params — the type the package exports is the type the
+    // bridge passes to the host.
+    let backend = Pyo3Backend;
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        register_fn: Some("register_greeter".to_string()),
+        registry_getter: Some("test_lib::registry::get".to_string()),
+        super_trait: Some("Plugin".to_string()),
+        bind_via: alef::core::config::BridgeBinding::FunctionParam,
+        ..Default::default()
+    }];
+
+    let greeter = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "test_lib::Greeter".to_string(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![MethodDef {
+            name: "process".to_string(),
+            params: vec![ParamDef {
+                name: "config".to_string(),
+                ty: TypeRef::Named("GreetConfig".to_string()),
+                is_ref: true,
+                ..Default::default()
+            }],
+            return_type: TypeRef::String,
+            receiver: Some(ReceiverKind::Ref),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let greet_config = TypeDef {
+        name: "GreetConfig".to_string(),
+        rust_path: "test_lib::GreetConfig".to_string(),
+        has_serde: true,
+        has_default: true,
+        fields: vec![make_field("label", TypeRef::String, false)],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![greeter, greet_config],
+        ..Default::default()
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+    assert!(
+        content.contains("def process(self, config: options.GreetConfig)"),
+        "plugin Protocol must type options-dataclass config params as options.X:\n{content}"
+    );
+}

@@ -3,13 +3,25 @@
     Typed host interface for the `{{ trait_name }}` plugin bridge.
 
     A plugin handler module implements this behaviour and is registered with
-    `{{ register_fn }}/2`. Each callback receives the decoded arguments for a
+    `{{ register_fn }}`. Each callback receives the decoded arguments for a
     trait method and returns the method's result. The dispatching GenServer
     passes the decoded `args` map to the callback for the corresponding method.
+
+    The optional callbacks are Rust-defaulted trait methods (plus the
+    `initialize`/`shutdown` lifecycle hooks): the bridge calls them when the
+    module exports them, otherwise the trait's Rust default behavior applies.
     """
 {% for cb in callbacks %}
 
     @doc "Handle the `{{ cb.method }}` trait call."
     @callback {{ cb.name }}({{ cb.params_spec }}) :: {{ cb.return_spec }}
 {% endfor %}
+
+    @doc "Optional lifecycle hook, called at plugin registration."
+    @callback initialize() :: any()
+
+    @doc "Optional lifecycle hook, called at plugin unregistration."
+    @callback shutdown() :: any()
+
+    @optional_callbacks [{% for cb in optional_callbacks %}{{ cb.name }}: {{ cb.arity }}{% if not loop.last %}, {% endif %}{% endfor %}]
   end

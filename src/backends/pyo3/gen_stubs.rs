@@ -244,13 +244,22 @@ pub fn gen_stubs(
     // Track the trait names that received a Protocol so the `register_*` signature below can type
     // its `backend` parameter against the Protocol instead of bare `object`.
     let mut protocol_trait_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Config structs the package exports as options dataclasses: plugin-bridge
+    // callbacks receive the dataclass (the bridge lifts the native object), so the
+    // Protocol types those params as `options.X` — the publicly exported type.
+    let stub_reexported_types = config
+        .python
+        .as_ref()
+        .map(|c| c.reexported_types.clone())
+        .unwrap_or_default();
+    let options_types = crate::backends::pyo3::gen_bindings::options_dataclass_type_names(api, &stub_reexported_types);
     for bridge in trait_bridges {
         let is_protocol_bridge =
             bridge.bind_via == crate::core::config::BridgeBinding::OptionsField || bridge.register_fn.is_some();
         if !is_protocol_bridge {
             continue;
         }
-        if let Some(stub) = gen_visitor_protocol_stub(bridge, api, &capsule_names, emit_docstrings) {
+        if let Some(stub) = gen_visitor_protocol_stub(bridge, api, &capsule_names, emit_docstrings, &options_types) {
             body_lines.push(stub);
             body_lines.push("".to_string());
             protocol_trait_names.insert(bridge.trait_name.clone());

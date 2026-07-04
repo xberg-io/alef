@@ -352,8 +352,14 @@ fn test_scaffold_elixir_trait_bridge_registers_genserver_pid_and_plugin_name() {
         bridge_file.content.contains("plugin_name = impl_module.name()")
             && bridge_file
                 .content
-                .contains("DemoMarkup.Native.register_ocr_backend(pid, plugin_name)"),
+                .contains("DemoMarkup.Native.register_ocr_backend(pid, plugin_name, implemented_methods)"),
         "register/1 must require Plugin.name/0 and register the started GenServer pid; got:\n{}",
+        bridge_file.content
+    );
+    assert!(
+        bridge_file.content.contains("impl_module.__info__(:functions)"),
+        "register/1 must pass the implementation module's exported function names so \
+         Rust-defaulted trait methods outside the set keep their Rust default; got:\n{}",
         bridge_file.content
     );
     assert!(

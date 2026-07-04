@@ -1,0 +1,18 @@
+/// Lift a native binding object into the package's public options dataclass via the
+/// generated `options._from_native_*` converter, so trait-callback hosts receive the
+/// type the package exports under that name. Falls back to the native object when the
+/// options module is unavailable (attribute access is identical either way).
+#[allow(dead_code)]
+fn __alef_options_from_native<'py, T>(py: Python<'py>, func: &str, native: T) -> pyo3::Py<pyo3::PyAny>
+where
+    T: pyo3::IntoPyObjectExt<'py>,
+{
+    let Ok(native) = pyo3::IntoPyObjectExt::into_py_any(native, py) else {
+        return py.None();
+    };
+    py.import("{{ options_module }}")
+        .and_then(|m| m.getattr(func))
+        .and_then(|f| f.call1((native.clone_ref(py),)))
+        .map(|v| v.unbind())
+        .unwrap_or(native)
+}

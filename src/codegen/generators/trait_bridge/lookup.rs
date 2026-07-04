@@ -253,3 +253,36 @@ fn field_type_matches_alias(field_ty: &TypeRef, alias: &str) -> bool {
         _ => false,
     }
 }
+
+/// True when a `TypeRef` references a trait type (directly or through
+/// `Option`/`Vec`/`Map` wrappers). Trait-typed values cannot cross a foreign
+/// bridge — the host cannot construct or return a Rust trait object — so
+/// methods whose signature references a trait are excluded from
+/// defaulted-method forwarding and keep the Rust default unconditionally.
+pub fn type_references_trait(ty: &TypeRef, api: &ApiSurface) -> bool {
+    match ty {
+        TypeRef::Named(name) => {
+            api.types.iter().any(|t| t.is_trait && &t.name == name) || api.excluded_trait_names.contains(name)
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_references_trait(inner, api),
+        TypeRef::Map(k, v) => type_references_trait(k, api) || type_references_trait(v, api),
+        _ => false,
+    }
+}
+
+/// True when any param or the return type of `method` references a trait type.
+pub fn method_signature_references_trait(method: &crate::core::ir::MethodDef, api: &ApiSurface) -> bool {
+    type_references_trait(&method.return_type, api) || method.params.iter().any(|p| type_references_trait(&p.ty, api))
+}
+
+/// The names of the Rust-defaulted own methods of `trait_type` whose signatures a
+/// foreign bridge can marshal — the standard input to a backend's
+/// defaulted-method forwarding opt-in (`gen_method_presence_check`).
+pub fn forwardable_defaulted_method_names(trait_type: &TypeDef, api: &ApiSurface) -> std::collections::HashSet<String> {
+    trait_type
+        .methods
+        .iter()
+        .filter(|m| m.trait_source.is_none() && m.has_default_impl && !method_signature_references_trait(m, api))
+        .map(|m| m.name.clone())
+        .collect()
+}

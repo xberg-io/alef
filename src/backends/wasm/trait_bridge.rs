@@ -61,9 +61,29 @@ pub struct WasmBridgeGenerator {
     pub error_type: String,
     /// Set of type names that are enums (bare-string serialized).
     pub enum_names: std::collections::HashSet<String>,
+    /// Rust-defaulted trait methods the bridge forwards to the host when the JS
+    /// object defines them (per the shared `forwardable_defaulted_method_names`
+    /// rule). Methods absent here keep the trait's Rust default unconditionally.
+    pub forwardable_defaulted: std::collections::HashSet<String>,
 }
 
 impl TraitBridgeGenerator for WasmBridgeGenerator {
+    fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        Some(format!(
+            "js_sys::Reflect::get(&self.inner, &wasm_bindgen::JsValue::from_str(\"{}\")).map(|v| v.is_function()).unwrap_or(false)",
+            method.name
+        ))
+    }
+
+    fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        self.forwardable_defaulted.contains(&method.name).then(|| {
+            format!(
+                "js_sys::Reflect::get(&self.inner, &wasm_bindgen::JsValue::from_str(\"{}\")).map(|v| v.is_function()).unwrap_or(false)",
+                method.name
+            )
+        })
+    }
+
     fn foreign_object_type(&self) -> &str {
         "wasm_bindgen::JsValue"
     }
@@ -389,11 +409,16 @@ pub fn gen_trait_bridge(
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure for plugin pattern
         let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+        // Rust-defaulted methods the bridge can forward to the host (host-defined
+        // implementations win; the Rust default runs otherwise).
+        let forwardable_defaulted =
+            crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = WasmBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             enum_names,
+            forwardable_defaulted,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types
@@ -985,5 +1010,52 @@ mod tests {
         assert!(code.contains("__alef_wasm_bridge_xmlwalker::WasmXmlWalkerBridge::new(visitor)"));
         assert!(!code.contains("__alef_wasm_bridge_htmlvisitor"));
         assert!(!code.contains("WasmHtmlVisitorBridge"));
+    }
+    #[test]
+    fn presence_check_emitted_only_for_forwardable_defaulted_methods() {
+        let mut generator = WasmBridgeGenerator {
+            core_import: "sample_core".to_string(),
+            type_paths: std::collections::HashMap::new(),
+            error_type: "SampleError".to_string(),
+            enum_names: std::collections::HashSet::new(),
+            forwardable_defaulted: std::collections::HashSet::new(),
+        };
+        let trait_def = crate::core::ir::TypeDef {
+            name: "OcrBackend".to_string(),
+            rust_path: "sample_core::OcrBackend".to_string(),
+            is_trait: true,
+            is_opaque: true,
+            ..Default::default()
+        };
+        let bridge = TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            ..TraitBridgeConfig::default()
+        };
+        let spec = crate::codegen::generators::trait_bridge::TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge,
+            core_import: "sample_core",
+            wrapper_prefix: "Wasm",
+            type_paths: std::collections::HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
+            error_type: "SampleError".to_string(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_string(),
+        };
+        let method = crate::core::ir::MethodDef {
+            name: "supports_table_detection".to_string(),
+            has_default_impl: true,
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            ..Default::default()
+        };
+        assert!(generator.gen_method_presence_check(&method, &spec).is_none());
+        generator
+            .forwardable_defaulted
+            .insert("supports_table_detection".to_string());
+        let check = generator.gen_method_presence_check(&method, &spec).unwrap();
+        assert!(
+            check.contains("js_sys::Reflect::get"),
+            "wasm presence check must use Reflect: {check}"
+        );
+        assert!(check.contains("supports_table_detection"));
     }
 }

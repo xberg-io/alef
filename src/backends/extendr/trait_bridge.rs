@@ -34,6 +34,12 @@ pub struct ExtendrBridgeGenerator {
     /// to unwrap the host's native `ExternalPtr` and convert via `From<Binding>` (mirroring the
     /// options decoder), falling back to the `as_str()` + serde JSON-string path.
     pub struct_return_types: std::collections::HashSet<String>,
+    /// Rust-defaulted trait methods the bridge forwards to the host when the R
+    /// object provides them. Presence is cached as `has_<method>` bool fields at
+    /// construction (on the R main thread) because R objects cannot be probed
+    /// from worker threads. Methods absent here keep the trait's Rust default
+    /// unconditionally.
+    pub forwardable_defaulted: std::collections::HashSet<String>,
 }
 
 impl ExtendrBridgeGenerator {
@@ -61,6 +67,36 @@ impl ExtendrBridgeGenerator {
 impl TraitBridgeGenerator for ExtendrBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
         "extendr_api::Robj"
+    }
+
+    fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        // The flag is captured at construction (see `gen_constructor`) because R
+        // objects can only be probed on the R main thread.
+        self.forwardable_defaulted
+            .contains(&method.name)
+            .then(|| format!("self.has_{}", method.name))
+    }
+
+    fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
+        // Same construction-time flag as trait methods: a host list without the
+        // function makes the lifecycle hook a no-op.
+        Some(format!("self.has_{}", method.name))
+    }
+
+    fn extra_bridge_fields(&self, spec: &TraitBridgeSpec) -> Vec<(String, String)> {
+        // Iterate the trait's method order (not the set) so field order is deterministic.
+        let mut fields: Vec<(String, String)> = spec
+            .trait_def
+            .methods
+            .iter()
+            .filter(|m| self.forwardable_defaulted.contains(&m.name))
+            .map(|m| (format!("has_{}", m.name), "bool".to_string()))
+            .collect();
+        if spec.bridge_config.super_trait.is_some() {
+            fields.push(("has_initialize".to_string(), "bool".to_string()));
+            fields.push(("has_shutdown".to_string(), "bool".to_string()));
+        }
+        fields
     }
 
     fn bridge_imports(&self) -> Vec<String> {
@@ -287,12 +323,27 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
         let required_methods: Vec<String> = spec.required_methods().iter().map(|m| m.name.clone()).collect();
+        // Presence flags for forwarded defaulted methods, captured once on the R
+        // main thread. Trait method order keeps the emission deterministic.
+        let mut optional_methods: Vec<String> = spec
+            .trait_def
+            .methods
+            .iter()
+            .filter(|m| self.forwardable_defaulted.contains(&m.name))
+            .map(|m| m.name.clone())
+            .collect();
+        // Lifecycle hooks are optional too; a missing function makes the hook a no-op.
+        if spec.bridge_config.super_trait.is_some() {
+            optional_methods.push("initialize".to_string());
+            optional_methods.push("shutdown".to_string());
+        }
 
         crate::backends::extendr::template_env::render(
             "bridge_constructor.jinja",
             minijinja::context! {
                 wrapper => wrapper,
                 required_methods => required_methods,
+                optional_methods => optional_methods,
             },
         )
     }
@@ -496,12 +547,17 @@ pub fn gen_trait_bridge(
         // `From<core::T>` conversion used for return values.
         let struct_param_types = native_marshalled_extendr_struct_params(trait_type, api);
         let struct_return_types = native_marshalled_extendr_struct_returns(trait_type, api);
+        // Rust-defaulted methods the bridge can forward to the host (host-defined
+        // implementations win; the Rust default runs otherwise).
+        let forwardable_defaulted =
+            crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = ExtendrBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             struct_param_types,
             struct_return_types,
+            forwardable_defaulted,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types

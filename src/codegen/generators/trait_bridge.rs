@@ -5,6 +5,7 @@
 //! to provide language-specific dispatch logic; the shared functions in this module
 //! handle the structural boilerplate.
 
+mod delegates;
 mod formatting;
 mod generator;
 mod lookup;
@@ -13,15 +14,17 @@ mod spec;
 mod trait_impl;
 mod wrapper;
 
+pub use delegates::{default_delegate_name, forwarded_defaulted_methods, gen_bridge_default_delegates};
 pub use formatting::{
-    bridge_param_type, format_param_type, format_param_type_with_lifetimes, format_return_type, format_type_ref, prim,
-    to_camel_case, visitor_param_type,
+    TraitMethodSig, bridge_param_type, format_param_type, format_param_type_with_lifetimes, format_return_type,
+    format_type_ref, prim, to_camel_case, trait_method_signature, visitor_param_type,
 };
 pub use generator::{BridgeOutput, TraitBridgeGenerator, gen_bridge_all};
 pub use lookup::{
     BridgeFieldMatch, bridge_handle_path, bridge_wrapper_name, find_bridge_field, find_bridge_param, find_trait_def,
-    is_bridge_handle_type_ref, is_native_marshalled_struct, is_trait_bridge_managed_fn,
-    native_marshalled_struct_params, native_marshalled_struct_returns,
+    forwardable_defaulted_method_names, is_bridge_handle_type_ref, is_native_marshalled_struct,
+    is_trait_bridge_managed_fn, method_signature_references_trait, native_marshalled_struct_params,
+    native_marshalled_struct_returns, type_references_trait,
 };
 pub use registration::{
     gen_bridge_clear_fn, gen_bridge_registration_fn, gen_bridge_unregistration_fn, host_function_path,

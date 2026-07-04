@@ -15,6 +15,9 @@ impl {{ wrapper }} {
         Ok(Self {
             inner: magnus::value::Opaque::from(rb_obj),
             cached_name: name,
+{%- for opt_method in optional_methods %}
+            has_{{ opt_method }}: rb_obj.respond_to("{{ opt_method }}", false).unwrap_or(false),
+{%- endfor %}
         })
     }
 }

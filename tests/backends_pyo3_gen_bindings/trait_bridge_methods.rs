@@ -250,6 +250,8 @@ fn make_struct_aware_generator(core_import: &str, struct_params: &[&str]) -> Pyo
         error_type: "Error".to_string(),
         struct_param_types: struct_params.iter().map(|s| s.to_string()).collect(),
         struct_return_types: std::collections::HashSet::new(),
+        forwardable_defaulted: std::collections::HashSet::new(),
+        options_dataclass_types: std::collections::HashSet::new(),
     }
 }
 
@@ -354,5 +356,160 @@ fn test_enum_and_unknown_params_keep_json_string_representation() {
     assert!(
         !sync_body.contains("Mood::from(") && !sync_body.contains("Widget::from("),
         "non-struct Named params must NOT be constructed as native objects:\n{sync_body}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Defaulted-method forwarding
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_defaulted_method_forwarded_with_hasattr_guard_and_delegate() {
+    let mut generator = make_bridge_generator("my_lib");
+    generator
+        .forwardable_defaulted
+        .insert("supports_table_detection".to_string());
+
+    let methods = vec![
+        make_method_def(
+            "supports_language",
+            vec![],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            false,
+            false,
+        ),
+        make_method_def(
+            "supports_table_detection",
+            vec![],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            false,
+            true,
+        ),
+    ];
+    let trait_def = make_trait_def("OcrBackend", "my_lib::OcrBackend", methods);
+    let bridge_cfg = make_bridge_cfg("OcrBackend");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+        lifetime_type_names: std::collections::HashSet::new(),
+        error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
+    };
+
+    let output = alef::codegen::generators::trait_bridge::gen_bridge_all(&spec, &generator);
+    let code = &output.code;
+
+    assert!(
+        code.contains("fn supports_table_detection"),
+        "opted-in defaulted method must be emitted:\n{code}"
+    );
+    assert!(
+        code.contains("hasattr(\"supports_table_detection\")"),
+        "guard must check the Python object with hasattr:\n{code}"
+    );
+    assert!(
+        code.contains("PyOcrBackendBridgeDefaultSupportsTableDetection(self).supports_table_detection()"),
+        "fallback must run the Rust default body via the delegate:\n{code}"
+    );
+    assert!(
+        code.contains("struct PyOcrBackendBridgeDefaultSupportsTableDetection"),
+        "delegate type must be emitted:\n{code}"
+    );
+}
+
+#[test]
+fn test_defaulted_method_not_in_forwardable_set_stays_omitted() {
+    let generator = make_bridge_generator("my_lib");
+
+    let methods = vec![
+        make_method_def(
+            "supports_language",
+            vec![],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            false,
+            false,
+        ),
+        make_method_def(
+            "supports_table_detection",
+            vec![],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            false,
+            true,
+        ),
+    ];
+    let trait_def = make_trait_def("OcrBackend", "my_lib::OcrBackend", methods);
+    let bridge_cfg = make_bridge_cfg("OcrBackend");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+        lifetime_type_names: std::collections::HashSet::new(),
+        error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
+    };
+
+    let output = alef::codegen::generators::trait_bridge::gen_bridge_all(&spec, &generator);
+    assert!(
+        !output.code.contains("fn supports_table_detection"),
+        "defaulted method outside the forwardable set must stay omitted:\n{}",
+        output.code
+    );
+}
+
+#[test]
+fn test_options_dataclass_param_lifted_before_host_call() {
+    let mut generator = make_bridge_generator("my_lib");
+    generator.struct_param_types.insert("GreetConfig".to_string());
+    generator.options_dataclass_types.insert("GreetConfig".to_string());
+
+    let trait_def = make_trait_def("Greeter", "my_lib::Greeter", vec![]);
+    let bridge_cfg = make_bridge_cfg("Greeter");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+        lifetime_type_names: std::collections::HashSet::new(),
+        error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
+    };
+    let method = make_method_def(
+        "process",
+        vec![ParamDef {
+            name: "config".to_string(),
+            ty: TypeRef::Named("GreetConfig".to_string()),
+            is_ref: true,
+            ..Default::default()
+        }],
+        TypeRef::String,
+        false,
+        false,
+        false,
+    );
+
+    let body = generator.gen_sync_method_body(&method, &spec);
+    assert!(
+        body.contains(
+            "__alef_options_from_native(py, \"_from_native_greet_config\", GreetConfig::from((*config).clone()))"
+        ),
+        "options-dataclass params must be lifted via the generated converter:\n{body}"
+    );
+
+    // Without the options classification the native object is passed directly.
+    generator.options_dataclass_types.clear();
+    let body = generator.gen_sync_method_body(&method, &spec);
+    assert!(
+        !body.contains("__alef_options_from_native"),
+        "non-options structs must keep the native object:\n{body}"
     );
 }

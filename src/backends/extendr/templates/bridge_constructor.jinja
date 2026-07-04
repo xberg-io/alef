@@ -22,6 +22,9 @@ impl {{ wrapper }} {
         };
 
         Ok(Self {
+{% for method in optional_methods %}
+            has_{{ method }}: matches!(r_obj.dollar("{{ method }}"), Ok(v) if !v.is_null() && !v.is_na()),
+{% endfor %}
             inner: r_obj,
             cached_name,
         })

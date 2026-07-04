@@ -165,7 +165,25 @@ fn gen_plugin_interface_stub(bridge: &TraitBridgeConfig, api: &ApiSurface) -> Op
     let interface_name = plugin_interface_name(&bridge.trait_name);
     let mut lines = vec![format!("  interface {interface_name}")];
 
-    for method in methods {
+    // Only the trait's non-defaulted methods are required at runtime: the bridge
+    // forwards Rust-defaulted methods when the host defines them (falling back to
+    // the Rust default otherwise), and the Plugin lifecycle hooks are no-ops when
+    // absent. RBS interfaces cannot express optional members, so the interface
+    // lists the required contract and a comment documents the optional surface.
+    let (required, optional): (Vec<&crate::core::ir::MethodDef>, Vec<&crate::core::ir::MethodDef>) =
+        methods.iter().partition(|m| !m.has_default_impl);
+    if !optional.is_empty() {
+        let names: Vec<&str> = optional.iter().map(|m| m.name.as_str()).collect();
+        lines.push(format!(
+            "    # Optional methods the bridge calls when the object defines them (the
+    # trait's Rust default behavior applies otherwise): {}.
+    # The lifecycle hooks `initialize`/`shutdown` are likewise optional (note:
+    # Ruby constructors are private and never count as the lifecycle hook).",
+            names.join(", ")
+        ));
+    }
+
+    for method in required {
         if method.binding_excluded {
             continue;
         }

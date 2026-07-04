@@ -613,3 +613,112 @@ fn test_typeddict_style_reexports_only_listed_results_as_native() {
         "is_return_type-but-not-reexported config must come from .options, not native:\n{init_py}"
     );
 }
+
+#[test]
+fn test_options_py_emits_from_native_converters_with_nested_recursion() {
+    // Every emitted options dataclass gets a `_from_native_<snake>` converter so
+    // trait-callback bridges can hand hosts the public dataclass; nested dataclass
+    // fields recurse (including through Optional).
+    let backend = Pyo3Backend;
+
+    let inner = TypeDef {
+        name: "InnerConfig".to_string(),
+        rust_path: "my_lib::InnerConfig".to_string(),
+        has_serde: true,
+        has_default: true,
+        fields: vec![make_field("depth", TypeRef::Primitive(PrimitiveType::U32), false)],
+        ..Default::default()
+    };
+    let outer = TypeDef {
+        name: "OuterConfig".to_string(),
+        rust_path: "my_lib::OuterConfig".to_string(),
+        has_serde: true,
+        has_default: true,
+        fields: vec![
+            make_field("label", TypeRef::String, false),
+            make_field(
+                "inner",
+                TypeRef::Optional(Box::new(TypeRef::Named("InnerConfig".to_string()))),
+                true,
+            ),
+        ],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![inner, outer],
+        ..Default::default()
+    };
+    let config = make_config();
+
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
+    let options = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("options.py"))
+        .expect("options.py should be generated");
+    let content = &options.content;
+
+    assert!(
+        content.contains("def _from_native_outer_config(native: Any) -> OuterConfig:"),
+        "converter must be emitted per dataclass:\n{content}"
+    );
+    assert!(
+        content.contains("label=native.label,"),
+        "plain fields pass through:\n{content}"
+    );
+    assert!(
+        content.contains("inner=(None if native.inner is None else _from_native_inner_config(native.inner)),"),
+        "nested dataclass fields must recurse through Optional:\n{content}"
+    );
+}
+
+#[test]
+fn test_from_native_converter_guards_optional_flag_fields() {
+    // Config fields are typically `Named` + `optional: true` in the IR (not
+    // `TypeRef::Optional`) — the converter must still None-guard the recursion,
+    // or a default config with a None nested section crashes the lift.
+    let backend = Pyo3Backend;
+
+    let inner = TypeDef {
+        name: "InnerConfig".to_string(),
+        rust_path: "my_lib::InnerConfig".to_string(),
+        has_serde: true,
+        has_default: true,
+        fields: vec![make_field("depth", TypeRef::Primitive(PrimitiveType::U32), false)],
+        ..Default::default()
+    };
+    let outer = TypeDef {
+        name: "OuterConfig".to_string(),
+        rust_path: "my_lib::OuterConfig".to_string(),
+        has_serde: true,
+        has_default: true,
+        fields: vec![make_field("inner", TypeRef::Named("InnerConfig".to_string()), true)],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![inner, outer],
+        ..Default::default()
+    };
+    let config = make_config();
+
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
+    let options = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("options.py"))
+        .expect("options.py should be generated");
+    let content = &options.content;
+
+    assert!(
+        content.contains("inner=(None if native.inner is None else _from_native_inner_config(native.inner)),"),
+        "optional-flag nested fields must be None-guarded:\n{content}"
+    );
+}

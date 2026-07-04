@@ -288,3 +288,64 @@ pub fn to_camel_case(s: &str) -> String {
     }
     result
 }
+
+/// Signature parts for one bridge trait-impl method, shared between the wrapper's
+/// trait impl and the default-delegate impls so both emit identical signatures.
+pub struct TraitMethodSig {
+    /// `"async "` or `""`.
+    pub async_kw: &'static str,
+    /// Full parameter list including the receiver, e.g. `"&self, path: &std::path::Path"`.
+    pub all_params: String,
+    /// Formatted return type (crate error type substituted).
+    pub ret: String,
+    /// Comma-joined argument names for forwarding calls, e.g. `"path, config"`.
+    pub arg_names: String,
+}
+
+/// Build the Rust signature parts for a trait method as the bridge emits it.
+pub fn trait_method_signature(method: &crate::core::ir::MethodDef, spec: &super::TraitBridgeSpec) -> TraitMethodSig {
+    let async_kw = if method.is_async { "async " } else { "" };
+    let receiver = match &method.receiver {
+        Some(crate::core::ir::ReceiverKind::Ref) => "&self",
+        Some(crate::core::ir::ReceiverKind::RefMut) => "&mut self",
+        Some(crate::core::ir::ReceiverKind::Owned) => "self",
+        None => "",
+    };
+
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "{}: {}",
+                p.name,
+                format_param_type_with_lifetimes(p, &spec.type_paths, &spec.lifetime_type_names)
+            )
+        })
+        .collect();
+
+    let all_params = if receiver.is_empty() {
+        params.join(", ")
+    } else if params.is_empty() {
+        receiver.to_string()
+    } else {
+        format!("{}, {}", receiver, params.join(", "))
+    };
+
+    let error_override = method.error_type.as_ref().map(|_| spec.error_path());
+    let ret = format_return_type(
+        &method.return_type,
+        error_override.as_deref(),
+        &spec.type_paths,
+        method.returns_ref,
+    );
+
+    let arg_names: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
+
+    TraitMethodSig {
+        async_kw,
+        all_params,
+        ret,
+        arg_names: arg_names.join(", "),
+    }
+}
