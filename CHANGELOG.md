@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **pyo3**: sync trait-bridge shims for infallible methods no longer swallow
+  host exceptions silently. A raised Python callback is logged to stderr with
+  the wrapper and method name before the default value is substituted
+  (value-returning methods) or the call is discarded (unit methods), so a
+  fabricated default — e.g. a zero token count that reads as "fits any
+  budget" — is no longer indistinguishable from a real result.
+
 ## [0.32.2] - 2026-07-04
 
 ### Fixed

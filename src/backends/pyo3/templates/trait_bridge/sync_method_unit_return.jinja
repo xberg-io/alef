@@ -10,6 +10,13 @@ Python::attach(|py| {
 {% if has_error %}
         .map_err(|e| {{ error_expr }})
 {% else %}
-        .unwrap_or(())
+        .unwrap_or_else(|e| {
+            // This method's Rust signature is infallible, so a host exception
+            // cannot propagate. Log it before discarding — a silently dropped
+            // callback failure is invisible to the caller.
+            eprintln!(
+                "[{{ wrapper }}] host '{{ method_name }}' raised; ignoring: {e}"
+            );
+        })
 {% endif %}
 })

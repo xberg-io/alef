@@ -29,8 +29,12 @@ fn test_gen_sync_method_body_unit_return_no_error() {
         "should resolve the host method by name and invoke it via the caller's contextvars context"
     );
     assert!(
-        body.contains("unwrap_or(())"),
-        "unit return without error should use unwrap_or(())"
+        body.contains("unwrap_or_else(|e|"),
+        "unit return without error should log and discard via unwrap_or_else"
+    );
+    assert!(
+        body.contains("eprintln!") && body.contains("host 'tick' raised; ignoring"),
+        "swallowed host exception should be logged with the method name"
     );
 }
 
@@ -63,8 +67,12 @@ fn test_gen_sync_method_body_string_return_no_error() {
     );
     assert!(body.contains("extract::<String>()"), "should extract String return");
     assert!(
-        body.contains("unwrap_or_default()"),
-        "infallible string return should use unwrap_or_default"
+        body.contains("unwrap_or_else(|e|") && body.contains("Default::default()"),
+        "infallible string return should log and substitute the default via unwrap_or_else"
+    );
+    assert!(
+        body.contains("eprintln!") && body.contains("host 'name' raised; returning default"),
+        "swallowed host exception should be logged with the method name"
     );
 }
 

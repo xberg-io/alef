@@ -26,6 +26,15 @@ Python::attach(|py| {
 {% if has_error %}
         .map_err(|e| {{ error_expr }})
 {% else %}
-        .unwrap_or_default()
+        .unwrap_or_else(|e| {
+            // This method's Rust signature is infallible, so a host exception
+            // cannot propagate. Log it before substituting the default value —
+            // a silent default is indistinguishable from a real result to the
+            // caller (e.g. a zero token count reads as "fits any budget").
+            eprintln!(
+                "[{{ wrapper }}] host '{{ method_name }}' raised; returning default: {e}"
+            );
+            Default::default()
+        })
 {% endif %}
 })

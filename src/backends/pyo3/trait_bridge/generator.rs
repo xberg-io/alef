@@ -96,6 +96,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     run_args => run_args,
                     has_error => has_error,
                     error_expr => error_expr,
+                    wrapper => spec.wrapper_name(),
                 },
             )
         } else {
@@ -120,6 +121,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     has_error => has_error,
                     error_expr => error_expr,
                     deserialize_error_expr => deserialize_error_expr,
+                    wrapper => spec.wrapper_name(),
                 },
             )
         }
