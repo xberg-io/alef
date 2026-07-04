@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.1] - 2026-07-04
+
+### Fixed
+
+- **napi**: async JS handlers are now awaited in the generated handler bridge.
+  The threadsafe-function return type is `Either<Promise<HandlerReturn>,
+  HandlerReturn>`, so a handler that returns a thenable routes to the `Promise`
+  arm (awaited on the Rust side) and a plain object routes to the value arm —
+  supporting both sync and async handlers. Previously a Promise return
+  serialized to `{}` and dispatch failed with a missing-field error. Adds a
+  `HandlerReturn` newtype implementing `ValidateNapiValue`/`TypeName`, because
+  `serde_json::Value` cannot satisfy the `Either`/`Promise` bounds directly.
+- **jni**: the generated handler-bridge struct and trait-object storage now use
+  `jni::refs::Global<jni::objects::JObject<'static>>` instead of the
+  `jni::objects::GlobalRef` alias. In jni 0.22.4 `GlobalRef` and the whole
+  `jni::objects::*` reference-type re-export are `#[deprecated]`, so the old
+  emission tripped deprecation errors under `-D warnings` in generated bindings.
+
 ## [0.32.0] - 2026-07-04
 
 ### Added
