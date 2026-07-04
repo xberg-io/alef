@@ -722,3 +722,51 @@ fn test_from_native_converter_guards_optional_flag_fields() {
         "optional-flag nested fields must be None-guarded:\n{content}"
     );
 }
+
+#[test]
+fn test_options_dataclass_qualifies_builtins_shadowed_by_field_names() {
+    // Same shadowing rule as the stub: a dataclass field named `bytes` shadows
+    // the builtin for the class body, so its annotation must be qualified.
+    let backend = Pyo3Backend;
+
+    let input_ty = TypeDef {
+        name: "ExtractInput".to_string(),
+        rust_path: "my_lib::ExtractInput".to_string(),
+        has_serde: true,
+        has_default: true,
+        fields: vec![
+            make_field("bytes", TypeRef::Optional(Box::new(TypeRef::Bytes)), true),
+            make_field("uri", TypeRef::Optional(Box::new(TypeRef::String)), true),
+        ],
+        ..Default::default()
+    };
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![input_ty],
+        ..Default::default()
+    };
+    let config = make_config();
+
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
+    let options = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("options.py"))
+        .expect("options.py should be generated");
+    let content = &options.content;
+
+    assert!(
+        content.contains("bytes: builtins.bytes | None"),
+        "shadowed builtin must be qualified in the dataclass annotation:\n{content}"
+    );
+    assert!(
+        content.contains("import builtins"),
+        "options.py must import builtins when qualification happened:\n{content}"
+    );
+    assert!(
+        content.contains("uri: str | None"),
+        "non-shadowed builtins stay plain:\n{content}"
+    );
+}

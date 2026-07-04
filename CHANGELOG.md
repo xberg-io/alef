@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **pyo3**: annotations inside a class whose member shadows a builtin type name
+  (e.g. an `ExtractInput.bytes` field) are now qualified as `builtins.<name>`
+  in both the `.pyi` stub and the `options.py` dataclass/TypedDict emission,
+  with a conditional `import builtins` — previously `mypy --strict` rejected
+  every such annotation with `Variable "X.bytes" is not valid as a type` (#174).
+
 ## [0.32.0] - 2026-07-04
 
 ### Added

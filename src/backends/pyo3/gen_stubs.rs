@@ -424,6 +424,12 @@ pub fn gen_stubs(
         lines.push("from . import options".to_string());
         lines.push("".to_string());
     }
+    // Emitted when a class member shadows a builtin type name and annotations
+    // were qualified as `builtins.<name>` (see gen_type_stub).
+    if body_joined.contains("builtins.") {
+        lines.push("import builtins".to_string());
+        lines.push("".to_string());
+    }
     if !used_typing.is_empty() {
         lines.push(format!("from typing import {}", used_typing.join(", ")));
         lines.push("".to_string());

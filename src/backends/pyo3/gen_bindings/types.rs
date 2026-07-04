@@ -391,6 +391,7 @@ pub(super) fn gen_options_py(
             continue;
         }
 
+        let class_start = out.len();
         if use_typeddict {
             out.push_str(&gen_typeddict(
                 typ,
@@ -520,6 +521,19 @@ pub(super) fn gen_options_py(
             }
             out.push('\n');
         }
+
+        // A field named after a builtin type shadows that builtin for the whole
+        // class body (dataclass or TypedDict alike); qualify such annotations as
+        // `builtins.<name>`. The module header adds `import builtins` when any
+        // class needed the rewrite.
+        let member_names: std::collections::HashSet<&str> =
+            binding_fields(&typ.fields).map(|f| f.name.as_str()).collect();
+        if let Some(qualified) =
+            crate::core::keywords::qualify_shadowed_python_builtins(&out[class_start..], &member_names)
+        {
+            out.truncate(class_start);
+            out.push_str(&qualified);
+        }
     }
 
     // Data enums are imported from the native module and referenced by their class name in the
@@ -530,6 +544,21 @@ pub(super) fn gen_options_py(
     // same type the package publicly exports (the options dataclass), not the
     // private native class.
     out.push_str(&gen_from_native_converters(api, reexported_types));
+
+    // Emitted when a class member shadows a builtin type name and annotations were
+    // qualified as `builtins.<name>` (see the per-class post-pass above). Inserted
+    // before the from-imports to keep the stdlib-import group isort-clean.
+    if out.contains("builtins.") {
+        out = out.replacen(
+            "from dataclasses import dataclass, field
+",
+            "import builtins
+
+from dataclasses import dataclass, field
+",
+            1,
+        );
+    }
 
     out
 }

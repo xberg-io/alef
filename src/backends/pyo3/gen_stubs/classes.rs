@@ -174,7 +174,19 @@ pub(super) fn gen_type_stub(
         }
     }
 
-    lines.join("\n")
+    let block = lines.join("\n");
+    // A member named after a builtin type (`bytes`, `str`, …) shadows that
+    // builtin for every annotation in this class body; qualify such usages as
+    // `builtins.<name>` so the stub survives `mypy --strict`. The stub-level
+    // import logic adds `import builtins` when this rewrites anything.
+    let member_names: std::collections::HashSet<&str> = binding_fields(&typ.fields)
+        .map(|f| f.name.as_str())
+        .chain(typ.methods.iter().map(|m| m.name.as_str()))
+        .collect();
+    match crate::core::keywords::qualify_shadowed_python_builtins(&block, &member_names) {
+        Some(qualified) => qualified,
+        None => block,
+    }
 }
 
 /// Generate __init__ signature stub for a struct.

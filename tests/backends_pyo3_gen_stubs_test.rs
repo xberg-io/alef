@@ -2301,3 +2301,58 @@ fn test_pyi_plugin_protocol_types_config_params_as_options_dataclass() {
         "plugin Protocol must type options-dataclass config params as options.X:\n{content}"
     );
 }
+
+#[test]
+fn test_pyi_qualifies_builtins_shadowed_by_field_names() {
+    // A field named `bytes` shadows the builtin type for every annotation in
+    // that class body (mypy --strict: "not valid as a type"), so annotations
+    // there must qualify the builtin as `builtins.bytes`. Classes without the
+    // shadowing keep plain builtins, and the stub imports `builtins` only when
+    // qualification happened.
+    let backend = Pyo3Backend;
+    let config = make_config_with_stubs();
+
+    let shadowing = TypeDef {
+        name: "ExtractInput".to_string(),
+        rust_path: "test_lib::ExtractInput".to_string(),
+        has_serde: true,
+        fields: vec![
+            make_field("bytes", TypeRef::Optional(Box::new(TypeRef::Bytes)), true),
+            make_field("mime", TypeRef::Optional(Box::new(TypeRef::String)), true),
+        ],
+        ..Default::default()
+    };
+    let plain = TypeDef {
+        name: "Payload".to_string(),
+        rust_path: "test_lib::Payload".to_string(),
+        has_serde: true,
+        fields: vec![make_field("data", TypeRef::Bytes, false)],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![shadowing, plain],
+        ..Default::default()
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    assert!(
+        content.contains("bytes: builtins.bytes | None"),
+        "shadowed builtin must be qualified in the field annotation:\n{content}"
+    );
+    assert!(
+        content.contains("import builtins"),
+        "stub must import builtins when qualification happened:\n{content}"
+    );
+    assert!(
+        content.contains("data: bytes"),
+        "classes without shadowing keep the plain builtin:\n{content}"
+    );
+    assert!(
+        !content.contains("builtins.bytes: "),
+        "the member declaration name itself must not be qualified:\n{content}"
+    );
+}

@@ -892,5 +892,146 @@ pub fn zig_ident(name: &str) -> String {
     zig_safe_name(&sanitized).unwrap_or(sanitized)
 }
 
+/// Python builtin names that are usable in type positions. A class member
+/// (field or method) with one of these names shadows the builtin for every
+/// annotation in that class body — `mypy --strict` rejects the annotation with
+/// `Variable "..." is not valid as a type`. Annotations in such a class must
+/// qualify the builtin as `builtins.<name>`.
+pub const PYTHON_BUILTIN_TYPE_NAMES: &[&str] = &[
+    "bool",
+    "bytearray",
+    "bytes",
+    "complex",
+    "dict",
+    "float",
+    "frozenset",
+    "int",
+    "list",
+    "memoryview",
+    "object",
+    "set",
+    "str",
+    "tuple",
+    "type",
+];
+
+/// Qualify builtin type names shadowed by `member_names` inside one Python
+/// class body (or type-hint string), rewriting type-position occurrences to
+/// `builtins.<name>`. Returns `None` when nothing needed rewriting.
+///
+/// Occurrences are left alone when they are:
+/// - inside string literals (including triple-quoted docstrings) or comments,
+/// - attribute accesses (preceded by `.`),
+/// - the declaration name itself — a field (`bytes: ...`), parameter
+///   (`(bytes: ...`), or method (`def bytes(`) — recognized as an identifier
+///   followed by `:` whose preceding context is a declaration position
+///   (line start, `(`, `,`, or `*`). Return-type positions (`-> bytes:`) are
+///   still qualified.
+pub fn qualify_shadowed_python_builtins(block: &str, member_names: &std::collections::HashSet<&str>) -> Option<String> {
+    let shadowed: std::collections::HashSet<&str> = PYTHON_BUILTIN_TYPE_NAMES
+        .iter()
+        .copied()
+        .filter(|b| member_names.contains(b))
+        .collect();
+    if shadowed.is_empty() {
+        return None;
+    }
+
+    const TRIPLE_DOUBLE: &str = "\"\"\"";
+    const TRIPLE_SINGLE: &str = "'''";
+
+    let mut out = String::with_capacity(block.len() + 64);
+    let mut changed = false;
+    // Cross-line string state: Some(delim) while inside a (possibly triple) quote.
+    let mut string_delim: Option<&'static str> = None;
+
+    for line in block.split_inclusive('\n') {
+        let line_bytes = line.as_bytes();
+        let mut i = 0;
+        while i < line_bytes.len() {
+            // Inside a string literal: scan for its closing delimiter.
+            if let Some(delim) = string_delim {
+                if line[i..].starts_with(delim) {
+                    out.push_str(delim);
+                    i += delim.len();
+                    string_delim = None;
+                } else {
+                    out.push(line_bytes[i] as char);
+                    i += 1;
+                }
+                continue;
+            }
+            let ch = line_bytes[i] as char;
+            // Comment: copy the rest of the line verbatim.
+            if ch == '#' {
+                out.push_str(&line[i..]);
+                break;
+            }
+            // String start (triple quotes before singles).
+            if line[i..].starts_with(TRIPLE_DOUBLE) || line[i..].starts_with(TRIPLE_SINGLE) {
+                let delim = if line_bytes[i] == b'"' {
+                    TRIPLE_DOUBLE
+                } else {
+                    TRIPLE_SINGLE
+                };
+                out.push_str(delim);
+                i += 3;
+                string_delim = Some(delim);
+                continue;
+            }
+            if ch == '"' || ch == '\'' {
+                let delim = if ch == '"' { "\"" } else { "'" };
+                out.push(ch);
+                i += 1;
+                string_delim = Some(delim);
+                continue;
+            }
+            // Identifier token.
+            if ch.is_ascii_alphabetic() || ch == '_' {
+                let start = i;
+                while i < line_bytes.len() && ((line_bytes[i] as char).is_ascii_alphanumeric() || line_bytes[i] == b'_')
+                {
+                    i += 1;
+                }
+                let ident = &line[start..i];
+                let is_attribute = line[..start].ends_with('.');
+                if !is_attribute && shadowed.contains(ident) && !is_declaration_name(line, start, i) {
+                    out.push_str("builtins.");
+                    out.push_str(ident);
+                    changed = true;
+                } else {
+                    out.push_str(ident);
+                }
+                continue;
+            }
+            out.push(ch);
+            i += 1;
+        }
+        // Single-quoted strings do not continue across lines in generated code.
+        if let Some(delim) = string_delim {
+            if delim.len() == 1 {
+                string_delim = None;
+            }
+        }
+    }
+
+    changed.then_some(out)
+}
+
+/// True when the identifier at `line[start..end]` is a declaration NAME rather
+/// than a type usage: followed by `:` and preceded by a declaration position
+/// (line start, `(`, `,`, or `*`), or preceded by `def `.
+fn is_declaration_name(line: &str, start: usize, end: usize) -> bool {
+    let before = line[..start].trim_end();
+    if before.ends_with("def") {
+        return true;
+    }
+    let followed_by_colon = line[end..].trim_start().starts_with(':');
+    if !followed_by_colon {
+        return false;
+    }
+    before.is_empty() || before.ends_with('(') || before.ends_with(',') || before.ends_with('*')
+}
+
 #[cfg(test)]
 mod tests;
