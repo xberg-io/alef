@@ -51,15 +51,16 @@ pub(super) fn gen_visitor_protocol_stub(
 
     let mut lines = vec![format!("class {}(Protocol):", bridge.trait_name)];
 
-    // The optional-methods note documents generated behavior that is otherwise
-    // invisible (the bridge forwards these when present), so it is emitted even
-    // when rustdoc-derived docstrings are disabled.
+    // Docstrings are emitted only when stub docstrings are enabled. ruff PYI021/PYI013
+    // reject docstrings (and docstring-plus-`...` bodies) in stub files, so the default
+    // (docstrings off) keeps the generated `.pyi` clean. The optional-methods note is
+    // part of the docstring and is gated the same way.
     let mut doc = if emit_docstrings {
         trait_def.doc.clone()
     } else {
         String::new()
     };
-    if !optional.is_empty() {
+    if emit_docstrings && !optional.is_empty() {
         let optional_list = optional
             .iter()
             .map(|m| format!("`{}`", python_safe_name(&m.name)))

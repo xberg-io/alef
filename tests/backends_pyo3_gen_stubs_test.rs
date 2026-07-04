@@ -47,6 +47,30 @@ output = "packages/python/src/"
     cfg.resolve().unwrap().remove(0)
 }
 
+/// Like `make_config_with_stubs` but with `emit_docstrings = true`, so stub
+/// docstrings (including the trait-bridge optional-methods note) are emitted.
+fn make_config_with_stubs_and_docs() -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.python]
+module_name = "_test_lib"
+
+[crates.python.stubs]
+output = "packages/python/src/"
+emit_docstrings = true
+"#,
+    )
+    .unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
+
 #[test]
 fn test_basic_stubs() {
     let backend = Pyo3Backend;
@@ -2096,8 +2120,10 @@ fn test_pyi_plugin_protocol_omits_defaulted_methods_and_documents_them() {
     // Plugin trait with one required and one Rust-defaulted method: the Protocol
     // must require only the former (the runtime contract) and document the latter
     // as optional — a minimal, valid backend must conform structurally.
+    // Uses docstrings-enabled config: the optional-methods note is a stub docstring,
+    // gated on `emit_docstrings` (ruff PYI021/PYI013 reject docstrings in stubs).
     let backend = Pyo3Backend;
-    let mut config = make_config_with_stubs();
+    let mut config = make_config_with_stubs_and_docs();
     config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Greeter".to_string(),
         register_fn: Some("register_greeter".to_string()),
@@ -2160,6 +2186,61 @@ fn test_pyi_plugin_protocol_omits_defaulted_methods_and_documents_them() {
     assert!(
         content.contains("`initialize()`"),
         "lifecycle hooks must be documented as optional:\n{content}"
+    );
+}
+
+#[test]
+fn test_pyi_plugin_protocol_omits_docstrings_by_default() {
+    // With stub docstrings disabled (the default), the trait-bridge Protocol must
+    // carry NO docstring — ruff PYI021/PYI013 reject docstrings (and docstring +
+    // `...` bodies) in stub files. The Protocol stays structurally valid (`...` body).
+    let backend = Pyo3Backend;
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        register_fn: Some("register_greeter".to_string()),
+        registry_getter: Some("test_lib::registry::get".to_string()),
+        super_trait: Some("Plugin".to_string()),
+        bind_via: alef::core::config::BridgeBinding::FunctionParam,
+        ..Default::default()
+    }];
+
+    let greeter = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "test_lib::Greeter".to_string(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![MethodDef {
+            name: "supports_table_detection".to_string(),
+            params: vec![],
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            receiver: Some(ReceiverKind::Ref),
+            has_default_impl: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![greeter],
+        ..Default::default()
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    assert!(
+        content.contains("class Greeter(Protocol):"),
+        "plugin bridge must still emit a Protocol:\n{content}"
+    );
+    assert!(
+        !content.contains("Optional methods"),
+        "no optional-methods docstring when emit_docstrings is off:\n{content}"
+    );
+    assert!(
+        !content.contains("\"\"\""),
+        "no docstring of any kind in the stub when emit_docstrings is off:\n{content}"
     );
 }
 
