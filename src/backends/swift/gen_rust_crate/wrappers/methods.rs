@@ -489,11 +489,14 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
 
         // Handle the return value
         if method.error_type.is_some() {
-            // Result type: serialize the Ok value
-            out.push_str("    let __value = __result.map_err(|e| e.to_string())?;\n");
             if matches!(method.return_type, TypeRef::Unit) {
+                // Unit ok type: propagate the error but don't bind the `()` value
+                // (`let __value = ...` would trip clippy::let_unit_value).
+                out.push_str("    __result.map_err(|e| e.to_string())?;\n");
                 out.push_str("    Ok(\"{}\".to_string())\n");
             } else {
+                // Result type: serialize the Ok value.
+                out.push_str("    let __value = __result.map_err(|e| e.to_string())?;\n");
                 out.push_str("    serde_json::to_string(&__value)\n");
                 out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
             }

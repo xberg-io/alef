@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `jni::objects::GlobalRef` alias. In jni 0.22.4 `GlobalRef` and the whole
   `jni::objects::*` reference-type re-export are `#[deprecated]`, so the old
   emission tripped deprecation errors under `-D warnings` in generated bindings.
+- **swift**: DTO Unit-returning method wrappers no longer bind `let __value =
+  ...?` when the ok type is `()`, which tripped `clippy::let_unit_value` in
+  generated bindings under `-D warnings`.
+- **pyo3** (#174): `.pyi` stub field annotations that shadow a builtin (e.g. a
+  field named `bytes`) are now qualified as `builtins.bytes` for both the field
+  and `__init__` signatures, and `gen_stubs` auto-imports `builtins` — fixing a
+  `mypy --strict` `valid-type` error. Salvages the #173 regression test onto
+  main (the `binding_fields` converter filter has been present since 0.31.0).
 
 ## [0.32.0] - 2026-07-04
 

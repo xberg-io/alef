@@ -8,6 +8,82 @@ use crate::core::config::workspace::ClientConstructorConfig;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 
+/// Builtin type names that a struct field can shadow. When a field is named after one of these
+/// (e.g. a field `bytes`), that name refers to the field variable inside the class body, so any
+/// annotation using the builtin resolves to the field instead of the type — and mypy `--strict`
+/// rejects it (`Variable "X.bytes" is not valid as a type [valid-type]`). Qualifying such
+/// annotations as `builtins.<name>` breaks the shadowing; `gen_stubs.rs` emits `import builtins`
+/// whenever the body references it.
+const SHADOWABLE_BUILTINS: &[&str] = &[
+    "bytes",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "type",
+    "list",
+    "dict",
+    "set",
+    "tuple",
+    "frozenset",
+];
+
+/// The builtins shadowed by a field name in `typ`, using the resolved Python stub field names.
+fn shadowed_builtins(typ: &TypeDef, config: &ResolvedCrateConfig) -> Vec<&'static str> {
+    SHADOWABLE_BUILTINS
+        .iter()
+        .copied()
+        .filter(|builtin| {
+            binding_fields(&typ.fields).any(|f| {
+                let name = config
+                    .resolve_field_name(Language::Python, &typ.name, &f.name)
+                    .unwrap_or_else(|| f.name.clone());
+                name == *builtin
+            })
+        })
+        .collect()
+}
+
+/// Qualify whole-identifier occurrences of each shadowed builtin in a type annotation as
+/// `builtins.<name>` (e.g. `bytes | None` -> `builtins.bytes | None`).
+fn qualify_shadowed_builtins(annotation: &str, shadowed: &[&str]) -> String {
+    let mut out = annotation.to_string();
+    for builtin in shadowed {
+        out = replace_bare_ident(&out, builtin, &format!("builtins.{builtin}"));
+    }
+    out
+}
+
+/// Replace whole-identifier occurrences of `ident` — not preceded by `.`, an ASCII alphanumeric,
+/// or `_`, and not followed by an ASCII alphanumeric or `_` — with `replacement`. Annotations are
+/// ASCII, so byte-wise scanning is safe.
+fn replace_bare_ident(haystack: &str, ident: &str, replacement: &str) -> String {
+    let bytes = haystack.as_bytes();
+    let mut out = String::with_capacity(haystack.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if haystack[i..].starts_with(ident) {
+            let before_ok = i == 0 || {
+                let b = bytes[i - 1];
+                !(b.is_ascii_alphanumeric() || b == b'_' || b == b'.')
+            };
+            let end = i + ident.len();
+            let after_ok = end >= bytes.len() || {
+                let b = bytes[end];
+                !(b.is_ascii_alphanumeric() || b == b'_')
+            };
+            if before_ok && after_ok {
+                out.push_str(replacement);
+                i = end;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
 pub(super) fn gen_opaque_type_stub(
     typ: &TypeDef,
     capsule_names: &std::collections::HashSet<&str>,
@@ -101,6 +177,9 @@ pub(super) fn gen_type_stub(
     }
 
     // Add field type annotations.
+    // When a field name shadows a builtin type (e.g. a field `bytes`), annotations that use that
+    // builtin must be qualified as `builtins.<name>` (see `shadowed_builtins`).
+    let shadowed = shadowed_builtins(typ, config);
     // Field names that are Python reserved keywords are shown with their escaped name
     // (e.g. `class_`) because that is the attribute name callers must use in Python.
     // The underlying `#[pyo3(get, name = "class")]` attribute on the Rust struct exposes
@@ -131,6 +210,7 @@ pub(super) fn gen_type_stub(
         } else {
             type_str
         };
+        let field_type = qualify_shadowed_builtins(&field_type, &shadowed);
         // Resolve the field name: use config-driven rename if available, otherwise apply
         // automatic keyword escaping via python_safe_name.
         let stub_field_name = config
@@ -228,6 +308,10 @@ fn gen_type_init_stub(
         Some(&py_field_renames)
     };
 
+    // Annotations that use a builtin shadowed by a sibling field name must be qualified as
+    // `builtins.<name>` — the same rule the field annotations above apply.
+    let shadowed = shadowed_builtins(typ, config);
+
     // Generate required params first, then optional params.
     // For constructor params, use str instead of enum types (PyO3 accepts any string).
     // Field names that are Python reserved keywords are emitted with their escaped name
@@ -235,7 +319,7 @@ fn gen_type_init_stub(
     let mut params: Vec<String> = required
         .iter()
         .map(|f| {
-            let param_type = constructor_param_type(&f.ty, api);
+            let param_type = qualify_shadowed_builtins(&constructor_param_type(&f.ty, api), &shadowed);
             let param_name = crate::backends::pyo3::gen_bindings::constructors::resolve_param_ident(
                 &f.name,
                 f.serde_rename.as_ref(),
@@ -249,7 +333,7 @@ fn gen_type_init_stub(
         .collect();
 
     params.extend(optional.iter().map(|f| {
-        let type_str = constructor_param_type(&f.ty, api);
+        let type_str = qualify_shadowed_builtins(&constructor_param_type(&f.ty, api), &shadowed);
         let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
