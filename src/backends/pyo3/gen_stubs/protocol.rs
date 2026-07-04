@@ -26,6 +26,18 @@ pub(super) fn gen_visitor_protocol_stub(
     }
     let trait_def = api.types.iter().find(|t| t.name == bridge.trait_name)?;
 
+    // Plugin-style bridges (registered via `register_*`) only require the trait's
+    // non-defaulted methods at runtime — the bridge forwards Rust-defaulted methods
+    // when the host defines them and falls back to the Rust default otherwise, and
+    // the Plugin lifecycle hooks are no-ops when absent. Emitting defaulted methods
+    // as required Protocol members would reject every minimal (and valid) backend,
+    // so the Protocol lists the required contract and the docstring documents the
+    // optional surface. Visitor-style (options-field) bridges keep the full method
+    // list: their hosts are ad-hoc override maps, not registered plugin objects.
+    let is_plugin_bridge = bridge.register_fn.is_some();
+    let (required, optional): (Vec<&crate::core::ir::MethodDef>, Vec<&crate::core::ir::MethodDef>) =
+        methods.iter().partition(|m| !(is_plugin_bridge && m.has_default_impl));
+
     // Types excluded from the public binding surface are never emitted as `.pyi` classes; a
     // Protocol method referencing one (e.g. `-> InternalDocument`) would be an undefined name.
     // Substitute them with their JSON marshaling form, matching the runtime bridge.
@@ -38,10 +50,34 @@ pub(super) fn gen_visitor_protocol_stub(
 
     let mut lines = vec![format!("class {}(Protocol):", bridge.trait_name)];
 
-    if emit_docstrings {
-        if let Some(docstring) = pyi_docstring(&trait_def.doc, "    ") {
-            lines.push(docstring);
+    // The optional-methods note documents generated behavior that is otherwise
+    // invisible (the bridge forwards these when present), so it is emitted even
+    // when rustdoc-derived docstrings are disabled.
+    let mut doc = if emit_docstrings {
+        trait_def.doc.clone()
+    } else {
+        String::new()
+    };
+    if !optional.is_empty() {
+        let optional_list = optional
+            .iter()
+            .map(|m| format!("`{}`", python_safe_name(&m.name)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let lifecycle_note = if bridge.super_trait.is_some() {
+            " The lifecycle hooks `initialize()` and `shutdown()` (and `name()` / `version()`) are likewise optional."
+        } else {
+            ""
+        };
+        if !doc.is_empty() {
+            doc.push_str("\n\n");
         }
+        doc.push_str(&format!(
+            "Optional methods a backend may additionally implement — the bridge calls them when the object defines them, otherwise the trait's Rust default behavior applies: {optional_list}.{lifecycle_note}"
+        ));
+    }
+    if let Some(docstring) = pyi_docstring(&doc, "    ") {
+        lines.push(docstring);
     }
 
     // Each method becomes a Protocol method stub with `self` and the IR params.
@@ -55,7 +91,7 @@ pub(super) fn gen_visitor_protocol_stub(
     // never be awaited. The return type stays the native result type — the bridge now accepts
     // the binding's native object on return (with a mapping as fallback).
     let mut body_emitted = false;
-    for method in methods {
+    for method in required {
         if method.binding_excluded {
             continue;
         }
