@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.2] - 2026-07-04
+
 ### Fixed
 
 - **pyo3**: field-less `_from_native_*` options converters (types whose fields
   are all binding-excluded, e.g. `App`, `GraphQLRouteConfig`) now name their
   parameter `_native` and emit a bare `return X()`, so the unused parameter no
   longer trips ruff `ARG001` in the generated `options.py`.
+- **pyo3**: the visitor `Protocol` stub's "Optional methods…" note is now gated
+  on `emit_docstrings`, so the default no longer emits a docstring into the
+  generated `.pyi` (ruff `PYI021`/`PYI013`).
 
 ## [0.31.1] - 2026-07-04
 

@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "alef"
-version = "0.31.1"
+version = "0.31.2"
 dependencies = [
  "ahash",
  "anyhow",
