@@ -14,12 +14,12 @@ use crate::core::ir::TypeDef;
 use heck::ToUpperCamelCase;
 use std::collections::BTreeSet;
 
-/// Generate the complete trait bridge (interface + bridge object + adapter) for Kotlin Android.
+/// Generate the complete trait bridge (bridge object + JNI dispatcher) for Kotlin Android.
 ///
 /// For each bridge in the config:
 /// - The interface is generated elsewhere by `emit_trait_interfaces` in gen_bindings.rs
 /// - This function generates the bridge object with registration/unregistration methods
-/// - This function generates the adapter class that wraps user impls for JNI invocation
+/// - This function generates the JNI dispatcher that wraps user impls for native dispatch
 ///
 /// Returns a list of (filename, content) tuples ready for GeneratedFile emission.
 pub fn gen_trait_bridge_files(
@@ -33,7 +33,6 @@ pub fn gen_trait_bridge_files(
 ) -> Vec<(String, String)> {
     let interface_name = format!("I{trait_name}");
     let bridge_obj = bridge_object_name(trait_name);
-    let adapter_class_name = format!("{}Adapter", trait_name);
 
     let mut files = Vec::new();
 
@@ -65,103 +64,6 @@ pub fn gen_trait_bridge_files(
 
         let content = assemble_kt_content(package, &BTreeSet::new(), &body);
         files.push((format!("{bridge_obj}.kt"), content));
-    }
-
-    // Emit adapter class
-    {
-        use heck::ToLowerCamelCase;
-
-        let mut adapter_methods = String::new();
-        let mut imports = BTreeSet::new();
-
-        // Build the set of type names visible in this binding (same as emit_trait_methods)
-        let visible_type_names: std::collections::HashSet<&str> = api
-            .types
-            .iter()
-            .filter(|t| !t.binding_excluded && !effective_excluded_types.contains(&t.name))
-            .map(|t| t.name.as_str())
-            .chain(api.enums.iter().map(|e| e.name.as_str()))
-            .collect();
-
-        // Delegate Plugin super-trait methods if present
-        if bridge_cfg.super_trait.is_some() {
-            adapter_methods.push_str("    override fun name(): String = impl.name()\n\n");
-            adapter_methods.push_str("    override fun version(): String = impl.version()\n\n");
-            adapter_methods.push_str("    override fun initialize() = impl.initialize()\n\n");
-            adapter_methods.push_str("    override fun shutdown() = impl.shutdown()\n\n");
-            adapter_methods.push_str("    override fun description(): String = impl.description()\n\n");
-            adapter_methods.push_str("    override fun author(): String = impl.author()\n\n");
-        }
-
-        // Delegate all trait methods using the same type resolution as emit_trait_methods
-        for method in &trait_def.methods {
-            if method.sanitized || method.is_static {
-                continue;
-            }
-
-            let method_camel = method.name.to_lower_camel_case();
-
-            // Use substitute_trait_carrier_type and kotlin_type_str_visible just like emit_trait_methods
-            let params = method
-                .params
-                .iter()
-                .map(|p| {
-                    let name = crate::backends::kotlin::to_lower_camel(&p.name);
-                    let ty_ref = substitute_trait_carrier_type(api, bridge_cfg, &p.ty);
-                    let ty = kotlin_type_str_visible(&ty_ref, p.optional, &visible_type_names, &mut imports);
-                    format!("{name}: {ty}")
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            let return_type_ref = substitute_trait_carrier_type(api, bridge_cfg, &method.return_type);
-            let return_type = kotlin_type_str_visible(&return_type_ref, false, &visible_type_names, &mut imports);
-
-            let delegate_args = method
-                .params
-                .iter()
-                .map(|p| crate::backends::kotlin::to_lower_camel(&p.name))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            if method.is_async {
-                adapter_methods.push_str(&format!(
-                    "    override suspend fun {method_camel}({params}): {return_type} {{\n"
-                ));
-                adapter_methods.push_str(&format!("        return impl.{method_camel}({delegate_args})\n"));
-                adapter_methods.push_str("    }\n\n");
-            } else {
-                adapter_methods.push_str(&format!(
-                    "    override fun {method_camel}({params}): {return_type} {{\n"
-                ));
-                adapter_methods.push_str(&format!("        return impl.{method_camel}({delegate_args})\n"));
-                adapter_methods.push_str("    }\n\n");
-            }
-        }
-
-        let adapter_body = template_env::render(
-            "trait_bridge_adapter.jinja",
-            minijinja::context! {
-                interface_name => interface_name,
-                adapter_class_name => adapter_class_name,
-                adapter_methods => adapter_methods,
-            },
-        );
-
-        // kotlin_type_with_string_imports already includes "import " prefix, so we need to
-        // avoid duplicates when assembling. Filter out duplicates and format properly.
-        let mut final_imports = BTreeSet::new();
-        for import_line in &imports {
-            if import_line.starts_with("import ") {
-                // Already has prefix, add as-is
-                final_imports.insert(import_line.trim_start_matches("import ").to_string());
-            } else {
-                final_imports.insert(import_line.clone());
-            }
-        }
-
-        let content = assemble_kt_content(package, &final_imports, &adapter_body);
-        files.push((format!("{adapter_class_name}.kt"), content));
     }
 
     // Emit the JNI dispatcher: the JSON entry point the native trait bridge calls.
@@ -624,7 +526,8 @@ mod dispatcher_tests {
     #[test]
     fn dispatcher_file_emitted_with_json_dispatch_and_run_blocking() {
         let trait_def = ocr_like_trait();
-        let bridge_cfg = crate::backends::kotlin_android::trait_bridge::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
+        let bridge_cfg =
+            crate::backends::kotlin_android::trait_bridge::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
         let api = make_api(&trait_def);
         let files = gen_trait_bridge_files(
             "io.xberg",
@@ -665,7 +568,8 @@ mod dispatcher_tests {
     #[test]
     fn bridge_object_registers_dispatcher_wrapper() {
         let trait_def = ocr_like_trait();
-        let bridge_cfg = crate::backends::kotlin_android::trait_bridge::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
+        let bridge_cfg =
+            crate::backends::kotlin_android::trait_bridge::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
         let api = make_api(&trait_def);
         let files = gen_trait_bridge_files(
             "io.xberg",

@@ -97,7 +97,7 @@ impl JniBridgeGenerator {
 
 impl TraitBridgeGenerator for JniBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
-        "jni::objects::GlobalRef"
+        "jni::objects::GlobalRef<jni::objects::JObject<'static>>"
     }
 
     fn bridge_imports(&self) -> Vec<String> {
