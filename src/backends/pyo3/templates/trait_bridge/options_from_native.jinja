@@ -1,9 +1,13 @@
 
-def {{ fn_name }}(native: Any) -> {{ class_name }}:
+def {{ fn_name }}({% if fields %}native{% else %}_native{% endif %}: Any) -> {{ class_name }}:
     """Build the public `{{ class_name }}` dataclass from the native binding object."""
+{% if fields %}
     return {{ class_name }}(
 {% for f in fields %}
         {{ f.name }}={{ f.expr }},
 {% endfor %}
     )
+{% else %}
+    return {{ class_name }}()
+{% endif %}
 
