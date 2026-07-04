@@ -7,8 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-07-04
+
+### Added
+
+- **config**: `[workspace.poly.pyrefly-sub-configs]` — a glob → error-code map
+  emitted as extra `[[tool.pyrefly.sub-config]]` blocks in the generated
+  `pyproject.toml` (alongside the built-in `api.py` block), so extensions can
+  suppress type-checker errors on generated modules whose runtime-reconciled
+  pyo3 boundaries a static checker cannot follow.
+
 ### Fixed
 
+- **pyo3**: `_from_native_*` options converters now reference only the fields
+  the `@dataclass` declares (via `binding_fields`), no longer passing
+  binding-excluded fields (`methods_joined_cache`, `headers_joined_cache`,
+  `lifecycle_hooks`, `di_container`, …) as keyword arguments — which raised
+  `unexpected-keyword` at type-check time and `TypeError` at runtime.
+- **codegen**: extra clippy allows (`[workspace] extra_clippy_allows`) are now
+  filtered against the backend's default allow block emitted above them, so a
+  lint that is already allowed is not re-emitted — clearing clippy's
+  `duplicated_attributes` lint under `-D warnings`.
+- **codegen**: `clippy::redundant_field_names` is now in the crate-level allow
+  block of the php, pyo3, napi, wasm, and dart backends, silencing pre-existing
+  warnings in generated binding crates under clippy 1.95.
 - **jni**: the `Optional` return marshaller no longer borrows the owned
   serialized `String` when calling `string_to_jstring` (`&s` → `s`), clearing a
   `clippy::needless_borrows_for_generic_args` warning in every generated JNI
