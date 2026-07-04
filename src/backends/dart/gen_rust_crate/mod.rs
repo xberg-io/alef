@@ -108,6 +108,7 @@ fn emit_lib_rs(
     content.push_str("    clippy::too_many_arguments,\n");
     content.push_str("    clippy::unit_arg,\n");
     content.push_str("    clippy::type_complexity,\n");
+    content.push_str("    clippy::redundant_field_names,\n");
     // `From<Box<str>> for String` and `From<String> for Box<str>` are needed when
     // core uses `HashMap<Box<str>, _>` and the mirror uses `HashMap<String, _>` (or
     // vice versa). When both sides are plain `String`, the emitted `(k.into(),
@@ -115,7 +116,8 @@ fn emit_lib_rs(
     // works for both wrapped and unwrapped string keys/values.
     content.push_str("    clippy::useless_conversion,\n");
     content.push_str(")]\n");
-    if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(&config.extra_clippy_allows) {
+    if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(&config.extra_clippy_allows, &content)
+    {
         content.push_str(&format!("#![{extra_attr}]\n"));
     }
     // Declare frb_generated after the crate-level attrs so FRB doesn't inject it at line 1.

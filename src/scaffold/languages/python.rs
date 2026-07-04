@@ -311,6 +311,20 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     ];
     let dev_group_array = format_toml_array_with_prefix(&dev_group_entries, "dev = ".len());
 
+    // Extra `[[tool.pyrefly.sub-config]]` blocks from `[workspace.poly.pyrefly-sub-configs]`.
+    // Keyed by glob, each value is the list of pyrefly error codes to disable for
+    // extension-generated modules whose runtime-reconciled pyo3 boundaries a static
+    // checker cannot follow (same rationale as the built-in api.py sub-config).
+    let pyrefly_extra = config
+        .poly
+        .pyrefly_sub_configs
+        .iter()
+        .map(|(glob, codes)| {
+            let errors = codes.iter().map(|code| format!("{code} = false\n")).collect::<String>();
+            format!("\n[[tool.pyrefly.sub-config]]\nmatches = \"{glob}\"\n[tool.pyrefly.sub-config.errors]\n{errors}")
+        })
+        .collect::<String>();
+
     let content = format!(
         r#"[build-system]
 build-backend = "maturin"
@@ -360,7 +374,7 @@ bad-argument-count = false
 bad-return = false
 not-iterable = false
 missing-attribute = false
-"#,
+{pyrefly_extra}"#,
         pip_name = pip_name,
         version = version,
         description = meta.description,
@@ -376,6 +390,7 @@ missing-attribute = false
         crate_dir = core_crate_dir,
         maturin_build_requires = canonicalize_pep440_specifier(tv::pypi::MATURIN_BUILD_REQUIRES),
         dev_group = dev_group_array,
+        pyrefly_extra = pyrefly_extra,
     );
 
     Ok(vec![

@@ -38,6 +38,12 @@ impl RustFileBuilder {
         }
     }
 
+    /// The inner-attribute / header text emitted so far. Used to de-duplicate
+    /// extra clippy allows against the default allow block already added.
+    pub fn inner_attributes_text(&self) -> &str {
+        self.doc_header.as_deref().unwrap_or("")
+    }
+
     /// Add a use import line.
     /// Single-component imports (e.g. `use serde_json;`) are skipped since they are
     /// redundant in Rust 2018+ where extern crates are automatically in scope.

@@ -4386,6 +4386,17 @@
           "description": "Repo-specific cross-engine per-file rule suppressions merged into the\nemitted `[per-file-ignores]` table.\n\nKeys are gitignore-style glob patterns; values are lists of rule codes.\nRule codes are engine-agnostic — an unknown code simply no-ops on files\nof other languages.\n\nUses [`BTreeMap`] so entries are written to `poly.toml` in\ndeterministic (alphabetical key) order.",
           "type": "object"
         },
+        "pyrefly-sub-configs": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "default": {},
+          "description": "Extra pyrefly type-checker error suppressions, emitted as additional\n`[[tool.pyrefly.sub-config]]` blocks in the generated `pyproject.toml`\n(alongside the always-emitted `api.py` wrapper sub-config).\n\nKeys are glob patterns (matched against file paths by pyrefly); values\nare the pyrefly error codes to disable for the matched files (e.g.\n`bad-argument-type`, `missing-import`). Use this for extension-generated\nPython modules whose runtime-reconciled pyo3 boundaries a static checker\ncannot follow — the same rationale as the built-in `api.py` sub-config.\n\nUses [`BTreeMap`] so entries are written in deterministic (alphabetical\nkey) order. An empty map emits no extra sub-config blocks.",
+          "type": "object"
+        },
         "typos": {
           "$ref": "#/$defs/TyposConfig",
           "default": {
@@ -7208,6 +7219,7 @@
           "default": {
             "exclude": [],
             "per-file-ignores": {},
+            "pyrefly-sub-configs": {},
             "typos": {
               "extend-identifiers": {},
               "extend-words": {}
@@ -7433,7 +7445,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.30.19/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.31.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7522,6 +7534,7 @@
         "poly": {
           "exclude": [],
           "per-file-ignores": {},
+          "pyrefly-sub-configs": {},
           "typos": {
             "extend-identifiers": {},
             "extend-words": {}
@@ -7552,6 +7565,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.30.19",
-  "x-alef-version": "0.30.19"
+  "version": "0.31.0",
+  "x-alef-version": "0.31.0"
 }

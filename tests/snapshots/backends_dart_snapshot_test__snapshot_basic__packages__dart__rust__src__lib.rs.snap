@@ -13,6 +13,7 @@ expression: "&file.content"
     clippy::too_many_arguments,
     clippy::unit_arg,
     clippy::type_complexity,
+    clippy::redundant_field_names,
     clippy::useless_conversion,
 )]
 mod frb_generated;

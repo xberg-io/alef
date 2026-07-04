@@ -285,6 +285,33 @@ keywords = ["zebra", "apple", "banana"]
     );
 }
 
+#[test]
+fn test_scaffold_python_emits_configured_pyrefly_sub_configs() {
+    // `[workspace.poly.pyrefly-sub-configs]` appends extra sub-config blocks for
+    // extension-generated modules alongside the built-in api.py one.
+    let config = test_config_from_toml(
+        r#"
+[workspace.poly.pyrefly-sub-configs]
+"**/app.py" = ["bad-argument-type", "implicit-any-empty-container"]
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let files = language_files(&all_files);
+    let content = &files[0].content;
+
+    // Built-in api.py block still present.
+    assert!(
+        content.contains("matches = \"**/api.py\""),
+        "built-in api.py sub-config must remain. got:\n{content}"
+    );
+    // Configured extra block emitted with its error codes disabled.
+    assert!(
+        content.contains("matches = \"**/app.py\"") && content.contains("implicit-any-empty-container = false"),
+        "configured pyrefly sub-config must be emitted. got:\n{content}"
+    );
+}
+
 /// The generated `pyproject.toml` must already be in `pyproject-fmt` canonical form so the
 /// `pyproject-fmt` pre-commit hook is a no-op on every regen. Running `pyproject-fmt` on our
 /// output must produce zero changes — otherwise the hook rewrites the alef-hash-tracked file

@@ -127,7 +127,10 @@ impl Backend for MagnusBackend {
              clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, \
              clippy::type_complexity, clippy::useless_conversion, clippy::clone_on_copy)",
         );
-        if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(&config.extra_clippy_allows) {
+        if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(
+            &config.extra_clippy_allows,
+            builder.inner_attributes_text(),
+        ) {
             builder.add_inner_attribute(&extra_attr);
         }
         builder.add_import(

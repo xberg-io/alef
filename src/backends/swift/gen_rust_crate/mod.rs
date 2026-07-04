@@ -218,7 +218,7 @@ fn emit_lib_rs(
     // help downstream because Swift can't call it through the bridge.
     out.push_str("    clippy::new_without_default,\n");
     out.push_str(")]\n");
-    if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(&config.extra_clippy_allows) {
+    if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(&config.extra_clippy_allows, &out) {
         out.push_str(&format!("#![{extra_attr}]\n"));
     }
     out.push('\n');

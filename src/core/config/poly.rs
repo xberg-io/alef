@@ -107,6 +107,21 @@ pub struct PolyConfig {
     /// deterministic (alphabetical key) order.
     #[serde(default)]
     pub per_file_ignores: BTreeMap<String, Vec<String>>,
+
+    /// Extra pyrefly type-checker error suppressions, emitted as additional
+    /// `[[tool.pyrefly.sub-config]]` blocks in the generated `pyproject.toml`
+    /// (alongside the always-emitted `api.py` wrapper sub-config).
+    ///
+    /// Keys are glob patterns (matched against file paths by pyrefly); values
+    /// are the pyrefly error codes to disable for the matched files (e.g.
+    /// `bad-argument-type`, `missing-import`). Use this for extension-generated
+    /// Python modules whose runtime-reconciled pyo3 boundaries a static checker
+    /// cannot follow — the same rationale as the built-in `api.py` sub-config.
+    ///
+    /// Uses [`BTreeMap`] so entries are written in deterministic (alphabetical
+    /// key) order. An empty map emits no extra sub-config blocks.
+    #[serde(default)]
+    pub pyrefly_sub_configs: BTreeMap<String, Vec<String>>,
 }
 
 #[cfg(test)]
@@ -137,6 +152,10 @@ PyMuPDF = "PyMuPDF"
 [per-file-ignores]
 "**/legacy.py" = ["ANN", "D103"]
 "**/compat.py" = ["UP035"]
+
+[pyrefly-sub-configs]
+"**/app.py" = ["bad-argument-type"]
+"**/schema.py" = ["missing-import", "bad-return"]
 "#;
         let cfg: PolyConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.exclude, vec!["vendor/**", "third-party/**"]);
@@ -148,6 +167,12 @@ PyMuPDF = "PyMuPDF"
         assert_eq!(cfg.per_file_ignores.len(), 2);
         assert_eq!(cfg.per_file_ignores["**/legacy.py"], vec!["ANN", "D103"]);
         assert_eq!(cfg.per_file_ignores["**/compat.py"], vec!["UP035"]);
+        assert_eq!(cfg.pyrefly_sub_configs.len(), 2);
+        assert_eq!(cfg.pyrefly_sub_configs["**/app.py"], vec!["bad-argument-type"]);
+        assert_eq!(
+            cfg.pyrefly_sub_configs["**/schema.py"],
+            vec!["missing-import", "bad-return"]
+        );
     }
 
     #[test]

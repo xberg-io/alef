@@ -623,10 +623,17 @@ fn config_constructor_parts_inner(
 /// e.g. `"allow(clippy::single_match, clippy::collapsible_match)"`.  Pass this
 /// directly to [`crate::codegen::builder::RustFileBuilder::add_inner_attribute`]
 /// or format it into a raw `#![allow(...)]` attribute string.
-pub fn format_extra_clippy_allows(extras: &[String]) -> Option<String> {
+///
+/// `already_emitted` is the attribute text emitted above this call (each backend's
+/// default allow block). Lints already present there are filtered out so the extra
+/// block never re-allows a lint — a duplicate would trip clippy's
+/// `duplicated_attributes` lint under `-D warnings`. Returns `None` when nothing new
+/// remains, so callers skip emission entirely.
+pub fn format_extra_clippy_allows(extras: &[String], already_emitted: &str) -> Option<String> {
     if extras.is_empty() {
         return None;
     }
+    let already = collect_clippy_lints(already_emitted);
     let mut seen = HashSet::new();
     let normalized: Vec<String> = extras
         .iter()
@@ -638,7 +645,31 @@ pub fn format_extra_clippy_allows(extras: &[String]) -> Option<String> {
                 format!("clippy::{trimmed}")
             }
         })
+        .filter(|s| !already.contains(s.as_str()))
         .filter(|s| seen.insert(s.clone()))
         .collect();
+    if normalized.is_empty() {
+        return None;
+    }
     Some(format!("allow({})", normalized.join(", ")))
+}
+
+/// Collect the `clippy::<lint>` tokens present in already-emitted attribute text,
+/// used to de-duplicate extra clippy allows against a backend's default allow block.
+fn collect_clippy_lints(text: &str) -> HashSet<&str> {
+    const PREFIX: &str = "clippy::";
+    let mut lints = HashSet::new();
+    let mut rest = text;
+    while let Some(idx) = rest.find(PREFIX) {
+        let after = &rest[idx + PREFIX.len()..];
+        let name_len = after
+            .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .unwrap_or(after.len());
+        let token_end = idx + PREFIX.len() + name_len;
+        if name_len > 0 {
+            lints.insert(&rest[idx..token_end]);
+        }
+        rest = &rest[token_end..];
+    }
+    lints
 }

@@ -139,7 +139,7 @@ impl Backend for NapiBackend {
         builder.add_inner_attribute("allow(unsafe_code)");
         // The napi-rs crate is entirely generated glue — rustdoc coverage is not meaningful here.
         builder.add_inner_attribute("allow(missing_docs)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::arc_with_non_send_sync, clippy::collapsible_if, clippy::clone_on_copy, clippy::should_implement_trait)");
+        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::redundant_field_names, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::arc_with_non_send_sync, clippy::collapsible_if, clippy::clone_on_copy, clippy::should_implement_trait)");
         // Cast lints fire heavily on the JS u32/i64/Number bridge — these are
         // intentional, deliberate at the FFI boundary. Pedantic/nursery noise
         // (must_use_candidate, use_self, missing_const_for_fn, etc.) is
@@ -147,7 +147,10 @@ impl Backend for NapiBackend {
         builder.add_inner_attribute(
             "allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::default_trait_access, clippy::useless_conversion, clippy::unsafe_derive_deserialize, clippy::must_use_candidate, clippy::return_self_not_must_use, clippy::use_self, clippy::missing_const_for_fn, clippy::missing_errors_doc, clippy::needless_pass_by_value, clippy::doc_markdown, clippy::derive_partial_eq_without_eq, clippy::uninlined_format_args, clippy::redundant_clone, clippy::implicit_clone, clippy::redundant_closure_for_method_calls, clippy::wildcard_imports, clippy::option_if_let_else, clippy::too_many_lines)",
         );
-        if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(&config.extra_clippy_allows) {
+        if let Some(extra_attr) = crate::codegen::shared::format_extra_clippy_allows(
+            &config.extra_clippy_allows,
+            builder.inner_attributes_text(),
+        ) {
             builder.add_inner_attribute(&extra_attr);
         }
         builder.add_import("napi::*");
