@@ -30,8 +30,17 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
     };
     let api = make_api_surface();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
-        .expect("trait bridge generation should succeed");
+    let code = gen_trait_bridge(
+        &trait_def,
+        &bridge_cfg,
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        &api,
+        "my_lib",
+        &[],
+    )
+    .expect("trait bridge generation should succeed");
 
     assert!(!code.code.is_empty(), "gen_trait_bridge must produce non-empty output");
     assert!(
@@ -74,8 +83,17 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
     };
     let api = make_api_surface();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
-        .expect("trait bridge generation should succeed");
+    let code = gen_trait_bridge(
+        &trait_def,
+        &bridge_cfg,
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        &api,
+        "my_lib",
+        &[],
+    )
+    .expect("trait bridge generation should succeed");
 
     // The wrapper struct must hold the Python object and a cached name field
     assert!(
@@ -114,8 +132,17 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
     };
     let api = make_api_surface();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
-        .expect("trait bridge generation should succeed");
+    let code = gen_trait_bridge(
+        &trait_def,
+        &bridge_cfg,
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        &api,
+        "my_lib",
+        &[],
+    )
+    .expect("trait bridge generation should succeed");
 
     assert!(
         code.code.contains("fn register_inference_backend"),
@@ -166,8 +193,17 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
     };
     let api = make_api_surface();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
-        .expect("trait bridge generation should succeed");
+    let code = gen_trait_bridge(
+        &trait_def,
+        &bridge_cfg,
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        &api,
+        "my_lib",
+        &[],
+    )
+    .expect("trait bridge generation should succeed");
 
     assert!(!code.code.is_empty(), "output must not be empty");
     // Sync method body uses Python::attach (no spawn_blocking)

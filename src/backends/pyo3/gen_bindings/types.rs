@@ -29,6 +29,29 @@ fn to_python_enum_variant(name: &str) -> String {
 ///
 /// When `dto.python_output_style() == TypedDict` and a type has `is_return_type = true`,
 /// it is emitted as a `TypedDict` (with `total=False`) instead of a `@dataclass`.
+/// Names of the types `options.py` emits as `@dataclass` config DTOs: non-trait,
+/// `has_default`, not a return type, not an internal `*Update` type, and not
+/// re-exported as a native pyclass. This is the public *input* type family — the
+/// trait-callback marshalling and the Protocol stubs use the same set so the type
+/// a host is handed is the type the package exports under that name.
+pub(in crate::backends::pyo3) fn options_dataclass_type_names(
+    api: &ApiSurface,
+    reexported_types: &[String],
+) -> std::collections::HashSet<String> {
+    let reexported: AHashSet<&str> = reexported_types.iter().map(String::as_str).collect();
+    api.types
+        .iter()
+        .filter(|t| {
+            !t.is_trait
+                && t.has_default
+                && !t.is_return_type
+                && !t.name.ends_with("Update")
+                && !reexported.contains(t.name.as_str())
+        })
+        .map(|t| t.name.clone())
+        .collect()
+}
+
 pub(super) fn gen_options_py(
     api: &ApiSurface,
     module_name: &str,
@@ -496,7 +519,92 @@ pub(super) fn gen_options_py(
     // Data enums are imported from the native module and referenced by their class name in the
     // field annotations above — not redefined here as the old flattened union alias.
 
+    // Converters from the native pyclass to the public dataclass, one per emitted
+    // dataclass. The trait-callback bridges call these so a host method receives the
+    // same type the package publicly exports (the options dataclass), not the
+    // private native class.
+    out.push_str(&gen_from_native_converters(api, reexported_types));
+
     out
+}
+
+/// Emit `_from_native_<snake>(native)` module-level converters for every emitted
+/// options dataclass. Nested dataclass fields recurse (including through
+/// `Optional`/`Vec`/`Map` wrappers); every other field passes through unchanged —
+/// enums and re-exported types keep their single native identity.
+fn gen_from_native_converters(api: &ApiSurface, reexported_types: &[String]) -> String {
+    use heck::ToSnakeCase;
+    let options_types = options_dataclass_type_names(api, reexported_types);
+    let mut out = String::new();
+    let mut emitted: Vec<&crate::core::ir::TypeDef> =
+        api.types.iter().filter(|t| options_types.contains(&t.name)).collect();
+    emitted.sort_by(|a, b| a.name.cmp(&b.name));
+
+    for typ in emitted {
+        let fields: Vec<minijinja::Value> = typ
+            .fields
+            .iter()
+            .map(|f| {
+                let safe_name = crate::core::keywords::python_ident(&f.name);
+                let src = format!("native.{safe_name}");
+                minijinja::context! {
+                    name => &safe_name,
+                    expr => from_native_field_expr(&f.ty, &options_types, &src),
+                }
+            })
+            .collect();
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "trait_bridge/options_from_native.jinja",
+            minijinja::context! {
+                fn_name => format!("_from_native_{}", typ.name.to_snake_case()),
+                class_name => &typ.name,
+                fields => fields,
+            },
+        ));
+        out.push('\n');
+    }
+    out
+}
+
+/// Python expression converting one field value from the native object to the
+/// options-dataclass shape. Returns `src` unchanged when no conversion applies.
+fn from_native_field_expr(
+    ty: &crate::core::ir::TypeRef,
+    options_types: &std::collections::HashSet<String>,
+    src: &str,
+) -> String {
+    use crate::core::ir::TypeRef;
+    use heck::ToSnakeCase;
+    match ty {
+        TypeRef::Named(n) if options_types.contains(n) => {
+            format!("_from_native_{}({src})", n.to_snake_case())
+        }
+        TypeRef::Optional(inner) => {
+            let inner_expr = from_native_field_expr(inner, options_types, src);
+            if inner_expr == src {
+                src.to_string()
+            } else {
+                format!("(None if {src} is None else {inner_expr})")
+            }
+        }
+        TypeRef::Vec(inner) => {
+            let inner_expr = from_native_field_expr(inner, options_types, "__v");
+            if inner_expr == "__v" {
+                src.to_string()
+            } else {
+                format!("[{inner_expr} for __v in {src}]")
+            }
+        }
+        TypeRef::Map(_, value) => {
+            let value_expr = from_native_field_expr(value, options_types, "__val");
+            if value_expr == "__val" {
+                src.to_string()
+            } else {
+                format!("{{__k: {value_expr} for __k, __val in {src}.items()}}")
+            }
+        }
+        _ => src.to_string(),
+    }
 }
 
 pub(super) fn python_field_type(

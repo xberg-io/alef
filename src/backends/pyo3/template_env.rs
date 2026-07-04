@@ -23,6 +23,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trait_bridge/dataclass_field_with_default.jinja"),
     ),
     (
+        "trait_bridge/options_from_native.jinja",
+        include_str!("templates/trait_bridge/options_from_native.jinja"),
+    ),
+    (
+        "trait_bridge/options_from_native_helper.jinja",
+        include_str!("templates/trait_bridge/options_from_native_helper.jinja"),
+    ),
+    (
         "trait_bridge/indented_import_item.jinja",
         include_str!("templates/trait_bridge/indented_import_item.jinja"),
     ),

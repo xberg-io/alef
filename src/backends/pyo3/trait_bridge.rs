@@ -30,7 +30,10 @@ pub fn gen_trait_bridge(
     error_type: &str,
     error_constructor: &str,
     api: &ApiSurface,
+    python_module: &str,
+    reexported_types: &[String],
 ) -> anyhow::Result<BridgeOutput> {
+    let _ = python_module;
     // Build type name → rust_path lookup for qualifying Named types in signatures
     let type_paths: HashMap<String, String> = api
         .types
@@ -88,6 +91,11 @@ pub fn gen_trait_bridge(
         // implementations win; the Rust default runs otherwise).
         let forwardable_defaulted =
             crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
+        // Config structs the package exports as options dataclasses: the bridge lifts
+        // the native object into the dataclass before invoking the host, so the type a
+        // host method receives is the type the package publicly exports.
+        let options_dataclass_types =
+            crate::backends::pyo3::gen_bindings::options_dataclass_type_names(api, reexported_types);
         let generator = Pyo3BridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
@@ -95,6 +103,7 @@ pub fn gen_trait_bridge(
             struct_param_types,
             struct_return_types,
             forwardable_defaulted,
+            options_dataclass_types,
         };
         let lifetime_type_names: HashSet<String> = api
             .types
@@ -166,6 +175,7 @@ mod tests {
             struct_param_types: HashSet::new(),
             struct_return_types: HashSet::new(),
             forwardable_defaulted: HashSet::new(),
+            options_dataclass_types: HashSet::new(),
         };
 
         let make_method = |is_async: bool| MethodDef {
@@ -245,6 +255,7 @@ mod tests {
             struct_param_types: HashSet::new(),
             struct_return_types: HashSet::new(),
             forwardable_defaulted: HashSet::new(),
+            options_dataclass_types: HashSet::new(),
         };
 
         // A trait method returning a struct `Doc` exercises the json.dumps -> from_str path.
@@ -316,6 +327,7 @@ mod tests {
             struct_param_types: HashSet::new(),
             struct_return_types: HashSet::from(["Doc".to_owned()]),
             forwardable_defaulted: HashSet::new(),
+            options_dataclass_types: HashSet::new(),
         };
 
         let make_method = |is_async: bool| MethodDef {
@@ -393,6 +405,7 @@ mod tests {
             struct_param_types: HashSet::from(["Input".to_owned()]),
             struct_return_types: HashSet::new(),
             forwardable_defaulted: HashSet::new(),
+            options_dataclass_types: HashSet::new(),
         };
 
         let make_method = |is_async: bool| MethodDef {
@@ -438,6 +451,8 @@ mod tests {
             "SampleError",
             "SampleError::Message { message: {msg} }",
             &api,
+            "sample_core",
+            &[],
         )
         .expect("visitor bridge should generate");
 

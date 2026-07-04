@@ -19,6 +19,7 @@ pub(super) fn gen_visitor_protocol_stub(
     api: &ApiSurface,
     capsule_names: &std::collections::HashSet<&str>,
     emit_docstrings: bool,
+    options_types: &std::collections::HashSet<String>,
 ) -> Option<String> {
     let methods = bridge.resolve_methods(api);
     if methods.is_empty() {
@@ -98,10 +99,18 @@ pub(super) fn gen_visitor_protocol_stub(
         body_emitted = true;
         let mut params: Vec<String> = vec!["self".to_string()];
         for p in &method.params {
-            let param_type = substitute_capsule_type(
-                &python_type(&substitute_excluded_types(&p.ty, &excluded)),
-                capsule_names,
-            );
+            // Plugin-bridge callbacks receive options dataclasses for config structs
+            // (the runtime bridge lifts the native object), so type those params as
+            // the publicly exported `options.X`.
+            let param_type = match &p.ty {
+                crate::core::ir::TypeRef::Named(n) if is_plugin_bridge && options_types.contains(n) => {
+                    format!("options.{n}")
+                }
+                _ => substitute_capsule_type(
+                    &python_type(&substitute_excluded_types(&p.ty, &excluded)),
+                    capsule_names,
+                ),
+            };
             params.push(format!("{}: {}", p.name, param_type));
         }
         let return_type = substitute_capsule_type(

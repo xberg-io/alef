@@ -251,6 +251,7 @@ fn make_struct_aware_generator(core_import: &str, struct_params: &[&str]) -> Pyo
         struct_param_types: struct_params.iter().map(|s| s.to_string()).collect(),
         struct_return_types: std::collections::HashSet::new(),
         forwardable_defaulted: std::collections::HashSet::new(),
+        options_dataclass_types: std::collections::HashSet::new(),
     }
 }
 
@@ -461,5 +462,54 @@ fn test_defaulted_method_not_in_forwardable_set_stays_omitted() {
         !output.code.contains("fn supports_table_detection"),
         "defaulted method outside the forwardable set must stay omitted:\n{}",
         output.code
+    );
+}
+
+#[test]
+fn test_options_dataclass_param_lifted_before_host_call() {
+    let mut generator = make_bridge_generator("my_lib");
+    generator.struct_param_types.insert("GreetConfig".to_string());
+    generator.options_dataclass_types.insert("GreetConfig".to_string());
+
+    let trait_def = make_trait_def("Greeter", "my_lib::Greeter", vec![]);
+    let bridge_cfg = make_bridge_cfg("Greeter");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+        lifetime_type_names: std::collections::HashSet::new(),
+        error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
+    };
+    let method = make_method_def(
+        "process",
+        vec![ParamDef {
+            name: "config".to_string(),
+            ty: TypeRef::Named("GreetConfig".to_string()),
+            is_ref: true,
+            ..Default::default()
+        }],
+        TypeRef::String,
+        false,
+        false,
+        false,
+    );
+
+    let body = generator.gen_sync_method_body(&method, &spec);
+    assert!(
+        body.contains(
+            "__alef_options_from_native(py, \"_from_native_greet_config\", GreetConfig::from((*config).clone()))"
+        ),
+        "options-dataclass params must be lifted via the generated converter:\n{body}"
+    );
+
+    // Without the options classification the native object is passed directly.
+    generator.options_dataclass_types.clear();
+    let body = generator.gen_sync_method_body(&method, &spec);
+    assert!(
+        !body.contains("__alef_options_from_native"),
+        "non-options structs must keep the native object:\n{body}"
     );
 }

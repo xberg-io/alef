@@ -31,6 +31,11 @@ pub struct Pyo3BridgeGenerator {
     /// object defines them (per the shared `forwardable_defaulted_method_names` rule).
     /// Methods absent here keep the trait's Rust default unconditionally.
     pub forwardable_defaulted: std::collections::HashSet<String>,
+    /// Struct types the package exports as options dataclasses. Callback params of
+    /// these types are lifted from the native pyclass into the public dataclass via
+    /// the generated `options._from_native_*` converter before invoking the host, so
+    /// the type the host receives is the type the package exports under that name.
+    pub options_dataclass_types: std::collections::HashSet<String>,
 }
 
 impl TraitBridgeGenerator for Pyo3BridgeGenerator {
@@ -402,12 +407,12 @@ impl Pyo3BridgeGenerator {
                 // (`{Binding}::from(core_value)`). PyO3 auto-converts the `#[pyclass]` to a Python
                 // object at the call boundary. No JSON round-trip.
                 (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
-                    format!("{}::from((*{}).clone())", n, p.name)
+                    self.options_lift_expr(n, format!("{}::from((*{}).clone())", n, p.name))
                 }
                 // By-value native struct: no deref needed; the owned value is moved into the sync
                 // closure, so clone it directly before wrapping in the binding type.
                 (TypeRef::Named(n), false) if self.is_native_struct_param(n) => {
-                    format!("{}::from({}.clone())", n, p.name)
+                    self.options_lift_expr(n, format!("{}::from({}.clone())", n, p.name))
                 }
                 // Other Named params (enums, opaque/handle, excluded/unknown) keep the prior
                 // JSON-string representation.
@@ -438,12 +443,12 @@ impl Pyo3BridgeGenerator {
                 // the same marshalling — passing the raw core value has no `IntoPyObject` (E0277).
                 // `{name}_owned` is owned by the closure and consumed once, so move it in.
                 (TypeRef::Named(n), _) if self.is_native_struct_param(n) => {
-                    format!("{}::from({}_owned)", n, p.name)
+                    self.options_lift_expr(n, format!("{}::from({}_owned)", n, p.name))
                 }
                 // By-value native struct: the param-cloning preamble stores the clone under
                 // the same name (`let {name} = {name}.clone()`); wrap it in the binding type.
                 (TypeRef::Named(n), false) if self.is_native_struct_param(n) => {
-                    format!("{}::from({}.clone())", n, p.name)
+                    self.options_lift_expr(n, format!("{}::from({}.clone())", n, p.name))
                 }
                 (TypeRef::Named(_), true) => format!("{}_json.as_str()", p.name),
                 _ => p.name.clone(),
@@ -453,6 +458,21 @@ impl Pyo3BridgeGenerator {
             format!("{},", args[0])
         } else {
             args.join(", ")
+        }
+    }
+
+    /// Wrap a native-pyclass expression in the options-dataclass lift when the type
+    /// is publicly exported as an options dataclass; otherwise pass the native object.
+    fn options_lift_expr(&self, type_name: &str, native_expr: String) -> String {
+        use heck::ToSnakeCase;
+        if self.options_dataclass_types.contains(type_name) {
+            format!(
+                "__alef_options_from_native(py, \"_from_native_{}\", {})",
+                type_name.to_snake_case(),
+                native_expr
+            )
+        } else {
+            native_expr
         }
     }
 
