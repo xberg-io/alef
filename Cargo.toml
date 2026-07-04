@@ -68,7 +68,7 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
-insta = { version = "1.47", features = ["redactions"] }
+insta = { version = "1.48", features = ["redactions"] }
 tracing-test = "0.2"
 
 [[bench]]
