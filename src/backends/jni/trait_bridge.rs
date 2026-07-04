@@ -21,7 +21,7 @@ use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 
 pub struct JniBridgeGenerator {
     /// Fully-qualified JNI symbol for the registration shim
-    /// (e.g. `Java_io_xberg_XbergBridge_nativeRegisterOcrBackend`).
+    /// (e.g. `Java_dev_sample_1crate_DemoBridge_nativeRegisterTextBackend`).
     pub register_symbol: String,
     /// Rust-defaulted trait methods the bridge forwards to the host when the
     /// dispatcher reports them implemented. Methods absent here keep the trait's

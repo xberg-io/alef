@@ -530,11 +530,11 @@ mod dispatcher_tests {
             crate::backends::kotlin_android::trait_bridge::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
         let api = make_api(&trait_def);
         let files = gen_trait_bridge_files(
-            "io.xberg",
+            "dev.sample_crate",
             "OcrBackend",
             &bridge_cfg,
             &trait_def,
-            "XbergBridge",
+            "DemoBridge",
             &api,
             &std::collections::HashSet::new(),
         );
@@ -572,11 +572,11 @@ mod dispatcher_tests {
             crate::backends::kotlin_android::trait_bridge::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
         let api = make_api(&trait_def);
         let files = gen_trait_bridge_files(
-            "io.xberg",
+            "dev.sample_crate",
             "OcrBackend",
             &bridge_cfg,
             &trait_def,
-            "XbergBridge",
+            "DemoBridge",
             &api,
             &std::collections::HashSet::new(),
         );
