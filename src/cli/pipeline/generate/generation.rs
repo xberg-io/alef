@@ -155,19 +155,29 @@ pub fn generate_service_api(
 ///
 /// The package entry file is where an
 /// [`crate::core::extension::Extension::public_api_additions`] contribution is
-/// appended (e.g. Python's `__init__.py`, Ruby's `<gem>.rb`). Some conventions
-/// are dynamic — the Ruby gem entry is named after the gem — so this resolves
-/// against the crate config rather than returning a fixed string. Languages with
-/// no recognized entry-file convention (or whose entry file is produced outside
-/// this public-API pass) return an empty list, making the additions a silent
-/// no-op. New languages are added here as their entry file is produced within
-/// this pass.
+/// appended (e.g. Python's `__init__.py`, Ruby's `<gem>.rb`, PHP's facade class
+/// file). Some conventions are dynamic — the Ruby gem entry is named after the
+/// gem, the PHP facade after the extension — so this resolves against the crate
+/// config rather than returning a fixed string. Languages with no recognized
+/// entry-file convention (or whose entry file is produced outside this
+/// public-API pass) return an empty list, making the additions a silent no-op.
+/// New languages are added here only as their entry file is produced within this
+/// pass — Go, Dart, and Node emit their entry file (`binding.go`, the Dart
+/// barrel, the JS/TS surface) in a different pass, so wiring them here would be a
+/// no-op and is deliberately omitted.
 fn package_entry_filenames(language: Language, config: &ResolvedCrateConfig) -> Vec<String> {
     match language {
         Language::Python => vec!["__init__.py".to_string()],
         // The magnus backend emits the gem entry `lib/<gem_name_snake>.rb` in this
         // pass, where `<gem_name_snake>` is `ruby_gem_name()` with dashes normalized.
         Language::Ruby => vec![format!("{}.rb", config.ruby_gem_name().replace('-', "_"))],
+        // The php backend emits the public facade class `<ExtensionNamePascal>.php`
+        // in this pass — the surface users call — where the name is
+        // `php_extension_name()` pascal-cased (matching the backend's `class_name`).
+        Language::Php => {
+            use heck::ToPascalCase;
+            vec![format!("{}.php", config.php_extension_name().to_pascal_case())]
+        }
         _ => Vec::new(),
     }
 }
@@ -379,6 +389,71 @@ mod tests {
 
         append_public_api_additions(&mut files, Language::Ruby, &config, &additions);
         assert!(files[0].content.contains("require_relative 'my_gem/app'"));
+    }
+
+    #[test]
+    fn public_api_additions_php_facade_entry_appended_and_idempotent() {
+        // The php backend emits the public facade `<ExtensionNamePascal>.php` in the
+        // public-API pass; the append must resolve that dynamic name from config
+        // (test cfg name `pkg` → `Pkg.php`) and leave sibling per-opaque-type files
+        // untouched.
+        let additions = vec!["require_once __DIR__ . '/Extra.php';".to_string()];
+        let mut files = vec![
+            GeneratedFile {
+                path: std::path::PathBuf::from("packages/php/src/Pkg.php"),
+                content: "<?php\n\nnamespace Pkg;\n\nclass Pkg\n{\n}\n".to_string(),
+                generated_header: false,
+            },
+            GeneratedFile {
+                path: std::path::PathBuf::from("packages/php/src/SomeType.php"),
+                content: "<?php\n// opaque\n".to_string(),
+                generated_header: false,
+            },
+        ];
+
+        append_public_api_additions(&mut files, Language::Php, &test_cfg(), &additions);
+        assert!(files[0].content.contains("require_once __DIR__ . '/Extra.php';"));
+        // Sibling (non-entry) file is never touched.
+        assert_eq!(files[1].content, "<?php\n// opaque\n");
+
+        // Idempotent on re-apply.
+        append_public_api_additions(&mut files, Language::Php, &test_cfg(), &additions);
+        assert_eq!(
+            files[0].content.matches("require_once __DIR__ . '/Extra.php';").count(),
+            1
+        );
+    }
+
+    #[test]
+    fn public_api_additions_php_noop_when_facade_absent() {
+        // With only a per-opaque-type file present (no facade entry), the append is a
+        // no-op — nothing matches the resolved `<ExtensionNamePascal>.php` name.
+        let additions = vec!["require_once 'x';".to_string()];
+        let mut files = vec![GeneratedFile {
+            path: std::path::PathBuf::from("packages/php/src/SomeType.php"),
+            content: "<?php\n// opaque\n".to_string(),
+            generated_header: false,
+        }];
+        append_public_api_additions(&mut files, Language::Php, &test_cfg(), &additions);
+        assert_eq!(files[0].content, "<?php\n// opaque\n");
+    }
+
+    #[test]
+    fn public_api_additions_php_resolves_dashed_name_to_pascal_facade() {
+        // `php_extension_name()` falls back to the crate name with dashes→underscores,
+        // then the resolver pascal-cases it to match the backend's facade `class_name`.
+        let config = ResolvedCrateConfig {
+            name: "my-ext".to_string(),
+            ..Default::default()
+        };
+        let additions = vec!["require_once 'x';".to_string()];
+        let mut files = vec![GeneratedFile {
+            path: std::path::PathBuf::from("packages/php/src/MyExt.php"),
+            content: "<?php\n".to_string(),
+            generated_header: false,
+        }];
+        append_public_api_additions(&mut files, Language::Php, &config, &additions);
+        assert!(files[0].content.contains("require_once 'x';"));
     }
 
     #[test]
