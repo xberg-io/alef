@@ -499,14 +499,11 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
                 }
             })
             .collect();
-        out.push_str(&format!(
-            "    let __result = __self.{}({});\n",
-            method.name,
-            method_call_args.join(", ")
-        ));
+        let __call = format!("__self.{}({})", method.name, method_call_args.join(", "));
 
         // Handle the return value
         if method.error_type.is_some() {
+            out.push_str(&format!("    let __result = {__call};\n"));
             if matches!(method.return_type, TypeRef::Unit) {
                 // Unit ok type: propagate the error but don't bind the `()` value
                 // (`let __value = ...` would trip clippy::let_unit_value).
@@ -519,9 +516,12 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
                 out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
-            // Unit return: just return empty JSON
+            // Unit return with no error: call as a statement (binding the `()`
+            // value to `let __result` would trip clippy::let_unit_value).
+            out.push_str(&format!("    {__call};\n"));
             out.push_str("    Ok(\"{}\".to_string())\n");
         } else {
+            out.push_str(&format!("    let __result = {__call};\n"));
             // Normal return: serialize it
             out.push_str("    serde_json::to_string(&__result)\n");
             out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
