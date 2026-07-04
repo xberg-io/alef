@@ -4,7 +4,7 @@
 /// as `Arc<dyn {{ trait_name }}>` from Rust async code.
 pub struct {{ bridge_name }} {
     /// Global JVM reference to the Java handler object.
-    global_ref: jni::objects::GlobalRef,
+    global_ref: jni::refs::Global<jni::objects::JObject<'static>>,
     /// The JavaVM pointer for thread attachment.
     jvm: jni::JavaVM,
     /// Method ID for the dispatch method (cached for performance).
