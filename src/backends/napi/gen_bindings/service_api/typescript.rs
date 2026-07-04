@@ -1,4 +1,4 @@
-use heck::{ToLowerCamelCase, ToSnakeCase};
+use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use minijinja::context;
 
 use crate::backends::napi::template_env::render;
@@ -315,7 +315,12 @@ fn gen_service_class_ts(
         let ep_name = &ep.method;
 
         let doc = ep.doc.trim().replace('\n', "\n   * ");
-        let native_method = ep_name.to_lower_camel_case();
+        // The Rust `#[napi]` glue exposes each service entrypoint under the
+        // js_name `native{UpperCamel}` (see `rust_glue::gen_entrypoint_napi_method`),
+        // so the wrapper must call `this._app.nativeRun()` / `nativeIntoRouter()`,
+        // not the bare `run()`/`intoRouter()` — those methods do not exist on the
+        // native class and calling them throws `TypeError: ... is not a function`.
+        let native_method = format!("native{}", ep_name.to_upper_camel_case());
         let native_args = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
 
         match ep.kind {
