@@ -46,10 +46,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "trait_method_return_line.jinja",
         include_str!("templates/trait_method_return_line.jinja"),
     ),
-    (
-        "trait_bridge_adapter.jinja",
-        include_str!("templates/trait_bridge_adapter.jinja"),
-    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

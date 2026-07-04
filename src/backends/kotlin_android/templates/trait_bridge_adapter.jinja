@@ -1,9 +1,0 @@
-/// Bridge adapter for {{ interface_name }} implementations.
-///
-/// Wraps a user-supplied {{ interface_name }} instance and delegates all method calls.
-/// This adapter is used internally by the trait bridge registration layer to ensure
-/// proper handling of impl instances through JNI boundaries.
-internal class {{ adapter_class_name }}(private val impl: {{ interface_name }}) : {{ interface_name }} {
-    // Delegate all interface methods to the wrapped implementation
-{{ adapter_methods }}
-}
