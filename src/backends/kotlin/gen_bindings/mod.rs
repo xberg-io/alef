@@ -926,6 +926,30 @@ fn generate_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     if let Some(client_file) = jni_emitter::emit_jni_client_class(api, config, None) {
         files.push(client_file);
     }
+    // The Bridge object's `nativeRegister*` externs are typed against the
+    // generated `<Trait>JniDispatcher`, so every configured plugin bridge needs
+    // its dispatcher emitted alongside (shared with the kotlin-android backend).
+    let package = jni_emitter::jni_kotlin_package(config);
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg.exclude_languages.iter().any(|l| l == "kotlin") || bridge_cfg.register_fn.is_none() {
+            continue;
+        }
+        if let Some(trait_def) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
+            let (filename, content) = crate::backends::kotlin_android::trait_bridge::gen_jni_dispatcher_file(
+                &package,
+                &bridge_cfg.trait_name,
+                bridge_cfg,
+                trait_def,
+                api,
+                &std::collections::HashSet::new(),
+            );
+            files.push(GeneratedFile {
+                path: jni_emitter::jni_output_path(config, &filename),
+                content,
+                generated_header: true,
+            });
+        }
+    }
     Ok(files)
 }
 

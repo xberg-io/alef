@@ -1196,3 +1196,79 @@ fn snapshot_jni_opaque_client_methods_with_opaque_returns() {
          not the boxed Long? that would mismatch the Rust shim's jlong (tslp #146): {bridge_content}"
     );
 }
+
+/// JNI-style Kotlin output must include the `<Trait>JniDispatcher` for every
+/// configured plugin bridge: the Bridge object's `external fun nativeRegister*`
+/// is typed against the dispatcher, so declaring it without emitting the class
+/// would not compile.
+#[test]
+fn jni_style_emits_trait_bridge_dispatcher() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin", "ffi"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+
+[crates.kotlin]
+package = "dev.sample_crate"
+ffi_style = "jni"
+
+[[crates.trait_bridges]]
+trait_name = "TextBackend"
+super_trait = "demo::Plugin"
+registry_getter = "demo::get_text_registry"
+register_fn = "register_text_backend"
+"#,
+    );
+
+    let trait_def = TypeDef {
+        name: "TextBackend".into(),
+        rust_path: "demo::TextBackend".into(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![MethodDef {
+            name: "process".into(),
+            params: vec![make_param("text", TypeRef::String)],
+            return_type: TypeRef::String,
+            receiver: Some(alef::core::ir::ReceiverKind::Ref),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        ..Default::default()
+    };
+
+    let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
+    let dispatcher = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("TextBackendJniDispatcher.kt"))
+        .expect("jni-style kotlin output must emit the trait dispatcher");
+    assert!(
+        dispatcher
+            .content
+            .contains("fun dispatch(method: String, argsJson: String): String"),
+        "dispatcher must expose the JSON dispatch entry point:\n{}",
+        dispatcher.content
+    );
+    let bridge = files
+        .iter()
+        .find(|f| f.content.contains("external fun nativeRegisterTextBackend"))
+        .expect("bridge object with register extern");
+    assert!(
+        bridge
+            .content
+            .contains("external fun nativeRegisterTextBackend(impl: dev.sample_crate.TextBackendJniDispatcher)"),
+        "register extern must be typed against the dispatcher:\n{}",
+        bridge.content
+    );
+}

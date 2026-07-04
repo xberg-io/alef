@@ -2,7 +2,7 @@
 ///
 /// Prefers `[crates.kotlin_android] package`, then `[crates.kotlin] package`,
 /// then falls back to `config.kotlin_package()`.
-fn jni_kotlin_package(config: &ResolvedCrateConfig) -> String {
+pub(in crate::backends::kotlin) fn jni_kotlin_package(config: &ResolvedCrateConfig) -> String {
     config
         .kotlin_android
         .as_ref()
@@ -16,7 +16,7 @@ fn jni_kotlin_package(config: &ResolvedCrateConfig) -> String {
 /// Uses `[crates.output] kotlin_android` when available, otherwise falls
 /// back to `[crates.output] kotlin`, and finally the conventional
 /// `packages/kotlin/src/main/kotlin/<pkg>/` layout.
-fn jni_output_path(config: &ResolvedCrateConfig, filename: &str) -> PathBuf {
+pub(in crate::backends::kotlin) fn jni_output_path(config: &ResolvedCrateConfig, filename: &str) -> PathBuf {
     if let Some(android_out) = config.output_for("kotlin_android") {
         return android_out.join(filename);
     }
