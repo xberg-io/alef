@@ -1197,3 +1197,66 @@ fn test_rbs_plugin_bridge_emits_typed_interface_and_typed_register() {
         "register fn must type its backend param against the interface:\n{content}"
     );
 }
+
+#[test]
+fn test_rbs_plugin_interface_omits_defaulted_methods_and_documents_them() {
+    // RBS interfaces can't express optional members, so Rust-defaulted methods
+    // must not be required interface members — the runtime bridge forwards them
+    // only when the host defines them.
+    let backend = MagnusBackend;
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        register_fn: Some("register_greeter".to_string()),
+        registry_getter: Some("test_lib::registry::get".to_string()),
+        super_trait: Some("Plugin".to_string()),
+        ..Default::default()
+    }];
+
+    let greeter = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "test_lib::Greeter".to_string(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![
+            MethodDef {
+                name: "process".to_string(),
+                params: vec![],
+                return_type: TypeRef::String,
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            },
+            MethodDef {
+                name: "supports_table_detection".to_string(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                receiver: Some(ReceiverKind::Ref),
+                has_default_impl: true,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![greeter],
+        ..Default::default()
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    assert!(
+        content.contains("def process:"),
+        "required method must stay in the interface:\n{content}"
+    );
+    assert!(
+        !content.contains("def supports_table_detection:"),
+        "Rust-defaulted method must not be a required interface member:\n{content}"
+    );
+    assert!(
+        content.contains("Optional methods") && content.contains("supports_table_detection"),
+        "defaulted method must be documented as optional:\n{content}"
+    );
+}

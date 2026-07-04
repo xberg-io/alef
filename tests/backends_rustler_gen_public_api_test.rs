@@ -2051,3 +2051,91 @@ fn test_visitor_bridge_does_not_emit_host_behaviour() {
         main.content
     );
 }
+
+#[test]
+fn test_trait_behaviour_callback_params_are_maps_with_optional_callbacks() {
+    // Callback direction: the bridge hands the host a native Erlang map for struct
+    // params — the input-direction "config as optional JSON string" convention must
+    // not leak into @callback specs. Rust-defaulted methods and the lifecycle hooks
+    // are @optional_callbacks.
+    let backend = RustlerBackend;
+
+    let ocr_config = TypeDef {
+        name: "OcrConfig".to_string(),
+        rust_path: "my_lib::OcrConfig".to_string(),
+        has_serde: true,
+        has_default: true,
+        fields: vec![make_field("language", TypeRef::String, false)],
+        ..Default::default()
+    };
+    let trait_def = TypeDef {
+        name: "OcrBackend".to_string(),
+        rust_path: "my_lib::OcrBackend".to_string(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![
+            MethodDef {
+                name: "process_image".to_string(),
+                params: vec![ParamDef {
+                    name: "config".to_string(),
+                    ty: TypeRef::Named("OcrConfig".to_string()),
+                    is_ref: true,
+                    ..Default::default()
+                }],
+                return_type: TypeRef::Named("OcrConfig".to_string()),
+                receiver: Some(alef::core::ir::ReceiverKind::Ref),
+                error_type: Some("Error".to_string()),
+                ..Default::default()
+            },
+            MethodDef {
+                name: "supports_table_detection".to_string(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                receiver: Some(alef::core::ir::ReceiverKind::Ref),
+                has_default_impl: true,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![ocr_config, trait_def],
+        ..Default::default()
+    };
+    let mut config = make_config("my_lib");
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        bind_via: BridgeBinding::FunctionParam,
+        ..Default::default()
+    }];
+
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let main = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib.ex"))
+        .expect("my_lib.ex should be generated");
+    let content = &main.content;
+
+    assert!(
+        content.contains("@callback process_image(map())"),
+        "callback struct param must be map(), not the input-direction JSON string; got:\n{content}"
+    );
+    assert!(
+        !content.contains("@callback process_image(String.t() | nil)"),
+        "stale JSON-string spec must be gone; got:\n{content}"
+    );
+    assert!(
+        content.contains("@callback initialize() :: any()") && content.contains("@callback shutdown() :: any()"),
+        "lifecycle hooks must be declared; got:\n{content}"
+    );
+    assert!(
+        content.contains("@optional_callbacks [supports_table_detection: 0, initialize: 0, shutdown: 0]"),
+        "defaulted + lifecycle methods must be optional callbacks; got:\n{content}"
+    );
+}

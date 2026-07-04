@@ -216,8 +216,26 @@ pub fn gen_registration_interface(
     ));
     out.push('\n');
 
-    // Generate each interface method (trait_type.methods already includes super-trait methods)
-    for method in &trait_type.methods {
+    // Only the trait's non-defaulted methods are required at runtime: the bridge
+    // forwards Rust-defaulted methods when the host class defines them (falling
+    // back to the Rust default otherwise), and the Plugin lifecycle hooks are
+    // no-ops when absent. A PHP `interface` member is a hard language requirement,
+    // so defaulted methods must not be interface members — they are documented in
+    // a comment instead.
+    let (required, optional): (Vec<&crate::core::ir::MethodDef>, Vec<&crate::core::ir::MethodDef>) =
+        trait_type.methods.iter().partition(|m| !m.has_default_impl);
+    if !optional.is_empty() {
+        let names: Vec<&str> = optional.iter().map(|m| m.name.as_str()).collect();
+        out.push_str(&format!(
+            "    // Optional methods the bridge calls when the class defines them (the
+    // trait's Rust default behavior applies otherwise): {}.
+    // The lifecycle hooks initialize()/shutdown() are likewise optional.
+",
+            names.join(", ")
+        ));
+    }
+
+    for method in required {
         let name = &method.name;
 
         // Build method signature parameters

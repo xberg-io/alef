@@ -35,6 +35,16 @@ fn callback_rows(
                 .params
                 .iter()
                 .map(|p| match (&p.ty, p.optional) {
+                    // Callback direction: the bridge encodes Named struct params as native
+                    // Erlang maps (see the GenServer bridge — "args arrives as a native
+                    // Erlang map"). The input-direction convention (configs as optional
+                    // JSON strings) does NOT apply here, so default_types structs are
+                    // `map()`, not `String.t() | nil`.
+                    (TypeRef::Named(name), false) if !opaque_types.contains(name) => "map()".to_string(),
+                    (TypeRef::Named(name), true) if !opaque_types.contains(name) => "map() | nil".to_string(),
+                    (TypeRef::Optional(inner), _) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n)) => {
+                        "map() | nil".to_string()
+                    }
                     (TypeRef::Optional(_), _) | (_, true) => {
                         let base = elixir_typespec(&p.ty, opaque_types, default_types);
                         if base.ends_with("| nil") {
@@ -61,6 +71,25 @@ fn callback_rows(
             }
         })
         .collect()
+}
+
+/// `{name, arity}` pairs for `@optional_callbacks`: the Rust-defaulted trait
+/// methods (the bridge forwards them only when the module exports them) plus the
+/// `Plugin` lifecycle hooks.
+fn optional_callback_rows(methods: &[MethodDef]) -> Vec<minijinja::Value> {
+    let mut rows: Vec<minijinja::Value> = methods
+        .iter()
+        .filter(|m| m.has_default_impl)
+        .map(|m| {
+            minijinja::context! {
+                name => m.name.to_snake_case(),
+                arity => m.params.len(),
+            }
+        })
+        .collect();
+    rows.push(minijinja::context! { name => "initialize", arity => 0 });
+    rows.push(minijinja::context! { name => "shutdown", arity => 0 });
+    rows
 }
 
 /// Surface types the trait-bridge delegate emitter needs to type the host behaviour.
@@ -111,6 +140,7 @@ pub(in crate::backends::rustler::gen_bindings) fn append_trait_bridge_delegates(
                             trait_name => &bridge_cfg.trait_name,
                             register_fn => bridge_cfg.register_fn.as_deref().unwrap_or_default().to_snake_case(),
                             callbacks => callback_rows(&trait_def.methods, opaque_types, default_types),
+                            optional_callbacks => optional_callback_rows(&trait_def.methods),
                         },
                     ));
                     content.push('\n');
