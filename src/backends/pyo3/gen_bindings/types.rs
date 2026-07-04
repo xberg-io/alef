@@ -547,9 +547,18 @@ fn gen_from_native_converters(api: &ApiSurface, reexported_types: &[String]) -> 
             .map(|f| {
                 let safe_name = crate::core::keywords::python_ident(&f.name);
                 let src = format!("native.{safe_name}");
+                let inner_expr = from_native_field_expr(&f.ty, &options_types, &src);
+                // Fields are commonly `Named` + `optional: true` in the IR rather than
+                // `TypeRef::Optional` — a converting expression must still be None-guarded
+                // so a config with an absent nested section survives the lift.
+                let expr = if f.optional && inner_expr != src && !inner_expr.starts_with("(None if ") {
+                    format!("(None if {src} is None else {inner_expr})")
+                } else {
+                    inner_expr
+                };
                 minijinja::context! {
                     name => &safe_name,
-                    expr => from_native_field_expr(&f.ty, &options_types, &src),
+                    expr => expr,
                 }
             })
             .collect();
