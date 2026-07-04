@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.2] - 2026-07-04
+
+### Fixed
+
+- **swift**: first-class DTO method wrappers (`{type}_{method}_from_json`) now
+  honor owned and optional parameters. Optional params are declared as
+  `Option<T>` in the wrapper signature (mirroring the extern block's
+  `!needs_json_bridge` guard) instead of a bare `T`, and `String`/`Named` call
+  args are borrowed only when the core parameter is a reference (`is_ref`).
+  Methods taking owned `String` or `Option<T>` params (e.g.
+  `Response::set_cookie` / `set_header`) previously failed to compile (E0308).
+
 ## [0.32.1] - 2026-07-04
 
 ### Fixed
