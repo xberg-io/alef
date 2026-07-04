@@ -9,12 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **pyo3**: sync trait-bridge shims for infallible methods no longer swallow
-  host exceptions silently. A raised Python callback is logged to stderr with
-  the wrapper and method name before the default value is substituted
-  (value-returning methods) or the call is discarded (unit methods), so a
-  fabricated default — e.g. a zero token count that reads as "fits any
-  budget" — is no longer indistinguishable from a real result.
+- **trait-bridge**: sync infallible bridge methods no longer swallow host
+  failures silently. A raised/thrown host callback is logged with the wrapper
+  and method name before the default value is substituted (value-returning
+  methods) or the call is discarded (unit methods), so a fabricated default —
+  e.g. a zero token count that reads as "fits any budget" — is no longer
+  indistinguishable from a real result. Covers pyo3, napi, magnus, php, wasm
+  (console.error), jni (including the host-error envelope text the dispatcher
+  already marshals), rustler, extendr, the csharp primitive-return adapter,
+  and the ffi null-slot/null-result edge defaults.
+- **go**: generated cgo trampolines recover host panics instead of crashing
+  the process, logging to stderr and returning the zero value (fallible slots
+  marshal the panic text through `outError`). The invalid-handle path no
+  longer fabricates `1` as a return value.
+- **dart**: the block_on shim logs and returns the default when an infallible
+  host callback panics, instead of aborting the calling thread via `expect`.
+- **java**: sync infallible primitive/unit-returning trait methods now use the
+  vtable's direct-value convention. The previous JSON-convention upcall stubs
+  mismatched the C slot signature — a wild pointer write plus the status code
+  read back as the return value — breaking such methods on every call.
 
 ## [0.32.2] - 2026-07-04
 
