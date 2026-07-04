@@ -2017,8 +2017,9 @@ fn test_plugin_bridge_emits_typed_host_behaviour() {
 
     // register_* delegate references the behaviour for the host to implement.
     assert!(
-        content.contains("def register_greeter(genserver_pid, plugin_name) do") && content.contains("Greeter.Host"),
-        "register delegate must reference the host behaviour; got:\n{content}"
+        content.contains("def register_greeter(genserver_pid, plugin_name, implemented_methods \\\\ []) do")
+            && content.contains("Greeter.Host"),
+        "register delegate must reference the host behaviour and default the exports list; got:\n{content}"
     );
 }
 
