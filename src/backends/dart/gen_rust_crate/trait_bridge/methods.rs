@@ -200,6 +200,9 @@ pub(super) fn emit_trait_bridge_method(
                     call_expr => call_expr.as_str(),
                     result_var => "__ret_bridge",
                     has_error => method.error_type.is_some(),
+                    // Excluded core return types have no Default guarantee —
+                    // log the panic, then re-raise instead of substituting.
+                    resume_panic => true,
                     wrapper => bridge_name,
                     method_name => method_name.as_str(),
                 },

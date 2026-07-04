@@ -572,14 +572,29 @@ fn gen_bridge_file(
             }
         }
         let direct = direct_return(method);
+        let has_error = method.error_type.is_some();
 
-        // JSON convention only: outResult (non-Unit) + outError pointer params.
-        // Direct-value slots carry neither — the C signature is
-        // `fn(user_data, params...) -> <primitive>`.
-        if direct.is_none() {
-            if !matches!(method.return_type, TypeRef::Unit) {
-                method_type_params.push("MemorySegment.class".to_string());
-            }
+        // Out-pointer params must mirror the C vtable slot exactly
+        // (`ffi::trait_bridge::c_return_convention`): fallible methods keep the
+        // JSON convention (outResult for non-Unit + outError); infallible
+        // methods carry only what their slot declares — direct-value slots
+        // neither, Char/Path outResult only, Optional<non-primitive>/Bytes
+        // neither (no value channel exists for them on the C ABI).
+        let (has_out_result, has_out_error) = if has_error {
+            (!matches!(method.return_type, TypeRef::Unit), true)
+        } else if direct.is_some() {
+            (false, false)
+        } else {
+            (
+                infallible_slot_has_out_result(&method.return_type),
+                infallible_slot_has_out_error(&method.return_type),
+            )
+        };
+
+        if has_out_result {
+            method_type_params.push("MemorySegment.class".to_string());
+        }
+        if has_out_error {
             method_type_params.push("MemorySegment.class".to_string());
         }
 
@@ -595,10 +610,10 @@ fn gen_bridge_file(
                 func_desc_params.push("ValueLayout.JAVA_LONG".to_string());
             }
         }
-        if direct.is_none() {
-            if !matches!(method.return_type, TypeRef::Unit) {
-                func_desc_params.push("ValueLayout.ADDRESS".to_string());
-            }
+        if has_out_result {
+            func_desc_params.push("ValueLayout.ADDRESS".to_string());
+        }
+        if has_out_error {
             func_desc_params.push("ValueLayout.ADDRESS".to_string());
         }
 
@@ -657,12 +672,22 @@ fn gen_bridge_file(
                 }
             }
             let direct = direct_return(method);
-            // JSON convention only: direct-value handlers return the primitive
-            // itself, so they carry no outResult/outError params.
-            if direct.is_none() {
-                if !matches!(method.return_type, TypeRef::Unit) {
-                    sig_params.push("MemorySegment outResult".to_string());
-                }
+            let has_error = method.error_type.is_some();
+            // Mirror the C slot's out-pointer params exactly (see the stub loop).
+            let (has_out_result, has_out_error) = if has_error {
+                (!matches!(method.return_type, TypeRef::Unit), true)
+            } else if direct.is_some() {
+                (false, false)
+            } else {
+                (
+                    infallible_slot_has_out_result(&method.return_type),
+                    infallible_slot_has_out_error(&method.return_type),
+                )
+            };
+            if has_out_result {
+                sig_params.push("MemorySegment outResult".to_string());
+            }
+            if has_out_error {
                 sig_params.push("MemorySegment outError".to_string());
             }
 
@@ -745,6 +770,12 @@ fn gen_bridge_file(
                 direct_sig_return => direct_sig_return,
                 direct_return_stmt => direct_return_stmt,
                 direct_default_stmt => direct_default_stmt,
+                // JSON-convention slots without a value/error channel
+                // (infallible Char/Path lack outError; infallible
+                // Optional<non-primitive>/Bytes lack both): the handler's
+                // marshal/catch must not touch pointers the slot doesn't carry.
+                marshal_result => has_out_result,
+                has_out_error => has_out_error,
             }
         })
         .collect();
@@ -887,6 +918,35 @@ impl DirectReturn {
             DirectWrap::OptionalBoolToLong => format!("return {call}.orElse(false) ? 1L : 0L;"),
         }
     }
+}
+
+/// Whether an infallible slot for this return type carries an `out_result`
+/// pointer. Mirrors `ffi::trait_bridge::c_return_convention`'s out-param arms:
+/// String/Char/Path/Json/Named/Vec/Map get `out_result`; Optional<non-primitive>
+/// and Bytes fall into the catch-all arm with NO out params (a bare i32 return
+/// with no value channel — such methods cannot marshal a value at all).
+fn infallible_slot_has_out_result(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::String
+            | TypeRef::Char
+            | TypeRef::Path
+            | TypeRef::Json
+            | TypeRef::Named(_)
+            | TypeRef::Vec(_)
+            | TypeRef::Map(_, _)
+    )
+}
+
+/// Whether an infallible slot for this return type carries an `out_error`
+/// pointer. Mirrors `c_return_convention`'s `needs_out_error`: only
+/// Named/Vec/Map/String/Json — notably NOT Char/Path, whose infallible slots
+/// have `out_result` but no `out_error`.
+fn infallible_slot_has_out_error(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::String | TypeRef::Json
+    )
 }
 
 /// Direct-value return shape for a type, or `None` when the method uses the

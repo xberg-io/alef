@@ -4622,3 +4622,135 @@ fn java_untagged_wrapper_with_text_types_emits_text_method() {
         "must return empty string as fallback:\n{src}"
     );
 }
+
+#[test]
+fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
+    // A sync infallible usize-returning method's C vtable slot is
+    // `fn(user_data, text) -> usize` (ffi c_return_convention direct-value
+    // branch). The upcall stub and handler must match that ABI exactly:
+    // no outResult/outError params, primitive descriptor return.
+    let make_method = |name: &str, params: Vec<ParamDef>, ret: TypeRef| MethodDef {
+        name: name.to_string(),
+        params,
+        return_type: ret,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+    let text_param = ParamDef {
+        name: "text".to_string(),
+        ty: TypeRef::String,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: true,
+        is_mut: false,
+        newtype_wrapper: None,
+        original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
+        vec_inner_is_ref: false,
+        map_is_btree: false,
+        core_wrapper: alef::core::ir::CoreWrapper::None,
+    };
+    let tokenizer = TypeDef {
+        name: "Renderer".to_string(),
+        rust_path: "test_lib::Renderer".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![
+            make_method(
+                "count_tokens",
+                vec![text_param],
+                TypeRef::Primitive(PrimitiveType::Usize),
+            ),
+            make_method("reset", vec![], TypeRef::Unit),
+        ],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+        has_private_fields: false,
+        version: Default::default(),
+    };
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![tokenizer],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = JavaBackend
+        .generate_bindings(&api, &make_test_config_with_trait_bridge("com.example"))
+        .unwrap();
+    let bridge = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("RendererBridge.java"))
+        .expect("RendererBridge.java")
+        .content
+        .as_str();
+
+    // Stub: long return, exactly userData + text params — no outResult/outError pair.
+    assert!(
+        bridge.contains("MethodType.methodType(long.class, MemorySegment.class, MemorySegment.class)"),
+        "direct-value stub must bind (userData, text) -> long: {bridge}"
+    );
+    assert!(
+        bridge.contains("FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"),
+        "direct-value descriptor must be JAVA_LONG(ADDRESS, ADDRESS): {bridge}"
+    );
+    // Handler: primitive return, no out-pointers, logged catch with a default.
+    assert!(
+        bridge.contains("private long handleCountTokens(MemorySegment userData, MemorySegment text_in)"),
+        "direct-value handler must return long with no out params: {bridge}"
+    );
+    assert!(
+        bridge.contains("host 'count_tokens' threw") && bridge.contains("return 0L;"),
+        "direct-value handler must log the host exception and return the default: {bridge}"
+    );
+    // Unit method: void stub via ofVoid, void handler.
+    assert!(
+        bridge.contains("FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)"),
+        "infallible unit stub must use ofVoid with only userData: {bridge}"
+    );
+    assert!(
+        bridge.contains("private void handleReset(MemorySegment userData)"),
+        "infallible unit handler must be void with no out params: {bridge}"
+    );
+    // The JSON convention must not leak into these methods.
+    assert!(
+        !bridge.contains("private int handleCountTokens"),
+        "count_tokens must not use the int-status JSON convention: {bridge}"
+    );
+}

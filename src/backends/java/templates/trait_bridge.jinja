@@ -118,7 +118,7 @@ public final class {{ bridge_class }} implements AutoCloseable {
 {% for unmarshal in method.unmarshal_params %}
             {{ unmarshal }}
 {% endfor %}
-{% if method.has_return %}
+{% if method.has_return and method.marshal_result %}
             {{ method.return_type }} callbackResult = impl.{{ method.name }}({{ method.call_args }});
 {% if method.raw_result %}
             MemorySegment jsonCs = arena.allocateFrom(callbackResult);
@@ -127,12 +127,21 @@ public final class {{ bridge_class }} implements AutoCloseable {
             MemorySegment jsonCs = arena.allocateFrom(json);
 {% endif %}
             outResult.set(ValueLayout.ADDRESS, 0, jsonCs);
+{% elif method.has_return %}
+            // This slot has no out_result channel on the C ABI (infallible
+            // Optional<non-primitive>/Bytes return) — the value cannot be
+            // marshaled; the call still runs for its effects.
+            impl.{{ method.name }}({{ method.call_args }});
 {% else %}
             impl.{{ method.name }}({{ method.call_args }});
 {% endif %}
             return 0;
         } catch (Throwable e) {
+{% if method.has_out_error %}
             writeError(outError, e);
+{% else %}
+            System.err.println("[{{ bridge_class }}] host '{{ method.name }}' threw: " + e);
+{% endif %}
             return 1;
         }
     }

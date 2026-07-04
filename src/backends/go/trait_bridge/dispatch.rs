@@ -296,6 +296,10 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
     ));
     out.push('\n');
     out.push_str("\tif !ok {\n");
+    out.push_str(&format!(
+        "\t\tfmt.Fprintln(os.Stderr, \"[{trait_pascal}Bridge] host 'Name' called with an invalid handle\")\n"
+    ));
+    out.push_str("\t\t*outError = C.CString(\"invalid handle\")\n");
     out.push_str("\t\treturn 1\n");
     out.push_str("\t}\n");
     out.push_str("\tname := impl.Name()\n");
@@ -331,6 +335,10 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
     ));
     out.push('\n');
     out.push_str("\tif !ok {\n");
+    out.push_str(&format!(
+        "\t\tfmt.Fprintln(os.Stderr, \"[{trait_pascal}Bridge] host 'Version' called with an invalid handle\")\n"
+    ));
+    out.push_str("\t\t*outError = C.CString(\"invalid handle\")\n");
     out.push_str("\t\treturn 1\n");
     out.push_str("\t}\n");
     out.push_str("\tversion := impl.Version()\n");
@@ -366,6 +374,10 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
     ));
     out.push('\n');
     out.push_str("\tif !ok {\n");
+    out.push_str(&format!(
+        "\t\tfmt.Fprintln(os.Stderr, \"[{trait_pascal}Bridge] host 'Initialize' called with an invalid handle\")\n"
+    ));
+    out.push_str("\t\t*outError = C.CString(\"invalid handle\")\n");
     out.push_str("\t\treturn 1\n");
     out.push_str("\t}\n");
     out.push_str("\terr := impl.Initialize()\n");
@@ -404,6 +416,10 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
     ));
     out.push('\n');
     out.push_str("\tif !ok {\n");
+    out.push_str(&format!(
+        "\t\tfmt.Fprintln(os.Stderr, \"[{trait_pascal}Bridge] host 'Shutdown' called with an invalid handle\")\n"
+    ));
+    out.push_str("\t\t*outError = C.CString(\"invalid handle\")\n");
     out.push_str("\t\treturn 1\n");
     out.push_str("\t}\n");
     out.push_str("\terr := impl.Shutdown()\n");
