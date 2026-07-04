@@ -1,0 +1,47 @@
+/**
+ * JSON dispatch wrapper for [I{{ trait_name }}] implementations, called from the
+ * native trait bridge. Decodes each trait call's arguments, invokes the typed
+ * implementation (bridging suspend methods via runBlocking), and encodes the
+ * result as {"ok": ...} on success or {"err": "..."} on failure.
+ */
+internal class {{ trait_name }}JniDispatcher(private val impl: I{{ trait_name }}) {
+    private val mapper = jacksonObjectMapper()
+
+    /** JSON array of the Rust-side names of the methods this host provides. */
+    fun implementedMethods(): String =
+        mapper.writeValueAsString(
+            listOf(
+{% for name in implemented %}
+                "{{ name }}",
+{% endfor %}
+            ),
+        )
+
+    @Suppress("UNUSED_PARAMETER", "CyclomaticComplexMethod")
+    fun dispatch(method: String, argsJson: String): String =
+        try {
+            val args = mapper.readTree(argsJson)
+            val result: Any? =
+                when (method) {
+{% for m in methods %}
+                    "{{ m.rust_name }}" -> {{ m.call_expr }}
+{% endfor %}
+{% if has_super_trait %}
+                    "name" -> impl.name()
+                    "version" -> impl.version()
+                    "initialize" -> {
+                        impl.initialize()
+                        null
+                    }
+                    "shutdown" -> {
+                        impl.shutdown()
+                        null
+                    }
+{% endif %}
+                    else -> throw IllegalArgumentException("unknown trait method: $method")
+                }
+            mapper.writeValueAsString(mapOf("ok" to result))
+        } catch (t: Throwable) {
+            mapper.writeValueAsString(mapOf("err" to (t.message ?: t.toString())))
+        }
+}

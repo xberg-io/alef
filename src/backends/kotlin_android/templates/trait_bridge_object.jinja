@@ -8,7 +8,7 @@ object {{ bridge_obj }} {
     fun register(impl: {{ interface_name }}, name: String): Unit {
 {% endif %}
         registered[name] = impl
-        {{ bridge_class_name }}.{{ register_native_fn }}({% if has_super_trait %}impl{% else %}impl, name{% endif %})
+        {{ bridge_class_name }}.{{ register_native_fn }}({% if has_super_trait %}{{ dispatcher_class }}(impl){% else %}{{ dispatcher_class }}(impl), name{% endif %})
     }
 
 {% if unregister_native_fn %}
