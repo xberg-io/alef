@@ -7,6 +7,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trait_bridge_object.jinja"),
     ),
     (
+        "trait_bridge_dispatcher.jinja",
+        include_str!("templates/trait_bridge_dispatcher.jinja"),
+    ),
+    (
         "handle_wrapper_header.jinja",
         include_str!("templates/handle_wrapper_header.jinja"),
     ),

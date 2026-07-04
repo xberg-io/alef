@@ -59,6 +59,7 @@ pub fn gen_trait_bridge_files(
                 register_native_fn => register_native_fn,
                 unregister_native_fn => unregister_native_fn,
                 clear_native_fn => clear_native_fn,
+                dispatcher_class => format!("{trait_name}JniDispatcher"),
             },
         );
 
@@ -161,6 +162,104 @@ pub fn gen_trait_bridge_files(
 
         let content = assemble_kt_content(package, &final_imports, &adapter_body);
         files.push((format!("{adapter_class_name}.kt"), content));
+    }
+
+    // Emit the JNI dispatcher: the JSON entry point the native trait bridge calls.
+    // Suspend interface methods cannot be invoked over raw JNI (they need a
+    // continuation), so the dispatcher bridges them with runBlocking.
+    {
+        use heck::ToLowerCamelCase;
+
+        let visible_type_names: std::collections::HashSet<&str> = api
+            .types
+            .iter()
+            .filter(|t| !t.binding_excluded && !effective_excluded_types.contains(&t.name))
+            .map(|t| t.name.as_str())
+            .chain(api.enums.iter().map(|e| e.name.as_str()))
+            .collect();
+
+        let mut imports = BTreeSet::new();
+        imports.insert("com.fasterxml.jackson.module.kotlin.jacksonObjectMapper".to_string());
+        let mut any_async = false;
+
+        let own_methods: Vec<&crate::core::ir::MethodDef> = trait_def
+            .methods
+            .iter()
+            .filter(|m| !m.sanitized && !m.is_static)
+            .collect();
+
+        let methods: Vec<minijinja::Value> = own_methods
+            .iter()
+            .map(|method| {
+                let method_camel = method.name.to_lower_camel_case();
+                let args = method
+                    .params
+                    .iter()
+                    .map(|p| {
+                        let ty_ref = substitute_trait_carrier_type(api, bridge_cfg, &p.ty);
+                        let ty = kotlin_type_str_visible(&ty_ref, p.optional, &visible_type_names, &mut imports);
+                        format!(
+                            "mapper.convertValue(args.get(\"{}\"), object : com.fasterxml.jackson.core.type.TypeReference<{}>() {{}})",
+                            p.name, ty
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let call = format!("impl.{method_camel}({args})");
+                let call = if method.is_async {
+                    any_async = true;
+                    format!("runBlocking {{ {call} }}")
+                } else {
+                    call
+                };
+                let call_expr = if matches!(method.return_type, crate::core::ir::TypeRef::Unit) {
+                    format!("{{
+                        {call}
+                        null
+                    }}")
+                } else {
+                    call
+                };
+                minijinja::context! {
+                    rust_name => &method.name,
+                    call_expr => call_expr,
+                }
+            })
+            .collect();
+
+        if any_async {
+            imports.insert("kotlinx.coroutines.runBlocking".to_string());
+        }
+
+        // The interface currently makes every trait method abstract, so a host
+        // provides all of them; lifecycle hooks are interface defaults and always
+        // dispatchable. When interface defaults land for Rust-defaulted methods,
+        // this switches to reflection-based overridden detection.
+        let mut implemented: Vec<&str> = own_methods.iter().map(|m| m.name.as_str()).collect();
+        if bridge_cfg.super_trait.is_some() {
+            implemented.extend(["name", "version", "initialize", "shutdown"]);
+        }
+
+        let body = template_env::render(
+            "trait_bridge_dispatcher.jinja",
+            minijinja::context! {
+                trait_name => trait_name,
+                has_super_trait => bridge_cfg.super_trait.is_some(),
+                methods => methods,
+                implemented => implemented,
+            },
+        );
+
+        let mut final_imports = BTreeSet::new();
+        for import_line in &imports {
+            if let Some(stripped) = import_line.strip_prefix("import ") {
+                final_imports.insert(stripped.to_string());
+            } else {
+                final_imports.insert(import_line.clone());
+            }
+        }
+        let content = assemble_kt_content(package, &final_imports, &body);
+        files.push((format!("{trait_name}JniDispatcher.kt"), content));
     }
 
     files
@@ -295,6 +394,20 @@ fn should_project_trait_carrier(
 }
 
 #[cfg(test)]
+pub(self) fn tests_support_bridge_cfg(trait_name: &str, super_trait: Option<&str>) -> TraitBridgeConfig {
+    use heck::ToSnakeCase;
+    TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: super_trait.map(|s| s.to_string()),
+        register_fn: Some(format!("register_{}", trait_name.to_snake_case())),
+        unregister_fn: Some(format!("unregister_{}", trait_name.to_snake_case())),
+        clear_fn: Some(format!("clear_{}", trait_name.to_snake_case())),
+        bind_via: crate::core::config::BridgeBinding::FunctionParam,
+        ..TraitBridgeConfig::default()
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use heck::ToSnakeCase;
@@ -359,7 +472,7 @@ mod tests {
         assert!(content.contains("object OcrBackendBridge"));
         assert!(content.contains("fun register(impl: IOcrBackend): Unit"));
         assert!(content.contains("val name = impl.name()"));
-        assert!(content.contains("TestBridge.nativeRegisterOcrBackend(impl)"));
+        assert!(content.contains("TestBridge.nativeRegisterOcrBackend(OcrBackendJniDispatcher(impl))"));
         assert!(content.contains("nativeRegisterOcrBackend"));
     }
 
@@ -375,7 +488,7 @@ mod tests {
         assert!(content.contains("object OcrBackendBridge"));
         assert!(content.contains("fun register(impl: IOcrBackend, name: String): Unit"));
         assert!(!content.contains("val name = impl.name()"));
-        assert!(content.contains("TestBridge.nativeRegisterOcrBackend(impl, name)"));
+        assert!(content.contains("TestBridge.nativeRegisterOcrBackend(OcrBackendJniDispatcher(impl), name)"));
     }
 
     #[test]
@@ -437,5 +550,139 @@ mod tests {
                 .expect("should generate bridge");
 
         assert!(content.contains("fun getAll(): Map<String, IOcrBackend>"));
+    }
+}
+
+#[cfg(test)]
+mod dispatcher_tests {
+    use super::*;
+    use crate::core::ir::{MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeRef};
+
+    fn make_api(trait_def: &TypeDef) -> crate::core::ir::ApiSurface {
+        crate::core::ir::ApiSurface {
+            crate_name: "testcrate".into(),
+            version: "0.1.0".into(),
+            types: vec![trait_def.clone()],
+            ..Default::default()
+        }
+    }
+
+    fn ocr_like_trait() -> TypeDef {
+        TypeDef {
+            name: "OcrBackend".into(),
+            rust_path: "testcrate::OcrBackend".into(),
+            is_trait: true,
+            is_opaque: true,
+            methods: vec![
+                MethodDef {
+                    name: "process_image".into(),
+                    params: vec![
+                        ParamDef {
+                            name: "image_bytes".into(),
+                            ty: TypeRef::Bytes,
+                            is_ref: true,
+                            ..Default::default()
+                        },
+                        ParamDef {
+                            name: "config".into(),
+                            ty: TypeRef::Named("OcrConfig".into()),
+                            is_ref: true,
+                            ..Default::default()
+                        },
+                    ],
+                    return_type: TypeRef::Named("ExtractedDocument".into()),
+                    is_async: true,
+                    receiver: Some(ReceiverKind::Ref),
+                    error_type: Some("Error".into()),
+                    ..Default::default()
+                },
+                MethodDef {
+                    name: "supports_language".into(),
+                    params: vec![ParamDef {
+                        name: "lang".into(),
+                        ty: TypeRef::String,
+                        is_ref: true,
+                        ..Default::default()
+                    }],
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    receiver: Some(ReceiverKind::Ref),
+                    ..Default::default()
+                },
+                MethodDef {
+                    name: "supports_tables".into(),
+                    params: vec![],
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    receiver: Some(ReceiverKind::Ref),
+                    has_default_impl: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn dispatcher_file_emitted_with_json_dispatch_and_run_blocking() {
+        let trait_def = ocr_like_trait();
+        let bridge_cfg = super::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
+        let api = make_api(&trait_def);
+        let files = gen_trait_bridge_files(
+            "io.xberg",
+            "OcrBackend",
+            &bridge_cfg,
+            &trait_def,
+            "XbergBridge",
+            &api,
+            &std::collections::HashSet::new(),
+        );
+        let (_, dispatcher) = files
+            .iter()
+            .find(|(name, _)| name == "OcrBackendJniDispatcher.kt")
+            .expect("dispatcher file must be emitted");
+
+        assert!(
+            dispatcher.contains("fun dispatch(method: String, argsJson: String): String"),
+            "dispatcher must expose the JSON dispatch entry point:\n{dispatcher}"
+        );
+        assert!(
+            dispatcher.contains("runBlocking"),
+            "suspend trait methods must be bridged via runBlocking:\n{dispatcher}"
+        );
+        assert!(
+            dispatcher.contains("\"process_image\" ->") && dispatcher.contains("\"supports_language\" ->"),
+            "dispatch must switch on the Rust method names:\n{dispatcher}"
+        );
+        assert!(
+            dispatcher.contains("\"initialize\" ->") && dispatcher.contains("\"shutdown\" ->"),
+            "lifecycle hooks must be dispatchable:\n{dispatcher}"
+        );
+        assert!(
+            dispatcher.contains("fun implementedMethods(): String"),
+            "dispatcher must report the implemented method names:\n{dispatcher}"
+        );
+    }
+
+    #[test]
+    fn bridge_object_registers_dispatcher_wrapper() {
+        let trait_def = ocr_like_trait();
+        let bridge_cfg = super::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
+        let api = make_api(&trait_def);
+        let files = gen_trait_bridge_files(
+            "io.xberg",
+            "OcrBackend",
+            &bridge_cfg,
+            &trait_def,
+            "XbergBridge",
+            &api,
+            &std::collections::HashSet::new(),
+        );
+        let (_, bridge_obj) = files
+            .iter()
+            .find(|(name, _)| name.ends_with("Bridge.kt"))
+            .expect("bridge object file");
+        assert!(
+            bridge_obj.contains("nativeRegisterOcrBackend(OcrBackendJniDispatcher(impl))"),
+            "register must wrap the impl in the JNI dispatcher:\n{bridge_obj}"
+        );
     }
 }
