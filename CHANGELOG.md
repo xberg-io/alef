@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.19] - 2026-07-04
+
 ### Fixed
 
 - **trait-bridge**: dynamic-backend bridges (pyo3, magnus, php, napi, wasm,
@@ -29,7 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Protocol (#165).
 - **rustler**: behaviour `@callback` specs now declare natively-marshalled
   struct params as `map()` instead of the stale JSON `String.t()` (#168).
-
 ## [0.30.18] - 2026-07-03
 
 ### Added
