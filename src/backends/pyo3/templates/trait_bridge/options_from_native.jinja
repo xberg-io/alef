@@ -2,8 +2,8 @@
 def {{ fn_name }}(native: Any) -> {{ class_name }}:
     """Build the public `{{ class_name }}` dataclass from the native binding object."""
     return {{ class_name }}(
-{%- for f in fields %}
+{% for f in fields %}
         {{ f.name }}={{ f.expr }},
-{%- endfor %}
+{% endfor %}
     )
 
