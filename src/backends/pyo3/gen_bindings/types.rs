@@ -541,9 +541,9 @@ fn gen_from_native_converters(api: &ApiSurface, reexported_types: &[String]) -> 
     emitted.sort_by(|a, b| a.name.cmp(&b.name));
 
     for typ in emitted {
-        let fields: Vec<minijinja::Value> = typ
-            .fields
-            .iter()
+        // Same field filter as the dataclass emission above: a binding-excluded
+        // field is not a dataclass field, so it must not become a converter kwarg.
+        let fields: Vec<minijinja::Value> = binding_fields(&typ.fields)
             .map(|f| {
                 let safe_name = crate::core::keywords::python_ident(&f.name);
                 let src = format!("native.{safe_name}");

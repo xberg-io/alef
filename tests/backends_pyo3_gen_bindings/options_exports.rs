@@ -722,3 +722,51 @@ fn test_from_native_converter_guards_optional_flag_fields() {
         "optional-flag nested fields must be None-guarded:\n{content}"
     );
 }
+
+#[test]
+fn test_from_native_converter_skips_binding_excluded_fields() {
+    // The converter must use the same field filter as the dataclass emission:
+    // a binding-excluded field is not a dataclass field, so passing it as a
+    // kwarg would fail at runtime (and under mypy).
+    let backend = Pyo3Backend;
+
+    let mut hidden = make_field("dispatch", TypeRef::String, true);
+    hidden.binding_excluded = true;
+    let config_ty = TypeDef {
+        name: "CrawlConfig".to_string(),
+        rust_path: "my_lib::CrawlConfig".to_string(),
+        has_serde: true,
+        has_default: true,
+        fields: vec![
+            make_field("depth", TypeRef::Primitive(PrimitiveType::U32), false),
+            hidden,
+        ],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![config_ty],
+        ..Default::default()
+    };
+    let config = make_config();
+
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
+    let options = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("options.py"))
+        .expect("options.py should be generated");
+    let content = &options.content;
+
+    assert!(
+        content.contains("depth=native.depth,"),
+        "included fields must convert:\n{content}"
+    );
+    assert!(
+        !content.contains("dispatch=native.dispatch"),
+        "binding-excluded fields must not appear in the converter:\n{content}"
+    );
+}

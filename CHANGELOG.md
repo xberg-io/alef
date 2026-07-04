@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **pyo3**: the generated `options._from_native_*` converters now use the same
+  field filter as the dataclass emission — binding-excluded fields no longer
+  appear as constructor kwargs (which failed at runtime and under mypy for
+  configs with excluded fields).
+
 ## [0.30.19] - 2026-07-04
 
 ### Fixed
