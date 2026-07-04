@@ -361,10 +361,10 @@ fn test_plugin_bridge_generates_registration_fn() {
     );
     assert!(
         code.code
-            .contains("genserver_pid: rustler::LocalPid, plugin_name: String")
+            .contains("genserver_pid: rustler::LocalPid, plugin_name: String, implemented_methods: Vec<String>")
             && code
                 .code
-                .contains("RustlerTextBackendBridge::new(genserver_pid, plugin_name)"),
+                .contains("RustlerTextBackendBridge::new(genserver_pid, plugin_name, implemented_methods)"),
         "registration fn must store the provided GenServer pid and require a plugin name, got:\n{}",
         code.code
     );

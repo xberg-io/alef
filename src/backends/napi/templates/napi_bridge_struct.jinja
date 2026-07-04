@@ -9,7 +9,7 @@ pub struct {{ wrapper_name }} {
     obj_ref: std::sync::Mutex<Option<napi::bindgen_prelude::ObjectRef<false>>>,
     cached_name: String,
     cancellation_token: std::sync::Arc<tokio_util::sync::CancellationToken>,
-{%- for f in extra_fields %}
+{% for f in extra_fields %}
     {{ f.name }}: {{ f.ty }},
-{%- endfor %}
+{% endfor %}
 }
