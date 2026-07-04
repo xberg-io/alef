@@ -2,7 +2,7 @@ use crate::backends::swift::naming::{swift_rust_shim_ident as swift_ident, swift
 use crate::backends::swift::type_map::SwiftMapper;
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::{DefaultValue, FieldDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, DefaultValue, FieldDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
 
@@ -50,6 +50,59 @@ pub(super) fn first_class_field_supported(ty: &TypeRef, known_dto_names: &HashSe
         // Map, Path, Bytes, Duration, Char, Json, Unit — not yet supported
         _ => false,
     }
+}
+
+/// Compute the set of struct/enum type names that are emitted as first-class Swift Codable
+/// values (structs or serde enums), via the same fixed-point iteration used when emitting
+/// them in `emit`.
+///
+/// A type is first-class iff it is non-opaque, has serde, non-trait, non-excluded, has visible
+/// fields, and every visible field's type is first-class-supported given the growing set. Unit
+/// serde enums and data-variant (tagged/untagged) serde enums seed the set — they are Codable
+/// and may appear as fields.
+///
+/// This is the authoritative classifier shared by the Swift binding emitter (`gen_bindings`) and
+/// the swift-bridge Rust-crate getter emitter (`gen_rust_crate`): a `Vec<Named>` getter is
+/// JSON-degraded to `Vec<String>` only when the *containing* type is first-class (its Codable
+/// wrapper decodes the JSON); an opaque-rendered parent must return a real `Vec<Opaque>` so the
+/// opaque element accessors resolve.
+pub(crate) fn compute_first_class_dto_names(api: &ApiSurface, exclude_types: &HashSet<String>) -> HashSet<String> {
+    let unit_serde_enum_names = api
+        .enums
+        .iter()
+        .filter(|e| !exclude_types.contains(&e.name))
+        .filter(|e| e.has_serde && e.variants.iter().all(|v| v.fields.is_empty()))
+        .map(|e| e.name.clone());
+    let data_variant_serde_enum_names = api
+        .enums
+        .iter()
+        .filter(|e| !exclude_types.contains(&e.name))
+        .filter(|e| e.has_serde && e.variants.iter().any(|v| !v.fields.is_empty()))
+        .map(|e| e.name.clone());
+
+    let candidate_types: Vec<&TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !exclude_types.contains(&t.name))
+        .filter(|t| !t.fields.is_empty())
+        .collect();
+
+    let mut known: HashSet<String> = unit_serde_enum_names.chain(data_variant_serde_enum_names).collect();
+    loop {
+        let prev_len = known.len();
+        for ty in &candidate_types {
+            if known.contains(&ty.name) {
+                continue;
+            }
+            if binding_fields(&ty.fields).all(|field| first_class_field_supported(&field.ty, &known)) {
+                known.insert(ty.name.clone());
+            }
+        }
+        if known.len() == prev_len {
+            break;
+        }
+    }
+    known
 }
 
 /// Emits a first-class Swift struct (`public struct Foo: Codable, Sendable, Hashable`)

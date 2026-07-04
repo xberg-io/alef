@@ -82,9 +82,15 @@ pub(crate) fn emit_extern_block_for_type(
     exclude_fields: &HashSet<String>,
     type_paths: &HashMap<String, String>,
     no_serde_names: &HashSet<&str>,
+    first_class_names: &HashSet<&str>,
     enum_names: &HashSet<String>,
     configured_features: &std::collections::HashSet<&str>,
 ) -> String {
+    // Whether the containing type is emitted as a first-class Codable Swift wrapper. Getters on
+    // a first-class parent JSON-degrade Vec<Named(struct)> so the wrapper can decode; getters on
+    // an opaque-rendered parent keep the real Vec<Opaque>. See
+    // `bridge_type_enum_and_serde_struct_aware`.
+    let parent_first_class = first_class_names.contains(ty.name.as_str());
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
@@ -162,7 +168,8 @@ pub(crate) fn emit_extern_block_for_type(
         // For optional Vec<Named(enum/struct)> fields, force JSON-serialization (String)
         // because swift-bridge cannot handle Option<Vec<String>> as a plain getter return type.
         let enum_set: HashSet<&str> = enum_names.iter().map(|s| s.as_str()).collect();
-        let bridge_ty = bridge_type_enum_and_serde_struct_aware(&field.ty, &enum_set, no_serde_names);
+        let bridge_ty =
+            bridge_type_enum_and_serde_struct_aware(&field.ty, &enum_set, no_serde_names, parent_first_class);
         let bridge_ty = if field.optional && !needs_json_bridge(&field.ty) {
             // Option<Vec<String>> is not natively supported by swift-bridge; collapse
             // to plain String (JSON) only when the Vec inner type is an enum or serde-capable struct.

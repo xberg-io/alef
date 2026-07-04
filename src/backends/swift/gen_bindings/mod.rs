@@ -1,4 +1,3 @@
-use crate::codegen::shared::binding_fields;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use crate::core::config::{
     AdapterConfig, AdapterPattern, Language, ResolvedCrateConfig, TraitBridgeConfig, resolve_output_dir,
@@ -13,7 +12,7 @@ use crate::backends::swift::type_map::SwiftMapper;
 mod boxes;
 pub(crate) mod bridge_artifacts;
 mod client;
-mod dto;
+pub(crate) mod dto;
 mod enums;
 mod errors;
 mod forwarders;
@@ -205,12 +204,6 @@ impl Backend for SwiftBackend {
         // are known-supported (primitive, String, known first-class struct, or unit serde enum).
         //
         // Convergence is guaranteed: each round only adds types (monotonically growing set).
-        let candidate_types: Vec<&crate::core::ir::TypeDef> = api
-            .types
-            .iter()
-            .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde && !exclude_types.contains(&t.name))
-            .filter(|t| !t.fields.is_empty())
-            .collect();
 
         // Collect every serde data-variant enum (both untagged AND tagged) that bridges
         // as a JSON `RustString` at the FFI boundary rather than as an opaque
@@ -246,26 +239,9 @@ impl Backend for SwiftBackend {
         // field types, allowing containing structs to be emitted as first-class Swift
         // structs. The init code then routes Named fields of these types through
         // JSONDecoder rather than the Ref path.
-        let mut known_dto_names: std::collections::HashSet<String> = unit_serde_enum_names.clone();
-        known_dto_names.extend(untagged_enum_names.iter().cloned());
-        loop {
-            let prev_len = known_dto_names.len();
-            for ty in &candidate_types {
-                if known_dto_names.contains(&ty.name) {
-                    continue;
-                }
-                // Check if all visible (binding-non-excluded) fields are supported given the
-                // current known set (struct DTOs + unit serde enums + tagged enums).
-                let all_supported = binding_fields(&ty.fields)
-                    .all(|field| dto::first_class_field_supported(&field.ty, &known_dto_names));
-                if all_supported {
-                    known_dto_names.insert(ty.name.clone());
-                }
-            }
-            if known_dto_names.len() == prev_len {
-                break; // stable — no new types added this round
-            }
-        }
+        // Authoritative first-class classifier — shared with the swift-bridge Rust-crate getter
+        // emitter so the extern signatures and the Swift consumers agree on Vec<Named> shapes.
+        let known_dto_names = dto::compute_first_class_dto_names(api, &exclude_types);
 
         // Emit typealiases for all struct types exposed by swift-bridge.
         // swift-bridge exposes types that are declared in the extern "Rust" block,

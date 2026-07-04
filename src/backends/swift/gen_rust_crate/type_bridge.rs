@@ -198,30 +198,38 @@ pub(crate) fn is_enum_named(ty: &TypeRef, enum_names: &HashSet<&str>) -> bool {
     }
 }
 
-/// Like `bridge_type_enum_aware_ref` but also treats `Vec<Named(struct)>` with serde as `Vec<String>`.
+/// Like `bridge_type_enum_aware_ref` but degrades `Vec<Named>` getters to `Vec<String>` for a
+/// first-class parent.
 ///
-/// In addition to enums (which use Vectorizable), swift-bridge also fails to correctly marshal
-/// `Vec<OpaqueRustType>` for serde-capable structs, producing a SIGSEGV at runtime. Convert
-/// these to `Vec<String>` (JSON serialization) to avoid the broken codegen.
+/// The degradation is keyed on the *containing* type, not the element:
+/// - When the parent is first-class-emittable (`parent_first_class = true`), its Codable Swift
+///   wrapper decodes each `Vec<Named(struct)>` element from JSON, so the getter returns
+///   `Vec<String>`. (A first-class parent's Vec elements are always first-class or serde enums.)
+/// - When the parent is rendered as an opaque handle (`parent_first_class = false`, e.g.
+///   `ExtractionResult`), there is no Codable wrapper; consumers access elements through the
+///   opaque `RustBridge.{Elem}` accessors (`results()[0].mimeType()`). The getter must therefore
+///   return a real `Vec<Opaque>`, matching the constructor param. swift-bridge supports this for
+///   declared opaque `type T;` — the accessor's `RustVec` is lifetime-hoisted on the Swift side
+///   to avoid the ARC use-after-free that motivated the old blanket JSON degradation.
 ///
-/// This is called from the extern block generator which has access to `no_serde_names`.
+/// `Vec<Named(enum)>` is always `Vec<String>` (swift-bridge's `Vectorizable` is broken for enums),
+/// regardless of the parent.
 pub(crate) fn bridge_type_enum_and_serde_struct_aware(
     ty: &TypeRef,
     enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
+    parent_first_class: bool,
 ) -> String {
     match ty {
         TypeRef::Named(n) if enum_names.contains(n.as_str()) => "String".to_string(),
         TypeRef::Vec(inner) => {
             if let TypeRef::Named(n) = inner.as_ref() {
-                // Return Vec<String> for both:
-                // 1. Vec<Named(enum)> — swift-bridge's Vectorizable is broken for enums
-                // 2. Vec<Named(struct)> with serde — swift-bridge's Vec<OpaqueType> marshaling crashes
                 let is_enum = enum_names.contains(n.as_str());
                 let has_serde = !no_serde_names.contains(n.as_str());
-                // Vec<String> for Vec<Named(enum)> (Vectorizable broken) or a
-                // serde-capable Vec<Named(struct)> (opaque-Vec marshaling crashes).
-                if is_enum || has_serde {
+                // Vec<String> for Vec<Named(enum)> (Vectorizable broken) or, on a first-class
+                // parent, a serde-capable Vec<Named(struct)> the wrapper decodes from JSON.
+                // An opaque parent keeps the real Vec<Opaque> form (no Codable target).
+                if is_enum || (parent_first_class && has_serde) {
                     return "Vec<String>".to_string();
                 }
             }

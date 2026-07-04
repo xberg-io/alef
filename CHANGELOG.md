@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.19] - 2026-07-04
+
 ### Fixed
 
+- **swift**: `Vec<opaque-handle>` getters on an opaque parent type now bridge as
+  a real `Vec<T>` (e.g. `ExtractionResult.results()` yields
+  `RustVec<ExtractedDocument>`) instead of `Vec<String>`, so opaque-element
+  accessors such as `.mimeType()`/`.content()` resolve. JSON degradation of a
+  `Vec<Named>` getter to `Vec<String>` is now gated on the containing type being
+  a first-class Codable struct rather than on the element type, keeping the two
+  code paths (`gen_bindings` DTO classification and `gen_rust_crate` extern/getter
+  emission) in lockstep via a shared `compute_first_class_dto_names` helper.
 - **trait-bridge**: dynamic-backend bridges (pyo3, magnus, php, napi, wasm,
   rustler, extendr) now forward Rust-defaulted trait methods to the host
   object when it implements them, falling back to the genuine Rust default

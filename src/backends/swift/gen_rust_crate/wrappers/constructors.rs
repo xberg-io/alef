@@ -28,6 +28,7 @@ pub(crate) fn emit_type_wrapper(
     enum_names: &HashSet<&str>,
     unit_enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
+    first_class_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
     configured_features: &HashSet<&str>,
 ) -> String {
@@ -157,6 +158,7 @@ pub(crate) fn emit_type_wrapper(
             enum_names,
             unit_enum_names,
             no_serde_names,
+            first_class_names,
             exclude_fields,
             configured_features,
             &mut out,
@@ -304,6 +306,7 @@ mod tests {
             &ty,
             "test_crate",
             &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),

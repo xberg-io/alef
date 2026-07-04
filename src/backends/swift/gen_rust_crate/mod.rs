@@ -283,6 +283,14 @@ fn emit_lib_rs(
         .filter(|t| !t.has_serde)
         .map(|t| t.name.as_str())
         .collect();
+    // First-class Codable types (the authoritative classifier shared with the Swift binding
+    // emitter). A `Vec<Named(struct)>` getter JSON-degrades to `Vec<String>` only when its
+    // containing type is first-class (its Codable wrapper decodes the JSON); a getter on an
+    // opaque-rendered parent (e.g. `ExtractionResult`) keeps the real `Vec<Opaque>` so opaque
+    // element accessors resolve. See `bridge_type_enum_and_serde_struct_aware`.
+    let first_class_owned =
+        crate::backends::swift::gen_bindings::dto::compute_first_class_dto_names(api, exclude_types);
+    let first_class_names: HashSet<&str> = first_class_owned.iter().map(|s| s.as_str()).collect();
     let no_serde_enum_names: HashSet<&str> = api
         .enums
         .iter()
@@ -389,6 +397,7 @@ fn emit_lib_rs(
             exclude_fields,
             &type_paths,
             &no_serde_names,
+            &first_class_names,
             &enum_names_owned,
             configured_features,
         );
@@ -753,6 +762,7 @@ fn emit_lib_rs(
             &enum_names,
             &unit_enum_names,
             &no_serde_names,
+            &first_class_names,
             exclude_fields,
             configured_features,
         ));

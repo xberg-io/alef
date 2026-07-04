@@ -100,10 +100,14 @@ pub(super) fn emit_getters(
     enum_names: &HashSet<&str>,
     unit_enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
+    first_class_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
     configured_features: &std::collections::HashSet<&str>,
     out: &mut String,
 ) {
+    // See `bridge_type_enum_and_serde_struct_aware`: Vec<Named(struct)> getters JSON-degrade only
+    // when the containing type is a first-class Codable wrapper; opaque parents keep Vec<Opaque>.
+    let parent_first_class = first_class_names.contains(ty.name.as_str());
     for field in &ty.fields {
         // Use enum-aware bridge type so enum-typed Named fields resolve to String.
         // This keeps extern block declarations consistent with the getter impl bodies.
@@ -180,7 +184,16 @@ pub(super) fn emit_getters(
         } else if let TypeRef::Named(wrapper) = &field.ty {
             emit_named_getter(field, wrapper, &ctx, enum_names, out);
         } else if let TypeRef::Vec(inner) = &field.ty {
-            emit_vec_getter(ty, field, inner, &ctx, enum_names, no_serde_names, out);
+            emit_vec_getter(
+                ty,
+                field,
+                inner,
+                &ctx,
+                enum_names,
+                no_serde_names,
+                parent_first_class,
+                out,
+            );
         } else if matches!(
             field.ty,
             TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json
@@ -501,6 +514,7 @@ fn emit_named_getter(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_vec_getter(
     ty: &TypeDef,
     field: &crate::core::ir::FieldDef,
@@ -508,6 +522,7 @@ fn emit_vec_getter(
     ctx: &GetterCtx,
     enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
+    parent_first_class: bool,
     out: &mut String,
 ) {
     let _name = &ctx.name;
@@ -515,15 +530,20 @@ fn emit_vec_getter(
     let _bridge_ty_owned = &ctx.bridge_ty_owned;
     if let TypeRef::Named(wrapper) = inner {
         let is_enum = enum_names.contains(wrapper.as_str());
-        // For Vec<Named(struct)> with serde, use JSON marshaling to avoid swift-bridge's
-        // broken Vec<OpaqueType> Vectorizable codegen. This mirrors the enum case which
-        // already converts Vec<Named(enum)> to Vec<String> to avoid the same issue.
+        // On a first-class parent, Vec<Named(serde struct)> is JSON-marshaled so the parent's
+        // Codable wrapper decodes each element. On an opaque parent, keep the real Vec<Opaque>
+        // so opaque element accessors resolve. Must match the extern signature emitted by
+        // `bridge_type_enum_and_serde_struct_aware`.
         let has_serde = !no_serde_names.contains(wrapper.as_str());
-        if !is_enum && has_serde {
-            // Vec<Named(struct)> with serde: emit each element as JSON string.
+        // Optional Vec always collapses to a single JSON `String` (swift-bridge cannot express
+        // `Option<Vec<T>>`), so it keeps the serde path regardless of the parent. A non-optional
+        // Vec JSON-degrades only on a first-class parent; an opaque parent keeps Vec<Opaque>.
+        if !is_enum && has_serde && (field.optional || parent_first_class) {
+            // Vec<Named(serde struct)>: emit each element (or the whole optional Vec) as JSON.
             emit_vec_struct_serde_getter(field, ctx, out);
         } else {
-            // Vec<Named(enum)> or Vec<Named(struct without serde)>: use opaque wrapper.
+            // Vec<Named(enum)>, Vec<Named> on an opaque parent, or Vec<Named(struct without
+            // serde)>: use the opaque wrapper.
             // When the source field is Vec<Arc<T>>, cloning an element
             // yields Arc<SourceT>; we must deref before wrapping.
             let elem_expr = match field.vec_inner_core_wrapper {
