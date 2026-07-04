@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-07-04
+
+### Fixed
+
+- **jni**: complete the `needless_borrows_for_generic_args` fix from 0.31.0.
+  The 0.31.0 change only touched the inline Optional-JSON marshaller; the
+  `string_to_jstring(env, &s)` warnings in generated shims actually originate
+  in the return templates. Pass the owned `String` by value there too
+  (`return_optional_string`, `return_json`, `streaming_shims`).
+
 ## [0.31.0] - 2026-07-04
 
 ### Added
