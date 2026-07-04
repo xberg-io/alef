@@ -274,7 +274,7 @@ pub unsafe extern "system" fn Java_dev_sample_1crate_demo_DemoBridge_nativeDemoC
                     throw_jni_error(env, &format!("serialize: {e}")); return std::ptr::null_mut();
                 }
             };
-            string_to_jstring(env, &s)
+            string_to_jstring(env, s)
         }
     }
 }

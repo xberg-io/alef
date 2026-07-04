@@ -72,7 +72,7 @@ pub unsafe extern "system" fn {{ next_sym }}(
                     throw_jni_error(env, &format!("serialize: {e}")); return std::ptr::null_mut();
                 }
             };
-            string_to_jstring(env, &s)
+            string_to_jstring(env, s)
         }
     }
 }

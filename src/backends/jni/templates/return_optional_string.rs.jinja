@@ -1,4 +1,4 @@
 {{ indent }}match v {
 {{ indent }}    None => std::ptr::null_mut(),
-{{ indent }}    Some(s) => string_to_jstring(env, &s),
+{{ indent }}    Some(s) => string_to_jstring(env, s),
 {{ indent }}}
