@@ -193,6 +193,7 @@ pub fn gen_trait_bridges_file(
     out.push_str("import (\n");
     out.push_str("\t\"encoding/json\"\n");
     out.push_str("\t\"fmt\"\n");
+    out.push_str("\t\"os\"\n");
     out.push_str("\t\"runtime/cgo\"\n");
     out.push_str("\t\"sync\"\n");
     out.push_str("\t\"unsafe\"\n");

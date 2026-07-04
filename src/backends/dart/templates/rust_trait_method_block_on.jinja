@@ -1,7 +1,31 @@
         let __fut = {{ call_expr }};
+{% if has_error %}
         let {{ result_var }} = std::thread::spawn(move || {
             ::tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("build alef visitor tokio runtime")
                 .block_on(__fut)
         }).join().expect("thread panicked");
+{% else %}
+        let {{ result_var }} = match std::thread::spawn(move || {
+            ::tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("build alef visitor tokio runtime")
+                .block_on(__fut)
+        }).join() {
+            Ok(v) => v,
+            Err(e) => {
+                // This method's Rust signature is infallible, so a panic on the
+                // callback thread cannot propagate. Log before substituting the
+                // default — a silent default is indistinguishable from a real
+                // result to the caller.
+                let msg = e
+                    .downcast_ref::<&str>()
+                    .map(|s| (*s).to_string())
+                    .or_else(|| e.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "non-string panic payload".to_string());
+                eprintln!("[{{ wrapper }}] host '{{ method_name }}' panicked; returning default: {msg}");
+                return Default::default();
+            }
+        };
+{% endif %}

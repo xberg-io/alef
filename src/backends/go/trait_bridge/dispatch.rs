@@ -2,10 +2,38 @@ use super::helpers::{capitalize, gen_param_conversion, rust_to_c_type};
 use crate::core::ir::{MethodDef, TypeRef};
 use heck::ToPascalCase;
 
+/// Emit a deferred `recover()` guard at the top of an exported cgo callback.
+///
+/// A Go panic must not unwind across the cgo boundary into the Rust caller —
+/// that aborts the whole process. The trampoline signatures use a named return
+/// value (`ret`) so the deferred closure can substitute a result: fallible
+/// slots surface the panic through `outError` (status 1), infallible slots log
+/// to stderr and return the zero value.
+fn gen_panic_recovery(out: &mut String, trait_pascal: &str, method_pascal: &str, fallible: bool) {
+    out.push_str("\tdefer func() {\n");
+    out.push_str("\t\tif r := recover(); r != nil {\n");
+    if fallible {
+        out.push_str(&format!(
+            "\t\t\tfmt.Fprintln(os.Stderr, \"[{trait_pascal}Bridge] host '{method_pascal}' panicked:\", r)\n"
+        ));
+        out.push_str("\t\t\t*outError = C.CString(fmt.Sprint(r))\n");
+        out.push_str("\t\t\tret = 1\n");
+    } else {
+        out.push_str(&format!(
+            "\t\t\tfmt.Fprintln(os.Stderr, \"[{trait_pascal}Bridge] host '{method_pascal}' panicked; returning default:\", r)\n"
+        ));
+        out.push_str("\t\t\tret = 0\n");
+    }
+    out.push_str("\t\t}\n");
+    out.push_str("\t}()\n");
+    out.push('\n');
+}
+
 /// Generate one trampoline function (implementation without //export).
 /// The //export declaration is in binding.go to avoid duplicate definitions.
 pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &str, method: &MethodDef) {
-    let export_name = format!("go{}{}", trait_pascal, method.name.to_pascal_case());
+    let method_pascal = method.name.to_pascal_case();
+    let export_name = format!("go{}{}", trait_pascal, method_pascal);
 
     let mut params = vec!["userData unsafe.Pointer".to_string()];
     for p in &method.params {
@@ -71,6 +99,9 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
     ));
     out.push('\n');
 
+    let fallible = method.error_type.is_some();
+    gen_panic_recovery(out, trait_pascal, &method_pascal, fallible);
+
     // Retrieve the Go object from the handle
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::backends::go::template_env::render(
@@ -81,7 +112,20 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
     ));
     out.push('\n');
     out.push_str("\tif !ok {\n");
-    out.push_str("\t\treturn 1  // error: invalid handle\n");
+    if fallible {
+        out.push_str(&format!(
+            "\t\tfmt.Fprintln(os.Stderr, \"[{trait_pascal}Bridge] host '{method_pascal}' called with an invalid handle\")\n"
+        ));
+        out.push_str("\t\t*outError = C.CString(\"invalid handle\")\n");
+        out.push_str("\t\treturn 1\n");
+    } else {
+        // For direct-value slots a nonzero status here would fabricate a real
+        // return value; log and return the zero value instead.
+        out.push_str(&format!(
+            "\t\tfmt.Fprintln(os.Stderr, \"[{trait_pascal}Bridge] host '{method_pascal}' called with an invalid handle; returning default\")\n"
+        ));
+        out.push_str("\t\treturn 0\n");
+    }
     out.push_str("\t}\n");
     out.push('\n');
 
@@ -150,7 +194,12 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
         }
     }
 
-    out.push_str("\treturn 0  // success\n");
+    // Simple-primitive conversions return the value directly (every path above
+    // ends in an unconditional return), so only status-slot trampolines need
+    // the trailing success return.
+    if !is_simple_primitive {
+        out.push_str("\treturn 0  // success\n");
+    }
     out.push_str("}\n");
     out.push('\n');
 }
@@ -237,6 +286,7 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
         },
     ));
     out.push('\n');
+    gen_panic_recovery(out, trait_pascal, "Name", true);
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::backends::go::template_env::render(
         "handle_type_assertion.jinja",
@@ -271,6 +321,7 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
         },
     ));
     out.push('\n');
+    gen_panic_recovery(out, trait_pascal, "Version", true);
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::backends::go::template_env::render(
         "handle_type_assertion.jinja",
@@ -305,6 +356,7 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
         },
     ));
     out.push('\n');
+    gen_panic_recovery(out, trait_pascal, "Initialize", true);
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::backends::go::template_env::render(
         "handle_type_assertion.jinja",
@@ -342,6 +394,7 @@ pub(super) fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_p
         },
     ));
     out.push('\n');
+    gen_panic_recovery(out, trait_pascal, "Shutdown", true);
     out.push_str("\thandle := cgo.Handle(uintptr(unsafe.Pointer(userData)))\n");
     out.push_str(&crate::backends::go::template_env::render(
         "handle_type_assertion.jinja",

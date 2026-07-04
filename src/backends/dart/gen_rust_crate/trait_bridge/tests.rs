@@ -120,6 +120,7 @@ fn excluded_named_result_return_deserializes_with_error_mapping() {
     emit_trait_bridge_method(
         &mut out,
         &method,
+        "DemoBridge",
         "demo",
         &type_paths,
         &excluded_type_paths,
@@ -173,6 +174,7 @@ fn excluded_named_result_param_serializes_with_error_mapping() {
     emit_trait_bridge_method(
         &mut out,
         &method,
+        "DemoBridge",
         "demo",
         &type_paths,
         &excluded_type_paths,
