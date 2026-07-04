@@ -94,14 +94,20 @@ pub(super) fn gen_options_py(
                 && !reexported_names.contains(t.name.as_str())
         });
 
-    // Check whether `Any` is needed: TypeRef::Json maps to `dict[str, Any]`.
-    // Data enums now use their concrete type names (imported from native module),
-    // so they no longer contribute to the `Any` requirement.
-    let needs_any = api
-        .types
-        .iter()
-        .filter(|t| !t.is_trait && t.has_default)
-        .any(|t| binding_fields(&t.fields).any(|f| type_contains_json(&f.ty)));
+    // Check whether `Any` is needed. Two sources: `TypeRef::Json` fields map to
+    // `dict[str, Any]`, and every emitted `_from_native_*` converter takes a
+    // `native: Any` parameter. Data enums now use their concrete type names
+    // (imported from the native module), so they no longer contribute.
+    let emits_from_native_converters = {
+        let options_types = options_dataclass_type_names(api, reexported_types);
+        api.types.iter().any(|t| options_types.contains(&t.name))
+    };
+    let needs_any = emits_from_native_converters
+        || api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && t.has_default)
+            .any(|t| binding_fields(&t.fields).any(|f| type_contains_json(&f.ty)));
 
     // Collect all Named types referenced by has_default types (including inside Vec/Optional).
     // Only include types that will actually be emitted in options.py:
@@ -541,9 +547,13 @@ fn gen_from_native_converters(api: &ApiSurface, reexported_types: &[String]) -> 
     emitted.sort_by(|a, b| a.name.cmp(&b.name));
 
     for typ in emitted {
-        let fields: Vec<minijinja::Value> = typ
-            .fields
-            .iter()
+        // Use `binding_fields` (not raw `typ.fields`) so the converter references
+        // only the fields the `@dataclass` actually declares. Binding-excluded
+        // fields (internal caches such as `*_joined_cache`, and opaque runtime
+        // handles like lifecycle hooks / DI containers) are dropped from the
+        // dataclass `__init__`; passing them as keyword arguments would raise
+        // `unexpected-keyword` at type-check time and `TypeError` at runtime.
+        let fields: Vec<minijinja::Value> = binding_fields(&typ.fields)
             .map(|f| {
                 let safe_name = crate::core::keywords::python_ident(&f.name);
                 let src = format!("native.{safe_name}");

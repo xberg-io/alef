@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **jni**: the `Optional` return marshaller no longer borrows the owned
+  serialized `String` when calling `string_to_jstring` (`&s` → `s`), clearing a
+  `clippy::needless_borrows_for_generic_args` warning in every generated JNI
+  shim.
+- **ffi**: the generated `build.rs` capsule header fixup now emits direct
+  `header.replace(...)` statements instead of a `for` loop over an array
+  literal, clearing a `clippy::single_element_loop` warning when a crate
+  exposes a single capsule pointee type.
+- **pyo3**: `options.py` now imports `Any` whenever `_from_native_*` converters
+  are emitted (their `native: Any` parameter), not only when a `TypeRef::Json`
+  field is present, fixing an `unknown-name` type-check error.
+
 ## [0.30.19] - 2026-07-04
 
 ### Fixed

@@ -396,12 +396,12 @@ fn test_build_rs_rewrites_prefixed_capsule_return_type() {
     let build =
         super::super::helpers::gen_build_rs("ts_pack.h", "libts_pack_core_ffi", None, "ts_pack", &capsule_types);
     assert!(
-        build.contains(r#"("TS_PACKTSLanguage", "TSLanguage")"#),
+        build.contains(r#"header.replace("TS_PACKTSLanguage", "TSLanguage")"#),
         "build.rs must rewrite the prefixed capsule pointee back to the unprefixed prelude name:\n{build}"
     );
     assert!(
-        build.contains("header.replace(prefixed, bare)"),
-        "build.rs must apply the capsule header fixup:\n{build}"
+        !build.contains("for (prefixed, bare)"),
+        "build.rs must not emit a single-element loop for the capsule header fixup:\n{build}"
     );
 }
 

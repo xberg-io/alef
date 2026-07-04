@@ -569,21 +569,19 @@ pub(super) fn gen_build_rs(
         if pairs.is_empty() {
             String::new()
         } else {
-            let arr = pairs
+            let replaces = pairs
                 .iter()
-                .map(|(prefixed, bare)| format!("(\"{prefixed}\", \"{bare}\")"))
+                .map(|(prefixed, bare)| format!("        header = header.replace(\"{prefixed}\", \"{bare}\");"))
                 .collect::<Vec<_>>()
-                .join(", ");
+                .join("\n");
             format!(
                 "\n    // Rewrite prefixed host-native capsule pointee types back to the unprefixed\n    \
                  // names forward-declared in the header prelude (cbindgen prefixes all referenced\n    \
                  // types, but these are external types defined by the host tree-sitter runtime).\n    \
                  {{\n        \
                  let header_path = \"include/{header_name}\";\n        \
-                 let mut header = std::fs::read_to_string(header_path).expect(\"read generated header\");\n        \
-                 for (prefixed, bare) in [{arr}] {{\n            \
-                 header = header.replace(prefixed, bare);\n        \
-                 }}\n        \
+                 let mut header = std::fs::read_to_string(header_path).expect(\"read generated header\");\n\
+                 {replaces}\n        \
                  std::fs::write(header_path, header).expect(\"write patched header\");\n    \
                  }}\n"
             )

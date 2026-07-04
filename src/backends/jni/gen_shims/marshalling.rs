@@ -260,7 +260,7 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
                 "{indent}            Err(e) => {{ throw_jni_error(env, &format!(\"serialize: {{e}}\")); return {ret_null}; }}\n"
             ));
             out.push_str(&format!("{indent}        }};\n"));
-            out.push_str(&format!("{indent}        string_to_jstring(env, &s)\n"));
+            out.push_str(&format!("{indent}        string_to_jstring(env, s)\n"));
             out.push_str(&format!("{indent}    }}\n"));
             out.push_str(&format!("{indent}}}\n"));
         }
