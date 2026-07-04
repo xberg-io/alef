@@ -295,7 +295,7 @@ fn sync_versions_scaffold_regen_is_byte_identical_to_generate_path() {
     let generate_result = (|| -> anyhow::Result<String> {
         let api = crate::cli::pipeline::extract(&resolved_cfg, &alef_toml_path, false)?;
         let languages = resolved_cfg.languages.clone();
-        let scaffold_files = crate::cli::pipeline::scaffold(&api, &resolved_cfg, &languages)?;
+        let scaffold_files = crate::cli::pipeline::scaffold(&api, &resolved_cfg, &languages, &alef_toml_path)?;
         let base_dir = std::path::PathBuf::from(".");
         crate::cli::pipeline::write_scaffold_files_with_overwrite(&scaffold_files, &base_dir, true)?;
         // Mirror the generate path: format, then read the canonical bytes.

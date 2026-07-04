@@ -236,7 +236,7 @@ pub(super) fn regenerate_scaffold_after_sync(
     let api = extract(&fresh_config, config_path, false)?;
     let languages = fresh_config.languages.clone();
 
-    let generated_scaffold = super::scaffold(&api, &fresh_config, &languages)?;
+    let generated_scaffold = super::scaffold(&api, &fresh_config, &languages, config_path)?;
     if generated_scaffold.is_empty() {
         return Ok(0);
     }

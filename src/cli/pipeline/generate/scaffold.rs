@@ -9,12 +9,41 @@ use std::path::Path;
 use tracing::debug;
 
 /// Generate scaffold files for given languages.
+///
+/// After the built-in scaffold generators run, each registered extension gets a
+/// chance to rewrite the scaffold file set per language via
+/// [`crate::core::extension::Extension::transform_scaffold_files`] — for example
+/// to wire an ergonomic entry module into a package `main`/wrapper or to add
+/// runtime dependencies to a manifest. Extensions receive their
+/// `[extensions.<name>]` config from `config_path` (`alef.toml`).
 pub fn scaffold(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     languages: &[Language],
+    config_path: &Path,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
-    crate::scaffold::scaffold(api, config, languages)
+    let mut files = crate::scaffold::scaffold(api, config, languages)?;
+    crate::with_extensions(|exts| {
+        let env = crate::core::template_env::TemplateEnv::new();
+        for ext in exts {
+            let raw = crate::core::extension::read_extension_config(config_path, ext.name())
+                .with_context(|| format!("extension `{}`: failed to read config from alef.toml", ext.name()))?;
+            let cfg = ext
+                .parse_config(raw.as_ref())
+                .with_context(|| format!("extension `{}`: failed to parse config", ext.name()))?;
+            for &language in languages {
+                ext.transform_scaffold_files(api, &cfg, language, &mut files, &env)
+                    .with_context(|| {
+                        format!(
+                            "extension `{}`: transform_scaffold_files({language}) failed",
+                            ext.name()
+                        )
+                    })?;
+            }
+        }
+        Ok::<(), anyhow::Error>(())
+    })?;
+    Ok(files)
 }
 
 /// Generate README files for given languages.

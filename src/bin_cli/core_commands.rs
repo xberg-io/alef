@@ -256,7 +256,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // registration the cleanup walker treats them as orphans and deletes
                 // them on every `alef generate`, breaking `cargo metadata` for umbrella
                 // crates like `crates/<name>-jni/` until the next `alef scaffold` run.
-                match pipeline::scaffold(&api, resolved_cfg, &languages) {
+                match pipeline::scaffold(&api, resolved_cfg, &languages, config_path) {
                     Ok(scaffold_files) => {
                         for file in &scaffold_files {
                             current_gen_paths.insert(base_dir.join(&file.path));
@@ -449,7 +449,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 } else {
                     eprintln!("Generating scaffolding for: {}", format_languages(&languages));
                 }
-                let files = pipeline::scaffold(&api, resolved_cfg, &languages)?;
+                let files = pipeline::scaffold(&api, resolved_cfg, &languages, config_path)?;
                 let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
                 let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                 let count = pipeline::write_scaffold_files(&files, &base_dir)?;

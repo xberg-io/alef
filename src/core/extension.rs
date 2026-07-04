@@ -107,6 +107,33 @@ pub trait Extension: Send + Sync {
         Ok(())
     }
 
+    /// Transform the scaffold-pass file list for one language before it is written.
+    ///
+    /// Runs during scaffold generation, once per resolved language, over the
+    /// complete set of scaffold files (package manifests, entry wrappers, build
+    /// files). Unlike [`Extension::transform_emitted_files`] — which only sees
+    /// `generate_bindings` output — this hook can rewrite files the scaffold stage
+    /// owns, such as a package `main`/entry wrapper or a dependency manifest
+    /// (`package.json`, `composer.json`, `pubspec.yaml`). Use it to wire an
+    /// extension-emitted entry module into the package's real resolution path or
+    /// to add runtime dependencies. The `files` slice contains every scaffold file
+    /// for the current generation, so match by path; rewrites must be idempotent.
+    ///
+    /// Like the other transform hooks this does not feed the generation-inputs
+    /// hash, so additions never affect `alef verify`.
+    ///
+    /// Default: no-op.
+    fn transform_scaffold_files(
+        &self,
+        _api: &ApiSurface,
+        _cfg: &ExtensionConfig,
+        _language: Language,
+        _files: &mut Vec<GeneratedFile>,
+        _env: &TemplateEnv,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     /// Contribute raw lines to the package's public-API init file for one
     /// language (e.g. Python's `__init__.py`).
     ///
@@ -273,5 +300,23 @@ mod tests {
             .expect("transform failed");
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].content, "fn main() {}");
+    }
+
+    #[test]
+    fn transform_scaffold_files_default_is_noop() {
+        use crate::core::backend::GeneratedFile;
+        let ext = NoopExtension;
+        let api = ApiSurface::default();
+        let cfg = ExtensionConfig::empty();
+        let env = crate::core::template_env::TemplateEnv::new();
+        let mut files = vec![GeneratedFile {
+            path: std::path::PathBuf::from("package.json"),
+            content: "{}".to_string(),
+            generated_header: false,
+        }];
+        ext.transform_scaffold_files(&api, &cfg, Language::Node, &mut files, &env)
+            .expect("transform failed");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].content, "{}");
     }
 }

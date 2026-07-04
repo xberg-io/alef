@@ -45,7 +45,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
             // Scaffold package manifests and lint configs
             eprintln!("  Generating scaffolding...");
-            let scaffold_files = pipeline::scaffold(&api, resolved_cfg, &languages)?;
+            let scaffold_files = pipeline::scaffold(&api, resolved_cfg, &languages, config_path)?;
             let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
             for file in &scaffold_files {
                 all_paths.insert(base_dir.join(&file.path));
