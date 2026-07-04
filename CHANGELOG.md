@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-07-04
+
+### Added
+
+- **pipeline**: `transform_scaffold_files` extension hook, letting extensions
+  post-process generated scaffold files before they are written.
+
 ### Fixed
 
 - **jni**: trait-bridge registration now dispatches. The kotlin-android bridge
@@ -16,6 +23,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previously registration discarded the object and no plugin call ever reached
   the host. Rust-defaulted methods and the `Plugin` lifecycle hooks get the
   same presence-guarded forwarding as the other dynamic backends (#170).
+- **swift**: first-class DTO instance methods now emit real dispatch instead of
+  being excluded/crashing. The Swift side serializes `self`, calls a generated
+  Rust wrapper extern, and decodes the JSON result; the Rust wrapper
+  deserializes into the **core** type (not the serde-less swift-bridge wrapper
+  newtype), converts `Path` params to `PathBuf`/`&Path`, and uses swift-bridge's
+  unlabeled arguments + `RustString` return. Both the extern block and the Rust
+  wrapper are emitted for non-opaque types (previously nested in the `is_opaque`
+  branch, so the Swift calls referenced Rust wrappers that were never generated).
+  Also fixes `Renderer` trait-bridge dispatch.
+- **zig**: complex trait-vtable return types are serialized to JSON and handed
+  back as a caller-owned, NUL-terminated C string via `out_result`, replacing a
+  placeholder that silently wrote null. Uses the Zig 0.16 `std.json.fmt` API.
+- **csharp**: `Register{Trait}(impl)` now delegates to `Register`, which calls
+  the native `Register{Trait}` — previously it stored the bridge but never
+  registered it natively (a silent no-op).
+- **rustler**: opaque resources are stored behind `Arc<RwLock<T>>` so `&mut self`
+  methods (e.g. `Registry::extend_from_dir`) mutate the held value in place
+  through a write lock instead of returning `Not implemented` (or, worse,
+  mutating a throwaway clone). Reads take a read lock; all lock acquisitions
+  recover from poison (`unwrap_or_else(|e| e.into_inner())`) to avoid crashing
+  the BEAM.
+- **napi**: TypeScript service wrappers call the `native{UpperCamel}` methods the
+  Rust `#[napi]` glue actually exposes (`nativeRun`/`nativeIntoRouter`), not the
+  bare `run`/`intoRouter` which do not exist on the native class.
+
+### Removed
+
+- **pyo3**: dropped the never-rendered `trait_bridge/bridge_function.jinja`
+  placeholder template and its registration.
 
 ## [0.31.2] - 2026-07-04
 

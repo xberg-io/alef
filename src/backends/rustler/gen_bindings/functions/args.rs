@@ -11,7 +11,7 @@ pub(super) fn gen_rustler_method_call_args(
         .iter()
         .map(|p| match &p.ty {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                format!("&{}.inner", p.name)
+                format!("&{}.inner.read().unwrap_or_else(|e| e.into_inner()).clone()", p.name)
             }
             // Default-typed Named params are passed as Option<String> JSON and decoded
             // by the caller into a `{name}_core` local. Reference that local here.

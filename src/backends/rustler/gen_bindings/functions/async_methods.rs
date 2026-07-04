@@ -72,7 +72,22 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_method(
         .params
         .iter()
         .any(|p| matches!(&p.ty, TypeRef::Named(n) if default_types.contains(n)));
-    let can_delegate = shared::can_auto_delegate(method, opaque_types) || has_default_params;
+    // Rustler stores opaque resources behind `Arc<RwLock<T>>`, so `&mut self` methods
+    // mutate in place through a write lock (see the receiver match below). The shared
+    // `can_auto_delegate` conservatively rejects RefMut opaque methods (correct for the
+    // Arc<T>-only backends), so re-permit them here when their params/return are delegatable.
+    let can_delegate_refmut_opaque = is_opaque
+        && matches!(method.receiver, Some(ReceiverKind::RefMut))
+        && method.trait_source.is_none()
+        && !method.sanitized
+        && method.params.iter().all(|p| {
+            !p.sanitized
+                && shared::is_delegatable_param(&p.ty, opaque_types)
+                && !shared::is_named_ref_param_pub(p, opaque_types)
+        })
+        && shared::is_delegatable_return(&method.return_type);
+    let can_delegate =
+        shared::can_auto_delegate(method, opaque_types) || has_default_params || can_delegate_refmut_opaque;
 
     // Build deserialization preamble for default-typed (JSON-string) params.
     let deser_preamble = build_default_deser_preamble(
@@ -92,9 +107,21 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_method(
             // method can consume — requires T: Clone (callers needing non-Clone
             // opaque types with mutating methods should configure exclude_methods).
             match receiver {
-                ReceiverKind::Ref => format!("resource.inner.as_ref().{}({})", method.name, call_args),
-                ReceiverKind::RefMut | ReceiverKind::Owned => {
-                    format!("(*resource.inner).clone().{}({})", method.name, call_args)
+                ReceiverKind::Ref => format!(
+                    "resource.inner.read().unwrap_or_else(|e| e.into_inner()).{}({})",
+                    method.name, call_args
+                ),
+                ReceiverKind::RefMut => {
+                    format!(
+                        "resource.inner.write().unwrap_or_else(|e| e.into_inner()).{}({})",
+                        method.name, call_args
+                    )
+                }
+                ReceiverKind::Owned => {
+                    format!(
+                        "resource.inner.read().unwrap_or_else(|e| e.into_inner()).clone().{}({})",
+                        method.name, call_args
+                    )
                 }
             }
         } else if is_opaque {

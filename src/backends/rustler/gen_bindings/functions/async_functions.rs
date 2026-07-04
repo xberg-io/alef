@@ -188,7 +188,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                 }
                 match &p.ty {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                        format!("&{}.inner", p.name)
+                        format!("&{}.inner.read().unwrap_or_else(|e| e.into_inner()).clone()", p.name)
                     }
                     TypeRef::Named(_) => {
                         if p.optional {

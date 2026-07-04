@@ -148,7 +148,7 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
     ),
     (
         "elixir_opaque_struct.jinja",
-        "pub struct {{ struct_name }} {\n    inner: Arc<{{ core_path }}>,\n}\n\n// SAFETY: See gen_opaque_resource in alef-backend-rustler for rationale.\n\nimpl std::panic::RefUnwindSafe for {{ struct_name }} {}\n\nimpl rustler::Resource for {{ struct_name }} {}\n",
+        "pub struct {{ struct_name }} {\n    inner: Arc<std::sync::RwLock<{{ core_path }}>>,\n}\n\n// SAFETY: See gen_opaque_resource in alef-backend-rustler for rationale.\n\nimpl std::panic::RefUnwindSafe for {{ struct_name }} {}\n\nimpl rustler::Resource for {{ struct_name }} {}\n",
     ),
     (
         "elixir_binding_struct.jinja",
@@ -189,7 +189,7 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
     ),
     (
         "rust_opaque_struct.jinja",
-        "pub struct {{ struct_name }} {\n    inner: Arc<{{ core_path }}>,\n}\n\n// SAFETY: See gen_opaque_resource in alef-backend-rustler for rationale.\n\nimpl std::panic::RefUnwindSafe for {{ struct_name }} {}\n\nimpl rustler::Resource for {{ struct_name }} {}\n",
+        "pub struct {{ struct_name }} {\n    inner: Arc<std::sync::RwLock<{{ core_path }}>>,\n}\n\n// SAFETY: See gen_opaque_resource in alef-backend-rustler for rationale.\n\nimpl std::panic::RefUnwindSafe for {{ struct_name }} {}\n\nimpl rustler::Resource for {{ struct_name }} {}\n",
     ),
     (
         "rust_struct_derive.jinja",

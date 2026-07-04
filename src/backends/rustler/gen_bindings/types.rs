@@ -609,9 +609,9 @@ pub(super) fn gen_rustler_wrap_return(
     match return_type {
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if returns_ref {
-                format!("ResourceArc::new({n} {{ inner: Arc::new({expr}.clone()) }})")
+                format!("ResourceArc::new({n} {{ inner: Arc::new(std::sync::RwLock::new({expr}.clone())) }})")
             } else {
-                format!("ResourceArc::new({n} {{ inner: Arc::new({expr}) }})")
+                format!("ResourceArc::new({n} {{ inner: Arc::new(std::sync::RwLock::new({expr})) }})")
             }
         }
         TypeRef::Named(_) => {
@@ -644,9 +644,13 @@ pub(super) fn gen_rustler_wrap_return(
                 if returns_ref {
                     // Core returns &[T] / &'static [T]; iterate over refs and
                     // clone each value before wrapping it in a ResourceArc.
-                    format!("{expr}.iter().cloned().map(|v| ResourceArc::new({n} {{ inner: Arc::new(v) }})).collect()")
+                    format!(
+                        "{expr}.iter().cloned().map(|v| ResourceArc::new({n} {{ inner: Arc::new(std::sync::RwLock::new(v)) }})).collect()"
+                    )
                 } else {
-                    format!("{expr}.into_iter().map(|v| ResourceArc::new({n} {{ inner: Arc::new(v) }})).collect()")
+                    format!(
+                        "{expr}.into_iter().map(|v| ResourceArc::new({n} {{ inner: Arc::new(std::sync::RwLock::new(v)) }})).collect()"
+                    )
                 }
             }
             TypeRef::Named(_) if returns_ref => {
@@ -686,9 +690,11 @@ pub(super) fn gen_rustler_wrap_return(
             TypeRef::Path => format!("{expr}.map(|v| v.to_string_lossy().to_string())"),
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                 if returns_ref {
-                    format!("{expr}.map(|v| ResourceArc::new({n} {{ inner: Arc::new(v.clone()) }}))")
+                    format!(
+                        "{expr}.map(|v| ResourceArc::new({n} {{ inner: Arc::new(std::sync::RwLock::new(v.clone())) }}))"
+                    )
                 } else {
-                    format!("{expr}.map(|v| ResourceArc::new({n} {{ inner: Arc::new(v) }}))")
+                    format!("{expr}.map(|v| ResourceArc::new({n} {{ inner: Arc::new(std::sync::RwLock::new(v)) }}))")
                 }
             }
             TypeRef::Named(_) => {

@@ -134,9 +134,12 @@ pub fn gen_bridge_function(
             if let TypeRef::Named(n) = &p.ty {
                 if opaque_types.contains(n.as_str()) {
                     if p.optional {
-                        return format!("{}.as_ref().map(|v| &v.inner)", p.name);
+                        return format!(
+                            "{}.as_ref().map(|v| &v.inner.read().unwrap_or_else(|e| e.into_inner()).clone())",
+                            p.name
+                        );
                     }
-                    return format!("&{}.inner", p.name);
+                    return format!("&{}.inner.read().unwrap_or_else(|e| e.into_inner()).clone()", p.name);
                 }
                 if default_types.contains(n) {
                     return format!("{}_core", p.name);
@@ -147,7 +150,10 @@ pub fn gen_bridge_function(
                 TypeRef::Optional(inner) => {
                     if let TypeRef::Named(n) = inner.as_ref() {
                         if opaque_types.contains(n.as_str()) {
-                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                            format!(
+                                "{}.as_ref().map(|v| &v.inner.read().unwrap_or_else(|e| e.into_inner()).clone())",
+                                p.name
+                            )
                         } else {
                             format!("{}_core", p.name)
                         }
@@ -180,7 +186,9 @@ pub fn gen_bridge_function(
 
     let return_wrap = match &func.return_type {
         TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-            format!("rustler::ResourceArc::new({name}Inner {{ inner: std::sync::Arc::new(val) }})")
+            format!(
+                "rustler::ResourceArc::new({name}Inner {{ inner: std::sync::Arc::new(std::sync::RwLock::new(val)) }})"
+            )
         }
         TypeRef::Named(_) => "val.into()".to_string(),
         TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
@@ -430,7 +438,7 @@ pub fn gen_bridge_field_function(
                 }
             } else {
                 match &p.ty {
-                    TypeRef::Named(n) if opaque_types.contains(n) => format!("&{}.inner", p.name),
+                    TypeRef::Named(n) if opaque_types.contains(n) => format!("&{}.inner.read().unwrap_or_else(|e| e.into_inner()).clone()", p.name),
                     TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
                     _ => p.name.clone(),
                 }
@@ -520,7 +528,9 @@ pub fn gen_bridge_field_function(
                 }
             } else {
                 match &p.ty {
-                    TypeRef::Named(n) if opaque_types.contains(n) => format!("&{}.inner", p.name),
+                    TypeRef::Named(n) if opaque_types.contains(n) => {
+                        format!("&{}.inner.read().unwrap_or_else(|e| e.into_inner()).clone()", p.name)
+                    }
                     TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
                     _ => p.name.clone(),
                 }

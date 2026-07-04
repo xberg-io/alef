@@ -1,1 +1,1 @@
-{{ indent }}let {{ param_name }}: {{ core_import }}::{{ type_name }} = (*{{ param_name }}).inner.as_ref().clone();
+{{ indent }}let {{ param_name }}: {{ core_import }}::{{ type_name }} = (*{{ param_name }}).inner.read().unwrap_or_else(|e| e.into_inner()).clone();

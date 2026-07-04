@@ -183,7 +183,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                 // Fall back to the standard call-arg logic for all other types.
                 match &p.ty {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                        format!("&{}.inner", p.name)
+                        format!("&{}.inner.read().unwrap_or_else(|e| e.into_inner()).clone()", p.name)
                     }
                     TypeRef::Named(_) => {
                         if p.optional {
@@ -348,7 +348,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
             .map(|p| {
                 if let TypeRef::Named(n) = &p.ty {
                     if opaque_types.contains(n) {
-                        return format!("&{}.inner", p.name);
+                        return format!("&{}.inner.read().unwrap_or_else(|e| e.into_inner()).clone()", p.name);
                     }
                     if default_types.contains(n) {
                         // Default types already handled in the can_delegate branch above.
