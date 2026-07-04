@@ -1,0 +1,34 @@
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn {{ symbol }}(
+    mut env: EnvUnowned,
+    _class: JClass,
+    impl_obj: JObject,
+{% if not has_super_trait %}
+    name_obj: JString,
+{% endif %}
+) {
+    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.
+    let mut __jni_attach_guard = unsafe { jni::AttachGuard::from_unowned(env.as_raw()) };
+    let env = __jni_attach_guard.borrow_env_mut();
+
+{% if not has_super_trait %}
+    let name = match env.get_string(&name_obj) {
+        Ok(s) => s.to_string_lossy().into_owned(),
+        Err(e) => {
+            throw_jni_error(env, &format!("register {{ trait_name }}: name: {e}"));
+            return;
+        }
+    };
+{% endif %}
+    let bridge = match {{ wrapper_name }}::new(env, impl_obj{% if not has_super_trait %}, name{% endif %}) {
+        Ok(b) => b,
+        Err(e) => {
+            throw_jni_error(env, &format!("register {{ trait_name }}: {e}"));
+            return;
+        }
+    };
+    let backend: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(bridge);
+    if let Err(e) = {{ register_call }}(backend{{ register_extra_args }}) {
+        throw_jni_error(env, &format!("register {{ trait_name }}: {e}"));
+    }
+}

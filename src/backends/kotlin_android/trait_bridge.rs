@@ -394,7 +394,7 @@ fn should_project_trait_carrier(
 }
 
 #[cfg(test)]
-pub(self) fn tests_support_bridge_cfg(trait_name: &str, super_trait: Option<&str>) -> TraitBridgeConfig {
+fn tests_support_bridge_cfg(trait_name: &str, super_trait: Option<&str>) -> TraitBridgeConfig {
     use heck::ToSnakeCase;
     TraitBridgeConfig {
         trait_name: trait_name.to_string(),
@@ -624,7 +624,7 @@ mod dispatcher_tests {
     #[test]
     fn dispatcher_file_emitted_with_json_dispatch_and_run_blocking() {
         let trait_def = ocr_like_trait();
-        let bridge_cfg = super::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
+        let bridge_cfg = crate::backends::kotlin_android::trait_bridge::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
         let api = make_api(&trait_def);
         let files = gen_trait_bridge_files(
             "io.xberg",
@@ -665,7 +665,7 @@ mod dispatcher_tests {
     #[test]
     fn bridge_object_registers_dispatcher_wrapper() {
         let trait_def = ocr_like_trait();
-        let bridge_cfg = super::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
+        let bridge_cfg = crate::backends::kotlin_android::trait_bridge::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
         let api = make_api(&trait_def);
         let files = gen_trait_bridge_files(
             "io.xberg",

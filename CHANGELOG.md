@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **jni**: trait-bridge registration now dispatches. The kotlin-android bridge
+  object wraps the host in a generated `<Trait>JniDispatcher` (suspend
+  interface methods are bridged via `runBlocking`), and the generated Rust
+  bridge routes every trait method through its JSON `dispatch` entry point —
+  previously registration discarded the object and no plugin call ever reached
+  the host. Rust-defaulted methods and the `Plugin` lifecycle hooks get the
+  same presence-guarded forwarding as the other dynamic backends (#170).
+
 ## [0.31.2] - 2026-07-04
 
 ### Fixed

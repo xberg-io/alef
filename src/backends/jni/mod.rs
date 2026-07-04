@@ -20,5 +20,6 @@
 mod gen_shims;
 pub mod service_api;
 mod template_env;
+pub mod trait_bridge;
 
 pub use gen_shims::JniBackend;

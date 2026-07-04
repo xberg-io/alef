@@ -2424,7 +2424,7 @@ fn trait_bridge_emits_native_funs_and_interface_file() {
     let body = &bridge_kt.content;
 
     assert!(
-        body.contains("external fun nativeRegisterTextBackend(impl: dev.sample_crate.ITextBackend)"),
+        body.contains("external fun nativeRegisterTextBackend(impl: dev.sample_crate.TextBackendJniDispatcher)"),
         "register native fun missing: {body}"
     );
     assert!(
