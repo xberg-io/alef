@@ -16,13 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (e.g. `supports_table_detection`, `process_document`) was silently ignored
   and the Rust default always won (#167).
 - **trait-bridge**: generated host surfaces (Python `Protocol`, Ruby `.rbs`,
-  PHP `interface`, Elixir behaviour, Java/Kotlin interfaces) now match the
-  runtime contract: Rust-defaulted methods are optional (or given
-  language-level defaults) instead of required, and the `Plugin` lifecycle
-  methods the bridge actually calls are part of the surface. Bridges treat a
-  missing `initialize`/`shutdown` as a no-op instead of failing registration.
-  On magnus the bridge no longer invokes `initialize` — which is the Ruby
-  constructor — on host objects (#166).
+  PHP `interface`, Elixir behaviour, Node `.d.ts`) now match the runtime
+  contract: Rust-defaulted methods are no longer required members (documented
+  as optional instead), Elixir behaviours gain `@optional_callbacks` plus the
+  lifecycle callbacks, and Node plugin interfaces declare the optional
+  lifecycle hooks. Bridges treat a missing `initialize`/`shutdown` as a no-op
+  instead of failing registration. On magnus the bridge no longer invokes
+  `initialize` — which is the Ruby constructor — on host objects (#166).
 - **pyo3**: plugin `Protocol` config parameters are now typed as the public
   options dataclass the package exports, and the bridge passes that type to
   the host, so an implementer typed against the public API conforms to the
