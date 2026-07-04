@@ -68,28 +68,28 @@ fn workspace_extra_clippy_allows_defaults_to_empty() {
 
 #[test]
 fn format_extra_clippy_allows_returns_none_when_empty() {
-    let result = alef::codegen::shared::format_extra_clippy_allows(&[]);
+    let result = alef::codegen::shared::format_extra_clippy_allows(&[], "");
     assert!(result.is_none(), "empty extras should return None");
 }
 
 #[test]
 fn format_extra_clippy_allows_normalises_bare_names() {
     let extras = vec!["single_match".to_string(), "collapsible_match".to_string()];
-    let result = alef::codegen::shared::format_extra_clippy_allows(&extras).unwrap();
+    let result = alef::codegen::shared::format_extra_clippy_allows(&extras, "").unwrap();
     assert_eq!(result, "allow(clippy::single_match, clippy::collapsible_match)");
 }
 
 #[test]
 fn format_extra_clippy_allows_accepts_prefixed_names() {
     let extras = vec!["clippy::single_match".to_string()];
-    let result = alef::codegen::shared::format_extra_clippy_allows(&extras).unwrap();
+    let result = alef::codegen::shared::format_extra_clippy_allows(&extras, "").unwrap();
     assert_eq!(result, "allow(clippy::single_match)");
 }
 
 #[test]
 fn format_extra_clippy_allows_deduplicates() {
     let extras = vec!["single_match".to_string(), "clippy::single_match".to_string()];
-    let result = alef::codegen::shared::format_extra_clippy_allows(&extras).unwrap();
+    let result = alef::codegen::shared::format_extra_clippy_allows(&extras, "").unwrap();
     // "single_match" normalises to "clippy::single_match", which is a dup → 1 entry
     assert_eq!(result, "allow(clippy::single_match)");
 }
