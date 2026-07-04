@@ -37,7 +37,6 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
         "Error",
         "Error::from({msg})",
         &api,
-        "my_lib",
         &[],
     )
     .expect("trait bridge generation should succeed");
@@ -90,7 +89,6 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
         "Error",
         "Error::from({msg})",
         &api,
-        "my_lib",
         &[],
     )
     .expect("trait bridge generation should succeed");
@@ -139,7 +137,6 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
         "Error",
         "Error::from({msg})",
         &api,
-        "my_lib",
         &[],
     )
     .expect("trait bridge generation should succeed");
@@ -200,7 +197,6 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
         "Error",
         "Error::from({msg})",
         &api,
-        "my_lib",
         &[],
     )
     .expect("trait bridge generation should succeed");

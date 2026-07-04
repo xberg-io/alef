@@ -30,10 +30,8 @@ pub fn gen_trait_bridge(
     error_type: &str,
     error_constructor: &str,
     api: &ApiSurface,
-    python_module: &str,
     reexported_types: &[String],
 ) -> anyhow::Result<BridgeOutput> {
-    let _ = python_module;
     // Build type name → rust_path lookup for qualifying Named types in signatures
     let type_paths: HashMap<String, String> = api
         .types
@@ -451,7 +449,6 @@ mod tests {
             "SampleError",
             "SampleError::Message { message: {msg} }",
             &api,
-            "sample_core",
             &[],
         )
         .expect("visitor bridge should generate");

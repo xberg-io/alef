@@ -785,7 +785,6 @@ impl Backend for Pyo3Backend {
                         &config.error_type_name(),
                         &config.error_constructor_expr(),
                         api,
-                        &config.python_module_name(),
                         &reexported_types,
                     )?;
                     for imp in &bridge.imports {
