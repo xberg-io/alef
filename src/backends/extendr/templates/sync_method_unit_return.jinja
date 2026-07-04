@@ -15,13 +15,20 @@ let args = extendr_api::Pairlist::from_pairs(&[{{ args_pairs }}]);
 let result = fn_robj.call(args);
 {% endif %}
 
+{% if has_error %}
 match result {
     Err(_) if {{ has_error_check }} => {
-{% if has_error %}
         Err({{ failed_method_error }})
-{% else %}
-        Ok(())
-{% endif %}
     }
-    _ => {% if has_error %}Ok(()){% else %}(){% endif %},
+    _ => Ok(()),
 }
+{% else %}
+match result {
+    // Infallible unit method: an R error cannot propagate — log it before
+    // discarding so a failed callback is not invisible to the caller.
+    Err(e) => {
+        eprintln!("[{{ wrapper }}] host '{{ method_name }}' raised; ignoring: {e}");
+    }
+    _ => (),
+}
+{% endif %}

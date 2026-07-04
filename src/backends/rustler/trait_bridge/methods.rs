@@ -132,6 +132,7 @@ impl RustlerBridgeGenerator {
             .replace("{msg}", "\"Channel closed before reply received\".to_string()");
 
         minijinja::context! {
+            wrapper => spec.wrapper_name(),
             native_args => native_args,
             method_name => method.name,
             has_error => has_error,

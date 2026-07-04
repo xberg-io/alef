@@ -27,7 +27,21 @@ match rx.blocking_recv() {
     Ok(Err(msg)) => Err({{ error_msg }}),
     Err(_) => Err({{ error_closed }})
 {%- else %}
-    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_default(),
-    _ => Default::default()
+    // This method's Rust signature is infallible, so a host failure cannot
+    // propagate. Log each failure before substituting the default — a silent
+    // default is indistinguishable from a real result to the caller.
+    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_else(|e| {
+        eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned an unparseable value; returning default: {e}");
+        Default::default()
+    }),
+    // The host side already logs its own raises in detail, so keep this brief.
+    Ok(Err(_msg)) => {
+        eprintln!("[{{ wrapper }}] host '{{ method_name }}' raised (details in host log); returning default");
+        Default::default()
+    }
+    Err(_) => {
+        eprintln!("[{{ wrapper }}] reply channel for host '{{ method_name }}' closed before a reply arrived (host process exited or dropped the call); returning default");
+        Default::default()
+    }
 {%- endif %}
 }

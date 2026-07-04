@@ -31,7 +31,13 @@ match result {
 }
 {% else %}
 match result {
-    Err(_) => Default::default(),
+    // This method's Rust signature is infallible, so an R error cannot
+    // propagate. Log before substituting the default — a silent default is
+    // indistinguishable from a real result to the caller.
+    Err(e) => {
+        eprintln!("[{{ wrapper }}] host '{{ method_name }}' raised; returning default: {e}");
+        Default::default()
+    }
     Ok(val) => {
         let s = val.as_string().ok().and_then(|mut v| {
             if v.is_empty() { None } else { Some(v.remove(0)) }
@@ -39,7 +45,10 @@ match result {
 
         match s.as_str() {
             "" | "null" => Default::default(),
-            _ => serde_json::from_str::<_>(&s).unwrap_or_default()
+            _ => serde_json::from_str::<_>(&s).unwrap_or_else(|e| {
+                eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned an unparseable value; returning default: {e}");
+                Default::default()
+            })
         }
     }
 }

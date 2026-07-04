@@ -107,6 +107,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             crate::backends::napi::template_env::render(
                 "sync_method_unit_return.jinja",
                 minijinja::context! {
+                    wrapper => spec.wrapper_name(),
                     method_name => &js_method_name,
                     snake_case_method_name => &snake_method_name,
                     args_tuple_ty => args_tuple_ty,
@@ -122,6 +123,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             crate::backends::napi::template_env::render(
                 "sync_method_non_unit_return.jinja",
                 minijinja::context! {
+                    wrapper => spec.wrapper_name(),
                     method_name => &js_method_name,
                     snake_case_method_name => &snake_method_name,
                     args_tuple_ty => args_tuple_ty,

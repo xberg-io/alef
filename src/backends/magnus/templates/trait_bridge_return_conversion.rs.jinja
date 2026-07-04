@@ -6,7 +6,10 @@
 {{ indent }}    .map(Into::into)
 {{ indent }}    .map_err(|e| {{ err_convert }})
 {% else %}
-{{ indent }}<{{ native_return_binding }} as magnus::TryConvert>::try_convert(val).map(Into::into).unwrap_or_default()
+{{ indent }}<{{ native_return_binding }} as magnus::TryConvert>::try_convert(val).map(Into::into).unwrap_or_else(|e| {
+{{ indent }}    eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned an unconvertible value; returning default: {e}");
+{{ indent }}    Default::default()
+{{ indent }}})
 {%- endif %}
 {%- elif needs_json %}
 {{ indent }}let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {
@@ -18,7 +21,7 @@
 {%- if has_error %}
 {{ indent }}            return Err({{ err_non_json }});
 {%- else %}
-{{ indent }}            let _ = e;
+{{ indent }}            eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned a non-JSON value; returning default: {e}");
 {{ indent }}            return Default::default();
 {%- endif %}
 {{ indent }}        }
@@ -28,13 +31,19 @@
 {{ indent }}serde_json::from_str::<{{ rust_ty }}>(&json_str)
 {{ indent }}    .map_err(|e| {{ err_deserialize }})
 {%- else %}
-{{ indent }}serde_json::from_str::<{{ rust_ty }}>(&json_str).unwrap_or_default()
+{{ indent }}serde_json::from_str::<{{ rust_ty }}>(&json_str).unwrap_or_else(|e| {
+{{ indent }}    eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned an unparseable value; returning default: {e}");
+{{ indent }}    Default::default()
+{{ indent }}})
 {%- endif %}
 {%- else %}
 {%- if has_error %}
 {{ indent }}<{{ rust_ty }} as magnus::TryConvert>::try_convert(val)
 {{ indent }}    .map_err(|e| {{ err_convert }})
 {%- else %}
-{{ indent }}<{{ rust_ty }} as magnus::TryConvert>::try_convert(val).unwrap_or_default()
+{{ indent }}<{{ rust_ty }} as magnus::TryConvert>::try_convert(val).unwrap_or_else(|e| {
+{{ indent }}    eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned an unconvertible value; returning default: {e}");
+{{ indent }}    Default::default()
+{{ indent }}})
 {%- endif %}
 {%- endif %}

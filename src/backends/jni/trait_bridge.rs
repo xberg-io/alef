@@ -82,6 +82,7 @@ impl JniBridgeGenerator {
             "trait_bridge_method_body.rs.jinja",
             minijinja::context! {
                 method_name => name,
+                wrapper => spec.wrapper_name(),
                 args => args,
                 has_error => has_error,
                 is_unit => is_unit,
