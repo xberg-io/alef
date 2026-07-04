@@ -3,4 +3,5 @@
 /// Each entry in `registrations` is a `[method_name, metadata, callback]` triple
 /// produced by the TypeScript service class.
 #[napi]
+#[allow(clippy::type_complexity)]
 pub async fn {{ fn_name }}({{ param_sig }}) -> napi::Result<{{ return_ty }}> {
