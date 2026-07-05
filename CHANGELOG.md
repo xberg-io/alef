@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.5] - 2026-07-05
+
 ### Changed
 
 - **java**: scaffolded Maven packages no longer wire the Spotless Maven plugin
