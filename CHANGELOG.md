@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.4] - 2026-07-05
+
+### Added
+
+- **php**: `package_entry_filenames` now resolves the PHP public facade class
+  file (`<ExtensionNamePascal>.php`, emitted in the public-API pass) so an
+  extension's `public_api_additions` attaches to it, matching the existing
+  Python/Ruby wiring. Go/Dart/Node emit their entry file in a different pass and
+  remain a documented no-op.
+
 ### Fixed
 
 - **trait-bridge**: sync infallible bridge methods no longer swallow host
