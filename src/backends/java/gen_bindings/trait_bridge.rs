@@ -580,8 +580,9 @@ fn gen_bridge_file(
         // Optional<non-primitive>/Bytes neither (no value channel exists for
         // them on the C ABI). Fallible methods keep java's long-standing JSON
         // convention (outResult for non-Unit + outError) unchanged; note the
-        // pre-existing caveat that a fallible primitive return would declare
-        // an outResult the C slot doesn't carry — deliberately not touched
+        // pre-existing caveat that a fallible primitive, Bytes,
+        // Optional<non-primitive>, or Duration return would declare an
+        // outResult the C slot doesn't carry — deliberately not touched
         // here (no such bridged method exists).
         let (has_out_result, has_out_error) = if has_error {
             (!matches!(method.return_type, TypeRef::Unit), true)
