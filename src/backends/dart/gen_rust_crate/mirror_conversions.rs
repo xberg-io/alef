@@ -696,13 +696,18 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                     // Vec<Vec<T>>: FRB uses f64 for f32 primitives — need explicit cast.
                     match inner_inner.as_ref() {
                         TypeRef::Primitive(_) => {
+                            // Turbofish the inner+outer collects: with a trailing
+                            // `..Default::default()` spread on the core struct literal, the
+                            // field's expected type does not propagate through `.collect()`
+                            // to pin the `x as _` cast target (E0282). Mirrors the
+                            // core→mirror direction in `vec_inner_from_expr`.
                             if field.optional {
                                 format!(
-                                    "v.{name}.map(|vv| vv.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect()).collect())"
+                                    "v.{name}.map(|vv| vv.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect::<Vec<_>>()).collect::<Vec<_>>())"
                                 )
                             } else {
                                 format!(
-                                    "v.{name}.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect()).collect()"
+                                    "v.{name}.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect::<Vec<_>>()).collect::<Vec<_>>()"
                                 )
                             }
                         }
@@ -728,10 +733,16 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                     } else {
                         "|x| x as _".to_string()
                     };
+                    // Turbofish the collect: in a struct literal that ends with
+                    // `..Default::default()`, `.collect()`'s FromIterator target is left
+                    // ambiguous alongside the `x as _` cast, so the cast target cannot be
+                    // inferred (E0282). Forcing `Vec<_>` resolves FromIterator eagerly and
+                    // lets the field's expected type pin the element type. Mirrors the
+                    // core→mirror direction in `vec_inner_from_expr`.
                     if field.optional {
-                        format!("v.{name}.map(|vec| vec.into_iter().map({elem_conv}).collect())")
+                        format!("v.{name}.map(|vec| vec.into_iter().map({elem_conv}).collect::<Vec<_>>())")
                     } else {
-                        format!("v.{name}.into_iter().map({elem_conv}).collect()")
+                        format!("v.{name}.into_iter().map({elem_conv}).collect::<Vec<_>>()")
                     }
                 }
                 _ => {

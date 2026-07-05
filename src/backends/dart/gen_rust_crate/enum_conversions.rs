@@ -225,7 +225,10 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(_) => format!("{binding}.into_iter().map(Into::into).collect()"),
             TypeRef::String => binding.to_string(),
-            _ => format!("{binding}.into_iter().map(|x| x as _).collect()"),
+            // Turbofish so the `x as _` cast target is pinned via FromIterator even when
+            // the collect result's expected type is not directly available (see the
+            // struct-field spread case in `mirror_conversions.rs`).
+            _ => format!("{binding}.into_iter().map(|x| x as _).collect::<Vec<_>>()"),
         },
         TypeRef::Primitive(prim) => {
             use crate::core::ir::PrimitiveType;
