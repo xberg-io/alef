@@ -13,6 +13,7 @@
  */
 class {{ trait_name }}JniDispatcher(private val impl: I{{ trait_name }}) {
     private val mapper = jacksonObjectMapper()
+        .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
 
     /** JSON array of the Rust-side names of the methods this host provides. */
     fun implementedMethods(): String =

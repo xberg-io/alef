@@ -104,6 +104,7 @@ pub fn gen_jni_dispatcher_file(
 
     let mut imports = BTreeSet::new();
     imports.insert("com.fasterxml.jackson.module.kotlin.jacksonObjectMapper".to_string());
+    imports.insert("com.fasterxml.jackson.databind.PropertyNamingStrategies".to_string());
     let mut any_async = false;
 
     let own_methods: Vec<&crate::core::ir::MethodDef> = trait_def
@@ -603,6 +604,38 @@ mod dispatcher_tests {
         assert!(
             bridge_obj.contains("nativeRegisterOcrBackend(OcrBackendJniDispatcher(impl))"),
             "register must wrap the impl in the JNI dispatcher:\n{bridge_obj}"
+        );
+    }
+
+    #[test]
+    fn dispatcher_mapper_configured_with_snake_case_naming_strategy() {
+        let trait_def = ocr_like_trait();
+        let bridge_cfg =
+            crate::backends::kotlin_android::trait_bridge::tests_support_bridge_cfg("OcrBackend", Some("Plugin"));
+        let api = make_api(&trait_def);
+        let files = gen_trait_bridge_files(
+            "dev.sample_crate",
+            "OcrBackend",
+            &bridge_cfg,
+            &trait_def,
+            "DemoBridge",
+            &api,
+            &std::collections::HashSet::new(),
+        );
+        let (_, dispatcher) = files
+            .iter()
+            .find(|(name, _)| name == "OcrBackendJniDispatcher.kt")
+            .expect("dispatcher file must be emitted");
+
+        assert!(
+            dispatcher.contains(
+                ".setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
+            ),
+            "mapper must be configured with SNAKE_CASE naming strategy to deserialize Rust snake_case JSON into Kotlin camelCase fields:\n{dispatcher}"
+        );
+        assert!(
+            dispatcher.contains("import com.fasterxml.jackson.databind.PropertyNamingStrategies"),
+            "PropertyNamingStrategies must be imported:\n{dispatcher}"
         );
     }
 }
