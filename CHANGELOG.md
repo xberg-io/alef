@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.6] - 2026-07-05
+
+### Fixed
+
+- **dart**: mirror→core conversions of `Vec<primitive>` fields now emit
+  `.collect::<Vec<_>>()` instead of a bare `.collect()`. In a core struct literal
+  that ends with `..Default::default()`, the field's expected type does not
+  propagate through `.collect()` to pin the `x as _` cast target, so rustc
+  reported `error[E0282]: type annotations needed` (e.g. `crawlberg::CrawlConfig`
+  `retry_codes: Vec<u16>` from mirror `Vec<i64>`). Turbofishing resolves the
+  `FromIterator` target eagerly so the element type is inferred. Applied to the
+  single- and nested-`Vec` struct-field arms and the enum-variant field arm,
+  matching the core→mirror direction.
+
 ## [0.32.5] - 2026-07-05
 
 ### Changed
