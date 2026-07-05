@@ -86,11 +86,11 @@ pub(super) fn render_test_file(
     // Spawn the harness subprocess if SUT_URL is not already set.
     // Only emit when there are HTTP fixtures; consumers without HTTP tests
     // don't need the harness.
-    let _ = writeln!(
-        out,
-        "        let _existing = ProcessInfo.processInfo.environment[\"SUT_URL\"]"
-    );
     if has_http_fixtures {
+        let _ = writeln!(
+            out,
+            "        let _existing = ProcessInfo.processInfo.environment[\"SUT_URL\"]"
+        );
         let _ = writeln!(out, "        if _existing == nil {{");
         let _ = writeln!(out, "            let _harness = URL(fileURLWithPath: #filePath)");
         let _ = writeln!(out, "                .deletingLastPathComponent() // <Module>Tests/");

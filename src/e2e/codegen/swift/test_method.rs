@@ -390,16 +390,6 @@ pub(super) fn render_test_method(
         let _ = writeln!(out, "        {setup}");
     }
 
-    let _ = writeln!(out, "        let {result_var} = {call_expr}");
-
-    // Emit the collect snippet for streaming fixtures (drains the async sequence into
-    // a local `chunks` array used by streaming-virtual assertions).
-    if !collect_snippet.is_empty() {
-        for line in collect_snippet.lines() {
-            let _ = writeln!(out, "        {line}");
-        }
-    }
-
     // Each fixture's call returns a different IR type. Override the resolver's
     // Swift first-class-map `root_type` with the call's `result_type` (looked up
     // across c/csharp/java/kotlin/go/php overrides — these are language-agnostic
@@ -434,7 +424,32 @@ pub(super) fn render_test_method(
         .map(|s| s.exclude_types.iter().cloned().collect())
         .unwrap_or_default();
 
+    // Buffer assertions and collect snippet to determine if result_var is referenced.
+    let mut body_buffer = String::new();
+
+    // Add collect snippet to buffer (streaming fixtures).
+    if !collect_snippet.is_empty() {
+        for line in collect_snippet.lines() {
+            let _ = writeln!(body_buffer, "        {line}");
+        }
+    }
+
+    // Add assertions to buffer.
+    let mut void_skip_comment_emitted = false;
     for assertion in &fixture.assertions {
+        // Skip assertions for Void-returning functions (they don't produce a result to assert on).
+        // Only emit this comment once (not per assertion).
+        if call_config.returns_void {
+            if !void_skip_comment_emitted {
+                let _ = writeln!(
+                    body_buffer,
+                    "        // skipped: void-returning function has no result to assert on"
+                );
+                void_skip_comment_emitted = true;
+            }
+            continue;
+        }
+
         // Skip assertions whose field path traverses a field or resolves to a
         // type that is excluded from the Swift binding.  This prevents compile
         // errors like "value of type 'ExtractedDocumentRef' has no member
@@ -453,7 +468,7 @@ pub(super) fn render_test_method(
                     &swift_excluded_types,
                 ) {
                     let _ = writeln!(
-                        out,
+                        body_buffer,
                         "        // skipped: field '{f}' references a field or type excluded from the Swift binding"
                     );
                     continue;
@@ -485,8 +500,23 @@ pub(super) fn render_test_method(
             assertion_out =
                 assertion_out.replace(&format!("[{unqualified}]"), &format!("[{module_name}.{unqualified}]"));
         }
-        out.push_str(&assertion_out);
+        body_buffer.push_str(&assertion_out);
     }
+
+    // Decide how to emit the call based on return type and whether result is referenced.
+    // - void returns: emit bare call
+    // - non-void with result referenced: bind with `let result = `
+    // - non-void without result referenced: discard with `_ = `
+    if call_config.returns_void {
+        let _ = writeln!(out, "        {call_expr}");
+    } else if body_buffer.contains(result_var) {
+        let _ = writeln!(out, "        let {result_var} = {call_expr}");
+    } else {
+        let _ = writeln!(out, "        _ = {call_expr}");
+    }
+
+    // Emit the buffered body (assertions and collect snippet).
+    out.push_str(&body_buffer);
 
     // Emit teardown for test backends: unregister to prevent leaking into subsequent tests.
     for arg in args {

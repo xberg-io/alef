@@ -348,3 +348,81 @@ fn app_harness_renders_fixtures_json_chunks_without_multiline_string_syntax_erro
     // Verify the output is not empty and contains valid Swift structure.
     assert!(!output.is_empty(), "rendered output should not be empty");
 }
+
+/// Regression test: when has_http_fixtures is false, the `let _existing` binding
+/// should not be emitted to avoid "initialization of immutable value '_existing' was never used"
+/// warning. The binding is only used inside the `if has_http_fixtures {` block.
+#[test]
+fn test_file_does_not_emit_existing_binding_when_no_http_fixtures() {
+    use crate::core::config::ResolvedCrateConfig;
+    use crate::e2e::config::E2eConfig;
+
+    let e2e_config = E2eConfig::default();
+
+    // Render with has_http_fixtures=false
+    let output = super::test_file::render_test_file(
+        "smoke",
+        &[],
+        &e2e_config,
+        "TestModule",
+        "TestCase",
+        "testFunction",
+        "result",
+        &[],
+        false,
+        None,
+        &Default::default(),
+        &ResolvedCrateConfig::default(),
+        &[],
+        false, // has_http_fixtures = false
+        &[],
+    );
+
+    // The `let _existing` binding should NOT be present when there are no HTTP fixtures.
+    assert!(
+        !output.contains("let _existing"),
+        "should not emit `let _existing` binding when has_http_fixtures=false"
+    );
+}
+
+/// When has_http_fixtures is true, the `let _existing` binding SHOULD be emitted
+/// inside the harness setup block.
+#[test]
+fn test_file_emits_existing_binding_when_has_http_fixtures() {
+    use crate::core::config::ResolvedCrateConfig;
+    use crate::e2e::config::E2eConfig;
+
+    let e2e_config = E2eConfig::default();
+
+    // Render with has_http_fixtures=true
+    let output = super::test_file::render_test_file(
+        "smoke",
+        &[],
+        &e2e_config,
+        "TestModule",
+        "TestCase",
+        "testFunction",
+        "result",
+        &[],
+        false,
+        None,
+        &Default::default(),
+        &ResolvedCrateConfig::default(),
+        &[],
+        true, // has_http_fixtures = true
+        &[],
+    );
+
+    // The `let _existing` binding SHOULD be present when has_http_fixtures=true.
+    assert!(
+        output.contains("let _existing = ProcessInfo.processInfo.environment[\"SUT_URL\"]"),
+        "should emit `let _existing` binding when has_http_fixtures=true"
+    );
+
+    // Verify it's inside the if block (appears before the nil check).
+    assert!(
+        output.contains("let _existing = ProcessInfo.processInfo.environment[\"SUT_URL\"]\n")
+            || output.contains("let _existing = ProcessInfo.processInfo.environment[\"SUT_URL\"]\r\n"),
+        "binding should be followed by the if nil check"
+    );
+}
