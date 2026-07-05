@@ -237,9 +237,6 @@ pub mod maven {
     // renovate: datasource=maven depName=org.sonatype.central:central-publishing-maven-plugin
     pub const CENTRAL_PUBLISHING_PLUGIN: &str = "0.10.0";
 
-    // renovate: datasource=maven depName=com.diffplug.spotless:spotless-maven-plugin
-    pub const SPOTLESS_MAVEN_PLUGIN: &str = "3.5.1";
-
     // renovate: datasource=maven depName=org.codehaus.mojo:versions-maven-plugin
     pub const VERSIONS_MAVEN_PLUGIN: &str = "2.21.0";
 

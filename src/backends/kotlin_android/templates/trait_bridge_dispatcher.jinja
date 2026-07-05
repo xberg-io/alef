@@ -3,8 +3,15 @@
  * native trait bridge. Decodes each trait call's arguments, invokes the typed
  * implementation (bridging suspend methods via runBlocking), and encodes the
  * result as {"ok": ...} on success or {"err": "..."} on failure.
+ *
+ * Public because the generated `<Crate>Bridge` object declares public
+ * `external fun nativeRegister*` functions that take this type as a parameter;
+ * Kotlin forbids a public function from exposing an `internal` type. The native
+ * `external fun`s cannot be made `internal` without Kotlin name-mangling their
+ * JVM symbols and breaking JNI binding, so the dispatcher is the surface that
+ * opens up instead.
  */
-internal class {{ trait_name }}JniDispatcher(private val impl: I{{ trait_name }}) {
+class {{ trait_name }}JniDispatcher(private val impl: I{{ trait_name }}) {
     private val mapper = jacksonObjectMapper()
 
     /** JSON array of the Rust-side names of the methods this host provides. */

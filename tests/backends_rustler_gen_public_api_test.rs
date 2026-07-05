@@ -2140,3 +2140,55 @@ fn test_trait_behaviour_callback_params_are_maps_with_optional_callbacks() {
         "defaulted + lifecycle methods must be optional callbacks; got:\n{content}"
     );
 }
+
+#[test]
+fn test_register_nif_stub_has_implemented_methods_parameter() {
+    // Verifies that the NIF stub for register_* has the correct arity: pid, name, implemented_methods.
+    // This is critical for the on_load callback to succeed: the Elixir stub arity must match
+    // the Rust NIF signature, or rustler-precompiled fails with `:bad_lib`.
+    let backend = RustlerBackend;
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+    let mut config = make_config("my_lib");
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        bind_via: BridgeBinding::FunctionParam,
+        ..Default::default()
+    }];
+
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let native = files
+        .iter()
+        .find(|f| {
+            f.path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .ends_with("my_lib/native.ex")
+        })
+        .expect("native.ex should be generated");
+
+    // The NIF stub must include _pid, _name, AND _implemented_methods parameters.
+    // Arity must be 3 to match the Rust NIF signature:
+    // pub fn register_ocr_backend(env, genserver_pid: LocalPid, plugin_name: String, implemented_methods: Vec<String>) -> Atom
+    assert!(
+        native
+            .content
+            .contains("def register_ocr_backend(_pid, _name, _implemented_methods)"),
+        "NIF stub register_ocr_backend must have 3 parameters (pid, name, implemented_methods); got:\n{}",
+        native.content
+    );
+}

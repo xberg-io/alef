@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **java**: scaffolded Maven packages no longer wire the Spotless Maven plugin
+  or emit `eclipse-formatter.xml`; Java formatting is delegated to `poly` while
+  Checkstyle remains focused on correctness checks.
+
+### Fixed
+
+- **rustler**: plugin trait registration stubs now include the
+  `implemented_methods` parameter, matching the native Rust NIF signature and
+  avoiding load-time arity failures.
+- **kotlin-android**: generated JNI dispatchers are public so public native
+  registration methods do not expose an internal parameter type or trigger JVM
+  symbol name mangling.
+- **swift-e2e**: `count_min` assertions over opaque scalar method-call fields
+  now convert `RustString` values to Swift `String` before checking `.count`.
+- **zig-e2e**: generated tests convert returned C string pointers with
+  `std.mem.span()` before JSON parsing, formatting, or byte-length assertions.
+
 ## [0.32.4] - 2026-07-05
 
 ### Added

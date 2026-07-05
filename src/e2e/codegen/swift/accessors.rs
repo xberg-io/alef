@@ -378,18 +378,22 @@ pub(super) fn swift_array_count_expr(field: Option<&str>, result_var: &str, fiel
     if field_resolver.is_optional(f) {
         has_optional = true;
     }
+    // For opaque method-call accessors (e.g., `result.elements()`), check if the field
+    // is a non-Vec type. If so, wrap with `.toString()` to convert RustString to Swift String
+    // before appending `.count`, just like `not_empty` and `is_empty` do.
+    let count_target = swift_count_target(&accessor, field_resolver, Some(f));
     if has_optional {
         // In Swift, accessing .count on an optional with ?. returns Optional<Int>,
         // so we coalesce with ?? 0 to get a concrete Int for XCTAssert.
-        if accessor.contains("?.") {
-            format!("{accessor}.count ?? 0")
+        if count_target.contains("?.") {
+            format!("{count_target}.count ?? 0")
         } else {
             // If no ?. but field is optional, the field_expr itself is Optional<RustVec<T>>
             // so we need ?. to call count.
-            format!("({accessor}?.count ?? 0)")
+            format!("({count_target}?.count ?? 0)")
         }
     } else {
-        format!("{accessor}.count")
+        format!("{count_target}.count")
     }
 }
 

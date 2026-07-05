@@ -398,8 +398,9 @@ fn test_scaffold_java_production_features() {
     let all_files = scaffold(&api, &config, &[Language::Java]).unwrap();
     let files = language_files(&all_files);
     // pom.xml + checkstyle.xml + checkstyle.properties + checkstyle-suppressions.xml
-    // + eclipse-formatter.xml + versions-rules.xml + pmd-ruleset.xml
-    assert_eq!(files.len(), 7);
+    // + versions-rules.xml + pmd-ruleset.xml. (eclipse-formatter.xml was removed
+    // along with the spotless-maven-plugin — formatting is delegated to poly.)
+    assert_eq!(files.len(), 6);
     let content = &files[0].content;
     assert!(content.contains("<properties>"));
     assert!(content.contains("<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>"));

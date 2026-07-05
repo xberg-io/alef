@@ -151,7 +151,6 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         <maven-deploy-plugin.version>3.1.3</maven-deploy-plugin.version>
         <maven-site-plugin.version>4.0.0-M16</maven-site-plugin.version>
         <central-publishing-plugin.version>0.10.0</central-publishing-plugin.version>
-        <spotless-maven-plugin.version>3.4.0</spotless-maven-plugin.version>
         <versions-maven-plugin.version>2.21.0</versions-maven-plugin.version>
         <maven-enforcer-plugin.version>3.6.2</maven-enforcer-plugin.version>
         <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
@@ -258,27 +257,6 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
                     <threadCount>4</threadCount>
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                 </configuration>
-            </plugin>
-            <plugin>
-                <groupId>com.diffplug.spotless</groupId>
-                <artifactId>spotless-maven-plugin</artifactId>
-                <version>${{spotless-maven-plugin.version}}</version>
-                <configuration>
-                    <java>
-                        <eclipse>
-                            <version>4.31</version>
-                            <file>${{project.basedir}}/eclipse-formatter.xml</file>
-                        </eclipse>
-                    </java>
-                </configuration>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>apply</goal>
-                        </goals>
-                        <phase>process-sources</phase>
-                    </execution>
-                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -563,7 +541,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
     "https://checkstyle.org/dtds/configuration_1_3.dtd">
 
-<!-- Checkstyle handles correctness checks only. Spotless handles all formatting. -->
+<!-- Checkstyle handles correctness checks only. Formatting is handled by poly. -->
 <module name="Checker">
     <property name="charset" value="UTF-8"/>
     <property name="severity" value="error"/>
@@ -640,18 +618,6 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 </suppressions>
 "#;
 
-    let eclipse_formatter_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<profiles version="21">
-    <profile kind="CodeFormatterProfile" name="Alef" version="21">
-        <setting id="org.eclipse.jdt.core.formatter.lineSplit" value="140"/>
-        <setting id="org.eclipse.jdt.core.formatter.tabulation.char" value="space"/>
-        <setting id="org.eclipse.jdt.core.formatter.tabulation.size" value="4"/>
-        <setting id="org.eclipse.jdt.core.formatter.indentation.size" value="4"/>
-        <setting id="org.eclipse.jdt.core.formatter.comment.line_length" value="140"/>
-    </profile>
-</profiles>
-"#;
-
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/java/pom.xml"),
@@ -671,11 +637,6 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         GeneratedFile {
             path: PathBuf::from("packages/java/checkstyle-suppressions.xml"),
             content: checkstyle_suppressions_xml.to_string(),
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from("packages/java/eclipse-formatter.xml"),
-            content: eclipse_formatter_xml.to_string(),
             generated_header: false,
         },
         GeneratedFile {

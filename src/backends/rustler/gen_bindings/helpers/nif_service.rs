@@ -197,9 +197,13 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
             continue;
         }
 
-        // register_fn stub: takes (env, pid, name) -> Atom
+        // register_fn stub: takes (env, pid, name, implemented_methods) -> Atom
         if let Some(register_fn) = &bridge.register_fn {
-            let params = vec!["_pid".to_string(), "_name".to_string()];
+            let params = vec![
+                "_pid".to_string(),
+                "_name".to_string(),
+                "_implemented_methods".to_string(),
+            ];
             if emitted_nif_stubs.insert(register_fn.clone()) {
                 last_was_multiline = write_nif_stub(&mut out, register_fn, &params, last_was_multiline);
             }

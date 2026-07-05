@@ -372,3 +372,62 @@ type = "string"
          override is configured. Rendered:\n{rendered}"
     );
 }
+
+// -- Bug E: count_min on opaque scalar field wraps with .toString() --------
+
+#[test]
+fn count_min_on_opaque_method_call_wraps_with_tostring() {
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "sample_pack"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[crates.e2e.call]
+function = "extract_text"
+module = "SampleLanguagePack"
+result_var = "result"
+
+[[crates.e2e.call.args]]
+name = "document"
+field = "input"
+type = "string"
+"#;
+    let fixture = make_fixture(
+        "extract_text_min_length",
+        Assertion {
+            assertion_type: "count_min".to_string(),
+            field: Some("text".to_string()),
+            value: Some(serde_json::json!(5)),
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        },
+    );
+    // The test result type is `TextResult` with a String field `text`.
+    // String is not a PrimitiveType, so we use Named("String").
+    // When emitted to Swift via opaque method call, it becomes RustString.
+    let result_ir = vec![make_type(
+        "TextResult",
+        vec![make_field("text", TypeRef::Named("String".to_string()))],
+    )];
+    let rendered = render_with_config(toml, fixture, result_ir);
+
+    assert!(
+        rendered.contains("result.text().toString().count"),
+        "count_min on opaque String field must wrap with `.toString()` \
+         to convert RustString to Swift String. Rendered:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("result.text().count"),
+        "must not call `.count` directly on RustString. Rendered:\n{rendered}"
+    );
+}
