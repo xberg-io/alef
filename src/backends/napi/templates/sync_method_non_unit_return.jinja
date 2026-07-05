@@ -72,10 +72,9 @@ match result {
             }
         };
         match s.as_str() {
-            "" | "null" => {
-                eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned null/undefined; returning default");
-                Default::default()
-            }
+            // null/undefined is a legitimate "no value" answer for infallible
+            // returns (mirrors the extendr backend) — no log.
+            "" | "null" => Default::default(),
             _ => match serde_json::from_str::<_>(&s) {
                 Ok(v) => v,
                 Err(e) => {

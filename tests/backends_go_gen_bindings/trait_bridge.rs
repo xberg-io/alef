@@ -992,16 +992,26 @@ fn test_gen_trait_bridges_file_trampolines_recover_host_panics() {
         code.contains("host 'CountTokens' panicked; returning default"),
         "infallible trampoline must log the panic and return the default:\n{code}"
     );
-    // Named return so the deferred recover can set it.
+    // Named returns so the deferred recover can set them: int32 status for
+    // fallible slots, the primitive itself for direct-value slots.
     assert!(
-        code.contains("(ret C.int32_t)") || code.contains("(ret C."),
-        "trampolines must use a named return for the recover path:\n{code}"
+        code.contains("(ret C.int32_t)"),
+        "fallible trampolines must use a named int32 status return:\n{code}"
     );
-    // Invalid-handle paths must not fabricate a value and must write outError
-    // (or log) instead of a bare status.
+    assert!(
+        code.contains("(ret C.uintptr_t)"),
+        "usize trampolines must use a named primitive return:\n{code}"
+    );
+    // Invalid-handle paths must log AND marshal outError (lifecycle slots) —
+    // not return a bare status.
     assert!(
         code.contains("called with an invalid handle"),
         "invalid-handle paths must log:\n{code}"
+    );
+    assert!(
+        code.contains("host 'Name' called with an invalid handle")
+            && code.contains("*outError = C.CString(\"invalid handle\")"),
+        "lifecycle invalid-handle paths must marshal outError:\n{code}"
     );
     // Plugin lifecycle trampolines are covered too.
     assert!(

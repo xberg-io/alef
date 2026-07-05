@@ -20,14 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the ffi null-slot/null-result edge defaults.
 - **go**: generated cgo trampolines recover host panics instead of crashing
   the process, logging to stderr and returning the zero value (fallible slots
-  marshal the panic text through `outError`). The invalid-handle path no
-  longer fabricates `1` as a return value.
+  marshal the panic text through `outError`). The invalid-handle paths —
+  including the four plugin lifecycle slots — log and marshal `outError`
+  instead of fabricating `1` as a return value.
 - **dart**: the block_on shim logs and returns the default when an infallible
   host callback panics, instead of aborting the calling thread via `expect`.
-- **java**: sync infallible primitive/unit-returning trait methods now use the
-  vtable's direct-value convention. The previous JSON-convention upcall stubs
-  mismatched the C slot signature — a wild pointer write plus the status code
-  read back as the return value — breaking such methods on every call.
+- **java**: sync infallible trait methods now match the vtable slot signature
+  exactly. Primitive/unit returns use the direct-value convention (the previous
+  JSON-convention upcall stubs mismatched the C slot — a wild pointer write
+  plus the status code read back as the return value — breaking such methods on
+  every call); infallible `Char`/`Path` slots no longer declare a phantom
+  `outError`, and infallible `Optional<non-primitive>`/`Bytes` slots declare no
+  out-pointers at all, mirroring `c_return_convention`.
 
 ## [0.32.2] - 2026-07-04
 

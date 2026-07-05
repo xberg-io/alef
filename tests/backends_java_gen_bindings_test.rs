@@ -4677,6 +4677,10 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
                 TypeRef::Primitive(PrimitiveType::Usize),
             ),
             make_method("reset", vec![], TypeRef::Unit),
+            // Round-2 catch-all shapes: infallible Path carries out_result but
+            // NOT out_error; infallible Bytes carries neither pointer.
+            make_method("cache_dir", vec![], TypeRef::Path),
+            make_method("raw_state", vec![], TypeRef::Bytes),
         ],
         is_opaque: true,
         is_clone: false,
@@ -4752,5 +4756,24 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
     assert!(
         !bridge.contains("private int handleCountTokens"),
         "count_tokens must not use the int-status JSON convention: {bridge}"
+    );
+    // Infallible Path: outResult but NO outError — the catch logs instead of
+    // writing a pointer the slot doesn't carry.
+    assert!(
+        bridge.contains("private int handleCacheDir(MemorySegment userData, MemorySegment outResult)"),
+        "infallible Path handler must carry outResult only: {bridge}"
+    );
+    assert!(
+        !bridge.contains("handleCacheDir(MemorySegment userData, MemorySegment outResult, MemorySegment outError)"),
+        "infallible Path slot has no outError on the C ABI: {bridge}"
+    );
+    assert!(
+        bridge.contains("host 'cache_dir' threw"),
+        "infallible Path catch must log instead of writeError: {bridge}"
+    );
+    // Infallible Bytes: neither pointer — no value channel exists on the C ABI.
+    assert!(
+        bridge.contains("private int handleRawState(MemorySegment userData)"),
+        "infallible Bytes handler must carry no out-pointers: {bridge}"
     );
 }

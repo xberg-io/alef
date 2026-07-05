@@ -574,12 +574,15 @@ fn gen_bridge_file(
         let direct = direct_return(method);
         let has_error = method.error_type.is_some();
 
-        // Out-pointer params must mirror the C vtable slot exactly
-        // (`ffi::trait_bridge::c_return_convention`): fallible methods keep the
-        // JSON convention (outResult for non-Unit + outError); infallible
-        // methods carry only what their slot declares — direct-value slots
-        // neither, Char/Path outResult only, Optional<non-primitive>/Bytes
-        // neither (no value channel exists for them on the C ABI).
+        // Out-pointer params mirror the C vtable slot
+        // (`ffi::trait_bridge::c_return_convention`) for infallible methods:
+        // direct-value slots carry neither pointer, Char/Path outResult only,
+        // Optional<non-primitive>/Bytes neither (no value channel exists for
+        // them on the C ABI). Fallible methods keep java's long-standing JSON
+        // convention (outResult for non-Unit + outError) unchanged; note the
+        // pre-existing caveat that a fallible primitive return would declare
+        // an outResult the C slot doesn't carry — deliberately not touched
+        // here (no such bridged method exists).
         let (has_out_result, has_out_error) = if has_error {
             (!matches!(method.return_type, TypeRef::Unit), true)
         } else if direct.is_some() {
