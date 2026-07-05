@@ -65,6 +65,7 @@ pub(crate) enum Commands {
             default_missing_value = "true",
             num_args = 0..=1,
             action = clap::ArgAction::Set,
+            hide = true,
         )]
         format: bool,
         /// Skip the flutter_rust_bridge_codegen post-build step.
@@ -229,6 +230,7 @@ pub(crate) enum Commands {
             default_missing_value = "true",
             num_args = 0..=1,
             action = clap::ArgAction::Set,
+            hide = true,
         )]
         format: bool,
         /// Skip the flutter_rust_bridge_codegen post-build step.
@@ -252,6 +254,7 @@ pub(crate) enum Commands {
             default_missing_value = "true",
             num_args = 0..=1,
             action = clap::ArgAction::Set,
+            hide = true,
         )]
         format: bool,
     },
@@ -463,6 +466,7 @@ pub(crate) enum E2eAction {
             default_missing_value = "true",
             num_args = 0..=1,
             action = clap::ArgAction::Set,
+            hide = true,
         )]
         format: bool,
     },
@@ -504,6 +508,7 @@ pub(crate) enum TestAppsAction {
             default_missing_value = "true",
             num_args = 0..=1,
             action = clap::ArgAction::Set,
+            hide = true,
         )]
         format: bool,
         /// Maximum parallel jobs (0 = all cores, 1 = sequential).

@@ -267,19 +267,11 @@ fn sync_versions_scaffold_regen_is_byte_identical_to_generate_path() {
     )
     .expect("write Cargo.toml");
 
-    // A custom formatter that deterministically rewrites the crate package.json
-    // into a sentinel "formatted" shape: it appends a marker comment-key. This
-    // stands in for the real formatter (oxfmt) whose canonicalization
-    // (tab indent + key reorder) the raw scaffold serializer does not produce.
-    // The command is best-effort and must be stable/idempotent.
-    let fmt_cmd = "node_pkg='crates/mylib-node/package.json'; \
-         if [ -f \"$node_pkg\" ] && ! grep -q '__alef_formatted__' \"$node_pkg\"; then \
-           printf '\\n// __alef_formatted__\\n' >> \"$node_pkg\"; \
-         fi";
-
+    // Both the generate path and the sync-versions regen path run the same
+    // best-effort `format_generated` (poly) pass, so their output is byte-identical
+    // regardless of whether poly is installed in the test environment.
     let alef_toml = format!(
-        "[workspace]\nlanguages = [\"node\"]\n[workspace.format]\ncommand = {cmd:?}\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{ver}\"\n[crates.node]\npackage_name = \"@scope/mylib\"\n",
-        cmd = fmt_cmd,
+        "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{ver}\"\n[crates.node]\npackage_name = \"@scope/mylib\"\n",
         ver = root.join("Cargo.toml").display().to_string().replace('\\', "/"),
     );
     let alef_toml_path = root.join("alef.toml");
@@ -321,10 +313,6 @@ fn sync_versions_scaffold_regen_is_byte_identical_to_generate_path() {
     sync_result.expect("sync_versions ok");
     let sync_bytes = after_sync.expect("read crate package.json after sync");
 
-    assert!(
-        generate_bytes.contains("__alef_formatted__"),
-        "generate path must apply the custom formatter (sentinel present), got:\n{generate_bytes}"
-    );
     assert_eq!(
         generate_bytes, sync_bytes,
         "sync-versions scaffold regen must produce byte-identical output to the generate path.\n\

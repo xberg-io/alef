@@ -1,10 +1,13 @@
-/// Integration tests verifying the format flag plumbing for `alef generate` and `alef all`.
+/// Integration tests for the `--format` flag plumbing on `alef generate` and `alef all`.
 ///
-/// Both `alef generate` and `alef all` use `--format` (opt-in: formatters are off by default).
+/// Formatting now always runs — the `--format` flag is accepted for backward
+/// compatibility (so that `alef all --clean --format=false` still parses without
+/// error) but is hidden from the `--help` output.
 ///
-/// These tests exercise only the CLI flag plumbing: they confirm the binary
-/// exposes the right flags and that the help text is consistent.  Full
-/// formatting behaviour is covered by e2e tests that run against a real alef project.
+/// These tests exercise only CLI flag plumbing: they confirm that the flag is
+/// hidden from help yet still accepted by clap, and that `--no-format` is not
+/// introduced.  Full formatting behaviour is covered by e2e tests that run
+/// against a real alef project.
 use std::process::Command;
 
 fn alef_binary() -> std::path::PathBuf {
@@ -27,9 +30,10 @@ fn alef_binary() -> std::path::PathBuf {
     dir.join("alef")
 }
 
-/// `alef generate --help` must list `--format` (opt-in) and must NOT list `--no-format`.
+/// `alef generate --help` must NOT list `--format` (it is hidden) and must NOT
+/// list `--no-format`.
 #[test]
-fn generate_help_shows_format_flag() {
+fn generate_help_hides_format_flag() {
     let output = Command::new(alef_binary())
         .args(["generate", "--help"])
         .output()
@@ -39,18 +43,9 @@ fn generate_help_shows_format_flag() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{stdout}{stderr}");
 
-    // We check for the standalone flag line "  --format" (leading spaces that clap uses).
     assert!(
-        combined.contains("  --format"),
-        "`alef generate --help` must list --format flag; got:\n{combined}"
-    );
-    assert!(
-        combined.contains("[default: false]"),
-        "`alef generate --help` must document that --format defaults to false; got:\n{combined}"
-    );
-    assert!(
-        combined.contains("Default: false for fast regeneration"),
-        "`alef generate --help` must describe formatting as opt-in; got:\n{combined}"
+        !combined.contains("  --format"),
+        "`alef generate --help` must not list --format (it is hidden); got:\n{combined}"
     );
     assert!(
         !combined.contains("--no-format"),
@@ -58,9 +53,10 @@ fn generate_help_shows_format_flag() {
     );
 }
 
-/// `alef all --help` must list `--format` (opt-in: formatters are off by default).
+/// `alef all --help` must NOT list `--format` (it is hidden) and must NOT list
+/// `--no-format`.
 #[test]
-fn all_help_shows_format_flag() {
+fn all_help_hides_format_flag() {
     let output = Command::new(alef_binary())
         .args(["all", "--help"])
         .output()
@@ -71,16 +67,8 @@ fn all_help_shows_format_flag() {
     let combined = format!("{stdout}{stderr}");
 
     assert!(
-        combined.contains("  --format"),
-        "`alef all --help` must list --format flag; got:\n{combined}"
-    );
-    assert!(
-        combined.contains("[default: false]"),
-        "`alef all --help` must document that --format defaults to false; got:\n{combined}"
-    );
-    assert!(
-        combined.contains("Default: false for fast regeneration"),
-        "`alef all --help` must describe formatting as opt-in; got:\n{combined}"
+        !combined.contains("  --format"),
+        "`alef all --help` must not list --format (it is hidden); got:\n{combined}"
     );
     assert!(
         !combined.contains("--no-format"),
@@ -88,7 +76,7 @@ fn all_help_shows_format_flag() {
     );
 }
 
-/// `alef generate --format` must be accepted by clap (it is the opt-in formatter flag).
+/// `alef generate --format` must be accepted by clap (backward-compat hidden flag).
 #[test]
 fn generate_accepts_format_flag() {
     // clap parses flags before any config loading — `--format` should be accepted even
@@ -108,7 +96,7 @@ fn generate_accepts_format_flag() {
     );
 }
 
-/// `alef all --format` must be accepted by clap (opt-in formatter flag).
+/// `alef all --format` must be accepted by clap (backward-compat hidden flag).
 #[test]
 fn all_accepts_format_flag() {
     let output = Command::new(alef_binary())

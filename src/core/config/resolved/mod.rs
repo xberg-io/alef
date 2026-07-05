@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::core::config::GenerateConfig;
 use crate::core::config::SourceCrate;
 use crate::core::config::dto::DtoConfig;
 use crate::core::config::e2e::E2eConfig;
@@ -41,7 +42,6 @@ use crate::core::config::service::{HandlerContractConfig, ServiceConfig};
 use crate::core::config::tools::ToolsConfig;
 use crate::core::config::trait_bridge::TraitBridgeConfig;
 use crate::core::config::workspace::ClientConstructorConfig;
-use crate::core::config::{FormatConfig, GenerateConfig};
 
 /// Fully-resolved configuration for one crate.
 ///
@@ -131,8 +131,6 @@ pub struct ResolvedCrateConfig {
     // -----------------------------------------------------------------
     pub generate: GenerateConfig,
     pub generate_overrides: HashMap<String, GenerateConfig>,
-    pub format: FormatConfig,
-    pub format_overrides: HashMap<String, FormatConfig>,
     pub dto: DtoConfig,
 
     // -----------------------------------------------------------------

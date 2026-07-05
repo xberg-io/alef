@@ -1,4 +1,4 @@
-use crate::core::config::{FormatConfig, Language, ResolvedCrateConfig};
+use crate::core::config::{Language, ResolvedCrateConfig};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -14,13 +14,10 @@ struct ResidualStep {
 
 /// Run language-native formatters on emitted packages after generation.
 ///
-/// Formatting is delegated to the `poly` (polylint) CLI as a system dependency:
-/// a single `poly fmt --fix` pass over the generated repo formats every language
-/// poly supports (Python, JS/TS/JSON, PHP, Ruby, Rust, Go, Markdown, TOML, YAML,
-/// CSS, Java, Kotlin, R, Swift, Dart, Gleam, Zig, Shell), collapsing what used to
-/// be ~19 per-language formatter shell-outs into one tool. A small set of residual
-/// native passes runs afterwards for the project-wide tools poly cannot wrap
-/// (`cargo sort`, `mix format`, `dotnet format`).
+/// Formatting is always delegated to the `poly` (polylint) CLI — a single
+/// `poly fmt --fix` pass formats every language poly supports. A fixed set of
+/// residual native passes runs afterwards for the project-wide tools poly cannot
+/// wrap (`cargo sort -n`, wasm crate sort, ruby/elixir/R native crate sort).
 ///
 /// Best-effort: a missing `poly` binary, a poly error, or a missing residual tool
 /// is logged as a warning and never aborts the generate command.
@@ -32,57 +29,19 @@ pub fn format_generated(
 ) {
     // Deduplicated languages present in this batch, in first-seen order.
     let mut seen = HashSet::new();
-    let present: Vec<Language> = files
+    let poly_langs: Vec<Language> = files
         .iter()
         .map(|(lang, _)| *lang)
-        .filter(|lang| seen.insert(*lang))
+        .filter(|lang| seen.insert(*lang) && only_languages.is_none_or(|filter| filter.contains(lang)))
         .collect();
-
-    // Languages that should be formatted by poly's default pass. Custom overrides
-    // run immediately (they bypass the only_languages filter — an explicit
-    // declaration that the formatter must run whenever the language's files are
-    // present, so the embedded `alef:hash:` is computed over formatted content).
-    let mut poly_langs: Vec<Language> = Vec::new();
-    for &lang in &present {
-        let lang_str = lang.to_string().to_lowercase();
-        let fmt_cfg = effective_format_cfg(config, lang);
-
-        // `[workspace.format] enabled = false` (or a per-language override) skips
-        // formatting for that language entirely — including the poly pass.
-        if !fmt_cfg.enabled {
-            debug!("  [{lang_str}] formatting disabled, skipping");
-            continue;
-        }
-
-        // Custom command replaces poly for this language and always runs.
-        if let Some(custom) = &fmt_cfg.command {
-            if let Err(e) = run_custom_formatter(custom, base_dir) {
-                warn!("[{lang_str}] custom formatter failed: {e}");
-            }
-            continue;
-        }
-
-        // Default (poly) formatters respect the only_languages filter so warming
-        // the cache (no file writes) avoids unnecessary formatting work.
-        if let Some(filter) = only_languages
-            && !filter.contains(&lang)
-        {
-            continue;
-        }
-        poly_langs.push(lang);
-    }
 
     if poly_langs.is_empty() {
         return;
     }
 
-    // Single in-process poly pass. When only_languages is None (full regen) format
-    // the whole repo once; when Some (partial regen) scope to just the changed
-    // languages' package directories so unchanged languages are not reformatted.
     let paths = poly_paths(config, base_dir, only_languages, &poly_langs);
     poly_format(&paths, base_dir);
 
-    // Residual native passes poly cannot perform.
     for &lang in &poly_langs {
         let lang_str = lang.to_string().to_lowercase();
         for step in language_residuals(config, lang, base_dir) {
@@ -91,11 +50,55 @@ pub fn format_generated(
     }
 }
 
-/// Resolve the effective format config for a language: a per-language
-/// `[workspace.format_overrides.<lang>]` shadows the `[workspace.format]` default.
-fn effective_format_cfg(config: &ResolvedCrateConfig, lang: Language) -> &FormatConfig {
-    let lang_str = lang.to_string().to_lowercase();
-    config.format_overrides.get(&lang_str).unwrap_or(&config.format)
+/// Run `poly fmt --fix <base_dir>`. Best-effort: a missing `poly` binary or
+/// non-zero exit is logged as a warning and never propagated.
+pub fn poly_fmt(base_dir: &Path) {
+    let paths = vec![base_dir.to_path_buf()];
+    poly_format(&paths, base_dir);
+}
+
+/// Run `poly lint <base_dir>`. Propagates failure — a non-zero exit is an error.
+pub fn poly_lint(base_dir: &Path) -> anyhow::Result<()> {
+    if !is_tool_available("poly") {
+        warn!("poly not found on PATH (skipping lint)");
+        return Ok(());
+    }
+    let path_str = base_dir.to_string_lossy().into_owned();
+    let arg_refs: Vec<&str> = vec!["lint", &path_str];
+    match run_formatter("poly", &arg_refs, base_dir) {
+        Ok(()) => {
+            debug!("poly lint ok");
+            Ok(())
+        }
+        Err(e) => Err(anyhow::anyhow!("poly lint failed: {e}")),
+    }
+}
+
+/// Return the fixed set of all cargo-sort residual steps that alef always runs
+/// after formatting, regardless of which languages the config targets.
+///
+/// The fixed set covers: workspace-wide (via ffi), wasm, ruby, elixir, R.
+/// Dart and swift have no cargo residuals (poly covers them).
+fn cargo_sort_residuals(config: &ResolvedCrateConfig, base_dir: &Path) -> Vec<ResidualStep> {
+    let mut steps = Vec::new();
+    // Workspace-wide sort — normalises every in-workspace binding crate.
+    steps.extend(language_residuals(config, Language::Ffi, base_dir));
+    // Wasm binding crate — often workspace-excluded.
+    steps.extend(language_residuals(config, Language::Wasm, base_dir));
+    // Ruby native crate lives outside the consumer workspace.
+    steps.extend(language_residuals(config, Language::Ruby, base_dir));
+    // Elixir NIF crate is workspace-excluded.
+    steps.extend(language_residuals(config, Language::Elixir, base_dir));
+    // R extendr crate is workspace-excluded.
+    steps.extend(language_residuals(config, Language::R, base_dir));
+    steps
+}
+
+/// Run all cargo-sort residuals (ffi workspace, wasm, ruby, elixir, R). Best-effort.
+pub(crate) fn run_cargo_sort_residuals(config: &ResolvedCrateConfig, base_dir: &Path) {
+    for step in cargo_sort_residuals(config, base_dir) {
+        run_residual(&step, "residual");
+    }
 }
 
 /// Paths to hand to poly. Full regen → the repo root (one pass). Partial regen →
@@ -172,7 +175,7 @@ pub(crate) fn install_poly_hooks(base_dir: &Path) {
 }
 
 /// Build the residual formatter steps for a language. The only residual is
-/// `cargo sort` for binding crates whose `Cargo.toml` is excluded from the poly
+/// `cargo sort -n` for binding crates whose `Cargo.toml` is excluded from the poly
 /// pass — a dependency-ordering tool (not a formatter) that ships with cargo and
 /// is always present in alef's build environment. Everything else, including
 /// Elixir and C#, is formatted by poly's deterministic pure-Rust tier-2 tier
@@ -217,9 +220,11 @@ fn language_residuals(config: &ResolvedCrateConfig, lang: Language, base_dir: &P
     }
 }
 
-/// Construct a `cargo sort` residual step.
+/// Construct a `cargo sort -n` residual step. The `-n` flag preserves single-line
+/// array formatting, preventing cargo-sort from expanding dependency arrays that
+/// alef emits on one line for readability.
 fn cargo_sort(mut sort_args: Vec<String>, work_dir: PathBuf) -> ResidualStep {
-    let mut args = vec!["sort".to_owned()];
+    let mut args = vec!["sort".to_owned(), "-n".to_owned()];
     args.append(&mut sort_args);
     ResidualStep {
         command: "cargo".to_owned(),
@@ -263,22 +268,6 @@ fn run_formatter(command: &str, args: &[&str], work_dir: &Path) -> anyhow::Resul
     let output = Command::new(command).args(args).current_dir(work_dir).output()?;
 
     if !output.status.success() {
-        return Err(anyhow::anyhow!(
-            "formatter exited with code {:?}: {}",
-            output.status.code(),
-            format_command_output(&output)
-        ));
-    }
-
-    Ok(())
-}
-
-/// Run a custom formatter command (shell-style string) in a directory.
-fn run_custom_formatter(cmd: &str, work_dir: &Path) -> anyhow::Result<()> {
-    let output = Command::new("sh").arg("-c").arg(cmd).current_dir(work_dir).output()?;
-
-    if !output.status.success() {
-        debug!("custom formatter output: {}", format_command_output(&output));
         return Err(anyhow::anyhow!(
             "formatter exited with code {:?}: {}",
             output.status.code(),

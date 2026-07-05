@@ -12,7 +12,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
     match command {
         Commands::All {
             clean,
-            format,
+            format: _format,
             skip_frb,
         } => {
             if skip_frb {
@@ -345,9 +345,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         eprintln!("Generating e2e test suites...");
                         let files = crate::e2e::generate_e2e(resolved_cfg, e2e_config, None, &api.types, &api.enums)?;
                         e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
-                        if format {
-                            crate::e2e::format::run_formatters(&files, e2e_config);
-                        }
+                        crate::e2e::format::run_formatters(&files, e2e_config);
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
@@ -384,9 +382,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             crate::e2e::generate_e2e(resolved_cfg, registry_e2e_ref, None, &api.types, &api.enums)?;
                         let test_apps_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
                         e2e_count += test_apps_count;
-                        if format {
-                            crate::e2e::format::run_formatters(&files, registry_e2e_ref);
-                        }
+                        crate::e2e::format::run_formatters(&files, registry_e2e_ref);
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
@@ -442,10 +438,10 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     }
                 }
 
-                // Formatting runs by default via poly (polylint) in-process. It is
+                // Formatting runs via poly (polylint) in-process. It is
                 // best-effort: a poly error must not abort the pipeline. Scoped to
                 // the languages that actually regenerated this run.
-                if format && !changed_languages.is_empty() {
+                if !changed_languages.is_empty() {
                     eprintln!("Formatting generated files...");
                     // Include stubs in the format pass so that languages where only
                     // stubs changed (no bindings written) still trigger their formatter.

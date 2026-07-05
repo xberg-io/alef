@@ -42,7 +42,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
         Commands::Generate {
             lang,
             clean,
-            format,
+            format: _format,
             skip_frb,
         } => {
             if skip_frb {
@@ -303,7 +303,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     }
                 }
 
-                if any_written && format && !changed_languages.is_empty() {
+                if any_written && !changed_languages.is_empty() {
                     eprintln!("Formatting generated files...");
                     // Include stubs in the format pass so that languages where only
                     // stubs changed (no bindings written) still trigger their
@@ -628,42 +628,34 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             println!("Build complete");
             Ok(None)
         }
-        Commands::Fmt { lang } => {
+        Commands::Fmt { lang: _ } => {
             let (_workspace, resolved) = load_config(config_path)?;
             let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
+            let base_dir = std::env::current_dir()?;
             for resolved_cfg in &crates_to_process {
-                let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
                 if multi {
-                    eprintln!(
-                        "[{}] Formatting generated output for: {}",
-                        resolved_cfg.name,
-                        format_languages(&languages)
-                    );
+                    eprintln!("[{}] Formatting generated output...", resolved_cfg.name);
                 } else {
-                    eprintln!("Formatting generated output for: {}", format_languages(&languages));
+                    eprintln!("Formatting generated output...");
                 }
-                pipeline::fmt(resolved_cfg, &languages)?;
+                pipeline::fmt(resolved_cfg, &base_dir)?;
             }
             println!("Format complete");
             Ok(None)
         }
-        Commands::Lint { lang } => {
+        Commands::Lint { lang: _ } => {
             let (_workspace, resolved) = load_config(config_path)?;
             let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
+            let base_dir = std::env::current_dir()?;
             for resolved_cfg in &crates_to_process {
-                let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
                 if multi {
-                    eprintln!(
-                        "[{}] Linting generated output for: {}",
-                        resolved_cfg.name,
-                        format_languages(&languages)
-                    );
+                    eprintln!("[{}] Linting generated output...", resolved_cfg.name);
                 } else {
-                    eprintln!("Linting generated output for: {}", format_languages(&languages));
+                    eprintln!("Linting generated output...");
                 }
-                pipeline::lint(resolved_cfg, &languages)?;
+                pipeline::lint(resolved_cfg, &base_dir)?;
             }
             println!("Lint complete");
             Ok(None)

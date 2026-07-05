@@ -181,22 +181,11 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub generate: Option<super::GenerateConfig>,
 
-    /// Override the workspace default `format` flags. When `Some`, replaces the
-    /// workspace value wholesale.
-    #[serde(default)]
-    pub format: Option<super::FormatConfig>,
-
     /// Override the workspace default DTO styles. When `Some`, replaces the
     /// workspace value wholesale (no field-level merge — a partial DTO override
     /// would silently drop unspecified language entries).
     #[serde(default)]
     pub dto: Option<super::DtoConfig>,
-
-    /// Per-language per-crate formatting overrides keyed by language code.
-    /// Merged with workspace `format_overrides`: per-crate keys win wholesale,
-    /// missing keys fall through to the workspace map.
-    #[serde(default)]
-    pub format_overrides: HashMap<String, super::FormatConfig>,
 
     /// Per-language per-crate generation flag overrides keyed by language code.
     /// Merged with workspace `generate_overrides`: per-crate keys win wholesale,

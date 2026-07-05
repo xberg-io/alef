@@ -62,8 +62,15 @@ pub(crate) fn load_config(
             path.display()
         )
     })?;
-    let cfg: crate::core::config::NewAlefConfig =
+    let mut toml_value: toml::Value =
         toml::from_str(&content).with_context(|| format!("Failed to parse alef.toml ({})", path.display()))?;
+    let deprecation_warnings = crate::core::config::legacy::strip_deprecated_keys(&mut toml_value);
+    for warning in &deprecation_warnings {
+        tracing::warn!("{}", warning);
+    }
+    let cfg: crate::core::config::NewAlefConfig = toml_value
+        .try_into()
+        .with_context(|| format!("Failed to deserialize alef.toml ({})", path.display()))?;
     let resolved = cfg
         .resolve()
         .with_context(|| format!("failed to resolve crates in {}", path.display()))?;

@@ -40,56 +40,6 @@ fn format_regenerated_files(config: &ResolvedCrateConfig, files: &[GeneratedFile
     format_generated(&grouped, config, base_dir, None);
 }
 
-/// Whether alef's internal post-generation formatter is disabled for *every*
-/// configured language.
-///
-/// Repos that delegate all formatting to external tools set
-/// `[workspace.format] enabled = false` and run language-native formatters out
-/// of band (e.g. `task alef:format` → oxfmt / php-cs-fixer / swift-format /
-/// shfmt). For those repos `format_generated` is a permanent no-op, so the
-/// scaffold / test-app regen paths cannot reproduce the externally-formatted
-/// committed bytes — they would rewrite each file in raw alef-serializer form
-/// (2-space JSON, scaffold key order, collapsed arrays, shfmt-divergent shell)
-/// and break the `sync-versions` → `git diff --exit-code` freshness gate.
-///
-/// The version content those regen passes are meant to propagate is already
-/// handled surgically and format-preservingly by `sync_versions` itself (the
-/// per-manifest passes plus `[workspace.sync] extra_paths` /
-/// `[[workspace.sync.text_replacements]]`). So when formatting is fully
-/// disabled, the regen should skip rewriting files that already exist on disk:
-/// the only change it could make is reformatting.
-///
-/// Resolution mirrors `format_generated`: a per-language `format_override`
-/// shadows the workspace default. A language counts as "formattable" when its
-/// effective `FormatConfig.enabled` is true. When *no* configured language is
-/// formattable, alef's formatting is effectively disabled and this returns true.
-/// Internal-formatter repos (`enabled = true`) are unaffected — this returns
-/// false and the regen rewrites + formats exactly as before.
-fn alef_formatting_disabled(config: &ResolvedCrateConfig) -> bool {
-    config.languages.iter().all(|lang| {
-        let lang_str = lang.to_string().to_lowercase();
-        let format_cfg = config.format_overrides.get(&lang_str).unwrap_or(&config.format);
-        !format_cfg.enabled
-    })
-}
-
-/// Drop regenerated files that already exist on disk when alef formatting is
-/// disabled (see [`alef_formatting_disabled`]). New files (created by this run)
-/// are kept so a freshly-added language still gets its scaffold/test-app tree.
-fn filter_regenerated_for_disabled_formatting(
-    config: &ResolvedCrateConfig,
-    files: Vec<GeneratedFile>,
-    base_dir: &std::path::Path,
-) -> Vec<GeneratedFile> {
-    if !alef_formatting_disabled(config) {
-        return files;
-    }
-    files
-        .into_iter()
-        .filter(|file| !base_dir.join(&file.path).exists())
-        .collect()
-}
-
 /// Regenerate registry-mode test_apps scaffold files after a version sync so
 /// that version pins in generated files (e.g. pyproject.toml, mix.exs,
 /// build.zig.zon, Package.swift) reflect the updated workspace version.
@@ -156,11 +106,7 @@ pub(super) fn regenerate_test_apps_after_sync(
     }
 
     let base_dir = std::path::PathBuf::from(".");
-    // When alef's internal formatter is disabled for every language, the regen
-    // can only reformat already-committed files (version content is synced
-    // surgically by `sync_versions`); skip rewriting those so the externally-
-    // formatted bytes are preserved and the freshness gate stays green.
-    let files = filter_regenerated_for_disabled_formatting(&fresh_config, generated, &base_dir);
+    let files = generated;
     if files.is_empty() {
         return Ok(0);
     }
@@ -242,11 +188,7 @@ pub(super) fn regenerate_scaffold_after_sync(
     }
 
     let base_dir = std::path::PathBuf::from(".");
-    // When alef's internal formatter is disabled for every language, the regen
-    // can only reformat already-committed scaffold files (their version fields
-    // are synced surgically by `sync_versions`); skip rewriting those so the
-    // externally-formatted bytes are preserved and the freshness gate stays green.
-    let scaffold_files = filter_regenerated_for_disabled_formatting(&fresh_config, generated_scaffold, &base_dir);
+    let scaffold_files = generated_scaffold;
     if scaffold_files.is_empty() {
         return Ok(0);
     }

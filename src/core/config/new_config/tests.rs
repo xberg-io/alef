@@ -436,9 +436,6 @@ languages = ["python"]
 public_api = false
 bindings = false
 
-[workspace.format]
-enabled = false
-
 [workspace.dto]
 python = "typed-dict"
 node   = "zod"
@@ -459,10 +456,6 @@ sources = ["src/lib.rs"]
         !resolved[0].generate.bindings,
         "workspace generate.bindings must flow through"
     );
-    assert!(
-        !resolved[0].format.enabled,
-        "workspace format.enabled must flow through"
-    );
     assert!(matches!(resolved[0].dto.python, dto::PythonDtoStyle::TypedDict));
     assert!(matches!(resolved[0].dto.node, dto::NodeDtoStyle::Zod));
 }
@@ -477,9 +470,6 @@ languages = ["python"]
 [workspace.generate]
 public_api = false
 
-[workspace.format]
-enabled = false
-
 [workspace.dto]
 python = "typed-dict"
 
@@ -489,9 +479,6 @@ sources = ["src/lib.rs"]
 
 [crates.generate]
 public_api = true
-
-[crates.format]
-enabled = true
 
 [crates.dto]
 python = "dataclass"
@@ -503,10 +490,6 @@ python = "dataclass"
     assert!(
         resolved[0].generate.public_api,
         "per-crate generate.public_api must override workspace"
-    );
-    assert!(
-        resolved[0].format.enabled,
-        "per-crate format.enabled must override workspace"
     );
     assert!(
         matches!(resolved[0].dto.python, dto::PythonDtoStyle::Dataclass),

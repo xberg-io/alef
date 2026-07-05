@@ -2456,25 +2456,6 @@
       ],
       "type": "object"
     },
-    "FormatConfig": {
-      "description": "Post-generation formatting configuration.\nAfter code generation, alef can automatically run language-native formatters\non the emitted package directories to ensure CI formatter checks pass.",
-      "properties": {
-        "command": {
-          "default": null,
-          "description": "Optional custom command override. If set, this command is run instead\nof the language's default formatter. Must be a shell command string\n(e.g., \"prettier --write .\").",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "enabled": {
-          "default": true,
-          "description": "Enable post-generation formatting (default: true).\nSet to false to skip formatting for all languages, or use per-language\noverrides in `[format.<lang>]` to disable specific formatters.",
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
     "GenerateConfig": {
       "description": "Controls which generation passes alef runs.\nAll flags default to `true`; set to `false` to skip a pass.\nCan be overridden per-language via `[generate_overrides.<lang>]`.",
       "properties": {
@@ -5042,26 +5023,6 @@
           ],
           "default": null
         },
-        "format": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/FormatConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Override the workspace default `format` flags. When `Some`, replaces the\nworkspace value wholesale."
-        },
-        "format_overrides": {
-          "additionalProperties": {
-            "$ref": "#/$defs/FormatConfig"
-          },
-          "default": {},
-          "description": "Per-language per-crate formatting overrides keyed by language code.\nMerged with workspace `format_overrides`: per-crate keys win wholesale,\nmissing keys fall through to the workspace map.",
-          "type": "object"
-        },
         "generate": {
           "anyOf": [
             {
@@ -7009,22 +6970,6 @@
           "default": null,
           "description": "Default C FFI backend settings."
         },
-        "format": {
-          "$ref": "#/$defs/FormatConfig",
-          "default": {
-            "command": null,
-            "enabled": true
-          },
-          "description": "Default post-generation formatting flags. A per-crate value replaces\nthis wholesale."
-        },
-        "format_overrides": {
-          "additionalProperties": {
-            "$ref": "#/$defs/FormatConfig"
-          },
-          "default": {},
-          "description": "Default per-language formatting overrides (e.g., disable `mix format`\nfor elixir). Merged with per-crate `format_overrides` by language key:\nper-crate keys win wholesale; missing keys fall through to this map.\nNote: there is no field-level merge inside a single `FormatConfig`.",
-          "type": "object"
-        },
         "generate": {
           "$ref": "#/$defs/GenerateConfig",
           "default": {
@@ -7483,11 +7428,6 @@
         "elixir": null,
         "extra_clippy_allows": [],
         "ffi": null,
-        "format": {
-          "command": null,
-          "enabled": true
-        },
-        "format_overrides": {},
         "generate": {
           "async_wrappers": true,
           "bindings": true,

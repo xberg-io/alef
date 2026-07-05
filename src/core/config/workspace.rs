@@ -14,6 +14,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::GenerateConfig;
 use super::dto::DtoConfig;
 use super::extras::Language;
 use super::languages::{
@@ -28,7 +29,6 @@ use super::output::{
 use super::package_metadata::PackageMetadataConfig;
 use super::poly::PolyConfig;
 use super::tools::ToolsConfig;
-use super::{FormatConfig, GenerateConfig};
 
 /// One parameter in a [`ClientConstructorConfig`].
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -150,18 +150,6 @@ pub struct WorkspaceConfig {
     /// table replaces this wholesale (no field-level merge).
     #[serde(default)]
     pub dto: DtoConfig,
-
-    /// Default post-generation formatting flags. A per-crate value replaces
-    /// this wholesale.
-    #[serde(default)]
-    pub format: FormatConfig,
-
-    /// Default per-language formatting overrides (e.g., disable `mix format`
-    /// for elixir). Merged with per-crate `format_overrides` by language key:
-    /// per-crate keys win wholesale; missing keys fall through to this map.
-    /// Note: there is no field-level merge inside a single `FormatConfig`.
-    #[serde(default)]
-    pub format_overrides: HashMap<String, FormatConfig>,
 
     /// Default generation-pass flags (which passes alef runs).
     #[serde(default)]

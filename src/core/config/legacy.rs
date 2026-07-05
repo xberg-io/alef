@@ -109,6 +109,52 @@ pub fn detect_legacy_keys(raw_toml: &str) -> Result<(), LegacyConfigError> {
     Err(LegacyConfigError { keys })
 }
 
+/// Strip deprecated `format` and `format_overrides` keys from a parsed TOML value
+/// before deserialization, emitting a warning string for each removed key.
+///
+/// This provides backward compatibility: old `alef.toml` files that still have
+/// `[workspace.format]` / `[workspace.format_overrides]` / `[[crates]] format` /
+/// `[[crates]] format_overrides` will parse cleanly instead of failing with
+/// `deny_unknown_fields`.
+pub fn strip_deprecated_keys(value: &mut toml::Value) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let Some(root) = value.as_table_mut() else {
+        return warnings;
+    };
+    if let Some(ws) = root.get_mut("workspace").and_then(|v| v.as_table_mut()) {
+        if ws.remove("format").is_some() {
+            warnings.push(
+                "[workspace.format] is deprecated and ignored — alef always delegates formatting to poly".to_string(),
+            );
+        }
+        if ws.remove("format_overrides").is_some() {
+            warnings.push(
+                "[workspace.format_overrides] is deprecated and ignored — alef always delegates formatting to poly"
+                    .to_string(),
+            );
+        }
+    }
+    if let Some(crates) = root.get_mut("crates").and_then(|v| v.as_array_mut()) {
+        for entry in crates.iter_mut() {
+            if let Some(tbl) = entry.as_table_mut() {
+                if tbl.remove("format").is_some() {
+                    warnings.push(
+                        "[[crates]] format is deprecated and ignored — alef always delegates formatting to poly"
+                            .to_string(),
+                    );
+                }
+                if tbl.remove("format_overrides").is_some() {
+                    warnings.push(
+                        "[[crates]] format_overrides is deprecated and ignored — alef always delegates formatting to poly"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+    }
+    warnings
+}
+
 /// Return a map from banned top-level key → migration suggestion string.
 ///
 /// Built once on first call and cached in a [`OnceLock`] so repeated calls to
@@ -503,5 +549,50 @@ check = "ruff check ."
         assert!(is_top_level_key_line("r = { something = true }", "r"));
         assert!(is_top_level_key_line("ruby = {}", "ruby"));
         assert!(is_top_level_key_line("ruby={}", "ruby"));
+    }
+
+    #[test]
+    fn strip_deprecated_keys_removes_workspace_format() {
+        let toml_str = r#"
+[workspace]
+languages = ["python"]
+
+[workspace.format]
+enabled = false
+
+[workspace.format_overrides.python]
+command = "ruff format ."
+
+[[crates]]
+name = "foo"
+sources = ["src/lib.rs"]
+
+[crates.format]
+enabled = true
+
+[crates.format_overrides.node]
+enabled = false
+"#;
+        let mut value: toml::Value = toml::from_str(toml_str).unwrap();
+        let warnings = strip_deprecated_keys(&mut value);
+        assert!(!warnings.is_empty(), "expected deprecation warnings");
+        // Round-trip: must now deserialize cleanly
+        let cfg: crate::core::config::NewAlefConfig = value.try_into().unwrap();
+        assert_eq!(cfg.workspace.languages.len(), 1);
+    }
+
+    #[test]
+    fn strip_deprecated_keys_returns_empty_for_clean_config() {
+        let toml_str = r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "foo"
+sources = ["src/lib.rs"]
+"#;
+        let mut value: toml::Value = toml::from_str(toml_str).unwrap();
+        let warnings = strip_deprecated_keys(&mut value);
+        assert!(warnings.is_empty(), "expected no warnings for clean config");
     }
 }

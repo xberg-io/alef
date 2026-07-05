@@ -166,7 +166,6 @@ impl NewAlefConfig {
         let update = merge_map(&ws.update, &krate.update);
         let clean = merge_map(&ws.clean, &krate.clean);
         let build_commands = merge_build_command_maps(&ws.build_commands, &krate.build_commands);
-        let format_overrides = merge_map(&ws.format_overrides, &krate.format_overrides);
         let generate_overrides = merge_map(&ws.generate_overrides, &krate.generate_overrides);
 
         // --- Cross-language validation ------------------------------------------
@@ -284,13 +283,11 @@ impl NewAlefConfig {
             update,
             clean,
             build_commands,
-            // Per-crate generate/format/dto override the workspace value when set.
+            // Per-crate generate/dto override the workspace value when set.
             // None inherits the workspace default. tools and opaque_types are
             // workspace-only by design (see WorkspaceConfig docs).
             generate: krate.generate.clone().unwrap_or_else(|| ws.generate.clone()),
             generate_overrides,
-            format: krate.format.clone().unwrap_or_else(|| ws.format.clone()),
-            format_overrides,
             dto: krate.dto.clone().unwrap_or_else(|| ws.dto.clone()),
             tools: ws.tools.clone(),
             opaque_types: ws.opaque_types.clone(),

@@ -34,15 +34,15 @@ fn formatter_error_includes_stdout_and_stderr() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn wasm_residual_is_cargo_sort_on_the_crate_dir() {
+fn wasm_residual_is_cargo_sort_n_on_the_crate_dir() {
     let config = make_config("sample-model");
     let steps = language_residuals(&config, Language::Wasm, Path::new("/repo"));
     assert_eq!(steps.len(), 1, "wasm residual must be a single cargo sort step");
     assert_eq!(steps[0].command, "cargo");
     assert_eq!(
         steps[0].args,
-        vec!["sort", "crates/sample-model-wasm"],
-        "cargo sort arg must be the wasm crate directory"
+        vec!["sort", "-n", "crates/sample-model-wasm"],
+        "cargo sort -n arg must be the wasm crate directory"
     );
     assert_eq!(
         steps[0].work_dir,
@@ -69,21 +69,21 @@ wasm = "crates/sample-pack-core-wasm/src/"
     let steps = language_residuals(&config, Language::Wasm, Path::new("/repo"));
     assert_eq!(
         steps[0].args,
-        vec!["sort", "crates/sample-pack-core-wasm"],
+        vec!["sort", "-n", "crates/sample-pack-core-wasm"],
         "cargo sort arg must match the crate dir derived from the configured output path"
     );
 }
 
 #[test]
-fn ffi_residual_is_cargo_sort_workspace_wide() {
+fn ffi_residual_is_cargo_sort_n_workspace_wide() {
     let config = make_config("sample-model");
     let steps = language_residuals(&config, Language::Ffi, Path::new("/repo"));
     assert_eq!(steps.len(), 1, "FFI residual must be a single cargo sort step");
     assert_eq!(steps[0].command, "cargo");
     assert_eq!(
         steps[0].args,
-        vec!["sort", "-w"],
-        "FFI cargo sort must be workspace-wide so every in-workspace binding crate is normalised"
+        vec!["sort", "-n", "-w"],
+        "FFI cargo sort must be workspace-wide with -n flag"
     );
     assert_eq!(steps[0].work_dir, Path::new("/repo"));
 }
@@ -95,8 +95,9 @@ fn ruby_residual_sorts_the_native_crate() {
     assert_eq!(steps.len(), 1, "Ruby residual must be a single cargo sort step");
     assert_eq!(steps[0].command, "cargo");
     assert_eq!(steps[0].args[0], "sort");
+    assert_eq!(steps[0].args[1], "-n");
     assert!(
-        steps[0].args[1].starts_with("ext/") && steps[0].args[1].ends_with("/native"),
+        steps[0].args[2].starts_with("ext/") && steps[0].args[2].ends_with("/native"),
         "cargo sort arg must target ext/<gem>/native, got: {:?}",
         steps[0].args
     );
@@ -104,7 +105,7 @@ fn ruby_residual_sorts_the_native_crate() {
 }
 
 #[test]
-fn elixir_residual_is_cargo_sort_only() {
+fn elixir_residual_is_cargo_sort_n_only() {
     // `.ex`/`.exs` are formatted by poly's tier-2 tier (no `mix format`); the
     // only residual is cargo sort for the workspace-excluded NIF crate.
     let config = make_config("sample-model");
@@ -112,8 +113,9 @@ fn elixir_residual_is_cargo_sort_only() {
     assert_eq!(steps.len(), 1, "Elixir residual must be cargo sort only");
     assert_eq!(steps[0].command, "cargo");
     assert_eq!(steps[0].args[0], "sort");
+    assert_eq!(steps[0].args[1], "-n");
     assert!(
-        steps[0].args[1].starts_with("native/") && steps[0].args[1].ends_with("_nif"),
+        steps[0].args[2].starts_with("native/") && steps[0].args[2].ends_with("_nif"),
         "cargo sort arg must target native/<app>_nif, got: {:?}",
         steps[0].args
     );
@@ -125,7 +127,7 @@ fn r_residual_sorts_the_extendr_crate() {
     let config = make_config("sample-model");
     let steps = language_residuals(&config, Language::R, Path::new("/repo"));
     assert_eq!(steps.len(), 1, "R residual must be a single cargo sort step");
-    assert_eq!(steps[0].args, vec!["sort", "packages/r/src/rust"]);
+    assert_eq!(steps[0].args, vec!["sort", "-n", "packages/r/src/rust"]);
     assert_eq!(steps[0].work_dir, Path::new("/repo"));
 }
 
@@ -152,6 +154,35 @@ fn languages_without_residuals_have_none() {
             "{lang:?} must have no residual native pass (poly formats it)"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// cargo_sort_residuals — always-on fixed set.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cargo_sort_residuals_returns_fixed_set() {
+    let config = make_config("sample-model");
+    let steps = cargo_sort_residuals(&config, Path::new("/repo"));
+    // Fixed set: ffi (workspace), wasm, ruby, elixir, R.
+    assert_eq!(steps.len(), 5, "cargo_sort_residuals must return exactly 5 steps");
+    // All steps must use cargo sort -n.
+    for step in &steps {
+        assert_eq!(step.command, "cargo");
+        assert_eq!(step.args[0], "sort");
+        assert_eq!(step.args[1], "-n", "all residuals must use -n flag");
+    }
+}
+
+#[test]
+fn cargo_sort_residuals_includes_workspace_wide_step() {
+    let config = make_config("sample-model");
+    let steps = cargo_sort_residuals(&config, Path::new("/repo"));
+    let has_workspace_wide = steps.iter().any(|s| s.args.contains(&"-w".to_owned()));
+    assert!(
+        has_workspace_wide,
+        "cargo_sort_residuals must include a workspace-wide step"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -195,80 +226,6 @@ fn poly_paths_partial_regen_drops_nonexistent_dirs() {
     let only: HashSet<Language> = [Language::Python].into_iter().collect();
     let paths = poly_paths(&config, base, Some(&only), &[Language::Python]);
     assert!(paths.is_empty(), "nonexistent package dirs are dropped");
-}
-
-// ---------------------------------------------------------------------------
-// enabled / custom-override gating.
-// ---------------------------------------------------------------------------
-
-// Custom format_override commands must run even when the language is absent from
-// the only_languages filter (files not re-written this run) so the embedded
-// `alef:hash:` is computed over formatter-normalized content.
-#[test]
-fn custom_override_runs_when_lang_absent_from_only_languages_filter() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let sentinel = dir.path().join("was_run.txt");
-    let sentinel_str = sentinel.to_string_lossy().replace('\\', "/");
-
-    let cfg: NewAlefConfig = toml::from_str(&format!(
-        r#"
-[workspace]
-languages = ["php"]
-
-[workspace.format_overrides.php]
-command = "touch {sentinel_str}"
-
-[[crates]]
-name = "my-lib"
-sources = ["src/lib.rs"]
-"#
-    ))
-    .expect("valid config");
-    let config = cfg.resolve().expect("resolve").remove(0);
-
-    let files: Vec<(Language, Vec<GeneratedFile>)> = vec![(Language::Php, vec![])];
-    let only_languages: HashSet<Language> = HashSet::new();
-
-    assert!(!sentinel.exists(), "sentinel must not exist before format_generated");
-    format_generated(&files, &config, dir.path(), Some(&only_languages));
-    assert!(
-        sentinel.exists(),
-        "custom format_override command must run even when php is absent from only_languages"
-    );
-}
-
-// `[workspace.format] enabled = false` (resolved onto a per-language override)
-// disables formatting for that language entirely — even a custom command is
-// skipped, because the enabled gate precedes command dispatch.
-#[test]
-fn disabled_language_skips_everything_including_custom_command() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let sentinel = dir.path().join("was_run.txt");
-    let sentinel_str = sentinel.to_string_lossy().replace('\\', "/");
-
-    let cfg: NewAlefConfig = toml::from_str(&format!(
-        r#"
-[workspace]
-languages = ["php"]
-
-[workspace.format_overrides.php]
-enabled = false
-command = "touch {sentinel_str}"
-
-[[crates]]
-name = "my-lib"
-sources = ["src/lib.rs"]
-"#
-    ))
-    .expect("valid config");
-    let config = cfg.resolve().expect("resolve").remove(0);
-
-    let files: Vec<(Language, Vec<GeneratedFile>)> = vec![(Language::Php, vec![])];
-    format_generated(&files, &config, dir.path(), None);
-    assert!(
-        !sentinel.exists(),
-        "enabled = false must skip formatting entirely, including the custom command"
-    );
 }
 
 // Behavioral: when the `poly` CLI is installed, `format_generated` shells out to
