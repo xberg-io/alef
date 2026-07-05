@@ -809,7 +809,9 @@ fn gen_single_trait_bridge(
         }
 
         if is_primitive_return {
-            callbacks.push_str("        } catch (Exception) {\n");
+            // Bind ex so the swallowed host failure is logged before the
+            // default is substituted (the direct-value slot has no outError).
+            callbacks.push_str("        } catch (Exception ex) {\n");
         } else if !is_options_field {
             // Only bind ex for non-primitive, non-options-field returns where we log it
             callbacks.push_str("        } catch (Exception ex) {\n");
@@ -850,6 +852,12 @@ fn gen_single_trait_bridge(
         if !is_primitive_return {
             callbacks.push_str("            return 1;\n");
         } else {
+            // Direct-value slot: a thrown exception cannot propagate, so log it
+            // before returning the default — a silent default is
+            // indistinguishable from a real result to the caller.
+            callbacks.push_str(&format!(
+                "            Console.Error.WriteLine($\"[{trait_pascal}Bridge] host '{method_pascal}' threw; returning default: {{ex}}\");\n"
+            ));
             callbacks.push_str("            return 0;\n");
         }
         callbacks.push_str("        } finally {\n");

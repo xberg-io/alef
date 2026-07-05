@@ -16,13 +16,19 @@ let result = fn_robj.call(args);
 {% endif %}
 
 match result {
-    Err(_) => {
 {% if has_error %}
+    Err(_) => {
         Err({{ failed_method_error }})
-{% else %}
-        Default::default()
-{% endif %}
     }
+{% else %}
+    // This method's Rust signature is infallible, so an R error cannot
+    // propagate. Log before substituting the default — a silent default is
+    // indistinguishable from a real result to the caller.
+    Err(e) => {
+        eprintln!("[{{ wrapper }}] host '{{ method_name }}' raised; returning default: {e}");
+        Default::default()
+    }
+{% endif %}
     Ok(val) => {
         if let Some(s) = val.as_str() {
             {% if has_error %}Ok(s.to_string()){% else %}s.to_string(){% endif %}
@@ -30,6 +36,7 @@ match result {
 {% if has_error %}
             Err({{ invalid_type_error }})
 {% else %}
+            eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned a non-string value; returning default");
             Default::default()
 {% endif %}
         }

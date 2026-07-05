@@ -231,7 +231,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         ]
     }
 
-    fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+    fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
         let has_error = method.error_type.is_some();
         let is_unit = matches!(method.return_type, TypeRef::Unit);
@@ -259,6 +259,8 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let mut body = crate::backends::magnus::template_env::render(
             "sync_method_body.rs.jinja",
             minijinja::context! {
+                wrapper => spec.wrapper_name(),
+                method_name => name,
                 call => call,
                 has_error => has_error,
                 is_unit => is_unit,
@@ -267,13 +269,13 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         );
 
         if !is_unit {
-            body.push_str(&self.return_conversion(method, has_error, ""));
+            body.push_str(&self.return_conversion(method, spec, has_error, ""));
         }
 
         body
     }
 
-    fn gen_async_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+    fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
         let has_error = method.error_type.is_some();
         let is_unit = matches!(method.return_type, TypeRef::Unit);
@@ -361,7 +363,7 @@ let cached_name_for_blocking = cached_name.clone();\n\
                 result_ty => result_ty,
                 err_expr_call => err_expr_call,
                 err_expr_join => err_expr_join,
-                return_conversion => self.return_conversion(method, has_error, "            "),
+                return_conversion => self.return_conversion(method, spec, has_error, "            "),
             },
         )
     }
@@ -528,7 +530,7 @@ impl MagnusBridgeGenerator {
     /// Emit code that converts the Ruby `val` (in scope) into the Rust return type
     /// and either returns it (if has_error: false) or wraps it in `Ok(...)` (if has_error: true).
     /// For sync bodies — no leading whitespace.
-    fn return_conversion(&self, method: &MethodDef, has_error: bool, indent: &str) -> String {
+    fn return_conversion(&self, method: &MethodDef, spec: &TraitBridgeSpec, has_error: bool, indent: &str) -> String {
         let rust_ty = self.return_rust_type(&method.return_type);
         let err_non_json = if has_error {
             self.make_error(&format!(
@@ -558,6 +560,8 @@ impl MagnusBridgeGenerator {
         crate::backends::magnus::template_env::render(
             "trait_bridge_return_conversion.rs.jinja",
             minijinja::context! {
+                wrapper => spec.wrapper_name(),
+                method_name => &method.name,
                 has_error => has_error,
                 needs_json => self.needs_json_marshalling(&method.return_type),
                 native_return_binding => self.native_struct_return(&method.return_type),

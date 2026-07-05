@@ -77,11 +77,14 @@ impl FfiBridgeGenerator {
             );
             out.push_str(&make_err(null_msg));
         } else {
-            // For infallible methods, return the Rust default value
+            // For infallible methods, log the uninitialised slot (the failure
+            // cannot propagate) and return the Rust default value.
             let default_expr = default_for_type(&method.return_type);
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_return_default_4.jinja",
                 minijinja::context! {
+                    wrapper => spec.wrapper_name(),
+                    method_name => name,
                     default_expr => &default_expr,
                 },
             ));
@@ -459,7 +462,11 @@ impl FfiBridgeGenerator {
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_decode_string_value.jinja",
-                        minijinja::context! { vtable_expr => "self.vtable" },
+                        minijinja::context! {
+                            wrapper => spec.wrapper_name(),
+                            method_name => name,
+                            vtable_expr => "self.vtable",
+                        },
                     ));
                 }
                 TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
@@ -468,6 +475,11 @@ impl FfiBridgeGenerator {
                         "if _out_result.is_null() {
 ",
                     );
+                    out.push_str(&format!(
+                        "    eprintln!(\"[{wrapper}] host '{name}' wrote no result; returning default\");
+",
+                        wrapper = spec.wrapper_name(),
+                    ));
                     out.push_str(
                         "    return Default::default();
 ",
@@ -487,6 +499,8 @@ impl FfiBridgeGenerator {
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_serde_from_str_default.jinja",
                         minijinja::context! {
+                            wrapper => spec.wrapper_name(),
+                            method_name => name,
                             ret_ty => &ret_ty,
                         },
                     ));

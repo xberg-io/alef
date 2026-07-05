@@ -37,7 +37,11 @@ match result {
 }
 {% else %}
 match result {
-    Err(_) => Default::default(),
+    // Infallible unit method: a JS exception cannot propagate — log it before
+    // discarding so a failed callback is not invisible to the caller.
+    Err(e) => {
+        eprintln!("[{{ wrapper }}] host '{{ method_name }}' threw; ignoring: {e}");
+    }
     Ok(_) => ()
 }
 {% endif %}

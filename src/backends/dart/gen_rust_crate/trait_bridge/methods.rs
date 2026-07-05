@@ -18,6 +18,7 @@ use crate::backends::dart::gen_rust_crate::trait_types::{
 pub(super) fn emit_trait_bridge_method(
     out: &mut String,
     method: &MethodDef,
+    bridge_name: &str,
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
     excluded_type_paths: &std::collections::HashMap<String, String>,
@@ -198,6 +199,12 @@ pub(super) fn emit_trait_bridge_method(
                 minijinja::context! {
                     call_expr => call_expr.as_str(),
                     result_var => "__ret_bridge",
+                    has_error => method.error_type.is_some(),
+                    // Excluded core return types have no Default guarantee —
+                    // log the panic, then re-raise instead of substituting.
+                    resume_panic => true,
+                    wrapper => bridge_name,
+                    method_name => method_name.as_str(),
                 },
             ));
             if method.error_type.is_some() {
@@ -265,6 +272,9 @@ pub(super) fn emit_trait_bridge_method(
                 minijinja::context! {
                     call_expr => call_expr.as_str(),
                     result_var => "__result",
+                    has_error => true,
+                    wrapper => bridge_name,
+                    method_name => method_name.as_str(),
                 },
             ));
             if named_return_default {
@@ -321,6 +331,9 @@ pub(super) fn emit_trait_bridge_method(
             minijinja::context! {
                 call_expr => call_expr.as_str(),
                 result_var => "__result",
+                has_error => false,
+                wrapper => bridge_name,
+                method_name => method_name.as_str(),
             },
         ));
         if named_return_default {

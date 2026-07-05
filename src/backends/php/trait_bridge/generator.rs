@@ -166,6 +166,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         crate::backends::php::template_env::render(
             "sync_method_body.jinja",
             context! {
+                wrapper => spec.wrapper_name(),
                 method_name => name,
                 args_expr => args_expr,
                 is_result_type => is_result_type,

@@ -6,7 +6,12 @@ fn {{ method_name }}({{ sig }}) -> {{ ret_ty }} {
         }
 
         match {{ py_call }} {
-            Err(_) => {{ default_result_expr }},
+            // Visitor callbacks are infallible on the Rust side — log the host
+            // exception before substituting the default action.
+            Err(e) => {
+                eprintln!("[{{ wrapper }}] host '{{ method_name }}' raised; using default action: {e}");
+                {{ default_result_expr }}
+            }
             Ok(result) => {
                 if let Ok(s) = result.extract::<String>() {
                     match s.as_str() {
@@ -22,7 +27,10 @@ fn {{ method_name }}({{ sig }}) -> {{ ret_ty }} {
                     if let Ok(d) = py_dict {
 {%- for variant in payload_result_variants %}
                         if let Some(v) = d.get_item("{{ variant.wire_name }}").ok().flatten() {
-                            return {{ ret_ty }}::{{ variant.name }}(v.extract::<String>().unwrap_or_default());
+                            return {{ ret_ty }}::{{ variant.name }}(v.extract::<String>().unwrap_or_else(|e| {
+                                eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned a non-string '{{ variant.wire_name }}' payload; using empty string: {e}");
+                                String::new()
+                            }));
                         }
 {%- endfor %}
                         {{ default_result_expr }}

@@ -46,6 +46,7 @@ pub(super) fn gen_visitor_bridge(
             trait_path,
             bridge_cfg,
             type_paths,
+            struct_name,
             &result_metadata,
         );
     }
@@ -75,6 +76,7 @@ fn gen_visitor_method(
     _trait_path: &str,
     bridge_cfg: &TraitBridgeConfig,
     type_paths: &HashMap<String, String>,
+    struct_name: &str,
     result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
 ) {
     use crate::core::ir::TypeRef;
@@ -111,6 +113,7 @@ fn gen_visitor_method(
     let method_code = crate::backends::pyo3::template_env::render(
         "trait_bridge/visitor_method.jinja",
         minijinja::context! {
+            wrapper => struct_name,
             method_name => name,
             sig => sig,
             ret_ty => ret_ty,

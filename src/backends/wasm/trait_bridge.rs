@@ -151,6 +151,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
             return_unit => return_unit,
             return_string => return_string,
             return_bool => return_bool,
+            wrapper => spec.wrapper_name(),
             return_enum => return_enum,
         };
         crate::backends::wasm::template_env::render("gen_sync_method_body", ctx)

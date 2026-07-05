@@ -38,26 +38,60 @@ match result {
 {% if is_unit_return %}
     Ok(_) => (),
 {% elif is_primitive_return %}
+    Ok(val) => match val.long() {
 {% if return_type == "bool" %}
-    Ok(val) => val.long().unwrap_or_default() != 0,
+        Some(v) => v != 0,
 {% else %}
-    Ok(val) => val.long().unwrap_or_default() as {{ return_type }},
+        Some(v) => v as {{ return_type }},
 {% endif %}
+        None => {
+            eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned a non-integer value; returning default");
+            Default::default()
+        }
+    },
 {% else %}
     Ok(val) => {
 {%- if native_return_binding %}
         if let Some(native) = <&{{ native_return_binding }} as ext_php_rs::convert::FromZval>::from_zval(&val) {
             native.clone().into()
         } else {
-            let json_str = val.string().unwrap_or_default();
-            serde_json::from_str(&json_str).unwrap_or_default()
+            match val.string() {
+                Some(json_str) => match serde_json::from_str(&json_str) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned an unparseable value; returning default: {e}");
+                        Default::default()
+                    }
+                },
+                None => {
+                    eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned a non-string value; returning default");
+                    Default::default()
+                }
+            }
         }
 {%- else %}
-        let json_str = val.string().unwrap_or_default();
-        serde_json::from_str(&json_str).unwrap_or_default()
+        match val.string() {
+            Some(json_str) => match serde_json::from_str(&json_str) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned an unparseable value; returning default: {e}");
+                    Default::default()
+                }
+            },
+            None => {
+                eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned a non-string value; returning default");
+                Default::default()
+            }
+        }
 {%- endif %}
     }
 {% endif %}
-    Err(_) => Default::default(),
+    // This method's Rust signature is infallible, so a PHP exception cannot
+    // propagate. Log before substituting the default — a silent default is
+    // indistinguishable from a real result to the caller.
+    Err(e) => {
+        eprintln!("[{{ wrapper }}] host '{{ method_name }}' threw; {% if is_unit_return %}ignoring{% else %}returning default{% endif %}: {e}");
+        Default::default()
+    }
 }
 {% endif %}

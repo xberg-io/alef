@@ -216,6 +216,7 @@ pub(crate) fn emit_trait_bridge(
         emit_trait_bridge_method(
             out,
             method,
+            callbacks_struct_name.as_str(),
             source_crate_name,
             type_paths,
             &api.excluded_type_paths,

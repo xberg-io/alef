@@ -443,6 +443,20 @@ fn gen_bridge_file(
     let registry_field = format!("{}_BRIDGES", trait_snake.to_uppercase());
     let bridge_class = format!("{trait_pascal}Bridge");
 
+    // Sync infallible methods with simple returns use the C vtable's
+    // direct-value convention (see `ffi::trait_bridge::c_return_convention`):
+    // the slot is `fn(user_data, params...) -> <primitive>` with NO
+    // out_result/out_error pointers. The upcall stub and handler must match
+    // that ABI exactly — appending the JSON-convention pointer params here
+    // makes the stub read garbage registers as addresses (wild write) and
+    // Rust read the int status code as the return value.
+    let direct_return = |method: &MethodDef| -> Option<DirectReturn> {
+        if method.error_type.is_some() {
+            return None;
+        }
+        direct_return_for(&method.return_type)
+    };
+
     // Methods listed in `ffi_skip_methods` cannot be expressed on the C ABI
     // (e.g., trait-object references), so they are absent from the interface
     // and the bridge must not emit upcall stubs or handlers for them.
@@ -557,10 +571,36 @@ fn gen_bridge_file(
                 method_type_params.push("long.class".to_string());
             }
         }
-        if !matches!(method.return_type, TypeRef::Unit) {
+        let direct = direct_return(method);
+        let has_error = method.error_type.is_some();
+
+        // Out-pointer params mirror the C vtable slot
+        // (`ffi::trait_bridge::c_return_convention`) for infallible methods:
+        // direct-value slots carry neither pointer, Char/Path outResult only,
+        // Optional<non-primitive>/Bytes neither (no value channel exists for
+        // them on the C ABI). Fallible methods keep java's long-standing JSON
+        // convention (outResult for non-Unit + outError) unchanged; note the
+        // pre-existing caveat that a fallible primitive, Bytes,
+        // Optional<non-primitive>, or Duration return would declare an
+        // outResult the C slot doesn't carry — deliberately not touched
+        // here (no such bridged method exists).
+        let (has_out_result, has_out_error) = if has_error {
+            (!matches!(method.return_type, TypeRef::Unit), true)
+        } else if direct.is_some() {
+            (false, false)
+        } else {
+            (
+                infallible_slot_has_out_result(&method.return_type),
+                infallible_slot_has_out_error(&method.return_type),
+            )
+        };
+
+        if has_out_result {
             method_type_params.push("MemorySegment.class".to_string());
         }
-        method_type_params.push("MemorySegment.class".to_string());
+        if has_out_error {
+            method_type_params.push("MemorySegment.class".to_string());
+        }
 
         let mut func_desc_params = vec!["ValueLayout.ADDRESS".to_string()];
         for param in &method.params {
@@ -574,24 +614,40 @@ fn gen_bridge_file(
                 func_desc_params.push("ValueLayout.JAVA_LONG".to_string());
             }
         }
-        if !matches!(method.return_type, TypeRef::Unit) {
+        if has_out_result {
             func_desc_params.push("ValueLayout.ADDRESS".to_string());
         }
-        func_desc_params.push("ValueLayout.ADDRESS".to_string());
+        if has_out_error {
+            func_desc_params.push("ValueLayout.ADDRESS".to_string());
+        }
 
-        stubs.push(minijinja::context! {
-            var_name => &stub_name,
-            pascal_name => &method_pascal,
-            handle_name => &handle_name,
-            return_type => "int.class",
-            method_type_params => method_type_params.join(", "),
-            // Trait method stubs return i32 status codes, so the FunctionDescriptor return
-            // layout must be JAVA_INT (matching the `int` upcall return). The companion
-            // bytes-length param above stays JAVA_LONG.
-            descriptor_return => "ValueLayout.JAVA_INT",
-            descriptor_params => func_desc_params.join(", "),
-            returns_void => false,
-        });
+        match direct {
+            Some(d) => stubs.push(minijinja::context! {
+                var_name => &stub_name,
+                pascal_name => &method_pascal,
+                handle_name => &handle_name,
+                // Direct-value slot: the stub returns the primitive itself
+                // (or void), matching the vtable's `-> <primitive>` signature.
+                return_type => d.method_type_class,
+                method_type_params => method_type_params.join(", "),
+                descriptor_return => d.descriptor,
+                descriptor_params => func_desc_params.join(", "),
+                returns_void => d.returns_void,
+            }),
+            None => stubs.push(minijinja::context! {
+                var_name => &stub_name,
+                pascal_name => &method_pascal,
+                handle_name => &handle_name,
+                return_type => "int.class",
+                method_type_params => method_type_params.join(", "),
+                // JSON-convention stubs return i32 status codes, so the FunctionDescriptor
+                // return layout must be JAVA_INT (matching the `int` upcall return). The
+                // companion bytes-length param above stays JAVA_LONG.
+                descriptor_return => "ValueLayout.JAVA_INT",
+                descriptor_params => func_desc_params.join(", "),
+                returns_void => false,
+            }),
+        }
     }
 
     // Build trait method handlers
@@ -619,10 +675,25 @@ fn gen_bridge_file(
                     sig_params.push(format!("long {local}Len"));
                 }
             }
-            if !matches!(method.return_type, TypeRef::Unit) {
+            let direct = direct_return(method);
+            let has_error = method.error_type.is_some();
+            // Mirror the C slot's out-pointer params exactly (see the stub loop).
+            let (has_out_result, has_out_error) = if has_error {
+                (!matches!(method.return_type, TypeRef::Unit), true)
+            } else if direct.is_some() {
+                (false, false)
+            } else {
+                (
+                    infallible_slot_has_out_result(&method.return_type),
+                    infallible_slot_has_out_error(&method.return_type),
+                )
+            };
+            if has_out_result {
                 sig_params.push("MemorySegment outResult".to_string());
             }
-            sig_params.push("MemorySegment outError".to_string());
+            if has_out_error {
+                sig_params.push("MemorySegment outError".to_string());
+            }
 
             // Build unmarshal params
             let mut unmarshal_params: Vec<String> = vec![];
@@ -671,6 +742,25 @@ fn gen_bridge_file(
                 _ => false,
             };
 
+            let call = format!("impl.{}({})", method.name, java_args.join(", "));
+            let (is_direct, direct_sig_return, direct_return_stmt, direct_default_stmt) = match &direct {
+                Some(d) => (
+                    true,
+                    d.java_sig,
+                    if d.returns_void {
+                        format!("{call};")
+                    } else {
+                        d.return_stmt(&call)
+                    },
+                    if d.returns_void {
+                        String::new()
+                    } else {
+                        format!("return {};", d.default_literal)
+                    },
+                ),
+                None => (false, "", String::new(), String::new()),
+            };
+
             minijinja::context! {
                 name => &method.name,
                 handle_name => &handle,
@@ -680,6 +770,16 @@ fn gen_bridge_file(
                 call_args => java_args.join(", "),
                 has_return => has_return,
                 raw_result => raw_result,
+                direct => is_direct,
+                direct_sig_return => direct_sig_return,
+                direct_return_stmt => direct_return_stmt,
+                direct_default_stmt => direct_default_stmt,
+                // JSON-convention slots without a value/error channel
+                // (infallible Char/Path lack outError; infallible
+                // Optional<non-primitive>/Bytes lack both): the handler's
+                // marshal/catch must not touch pointers the slot doesn't carry.
+                marshal_result => has_out_result,
+                has_out_error => has_out_error,
             }
         })
         .collect();
@@ -779,6 +879,163 @@ fn gen_bridge_file(
     };
 
     template_env::render("trait_bridge.jinja", ctx)
+}
+
+/// Shape of a direct-value (non-JSON-convention) trait-method return.
+///
+/// Mirrors `ffi::trait_bridge::c_return_convention`'s infallible-simple branch:
+/// integer primitives (and Duration millis) return as 64-bit values, floats as
+/// themselves, Unit as void. Integer layouts are promoted to `JAVA_LONG` for
+/// the same JBR Win64 Panama reason documented on `java_ffi_type`.
+struct DirectReturn {
+    /// FunctionDescriptor return layout, e.g. `ValueLayout.JAVA_LONG`. Unused for void.
+    descriptor: &'static str,
+    /// MethodType return class literal, e.g. `long.class` / `void.class`.
+    method_type_class: &'static str,
+    /// Java handler signature return type, e.g. `long` / `void`.
+    java_sig: &'static str,
+    /// Default value returned when the host throws, e.g. `0L`. Empty for void.
+    default_literal: &'static str,
+    /// Wrap the `impl.method(args)` call expression into a return value
+    /// (boolean -> 1L/0L, Optional -> orElse(default)).
+    wrap: DirectWrap,
+    returns_void: bool,
+}
+
+enum DirectWrap {
+    /// `return <call>;` (implicit numeric widening covers narrow ints).
+    Plain,
+    /// `return <call> ? 1L : 0L;`
+    BoolToLong,
+    /// `return <call>.orElse(<default>);`
+    OptionalOrDefault,
+    /// `return <call>.orElse(false) ? 1L : 0L;`
+    OptionalBoolToLong,
+}
+
+impl DirectReturn {
+    fn return_stmt(&self, call: &str) -> String {
+        match self.wrap {
+            DirectWrap::Plain => format!("return {call};"),
+            DirectWrap::BoolToLong => format!("return {call} ? 1L : 0L;"),
+            DirectWrap::OptionalOrDefault => format!("return {call}.orElse({});", self.default_literal),
+            DirectWrap::OptionalBoolToLong => format!("return {call}.orElse(false) ? 1L : 0L;"),
+        }
+    }
+}
+
+/// Whether an infallible slot for this return type carries an `out_result`
+/// pointer. Mirrors `ffi::trait_bridge::c_return_convention`'s out-param arms:
+/// String/Char/Path/Json/Named/Vec/Map get `out_result`; Optional<non-primitive>
+/// and Bytes fall into the catch-all arm with NO out params (a bare i32 return
+/// with no value channel — such methods cannot marshal a value at all).
+fn infallible_slot_has_out_result(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::String
+            | TypeRef::Char
+            | TypeRef::Path
+            | TypeRef::Json
+            | TypeRef::Named(_)
+            | TypeRef::Vec(_)
+            | TypeRef::Map(_, _)
+    )
+}
+
+/// Whether an infallible slot for this return type carries an `out_error`
+/// pointer. Mirrors `c_return_convention`'s `needs_out_error`: only
+/// Named/Vec/Map/String/Json — notably NOT Char/Path, whose infallible slots
+/// have `out_result` but no `out_error`.
+fn infallible_slot_has_out_error(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::String | TypeRef::Json
+    )
+}
+
+/// Direct-value return shape for a type, or `None` when the method uses the
+/// JSON out-param convention (String/Named/Vec/Map/Json returns).
+fn direct_return_for(ty: &TypeRef) -> Option<DirectReturn> {
+    fn for_prim(p: &PrimitiveType, optional: bool) -> DirectReturn {
+        match p {
+            PrimitiveType::Bool => DirectReturn {
+                descriptor: "ValueLayout.JAVA_LONG",
+                method_type_class: "long.class",
+                java_sig: "long",
+                default_literal: "0L",
+                wrap: if optional {
+                    DirectWrap::OptionalBoolToLong
+                } else {
+                    DirectWrap::BoolToLong
+                },
+                returns_void: false,
+            },
+            PrimitiveType::F32 => DirectReturn {
+                descriptor: "ValueLayout.JAVA_FLOAT",
+                method_type_class: "float.class",
+                java_sig: "float",
+                default_literal: "0.0f",
+                wrap: if optional {
+                    DirectWrap::OptionalOrDefault
+                } else {
+                    DirectWrap::Plain
+                },
+                returns_void: false,
+            },
+            PrimitiveType::F64 => DirectReturn {
+                descriptor: "ValueLayout.JAVA_DOUBLE",
+                method_type_class: "double.class",
+                java_sig: "double",
+                default_literal: "0.0d",
+                wrap: if optional {
+                    DirectWrap::OptionalOrDefault
+                } else {
+                    DirectWrap::Plain
+                },
+                returns_void: false,
+            },
+            // All integer widths (widening to long is implicit in Java).
+            _ => DirectReturn {
+                descriptor: "ValueLayout.JAVA_LONG",
+                method_type_class: "long.class",
+                java_sig: "long",
+                default_literal: "0L",
+                wrap: if optional {
+                    DirectWrap::OptionalOrDefault
+                } else {
+                    DirectWrap::Plain
+                },
+                returns_void: false,
+            },
+        }
+    }
+
+    match ty {
+        TypeRef::Unit => Some(DirectReturn {
+            descriptor: "",
+            method_type_class: "void.class",
+            java_sig: "void",
+            default_literal: "",
+            wrap: DirectWrap::Plain,
+            returns_void: true,
+        }),
+        TypeRef::Primitive(p) => Some(for_prim(p, false)),
+        // Duration crosses the C ABI as u64 millis; the Java type is boxed Long,
+        // which unboxes implicitly on return.
+        TypeRef::Duration => Some(DirectReturn {
+            descriptor: "ValueLayout.JAVA_LONG",
+            method_type_class: "long.class",
+            java_sig: "long",
+            default_literal: "0L",
+            wrap: DirectWrap::Plain,
+            returns_void: false,
+        }),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Primitive(p) => Some(for_prim(p, true)),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Format unmarshal code for a single parameter without writing to a string.

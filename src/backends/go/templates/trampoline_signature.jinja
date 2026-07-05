@@ -2,4 +2,4 @@ func {{ name }}(
 {% for param in params %}
 	{{ param }},
 {% endfor %}
-) C.{{ return_type | default(value="int32_t") }} {
+) (ret C.{{ return_type | default(value="int32_t") }}) {

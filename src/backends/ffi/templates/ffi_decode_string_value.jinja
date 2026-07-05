@@ -1,4 +1,5 @@
 if _out_result.is_null() {
+    eprintln!("[{{ wrapper }}] host '{{ method_name }}' wrote no result; returning default");
     return String::new();
 }
 // SAFETY: out_result was written by the callee as a valid NUL-terminated string.

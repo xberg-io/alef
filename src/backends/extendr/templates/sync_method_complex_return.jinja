@@ -18,29 +18,40 @@ let result = fn_robj.call(args);
 {% if is_primitive_return %}
 // Primitive return: extract directly from Robj without JSON deserialization
 match result {
-    Err(_) => {
 {% if has_error %}
+    Err(_) => {
         Err({{ failed_method_error }})
-{% else %}
-        Default::default()
-{% endif %}
     }
+{% else %}
+    // This method's Rust signature is infallible, so an R error cannot
+    // propagate. Log before substituting the default — a silent default is
+    // indistinguishable from a real result to the caller.
+    Err(e) => {
+        eprintln!("[{{ wrapper }}] host '{{ method_name }}' raised; returning default: {e}");
+        Default::default()
+    }
+{% endif %}
     Ok(val) => {
 {% if return_type == "bool" %}
-        let int_val = val.as_integer()
+        let extracted = val.as_integer()
             .map(|i| i != 0)
-            .or_else(|| val.as_real().map(|r| r != 0.0))
-            .unwrap_or(false);
+            .or_else(|| val.as_real().map(|r| r != 0.0));
 {% else %}
-        let int_val = val.as_integer()
+        let extracted = val.as_integer()
             .map(|i| i as {{ return_type }})
-            .or_else(|| val.as_real().map(|r| r as {{ return_type }}))
-            .unwrap_or_default();
+            .or_else(|| val.as_real().map(|r| r as {{ return_type }}));
 {% endif %}
 {% if has_error %}
+        let int_val = extracted.unwrap_or_default();
         Ok(int_val)
 {% else %}
-        int_val
+        match extracted {
+            Some(v) => v,
+            None => {
+                eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned a non-numeric value; returning default");
+                Default::default()
+            }
+        }
 {% endif %}
     }
 }
@@ -50,13 +61,19 @@ match result {
 // `serde::Serialize`, so we cannot serialize it directly — the caller must serialize on
 // the R side.
 match result {
-    Err(_) => {
 {% if has_error %}
+    Err(_) => {
         Err({{ failed_method_error }})
-{% else %}
-        Default::default()
-{% endif %}
     }
+{% else %}
+    // This method's Rust signature is infallible, so an R error cannot
+    // propagate. Log before substituting the default — a silent default is
+    // indistinguishable from a real result to the caller.
+    Err(e) => {
+        eprintln!("[{{ wrapper }}] host '{{ method_name }}' raised; returning default: {e}");
+        Default::default()
+    }
+{% endif %}
     Ok(val) => {
 {%- if native_return_binding %}
         // Native-object return: unwrap the host's native `ExternalPtr` and convert via
@@ -77,7 +94,10 @@ match result {
             Err(_) => Err({{ deserialization_error }}),
 {% else %}
             Ok(parsed) => parsed,
-            Err(_) => Default::default(),
+            Err(e) => {
+                eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned an unparseable value; returning default: {e}");
+                Default::default()
+            }
 {% endif %}
         }
     }

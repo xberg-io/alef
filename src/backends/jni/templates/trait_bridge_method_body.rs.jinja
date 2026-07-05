@@ -10,7 +10,10 @@ let __resp = match self.__alef_dispatch("{{ method_name }}", &args_json) {
 {% if has_error %}
         return Err({{ dispatch_error_expr }});
 {% else %}
-        let _ = e;
+        // This method's Rust signature is infallible, so a dispatch failure
+        // cannot propagate. Log before substituting the default — a silent
+        // default is indistinguishable from a real result to the caller.
+        eprintln!("[{{ wrapper }}] dispatch of host '{{ method_name }}' failed; returning default: {e}");
         return Default::default();
 {% endif %}
     }
@@ -21,7 +24,7 @@ let mut __value: serde_json::Value = match serde_json::from_str(&__resp) {
 {% if has_error %}
         return Err({{ parse_error_expr }});
 {% else %}
-        let _ = e;
+        eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned invalid JSON; returning default: {e}");
         return Default::default();
 {% endif %}
     }
@@ -30,7 +33,7 @@ if let Some(e) = __value.get("err").and_then(|v| v.as_str()) {
 {% if has_error %}
     return Err({{ host_error_expr }});
 {% else %}
-    let _ = e;
+    eprintln!("[{{ wrapper }}] host '{{ method_name }}' threw; returning default: {e}");
     return Default::default();
 {% endif %}
 }
@@ -46,6 +49,9 @@ let __ok = __value
 {% if has_error %}
 serde_json::from_value::<{{ return_ty }}>(__ok).map_err(|e| {{ deser_error_expr }})
 {% else %}
-serde_json::from_value::<{{ return_ty }}>(__ok).unwrap_or_default()
+serde_json::from_value::<{{ return_ty }}>(__ok).unwrap_or_else(|e| {
+    eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned a value that does not match the expected return type; returning default: {e}");
+    Default::default()
+})
 {% endif %}
 {% endif %}

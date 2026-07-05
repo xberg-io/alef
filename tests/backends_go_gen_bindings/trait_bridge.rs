@@ -934,3 +934,88 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
 
 #[path = "trait_bridge/typed_params.rs"]
 mod typed_params;
+
+#[test]
+fn test_gen_trait_bridges_file_trampolines_recover_host_panics() {
+    // A Go panic in the host implementation crossing the cgo export into Rust
+    // is a fatal runtime crash — every generated trampoline must carry a
+    // deferred recover() that logs and returns through the named return value.
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![
+            // fallible method: panic is marshaled through outError, status 1
+            make_trait_method("process", vec![], TypeRef::String, true),
+            // infallible primitive method: panic logs and returns the zero value
+            make_trait_method(
+                "count_tokens",
+                vec![],
+                TypeRef::Primitive(alef::core::ir::PrimitiveType::Usize),
+                false,
+            ),
+        ],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef::core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
+
+    // Every trampoline body opens with a deferred recover.
+    assert!(
+        code.contains("defer func() {") && code.contains("if r := recover(); r != nil {"),
+        "trampolines must recover host panics:\n{code}"
+    );
+    // Fallible: panic text marshaled through outError with status 1.
+    assert!(
+        code.contains("host 'Process' panicked") && code.contains("*outError = C.CString(fmt.Sprint(r))"),
+        "fallible trampoline must marshal the panic through outError:\n{code}"
+    );
+    // Infallible: stderr log, zero-value named return.
+    assert!(
+        code.contains("host 'CountTokens' panicked; returning default"),
+        "infallible trampoline must log the panic and return the default:\n{code}"
+    );
+    // Named returns so the deferred recover can set them: int32 status for
+    // fallible slots, the primitive itself for direct-value slots.
+    assert!(
+        code.contains("(ret C.int32_t)"),
+        "fallible trampolines must use a named int32 status return:\n{code}"
+    );
+    assert!(
+        code.contains("(ret C.uintptr_t)"),
+        "usize trampolines must use a named primitive return:\n{code}"
+    );
+    // Invalid-handle paths must log AND marshal outError (lifecycle slots) —
+    // not return a bare status.
+    assert!(
+        code.contains("called with an invalid handle"),
+        "invalid-handle paths must log:\n{code}"
+    );
+    assert!(
+        code.contains("host 'Name' called with an invalid handle")
+            && code.contains("*outError = C.CString(\"invalid handle\")"),
+        "lifecycle invalid-handle paths must marshal outError:\n{code}"
+    );
+    // Plugin lifecycle trampolines are covered too.
+    assert!(
+        code.contains("host 'Name' panicked"),
+        "plugin Name trampoline must recover:\n{code}"
+    );
+}

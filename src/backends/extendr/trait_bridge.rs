@@ -164,6 +164,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         crate::backends::extendr::template_env::render(
             template_name,
             minijinja::context! {
+                wrapper => spec.wrapper_name(),
                 method_name => name,
                 has_error => has_error,
                 has_error_check => if has_error { "true" } else { "false" },
