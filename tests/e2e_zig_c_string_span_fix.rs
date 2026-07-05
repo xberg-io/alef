@@ -1,9 +1,11 @@
-//! Verifies that Zig e2e codegen properly wraps C string pointers ([*c]const u8)
-//! with std.mem.span() before passing them to Zig functions that expect
-//! slices ([]const u8), such as std.json.parseFromSlice and std.fmt.allocPrint.
+//! Verifies that Zig e2e codegen does NOT wrap _result_json with std.mem.span()
+//! because the Zig wrapper functions return []u8 (owned slices), not C pointers.
 //!
-//! This fixes the error: "Unable to stringify type '[*c]const u8'"
-//! which occurs when trying to use raw C pointers with Zig's format/stringify functions.
+//! In zig 0.16+, calling std.mem.span() on a slice is a compile error:
+//! "invalid type given to std.mem.span: []u8"
+//!
+//! The wrapper always converts the FFI return value to []u8 before returning
+//! to the test, so e2e tests pass slices directly to parseFromSlice and allocPrint.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -85,9 +87,9 @@ field = "input.request"
 type = "json_object"
 "#;
 
-/// Verify that C string pointers are wrapped with std.mem.span() in parseFromSlice calls.
+/// Verify that _result_json is passed directly to parseFromSlice without std.mem.span.
 #[test]
-fn c_string_pointer_wrapped_in_parse_from_slice() {
+fn result_slice_passed_directly_to_parse_from_slice() {
     let toml = format!(
         r#"{}
 [crates.e2e.call.overrides.zig]
@@ -112,17 +114,22 @@ result_is_json_struct = true
 
     let rendered = render_zig_test(&toml, "parse_span_test", fixture);
 
-    // The generated code should convert _result_json (a [*c]const u8) using std.mem.span
-    // before passing to parseFromSlice (which expects []const u8).
+    // The Zig wrapper returns []u8 (owned slice), so _result_json is already a slice.
+    // It must be passed directly to parseFromSlice without std.mem.span wrapping.
+    // In zig 0.16+, std.mem.span on a slice is a compile error.
     assert!(
-        rendered.contains("std.mem.span(_result_json)"),
-        "must wrap C string pointer with std.mem.span in parseFromSlice. Rendered:\n{rendered}"
+        !rendered.contains("std.mem.span(_result_json)"),
+        "must NOT wrap _result_json with std.mem.span when it's already a []u8 slice. Rendered:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("parseFromSlice(std.json.Value, allocator, _result_json"),
+        "must pass _result_json directly to parseFromSlice. Rendered:\n{rendered}"
     );
 }
 
-/// Verify that C string pointers are wrapped with std.mem.span() in std.fmt.allocPrint calls.
+/// Verify that _result_json is passed directly to allocPrint without std.mem.span.
 #[test]
-fn c_string_pointer_wrapped_in_format_string() {
+fn result_slice_passed_directly_in_format_string() {
     let toml = format!(
         r#"{}
 [crates.e2e.call.overrides.zig]
@@ -149,21 +156,25 @@ result_is_json_struct = true
     let rendered = render_zig_test(&toml, "interact_format_span_test", fixture);
 
     // For interact(), the result gets wrapped in JSON format string with {s} specifier.
-    // The {s} format requires a []const u8 slice, so _result_json must be wrapped.
+    // The {s} format accepts []const u8 slices directly, so _result_json is passed as-is.
     assert!(
-        rendered.contains("std.mem.span(_result_json)"),
-        "must wrap C string pointer with std.mem.span in format string. Rendered:\n{rendered}"
+        !rendered.contains("std.mem.span(_result_json)"),
+        "must NOT wrap _result_json with std.mem.span in format string. Rendered:\n{rendered}"
     );
     assert!(
         rendered.contains("allocPrint"),
         "interact path should use allocPrint to build wrapped JSON. Rendered:\n{rendered}"
     );
+    assert!(
+        rendered.contains("allocPrint(allocator, \"") && rendered.contains("_result_json"),
+        "allocPrint should receive _result_json directly without std.mem.span. Rendered:\n{rendered}"
+    );
 }
 
-/// Verify that C string pointers in normal (non-JSON) results are wrapped with std.mem.span()
+/// Verify that _result_json slice is passed directly without std.mem.span
 /// when the result is a JSON struct but the wrap_field is None.
 #[test]
-fn c_string_pointer_wrapped_in_parse_without_wrap_field() {
+fn result_slice_passed_directly_in_parse_without_wrap_field() {
     let toml = format!(
         r#"{}
 [crates.e2e.call.overrides.zig]
@@ -189,10 +200,15 @@ result_is_json_struct = true
 
     let rendered = render_zig_test(&toml, "extract_span_test", fixture);
 
-    // When result is JSON struct but no wrap_field, still need to convert _result_json pointer.
-    // This tests the else clause in the parse_json_var if statement (line 587 in test_file.rs)
+    // When result is JSON struct but no wrap_field, _result_json is already a []u8 slice,
+    // so it's passed directly to parseFromSlice without std.mem.span wrapping.
+    // This tests the else clause in the parse_json_var if statement (line 589 in test_file.rs)
     assert!(
-        rendered.contains("std.mem.span(_result_json)"),
-        "must wrap C string pointer with std.mem.span in JSON parse when no wrap_field. Rendered:\n{rendered}"
+        !rendered.contains("std.mem.span(_result_json)"),
+        "must NOT wrap _result_json with std.mem.span when it's already a slice. Rendered:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("parseFromSlice(std.json.Value, allocator, _result_json"),
+        "must pass _result_json directly to parseFromSlice. Rendered:\n{rendered}"
     );
 }

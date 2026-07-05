@@ -400,7 +400,7 @@ fn render_test_fn(
             let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
             let _ = writeln!(
                 out,
-                "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, std.mem.span(_result_json), .{{}});"
+                "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
             );
             let _ = writeln!(out, "    defer _parsed.deinit();");
             let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
@@ -467,13 +467,10 @@ fn render_test_fn(
                 for assertion in &fixture.assertions {
                     match assertion.assertion_type.as_str() {
                         "not_empty" => {
-                            let _ = writeln!(out, "    try testing.expect(std.mem.span(_result_json).len > 0);");
+                            let _ = writeln!(out, "    try testing.expect(_result_json.len > 0);");
                         }
                         "is_empty" => {
-                            let _ = writeln!(
-                                out,
-                                "    try testing.expectEqual(@as(usize, 0), std.mem.span(_result_json).len);"
-                            );
+                            let _ = writeln!(out, "    try testing.expectEqual(@as(usize, 0), _result_json.len);");
                         }
                         "not_error" | "error" => {}
                         _ => {
@@ -580,14 +577,15 @@ fn render_test_fn(
                         // In Rust string literal: "{{{{\\\"field\\\":{{s}}}}}}" (each { → {{, each \ → \\)
                         let _ = writeln!(
                             out,
-                            "    const _wrapped_json = try std.fmt.allocPrint(allocator, \"{{{{\\\"{}\\\":{{s}}}}}}\", .{{std.mem.span(_result_json)}});",
+                            "    const _wrapped_json = try std.fmt.allocPrint(allocator, \"{{{{\\\"{}\\\":{{s}}}}}}\", .{{_result_json}});",
                             field
                         );
                         let _ = writeln!(out, "    defer allocator.free(_wrapped_json);");
                         "_wrapped_json".to_string()
                     } else {
-                        // C string pointers require std.mem.span() conversion to [](const u8.
-                        "std.mem.span(_result_json)".to_string()
+                        // _result_json is already a []u8 slice from the Zig wrapper function,
+                        // so pass it directly to parseFromSlice.
+                        "_result_json".to_string()
                     };
 
                     let _ = writeln!(
