@@ -278,18 +278,20 @@ pub fn emit_make_vtable(
                         ));
                     }
                     _ => {
-                        // String/Bytes/complex: cannot safely convert without allocator context
-                        // Check if this is a simple string-like type (maps to [*c]const u8)
-                        // that should be used directly without JSON formatting.
-                        let is_string_like = matches!(
-                            &method.return_type,
-                            TypeRef::String | TypeRef::Bytes | TypeRef::Path | TypeRef::Json | TypeRef::Char
-                        );
+                        // In the zig trait-bridge ABI every non-primitive/non-unit
+                        // return is represented by the stub as a pre-serialized JSON
+                        // C string (`[*c]const u8`) — not only String/Bytes/Path/
+                        // Json/Char but also aggregates like `Vec<T>` (e.g. `embed`,
+                        // `rerank`) and structs/enums. The value handed to the thunk
+                        // is therefore always already a `[*c]const u8`; pass it
+                        // through directly rather than re-serializing with
+                        // `std.json.fmt`, which cannot stringify `[*c]const u8`
+                        // under zig 0.16.
                         out.push_str(&crate::backends::zig::template_env::render(
                             "thunk_if_fallible.jinja",
                             minijinja::context! {
                                 ok_binding => &ok_binding,
-                                is_string_like => is_string_like,
+                                is_string_like => true,
                             },
                         ));
                         success_path_diverges = true;
