@@ -279,10 +279,17 @@ pub fn emit_make_vtable(
                     }
                     _ => {
                         // String/Bytes/complex: cannot safely convert without allocator context
+                        // Check if this is a simple string-like type (maps to [*c]const u8)
+                        // that should be used directly without JSON formatting.
+                        let is_string_like = matches!(
+                            &method.return_type,
+                            TypeRef::String | TypeRef::Bytes | TypeRef::Path | TypeRef::Json | TypeRef::Char
+                        );
                         out.push_str(&crate::backends::zig::template_env::render(
                             "thunk_if_fallible.jinja",
                             minijinja::context! {
                                 ok_binding => &ok_binding,
+                                is_string_like => is_string_like,
                             },
                         ));
                         success_path_diverges = true;
