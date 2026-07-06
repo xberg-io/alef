@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use super::conversions::primitive_name;
 use crate::codegen::shared::binding_fields;
 use crate::core::ir::{ApiSurface, CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 
@@ -695,19 +696,22 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                 TypeRef::Vec(inner_inner) => {
                     // Vec<Vec<T>>: FRB uses f64 for f32 primitives — need explicit cast.
                     match inner_inner.as_ref() {
-                        TypeRef::Primitive(_) => {
-                            // Turbofish the inner+outer collects: with a trailing
-                            // `..Default::default()` spread on the core struct literal, the
-                            // field's expected type does not propagate through `.collect()`
-                            // to pin the `x as _` cast target (E0282). Mirrors the
-                            // core→mirror direction in `vec_inner_from_expr`.
+                        TypeRef::Primitive(prim) => {
+                            // Vec<Vec<primitive>>: FRB widens f32→f64 / integers→i64, so cast
+                            // each element back to the concrete core primitive width. With a
+                            // trailing `..Default::default()` spread on the core struct literal,
+                            // the field's expected type does not propagate through the turbofish
+                            // `.collect::<Vec<_>>()` to pin an `x as _` cast target (E0282), so
+                            // emit the explicit destination type. Mirrors the core→mirror
+                            // direction in `conversions.rs`.
+                            let target = primitive_name(prim);
                             if field.optional {
                                 format!(
-                                    "v.{name}.map(|vv| vv.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect::<Vec<_>>()).collect::<Vec<_>>())"
+                                    "v.{name}.map(|vv| vv.into_iter().map(|inner| inner.into_iter().map(|x| x as {target}).collect::<Vec<_>>()).collect::<Vec<_>>())"
                                 )
                             } else {
                                 format!(
-                                    "v.{name}.into_iter().map(|inner| inner.into_iter().map(|x| x as _).collect::<Vec<_>>()).collect::<Vec<_>>()"
+                                    "v.{name}.into_iter().map(|inner| inner.into_iter().map(|x| x as {target}).collect::<Vec<_>>()).collect::<Vec<_>>()"
                                 )
                             }
                         }
@@ -724,21 +728,23 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
                         }
                     }
                 }
-                TypeRef::Primitive(_) => {
+                TypeRef::Primitive(prim) => {
+                    // FRB widens all integers to i64 and floats to f64, so the mirror Vec
+                    // element is wider than the core element (e.g. mirror Vec<i64> → core
+                    // Vec<u16>). Cast to the concrete core primitive width. Using `x as _`
+                    // here fails to infer the target (E0282) because the turbofish
+                    // `.collect::<Vec<_>>()` erases the field's expected element type, so
+                    // emit the explicit destination type. Mirrors the core→mirror
+                    // direction in `conversions.rs`.
+                    let target = primitive_name(prim);
                     // When the field has a newtype_wrapper, the Vec elements are newtypes
                     // (e.g. NodeIndex(usize)) on the core side. The mirror flattens to
                     // the raw primitive, so reverse wraps with the tuple constructor.
                     let elem_conv = if let Some(nw) = &field.newtype_wrapper {
-                        format!("|x| {nw}(x as _)")
+                        format!("|x| {nw}(x as {target})")
                     } else {
-                        "|x| x as _".to_string()
+                        format!("|x| x as {target}")
                     };
-                    // Turbofish the collect: in a struct literal that ends with
-                    // `..Default::default()`, `.collect()`'s FromIterator target is left
-                    // ambiguous alongside the `x as _` cast, so the cast target cannot be
-                    // inferred (E0282). Forcing `Vec<_>` resolves FromIterator eagerly and
-                    // lets the field's expected type pin the element type. Mirrors the
-                    // core→mirror direction in `vec_inner_from_expr`.
                     if field.optional {
                         format!("v.{name}.map(|vec| vec.into_iter().map({elem_conv}).collect::<Vec<_>>())")
                     } else {
