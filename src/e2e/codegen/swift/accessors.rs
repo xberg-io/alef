@@ -369,9 +369,17 @@ pub(super) fn swift_stringy_aggregator_contains_assert(
 ///
 /// Also check if the field itself (the leaf) is optional, which happens when the field
 /// returns Optional<RustVec<T>> (e.g., `links()` may return Optional).
-pub(super) fn swift_array_count_expr(field: Option<&str>, result_var: &str, field_resolver: &FieldResolver) -> String {
+///
+/// Returns `None` when the field is actually a scalar String (not a collection) that was
+/// incorrectly marked as an array in the e2e config. In this case, count assertions
+/// should be skipped.
+pub(super) fn swift_array_count_expr(
+    field: Option<&str>,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+) -> Option<String> {
     let Some(f) = field else {
-        return format!("{result_var}.count");
+        return Some(format!("{result_var}.count"));
     };
     let (accessor, mut has_optional) = swift_build_accessor(f, result_var, field_resolver);
     // Also check if the leaf field itself is optional.
@@ -379,10 +387,11 @@ pub(super) fn swift_array_count_expr(field: Option<&str>, result_var: &str, fiel
         has_optional = true;
     }
     // For opaque method-call accessors (e.g., `result.elements()`), check if the field
-    // is a non-Vec type. If so, wrap with `.toString()` to convert RustString to Swift String
-    // before appending `.count`, just like `not_empty` and `is_empty` do.
-    let count_target = swift_count_target(&accessor, field_resolver, Some(f));
-    if has_optional {
+    // is a non-Vec type. If so, it would wrap with `.toString()` to convert RustString to Swift String.
+    // But if the field is actually a scalar string (not a collection), we cannot meaningfully
+    // call .count on it, so return None to signal that this assertion should be skipped.
+    let count_target = swift_count_target(&accessor, field_resolver, Some(f))?;
+    Some(if has_optional {
         // In Swift, accessing .count on an optional with ?. returns Optional<Int>,
         // so we coalesce with ?? 0 to get a concrete Int for XCTAssert.
         if count_target.contains("?.") {
@@ -394,7 +403,7 @@ pub(super) fn swift_array_count_expr(field: Option<&str>, result_var: &str, fiel
         }
     } else {
         format!("{count_target}.count")
-    }
+    })
 }
 
 /// Return the count-able target expression for `field_expr`.
@@ -403,25 +412,34 @@ pub(super) fn swift_array_count_expr(field: Option<&str>, result_var: &str, fiel
 /// value depends on the field's IR kind:
 ///
 /// - `Vec<T>` ⇒ `RustVec<T>`, which exposes `.count` directly. No wrap.
-/// - `String` ⇒ `RustString`, which does NOT expose `.count`. Wrap with
-///   `.toString()` so `.count` lands on Swift `String`.
+/// - `String` ⇒ `RustString`, which does NOT expose `.count`. Since wrapping
+///   with `.toString()` loses the collection semantics, return None to signal
+///   that count assertions cannot be generated for scalar string fields.
 ///
 /// First-class property accessors (no trailing parens) return Swift values
 /// that already support `.count` directly.
 ///
 /// The discriminator is the field's resolved leaf type, looked up against the
 /// `SwiftFirstClassMap`'s vec field set when available. If the field is
-/// unknown (None), fall back to the conservative wrap — RustString is the
-/// dominant scalar-leaf case for top-level assertions.
-pub(super) fn swift_count_target(field_expr: &str, field_resolver: &FieldResolver, field: Option<&str>) -> String {
+/// unknown (None), fall back to checking whether the field would be wrapped
+/// with `.toString()` — indicating a scalar String field unsuitable for counting.
+pub(super) fn swift_count_target(
+    field_expr: &str,
+    field_resolver: &FieldResolver,
+    field: Option<&str>,
+) -> Option<String> {
     let is_method_call = field_expr.trim_end().ends_with(')');
     if !is_method_call {
-        return field_expr.to_string();
+        return Some(field_expr.to_string());
     }
     if let Some(f) = field
         && field_resolver.leaf_is_vec_via_swift_map(field_resolver.resolve(f))
     {
-        return field_expr.to_string();
+        return Some(field_expr.to_string());
     }
-    format!("{field_expr}.toString()")
+    // When a method-call accessor would be wrapped with .toString() to convert
+    // RustString to Swift String, that indicates it's a scalar field, not a collection.
+    // Scalar strings don't have a meaningful .count in the collection sense, so
+    // return None to signal that count assertions should be skipped for this field.
+    None
 }

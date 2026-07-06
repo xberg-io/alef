@@ -1,3 +1,4 @@
+use crate::backends::swift::gen_rust_crate::type_bridge::needs_json_bridge;
 use crate::core::config::{AdapterPattern, ResolvedCrateConfig};
 use crate::e2e::escape::escape_java as escape_swift_str;
 use crate::e2e::field_access::SwiftFirstClassMap;
@@ -204,6 +205,12 @@ pub(super) fn build_swift_first_class_map(
     use crate::core::ir::TypeRef;
     let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
     let mut vec_field_names: HashSet<String> = HashSet::new();
+    // Field names that appear as a JSON-bridged vec (`Option<Vec<T>>`,
+    // `Vec<Vec<..>>`, etc.) on some type — these get a `RustString` getter with
+    // no `.count`. `vec_field_names` keys on bare names, so any name recorded
+    // here is later removed from the countable set to avoid emitting `.count`
+    // on the RustString flavour (a compile error). Skipping the count is safe.
+    let mut json_bridged_vec_names: HashSet<String> = HashSet::new();
     fn inner_named(ty: &TypeRef) -> Option<String> {
         match ty {
             TypeRef::Named(n) => Some(n.clone()),
@@ -316,8 +323,25 @@ pub(super) fn build_swift_first_class_map(
             if let Some(named) = inner_named(&f.ty) {
                 td_field_types.insert(f.name.clone(), named);
             }
+            // Record a Vec field as countable only when its getter is a real
+            // `RustVec` (which has `.count`). A field the swift-bridge layer
+            // JSON-bridges — `Option<Vec<T>>`, `Vec<Vec<..>>`, `Map<..>`, etc.
+            // (see `needs_json_bridge`) — returns a plain `RustString` instead,
+            // which has no `.count`. e.g. `elements: Option<Vec<Element>>`
+            // becomes `elements() -> RustString`; recording it as countable
+            // makes the e2e emit `elements()?.count` and fail to compile.
+            // Non-optional `Vec<Named>`/`Vec<primitive>` (e.g. `nodes`, `tables`)
+            // stay `RustVec<T>` and remain countable.
             if is_vec_ty(&f.ty) {
-                vec_field_names.insert(f.name.clone());
+                // An optional vec (`f.optional`, i.e. `Option<Vec<T>>`) or a
+                // structurally json-bridged vec both yield a `RustString`
+                // getter, not a countable `RustVec`. Optionality is tracked on
+                // `f.optional` separately from `f.ty`, so check both.
+                if f.optional || needs_json_bridge(&f.ty) {
+                    json_bridged_vec_names.insert(f.name.clone());
+                } else {
+                    vec_field_names.insert(f.name.clone());
+                }
             }
             if f.binding_excluded {
                 continue;
@@ -336,6 +360,17 @@ pub(super) fn build_swift_first_class_map(
             stringy_fields_by_type.insert(td.name.clone(), td_stringy);
         }
     }
+    // Drop any field name that is JSON-bridged (RustString getter) on some
+    // type from the countable set. Because the map keys on bare names, a name
+    // that is a countable `RustVec` on one type but a `RustString` on another
+    // (e.g. `elements`: `Vec<InternalElement>` vs `Option<Vec<Element>>`) is
+    // ambiguous; treating it as non-countable and skipping the `.count`
+    // assertion is always safe, whereas emitting `.count` on a `RustString`
+    // fails to compile.
+    for name in &json_bridged_vec_names {
+        vec_field_names.remove(name);
+    }
+
     // Root-type detection: first check for an explicit `result_type` override
     // in the call config. If present, use that directly. Otherwise fall back to
     // picking a unique TypeDef that contains all `result_fields`.
