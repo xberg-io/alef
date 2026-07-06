@@ -439,5 +439,5 @@ pub mod cran {
 pub mod precommit {
     // alef rev: managed by sync-versions hook, no renovate marker. Folded into
     // the generated `alef:hash:` inputs digest (see `core::hash`).
-    pub const ALEF_REV: &str = "v0.32.8";
+    pub const ALEF_REV: &str = "v0.32.9";
 }
