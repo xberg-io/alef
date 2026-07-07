@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-07-07
+
+### Fixed
+
+- **verify**: stop reporting every binding stale after unrelated changes. The inputs hash
+  (`compute_inputs_hash`) no longer folds in the alef crate version (`ALEF_REV`) — a dedicated
+  `CODEGEN_FORMAT_VERSION`, bumped only on output-affecting codegen changes, replaces it — and it
+  now hashes a canonical, normalized serialization of `alef.toml` rather than its raw bytes. As a
+  result, crate version bumps, comment/whitespace/key-order edits, and CRLF/LF differences no longer
+  invalidate freshness. Source paths are normalized (repo-relative, forward-slash) before hashing.
+  Adds `alef verify --verbose`, which prints the computed vs. embedded hash for each stale file.
+- **scaffold (dart)**: emit `packages/dart/.pubignore` excluding bundled native libraries and
+  development directories (`android/`, `ios/`, `blobs/`, `lib/src/native/`, `rust/`, `example/`,
+  `test/`), so `dart pub publish` stays under pub.dev's 100 MB archive limit. The runtime
+  `download_libs` script fetches the correct platform library from the GitHub release at install time.
+- **e2e (swift)**: bind Vec-of-opaque accessors to a local before indexing
+  (`let _vec = result.results(); _vec[0].tables()`) to prevent a use-after-free crash when
+  swift-bridge releases the parent `RustVec` temporary mid-expression.
+- **e2e (swift)**: emit `<expr>.toString().count` for scalar and optional-chain String
+  count/emptiness assertions (previously skipped), parenthesize the optional form as
+  `(… .count ?? 0)`, and bind `let result =` for `not_error` contract fixtures.
+
+### Changed
+
+- **rustler**: the generated `native.ex` `nif_versions` list is now driven by
+  `[crates.publish.languages.elixir].nif_versions` (previously a hardcoded `["2.16", "2.17"]`),
+  keeping the RustlerPrecompiled declaration in lockstep with packaging and the CI build matrix.
+
 ## [0.33.0] - 2026-07-07
 
 ### Changed

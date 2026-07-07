@@ -301,18 +301,77 @@ fn inputs_hash_changes_when_alef_toml_changes() {
 }
 
 #[test]
-fn inputs_hash_changes_when_alef_rev_changes() {
-    // We cannot change ALEF_REV at runtime, but we can verify the hash
-    // includes a non-trivial prefix by checking that an empty sources_hash
-    // and empty toml still produces a non-trivial 64-char hex string.
+fn inputs_hash_uses_domain_separator() {
+    // compute_inputs_hash uses CODEGEN_FORMAT_VERSION (stable across releases),
+    // not ALEF_REV. Verify the hash is non-trivial because of the domain
+    // separator prefix ("alef:inputs\0") and CODEGEN_FORMAT_VERSION even when
+    // sources_hash and alef_toml are both empty.
     let h = compute_inputs_hash("", b"");
     assert_eq!(h.len(), 64);
-    // Verify it differs from a plain blake3("") which would be a pure null hash.
+    // Must differ from a plain blake3("") which would be a pure null hash.
     let plain_empty = blake3::hash(b"").to_hex().to_string();
     assert_ne!(
         h, plain_empty,
-        "inputs hash must include the alef:inputs prefix and ALEF_REV"
+        "inputs hash must include the alef:inputs domain separator and CODEGEN_FORMAT_VERSION"
     );
+}
+
+// ----- compute_inputs_hash normalization invariance -----------------------
+
+#[test]
+fn inputs_hash_invariant_to_toml_comment_change() {
+    // A comment-only edit to alef.toml must not change the embedded hash.
+    let without_comment = b"[workspace]\nlanguages = [\"python\"]\n" as &[u8];
+    let with_comment = b"# repo-level config\n[workspace]\nlanguages = [\"python\"]\n" as &[u8];
+    let h1 = compute_inputs_hash("sources_abc", without_comment);
+    let h2 = compute_inputs_hash("sources_abc", with_comment);
+    assert_eq!(
+        h1, h2,
+        "comment-only change to alef.toml must not invalidate generated files"
+    );
+}
+
+#[test]
+fn inputs_hash_invariant_to_toml_whitespace_and_key_reorder() {
+    // Re-ordering top-level keys or changing whitespace in alef.toml must
+    // not change the embedded hash; both map to the same canonical TOML.
+    let a = b"[workspace]\nbar = 2\nfoo = 1\n" as &[u8];
+    let b_bytes = b"[workspace]\nfoo = 1\nbar = 2\n" as &[u8];
+    let h1 = compute_inputs_hash("sources_xyz", a);
+    let h2 = compute_inputs_hash("sources_xyz", b_bytes);
+    assert_eq!(
+        h1, h2,
+        "key-reordering in alef.toml must not invalidate generated files"
+    );
+}
+
+#[test]
+fn inputs_hash_invariant_to_toml_crlf_vs_lf() {
+    // CRLF line endings in alef.toml must produce the same hash as LF.
+    let lf = b"[workspace]\nlanguages = [\"ruby\"]\n" as &[u8];
+    let crlf = b"[workspace]\r\nlanguages = [\"ruby\"]\r\n" as &[u8];
+    let h1 = compute_inputs_hash("sources_def", lf);
+    let h2 = compute_inputs_hash("sources_def", crlf);
+    assert_eq!(
+        h1, h2,
+        "CRLF vs LF difference in alef.toml must not invalidate generated files"
+    );
+}
+
+#[test]
+fn inputs_hash_stable_independent_of_alef_rev() {
+    // Since compute_inputs_hash uses CODEGEN_FORMAT_VERSION (not ALEF_REV),
+    // bumping the alef crate version between releases does not change the hash.
+    // We verify this by asserting stability across calls with identical inputs:
+    // because ALEF_REV is not a parameter and is not read inside the function,
+    // it cannot influence the output regardless of its value.
+    let h1 = compute_inputs_hash("stable_sources", b"[workspace]\nlanguages = [\"python\"]\n");
+    let h2 = compute_inputs_hash("stable_sources", b"[workspace]\nlanguages = [\"python\"]\n");
+    assert_eq!(
+        h1, h2,
+        "hash must be stable; ALEF_REV is not an input to compute_inputs_hash"
+    );
+    assert_eq!(h1.len(), 64);
 }
 
 #[test]

@@ -149,8 +149,8 @@ fn test_scaffold_dart() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
     let files = language_files(&all_files);
-    // pubspec.yaml + analysis_options.yaml + .gitignore + test + .editorconfig + README.md + example + CHANGELOG.md
-    assert_eq!(files.len(), 8, "Expected 8 files for Dart scaffold");
+    // pubspec.yaml + analysis_options.yaml + .gitignore + .pubignore + test + .editorconfig + README.md + example + CHANGELOG.md
+    assert_eq!(files.len(), 9, "Expected 9 files for Dart scaffold");
     assert!(
         files.iter().all(|f| !f.path.ends_with("BUILDING.md")),
         "Dart scaffold must not emit BUILDING.md"
@@ -241,7 +241,21 @@ fn test_scaffold_dart() {
     assert!(gitignore.content.contains("build/"), "got: {}", gitignore.content);
     assert!(gitignore.content.contains("pubspec.lock"), "got: {}", gitignore.content);
 
-    let test_file = &files[3];
+    let pubignore = &files[3];
+    assert_eq!(pubignore.path, PathBuf::from("packages/dart/.pubignore"));
+    assert!(pubignore.content.contains("android/"), "got: {}", pubignore.content);
+    assert!(pubignore.content.contains("ios/"), "got: {}", pubignore.content);
+    assert!(pubignore.content.contains("blobs/"), "got: {}", pubignore.content);
+    assert!(
+        pubignore.content.contains("lib/src/native/"),
+        "got: {}",
+        pubignore.content
+    );
+    assert!(pubignore.content.contains("rust/"), "got: {}", pubignore.content);
+    assert!(pubignore.content.contains("example/"), "got: {}", pubignore.content);
+    assert!(pubignore.content.contains("test/"), "got: {}", pubignore.content);
+
+    let test_file = &files[4];
     assert_eq!(test_file.path, PathBuf::from("packages/dart/test/my_lib_test.dart"));
     assert!(
         test_file.content.contains("import 'package:test/test.dart'"),
@@ -259,20 +273,20 @@ fn test_scaffold_dart() {
         test_file.content
     );
 
-    assert_eq!(files[4].path, PathBuf::from("packages/dart/.editorconfig"));
-    assert!(files[4].content.contains("*.dart"));
+    assert_eq!(files[5].path, PathBuf::from("packages/dart/.editorconfig"));
+    assert!(files[5].content.contains("*.dart"));
 
-    assert_eq!(files[5].path, PathBuf::from("packages/dart/README.md"));
-    assert!(files[5].content.contains("dart pub get"));
-    assert!(files[5].content.contains("flutter_rust_bridge_codegen generate"));
+    assert_eq!(files[6].path, PathBuf::from("packages/dart/README.md"));
+    assert!(files[6].content.contains("dart pub get"));
+    assert!(files[6].content.contains("flutter_rust_bridge_codegen generate"));
 
     assert_eq!(
-        files[6].path,
+        files[7].path,
         PathBuf::from("packages/dart/example/my_lib_example.dart")
     );
-    assert!(files[6].content.contains("void main"));
+    assert!(files[7].content.contains("void main"));
 
-    let changelog = &files[7];
+    let changelog = &files[8];
     assert_eq!(changelog.path, PathBuf::from("packages/dart/CHANGELOG.md"));
     assert!(
         changelog.content.contains("## 0.1.0"),

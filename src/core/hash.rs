@@ -6,24 +6,26 @@
 //!
 //! # Hash semantics
 //!
-//! As of alef v0.21.0, the embedded `alef:hash:<hex>` value is a
-//! **generation-inputs fingerprint** produced by [`compute_inputs_hash`]:
+//! The embedded `alef:hash:<hex>` value is a **generation-inputs fingerprint**
+//! produced by [`compute_inputs_hash`]:
 //!
 //! ```text
 //! blake3(
 //!   "alef:inputs\0"
-//!   || ALEF_REV || "\0"
+//!   || CODEGEN_FORMAT_VERSION || "\0"
 //!   || sources_hash || "\0"
-//!   || alef_toml_bytes
+//!   || canonical_toml          ← parse + key-sort + re-serialize alef.toml
 //! )
 //! ```
 //!
 //! Where `sources_hash` is [`compute_sources_hash`] over the sorted Rust source
-//! files alef parses to build the IR, and `alef_toml_bytes` is the raw content
-//! of the `alef.toml` file. The hash answers **"was this file generated from the
+//! files alef parses to build the IR, and `canonical_toml` is the normalized
+//! form of `alef.toml` (comments stripped, keys sorted, whitespace and line
+//! endings normalized). The hash answers **"was this file generated from the
 //! current alef inputs?"** — post-generation formatter drift (rustfmt, ruff,
 //! rumdl-fmt, oxfmt, etc.) is irrelevant because the hash is not derived from
-//! the emitted file content.
+//! the emitted file content. Routine alef crate releases do not change the hash
+//! because the alef crate version (`ALEF_REV`) is not an input.
 //!
 //! `alef verify` re-derives the same inputs hash from the current `alef.toml`
 //! and Rust sources, embeds nothing from the on-disk file, and compares to the
@@ -158,7 +160,7 @@ pub fn compute_sources_hash(sources: &[std::path::PathBuf]) -> std::io::Result<S
     for source in sorted {
         let content = std::fs::read(source)?;
         hasher.update(b"src\0");
-        hasher.update(source.to_string_lossy().as_bytes());
+        hasher.update(normalize_source_path(source).as_bytes());
         hasher.update(b"\0");
         hasher.update(&content);
     }
@@ -212,7 +214,7 @@ pub fn compute_crate_sources_hash(
     for source in all_sources {
         let content = std::fs::read(source)?;
         hasher.update(b"src\0");
-        hasher.update(source.to_string_lossy().as_bytes());
+        hasher.update(normalize_source_path(source).as_bytes());
         hasher.update(b"\0");
         hasher.update(&content);
     }
@@ -221,10 +223,15 @@ pub fn compute_crate_sources_hash(
 
 /// Compute the generation-inputs hash that alef embeds in each generated file.
 ///
-/// The hash covers the alef revision, the Rust source fingerprint, and the
-/// raw `alef.toml` bytes. It does **not** include the emitted file content, so
-/// post-generation formatter rewrites (rustfmt, ruff, rumdl-fmt, oxfmt, …)
-/// never invalidate the embedded hash.
+/// The hash covers the [`CODEGEN_FORMAT_VERSION`] constant (stable across
+/// crate releases — only bumped for breaking codegen changes), the Rust
+/// source fingerprint, and a **canonical normalized form** of `alef.toml`
+/// (parsed and re-serialized as TOML, stripping comments, whitespace churn,
+/// key-order differences, and CRLF line endings). It does **not** include the
+/// emitted file content, so post-generation formatter rewrites (rustfmt, ruff,
+/// rumdl-fmt, oxfmt, …) never invalidate the embedded hash. It also does
+/// **not** include the alef crate version (`ALEF_REV`), so upgrading alef
+/// between releases does not mass-invalidate client bindings.
 ///
 /// - **Generate**: compute once per run, inject into every generated file header.
 /// - **Verify**: re-derive from the current inputs, compare to the embedded line.
@@ -236,17 +243,80 @@ pub fn compute_crate_sources_hash(
 ///   [`compute_crate_sources_hash`] for the crate being generated.
 /// * `alef_toml_bytes` — raw bytes of the `alef.toml` config file. Pass an
 ///   empty slice when the config path is unavailable (e.g. in tests); the hash
-///   will still change when `sources_hash` or `ALEF_REV` changes.
+///   will still change when `sources_hash` changes.
+///
+/// [`CODEGEN_FORMAT_VERSION`]: crate::core::template_versions::precommit::CODEGEN_FORMAT_VERSION
 pub fn compute_inputs_hash(sources_hash: &str, alef_toml_bytes: &[u8]) -> String {
-    let alef_rev = crate::core::template_versions::precommit::ALEF_REV;
+    let version = crate::core::template_versions::precommit::CODEGEN_FORMAT_VERSION;
+    let normalized_toml = normalize_toml_bytes(alef_toml_bytes);
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"alef:inputs\0");
-    hasher.update(alef_rev.as_bytes());
+    hasher.update(version.as_bytes());
     hasher.update(b"\0");
     hasher.update(sources_hash.as_bytes());
     hasher.update(b"\0");
-    hasher.update(alef_toml_bytes);
+    hasher.update(normalized_toml.as_bytes());
     hasher.finalize().to_hex().to_string()
+}
+
+/// Normalize raw `alef.toml` bytes into a canonical string for hashing.
+///
+/// Parses the bytes as TOML, recursively sorts table keys, then re-serializes.
+/// This strips comments, normalizes whitespace, eliminates CRLF vs LF
+/// differences, and makes key ordering deterministic. Falls back to:
+/// - empty string for empty / non-UTF-8 input
+/// - raw UTF-8 string if the bytes are valid UTF-8 but not parseable as TOML
+///   (avoids silently swallowing malformed configs while still producing a
+///   deterministic hash for the data that is present)
+fn normalize_toml_bytes(bytes: &[u8]) -> String {
+    let Ok(s) = std::str::from_utf8(bytes) else {
+        return String::new();
+    };
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    match toml::from_str::<toml::Value>(trimmed) {
+        Ok(value) => {
+            let sorted = sort_toml_value(value);
+            toml::to_string(&sorted).unwrap_or_default()
+        }
+        Err(_) => trimmed.to_string(),
+    }
+}
+
+/// Recursively sort the keys of every TOML table so that key-ordering
+/// differences in `alef.toml` do not produce different hashes.
+fn sort_toml_value(value: toml::Value) -> toml::Value {
+    match value {
+        toml::Value::Table(map) => {
+            let mut pairs: Vec<(String, toml::Value)> = map.into_iter().collect();
+            pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+            let mut sorted = toml::map::Map::new();
+            for (k, v) in pairs {
+                sorted.insert(k, sort_toml_value(v));
+            }
+            toml::Value::Table(sorted)
+        }
+        toml::Value::Array(arr) => toml::Value::Array(arr.into_iter().map(sort_toml_value).collect()),
+        other => other,
+    }
+}
+
+/// Normalize a source-file path for stable hashing across machines and
+/// operating systems.
+///
+/// Attempts to produce a repo-relative path by stripping the current working
+/// directory prefix. Falls back to the original path if relativization fails
+/// (e.g. the file lives outside the working directory, or `current_dir()`
+/// is unavailable). In both cases `\\` is replaced with `/` so that hashes
+/// are stable across Windows and POSIX builds of the same repo.
+fn normalize_source_path(path: &std::path::Path) -> String {
+    let relative = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| path.strip_prefix(&cwd).ok().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| path.to_path_buf());
+    relative.to_string_lossy().replace('\\', "/")
 }
 
 /// Compute the per-file verify hash that alef embeds in each generated file.

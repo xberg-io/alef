@@ -24,7 +24,7 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
     targets: [
 {{ nif_targets_block }}
     ],
-    nif_versions: ["2.16", "2.17"],
+    nif_versions: [{{ nif_versions_block }}],
     force_build: System.get_env("{{ build_env_var }}") in ["1", "true"] or Mix.env() in [:dev]
 
 "#,

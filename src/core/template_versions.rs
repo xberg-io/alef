@@ -437,7 +437,21 @@ pub mod cran {
 }
 
 pub mod precommit {
-    // alef rev: managed by sync-versions hook, no renovate marker. Folded into
-    // the generated `alef:hash:` inputs digest (see `core::hash`).
-    pub const ALEF_REV: &str = "v0.33.0";
+    // alef rev: managed by sync-versions hook, no renovate marker. Used in
+    // pre-commit configs; NOT used in `compute_inputs_hash` (see CODEGEN_FORMAT_VERSION).
+    pub const ALEF_REV: &str = "v0.34.0";
+
+    /// Codegen format version — bumped only when output-affecting codegen
+    /// changes require all generated files to be re-stamped. Unlike
+    /// `ALEF_REV`, this is NOT incremented on every crate release, so
+    /// routine alef upgrades do not mass-invalidate client bindings.
+    ///
+    /// Increment when:
+    /// - the domain separator in `compute_inputs_hash` changes
+    /// - a structural codegen change means existing generated files are
+    ///   incompatible with the new generator
+    ///
+    /// Do NOT increment for dependency version bumps, style fixes, or any
+    /// change that does not affect `compute_inputs_hash` output.
+    pub const CODEGEN_FORMAT_VERSION: &str = "1";
 }

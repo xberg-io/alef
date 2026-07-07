@@ -174,6 +174,8 @@ linter:
 
     let gitignore = ".dart_tool/\nbuild/\npubspec.lock\n";
 
+    let pubignore = "android/\nios/\nblobs/\nlib/src/native/\nrust/\nexample/\ntest/\n";
+
     let test_dart = r#"import 'package:test/test.dart';
 
 void main() {
@@ -274,6 +276,11 @@ void main() {{
         GeneratedFile {
             path: PathBuf::from("packages/dart/.gitignore"),
             content: gitignore.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/dart/.pubignore"),
+            content: pubignore.to_string(),
             generated_header: false,
         },
         GeneratedFile {

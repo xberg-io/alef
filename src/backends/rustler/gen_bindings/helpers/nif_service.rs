@@ -39,6 +39,27 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         _ => default_nif_targets.join(" "),
     };
 
+    // RustlerPrecompiled NIF ABI versions. Reads `[crates.publish.languages.elixir]
+    // nif_versions` — the SAME key that `publish::package::elixir::resolve_nif_versions`
+    // uses for tarball naming — so the generated `nif_versions:` list and the packaged
+    // artifacts always agree (a mismatch makes on-load abort with a 404 at consumer
+    // install). Falls back to the historical default when unset. Must also agree with
+    // the consumer's CI `nif:` build matrix.
+    let default_nif_versions: &[&str] = &["2.16", "2.17"];
+    let nif_versions: Vec<String> = config
+        .publish
+        .as_ref()
+        .and_then(|publish| publish.languages.get("elixir"))
+        .and_then(|lang_cfg| lang_cfg.nif_versions.as_ref())
+        .filter(|versions| !versions.is_empty())
+        .cloned()
+        .unwrap_or_else(|| default_nif_versions.iter().map(|version| version.to_string()).collect());
+    let nif_versions_block = nif_versions
+        .iter()
+        .map(|version| format!("\"{version}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+
     out.push_str(&hash::header(CommentStyle::Hash));
     let nif_targets_list: Vec<&str> = nif_targets.split_whitespace().collect();
     let last_idx = nif_targets_list.len().saturating_sub(1);
@@ -60,6 +81,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         repo_url => repo_url,
         build_env_var => build_env_var,
         nif_targets_block => nif_targets_block,
+        nif_versions_block => nif_versions_block,
     };
     out.push_str(&template_env::render("native_module_header.jinja", ctx));
 

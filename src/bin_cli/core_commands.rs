@@ -753,15 +753,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             lint: _,
             lang: _,
         } => {
-            // alef verify is **idempotent across alef versions**: for each
-            // alef-headered file on disk it recomputes
-            // `blake3(sources_hash || file_content_without_hash_line)` and
+            // alef verify is idempotent: for each alef-headered file on disk it
+            // re-derives the generation-inputs hash from the current
+            // (CODEGEN_FORMAT_VERSION + sources + canonical alef.toml) and
             // compares with the embedded `alef:hash:<hex>` line. There is no
-            // alef-version dimension and no `alef.toml` dimension, so a green
-            // Verify never regenerates and never writes — pure read+compare.
-            // The embedded hash is a generation-inputs fingerprint; verify
-            // re-derives it from current (alef rev + sources + alef.toml) and
-            // compares, so formatter drift never causes false-positive failures.
+            // alef-crate-version dimension, so upgrading alef between releases
+            // never causes false-positive staleness. Formatter drift is also
+            // irrelevant — file content is not hashed.
             // The legacy `--compile` / `--lint` / `--lang` flags are accepted
             // but ignored; run `alef build` / `alef lint` / `alef test` for
             // those concerns.
@@ -804,7 +802,12 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 if !stale.is_empty() {
                     println!("Stale bindings detected:");
                     for s in &stale {
-                        println!("  {s}");
+                        println!("  {}", s.path);
+                        if context.verbose > 0 {
+                            println!("    embedded:  {}", s.embedded);
+                            let computed_str = s.computed.join(", ");
+                            println!("    computed:  {computed_str}");
+                        }
                     }
                 }
                 if exit_code {

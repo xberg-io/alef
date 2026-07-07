@@ -7,12 +7,16 @@ use super::args::{Cli, Commands};
 pub(crate) struct DispatchContext {
     pub(crate) config_path: PathBuf,
     pub(crate) crate_filter: Vec<String>,
+    /// Verbosity level propagated from the global `-v`/`--verbose` flag.
+    /// `0` = default output; `>0` = verbose (e.g. per-file hash detail in verify).
+    pub(crate) verbose: u8,
 }
 
 pub(crate) fn run(cli: Cli) -> Result<()> {
     let context = DispatchContext {
         config_path: cli.config,
         crate_filter: cli.crate_filter,
+        verbose: cli.verbose,
     };
 
     let mut command = cli.command;

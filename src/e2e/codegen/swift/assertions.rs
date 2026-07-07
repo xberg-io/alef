@@ -421,6 +421,7 @@ pub(super) fn render_assertion(
                                     result_var,
                                     field_resolver,
                                     result_field_accessor,
+                                    Some(&field_expr),
                                 );
                                 let wrapped = if is_optional {
                                     format!("({contains_expr} ?? [])")
@@ -485,6 +486,7 @@ pub(super) fn render_assertion(
                                 result_var,
                                 field_resolver,
                                 result_field_accessor,
+                                Some(&field_expr),
                             );
                             let wrapped = if is_optional {
                                 format!("({contains_expr} ?? [])")
@@ -820,9 +822,12 @@ pub(super) fn render_assertion(
                     // For fields nested inside an optional parent (e.g. document.nodes where
                     // document is Optional), the accessor generates `result.document().nodes()`
                     // which doesn't compile in Swift without optional chaining.
-                    if let Some(count_expr) =
-                        swift_array_count_expr(assertion.field.as_deref(), result_var, field_resolver)
-                    {
+                    if let Some(count_expr) = swift_array_count_expr(
+                        assertion.field.as_deref(),
+                        result_var,
+                        field_resolver,
+                        Some(&field_expr),
+                    ) {
                         let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({count_expr}, {n})");
                     } else {
                         // swift_array_count_expr returns None when the field is a scalar String
@@ -841,9 +846,12 @@ pub(super) fn render_assertion(
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    if let Some(count_expr) =
-                        swift_array_count_expr(assertion.field.as_deref(), result_var, field_resolver)
-                    {
+                    if let Some(count_expr) = swift_array_count_expr(
+                        assertion.field.as_deref(),
+                        result_var,
+                        field_resolver,
+                        Some(&field_expr),
+                    ) {
                         let _ = writeln!(out, "        XCTAssertEqual({count_expr}, {n})");
                     } else {
                         // swift_array_count_expr returns None when the field is a scalar String

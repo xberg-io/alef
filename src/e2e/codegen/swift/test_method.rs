@@ -505,11 +505,16 @@ pub(super) fn render_test_method(
 
     // Decide how to emit the call based on return type and whether result is referenced.
     // - void returns: emit bare call
-    // - non-void with result referenced: bind with `let result = `
+    // - non-void with result referenced (or a `not_error` assertion, which is satisfied by
+    //   the call returning a value without throwing): bind with `let result = `
     // - non-void without result referenced: discard with `_ = `
+    let has_not_error_assertion = fixture
+        .assertions
+        .iter()
+        .any(|assertion| assertion.assertion_type == "not_error");
     if call_config.returns_void {
         let _ = writeln!(out, "        {call_expr}");
-    } else if body_buffer.contains(result_var) {
+    } else if body_buffer.contains(result_var) || has_not_error_assertion {
         let _ = writeln!(out, "        let {result_var} = {call_expr}");
     } else {
         let _ = writeln!(out, "        _ = {call_expr}");
