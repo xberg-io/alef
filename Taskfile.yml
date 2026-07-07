@@ -12,6 +12,7 @@ tasks:
       - cargo install cargo-machete || true
       - cargo install cargo-sort || true
       - cargo install cargo-edit || true
+      - command -v poly >/dev/null 2>&1 || brew install goldziher/tap/poly
       - poly hooks install
 
   update:
