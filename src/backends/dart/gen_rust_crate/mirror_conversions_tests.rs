@@ -86,13 +86,20 @@ fn mirror_to_core_binding_excluded_without_default_emits_explicit_only() {
 }
 
 #[test]
-fn mirror_to_core_no_excluded_no_spread() {
+fn mirror_to_core_fully_mirrored_with_default_emits_spread() {
+    // Forward-compatibility: a has_default core type with every field mirrored
+    // must still get the spread trailer, so an additive core field falls back
+    // to its default instead of failing E0063 until the bindings are regenerated.
     let ty = typ("Plain", true, false, vec![field("name", false), field("value", false)]);
     let mut out = String::new();
     emit_from_mirror_to_core_struct(&mut out, &ty, "source");
 
     assert!(
-        !out.contains("..Default::default()"),
-        "spread must not appear when there are no stripped cfg fields; got:\n{out}"
+        out.contains("..Default::default()"),
+        "has_default core type must always get the spread trailer; got:\n{out}"
+    );
+    assert!(
+        out.contains("#[allow(clippy::needless_update)]"),
+        "needless_update allow should accompany the emitted spread; got:\n{out}"
     );
 }

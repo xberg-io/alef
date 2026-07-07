@@ -73,10 +73,12 @@ pub fn __alef_phantom_vec_span() -> Vec<Span> { Vec::new() }
 
 pub struct Span(pub demo::Span);
 impl Span {
+    #[allow(clippy::needless_update)]
     pub fn new(start_byte: usize, end_byte: usize) -> Span {
         Span(demo::Span {
             start_byte,
             end_byte,
+            ..Default::default()
         })
     }
     pub fn start_byte(&self) -> usize {

@@ -453,5 +453,5 @@ pub mod precommit {
     ///
     /// Do NOT increment for dependency version bumps, style fixes, or any
     /// change that does not affect `compute_inputs_hash` output.
-    pub const CODEGEN_FORMAT_VERSION: &str = "1";
+    pub const CODEGEN_FORMAT_VERSION: &str = "2";
 }

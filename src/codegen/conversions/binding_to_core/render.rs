@@ -236,17 +236,16 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     // Pre-compute all fields
     let mut fields = Vec::new();
     let mut statements = Vec::new();
-    // Track whether any binding-excluded field was skipped — when so, force the
-    // `..Default::default()` trailer so the core type's Default impl fills those
-    // fields in (preserves invariants like `SsrfPolicy::from_env`, which an
-    // explicit field-level `Default::default()` on a sub-type would bypass).
+    // Binding-excluded fields are skipped from the literal; the
+    // `..Default::default()` trailer fills them from the core type's Default impl
+    // (preserves invariants like `SsrfPolicy::from_env`, which an explicit
+    // field-level `Default::default()` on a sub-type would bypass).
     //
     // Exception: when the core type does not implement Default, the spread
     // trailer would fail to compile. In that case, fall back to emitting
     // per-field `Default::default()` for each binding-excluded field — there
     // is no core Default to bypass.
     let core_has_default = typ.has_default;
-    let mut skipped_binding_excluded = false;
 
     for field in &typ.fields {
         if field.binding_excluded {
@@ -266,7 +265,6 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 fields.push(format!("{}: Default::default()", field.name));
                 continue;
             }
-            skipped_binding_excluded = true;
             continue;
         }
         // Cfg-gated fields: emit the assignment with `#[cfg(...)]` so it only applies when
@@ -319,9 +317,13 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         }
     }
 
-    // Note: ..Default::default() for cfg-gated fields is emitted by the template
-    // via the has_stripped_cfg_fields context variable — do not push it here.
-    let emit_trailer = typ.has_stripped_cfg_fields || skipped_binding_excluded;
+    // Note: the ..Default::default() trailer is emitted by the template via the
+    // has_stripped_cfg_fields context variable — do not push it here. Every
+    // has_default core type gets the trailer, even when all current fields are
+    // mirrored: an additive core field then falls back to its default instead of
+    // breaking the generated impl with E0063 until the bindings are regenerated.
+    // The trailer also fills any binding-excluded fields skipped above.
+    let emit_trailer = typ.has_stripped_cfg_fields || core_has_default;
 
     crate::codegen::template_env::render(
         "conversions/binding_to_core_impl",

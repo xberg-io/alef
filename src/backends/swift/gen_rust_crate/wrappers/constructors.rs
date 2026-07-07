@@ -107,6 +107,14 @@ pub(crate) fn emit_type_wrapper(
             // Omit the constructor entirely — swift-bridge will not expose `init()` for
             // this type, which is correct: the host language can't construct it anyway.
         } else {
+            // The direct struct literal below ends with `..Default::default()`
+            // when the core type impls Default, so an additive core field falls
+            // back to its default instead of failing E0063 until the bindings
+            // are regenerated. Clippy flags the spread on a fully-mirrored
+            // literal as needless_update — allow it on the constructor.
+            if !needs_default_construction && ty.has_default {
+                out.push_str("    #[allow(clippy::needless_update)]\n");
+            }
             out.push_str(&crate::backends::swift::template_env::render(
                 "fn_new_signature.jinja",
                 minijinja::context! {
@@ -145,6 +153,9 @@ pub(crate) fn emit_type_wrapper(
                 for init in &field_inits {
                     out.push_str(init);
                     out.push_str(",\n");
+                }
+                if ty.has_default {
+                    out.push_str("            ..Default::default()\n");
                 }
                 out.push_str("        })\n");
             }
@@ -320,5 +331,81 @@ mod tests {
         assert!(!output.contains("field_b: String"));
         // The constructor SHOULD include field_a
         assert!(output.contains("field_a: u32"));
+    }
+
+    fn primitive_field(name: &str) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+            optional: false,
+            ..Default::default()
+        }
+    }
+
+    fn primitive_only_type(has_default: bool) -> crate::core::ir::TypeDef {
+        crate::core::ir::TypeDef {
+            name: "SampleLimits".to_string(),
+            rust_path: "test::SampleLimits".to_string(),
+            fields: vec![primitive_field("depth"), primitive_field("width")],
+            is_clone: true,
+            has_default,
+            ..Default::default()
+        }
+    }
+
+    fn emit_wrapper(ty: &crate::core::ir::TypeDef) -> String {
+        emit_type_wrapper(
+            ty,
+            "test_crate",
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        )
+    }
+
+    /// Forward-compatibility: the direct struct-literal constructor for a
+    /// has_default core type must end with `..Default::default()`, so an
+    /// additive core field falls back to its default instead of failing E0063
+    /// until the bindings are regenerated.
+    #[test]
+    fn wrapper_constructor_direct_literal_with_default_spreads() {
+        let output = emit_wrapper(&primitive_only_type(true));
+
+        assert!(
+            output.contains("..Default::default()"),
+            "has_default core type must get the spread trailer in the direct-literal \
+             constructor; got:\n{output}"
+        );
+        assert!(
+            output.contains("#[allow(clippy::needless_update)]"),
+            "the spread over a fully-mirrored literal needs the needless_update allow; \
+             got:\n{output}"
+        );
+    }
+
+    /// Companion: without a core `Default` impl the spread cannot compile (E0277) —
+    /// the exhaustive literal must stay as-is.
+    #[test]
+    fn wrapper_constructor_direct_literal_without_default_keeps_exhaustive_literal() {
+        let output = emit_wrapper(&primitive_only_type(false));
+
+        assert!(
+            output.contains("pub fn new("),
+            "primitive-only DTOs keep their direct constructor regardless of Default; \
+             got:\n{output}"
+        );
+        assert!(
+            !output.contains("..Default::default()"),
+            "the spread trailer must not be emitted when the core type has no Default \
+             impl; got:\n{output}"
+        );
+        assert!(
+            !output.contains("#[allow(clippy::needless_update)]"),
+            "needless_update allow must not be emitted when no spread; got:\n{output}"
+        );
     }
 }
