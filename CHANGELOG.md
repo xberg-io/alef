@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.10] - 2026-07-07
+
+### Fixed
+
+- **config**: rename the `[hooks.builtin]` keys `polylint`/`polyfmt` to `lint`/`fmt`
+  in `poly.toml` to match the current poly config schema. The old keys made poly
+  fail to load its config (`unknown field 'polyfmt'`), which broke the
+  `poly-validate` CI job.
+- **zig**: correct the trait-bridge complex-return test to assert the pass-through
+  path. In the Zig trait-bridge ABI every complex return (`Bytes`, `Vec<T>`, struct,
+  enum, Map) is a pre-serialized JSON `[*c]const u8` that the host impl returns
+  directly, so the fallible thunk hands it back via `@constCast` rather than
+  re-serializing with `std.json.fmt` (which zig 0.16 cannot apply to
+  `[*c]const u8`). The codegen (shipped in 0.32.9) was already correct; the test
+  still asserted the old `std.json.fmt` path. Test-only change, no codegen change.
+
 ## [0.32.6] - 2026-07-05
 
 ### Fixed

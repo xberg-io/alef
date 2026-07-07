@@ -174,7 +174,7 @@ fn struct_emits_zig_struct() {
 }
 
 #[test]
-fn trait_bridge_complex_return_serializes_to_json() {
+fn trait_bridge_complex_return_passes_through_as_cstring() {
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -213,17 +213,29 @@ fn trait_bridge_complex_return_serializes_to_json() {
     let files = ZigBackend.generate_bindings(&api, &make_trait_bridge_config()).unwrap();
     let content = &files[0].content;
 
-    // Complex trait-vtable return types are serialized to JSON and handed back as a
-    // caller-owned, NUL-terminated C string via `out_result` — replacing the earlier
-    // placeholder that silently wrote null. Assert the serialize + NUL-terminate path
-    // so a regression to the silent-null stub surfaces.
+    // In the Zig trait-bridge ABI every complex return (Bytes, Vec<T>, struct, enum, Map)
+    // is represented as a pre-serialized JSON `[*c]const u8` that the host impl returns
+    // directly — so the fallible thunk's ok value is ALREADY a C string pointer. It must
+    // be passed through via `@constCast` into `out_result`, NOT re-serialized: zig 0.16
+    // `std.json.fmt` cannot stringify `[*c]const u8`. Assert the pass-through path so a
+    // regression to the (invalid) json.fmt re-serialization — or to the silent-null stub —
+    // surfaces.
     assert!(
-        content.contains("std.json.fmt("),
-        "complex Zig trait-vtable return must serialize the host value to JSON: {content}"
+        content.contains("// String-like return type ([*c]const u8)"),
+        "complex Zig trait-vtable return must take the pass-through path: {content}"
     );
     assert!(
-        content.contains("dupeZ(u8, _json_slice)"),
-        "serialized JSON must be copied to a NUL-terminated C string for the caller: {content}"
+        content.contains("@constCast("),
+        "the already-serialized C string must be handed back directly via @constCast: {content}"
+    );
+    assert!(
+        !content.contains("std.json.fmt("),
+        "complex return is already a [*c]const u8; re-serializing with std.json.fmt is invalid \
+         under zig 0.16: {content}"
+    );
+    assert!(
+        !content.contains("dupeZ(u8, _json_slice)"),
+        "no dupeZ of a JSON slice — the value is already a NUL-terminated C string: {content}"
     );
     assert!(
         !content.contains("Unsupported: JSON serialization for this complex return type"),

@@ -103,7 +103,7 @@ pylint_max_returns = 10
 stages = ["pre-commit"]
 
 [hooks.builtin]
-polylint = { exclude = [
+lint = { exclude = [
     "**/*.jinja",
     "**/*.lock",
     "**/Cargo.lock",
@@ -120,7 +120,7 @@ polylint = { exclude = [
     "**/templates/**",
     "tests/snapshots/**",
 ] }
-polyfmt = { exclude = [
+fmt = { exclude = [
     "**/*.jinja",
     "**/*.lock",
     "**/Cargo.lock",
