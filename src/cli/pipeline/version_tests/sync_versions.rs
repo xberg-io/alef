@@ -589,10 +589,14 @@ fn sync_versions_patches_dep_tables_on_version_change() {
     // discoverable source files.  Without src/lib.rs (or an explicit [lib].path)
     // cargo prints "can't find library `alpha`" to stderr even though run_optional
     // suppresses the exit code.  The empty stub silences that noise.
+    // `alpha` must declare the `unix` feature that `beta`'s target-cfg dep enables
+    // below: recent cargo turns "feature `unix` does not exist" into a hard
+    // resolution error (exit 101) during `cargo metadata`/`update`, which is not
+    // suppressed by run_optional and fails CI (older cargo only warned).
     write_file(
         root,
         "crates/alpha/Cargo.toml",
-        "[package]\nname = \"alpha\"\nversion = \"5.0.0-rc.1\"\n\n[dependencies]\nserde = \"1.0\"\n",
+        "[package]\nname = \"alpha\"\nversion = \"5.0.0-rc.1\"\n\n[dependencies]\nserde = \"1.0\"\n\n[features]\nunix = []\n",
     );
     write_file(root, "crates/alpha/src/lib.rs", "");
 
