@@ -22,7 +22,7 @@ use std::path::PathBuf;
 
 /// Gitignore-style globs pruned from every lint/format pass. Emitted into
 /// `[discovery] exclude` (direct `poly lint`/`poly fmt`/CI path) and mirrored
-/// into the `polylint`/`polyfmt`/`file_safety` builtin excludes (the git-hook
+/// into the `lint`/`fmt`/`file_safety` builtin excludes (the git-hook
 /// path, which filters per-builtin rather than via discovery).
 ///
 /// Covers build output + lock files, plus the conventional non-source trees a
@@ -280,8 +280,8 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
 
     // Git-hook orchestration.
     out.push_str("[hooks]\nstages = [ \"pre-commit\" ]\n\n[hooks.builtin]\n");
-    out.push_str(&format!("polylint = {{ exclude = {excludes} }}\n"));
-    out.push_str(&format!("polyfmt = {{ exclude = {excludes} }}\n"));
+    out.push_str(&format!("lint = {{ exclude = {excludes} }}\n"));
+    out.push_str(&format!("fmt = {{ exclude = {excludes} }}\n"));
     out.push_str(&format!("file_safety = {{ exclude = {excludes} }}\n"));
     // Whole-workspace clippy/sort/machete/deny; capability-probed (skipped when
     // the cargo toolchain is absent). Per-crate clippy excludes for binding

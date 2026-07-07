@@ -112,8 +112,8 @@ fn poly_toml_drives_hooks_builtins_and_excludes() {
     );
     // Excludes appear in discovery (direct CLI) and the builtin hook path.
     assert!(c.contains("[discovery]") && c.contains("\"target/**\""));
-    assert!(c.contains("polylint = { exclude = ["));
-    assert!(c.contains("polyfmt = { exclude = ["));
+    assert!(c.contains("lint = { exclude = ["));
+    assert!(c.contains("fmt = { exclude = ["));
     assert!(c.contains("file_safety = { exclude = ["));
 }
 
@@ -229,10 +229,10 @@ fn poly_toml_excludes_only_cargo_toml_from_formatting() {
         "Elixir must NOT be excluded (poly tier-2 formats it now); got:\n{c}"
     );
     // Mirrored into the builtin hook excludes too (git-hook path).
-    let polyfmt_pos = c.find("polyfmt = { exclude =").expect("polyfmt builtin present");
+    let fmt_pos = c.find("fmt = { exclude =").expect("fmt builtin present");
     assert!(
-        c[polyfmt_pos..].contains("\"**/Cargo.toml\","),
-        "Cargo.toml exclude must be mirrored into the polyfmt builtin"
+        c[fmt_pos..].contains("\"**/Cargo.toml\","),
+        "Cargo.toml exclude must be mirrored into the fmt builtin"
     );
 }
 
@@ -256,8 +256,8 @@ fn poly_toml_extra_excludes_appear_in_discovery_and_hooks() {
     );
 
     // The same extra globs must be mirrored into all three builtin excludes.
-    let polylint_pos = c.find("polylint = { exclude =").expect("polylint builtin present");
-    let polyfmt_pos = c.find("polyfmt = { exclude =").expect("polyfmt builtin present");
+    let lint_pos = c.find("lint = { exclude =").expect("lint builtin present");
+    let fmt_pos = c.find("fmt = { exclude =").expect("fmt builtin present");
     let filesafety_pos = c
         .find("file_safety = { exclude =")
         .expect("file_safety builtin present");
@@ -265,7 +265,7 @@ fn poly_toml_extra_excludes_appear_in_discovery_and_hooks() {
     // A simple content check: the string appears after each builtin key.
     // Because the same merged `excludes` variable is used for all three, a
     // substring check across the whole document is sufficient.
-    for builtin_pos in [polylint_pos, polyfmt_pos, filesafety_pos] {
+    for builtin_pos in [lint_pos, fmt_pos, filesafety_pos] {
         let after = &c[builtin_pos..];
         assert!(
             after.contains("\"vendor/generated/**\","),

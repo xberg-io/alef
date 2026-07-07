@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.11] - 2026-07-07
+
+### Fixed
+
+- **scaffold**: the generated repo-root `poly.toml` now emits the `[hooks.builtin]`
+  keys `lint`/`fmt` instead of `polylint`/`polyfmt`, matching the current poly
+  config schema. 0.32.10 fixed alef's own committed `poly.toml`, but the generator
+  still emitted the old keys, so every downstream regen (e.g. xberg) reverted the
+  config to a form poly rejects (`unknown field 'polyfmt'`). Fixed the emitter in
+  `scaffold::languages::poly` and its tests.
+
 ## [0.32.10] - 2026-07-07
 
 ### Fixed
