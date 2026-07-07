@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mkdocs-only syntax is generated), so type signatures with `<`, `{`, `[` need no
   MDX escaping.
 
+### Fixed
+
+- **docs (cli)**: expand `#[command(flatten)]` args in struct-like enum-variant
+  commands. The CLI-doc generator handled `flatten` only on struct-derived commands,
+  so subcommands defined as enum variants (e.g. a CLI whose `extract`/`batch` variants
+  flatten an `ExtractionOverrides` args struct) emitted an opaque struct row instead of
+  the flattened flags. A shared `process_command_field` helper now expands flattened
+  args inline on both the struct and enum-variant paths.
+
 ## [0.32.11] - 2026-07-07
 
 ### Fixed

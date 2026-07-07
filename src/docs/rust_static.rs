@@ -134,33 +134,46 @@ fn command_from_struct(
     };
 
     for field in &fields.named {
-        if has_attr_word(&field.attrs, "command", "subcommand") {
-            if let Some(enum_name) = type_last_ident(&field.ty)
-                && let Some(en) = enums.get(&enum_name)
-            {
-                command.subcommands = commands_from_enum(en, structs, enums, &command.path);
-            }
-            continue;
-        }
-        if has_attr_word(&field.attrs, "command", "flatten") {
-            if let Some(struct_name) = type_last_ident(&field.ty)
-                && let Some(flattened) = structs.get(&struct_name)
-            {
-                let mut flattened_command = command_from_struct(flattened, structs, enums, Some(command.name.clone()));
-                command.options.append(&mut flattened_command.options);
-                command.positionals.append(&mut flattened_command.positionals);
-            }
-            continue;
-        }
-        let option = option_from_field(field);
-        if option.long.is_some() || option.short.is_some() || option.ty == "bool" {
-            command.options.push(option);
-        } else {
-            command.positionals.push(option);
-        }
+        process_command_field(field, &mut command, structs, enums);
     }
 
     command
+}
+
+/// Add a single named clap field to `command`, resolving `#[command(subcommand)]`
+/// and `#[command(flatten)]` — flattened args are expanded inline rather than
+/// emitted as an opaque struct row. Shared by struct-derived commands and
+/// struct-like enum-variant commands so both expand flattened args identically.
+fn process_command_field(
+    field: &syn::Field,
+    command: &mut CliCommand,
+    structs: &HashMap<String, syn::ItemStruct>,
+    enums: &HashMap<String, syn::ItemEnum>,
+) {
+    if has_attr_word(&field.attrs, "command", "subcommand") {
+        if let Some(enum_name) = type_last_ident(&field.ty)
+            && let Some(en) = enums.get(&enum_name)
+        {
+            command.subcommands = commands_from_enum(en, structs, enums, &command.path);
+        }
+        return;
+    }
+    if has_attr_word(&field.attrs, "command", "flatten") {
+        if let Some(struct_name) = type_last_ident(&field.ty)
+            && let Some(flattened) = structs.get(&struct_name)
+        {
+            let mut flattened_command = command_from_struct(flattened, structs, enums, Some(command.name.clone()));
+            command.options.append(&mut flattened_command.options);
+            command.positionals.append(&mut flattened_command.positionals);
+        }
+        return;
+    }
+    let option = option_from_field(field);
+    if option.long.is_some() || option.short.is_some() || option.ty == "bool" {
+        command.options.push(option);
+    } else {
+        command.positionals.push(option);
+    }
 }
 
 fn commands_from_enum(
@@ -185,12 +198,7 @@ fn commands_from_enum(
         match &variant.fields {
             Fields::Named(fields) => {
                 for field in &fields.named {
-                    let option = option_from_field(field);
-                    if option.long.is_some() || option.short.is_some() || option.ty == "bool" {
-                        command.options.push(option);
-                    } else {
-                        command.positionals.push(option);
-                    }
+                    process_command_field(field, &mut command, structs, enums);
                 }
             }
             Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
@@ -482,5 +490,60 @@ mod tests {
             Some("output")
         );
         assert_eq!(surface.commands[0].subcommands[0].positionals[0].name, "input");
+    }
+
+    #[test]
+    fn expands_command_flatten_in_enum_variant_commands() {
+        // `#[command(flatten)]` on a struct-like enum-variant field (the shape used by
+        // xberg's `extract`/`batch` with `ExtractionOverrides`) must expand the flattened
+        // args inline, not emit an opaque struct row.
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("cli.rs");
+        std::fs::write(
+            &source,
+            r#"
+            use clap::{Args, Parser, Subcommand};
+            #[derive(Parser)]
+            #[command(name = "demo")]
+            struct Cli {
+                #[command(subcommand)]
+                command: Commands,
+            }
+            #[derive(Subcommand)]
+            enum Commands {
+                /// Extract a document.
+                Extract {
+                    /// Document path.
+                    path: String,
+                    #[command(flatten)]
+                    overrides: Overrides,
+                },
+            }
+            #[derive(Args)]
+            struct Overrides {
+                /// Enable OCR.
+                #[arg(long)]
+                ocr: bool,
+            }
+            "#,
+        )
+        .unwrap();
+        let surface = extract_cli_surface(&[source]).unwrap();
+        let extract = &surface.commands[0].subcommands[0];
+        assert_eq!(extract.name, "extract");
+        assert!(
+            extract.options.iter().any(|option| option.name == "ocr"),
+            "flattened field `ocr` must be expanded inline, got options: {:?}",
+            extract.options.iter().map(|option| &option.name).collect::<Vec<_>>()
+        );
+        assert!(
+            !extract
+                .options
+                .iter()
+                .chain(&extract.positionals)
+                .any(|option| option.name == "overrides"),
+            "flattened struct must not appear as an opaque `overrides` row"
+        );
+        assert_eq!(extract.positionals[0].name, "path");
     }
 }
