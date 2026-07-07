@@ -351,8 +351,8 @@ fn test_function_deprecated_renders_warning_admonition() {
         .unwrap()
         .content;
     assert!(
-        content.contains("!!! warning"),
-        "expected warning admonition, got:\n{content}"
+        content.contains(":::caution"),
+        "expected caution admonition, got:\n{content}"
     );
     assert!(
         content.contains("Deprecated"),

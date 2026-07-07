@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-07-07
+
+### Changed
+
+- **docs**: emit deprecation notices as Starlight-compatible `:::caution[…]` asides
+  instead of mkdocs-Material `!!! warning "…"` admonitions, so generated reference
+  pages render correctly under Astro Starlight. Reference pages stay `.md` (no other
+  mkdocs-only syntax is generated), so type signatures with `<`, `{`, `[` need no
+  MDX escaping.
+
 ## [0.32.11] - 2026-07-07
 
 ### Fixed
