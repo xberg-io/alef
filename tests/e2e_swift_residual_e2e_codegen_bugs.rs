@@ -431,3 +431,64 @@ type = "string"
         "must not call `.count` directly on RustString. Rendered:\n{rendered}"
     );
 }
+
+// -- Bug F: count_min on an OPTIONAL scalar field must not emit `.toString()?.count` ---
+
+/// Regression for the ci-e2e swift failure (`ContractTests.swift:129`): a scalar-string
+/// leaf reached with `has_optional = true` rendered `...elements().toString()?.count`,
+/// which Swift rejects with "cannot use optional chaining on non-optional value of type
+/// 'String'" because `.toString()` returns a non-optional `String`. Such a target must
+/// take `.count` directly.
+#[test]
+fn count_min_on_optional_scalar_field_does_not_optional_chain_count() {
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "sample_pack"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[crates.e2e.call]
+function = "extract_text"
+module = "SampleLanguagePack"
+result_var = "result"
+
+[[crates.e2e.call.args]]
+name = "document"
+field = "input"
+type = "string"
+"#;
+    let fixture = make_fixture(
+        "extract_text_optional_count_min",
+        Assertion {
+            assertion_type: "count_min".to_string(),
+            field: Some("text".to_string()),
+            value: Some(serde_json::json!(1)),
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        },
+    );
+    let mut text_field = make_field("text", TypeRef::Named("String".to_string()));
+    text_field.optional = true;
+    let result_ir = vec![make_type("TextResult", vec![text_field])];
+    let rendered = render_with_config(toml, fixture, result_ir);
+
+    assert!(
+        !rendered.contains(".toString()?.count"),
+        "must not optional-chain `.count` onto a non-optional `.toString()` String. \
+         Rendered:\n{rendered}"
+    );
+    assert!(
+        rendered.contains(".toString().count"),
+        "count_min on an optional scalar String must take `.count` on the Swift String directly. \
+         Rendered:\n{rendered}"
+    );
+}

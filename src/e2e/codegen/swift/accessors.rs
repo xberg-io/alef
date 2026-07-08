@@ -414,17 +414,21 @@ pub(super) fn swift_array_count_expr(
     // But if the field is actually a scalar string (not a collection), we cannot meaningfully
     // call .count on it, so return None to signal that this assertion should be skipped.
     let count_target = swift_count_target(&accessor, field_resolver, Some(f))?;
-    Some(if has_optional {
-        // In Swift, accessing .count on an optional with ?. returns Optional<Int>,
-        // so we coalesce with ?? 0 to get a concrete Int for XCTAssert.
-        if count_target.contains("?.") {
-            format!("({count_target}.count ?? 0)")
-        } else {
-            // If no ?. but field is optional, the field_expr itself is Optional<RustVec<T>>
-            // so we need ?. to call count.
-            format!("({count_target}?.count ?? 0)")
-        }
+    // `swift_count_target` wraps a scalar-String leaf with `.toString()`, which yields a
+    // NON-optional Swift `String`. Appending `?.count` to it is a compile error
+    // ("cannot use optional chaining on non-optional value of type 'String'"), so such a
+    // target always takes `.count` directly regardless of `has_optional`.
+    let target_is_to_string = count_target.ends_with(".toString()");
+    Some(if count_target.contains("?.") {
+        // An optional ancestor chain already propagated `?`, so `.count` is Optional<Int>;
+        // coalesce with `?? 0` to get a concrete Int for XCTAssert.
+        format!("({count_target}.count ?? 0)")
+    } else if has_optional && !target_is_to_string {
+        // The field_expr itself is Optional<RustVec<T>> (no ancestor chain), so unwrap
+        // with `?.count` before coalescing.
+        format!("({count_target}?.count ?? 0)")
     } else {
+        // Non-optional RustVec<T>, or a `.toString()` Swift `String` — `.count` directly.
         format!("{count_target}.count")
     })
 }

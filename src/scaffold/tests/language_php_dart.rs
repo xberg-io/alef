@@ -254,6 +254,10 @@ fn test_scaffold_dart() {
     assert!(pubignore.content.contains("rust/"), "got: {}", pubignore.content);
     assert!(pubignore.content.contains("example/"), "got: {}", pubignore.content);
     assert!(pubignore.content.contains("test/"), "got: {}", pubignore.content);
+    // Native binaries are install-time downloads, never shipped in the pub archive.
+    assert!(pubignore.content.contains("*.so"), "got: {}", pubignore.content);
+    assert!(pubignore.content.contains("*.dylib"), "got: {}", pubignore.content);
+    assert!(pubignore.content.contains("*.dll"), "got: {}", pubignore.content);
 
     let test_file = &files[4];
     assert_eq!(test_file.path, PathBuf::from("packages/dart/test/my_lib_test.dart"));

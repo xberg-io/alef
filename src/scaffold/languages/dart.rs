@@ -174,7 +174,12 @@ linter:
 
     let gitignore = ".dart_tool/\nbuild/\npubspec.lock\n";
 
-    let pubignore = "android/\nios/\nblobs/\nlib/src/native/\nrust/\nexample/\ntest/\n";
+    // Native binaries are fetched at install time by `bin/download_libs.dart` into
+    // `lib/src/native/`; none belong in the published pub archive. Besides that dir,
+    // the FRB build stages the compiled library (all platforms in CI) into
+    // `lib/src/<module>_bridge_generated/`, which pushed the archive to 269MB > pub.dev's
+    // 100MB cap. Ignore native library binaries by extension so no staging path leaks in.
+    let pubignore = "android/\nios/\nblobs/\nlib/src/native/\nrust/\nexample/\ntest/\n*.so\n*.dylib\n*.dll\n";
 
     let test_dart = r#"import 'package:test/test.dart';
 
