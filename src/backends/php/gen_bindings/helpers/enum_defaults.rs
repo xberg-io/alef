@@ -81,7 +81,6 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
         }
     }
 
-    let has_binding_excluded_fields = typ.fields.iter().any(|f| f.binding_excluded);
     // Collect `(core_field, rhs_expr)` pairs, then emit either a struct literal or — for core
     // types whose private (`pub(crate)`) fields forbid struct-literal construction — a
     // `Default`-seeded builder via the shared construction strategy (the same one the
@@ -273,12 +272,20 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     }
 
     // Struct-literal path for types whose fields are all public.
+    //
+    // Emit the ..Default::default() trailer (and its needless_update allow) for
+    // every has_default core type: it fills cfg-stripped and binding-excluded
+    // fields with the core's Default, and it keeps the literal compiling (E0063)
+    // when an additive field lands on the core struct after generation. Without
+    // Default the spread fails E0277; for binding-excluded fields the loop above
+    // already pushed explicit `field: Default::default()` assignments then.
+    let emit_default_spread = typ.has_default;
     let mut out = crate::backends::php::template_env::render(
         "php_impl_from_begin.jinja",
         context! {
             binding_type => &typ.name,
             core_type => &core_path,
-            has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+            emit_spread => emit_default_spread,
         },
     );
     for &(field_name, ref field_expr) in &fields {
@@ -290,15 +297,10 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             },
         ));
     }
-    // Only emit the trailing `..Default::default()` spread when the core type
-    // derives Default — otherwise E0277 blocks compilation. For binding-excluded
-    // fields the loop above already pushed explicit `field: Default::default()`
-    // assignments when `!typ.has_default`.
-    let emit_default_spread = typ.has_default && (typ.has_stripped_cfg_fields || has_binding_excluded_fields);
     out.push_str(&crate::backends::php::template_env::render(
         "php_impl_from_end.jinja",
         context! {
-            has_stripped_cfg_fields => emit_default_spread,
+            emit_spread => emit_default_spread,
         },
     ));
     out
@@ -532,7 +534,10 @@ mod tests {
     }
 
     #[test]
-    fn enum_tainted_no_excluded_fields_no_spread() {
+    fn enum_tainted_fully_mirrored_with_default_still_emits_spread() {
+        // Forward-compatibility: a has_default core type with every field mirrored
+        // must still get the spread trailer, so an additive core field falls back
+        // to its default instead of failing E0063 until the bindings are regenerated.
         let typ = typ(
             "PlainEnumTainted",
             true,
@@ -550,8 +555,37 @@ mod tests {
         );
 
         assert!(
+            out.contains("..Default::default()"),
+            "has_default core type must always get the spread trailer; got:\n{out}"
+        );
+        assert!(
+            out.contains("#[allow(clippy::needless_update)]"),
+            "the spread over a fully-mirrored literal needs the needless_update allow; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn enum_tainted_fully_mirrored_without_default_keeps_exhaustive_literal() {
+        let typ = typ(
+            "NoDefaultPlain",
+            false,
+            vec![field("name", false), field("value", false)],
+        );
+        let cfg = ConversionConfig::default();
+        let out = gen_enum_tainted_from_binding_to_core(
+            &typ,
+            "crate",
+            &AHashSet::new(),
+            &AHashSet::new(),
+            &cfg,
+            &[],
+            &AHashSet::new(),
+        );
+
+        assert!(
             !out.contains("..Default::default()"),
-            "spread must not appear when there are no excluded/stripped fields; got:\n{out}"
+            "the spread trailer must not be emitted when the core type has no Default \
+             impl — it would fail to compile (E0277); got:\n{out}"
         );
     }
 }

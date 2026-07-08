@@ -376,3 +376,49 @@ fn private_fields_type_without_default_emits_compile_error() {
         "must not emit a struct-literal field for a type with private fields; got:\n{out}"
     );
 }
+
+/// Forward-compatibility: a fully-mirrored core type that implements `Default`
+/// (every field present in the binding, none binding-excluded, no cfg-stripping)
+/// must still get the `..Default::default()` trailer. Without it the exhaustive
+/// literal stops compiling with E0063 the moment an additive field lands on the
+/// core struct, until the bindings are regenerated.
+#[test]
+fn fully_mirrored_type_with_default_emits_spread_trailer() {
+    let typ = type_with_field(string_field("content"));
+
+    let out = gen_from_binding_to_core(&typ, "crate");
+
+    assert!(
+        out.contains("content: val.content"),
+        "mirrored fields must still be assigned explicitly; got:\n{out}"
+    );
+    assert!(
+        out.contains("..Default::default()"),
+        "a has_default core type must get the spread trailer so an additive core \
+         field falls back to its default instead of breaking the impl; got:\n{out}"
+    );
+    assert!(
+        out.contains("#[allow(clippy::needless_update)]"),
+        "the spread over a fully-mirrored literal needs the needless_update allow; got:\n{out}"
+    );
+}
+
+/// Companion: a fully-mirrored core type WITHOUT `Default` cannot take the spread
+/// trailer (E0277) — the exhaustive literal must stay as-is.
+#[test]
+fn fully_mirrored_type_without_default_keeps_exhaustive_literal() {
+    let mut typ = type_with_field(string_field("content"));
+    typ.has_default = false;
+
+    let out = gen_from_binding_to_core(&typ, "crate");
+
+    assert!(
+        out.contains("content: val.content"),
+        "mirrored fields must be assigned explicitly; got:\n{out}"
+    );
+    assert!(
+        !out.contains("..Default::default()"),
+        "the spread trailer must not be emitted when the core type has no Default \
+         impl — it would fail to compile (E0277); got:\n{out}"
+    );
+}

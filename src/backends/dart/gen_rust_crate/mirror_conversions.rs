@@ -500,18 +500,13 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
         return;
     }
 
-    // The generated literal ends with `..Default::default()` whenever some core
-    // fields are intentionally omitted from the explicit field list AND the core
+    // The generated literal ends with `..Default::default()` whenever the core
     // type derives Default (the spread itself requires Default — otherwise E0277).
-    // Fields are omitted in two cases, both of which need the spread to fill them:
-    //   1. cfg-gated fields stripped from the IR (`has_stripped_cfg_fields`);
-    //   2. binding-excluded (`alef(skip)`) fields, which are skipped from the
-    //      literal in the `has_default` branch below so the core Default supplies
-    //      them (e.g. `SsrfPolicy::scheme_allowlist`/`allowlist`).
-    // Gating only on (1) left binding-excluded-only types (no cfg-stripped fields)
-    // with neither the field nor a spread — a hard E0063. Cover both cases.
-    let omits_core_fields = ty.has_stripped_cfg_fields || ty.fields.iter().any(|field| field.binding_excluded);
-    let needs_default_spread = omits_core_fields && ty.has_default;
+    // The spread fills cfg-gated fields stripped from the IR and binding-excluded
+    // (`alef(skip)`) fields skipped in the `has_default` branch below, and it keeps
+    // the literal compiling (E0063) when an additive field lands on the core
+    // struct after generation.
+    let needs_default_spread = ty.has_default;
     // clippy flags the spread as `needless_update` when the field list looks
     // complete from the mirror's perspective; silence it only when the spread is
     // actually emitted, otherwise the annotation is dead (unused_attributes).
@@ -577,10 +572,10 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
         }
     }
 
-    // Emit ..Default::default() when core fields were omitted from the literal
-    // (cfg-stripped or binding-excluded) and the core type derives Default — see
-    // `needs_default_spread` above. Without Default the spread would E0277; such a
-    // type is unconstructible from the mirror and surfaces a diagnostic E0063.
+    // Emit ..Default::default() whenever the core type derives Default — see
+    // `needs_default_spread` above. Without Default the spread would E0277; a
+    // no-Default type with omitted core fields is unconstructible from the
+    // mirror and surfaces a diagnostic E0063.
     if needs_default_spread {
         out.push_str("            ..Default::default()\n");
     }

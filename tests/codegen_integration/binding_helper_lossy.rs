@@ -710,3 +710,32 @@ fn test_gen_lossy_binding_to_core_fields_binding_excluded_with_default_uses_spre
          type has Default — would bypass bespoke Default semantics; got:\n{result}"
     );
 }
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_fully_mirrored_with_default_emits_spread() {
+    // Forward-compatibility: a has_default core type whose fields are all mirrored
+    // must still end the literal with `..Default::default()`, so an additive core
+    // field falls back to its default instead of breaking the generated method
+    // body with E0063 until the bindings are regenerated.
+    let mut typ = simple_type_def();
+    typ.has_default = true;
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(
+        &typ,
+        "my_crate",
+        false,
+        &ahash::AHashSet::new(),
+        false,
+        false,
+        &[],
+    );
+
+    assert!(
+        result.contains("..Default::default()"),
+        "fully-mirrored has_default core type must get the spread trailer; got:\n{result}"
+    );
+    assert!(
+        result.contains("#[allow(clippy::needless_update)]"),
+        "the spread over a fully-mirrored literal needs the needless_update allow; got:\n{result}"
+    );
+}

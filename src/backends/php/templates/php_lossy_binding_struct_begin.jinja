@@ -1,2 +1,2 @@
-{% if has_stripped_cfg_fields %}#[allow(clippy::needless_update)]
-{% endif %}{% if has_stripped_cfg_fields %}        {% endif %}let core_self = {{ core_type }} {
+{% if emit_spread %}#[allow(clippy::needless_update)]
+{% endif %}{% if emit_spread %}        {% endif %}let core_self = {{ core_type }} {

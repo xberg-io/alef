@@ -100,10 +100,9 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
         "php_lossy_binding_struct_begin.jinja",
         context! {
             core_type => &core_path,
-            has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+            emit_spread => typ.has_default,
         },
     );
-    let has_binding_excluded_fields = typ.fields.iter().any(|f| f.binding_excluded);
     for field in &typ.fields {
         if field.binding_excluded {
             if !typ.has_default {
@@ -300,13 +299,14 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
             ));
         }
     }
-    // Use ..Default::default() to fill cfg-gated fields stripped from the IR,
-    // and binding-excluded fields (alef(skip)) so they pick up the core's Default,
-    // including custom Default impls that depend on runtime configuration. Only
-    // emit when the core type derives Default — otherwise the spread fails E0277.
-    // For binding-excluded fields the loop above already emitted explicit
-    // `field: Default::default()` assignments when `!typ.has_default`.
-    if typ.has_default && (typ.has_stripped_cfg_fields || has_binding_excluded_fields) {
+    // Emit the ..Default::default() trailer for every has_default core type: it
+    // fills cfg-gated fields stripped from the IR and binding-excluded fields
+    // (alef(skip)) with the core's Default — including custom Default impls that
+    // depend on runtime configuration — and it keeps the literal compiling
+    // (E0063) when an additive field lands on the core struct after generation.
+    // Without Default the spread fails E0277; for binding-excluded fields the
+    // loop above already emitted explicit `field: Default::default()` then.
+    if typ.has_default {
         out.push_str(&crate::backends::php::template_env::render(
             "php_default_update.jinja",
             minijinja::Value::default(),
@@ -389,13 +389,20 @@ mod tests {
     }
 
     #[test]
-    fn no_excluded_fields_no_spread() {
+    fn fully_mirrored_with_default_still_emits_spread() {
+        // Forward-compatibility: a has_default core type with every field mirrored
+        // must still get the spread trailer, so an additive core field falls back
+        // to its default instead of failing E0063 until the bindings are regenerated.
         let typ = typ("Plain", true, vec![field("name", false), field("value", false)]);
         let out = gen_php_lossy_binding_to_core_fields(&typ, "crate", &AHashSet::new(), &AHashSet::new(), &[]);
 
         assert!(
-            !out.contains("..Default::default()"),
-            "spread must not appear when there are no excluded/stripped fields; got:\n{out}"
+            out.contains("..Default::default()"),
+            "has_default core type must always get the spread trailer; got:\n{out}"
+        );
+        assert!(
+            out.contains("#[allow(clippy::needless_update)]"),
+            "the spread over a fully-mirrored literal needs the needless_update allow; got:\n{out}"
         );
         assert!(out.contains("name:"), "name field should appear; got:\n{out}");
         assert!(out.contains("value:"), "value field should appear; got:\n{out}");

@@ -80,24 +80,23 @@ fn gen_lossy_binding_to_core_fields_inner(
         return format!("let {mut_kw}core_self = {core_path}::from(self.clone());\n        ");
     }
 
-    // When has_stripped_cfg_fields is true we emit ..Default::default() at the end of the
-    // struct literal to fill cfg-gated fields that were stripped from the binding IR.
-    // Suppress clippy::needless_update because the fields only exist when the corresponding
-    // feature is enabled — without the feature, clippy thinks the spread is redundant.
-    let allow = if typ.has_stripped_cfg_fields {
+    // The struct literal ends with ..Default::default() whenever the trailer can
+    // compile (see the emission condition at the bottom). Suppress
+    // clippy::needless_update because the trailer is intentionally emitted even
+    // when the field list looks complete — clippy would flag the spread as
+    // redundant on a fully-mirrored literal.
+    let allow = if typ.has_stripped_cfg_fields || typ.has_default {
         "#[allow(clippy::needless_update)]\n        "
     } else {
         ""
     };
     let mut out = format!("{allow}let {mut_kw}core_self = {core_path} {{\n");
-    // Track whether any binding-excluded field was skipped (vs emitted per-field).
-    // Only when at least one is skipped do we need the `..Default::default()` trailer.
-    // When the core type does NOT implement Default, the trailer would not compile
-    // (E0277), so emit `field: Default::default()` per-field instead — there is no
-    // bespoke core Default whose semantics we could be bypassing. Mirrors the
-    // parallel fix in `codegen/conversions/binding_to_core/render.rs` (096eb298c).
+    // When the core type does NOT implement Default, the `..Default::default()`
+    // trailer would not compile (E0277), so emit `field: Default::default()`
+    // per-field for binding-excluded fields instead — there is no bespoke core
+    // Default whose semantics we could be bypassing. Mirrors the parallel logic
+    // in `codegen/conversions/binding_to_core/render.rs`.
     let core_has_default = typ.has_default;
-    let mut skipped_binding_excluded = false;
     for field in &typ.fields {
         if field.binding_excluded {
             if !core_has_default {
@@ -119,7 +118,6 @@ fn gen_lossy_binding_to_core_fields_inner(
             // defaults that derive field values from environment or runtime configuration.
             // Emitting `<field>: Default::default()` would shadow that with the sub-type's
             // (often stricter) default value.
-            skipped_binding_excluded = true;
             continue;
         }
         // Skip cfg-gated fields — they are absent from the binding struct.
@@ -411,15 +409,15 @@ fn gen_lossy_binding_to_core_fields_inner(
         ));
         out.push('\n');
     }
-    // Use ..Default::default() to fill cfg-gated fields stripped from the IR,
-    // and binding-excluded fields (alef(skip)) so they pick up the core's Default.
-    // The binding-excluded trailer is only emitted when the core type impls Default
-    // (otherwise the per-field fallback above emits explicit `Default::default()`
-    // per skipped field); the cfg-stripped trailer is unconditional because the
-    // `#[cfg(...)]` gates make the spread a no-op when the feature is disabled
-    // and the gated paths rely on the core type being Default-constructible when
-    // the feature is enabled.
-    if typ.has_stripped_cfg_fields || (skipped_binding_excluded && typ.has_default) {
+    // Emit the ..Default::default() trailer for every has_default core type — it
+    // fills binding-excluded fields (alef(skip)) with the core's Default, and it
+    // keeps the literal compiling (E0063) when an additive field lands on the core
+    // struct after generation. Without Default the trailer would fail E0277, so
+    // the per-field fallback above covers binding-excluded fields instead; the
+    // cfg-stripped trailer stays unconditional because the `#[cfg(...)]` gates
+    // make the spread a no-op when the feature is disabled and the gated paths
+    // rely on the core type being Default-constructible when it is enabled.
+    if typ.has_stripped_cfg_fields || typ.has_default {
         out.push_str("            ..Default::default()\n");
     }
     out.push_str("        };\n        ");

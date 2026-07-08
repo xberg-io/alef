@@ -106,9 +106,11 @@ pub struct CallbackHandle(pub demo::callbacks::CallbackHandle);
 
 pub struct RenderOptions(pub demo::options::RenderOptions);
 impl RenderOptions {
+    #[allow(clippy::needless_update)]
     pub fn new(timeout_ms: u32) -> RenderOptions {
         RenderOptions(demo::options::RenderOptions {
             timeout_ms,
+            ..Default::default()
         })
     }
     pub fn timeout_ms(&self) -> u32 {

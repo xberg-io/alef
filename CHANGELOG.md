@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **codegen**: generated binding→core struct conversions now survive additive core
+  changes. Every public-field `From<Binding> for Core` literal (and the lossy
+  method-body and mirror-crate constructor literals in the magnus, php, dart, and
+  swift backends) ends with `..Default::default()` whenever the core type
+  implements `Default` — previously the trailer was emitted only when a field was
+  skipped at generation time. A field added to a core config struct after
+  generation now falls back to its core default instead of breaking every
+  generated binding except napi with `E0063: missing field`, until the bindings
+  are regenerated. Currently-mapped fields are still assigned explicitly, so
+  existing conversions behave identically. `CODEGEN_FORMAT_VERSION` is bumped to
+  `2` so `alef verify` re-stamps existing bindings with the forward-compatible
+  literals.
+
 ## [0.34.0] - 2026-07-07
 
 ### Fixed
