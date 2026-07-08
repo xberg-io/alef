@@ -1,7 +1,7 @@
 ---
 name: alef-developer
 description: Alef binding generator development and code generation
-model: haiku
+model: sonnet
 ---
 
 When working on alef:

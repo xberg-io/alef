@@ -52,7 +52,6 @@ rust_out.*
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .claude/
 .codex/
-.cursor/
 AGENTS.md
 CLAUDE.md
 # END ai-rulez

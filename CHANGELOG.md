@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.2] - 2026-07-08
+
+### Fixed
+
+- **dart scaffold**: the generated `.pubignore` now excludes native library binaries
+  (`*.so`, `*.dylib`, `*.dll`) in addition to `lib/src/native/`. The FRB build stages the
+  compiled library (every platform in CI) into `lib/src/<module>_bridge_generated/`, which
+  is not covered by the `lib/src/native/` rule and pushed the published archive past
+  pub.dev's 100MB cap (269MB observed). Native binaries are fetched at install time by
+  `bin/download_libs.dart`, so none belong in the pub archive.
+- **swift e2e codegen**: `count_min` / `count_equals` assertions on a scalar-string leaf no
+  longer emit `.toString()?.count`. `.toString()` yields a non-optional Swift `String`, so
+  optional-chaining `?.count` onto it failed to compile ("cannot use optional chaining on
+  non-optional value of type 'String'"); such targets now take `.count` directly.
+
 ## [0.34.1] - 2026-07-08
 
 ### Fixed
