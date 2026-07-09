@@ -552,6 +552,129 @@ openssl_sys = { version = "0.9", package = "openssl-sys" }
 }
 
 // -----------------------------------------------------------------------
+// write_version_to_cargo_toml unit tests
+// -----------------------------------------------------------------------
+
+/// Regression test for the rc.18 hf-hub corruption: `write_version_to_cargo_toml`
+/// must NOT rewrite a `version = "..."` line that belongs to a TABLE-form external
+/// dependency. A crate that inherits its package version via
+/// `version.workspace = true` has no literal `[package].version`, so the first
+/// standalone `version = "..."` line is the external dep pin inside
+/// `[target.'cfg(...)'.dependencies.hf-hub]`. The old regex-based writer clobbered
+/// it (0.5 -> 1.0.0-rc.18), breaking cargo resolution; the toml_edit writer leaves
+/// it intact and reports that there was no package version to update.
+#[test]
+fn write_version_to_cargo_toml_leaves_table_form_external_dep_intact() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("Cargo.toml");
+
+    // Inherited package version (no literal), external hf-hub pin in table form.
+    let cargo_toml = r#"[package]
+name = "mylib"
+version.workspace = true
+
+[dependencies]
+serde = "1.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.hf-hub]
+version = "0.5"
+default-features = false
+"#;
+    std::fs::write(&path, cargo_toml).expect("write");
+
+    // No package-level version literal to update -> the writer reports failure and
+    // must not have mutated the file.
+    let result = write_version_to_cargo_toml(path.to_str().unwrap(), "1.0.0-rc.18");
+    assert!(
+        result.is_err(),
+        "inherited-version crate has no [package] version literal to update"
+    );
+
+    let after = std::fs::read_to_string(&path).expect("read");
+    assert!(
+        after.contains(r#"version = "0.5""#),
+        "table-form external dep hf-hub must remain at 0.5:\n{after}"
+    );
+    assert!(
+        !after.contains("1.0.0-rc.18"),
+        "the package version must never leak into an external dep pin:\n{after}"
+    );
+}
+
+/// `write_version_to_cargo_toml` bumps a literal `[package].version` while leaving
+/// both inline-form and table-form external dependency `version` pins untouched.
+#[test]
+fn write_version_to_cargo_toml_bumps_package_only() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("Cargo.toml");
+
+    let cargo_toml = r#"[package]
+name = "mylib"
+version = "0.15.5"
+
+[dependencies]
+hf-hub = { version = "0.5", default-features = false }
+
+[target.'cfg(unix)'.dependencies.libc]
+version = "0.2"
+"#;
+    std::fs::write(&path, cargo_toml).expect("write");
+
+    write_version_to_cargo_toml(path.to_str().unwrap(), "0.15.6").expect("write ok");
+
+    let after = std::fs::read_to_string(&path).expect("read");
+    assert!(
+        after.contains(r#"version = "0.15.6""#),
+        "[package] version must be bumped:\n{after}"
+    );
+    assert!(
+        after.contains(r#"hf-hub = { version = "0.5", default-features = false }"#),
+        "inline external dep pin must be untouched:\n{after}"
+    );
+    // The table-form libc pin (version = "0.2") must survive.
+    assert!(
+        after.contains(r#"version = "0.2""#),
+        "table-form external dep libc must remain at 0.2:\n{after}"
+    );
+    assert!(
+        !after.contains("0.15.5"),
+        "stale package version must be gone:\n{after}"
+    );
+}
+
+/// `write_version_to_cargo_toml` bumps `[workspace.package].version` in a root
+/// manifest without touching a sibling `[workspace.dependencies]` external pin.
+#[test]
+fn write_version_to_cargo_toml_bumps_workspace_package() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("Cargo.toml");
+
+    let cargo_toml = r#"[workspace.package]
+version = "1.0.0-rc.17"
+
+[workspace]
+resolver = "2"
+members = []
+
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+"#;
+    std::fs::write(&path, cargo_toml).expect("write");
+
+    write_version_to_cargo_toml(path.to_str().unwrap(), "1.0.0-rc.18").expect("write ok");
+
+    let after = std::fs::read_to_string(&path).expect("read");
+    assert!(
+        after.contains(r#"version = "1.0.0-rc.18""#),
+        "[workspace.package] version must be bumped:\n{after}"
+    );
+    assert!(
+        after.contains(r#"tokio = { version = "1.0", features = ["full"] }"#),
+        "[workspace.dependencies] external pin must be untouched:\n{after}"
+    );
+}
+
+// -----------------------------------------------------------------------
 // sync_versions dep-table end-to-end test
 // -----------------------------------------------------------------------
 

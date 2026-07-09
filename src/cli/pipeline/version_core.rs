@@ -1,12 +1,7 @@
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::version::to_rubygems_prerelease;
 use anyhow::Context as _;
-use std::sync::LazyLock;
 use tracing::info;
-
-/// Regex for matching version field in Cargo.toml format files.
-static CARGO_VERSION_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r#"(?m)^(version\s*=\s*)"[^"]*""#).expect("valid regex"));
 
 /// Read the version from a Cargo.toml file (workspace or regular package).
 pub(crate) fn read_version(version_from: &str) -> anyhow::Result<String> {
@@ -69,19 +64,54 @@ pub(super) fn bump_version(version: &str, component: &str) -> anyhow::Result<Str
 
 /// Write a bumped version back into a Cargo.toml (workspace or regular package).
 pub(super) fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &str) -> anyhow::Result<()> {
+    use toml_edit::DocumentMut;
+
     let content =
         std::fs::read_to_string(cargo_toml_path).with_context(|| format!("Failed to read {cargo_toml_path}"))?;
+    let mut doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("Failed to parse TOML in {cargo_toml_path}"))?;
 
-    // Match `version = "..."` as a standalone line (covers both [package] and [workspace.package])
-    let new_content = CARGO_VERSION_RE
-        .replace(&content, format!(r#"version = "{new_version}""#).as_str())
-        .to_string();
+    // Set ONLY the package version, never a dependency's `version` field. A blunt
+    // `^version = "..."` regex is unsafe here: a manifest that inherits its package
+    // version via `version.workspace = true` has no literal `[package].version`, so
+    // the first standalone `version = "..."` line is actually inside a TABLE-form
+    // dependency (e.g. `[target.'cfg(...)'.dependencies.hf-hub]`), and the regex
+    // would clobber that external crate's pin. `toml_edit` addresses the package
+    // node by path, so external deps are structurally out of reach.
+    //
+    // Both a regular crate (`[package].version`) and the workspace root
+    // (`[workspace.package].version`) are handled; a manifest carrying both (a root
+    // that is also a package) updates both. A crate that inherits its version
+    // (`version.workspace = true`, which parses as a table, not a string) has no
+    // literal to update and is correctly left untouched.
+    let mut changed = false;
 
-    if new_content == content {
-        anyhow::bail!("Could not find a `version = \"...\"` field to update in {cargo_toml_path}");
+    if let Some(ws_version) = doc
+        .get_mut("workspace")
+        .and_then(|w| w.get_mut("package"))
+        .and_then(|p| p.get_mut("version"))
+    {
+        if ws_version.is_str() && ws_version.as_str() != Some(new_version) {
+            *ws_version = toml_edit::value(new_version);
+            changed = true;
+        }
     }
 
-    std::fs::write(cargo_toml_path, new_content)
+    if let Some(pkg_version) = doc.get_mut("package").and_then(|p| p.get_mut("version")) {
+        if pkg_version.is_str() && pkg_version.as_str() != Some(new_version) {
+            *pkg_version = toml_edit::value(new_version);
+            changed = true;
+        }
+    }
+
+    if !changed {
+        anyhow::bail!(
+            "Could not find a `[package]`/`[workspace.package]` version field to update in {cargo_toml_path}"
+        );
+    }
+
+    std::fs::write(cargo_toml_path, doc.to_string())
         .with_context(|| format!("Failed to write updated version to {cargo_toml_path}"))?;
 
     Ok(())
