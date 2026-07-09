@@ -69,13 +69,15 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_call_args_wit
 /// Returns true if a non-delegatable Magnus function/method can be recovered via serde
 /// JSON-roundtrip on its params: every Named non-opaque param can be deserialized from a
 /// String, and every sanitized Vec<String> param has `original_type` set.  Requires the
-/// function to return Result (or be async, which wraps in Result via Runtime::new()) so the
-/// generated `?` operator works.
+/// wrapper to return Result so the generated `?` operator works — `has_error` captures that
+/// (the core fn returns Result, is async, is variadic, or was force-wrapped in Result because
+/// it takes fallibly-deserialized params; see `params_need_fallible_deser`).
 pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_recoverable(
     func: &FunctionDef,
     opaque_types: &AHashSet<String>,
+    has_error: bool,
 ) -> bool {
-    if func.error_type.is_none() && !func.is_async {
+    if !has_error {
         return false;
     }
     if !crate::codegen::shared::is_delegatable_return(&func.return_type) {
@@ -94,6 +96,22 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_recover
             // above).
             _ => crate::codegen::shared::is_delegatable_param(&p.ty, opaque_types),
         }
+    })
+}
+
+/// Returns true if any param's deserialization preamble uses the fallible `?` operator —
+/// i.e. a non-opaque Named param (serde JSON-roundtrip), a `Vec<Named>` batch param, or a
+/// sanitized `Vec<String>` param. Such functions MUST return `Result` even when the core fn
+/// is infallible (e.g. `max_sim_score -> f64`), otherwise the generated `?` fails to compile
+/// (`E0277`). Callers OR this into `has_error` to force a `Result` return + `Ok(...)` wrap.
+pub(in crate::backends::magnus::gen_bindings::functions) fn params_need_fallible_deser(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+) -> bool {
+    params.iter().any(|p| match &p.ty {
+        TypeRef::Named(n) => !opaque_types.contains(n.as_str()),
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())),
+        _ => p.sanitized && p.original_type.is_some(),
     })
 }
 

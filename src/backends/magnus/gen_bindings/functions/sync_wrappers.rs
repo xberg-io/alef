@@ -3,6 +3,7 @@ use super::scan_args_defaults::{
 };
 use super::serde_bindings::{
     magnus_ahash_pre_call_bindings, magnus_call_args_with_ahash, magnus_serde_let_bindings, magnus_serde_recoverable,
+    params_need_fallible_deser,
 };
 use crate::backends::magnus::type_map::MagnusMapper;
 use crate::codegen::generators;
@@ -38,13 +39,28 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
         })
     };
     let return_type = mapper.map_type(&func.return_type);
+    // A non-variadic, infallible, sync fn whose params need `?`-based serde deser (e.g.
+    // `max_sim_score(&MultiVectorEmbedding, &MultiVectorEmbedding) -> f64`) must still return
+    // Result so the `?` in the deser preamble compiles. Scoped to this genuinely-new case only:
+    // variadic / error / async functions are already Result and keep their existing codegen path.
+    let force_result_for_deser = !variadic
+        && func.error_type.is_none()
+        && !func.is_async
+        && params_need_fallible_deser(&func.params, opaque_types);
     // Async functions always return Result because Runtime::new() can fail.
     // Variadic functions must return Result because scan_args uses ? operator.
-    let has_error = func.error_type.is_some() || func.is_async || variadic;
+    let has_error = func.error_type.is_some() || func.is_async || variadic || force_result_for_deser;
     let return_annotation = mapper.wrap_return(&return_type, has_error);
 
     let can_delegate = crate::codegen::shared::can_auto_delegate_function(func, opaque_types);
-    let serde_recoverable = !can_delegate && magnus_serde_recoverable(func, opaque_types);
+    // serde-recovery needs a Result to `?` into. Pass only the original triggers (error/async) plus
+    // the new force case — NOT `variadic` — so variadic config functions keep their prior codegen.
+    let serde_recoverable = !can_delegate
+        && magnus_serde_recoverable(
+            func,
+            opaque_types,
+            func.error_type.is_some() || func.is_async || force_result_for_deser,
+        );
 
     // Check if any param is a Vec<Named> that will need `{name}_core` rebinding.
     let needs_vec_named_let_binding = func.params.iter().any(|p| match &p.ty {
@@ -221,8 +237,9 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_function(
                     wrap => &wrap,
                 },
             )
-        } else if variadic {
-            // Variadic functions must return Result (scan_args uses ?), so wrap plain value in Ok().
+        } else if variadic || force_result_for_deser {
+            // Result-returning wrapper with an infallible core call: variadic (scan_args uses ?) or
+            // force-wrapped because a param needs fallible serde deser. Wrap the plain value in Ok().
             let inner = generators::wrap_return_with_mutex_mapped(
                 &core_call,
                 &func.return_type,

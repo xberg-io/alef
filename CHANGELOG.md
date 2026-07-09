@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.3] - 2026-07-09
+
+### Fixed
+
+- **magnus (Ruby) codegen**: a non-variadic, infallible, synchronous free function whose
+  parameters require fallible serde deserialization — a non-opaque `Named`, `Vec<Named>`, or
+  sanitized `Vec<String>` param — now emits a `Result`-returning wrapper that `Ok(...)`-wraps
+  the core call, instead of a stub whose `?`-based argument conversion failed to compile in a
+  non-`Result` body (`E0277`). Surfaced by `max_sim_score(&MultiVectorEmbedding,
+  &MultiVectorEmbedding) -> f64` and `max_sim_rank(...) -> Vec<LateInteractionMatch>`. Scoped
+  strictly to this previously-broken case: variadic / error-returning / async functions keep
+  their existing codegen path unchanged.
+- **rustler (Elixir) codegen**: same-named NIF entries — a real definition plus its crate-root
+  re-export under a narrower `cfg` (e.g. `max_sim_score`, gated `any(presets, late-interaction)`
+  in its module and re-exported under `presets`) — are now collapsed via
+  `dedup_same_name_functions` before re-gating. Emitting both produced two same-named
+  `#[rustler::nif]` items whose cfgs overlap, which rustler auto-discovers and rejects at
+  `on_load` with "Duplicate NIF entry". The other single-surface and Rust-cfg-gated backends
+  already deduplicated; the native NIF generator was the last to only re-gate.
+
 ## [0.34.2] - 2026-07-08
 
 ### Fixed

@@ -277,11 +277,17 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     let types_by_name: ahash::AHashMap<&str, &crate::core::ir::TypeDef> =
         api.types.iter().map(|t| (t.name.as_str(), t)).collect();
 
+    // Collapse same-name entries first: a real definition plus its crate-root re-export under a
+    // narrower cfg (e.g. `max_sim_score` gated `any(presets, late-interaction)` in its module and
+    // re-exported under `presets`) both reach the surface. Emitting both yields two same-named
+    // `#[rustler::nif]` items whose cfgs OVERLAP — rustler auto-discovers both and aborts `on_load`
+    // with "Duplicate NIF entry". `dedup_same_name_functions` keeps one entry with the OR-merged cfg.
+    let deduped_functions = crate::codegen::fn_dedup::dedup_same_name_functions(&api.functions);
     // Re-gate ungated NIF definitions that share a name with gated arms so the fallback NIF
     // compiles only when no gated arm does. Without this, an unconditional inline fallback module
     // whose enclosing cfg gate was dropped by extraction would emit a second `#[rustler::nif]`
     // alongside the active cfg arm, aborting `on_load` with a "Duplicate NIF entry" error.
-    let regated_functions = regate_ungated_same_name_functions(&api.functions);
+    let regated_functions = regate_ungated_same_name_functions(&deduped_functions);
 
     for func in regated_functions
         .iter()

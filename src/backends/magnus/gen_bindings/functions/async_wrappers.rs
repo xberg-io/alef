@@ -42,7 +42,9 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_async_function(
     let return_annotation = mapper.wrap_return(&return_type, true);
 
     let can_delegate = crate::codegen::shared::can_auto_delegate_function(func, opaque_types);
-    let serde_recoverable = !can_delegate && magnus_serde_recoverable(func, opaque_types);
+    // Async wrappers always return Result (Runtime::new() can fail), so `?` in the serde preamble
+    // always compiles.
+    let serde_recoverable = !can_delegate && magnus_serde_recoverable(func, opaque_types, true);
 
     // Check if any param is a Vec<Named> that will need `{name}_core` rebinding.
     let needs_vec_named_let_binding = func.params.iter().any(|p| match &p.ty {
