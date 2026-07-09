@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.4] - 2026-07-09
+
+### Fixed
+
+- **java visitor codegen**: the upcall `FunctionDescriptor` for visitor callbacks now declares
+  `ValueLayout.JAVA_INT` as its return layout, matching the `int`-returning `handleVisit*` bridge
+  methods and the `int.class` `MethodType`. It previously emitted `ValueLayout.JAVA_LONG`, so the
+  Java Linker rejected every visitor upcall stub with `IllegalArgumentException: Wrong method
+  handle type: (MemorySegment×5)int`, making `withVisitor(...)` unusable — even a no-op visitor
+  threw before any callback ran. The `JAVA_LONG` parameter layouts for genuine i64 arguments
+  (e.g. `depth`, `index_in_parent`) are unchanged. Mirrors the `JAVA_INT` return layout the
+  lifecycle/JSON-convention trait-bridge stubs already use.
+
 ## [0.34.3] - 2026-07-09
 
 ### Fixed
