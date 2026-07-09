@@ -1,12 +1,17 @@
 /// Ensure `dart:io`, `dart:isolate`, `dart:core`, and `dart:ffi` are imported (the loader
-/// helper uses `File`, `Isolate`, `Uri`, and `Abi`). Inserts the imports after the first
-/// existing `import` line if missing. Idempotent.
+/// helper uses `File`, `Isolate`, `Uri`, and `Abi`), plus the shared
+/// `package:{package_name}/src/native_loader.dart` (the loader override calls
+/// its `nativeCachedLibPath()` / `nativeCacheDir()` / `nativeAssetUrlBase()`
+/// helpers to resolve and describe the versioned cache). Inserts each missing
+/// import after the first existing `import` line. Idempotent.
 ///
 /// To avoid namespace conflict with the FRB-generated `Uri` class, imports
 /// `dart:core.Uri` with an alias (`_DartCoreUri`), then replaces all
 /// `Uri.parse()` and `Uri.resolve()` calls with the aliased name.
-pub(super) fn ensure_loader_imports(source: &str) -> String {
+pub(super) fn ensure_loader_imports(source: &str, package_name: &str) -> String {
     let mut result = source.to_string();
+    let helper_import = format!("import 'package:{package_name}/src/native_loader.dart';");
+    let helper_import_line = format!("{helper_import}\n");
     // The aliased `import 'dart:core' as _DartCore;` SUPPRESSES the implicit
     // unprefixed `dart:core` import per the Dart spec, so without an explicit
     // unprefixed import every bare reference to `String`, `int`, `bool`,
@@ -20,6 +25,7 @@ pub(super) fn ensure_loader_imports(source: &str) -> String {
         ("import 'dart:io';", "import 'dart:io';\n"),
         ("import 'dart:isolate';", "import 'dart:isolate';\n"),
         ("import 'dart:ffi';", "import 'dart:ffi';\n"),
+        (helper_import.as_str(), helper_import_line.as_str()),
     ];
 
     // Find the first import line to anchor insertions so the added imports sit

@@ -906,6 +906,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "bin_download_libs.jinja",
         include_str!("templates/bin_download_libs.jinja"),
     ),
+    (
+        "dart_native_loader_helper.jinja",
+        include_str!("templates/dart_native_loader_helper.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

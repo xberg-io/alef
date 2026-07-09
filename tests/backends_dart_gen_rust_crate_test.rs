@@ -643,9 +643,9 @@ fn generate_bindings_returns_dart_file_plus_rust_crate_files() {
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
 
-    // Should have: wrapper .dart + barrel .dart + traits.dart + download_libs.dart
-    // + Cargo.toml + lib.rs + build.rs + flutter_rust_bridge.yaml = 8.
-    assert_eq!(files.len(), 8, "expected 8 generated files, got {}", files.len());
+    // Should have: wrapper .dart + barrel .dart + traits.dart + native_loader.dart
+    // + download_libs.dart + Cargo.toml + lib.rs + build.rs + flutter_rust_bridge.yaml = 9.
+    assert_eq!(files.len(), 9, "expected 9 generated files, got {}", files.len());
 
     let has_dart = files.iter().any(|f| {
         let p = f.path.to_string_lossy().replace('\\', "/");
@@ -658,6 +658,12 @@ fn generate_bindings_returns_dart_file_plus_rust_crate_files() {
         p.ends_with("packages/dart/bin/download_libs.dart")
     });
     assert!(has_download_script, "missing Dart native library download script");
+
+    let has_native_loader = files.iter().any(|f| {
+        let p = f.path.to_string_lossy().replace('\\', "/");
+        p.ends_with("packages/dart/lib/src/native_loader.dart")
+    });
+    assert!(has_native_loader, "missing shared native-loader helper");
 }
 
 fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async: bool) -> MethodDef {

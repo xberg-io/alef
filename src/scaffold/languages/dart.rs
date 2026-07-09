@@ -125,6 +125,8 @@ executables:
   download_libs:
 dependencies:
   http: '^1.1.0'
+  # SHA-256 verification of downloaded native-library release assets.
+  crypto: '^3.0.0'
 {capsule_dependency_lines}{dependency_block}dev_dependencies:
   test: '{test_package}'
   lints: '{lints}'

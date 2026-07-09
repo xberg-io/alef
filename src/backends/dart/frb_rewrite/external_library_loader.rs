@@ -58,7 +58,7 @@ pub fn rewrite_frb_external_library_loader(source: &str, package_name: &str, mod
         source.replacen(&prologue, &replacement, 1)
     };
 
-    ensure_loader_imports(&with_loader)
+    ensure_loader_imports(&with_loader, package_name)
 }
 
 /// Return the exact FRB-generated `RustLib.init` prologue present in `source`,
@@ -105,7 +105,11 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
   ///    (for published pub.dev packages with platform-specific bundled native libraries)
   /// 3. Package-installed location (lib/src/{module}_bridge_generated/)
   ///    (legacy fallback for development or packages without per-platform binaries)
-  /// 4. Returns null (flutter_rust_bridge falls back to its default loader)
+  /// 4. Versioned user cache populated by `dart run {package}:download_libs`
+  ///    (`<cache>/{package}/<version>/<rid>/`), shared with the download script
+  ///    via `nativeCachedLibPath()` in `native_loader.dart`.
+  /// 5. Throws a StateError naming the expected release asset URL, the
+  ///    download command, and the env-var override (never a silent null miss).
   static Future<ExternalLibrary?> {marker}() async {{
     try {{
       const candidates = <String>[
@@ -245,10 +249,32 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
       }} catch (_) {{
         // fall through to default loader
       }}
+
+      // Versioned user cache populated by `dart run {package}:download_libs`.
+      // Shares its cache-path logic with the download script via
+      // `nativeCachedLibPath()` so the two can never disagree on the location.
+      final cachedLibPath = nativeCachedLibPath();
+      if (cachedLibPath != null && candidateExists(cachedLibPath)) {{
+        final result = tryOpenAbsolute(cachedLibPath);
+        if (result != null) return result;
+      }}
     }} catch (_) {{
-      // Fall through to the default loader on any resolution failure.
+      // Fall through to the descriptive miss below on any resolution failure.
     }}
-    return null;
+
+    // Nothing bundled and nothing staged in the cache: fail loudly rather than
+    // let flutter_rust_bridge attempt a doomed relative-path dlopen. Name the
+    // exact release asset, the fetch command, and the env-var override so the
+    // consumer can recover.
+    final rid = nativeComputeRid() ?? Platform.operatingSystem;
+    throw StateError(
+      'Native library for {package} ($rid) was not found. '
+      'Expected it in the versioned cache (\${{nativeCacheDir() ?? '<unresolved cache dir>'}}) '
+      'or bundled with the package. Download it with '
+      '`dart run {package}:download_libs`, which fetches '
+      '\${{nativeAssetUrlBase()}}.tar.gz and verifies its SHA-256, '
+      'or point \$nativeLibDirEnv at a directory containing the native library.',
+    );
   }}
 
   /// Initialize flutter_rust_bridge
