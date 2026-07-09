@@ -85,12 +85,20 @@ pub(super) fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &s
     // that is also a package) updates both. A crate that inherits its version
     // (`version.workspace = true`, which parses as a table, not a string) has no
     // literal to update and is correctly left untouched.
+    //
+    // Every table descent goes through `as_table_like_mut()` + `TableLike::get_mut`,
+    // which return `None` for a missing key. `Item::get_mut` must NOT be used here: it
+    // auto-vivifies the key as an empty table, which would emit a spurious
+    // `package = {}` under an otherwise-empty `[workspace]` on a manifest that has no
+    // `[workspace.package]` (only a sibling top-level `[package]`).
     let mut changed = false;
 
     if let Some(ws_version) = doc
         .get_mut("workspace")
-        .and_then(|w| w.get_mut("package"))
-        .and_then(|p| p.get_mut("version"))
+        .and_then(|w| w.as_table_like_mut())
+        .and_then(|t| t.get_mut("package"))
+        .and_then(|p| p.as_table_like_mut())
+        .and_then(|t| t.get_mut("version"))
     {
         if ws_version.is_str() && ws_version.as_str() != Some(new_version) {
             *ws_version = toml_edit::value(new_version);
@@ -98,7 +106,11 @@ pub(super) fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &s
         }
     }
 
-    if let Some(pkg_version) = doc.get_mut("package").and_then(|p| p.get_mut("version")) {
+    if let Some(pkg_version) = doc
+        .get_mut("package")
+        .and_then(|p| p.as_table_like_mut())
+        .and_then(|t| t.get_mut("version"))
+    {
         if pkg_version.is_str() && pkg_version.as_str() != Some(new_version) {
             *pkg_version = toml_edit::value(new_version);
             changed = true;

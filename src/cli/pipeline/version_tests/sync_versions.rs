@@ -674,6 +674,44 @@ tokio = { version = "1.0", features = ["full"] }
     );
 }
 
+/// Regression test: an empty `[workspace]` section with a sibling top-level
+/// `[package]` (no `[workspace.package]`) must NOT gain a spurious `package = {}`
+/// line. `Item::get_mut("package")` on the workspace item auto-vivifies an empty
+/// table; the fix descends via `as_table_like_mut()` + `TableLike::get_mut`, which
+/// return `None` instead of inserting. Reproduces the e2e/rust and elixir NIF
+/// manifest corruption seen during the rc.19 bump.
+#[test]
+fn write_version_to_cargo_toml_does_not_vivify_workspace_package() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("Cargo.toml");
+
+    let cargo_toml = r#"[workspace]
+
+[package]
+name = "xberg-e2e-rust"
+version = "1.0.0-rc.18"
+edition = "2021"
+"#;
+    std::fs::write(&path, cargo_toml).expect("write");
+
+    write_version_to_cargo_toml(path.to_str().unwrap(), "1.0.0-rc.19").expect("write ok");
+
+    let after = std::fs::read_to_string(&path).expect("read");
+    assert!(
+        after.contains(r#"version = "1.0.0-rc.19""#),
+        "[package] version must be bumped:\n{after}"
+    );
+    assert!(
+        !after.contains("package = {}"),
+        "empty [workspace] must not gain a spurious `package = {{}}`:\n{after}"
+    );
+    // The [workspace] section must remain exactly as authored (empty).
+    assert!(
+        after.contains("[workspace]\n\n[package]"),
+        "[workspace] section must stay empty:\n{after}"
+    );
+}
+
 // -----------------------------------------------------------------------
 // sync_versions dep-table end-to-end test
 // -----------------------------------------------------------------------
