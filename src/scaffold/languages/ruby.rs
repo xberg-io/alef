@@ -98,11 +98,21 @@ pub(crate) fn scaffold_ruby_cargo(
     let deps_section = dep_lines.join("\n");
 
     // Build the cargo-machete ignored list. `rb-sys` is pinned via cargo
-    // (v0.22.25 workaround for mingw sysroot bug) but only used transitively
-    // through Magnus—cargo-machete sees it as unused at the leaf crate level.
-    // `tokio`, `async-trait`, `futures`, and `ahash` are now directly imported
-    // by the generated NIF code, so they should NOT be in the ignored list.
-    let machete_ignored = ["rb-sys"];
+    // (mingw sysroot workaround) but only used transitively through Magnus, so
+    // cargo-machete sees it as unused at the leaf crate level. `async-trait` is
+    // declared so trait-bridge async impl macros resolve and `tokio` for a
+    // trait-bridge runtime, but a synchronous bridge (e.g. a visitor) never
+    // imports either in the generated NIF, so ignore them when emitted for a
+    // bridge without real async. `futures`/`ahash`, when emitted, are directly
+    // imported by the NIF and must stay out of the ignored list.
+    let mut machete_ignored: Vec<&str> = vec!["rb-sys"];
+    if has_trait_bridges {
+        machete_ignored.push("async-trait");
+        if !has_async {
+            machete_ignored.push("tokio");
+        }
+    }
+    machete_ignored.sort_unstable();
     // cargo-sort places `[package.metadata.*]` immediately after `[package]`,
     // before `[lib]` / `[dependencies]`.
     let ignored_list = machete_ignored

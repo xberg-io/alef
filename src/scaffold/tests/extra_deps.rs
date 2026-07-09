@@ -299,6 +299,20 @@ fn test_scaffold_ruby_cargo_deps_are_alphabetically_sorted() {
         keys.contains(&"tokio"),
         "tokio must appear when trait bridges are configured; keys: {keys:?}"
     );
+    // A synchronous trait bridge emits async-trait and tokio but the generated NIF
+    // never imports them, so both must join rb-sys in the cargo-machete ignored
+    // list — otherwise cargo-machete fails `poly lint` downstream.
+    let ignored_line = cargo_toml
+        .content
+        .lines()
+        .find(|l| l.trim_start().starts_with("ignored ="))
+        .expect("ruby Cargo.toml must have a cargo-machete ignored line");
+    for dep in ["async-trait", "rb-sys", "tokio"] {
+        assert!(
+            ignored_line.contains(dep),
+            "cargo-machete ignored list must contain {dep}; got: {ignored_line}"
+        );
+    }
     let mut sorted = keys.clone();
     sorted.sort();
     assert_eq!(
@@ -341,6 +355,17 @@ fn test_scaffold_r_cargo_deps_are_alphabetically_sorted() {
     assert!(
         keys.contains(&"async-trait"),
         "async-trait must appear when trait bridges are configured; keys: {keys:?}"
+    );
+    // async-trait is declared for the async impl macro but the extendr shim never
+    // imports it, so the R crate must emit a cargo-machete ignore stanza for it.
+    let ignored_line = cargo_toml
+        .content
+        .lines()
+        .find(|l| l.trim_start().starts_with("ignored ="))
+        .expect("R Cargo.toml must have a cargo-machete ignored line when trait bridges are configured");
+    assert!(
+        ignored_line.contains("async-trait"),
+        "R cargo-machete ignored list must contain async-trait; got: {ignored_line}"
     );
     let mut sorted = keys.clone();
     sorted.sort();

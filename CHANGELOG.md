@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **cargo-machete false positives on binding scaffolds**: the R (extendr), Dart, and Ruby crate
+  manifests declare `async-trait` — and Ruby additionally declares `tokio` — for trait-bridge
+  support, but a synchronous trait bridge (e.g. a visitor) never imports them in the generated
+  shim, so `cargo-machete` flagged them as unused and failed `poly lint`. Each generator now adds
+  the emitted-but-unused dependency to its `[package.metadata.cargo-machete]` ignored list: R gains
+  the stanza (it previously emitted none), Dart appends `async-trait` (its bridge genuinely uses
+  `tokio`), and Ruby appends `async-trait` plus `tokio` when the bridge carries no real async. This
+  removes the need to hand-patch the generated manifests after regeneration.
+
 ## [0.34.4] - 2026-07-09
 
 ### Fixed

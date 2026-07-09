@@ -289,6 +289,13 @@ pub(crate) fn emit_cargo_toml(
     if api_has_ahash_param(api) {
         machete_ignored.push("ahash".to_string());
     }
+    if has_trait_bridges {
+        // async-trait is declared for async trait-bridge impls, but a synchronous
+        // bridge (e.g. a visitor) never `use`s it in the generated wrapper, so
+        // cargo-machete would otherwise flag it. tokio stays out of the list — the
+        // bridge always drives callbacks through a tokio runtime.
+        machete_ignored.push("async-trait".to_string());
+    }
     machete_ignored.sort();
     machete_ignored.dedup();
     let machete_ignored_list = machete_ignored

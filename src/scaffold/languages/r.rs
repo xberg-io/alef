@@ -175,16 +175,27 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
         format!("\n[features]\n{}\n", lines.join("\n"))
     };
 
+    // async-trait is declared so trait-bridge async impl macros resolve at compile
+    // time, but the extendr shim itself never `use`s it, so cargo-machete flags it
+    // as unused at the leaf-crate level. Ignore it when emitted. cargo-sort places
+    // `[package.metadata.*]` immediately after `[package]`, before `[lib]`.
+    let machete_block = if has_trait_bridges {
+        "[package.metadata.cargo-machete]\nignored = [\"async-trait\"]\n\n".to_string()
+    } else {
+        String::new()
+    };
+
     let cargo_content = format!(
         r#"{pkg_header}
 
-[lib]
+{machete_block}[lib]
 crate-type = ["staticlib", "lib"]
 
 [dependencies]
 {deps_section}
 {features_block}"#,
         pkg_header = pkg_header,
+        machete_block = machete_block,
         deps_section = deps_section,
         features_block = features_block,
     );
