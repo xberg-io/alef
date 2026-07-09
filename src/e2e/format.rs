@@ -61,6 +61,19 @@ pub fn run_formatters(files: &[GeneratedFile], e2e_config: &E2eConfig) {
             run_go_mod_tidy(&dir);
         }
     }
+
+    // poly (and user format overrides) rewrite files via atomic rename, which
+    // resets Unix permissions to 0644 — clobbering the executable bit the scaffold
+    // writer set on shebang scripts (e.g. `run_tests.php`). Re-assert it so shebang
+    // e2e scripts stay executable after formatting. Paths are relative to the
+    // process cwd (the repo root), matching where the writer/poly operate.
+    for file in files {
+        if file.content.starts_with("#!") {
+            if let Err(e) = crate::cli::pipeline::apply_shebang_chmod(&file.path, &file.content) {
+                warn!("failed to restore exec bit on {}: {e}", file.path.display());
+            }
+        }
+    }
 }
 
 /// Run a best-effort shell command; log non-success as a warning.
@@ -151,6 +164,41 @@ mod tests {
         } else {
             assert_eq!(formatted, "x=1", "without poly the file must be left untouched");
         }
+    }
+
+    /// poly (and user format overrides) rewrite files via atomic rename, which
+    /// resets Unix permissions to 0644. run_formatters must re-assert the
+    /// executable bit on shebang scripts (e.g. `run_tests.php`) afterward, so the
+    /// generated suite stays runnable. Deterministic with or without poly: absent
+    /// poly leaves the file 0644, present poly may clobber it — either way the
+    /// post-format chmod pass restores the bit.
+    #[cfg(unix)]
+    #[test]
+    fn run_formatters_restores_exec_bit_on_shebang_scripts() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let out = dir.path().join("e2e-out");
+        std::fs::create_dir_all(out.join("php")).unwrap();
+        let script = out.join("php/run_tests.php");
+        let content = "#!/usr/bin/env php\n<?php\n";
+        std::fs::write(&script, content).unwrap();
+        // Start non-executable to prove run_formatters sets the bit.
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let e2e_config = e2e_config_for(&out);
+        let files = vec![GeneratedFile {
+            path: script.clone(),
+            content: content.to_owned(),
+            generated_header: false,
+        }];
+
+        run_formatters(&files, &e2e_config);
+
+        let mode = std::fs::metadata(&script).unwrap().permissions().mode();
+        assert!(
+            mode & 0o111 != 0,
+            "shebang script must be executable after run_formatters, got mode {mode:#o}"
+        );
     }
 
     /// A language poly does not know still runs cleanly (poly no-ops on unknown

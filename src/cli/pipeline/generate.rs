@@ -13,6 +13,7 @@ pub use generation::{generate, generate_public_api, generate_service_api, genera
 pub use normalization::normalize_content;
 pub use orphans::{collect_alef_headered_paths, sweep_orphans};
 pub use scaffold::{readme, scaffold, write_scaffold_files, write_scaffold_files_with_overwrite};
+pub(crate) use write::apply_shebang_chmod;
 pub use write::{finalize_hashes, write_files};
 
 #[cfg(test)]

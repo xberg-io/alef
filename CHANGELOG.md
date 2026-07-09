@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **e2e shebang scripts lost their executable bit after formatting**: the scaffold writer chmods
+  generated shebang scripts (e.g. `run_tests.php`) to `0o755`, but the subsequent `poly fmt --fix`
+  pass in the e2e formatter rewrites them via atomic rename, resetting the mode to `0o644`. The
+  generated suites then committed a non-executable `run_tests.php`, which trips the
+  `check-shebang-scripts-are-executable` file-safety hook downstream. `run_formatters` now
+  re-asserts the shebang chmod after every formatter pass, so shebang e2e scripts stay executable.
+
 ## [0.34.5] - 2026-07-09
 
 ### Added

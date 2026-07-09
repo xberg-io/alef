@@ -17,7 +17,7 @@ use tracing::debug;
 ///
 /// On non-Unix platforms this is a no-op — POSIX permission bits do not exist.
 #[cfg(unix)]
-pub(super) fn apply_shebang_chmod(path: &std::path::Path, content: &str) -> anyhow::Result<()> {
+pub(crate) fn apply_shebang_chmod(path: &std::path::Path, content: &str) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     if content.starts_with("#!") {
         let perms = std::fs::Permissions::from_mode(0o755);
@@ -27,7 +27,7 @@ pub(super) fn apply_shebang_chmod(path: &std::path::Path, content: &str) -> anyh
 }
 
 #[cfg(not(unix))]
-pub(super) fn apply_shebang_chmod(_path: &std::path::Path, _content: &str) -> anyhow::Result<()> {
+pub(crate) fn apply_shebang_chmod(_path: &std::path::Path, _content: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
