@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.5] - 2026-07-09
+
+### Added
+
+- **dart native loader**: the Dart backend now generates a runtime loader that fetches the
+  platform-matched native from the package's GitHub Release (version-pinned, SHA-256 verified)
+  into a versioned user-cache dir on first use, instead of bundling all-platform natives in the
+  published package. Adds a shared `native_loader.dart` helper, a cache-resolution loader stage
+  that errors actionably on a full miss (naming the asset URL and the `download_libs` / env-var
+  escape hatches), and the `crypto` dependency for SHA-256 verification.
+
 ### Fixed
 
 - **cargo-machete false positives on binding scaffolds**: the R (extendr), Dart, and Ruby crate
