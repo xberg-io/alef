@@ -439,7 +439,7 @@ pub mod cran {
 pub mod precommit {
     // alef rev: managed by sync-versions hook, no renovate marker. Used in
     // pre-commit configs; NOT used in `compute_inputs_hash` (see CODEGEN_FORMAT_VERSION).
-    pub const ALEF_REV: &str = "v0.34.3";
+    pub const ALEF_REV: &str = "v0.34.4";
 
     /// Codegen format version — bumped only when output-affecting codegen
     /// changes require all generated files to be re-stamped. Unlike
