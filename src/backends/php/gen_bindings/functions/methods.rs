@@ -45,10 +45,6 @@ pub(crate) fn gen_instance_method(
 
     let params_str = if params.is_empty() { String::new() } else { params };
 
-    // A `&mut self -> &mut Self` (or `&self -> &Self`) builder returning a reference to its own
-    // wrapper type: the inner value is mutated in place, so the returned reference is only for
-    // chaining. Cloning it is wrong (and impossible when the type is not `Clone`) — run the call
-    // for its side effect and share the existing handle's `Arc` (`self.inner.clone()`).
     let self_ref_return =
         method.returns_ref && matches!(&method.return_type, TypeRef::Named(n) if n.as_str() == type_name);
     const PHP_ERR_CONV: &str = ".map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))";
@@ -57,7 +53,7 @@ pub(crate) fn gen_instance_method(
     let body = if let Some(body) = adapter_bodies.get(&adapter_key) {
         body.clone()
     } else if can_delegate && is_opaque {
-        let call_args = gen_php_call_args(&method.params, opaque_types);
+        let call_args = gen_php_call_args(&method.params, opaque_types, &mapper.enum_names);
         let is_owned_receiver = matches!(method.receiver.as_ref(), Some(crate::core::ir::ReceiverKind::Owned));
         let needs_lock = mutex_types.contains(type_name);
         let core_call = if is_owned_receiver {
@@ -239,7 +235,10 @@ pub(crate) fn gen_instance_method_non_opaque(
     let json_string_enum_names = &mapper.json_string_enum_names;
     let params = gen_php_function_params(&method.params, mapper, opaque_types, bridge_type_aliases);
     let return_type = mapper.map_type(&method.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+    let mut return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+    if matches!(&method.return_type, TypeRef::Bytes) {
+        return_annotation = override_bytes_return_type(&return_annotation);
+    }
 
     let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(crate::core::ir::ReceiverKind::RefMut));
     let has_mut_methods = mutex_types.contains(&typ.name);
@@ -255,7 +254,7 @@ pub(crate) fn gen_instance_method_non_opaque(
     let params_str = if params.is_empty() { String::new() } else { params };
 
     let body = if can_delegate {
-        let call_args = gen_php_call_args(&method.params, opaque_types);
+        let call_args = gen_php_call_args(&method.params, opaque_types, &mapper.enum_names);
         let field_conversions = gen_php_lossy_binding_to_core_fields(
             typ,
             core_import,
@@ -378,16 +377,17 @@ pub(crate) fn gen_static_method(
 
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
     let core_type_path = typ.rust_path.replace('-', "_");
-    let call_args = gen_php_call_args(&method.params, opaque_types);
+    let call_args = gen_php_call_args(&method.params, opaque_types, &mapper.enum_names);
 
+    let string_enum_names_for_params = &mapper.enum_names;
     let has_unsupported_params = method.params.iter().any(|p| {
         match &p.ty {
-            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => true, 
-            TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())),
-            TypeRef::Map(_, _) => true, 
+            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !string_enum_names_for_params.contains(n.as_str()) => true,
+            TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !string_enum_names_for_params.contains(n.as_str())),
+            TypeRef::Map(_, _) => true,
             TypeRef::Optional(inner) => {
-                matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str()))
-                    || matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
+                matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !string_enum_names_for_params.contains(n.as_str()))
+                    || matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !string_enum_names_for_params.contains(n.as_str())))
             }
             _ => false,
         }

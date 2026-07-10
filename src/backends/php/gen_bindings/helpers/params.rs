@@ -153,8 +153,12 @@ pub(crate) fn gen_php_function_params(
 /// Generate PHP-specific call arguments.
 /// Non-opaque Named types are passed as `&T`, so we clone before `.into()`.
 /// Handles i64->usize/u64 casts for primitive types that need conversion.
-pub(crate) fn gen_php_call_args(params: &[crate::core::ir::ParamDef], opaque_types: &AHashSet<String>) -> String {
-    gen_php_call_args_vec(params, opaque_types).join(", ")
+pub(crate) fn gen_php_call_args(
+    params: &[crate::core::ir::ParamDef],
+    opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
+) -> String {
+    gen_php_call_args_vec(params, opaque_types, enum_names).join(", ")
 }
 
 /// Per-parameter form of [`gen_php_call_args`]. Use this when each expression must be paired with its
@@ -163,6 +167,7 @@ pub(crate) fn gen_php_call_args(params: &[crate::core::ir::ParamDef], opaque_typ
 pub(crate) fn gen_php_call_args_vec(
     params: &[crate::core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
 ) -> Vec<String> {
     params
         .iter()
@@ -189,6 +194,17 @@ pub(crate) fn gen_php_call_args_vec(
                         format!("{php_name}.as_ref().map(|v| &v.inner)")
                     } else {
                         format!("&{php_name}.inner")
+                    }
+                }
+                TypeRef::Named(name) if enum_names.contains(name.as_str()) => {
+                    if p.optional {
+                        format!(
+                            "{php_name}.as_deref().and_then(|s| serde_json::from_str(&serde_json::to_string(s).unwrap_or_default()).ok())"
+                        )
+                    } else {
+                        format!(
+                            "serde_json::from_str(&serde_json::to_string(&{php_name}).unwrap_or_default()).unwrap_or_default()"
+                        )
                     }
                 }
                 TypeRef::Named(_) => {
@@ -305,8 +321,11 @@ pub(crate) fn gen_php_call_args_vec(
                     }
                 }
                 TypeRef::Json => {
-                    let bound_name = format!("{php_name}_json");
-                    bound_name
+                    if p.optional {
+                        format!("{php_name}.as_deref().and_then(|s| serde_json::from_str(s).ok())")
+                    } else {
+                        format!("serde_json::from_str(&{php_name}).unwrap_or_default()")
+                    }
                 }
                 _ => php_name,
             }
@@ -344,6 +363,17 @@ pub(crate) fn gen_php_named_let_bindings(
         }
         let php_param_name = to_php_name(&p.name);
         match &p.ty {
+            TypeRef::Named(name) if !opaque_types.contains(name.as_str()) && enum_names.contains(name.as_str()) => {
+                out.push_str(&crate::backends::php::template_env::render(
+                    "php_named_enum_serde_let_binding.jinja",
+                    context! {
+                        php_name => &php_param_name,
+                        core_import => core_import,
+                        type_name => name.as_str(),
+                        is_optional => p.optional,
+                    },
+                ));
+            }
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_named_let_binding.jinja",
@@ -590,8 +620,11 @@ pub(crate) fn gen_php_call_args_with_let_bindings_vec(
                     }
                 }
                 TypeRef::Json => {
-                    let bound_name = format!("{php_name}_json");
-                    bound_name
+                    if p.optional {
+                        format!("{php_name}.as_deref().and_then(|s| serde_json::from_str(s).ok())")
+                    } else {
+                        format!("serde_json::from_str(&{php_name}).unwrap_or_default()")
+                    }
                 }
                 _ => php_name,
             }

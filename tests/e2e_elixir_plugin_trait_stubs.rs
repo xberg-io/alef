@@ -189,7 +189,7 @@ fn elixir_stub_emits_no_teardown_when_facade_module_empty() {
 
 #[test]
 fn elixir_stub_emits_no_teardown_when_trait_bridge_has_no_unregister_fn() {
-    let bridge = make_trait_bridge("DocumentExtractor", Some("Plugin")); // unregister_fn defaults to None
+    let bridge = make_trait_bridge("DocumentExtractor", Some("Plugin"));
     let extract_method = make_method("extract_bytes", TypeRef::Named("ProcessingResult".to_string()), false);
     let methods = vec![&extract_method];
     let fixture = make_fixture("my_extractor", json!({ "extractor": { "name": "test-extractor" } }));

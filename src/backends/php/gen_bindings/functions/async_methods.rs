@@ -188,7 +188,7 @@ pub(crate) fn gen_async_instance_method(
     let body = if let Some(body) = adapter_bodies.get(&adapter_key) {
         body.clone()
     } else if can_delegate && is_opaque {
-        let call_args = gen_php_call_args(&method.params, opaque_types);
+        let call_args = gen_php_call_args(&method.params, opaque_types, &mapper.enum_names);
         let inner_clone = "let inner = self.inner.clone();\n    ";
         let needs_lock = mutex_types.contains(type_name);
         let inner_name = if needs_lock {

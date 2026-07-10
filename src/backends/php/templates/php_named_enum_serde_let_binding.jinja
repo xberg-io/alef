@@ -1,0 +1,5 @@
+{% if is_optional %}
+let {{ php_name }}_core: Option<{{ core_import }}::{{ type_name }}> = {{ php_name }}.as_deref().and_then(|s| serde_json::from_str(&serde_json::to_string(s).unwrap_or_default()).ok());
+{% else %}
+let {{ php_name }}_core: {{ core_import }}::{{ type_name }} = serde_json::from_str(&serde_json::to_string(&{{ php_name }}).unwrap_or_default()).unwrap_or_default();
+{% endif %}

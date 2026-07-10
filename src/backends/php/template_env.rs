@@ -51,6 +51,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/php_named_let_binding.jinja"),
     ),
     (
+        "php_named_enum_serde_let_binding.jinja",
+        include_str!("templates/php_named_enum_serde_let_binding.jinja"),
+    ),
+    (
         "php_vec_named_let_binding.jinja",
         include_str!("templates/php_vec_named_let_binding.jinja"),
     ),

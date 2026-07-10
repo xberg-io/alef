@@ -6,7 +6,6 @@ use crate::backends::php::gen_bindings::helpers::{
 };
 use crate::backends::php::gen_bindings::rust_items::{
     gen_streaming_adapter_facade_method, generate_config_m4, has_no_arg_new_returning_self,
-    php_variant_wrapper_constructor,
 };
 use crate::backends::php::gen_bindings::serde_defaults::gen_serde_defaults_module;
 use crate::backends::php::gen_bindings::types::{
@@ -325,11 +324,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 let ctor_body = generators::gen_opaque_constructor(ctor, &typ.name, &core_import, "#[php_method]");
                 let ctor_impl = format!("#[php_impl]\nimpl {} {{\n{}}}", typ.name, ctor_body);
                 builder.add_item(&ctor_impl);
-            // Variant-wrapper constructor — emit a #[php(constructor)] impl so PHP callers
-            } else if typ.is_variant_wrapper {
-                if let Some(ctor) = php_variant_wrapper_constructor(typ, &mapper, &core_import) {
-                    builder.add_item(&ctor);
-                }
             }
         } else {
             builder.add_item(&gen_php_struct(

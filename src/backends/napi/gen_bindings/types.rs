@@ -315,11 +315,6 @@ pub(super) fn gen_opaque_instance_method(
         .iter()
         .any(|m| matches!(m.receiver.as_ref(), Some(crate::core::ir::ReceiverKind::RefMut)));
 
-    // A `&mut self -> &mut Self` (or `&self -> &Self`) builder that returns a reference to
-    // its own wrapper type. The inner value is mutated in place, so the returned reference is
-    // only for chaining; cloning it is wrong (and impossible when the type is not `Clone`).
-    // Share the existing handle's `Arc` instead: run the call for its side effect, then wrap
-    // `self.inner.clone()`.
     let self_ref_return =
         method.returns_ref && matches!(&method.return_type, crate::core::ir::TypeRef::Named(n) if n == type_name);
 

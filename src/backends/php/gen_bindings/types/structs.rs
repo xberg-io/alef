@@ -124,6 +124,9 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
         if streaming_method_keys.contains(&method_key) {
             continue;
         }
+        if method.sanitized && !adapter_bodies.contains_key(&method_key) {
+            continue;
+        }
 
         if method.is_async {
             impl_builder.add_method(&gen_async_instance_method(
@@ -191,11 +194,32 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
         if streaming_method_keys.contains(&method_key) {
             continue;
         }
+        if method.sanitized && !adapter_bodies.contains_key(&method_key) {
+            continue;
+        }
+        // `#[php_impl]` block with `#[php(constructor)]`, see `php_variant_wrapper_constructor`)
+        // method would create a second `#[php_impl] impl {Type}` block, which ext-php-rs
+        if typ.is_variant_wrapper && method.name == "new" && method.receiver.is_none() {
+            continue;
+        }
 
         if method.is_async {
             impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {
             impl_builder.add_method(&gen_static_method(method, mapper, opaque_types, typ, mutex_types));
+        }
+    }
+
+    if typ.is_variant_wrapper {
+        if let Some(ctor_method) =
+            crate::backends::php::gen_bindings::rust_items::php_variant_wrapper_constructor_method(
+                typ,
+                mapper,
+                core_import,
+                opaque_types,
+            )
+        {
+            impl_builder.add_method(&ctor_method);
         }
     }
 
