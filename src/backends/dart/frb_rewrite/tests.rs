@@ -743,7 +743,7 @@ fn fix_handler_executor_strips_orphaned_paren_async_task() {
 
 #[test]
 fn loader_replacement_uses_real_string_interpolation_for_cache_dir_and_url() {
-    let out = frb_init_prologue_replacement("xberg", "xberg", "xberg_dart");
+    let out = frb_init_prologue_replacement("test_pkg", "test_mod", "test_stem");
     assert!(
         out.contains("(${nativeCacheDir() ?? '<unresolved cache dir>'})"),
         "expected real interpolation for nativeCacheDir(), got:\n{out}"

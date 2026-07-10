@@ -645,7 +645,7 @@ fn write_version_to_cargo_toml_does_not_vivify_workspace_package() {
     let cargo_toml = r#"[workspace]
 
 [package]
-name = "xberg-e2e-rust"
+name = "demo-e2e-rust"
 version = "1.0.0-rc.18"
 edition = "2021"
 "#;
