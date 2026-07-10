@@ -790,8 +790,18 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     // is unstable on stable Rust; consumers either build with nightly or set
     // RUSTC_BOOTSTRAP=1 (the upstream-recommended workaround). This cfg_attr
     // is a no-op on non-windows so it costs nothing on Linux/macOS builds.
+    //
+    // When `[php].feature_gate` is configured (see below), a build that does not
+    // enable that feature compiles the crate body down to an empty shell — no
+    // `#[php_function]`/`#[php_class]` expansions remain to emit `extern "vectorcall"`
+    // trampolines, so rustc's `unused_features` lint flags the declaration itself.
+    // Under `-D warnings` (the common CI posture) that promotes to a hard build
+    // failure on Windows even though the attribute is legitimate whenever the
+    // gated feature *is* enabled. Pair it with a matching `allow` so an
+    // ungated-feature build never breaks the build.
     let php_config = config.php.as_ref();
     builder.add_inner_attribute("cfg_attr(windows, feature(abi_vectorcall))");
+    builder.add_inner_attribute("cfg_attr(windows, allow(unused_features))");
 
     // Optional feature gate — when [php].feature_gate is set, the entire crate
     // is conditionally compiled. Use this for parity with PyO3's `extension-module`
