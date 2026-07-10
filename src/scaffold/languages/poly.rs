@@ -34,9 +34,6 @@ use std::path::PathBuf;
 const EXCLUDES: &[&str] = &[
     "**/*.freezed.dart",
     "**/*.g.dart",
-    // Jinja templates (readme + e2e harness) contain `{{ ... }}` and are NOT valid
-    // standalone source; poly must not lint or reformat them (reformatting corrupts
-    // the template placeholders).
     "**/*.jinja",
     "**/*.lock",
     "**/Cargo.lock",
@@ -51,8 +48,6 @@ const EXCLUDES: &[&str] = &[
     "docs/snippets/**",
     "fixtures/**",
     "node_modules/**",
-    // Readme templates are Jinja-in-Markdown (`{{ package_name }}` etc.); the two
-    // conventional locations across repos. Same corruption risk as `**/*.jinja`.
     "readme_templates/**",
     "target/**",
     "templates/readme/**",
@@ -70,10 +65,6 @@ const EXCLUDES: &[&str] = &[
 /// * `packages/elixir/**/*.ex` / `*.exs` — poly's tree-sitter tier would reindent
 ///   Elixir before the residual `mix format` runs, breaking hash stability. mix
 ///   owns Elixir source.
-// `Cargo.toml` is excluded from poly's whole-repo format pass: `cargo sort`
-// (a residual step) owns dependency ordering there, and poly's taplo would fight
-// its array formatting. Everything else — including Elixir `.ex`/`.exs` — is
-// formatted by poly's tier-2 tree-sitter tier.
 const POLY_FORMAT_EXCLUDES: &[&str] = &["**/Cargo.toml"];
 
 /// Ruff rules ignored repo-wide for generated Python (ported verbatim from the
@@ -136,11 +127,7 @@ const TEST_IGNORES: &[&str] = &[
     "no-unused-vars",
     "no-literal-password",
     "no-unescaped-output",
-    // Generated Python e2e/test-app suites carry codegen-shaped nits that are not
     // defects in the binding surface: redundant `# noqa` (RUF100), unused/duplicate
-    // imports and redefinitions (F401/F811/I001), pytest composite asserts (PT018),
-    // unused harness parameters (ARG001/ARG002), and assorted style/upgrade nits
-    // (D403/UP035/UP012/RUF015/F541/EXE001).
     "RUF100",
     "F401",
     "F811",
@@ -155,15 +142,17 @@ const TEST_IGNORES: &[&str] = &[
     "RUF015",
     "F541",
     "EXE001",
-    // Generated e2e tests take an `input` param shadowing the Python builtin (A001);
-    // generated plugin trait-bridge stub classes aren't CapWords (N801).
     "A001",
     "N801",
 ];
 
 /// Render a TOML array of strings indented under `key = [`, one entry per line
-/// with a trailing comma — taplo's canonical multi-line form.
+/// with a trailing comma — taplo's canonical multi-line form. An empty slice
+/// renders as the inline empty array `[]` (taplo's canonical empty form).
 fn toml_array(entries: &[&str]) -> String {
+    if entries.is_empty() {
+        return "[]".to_string();
+    }
     let inner = entries
         .iter()
         .map(|e| format!("    \"{e}\","))
@@ -176,7 +165,6 @@ fn toml_array(entries: &[&str]) -> String {
 pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[Language]) -> Vec<GeneratedFile> {
     let has = |lang: Language| languages.contains(&lang);
 
-    // Build the merged exclude list: built-in defaults first, then repo extras.
     let extra_excludes: Vec<&str> = config.poly.exclude.iter().map(String::as_str).collect();
     let all_excludes: Vec<&str> = EXCLUDES
         .iter()
@@ -186,37 +174,30 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
         .collect();
     let excludes = toml_array(&all_excludes);
 
+    // file-safety-only globs (e.g. Rust `#![...]` inner attributes misread as
+    let file_safety_extra: Vec<&str> = config.poly.file_safety_exclude.iter().map(String::as_str).collect();
+    let file_safety_excludes = if file_safety_extra.is_empty() {
+        excludes.clone()
+    } else {
+        let all: Vec<&str> = all_excludes.iter().copied().chain(file_safety_extra).collect();
+        toml_array(&all)
+    };
+
     let mut out = String::new();
 
-    // Direct-CLI / CI discovery prune.
     out.push_str(&format!("[discovery]\nexclude = {excludes}\n\n"));
 
-    // Markdown (rumdl) — universal; every repo carries READMEs + Zensical docs.
     let md_disable = toml_array(RUMDL_DISABLE);
     out.push_str(&format!("[lint.markdown.rumdl]\ndisable = {md_disable}\n\n"));
     out.push_str(&format!("[fmt.markdown.rumdl]\ndisable = {md_disable}\n\n"));
 
     // NOTE: alef deliberately does NOT enable poly's opt-in native-toolchain
-    // formatters (shfmt, zig fmt, google-java-format, ktfmt, swift-format, dart
-    // format, gleam format, styler). Those require the language's system
-    // toolchain and make the formatted output environment-dependent — which
-    // would break `alef verify` hash stability across machines. Instead every
-    // language without a pure-Rust tier-1 poly engine is formatted by poly's
-    // deterministic, zero-dependency tree-sitter (tier-2) generic formatter.
-    // Go (gofmt) and Rust (rustfmt) stay at poly's default-on: alef already
-    // requires those toolchains (Layer B formats Rust/Go in-memory pre-hash),
-    // and consumer Go/Rust CI expects canonical gofmt/rustfmt output.
 
-    // Native lint/format tables — only for languages needing non-default config.
     if has(Language::Python) {
         out.push_str(&format!(
             "[lint.python.ruff]\nselect = [ \"ALL\" ]\nignore = {ignore}\n",
             ignore = toml_array(RUFF_IGNORE)
         ));
-        // Per-plugin params (poly >= 0.1.6 honors these). `pydocstyle_convention`
-        // both selects the convention and disables the D-rules it turns off, so
-        // no explicit D-set ignore is needed; INP001 resolves via poly's package
-        // -root detection. Generated code relies on these to stay lint-clean.
         out.push_str(
             "mccabe_max_complexity = 15\n\
              pydocstyle_convention = \"google\"\n\
@@ -227,19 +208,12 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
     }
 
     if has(Language::Php) {
-        // mago replaces phpstan + php-cs-fixer (no PHP runtime). Generated
-        // bindings target correctness + security; mago's style/complexity rules
-        // are intentionally not selected, and a few correctness-category rules
-        // that only fire on generated phpunit assertions are ignored.
         out.push_str(&format!(
             "[lint.php.mago]\nselect = [ \"correctness\", \"security\" ]\nignore = {ignore}\nphp_version = \"8.2\"\n\n",
             ignore = toml_array(MAGO_IGNORE)
         ));
     }
 
-    // Typos spell-checker allowlists from [workspace.poly.typos].
-    // Only emitted when at least one sub-table is non-empty; omitted entirely
-    // when the consumer declares no typos overrides.
     if !config.poly.typos.extend_words.is_empty() {
         out.push_str("[lint.typos.extend_words]\n");
         for (word, correct) in &config.poly.typos.extend_words {
@@ -255,8 +229,17 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
         out.push('\n');
     }
 
-    // Cross-engine per-file suppressions. Always emitted: every alef repo ships
-    // generated test/e2e suites. Python repos add wrapper-specific relaxations.
+    if let Some(uncomment) = &config.poly.uncomment {
+        out.push_str("[lint.uncomment]\n");
+        out.push_str(&format!("enabled = {}\n", uncomment.enabled));
+        out.push_str(&format!("remove_todos = {}\n", uncomment.remove_todos));
+        out.push_str(&format!("remove_fixme = {}\n", uncomment.remove_fixme));
+        out.push_str(&format!("remove_docs = {}\n", uncomment.remove_docs));
+        out.push_str(&format!("use_default_ignores = {}\n", uncomment.use_default_ignores));
+        let patterns: Vec<&str> = uncomment.preserve_patterns.iter().map(String::as_str).collect();
+        out.push_str(&format!("preserve_patterns = {}\n\n", toml_array(&patterns)));
+    }
+
     out.push_str("[per-file-ignores]\n");
     if has(Language::Python) {
         out.push_str(
@@ -270,41 +253,26 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
     for glob in ["**/tests/**", "**/e2e/**", "**/test_apps/**"] {
         out.push_str(&format!("\"{glob}\" = {test_ignores}\n"));
     }
-    // Repo-specific per-file suppressions from [workspace.poly.per-file-ignores].
-    // BTreeMap iteration is deterministic (alphabetical key order).
     for (glob, codes) in &config.poly.per_file_ignores {
         let code_refs: Vec<&str> = codes.iter().map(String::as_str).collect();
         out.push_str(&format!("\"{glob}\" = {}\n", toml_array(&code_refs)));
     }
     out.push('\n');
 
-    // Git-hook orchestration.
     out.push_str("[hooks]\nstages = [ \"pre-commit\" ]\n\n[hooks.builtin]\n");
     out.push_str(&format!("lint = {{ exclude = {excludes} }}\n"));
     out.push_str(&format!("fmt = {{ exclude = {excludes} }}\n"));
-    out.push_str(&format!("file_safety = {{ exclude = {excludes} }}\n"));
-    // Whole-workspace clippy/sort/machete/deny; capability-probed (skipped when
-    // the cargo toolchain is absent). Per-crate clippy excludes for binding
-    // crates await a polylint feature (tracked with the owner).
+    out.push_str(&format!("file_safety = {{ exclude = {file_safety_excludes} }}\n"));
     out.push_str("cargo = true\n");
-    // gitfluff-equivalent conventional-commit + AI-attribution stripping.
     out.push_str("commit = { stages = [ \"commit-msg\" ] }\n");
 
     if has(Language::Python) {
-        // pyrefly type-check (replaces mypy) as a pre-commit hook, run in
-        // project mode from the package root so it resolves the pyo3 _native
-        // module and the [tool.pyrefly] sub-config.
         let py_dir = config.package_dir(Language::Python);
         out.push_str(&format!(
             "\n[hooks.pre-commit.commands.pyrefly]\nrun = \"pyrefly check {py_dir}\"\nfiles = \"{py_dir}/**/*.py\"\n"
         ));
     }
 
-    // Canonical rustfmt config. poly's Rust formatter defers to rustfmt's own
-    // config discovery (matching `cargo fmt`), so an explicit `rustfmt.toml`
-    // pins the width both tools use. Without it rustfmt falls back to its 100
-    // default; every alef repo standardizes on 120 to match poly's global
-    // `line_length` default and stay consistent across the polyglot ecosystem.
     vec![
         GeneratedFile {
             path: PathBuf::from("poly.toml"),
