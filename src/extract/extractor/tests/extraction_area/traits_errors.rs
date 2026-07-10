@@ -9,7 +9,7 @@ fn test_trait_impl_methods_extracted() {
 
         impl DefaultClient {
             pub fn new(base_url: String) -> DefaultClient {
-                todo!()
+                unimplemented!()
             }
         }
 
@@ -20,11 +20,11 @@ fn test_trait_impl_methods_extracted() {
 
         impl LlmClient for DefaultClient {
             async fn chat(&self, prompt: String) -> Result<String, MyError> {
-                todo!()
+                unimplemented!()
             }
 
             fn model(&self) -> String {
-                todo!()
+                unimplemented!()
             }
         }
     "#;
@@ -57,7 +57,7 @@ fn test_trait_impl_no_duplicate_methods() {
 
         impl MyType {
             pub fn do_thing(&self) -> String {
-                todo!()
+                unimplemented!()
             }
         }
 
@@ -67,7 +67,7 @@ fn test_trait_impl_no_duplicate_methods() {
 
         impl SomeTrait for MyType {
             fn do_thing(&self) -> String {
-                todo!()
+                unimplemented!()
             }
         }
     "#;
@@ -88,7 +88,7 @@ fn test_trait_impl_ignored_for_unknown_type() {
 
         impl SomeTrait for UnknownType {
             fn method(&self) {
-                todo!()
+                unimplemented!()
             }
         }
     "#;
@@ -275,7 +275,7 @@ fn test_resolve_trait_sources_retroactive() {
 
         impl Renderable for Widget {
             fn render(&self) -> String {
-                todo!()
+                unimplemented!()
             }
         }
 

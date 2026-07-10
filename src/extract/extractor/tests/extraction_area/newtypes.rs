@@ -200,7 +200,7 @@ fn wrapper_struct_alongside_per_element_struct_is_extracted() {
         }
 
         pub async fn batch_scrape(urls: Vec<String>) -> Result<BatchScrapeResults, MyError> {
-            todo!()
+            unimplemented!()
         }
     "#;
 

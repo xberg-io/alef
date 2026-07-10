@@ -791,8 +791,8 @@ fn gen_struct_methods_impl(
     //
     // Historical note: this code used to emit `#[php(getter)] pub fn get_camelCase(...)` so
     // PHP could access `$obj->camelCase` as a magic property. But ext-php-rs-derive 0.11.7
-    // (the latest release compatible with ext-php-rs 0.15.4) leaves `get_method_props` as
-    // `todo!()` in its derive macro — so `#[php(getter)]` registers ONLY as a property
+    // (the latest release compatible with ext-php-rs 0.15.4) leaves `get_method_props`
+    // unimplemented in its derive macro — so `#[php(getter)]` registers ONLY as a property
     // accessor (the runtime callable method is never registered) AND the property accessor
     // path itself is broken for non-scalar return types, raising a fatal "Call to undefined
     // method" error at every site.

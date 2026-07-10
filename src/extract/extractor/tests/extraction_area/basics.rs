@@ -72,7 +72,7 @@ fn test_extract_free_function() {
     let source = r#"
         /// Process the input.
         pub async fn process(input: String, count: u32) -> Result<Vec<String>, MyError> {
-            todo!()
+            unimplemented!()
         }
     "#;
 
@@ -101,17 +101,17 @@ fn test_extract_impl_block() {
         impl Server {
             /// Create a new server.
             pub fn new(host: String) -> Self {
-                todo!()
+                unimplemented!()
             }
 
             /// Start listening.
             pub async fn listen(&self, port: u16) -> Result<(), std::io::Error> {
-                todo!()
+                unimplemented!()
             }
 
             /// Shutdown mutably.
             pub fn shutdown(&mut self) {
-                todo!()
+                unimplemented!()
             }
 
             // Private, should be excluded
@@ -201,7 +201,7 @@ fn test_method_with_owned_self() {
 
         impl Builder {
             pub fn build(self) -> String {
-                todo!()
+                unimplemented!()
             }
         }
     "#;

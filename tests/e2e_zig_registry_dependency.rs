@@ -163,7 +163,7 @@ github_repo = "https://github.com/example/demo_crawler"
 [crates.e2e.registry.packages.zig]
 name = "demo_crawler"
 version = "1.2.3"
-hash = "demo_crawler-1.2.3-STALE_TODO_REGENERATE"
+hash = "demo_crawler-1.2.3-STALE_HASH_REGENERATE"
 "#;
 
     let cfg: NewAlefConfig = toml::from_str(cfg_with_placeholder).expect("config with placeholder parses");
@@ -180,7 +180,7 @@ hash = "demo_crawler-1.2.3-STALE_TODO_REGENERATE"
     // Generation should succeed (not bail on placeholder detection).
     assert!(
         result.is_ok(),
-        "zig e2e codegen must not bail on STALE_TODO_REGENERATE placeholder: {:?}",
+        "zig e2e codegen must not bail on STALE_HASH_REGENERATE placeholder: {:?}",
         result.err()
     );
 
@@ -192,8 +192,8 @@ hash = "demo_crawler-1.2.3-STALE_TODO_REGENERATE"
 
     // The generated build.zig.zon should not contain the placeholder.
     assert!(
-        !zon_file.content.contains("STALE_TODO_REGENERATE"),
-        "generated build.zig.zon must not contain STALE_TODO_REGENERATE placeholder:\n{}",
+        !zon_file.content.contains("STALE_HASH_REGENERATE"),
+        "generated build.zig.zon must not contain STALE_HASH_REGENERATE placeholder:\n{}",
         zon_file.content
     );
 }

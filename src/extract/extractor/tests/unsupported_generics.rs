@@ -86,7 +86,7 @@ pub struct Request {
 }
 
 pub fn send(req: Request) -> Response {
-    todo!()
+    unimplemented!()
 }
 "#,
     )
@@ -121,7 +121,7 @@ fn test_extract_cfg_gated_generic_async_fn_is_recorded_as_unsupported() {
             texts: Vec<T>,
             config: &EmbeddingConfig,
         ) -> Result<Vec<Vec<f32>>, SampleCrateError> {
-            todo!()
+            unimplemented!()
         }
     "#;
 

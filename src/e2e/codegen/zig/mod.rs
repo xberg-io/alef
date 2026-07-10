@@ -85,7 +85,7 @@ impl E2eCodegen for ZigE2eCodegen {
             .or_else(|| config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
         // Explicit hash override from alef.toml takes precedence over auto-fetch.
-        // However, if the hash is a placeholder (contains STALE_TODO_REGENERATE), treat it as missing
+        // However, if the hash is a placeholder (contains STALE_HASH_REGENERATE), treat it as missing
         // and fetch the real hash from the network instead.
         let explicit_hash = zig_pkg.as_ref().and_then(|p| p.hash.clone());
         let platform_hash_overrides = zig_pkg.as_ref().map(|p| p.platform_hashes.clone()).unwrap_or_default();
@@ -95,7 +95,7 @@ impl E2eCodegen for ZigE2eCodegen {
 
         // Strip placeholder hashes so we can fetch the real ones.
         let explicit_hash_clean = explicit_hash.and_then(|h| {
-            if h.contains("STALE_TODO_REGENERATE") {
+            if h.contains("STALE_HASH_REGENERATE") {
                 None
             } else {
                 Some(h)
@@ -148,7 +148,7 @@ impl E2eCodegen for ZigE2eCodegen {
                     // Strip placeholder hashes (parity with explicit_hash_clean above) so
                     // resolve_zig_hash falls through to cache lookup / network fetch instead
                     // of emitting the literal placeholder string as the dependency hash.
-                    let platform_hash_clean = if platform_hash.contains("STALE_TODO_REGENERATE") {
+                    let platform_hash_clean = if platform_hash.contains("STALE_HASH_REGENERATE") {
                         None
                     } else {
                         Some(platform_hash.as_str())

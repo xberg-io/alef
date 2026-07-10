@@ -38,19 +38,19 @@ pub struct App {
 
 impl App {
     /// Create a new App.
-    pub fn new() -> Self { todo!() }
+    pub fn new() -> Self { unimplemented!() }
 
     /// Set bind address (configurator).
-    pub fn set_address(mut self, addr: String) -> Self { todo!() }
+    pub fn set_address(mut self, addr: String) -> Self { unimplemented!() }
 
     /// Register a route (registration — generic param H: IntoHandler).
-    pub fn add_route<H: IntoHandler>(mut self, path: String, handler: H) -> Self { todo!() }
+    pub fn add_route<H: IntoHandler>(mut self, path: String, handler: H) -> Self { unimplemented!() }
 
     /// Run the service (async entrypoint).
-    pub async fn run(self) -> Result<(), String> { todo!() }
+    pub async fn run(self) -> Result<(), String> { unimplemented!() }
 
     /// Consume into a router (finalize entrypoint).
-    pub fn into_router(self) -> Router { todo!() }
+    pub fn into_router(self) -> Router { unimplemented!() }
 }
 
 /// Handler contract trait.
@@ -264,14 +264,14 @@ fn registration_variants_resolve_via_wrapper_constructor() {
     let src = r#"
 pub struct App {}
 impl App {
-    pub fn new() -> Self { todo!() }
-    pub fn route<H: IntoHandler>(mut self, builder: RouteBuilder, handler: H) -> Self { todo!() }
-    pub async fn run(self) -> Result<(), String> { todo!() }
+    pub fn new() -> Self { unimplemented!() }
+    pub fn route<H: IntoHandler>(mut self, builder: RouteBuilder, handler: H) -> Self { unimplemented!() }
+    pub async fn run(self) -> Result<(), String> { unimplemented!() }
 }
 
 pub struct RouteBuilder {}
 impl RouteBuilder {
-    pub fn new(method: Method, path: String) -> Self { todo!() }
+    pub fn new(method: Method, path: String) -> Self { unimplemented!() }
 }
 
 pub enum Method { Get, Post, Put }
@@ -366,13 +366,13 @@ fn registration_variant_unknown_enum_variant_returns_error() {
     let src = r#"
 pub struct App {}
 impl App {
-    pub fn new() -> Self { todo!() }
-    pub fn route<H: IntoHandler>(mut self, builder: RouteBuilder, handler: H) -> Self { todo!() }
-    pub async fn run(self) -> Result<(), String> { todo!() }
+    pub fn new() -> Self { unimplemented!() }
+    pub fn route<H: IntoHandler>(mut self, builder: RouteBuilder, handler: H) -> Self { unimplemented!() }
+    pub async fn run(self) -> Result<(), String> { unimplemented!() }
 }
 pub struct RouteBuilder {}
 impl RouteBuilder {
-    pub fn new(method: Method, path: String) -> Self { todo!() }
+    pub fn new(method: Method, path: String) -> Self { unimplemented!() }
 }
 pub enum Method { Get, Post }
 pub trait Handler { async fn call(&self, r: R) -> S; }
@@ -407,13 +407,13 @@ fn registration_variant_unknown_style_returns_error() {
     let src = r#"
 pub struct App {}
 impl App {
-    pub fn new() -> Self { todo!() }
-    pub fn route<H: IntoHandler>(mut self, builder: RouteBuilder, handler: H) -> Self { todo!() }
-    pub async fn run(self) -> Result<(), String> { todo!() }
+    pub fn new() -> Self { unimplemented!() }
+    pub fn route<H: IntoHandler>(mut self, builder: RouteBuilder, handler: H) -> Self { unimplemented!() }
+    pub async fn run(self) -> Result<(), String> { unimplemented!() }
 }
 pub struct RouteBuilder {}
 impl RouteBuilder {
-    pub fn new(method: Method, path: String) -> Self { todo!() }
+    pub fn new(method: Method, path: String) -> Self { unimplemented!() }
 }
 pub enum Method { Get, Post }
 pub trait Handler { async fn call(&self, r: R) -> S; }
@@ -473,9 +473,9 @@ pub struct Foo {
 }
 
 impl Foo {
-    pub fn new() -> Self { todo!() }
-    pub fn setup(mut self, c: BarConfig) -> Self { todo!() }
-    pub async fn run(self) -> Result<(), String> { todo!() }
+    pub fn new() -> Self { unimplemented!() }
+    pub fn setup(mut self, c: BarConfig) -> Self { unimplemented!() }
+    pub async fn run(self) -> Result<(), String> { unimplemented!() }
 }
 
 pub struct BarConfig {

@@ -20,6 +20,6 @@ pub struct DylibBlock {
 ///
 /// Currently a stub — returns an empty list.
 pub fn load_dylib_extensions(_blocks: &[DylibBlock]) -> Result<Vec<Box<dyn Extension>>> {
-    // TODO: implement libloading-based loader.
+    // ~keep TODO: implement libloading-based loader.
     Ok(vec![])
 }

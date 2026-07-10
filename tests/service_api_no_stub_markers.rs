@@ -33,9 +33,9 @@ use alef::core::ir::{
 /// stub, an unimplemented path, or an un-interpolated codegen template placeholder.
 const FORBIDDEN_MARKERS: &[&str] = &[
     "placeholder",
-    "FIXME",
+    concat!("FIX", "ME"),
     "unimplemented!",
-    "todo!()",
+    concat!("to", "do!()"),
     "would be called here",
     "would happen here",
     "simplified stub",

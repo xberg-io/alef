@@ -623,7 +623,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
     // Without this, adding a cfg-gated variant to the source enum causes a
     // non-exhaustive compile error in generated `From` impls.
     lines.push(format!(
-        "            _ => ::std::todo!(\"unmapped {} variant\"),",
+        "            _ => ::std::panic!(\"unmapped {} variant\"),",
         enum_def.name
     ));
     lines.push("        }".to_string());

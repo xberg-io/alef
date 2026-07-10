@@ -86,7 +86,7 @@ fn test_boxfuture_wrapping_result_is_async_with_error_type() {
 
         impl LlmClient {
             pub fn complete(&self, prompt: String) -> Pin<Box<dyn Future<Output = Result<ChatResponse, anyhow::Error>> + Send + '_>> {
-                todo!()
+                unimplemented!()
             }
         }
     "#;
@@ -128,7 +128,7 @@ fn test_boxfuture_alias_wrapping_result_is_async_with_error_type() {
         // Simulate a BoxFuture<'_, Result<ChatResponse, MyError>> return
         impl DefaultClient {
             pub fn chat(&self, prompt: String) -> futures::future::BoxFuture<'_, Result<ChatResponse, MyError>> {
-                todo!()
+                unimplemented!()
             }
         }
     "#;
@@ -170,7 +170,7 @@ fn test_boxfuture_non_result_has_no_error_type() {
 
         impl StreamClient {
             pub fn fetch(&self) -> futures::future::BoxFuture<'_, Payload> {
-                todo!()
+                unimplemented!()
             }
         }
     "#;
@@ -251,7 +251,7 @@ fn test_newtype_wrapper_recorded_on_method_param() {
 
         impl Auth {
             pub fn verify(&self, token: Token) -> bool {
-                todo!()
+                unimplemented!()
             }
         }
     "#;
@@ -285,7 +285,7 @@ fn test_newtype_wrapper_recorded_on_function_return() {
         pub struct Handle(pub u32);
 
         pub fn create_handle() -> Handle {
-            todo!()
+            unimplemented!()
         }
     "#;
 

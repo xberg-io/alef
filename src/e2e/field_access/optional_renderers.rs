@@ -554,7 +554,7 @@ pub(super) fn render_php(segments: &[PathSegment], result_var: &str) -> String {
 ///
 /// ext-php-rs 0.15.x exposes scalar fields via `#[php(prop)]` as PHP properties, but
 /// non-scalar fields (Named structs, `Vec<Named>`, `Map`, etc.) require a `#[php(getter)]`
-/// method because `get_method_props` is `todo!()` in ext-php-rs-derive 0.11.7.
+/// method because `get_method_props` is unimplemented in ext-php-rs-derive 0.11.7.
 /// The generated getter method name is `get{CamelCase}` (stripping the `get_` prefix and
 /// converting the camelCase remainder to a PHP property name), so e2e assertions must call
 /// `->getCamelCase()` for those fields.

@@ -201,7 +201,7 @@ impl E2eCodegen for PhpCodegen {
         // Compute per-(type, field) getter classification for PHP.
         // ext-php-rs 0.15.x exposes scalar fields as PHP properties via `#[php(prop)]`,
         // but non-scalar fields (Named structs, Vec<Named>, Map, etc.) need a
-        // `#[php(getter)]` method because `get_method_props` is `todo!()` in
+        // `#[php(getter)]` method because `get_method_props` is unimplemented in
         // ext-php-rs-derive 0.11.7. E2e assertions must call `->getCamelCase()` for those.
         //
         // The classification MUST be keyed by (owner_type, field_name) rather than

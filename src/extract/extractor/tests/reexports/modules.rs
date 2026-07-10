@@ -194,7 +194,7 @@ pub struct ModelItem {
 }
 
 pub fn find_model(id: u32) -> ModelItem {
-    todo!()
+    unimplemented!()
 }
 "#,
     )

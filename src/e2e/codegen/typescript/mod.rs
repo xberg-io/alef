@@ -708,7 +708,7 @@ result_var = "result"
             emission.setup_block
         );
 
-        // TODO: extend extraction to string return types (currently only numeric values
+        // ~keep TODO: extend extraction to string return types (currently only numeric values
         // are pulled from fixture.input.backend; string defaults still emit "").
     }
 

@@ -29,13 +29,13 @@ fn test_has_serde_via_manual_impls_detected() {
 
         impl serde::Serialize for NodeContext {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                todo!()
+                unimplemented!()
             }
         }
 
         impl<'de> serde::Deserialize<'de> for NodeContext {
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                todo!()
+                unimplemented!()
             }
         }
     "#;
@@ -59,13 +59,13 @@ fn test_has_serde_with_lifetime_parameterised_manual_impls() {
 
         impl serde::Serialize for Foo {
             fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-                todo!()
+                unimplemented!()
             }
         }
 
         impl<'de> serde::Deserialize<'de> for Foo {
             fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-                todo!()
+                unimplemented!()
             }
         }
     "#;
@@ -89,7 +89,7 @@ fn test_has_serde_only_serialize_not_set() {
 
         impl serde::Serialize for Foo {
             fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-                todo!()
+                unimplemented!()
             }
         }
     "#;

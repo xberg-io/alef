@@ -399,7 +399,7 @@ mod tests {
         let surface = extract_from_tmp(
             r#"
             pub mod rendering {
-                pub fn render_page(page: u32) -> String { todo!() }
+                pub fn render_page(page: u32) -> String { unimplemented!() }
             }
         "#,
         );
@@ -417,7 +417,7 @@ mod tests {
             r#"
             pub use rendering::*;
             pub mod rendering {
-                pub fn render_page(page: u32) -> String { todo!() }
+                pub fn render_page(page: u32) -> String { unimplemented!() }
             }
         "#,
         );
@@ -460,7 +460,7 @@ mod tests {
             pub use chunking::core::chunk_text;
             pub mod chunking {
                 pub mod core {
-                    pub async fn chunk_text(text: String) -> Vec<String> { todo!() }
+                    pub async fn chunk_text(text: String) -> Vec<String> { unimplemented!() }
                 }
             }
         "#,

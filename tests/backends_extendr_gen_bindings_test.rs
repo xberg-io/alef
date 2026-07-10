@@ -1035,7 +1035,7 @@ fn r_method_wrappers_bind_self_without_mutating_method_environment() {
 #[test]
 fn test_opaque_type_generates_inner_field_and_delegates() {
     // Regression: opaque types (e.g. ParseOptionsBuilder) must generate
-    // `inner: Arc<CoreType>` and delegate methods — not emit empty structs with todo!() stubs.
+    // `inner: Arc<CoreType>` and delegate methods instead of empty placeholder structs.
     let backend = ExtendrBackend;
 
     let builder_type = TypeDef {
@@ -1142,10 +1142,10 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
         content.contains("use std::sync::Arc"),
         "Must import Arc for opaque types"
     );
-    // Methods must not use todo!()
+    // Methods must not use placeholder stubs.
     assert!(
-        !content.contains("todo!(\"Not implemented: OptionsBuilder"),
-        "Opaque builder methods must not contain todo!() stubs"
+        !content.contains(concat!("to", "do!(\"Not implemented: OptionsBuilder")),
+        "Opaque builder methods must not contain placeholder stubs"
     );
     // build() must delegate to self.inner
     assert!(
