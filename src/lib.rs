@@ -71,6 +71,15 @@ pub fn run_with_extensions(mut extensions: Vec<Box<dyn Extension>>) -> std::proc
             .ok();
     }
 
+    #[cfg(feature = "dylib-loader")]
+    match extensions::dylib::load_dylib_extensions_from_config(&cli.config) {
+        Ok(mut dylib_extensions) => extensions.append(&mut dylib_extensions),
+        Err(e) => {
+            eprintln!("error: {e:#}");
+            return std::process::ExitCode::FAILURE;
+        }
+    }
+
     // Store extensions in a process-global so the pipeline can access them
     // from rayon worker threads (which have their own thread-locals). A
     // `thread_local!` here would leave the workers seeing an empty list —

@@ -343,6 +343,7 @@ fn emit_ts_stub_method(
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
     backend_input: Option<&serde_json::Map<String, serde_json::Value>>,
 ) {
+    use crate::e2e::escape::escape_js;
     use std::fmt::Write as FmtWrite;
 
     // Build parameter list: `_p0?: any, _p1?: any, ...`
@@ -367,20 +368,31 @@ fn emit_ts_stub_method(
     let default_val = match &method.return_type {
         crate::core::ir::TypeRef::Unit => "undefined".to_string(),
         crate::core::ir::TypeRef::Named(_) => "\"{}\"".to_string(),
-        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "false".to_string(),
-        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F32) => "0.0".to_string(),
-        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F64) => "0.0".to_string(),
+        crate::core::ir::TypeRef::String | crate::core::ir::TypeRef::Char | crate::core::ir::TypeRef::Path => {
+            fixture_backend_value(backend_input, &method.name)
+                .and_then(|val| val.as_str())
+                .map(|s| format!("\"{}\"", escape_js(s)))
+                .unwrap_or_else(|| defaults.emit_default(&method.return_type))
+        }
+        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
+            fixture_backend_value(backend_input, &method.name)
+                .and_then(|val| val.as_bool())
+                .map(|b| b.to_string())
+                .unwrap_or_else(|| "false".to_string())
+        }
+        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F32)
+        | crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F64) => {
+            fixture_backend_value(backend_input, &method.name)
+                .and_then(|val| val.as_f64())
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "0.0".to_string())
+        }
         crate::core::ir::TypeRef::Primitive(_) => {
             // Try to extract fixture value first, then fall back to 1 instead of 0
-            let fixture_val = backend_input
-                .and_then(|b| b.get(&method.name.to_lowercase()))
-                .or_else(|| backend_input.and_then(|b| b.get(&to_camel_case(&method.name))));
-
-            if let Some(val) = fixture_val {
+            if let Some(val) = fixture_backend_value(backend_input, &method.name) {
                 // Emit the fixture value directly (primitives, numbers, etc.)
                 match val {
                     serde_json::Value::Number(n) => n.to_string(),
-                    serde_json::Value::String(s) => format!("\"{}\"", s),
                     serde_json::Value::Bool(b) => b.to_string(),
                     _ => {
                         // Complex types: fall back to 1 for numeric
@@ -409,6 +421,15 @@ fn emit_ts_stub_method(
             name = to_camel_case(&method.name)
         );
     }
+}
+
+fn fixture_backend_value<'a>(
+    backend_input: Option<&'a serde_json::Map<String, serde_json::Value>>,
+    method_name: &str,
+) -> Option<&'a serde_json::Value> {
+    backend_input
+        .and_then(|b| b.get(&method_name.to_lowercase()))
+        .or_else(|| backend_input.and_then(|b| b.get(&to_camel_case(method_name))))
 }
 
 fn ts_stub_return_type(return_type: &crate::core::ir::TypeRef) -> &'static str {
@@ -673,7 +694,7 @@ result_var = "result"
     }
 
     #[test]
-    fn emit_test_backend_ts_extracts_fixture_values_for_numeric_defaults() {
+    fn emit_test_backend_ts_extracts_fixture_values_for_numeric_and_string_defaults() {
         use crate::core::config::TraitBridgeConfig;
         use crate::core::ir::{PrimitiveType, TypeRef};
 
@@ -701,15 +722,18 @@ result_var = "result"
 
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
-        // Should extract dimensions: 768 from fixture.input.backend
         assert!(
             emission.setup_block.contains("dimensions(): number { return 768; }"),
             "numeric method should extract value from fixture.input.backend, got: {}",
             emission.setup_block
         );
-
-        // ~keep TODO: extend extraction to string return types (currently only numeric values
-        // are pulled from fixture.input.backend; string defaults still emit "").
+        assert!(
+            emission
+                .setup_block
+                .contains("model(): string { return \"all-MiniLM-L6-v2\"; }"),
+            "string method should extract value from fixture.input.backend, got: {}",
+            emission.setup_block
+        );
     }
 
     #[test]

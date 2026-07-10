@@ -176,6 +176,11 @@ Full type safety. Recommended for frameworks that generate an HTTP service API.
 
 Load a compiled `.so`/`.dylib`/`.dll` declaring a C-ABI factory function. Works when you can't ship a Rust binary.
 
+```toml
+[[extensions.dylib]]
+path = "target/release/libmy_extension.dylib"
+```
+
 ```rust
 extern "C" fn alef_extension_factory() -> Box<dyn alef::Extension> {
     Box::new(MyExtension)
