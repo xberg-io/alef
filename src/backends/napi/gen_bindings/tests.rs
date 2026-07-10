@@ -165,3 +165,75 @@ fn napi_opaque_type_with_default_and_static_new_emits_constructor() {
         "constructor should create new App via sample_crate::App::new()"
     );
 }
+
+/// Regression: a `&mut self -> Result<&mut Self, E>` builder (a method returning a reference to
+/// its own wrapper type) must SHARE the existing handle's `Arc` (`self.inner.clone()`) instead of
+/// cloning the returned reference. `&mut App` is not `Clone`, so
+/// `Arc::new(std::sync::Mutex::new(result.clone()))` fails to compile (E0599).
+#[test]
+fn napi_self_ref_builder_shares_arc_instead_of_cloning_returned_ref() {
+    use super::types::gen_opaque_instance_method;
+    use crate::backends::napi::type_map::NapiMapper;
+    use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+    use ahash::AHashSet;
+    use std::collections::HashMap;
+
+    let method = MethodDef {
+        name: "register_route".to_string(),
+        params: vec![ParamDef {
+            name: "config".to_string(),
+            ty: TypeRef::Named("RouteCfg".to_string()),
+            ..ParamDef::default()
+        }],
+        return_type: TypeRef::Named("App".to_string()),
+        error_type: Some("AppError".to_string()),
+        doc: "Register a route, returning the app for chaining.".to_string(),
+        receiver: Some(ReceiverKind::RefMut),
+        returns_ref: true,
+        ..MethodDef::default()
+    };
+    let typ = TypeDef {
+        name: "App".to_string(),
+        rust_path: "sample_crate::App".to_string(),
+        is_opaque: true,
+        methods: vec![method.clone()],
+        ..Default::default()
+    };
+
+    let mapper = NapiMapper::new("Js".to_string());
+    let cfg = super::NapiBackend::binding_config("sample_crate", "Js", true);
+    let mut opaque = AHashSet::new();
+    opaque.insert("App".to_string());
+    opaque.insert("RouteCfg".to_string());
+    let mut mutex = AHashSet::new();
+    mutex.insert("App".to_string());
+    let adapter_bodies = crate::adapters::AdapterBodies::new();
+    let streaming: ahash::AHashMap<String, String> = ahash::AHashMap::new();
+    let capsule: HashMap<String, crate::core::config::NodeCapsuleTypeConfig> = HashMap::new();
+
+    let code = gen_opaque_instance_method(
+        &method,
+        &mapper,
+        &typ,
+        &cfg,
+        &opaque,
+        "Js",
+        &adapter_bodies,
+        &streaming,
+        &mutex,
+        &capsule,
+    );
+
+    assert!(
+        code.contains("Ok(Self { inner: self.inner.clone() })"),
+        "self-returning builder should share the existing Arc, got:\n{code}"
+    );
+    assert!(
+        !code.contains("result.clone()"),
+        "must not clone the returned &mut ref, got:\n{code}"
+    );
+    assert!(
+        !code.contains("let result ="),
+        "self-returning builder must not bind the returned &mut ref, got:\n{code}"
+    );
+}

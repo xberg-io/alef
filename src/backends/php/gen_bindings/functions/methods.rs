@@ -45,6 +45,14 @@ pub(crate) fn gen_instance_method(
 
     let params_str = if params.is_empty() { String::new() } else { params };
 
+    // A `&mut self -> &mut Self` (or `&self -> &Self`) builder returning a reference to its own
+    // wrapper type: the inner value is mutated in place, so the returned reference is only for
+    // chaining. Cloning it is wrong (and impossible when the type is not `Clone`) — run the call
+    // for its side effect and share the existing handle's `Arc` (`self.inner.clone()`).
+    let self_ref_return =
+        method.returns_ref && matches!(&method.return_type, TypeRef::Named(n) if n.as_str() == type_name);
+    const PHP_ERR_CONV: &str = ".map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))";
+
     let adapter_key = format!("{type_name}.{}", method.name);
     let body = if let Some(body) = adapter_bodies.get(&adapter_key) {
         body.clone()
@@ -67,6 +75,8 @@ pub(crate) fn gen_instance_method(
                         core_call => &core_call,
                     },
                 )
+            } else if self_ref_return {
+                format!("{core_call}{PHP_ERR_CONV}?;\n    Ok(Self {{ inner: self.inner.clone() }})")
             } else {
                 let wrap = php_wrap_return(
                     "result",
@@ -88,6 +98,8 @@ pub(crate) fn gen_instance_method(
                     },
                 )
             }
+        } else if self_ref_return {
+            format!("{core_call};\n    Self {{ inner: self.inner.clone() }}")
         } else {
             php_wrap_return(
                 &core_call,
@@ -120,6 +132,8 @@ pub(crate) fn gen_instance_method(
                         core_call => &core_call,
                     },
                 )
+            } else if self_ref_return {
+                format!("{let_bindings}{core_call}{PHP_ERR_CONV}?;\n    Ok(Self {{ inner: self.inner.clone() }})")
             } else {
                 let wrap = php_wrap_return(
                     "result",
@@ -142,6 +156,8 @@ pub(crate) fn gen_instance_method(
                     },
                 )
             }
+        } else if self_ref_return {
+            format!("{let_bindings}{core_call};\n    Self {{ inner: self.inner.clone() }}")
         } else {
             format!(
                 "{let_bindings}{}",

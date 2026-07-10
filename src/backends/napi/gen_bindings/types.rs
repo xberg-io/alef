@@ -315,6 +315,14 @@ pub(super) fn gen_opaque_instance_method(
         .iter()
         .any(|m| matches!(m.receiver.as_ref(), Some(crate::core::ir::ReceiverKind::RefMut)));
 
+    // A `&mut self -> &mut Self` (or `&self -> &Self`) builder that returns a reference to
+    // its own wrapper type. The inner value is mutated in place, so the returned reference is
+    // only for chaining; cloning it is wrong (and impossible when the type is not `Clone`).
+    // Share the existing handle's `Arc` instead: run the call for its side effect, then wrap
+    // `self.inner.clone()`.
+    let self_ref_return =
+        method.returns_ref && matches!(&method.return_type, crate::core::ir::TypeRef::Named(n) if n == type_name);
+
     let call_args = napi_gen_call_args(&method.params, opaque_types);
 
     let has_named_ref_param = method
@@ -373,6 +381,10 @@ pub(super) fn gen_opaque_instance_method(
             let await_suffix = if method.is_async { ".await" } else { "" };
             if matches!(method.return_type, TypeRef::Unit) {
                 format!("{serde_bindings}{core_call}{await_suffix}{err_conv}?;\n    Ok(())")
+            } else if self_ref_return {
+                format!(
+                    "{serde_bindings}{core_call}{await_suffix}{err_conv}?;\n    Ok(Self {{ inner: self.inner.clone() }})"
+                )
             } else {
                 let wrap = napi_wrap_return(
                     "result",
@@ -432,6 +444,8 @@ pub(super) fn gen_opaque_instance_method(
             let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
             if matches!(method.return_type, TypeRef::Unit) {
                 format!("{let_bindings}{core_call}{err_conv}?;\n    Ok(())")
+            } else if self_ref_return {
+                format!("{let_bindings}{core_call}{err_conv}?;\n    Ok(Self {{ inner: self.inner.clone() }})")
             } else {
                 let wrap = napi_wrap_return(
                     "result",
@@ -445,6 +459,8 @@ pub(super) fn gen_opaque_instance_method(
                 );
                 format!("{let_bindings}let result = {core_call}{err_conv}?;\n    Ok({wrap})")
             }
+        } else if self_ref_return {
+            format!("{let_bindings}{core_call};\n    Self {{ inner: self.inner.clone() }}")
         } else {
             format!(
                 "{let_bindings}{}",
