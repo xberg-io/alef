@@ -8,12 +8,9 @@ pub(super) fn emit_function_return_call(
     name: &str,
     kwargs: &[String],
 ) {
-    // Check if this function returns Unit (void). Void-returning functions should emit
-    // a bare call without `return`.
     let is_void_return = matches!(return_type, TypeRef::Unit);
 
     if is_void_return {
-        // Emit bare call without return statement for void-returning functions
         out.push_str(&crate::backends::pyo3::template_env::render(
             "function_call_statement.jinja",
             minijinja::context! {
@@ -22,12 +19,7 @@ pub(super) fn emit_function_return_call(
                 kwargs => kwargs.join(", "),
             },
         ));
-    }
-    // When the return type is a capsule type, the _native stub returns Any (the actual
-    // value is a PyCapsule wrapped into the third-party type via the capsule codegen).
-    // Wrap the call in `cast(ReturnType, ...)` so mypy --strict (warn_return_any) is happy
-    // without weakening the public api.py annotation.
-    else if match return_type {
+    } else if match return_type {
         crate::core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),
         crate::core::ir::TypeRef::Optional(inner) => match inner.as_ref() {
             crate::core::ir::TypeRef::Named(n) => capsule_types.contains_key(n),

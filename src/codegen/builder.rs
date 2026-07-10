@@ -24,7 +24,6 @@ impl RustFileBuilder {
     /// Add a crate-level inner attribute (e.g., `#![allow(clippy::...)]`).
     /// These are placed at the very top of the file, before imports.
     pub fn add_inner_attribute(&mut self, attr: &str) {
-        // Append to doc_header since it comes first
         let rendered = crate::codegen::template_env::render(
             "builders/inner_attribute.jinja",
             minijinja::context! {
@@ -49,7 +48,6 @@ impl RustFileBuilder {
     /// redundant in Rust 2018+ where extern crates are automatically in scope.
     pub fn add_import(&mut self, import: &str) {
         // Skip single-component path imports — they trigger clippy::single_component_path_imports
-        // and are redundant in edition 2018+. A single component has no `::`, `*`, or `{`.
         if !import.contains("::") && !import.contains('*') && !import.contains('{') {
             return;
         }
@@ -65,12 +63,12 @@ impl RustFileBuilder {
 
     /// Build the final source string.
     pub fn build(&self) -> String {
-        let mut capacity = 256; // base header + imports + newlines
+        let mut capacity = 256;
         if let Some(header) = &self.doc_header {
             capacity += header.len() + 1;
         }
-        capacity += self.imports.iter().map(|i| i.len() + 6).sum::<usize>(); // "use ...;\n"
-        capacity += self.items.iter().map(|i| i.len() + 2).sum::<usize>(); // item + "\n\n"
+        capacity += self.imports.iter().map(|i| i.len() + 6).sum::<usize>();
+        capacity += self.items.iter().map(|i| i.len() + 2).sum::<usize>();
 
         let mut out = String::with_capacity(capacity);
 
@@ -112,7 +110,7 @@ pub struct StructBuilder {
     visibility: String,
     name: String,
     derives: Vec<String>,
-    fields: Vec<(String, String, Vec<String>, String)>, // (name, type, field_attrs, doc)
+    fields: Vec<(String, String, Vec<String>, String)>,
 }
 
 impl StructBuilder {
@@ -149,10 +147,10 @@ impl StructBuilder {
     }
 
     pub fn build(&self) -> String {
-        let mut capacity = 128; // structural overhead
-        capacity += self.derives.iter().map(|d| d.len() + 2).sum::<usize>(); // derive + comma
+        let mut capacity = 128;
+        capacity += self.derives.iter().map(|d| d.len() + 2).sum::<usize>();
         capacity += self.attrs.iter().map(|a| a.len() + 5).sum::<usize>(); // #[...]\n
-        capacity += self.name.len() + self.visibility.len() + 16; // struct declaration
+        capacity += self.name.len() + self.visibility.len() + 16;
         capacity += self
             .fields
             .iter()
@@ -273,10 +271,10 @@ impl ImplBuilder {
     }
 
     pub fn build(&self) -> String {
-        let mut capacity = 128; // structural overhead
-        capacity += self.target.len() + 10; // impl ... {}
+        let mut capacity = 128;
+        capacity += self.target.len() + 10;
         capacity += self.attrs.iter().map(|a| a.len() + 5).sum::<usize>(); // #[...]\n
-        capacity += self.methods.iter().map(|m| m.len() + 4).sum::<usize>(); // indented + newlines
+        capacity += self.methods.iter().map(|m| m.len() + 4).sum::<usize>();
 
         let mut out = String::with_capacity(capacity);
 
@@ -305,7 +303,6 @@ impl ImplBuilder {
         }
 
         for (i, method) in self.methods.iter().enumerate() {
-            // Indent each line of the method
             for line in method.lines() {
                 if line.is_empty() {
                     out.push('\n');

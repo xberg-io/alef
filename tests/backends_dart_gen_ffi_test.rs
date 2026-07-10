@@ -245,7 +245,6 @@ fn result_returning_functions_check_last_error_code() {
         .unwrap();
 
     assert!(ffi_file.content.contains("_checkError()"), "missing _checkError call");
-    // The error helpers use the standard last-error symbols.
     assert!(
         ffi_file.content.contains("demo_crate_last_error_code"),
         "missing last_error_code symbol"

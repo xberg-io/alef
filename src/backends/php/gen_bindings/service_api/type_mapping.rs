@@ -12,9 +12,9 @@ pub(super) fn php_type_annotation(ty: &TypeRef) -> String {
                 _ => "int".to_owned(),
             }
         }
-        TypeRef::Bytes => "string".to_owned(), // PHP doesn't distinguish; use string
+        TypeRef::Bytes => "string".to_owned(),
         TypeRef::Optional(inner) => format!("?{}", php_type_annotation(inner)),
-        TypeRef::Vec(_) => "array".to_owned(), // Omit inner type in annotation
+        TypeRef::Vec(_) => "array".to_owned(),
         TypeRef::Map(_, _) => "array".to_owned(),
         TypeRef::Unit => "void".to_owned(),
         TypeRef::Named(n) => n.clone(),

@@ -105,6 +105,5 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_env_shims(shim_names: &[Strin
         out.push_str(shim);
     }
 
-    // Trim trailing newline so the builder adds consistent spacing
     out.trim_end_matches('\n').to_string()
 }

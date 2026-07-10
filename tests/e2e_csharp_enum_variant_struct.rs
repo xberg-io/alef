@@ -83,11 +83,8 @@ fn csharp_enum_variant_struct_type_correct() {
         .generate(&groups, &e2e, &_resolved, &[], &[])
         .expect("generation succeeds");
 
-    // The generated C# code should map FormatMetadata.Code to ProcessResult
-    // not to string, since the Rust variant is Code(ProcessResult).
     assert!(!generated.is_empty(), "Should generate C# test code");
 
-    // Verify that test code was generated
     let test_code = generated
         .iter()
         .find(|f| f.path.to_string_lossy().contains("test"))
@@ -95,6 +92,4 @@ fn csharp_enum_variant_struct_type_correct() {
         .unwrap_or_default();
 
     assert!(!test_code.is_empty(), "Should generate test code");
-    // The generated test should deserialize FormatMetadata.Code correctly
-    // with the Value field being of type ProcessResult, not string
 }

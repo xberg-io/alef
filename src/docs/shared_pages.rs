@@ -24,7 +24,6 @@ pub(super) fn generate_configuration_doc(
     out.push_str("## Configuration Reference\n\n");
     out.push_str("This page documents all configuration types and their defaults across all languages.\n\n");
 
-    // Collect config-like types (Config, Options, Settings suffixes, or types with Default)
     let config_types: Vec<&TypeDef> = api
         .types
         .iter()
@@ -41,8 +40,6 @@ pub(super) fn generate_configuration_doc(
             minijinja::context! { marker => "###", title => &ty.name },
         ));
         let doc = clean_doc(&ty.doc, Language::Python);
-        // Demote any embedded headings in the type documentation by 1 level
-        // to ensure they stay nested under the type heading (###).
         let doc = demote_headings(&doc, 1);
         if !doc.is_empty() {
             out.push_str(&doc);
@@ -82,7 +79,6 @@ pub(super) fn generate_configuration_doc(
         out.push_str("---\n\n");
     }
 
-    // --- Enums referenced by config-type fields ---
     let config_types_for_enum_filter: Vec<&TypeDef> = api
         .types
         .iter()
@@ -119,10 +115,6 @@ pub(super) fn generate_configuration_doc(
     })
 }
 
-// ---------------------------------------------------------------------------
-// Types reference page
-// ---------------------------------------------------------------------------
-
 /// Categorize a type by name/path patterns into a documentation group.
 fn categorize_type(ty: &TypeDef) -> &'static str {
     let name = &ty.name;
@@ -146,7 +138,6 @@ pub(super) fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::
     out.push_str("## Types Reference\n\n");
     out.push_str("All types defined by the library, grouped by category. Types are shown using Rust as the canonical representation.\n\n");
 
-    // Collect non-update types
     let types_to_doc: Vec<&TypeDef> = api.types.iter().filter(|t| !is_update_type(&t.name)).collect();
 
     if types_to_doc.is_empty() && api.enums.is_empty() {
@@ -162,7 +153,6 @@ pub(super) fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::
         out.push_str("No struct types defined.\n\n");
     }
 
-    // Define category order
     let category_order = [
         "Result Types",
         "Configuration Types",
@@ -171,14 +161,12 @@ pub(super) fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::
         "Other Types",
     ];
 
-    // Group types by category
     let mut groups: std::collections::HashMap<&str, Vec<&TypeDef>> = std::collections::HashMap::new();
     for ty in &types_to_doc {
         let cat = categorize_type(ty);
         groups.entry(cat).or_default().push(ty);
     }
 
-    // Render each category in order
     for &cat in &category_order {
         let Some(types) = groups.get(cat) else {
             continue;
@@ -199,8 +187,6 @@ pub(super) fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::
             ));
 
             let doc = clean_doc(&ty.doc, Language::Python);
-            // Demote any embedded headings in the type documentation by 2 levels
-            // to ensure they stay nested under the type heading (####).
             let doc = demote_headings(&doc, 2);
             if !doc.is_empty() {
                 out.push_str(&doc);
@@ -216,10 +202,7 @@ pub(super) fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::
                 out.push_str("| Field | Type | Default | Description |\n");
                 out.push_str("|-------|------|---------|-------------|\n");
                 for field in fields {
-                    // Use Rust-style type representation as canonical
                     let fty = format_type_ref_rust(&field.ty, field.optional);
-                    // Use the typed default (consistent with per-language pages)
-                    // falling back to the raw string default.
                     let fdefault = format_field_default(field, Language::Rust, api, "");
                     let fdoc = {
                         let raw = clean_doc_inline(&field.doc, Language::Rust);
@@ -246,7 +229,6 @@ pub(super) fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::
         }
     }
 
-    // --- Enums section ---
     if !api.enums.is_empty() {
         let mut sorted_enums: Vec<&EnumDef> = api.enums.iter().collect();
         sorted_enums.sort_by(|a, b| a.name.cmp(&b.name));
@@ -277,7 +259,6 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef, lang: Language) -> String
         minijinja::context! { marker => "####", title => &en.name },
     ));
 
-    // Version annotation
     if let Some(ref since) = en.version.since {
         let since = version_labels::major_minor(since);
         out.push_str(&template_env::render(
@@ -305,8 +286,6 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef, lang: Language) -> String
     }
 
     let doc = clean_doc(&en.doc, lang);
-    // Demote any embedded headings in the enum documentation by 2 levels
-    // to ensure they stay nested under the enum heading (####).
     let doc = demote_headings(&doc, 2);
     if !doc.is_empty() {
         out.push_str(&doc);
@@ -448,15 +427,7 @@ fn format_type_ref_rust(ty: &TypeRef, optional: bool) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Errors page
-// ---------------------------------------------------------------------------
-
 pub(super) fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<GeneratedFile> {
-    // ---------------------------------------------------------------------------
-    // Errors reference page
-    // ---------------------------------------------------------------------------
-
     let mut out = String::with_capacity(8192);
 
     out.push_str("---\ntitle: \"Error Reference\"\n---\n\n");
@@ -470,8 +441,6 @@ pub(super) fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow:
         ));
 
         let doc = clean_doc(&err.doc, Language::Python);
-        // Demote any embedded headings in the error documentation by 1 level
-        // to ensure they stay nested under the error heading (###).
         let doc = demote_headings(&doc, 1);
         if !doc.is_empty() {
             out.push_str(&doc);
@@ -508,6 +477,3 @@ pub(super) fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow:
         generated_header: false,
     })
 }
-
-// ---------------------------------------------------------------------------
-// Type mapping

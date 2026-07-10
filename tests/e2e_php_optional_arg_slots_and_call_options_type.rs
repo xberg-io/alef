@@ -88,7 +88,6 @@ args = [
   { name = "config", field = "input.config", type = "json_object", optional = true },
 ]
 "#;
-    // Fixture provides only `path` — both `mime_type` and `config` are absent.
     let content = render(toml_src, smoke_fixture(serde_json::json!({ "path": "doc.pdf" })));
     assert!(
         content.contains("extractFile(\"doc.pdf\", null, "),
@@ -128,7 +127,6 @@ args = [
   { name = "config", field = "input.config", type = "json_object", optional = true },
 ]
 "#;
-    // Fixture omits `config` — PHP emits a default constructor for the config arg.
     let content = render(toml_src, smoke_fixture(serde_json::json!({ "texts": [] })));
     assert!(
         content.contains("EmbeddingConfig::from_json('{}')"),

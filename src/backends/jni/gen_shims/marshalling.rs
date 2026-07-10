@@ -84,19 +84,14 @@ fn emit_single_param_unmarshal(
 ) {
     match ty {
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
-            // jbyteArray → Vec<u8> via env.convert_byte_array.
             // SAFETY: `source` is a valid jbyteArray produced by the JNI caller.
             out.push_str(&render_byte_array_unmarshal(rust_name, ret_null, is_optional));
         }
         TypeRef::Bytes => {
-            // jbyteArray → Vec<u8> via env.convert_byte_array.
-            // The caller uses is_ref=true which will pass &<name> (coerces &Vec<u8> → &[u8]).
-            // No bytes crate dependency needed.
             // SAFETY: `source` is a valid jbyteArray produced by the JNI caller.
             out.push_str(&render_byte_array_unmarshal(rust_name, ret_null, is_optional));
         }
         TypeRef::Path => {
-            // JString → PathBuf via raw string (no JSON decode).
             out.push_str(&render_request_string_unmarshal(ret_null, ""));
             out.push_str(&template_env::render(
                 "path_unmarshal.rs.jinja",
@@ -106,8 +101,6 @@ fn emit_single_param_unmarshal(
             ));
         }
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
-            // Vec<String> — deserialize into `<name>_vec` so the caller can optionally
-            // produce `<name>_refs: Vec<&str>` for `&[&str]` call sites.
             out.push_str(&render_request_string_unmarshal(ret_null, ""));
             out.push_str(&template_env::render(
                 "vec_string_unmarshal.rs.jinja",
@@ -119,7 +112,6 @@ fn emit_single_param_unmarshal(
         }
         TypeRef::String => {
             out.push_str(&render_request_string_unmarshal(ret_null, ""));
-            // A JSON-encoded string from Kotlin: `MAPPER.writeValueAsString(strParam)` → `"\"hello\""`
             out.push_str(&template_env::render(
                 "request_string_value_unmarshal.rs.jinja",
                 context! {
@@ -130,8 +122,6 @@ fn emit_single_param_unmarshal(
         _ => {
             out.push_str(&render_request_string_unmarshal(ret_null, ""));
             let type_path = type_ref_to_core_path_with_btree(ty, "core_crate", map_is_btree);
-            // Kotlin passes "" as the sentinel for None (so we don't have to
-            // round-trip a JSON `null` and the wire stays clean for the Some case).
             out.push_str(&template_env::render(
                 "json_value_unmarshal.rs.jinja",
                 context! {
@@ -159,13 +149,8 @@ fn emit_return_marshal(out: &mut String, return_type: &TypeRef, ret_null: &str) 
 /// caller can distinguish an error return from a legitimate zero/null result.
 fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, indent: &str, ret_null: &str) {
     match return_type {
-        TypeRef::Unit => {
-            // No return value.
-        }
+        TypeRef::Unit => {}
         TypeRef::Primitive(PrimitiveType::Bool) => {
-            // jni 0.22 + jni-sys 0.4 made `jboolean` a `bool` (it was `u8` in
-            // 0.21), so a `bool as bool` cast is a Rust compile error. Return
-            // the value as-is.
             out.push_str(&template_env::render(
                 "return_bool.rs.jinja",
                 context! {
@@ -174,7 +159,6 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             ));
         }
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
-            // Vec<u8> → jbyteArray
             out.push_str(&template_env::render(
                 "return_byte_array.rs.jinja",
                 context! {
@@ -184,7 +168,6 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             ));
         }
         TypeRef::Bytes => {
-            // bytes::Bytes → jbyteArray (same as Vec<u8>)
             out.push_str(&template_env::render(
                 "return_byte_array.rs.jinja",
                 context! {
@@ -210,8 +193,6 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             ));
         }
         TypeRef::Primitive(p) => {
-            // Cast the Rust primitive to the corresponding JNI numeric type.
-            // This handles mismatches like u16 → jshort (i16), usize → jlong (i64).
             let jni_ty = jni_primitive_type(p);
             out.push_str(&template_env::render(
                 "return_primitive.rs.jinja",
@@ -221,33 +202,18 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
                 },
             ));
         }
-        // Return raw `String` as a jstring without JSON marshalling. JSON-encoding
-        // a `String` wraps the value in literal `"…"` (e.g. `Some("python")` →
-        // `"\"python\""`), which the Kotlin layer surfaces verbatim because the
-        // bridge signature is `external fun foo(...): String?`. Tests then see
-        // `"python"` instead of `python` and fail with `expected: <python> but
-        // was: <"python">`.
         TypeRef::String => {
             out.push_str(&template_env::render(
                 "return_string.rs.jinja",
                 context! { indent => indent },
             ));
         }
-        // Same fix for `Option<String>`: emit a raw jstring on `Some`, null on
-        // `None`. Without this arm the JSON path encodes `None` as the literal
-        // string `"null"`, which Kotlin sees as a non-null `String` containing
-        // the four characters `n`, `u`, `l`, `l`.
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
             out.push_str(&template_env::render(
                 "return_optional_string.rs.jinja",
                 context! { indent => indent },
             ));
         }
-        // Optional<T> for any other inner type: serialise to JSON but short-circuit
-        // on None to a null jstring so Kotlin sees a real `null` rather than the
-        // four-character JSON literal `"null"`. Without this branch the fallback
-        // `serde_json::to_string(&None)` produces `"null"` which Kotlin/Jackson
-        // round-trip as the non-null string.
         TypeRef::Optional(_) => {
             out.push_str(&format!("{indent}match v {{\n"));
             out.push_str(&format!("{indent}    None => std::ptr::null_mut(),\n"));

@@ -32,16 +32,13 @@ pub fn package_gleam(
     }
     fs::create_dir_all(&staging)?;
 
-    // Copy the entire gleam package directory into staging.
     let pkg_src = workspace_root.join(&pkg_dir);
     if !pkg_src.exists() {
         anyhow::bail!("Gleam package directory not found: {}", pkg_dir);
     }
 
-    // Copy all files from the Gleam package.
     copy_dir_recursive(&pkg_src, &staging).context("copying Gleam package directory")?;
 
-    // Create tarball (Hex expects .tar, not .tar.gz).
     let archive_name = format!("{pkg_name}.tar");
     let archive_path = output_dir.join(&archive_name);
 
@@ -58,7 +55,6 @@ pub fn package_gleam(
         anyhow::bail!("tar failed with exit code {}", status.code().unwrap_or(-1));
     }
 
-    // Clean up staging.
     fs::remove_dir_all(&staging).ok();
 
     Ok(PackageArtifact {

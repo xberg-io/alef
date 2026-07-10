@@ -65,8 +65,6 @@ impl TypeMapper for SwiftMapper {
     }
 
     fn error_wrapper(&self) -> &str {
-        // Swift has a native `Result<Success, Failure>`; Stage 2B emits the
-        // fully-parameterised form and replaces this placeholder.
         "Result"
     }
 }

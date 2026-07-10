@@ -28,8 +28,6 @@ pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> 
             } else {
                 existing
             };
-            // Compare bodies modulo the alef:hash: line (it is finalised post-format
-            // and isn't part of the codegen output) and modulo trivial whitespace.
             let on_disk_body = hash::strip_hash_line(&on_disk);
             if normalize_whitespace(&on_disk_body) != normalize_whitespace(&generated) {
                 Some(format!("[{lang}] {}", file.path.display()))

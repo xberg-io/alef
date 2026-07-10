@@ -21,12 +21,10 @@ pub(crate) fn resolve_use_tree(
         syn::UseTree::Path(use_path) => {
             let root_ident = use_path.ident.to_string();
 
-            // Skip self/super/crate references — already handled by mod resolution
             if root_ident == "self" || root_ident == "super" || root_ident == "crate" {
                 return Ok(());
             }
 
-            // This is an external crate reference like `use other_crate::...`
             resolve_external_use(
                 &root_ident,
                 &use_path.tree,
@@ -43,7 +41,6 @@ pub(crate) fn resolve_use_tree(
             }
             Ok(())
         }
-        // `pub use something;` — a single ident, skip (not an external crate path)
         _ => Ok(()),
     }
 }
@@ -66,10 +63,8 @@ fn resolve_external_use(
     if visited.contains(&canonical) {
         return Ok(());
     }
-    // Push to visited BEFORE any recursive calls to prevent infinite cycles
     visited.push(canonical.clone());
 
-    // Parse the external crate source
     let content = match std::fs::read_to_string(&crate_source) {
         Ok(c) => c,
         Err(_) => return Ok(()),
@@ -79,9 +74,8 @@ fn resolve_external_use(
         Err(_) => return Ok(()),
     };
 
-    // Extract the full surface of the external crate into a temporary surface
     let mut ext_surface = ApiSurface {
-        crate_name: crate_name.to_string(), // Use our crate name for the rust_path
+        crate_name: crate_name.to_string(),
         ..ApiSurface::default()
     };
     let mut rwa = ahash::AHashSet::new();
@@ -96,7 +90,6 @@ fn resolve_external_use(
         &mut rwa,
     )?;
 
-    // Collect the names we want to import
     let filter = collect_use_names(subtree);
 
     match filter {
@@ -199,18 +192,15 @@ pub(crate) fn merge_surface_filtered(dst: &mut ApiSurface, src: ApiSurface, name
 pub(crate) fn find_crate_source(dep_crate_name: &str, workspace_root: Option<&Path>) -> Option<PathBuf> {
     let root = workspace_root?;
 
-    // Read workspace Cargo.toml
     let cargo_toml = std::fs::read_to_string(root.join("Cargo.toml")).ok()?;
     let value: toml::Value = toml::from_str(&cargo_toml).ok()?;
 
-    // Check [dependencies] for path deps
     if let Some(deps) = value.get("dependencies").and_then(|d| d.as_table()) {
         if let Some(path) = resolve_dep_path(deps, dep_crate_name, root) {
             return Some(path);
         }
     }
 
-    // Check [workspace.dependencies]
     if let Some(deps) = value
         .get("workspace")
         .and_then(|w| w.get("dependencies"))
@@ -221,13 +211,11 @@ pub(crate) fn find_crate_source(dep_crate_name: &str, workspace_root: Option<&Pa
         }
     }
 
-    // Heuristic: look for crates/{crate_name}/src/lib.rs
     let heuristic = root.join("crates").join(dep_crate_name).join("src/lib.rs");
     if heuristic.exists() {
         return Some(heuristic);
     }
 
-    // Try with hyphens replaced by underscores and vice versa
     let alt_name = if dep_crate_name.contains('-') {
         dep_crate_name.replace('-', "_")
     } else {
@@ -264,14 +252,9 @@ pub(crate) fn extract_module(
 ) -> Result<()> {
     let mod_name = item_mod.ident.to_string();
 
-    // Build the new module path for items inside this module.
-    // If the parent has a glob re-export (`pub use mod_name::*`), all items from this
-    // submodule are available at the parent level, so they keep the parent's module_path.
     let reexport_kind = reexport_map.get(&mod_name);
     let has_glob_reexport = matches!(reexport_kind, Some(ReexportKind::Glob));
 
-    // For glob re-exports, items keep the parent's module_path (flattened).
-    // For named re-exports, items get the deep path first, then we post-process.
     let new_module_path = if has_glob_reexport {
         module_path.to_string()
     } else if module_path.is_empty() {
@@ -280,7 +263,6 @@ pub(crate) fn extract_module(
         format!("{module_path}::{mod_name}")
     };
 
-    // Track surface sizes before extraction so we can post-process named re-exports.
     let named_reexports = match reexport_kind {
         Some(ReexportKind::Names(names)) => Some(names),
         _ => None,
@@ -291,7 +273,6 @@ pub(crate) fn extract_module(
         (0, 0, 0)
     };
 
-    // Inline module: `pub mod foo { ... }`
     let mut rwa = ahash::AHashSet::new();
     if let Some((_, items)) = &item_mod.content {
         super::extract_items(
@@ -305,14 +286,10 @@ pub(crate) fn extract_module(
             &mut rwa,
         )?;
     } else {
-        // External module: `pub mod foo;` — resolve to file
         let parent_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
 
-        // Strip the `r#` raw-identifier prefix that `syn` includes in `Ident::to_string()`.
-        // Raw identifiers like `mod r#trait;` refer to a file named `trait.rs`, not `r#trait.rs`.
         let file_name = mod_name.strip_prefix("r#").unwrap_or(&mod_name);
 
-        // Try `<file_name>.rs` first, then `<file_name>/mod.rs`
         let candidates = [
             parent_dir.join(format!("{file_name}.rs")),
             parent_dir.join(file_name).join("mod.rs"),
@@ -321,9 +298,6 @@ pub(crate) fn extract_module(
         let mut found = false;
         for candidate in &candidates {
             if candidate.exists() {
-                // Track this file as visited to prevent duplicate processing
-                // when the same file appears both as a `pub mod` submodule and
-                // as a top-level source in alef.toml.
                 let canonical_candidate = std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
                 if visited.contains(&canonical_candidate) {
                     found = true;
@@ -356,9 +330,6 @@ pub(crate) fn extract_module(
         }
     }
 
-    // Post-process named re-exports: shorten rust_path for items whose names match.
-    // Also prune items from private modules that are NOT in the re-export list,
-    // since they can't be accessed from outside.
     if let Some(names) = named_reexports {
         let parent_prefix = if module_path.is_empty() {
             crate_name.to_string()
@@ -382,8 +353,6 @@ pub(crate) fn extract_module(
             }
         }
 
-        // Prune non-re-exported items from private modules.
-        // Items in private modules are only accessible via their explicit re-exports.
         if !super::helpers::is_pub(&item_mod.vis) {
             let new_types: Vec<_> = surface.types.drain(types_before..).collect();
             surface

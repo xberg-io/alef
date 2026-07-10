@@ -133,7 +133,6 @@ sources = ["src/lib.rs"]
 }
 
 fn make_synthetic_api() -> ApiSurface {
-    // 100 types, each with 5 fields of mixed types
     let mut types = Vec::new();
     for i in 1..=100 {
         let fields = vec![
@@ -162,7 +161,6 @@ fn make_synthetic_api() -> ApiSurface {
         types.push(make_type(&format!("Type{:03}", i), fields));
     }
 
-    // 200 functions with varied signatures
     let mut functions = Vec::new();
     for i in 1..=200 {
         let params = vec![
@@ -207,7 +205,6 @@ fn make_synthetic_api() -> ApiSurface {
         });
     }
 
-    // 50 enums with mixed variants
     let mut enums = Vec::new();
     for i in 1..=50 {
         enums.push(make_enum(&format!("Enum{:03}", i), (i % 10) + 2));

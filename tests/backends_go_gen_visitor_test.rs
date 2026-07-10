@@ -6,7 +6,6 @@ use alef::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, Pa
 /// The exact C callback struct name depends on `ffi_prefix`.
 #[test]
 fn test_visitor_file_emits_prefixed_struct() {
-    // Minimal trait def with one method to exercise the generator.
     let trait_def = alef::core::ir::TypeDef {
         name: "SyntaxWalker".to_string(),
         rust_path: "sample_crate::visitor::SyntaxWalker".to_string(),

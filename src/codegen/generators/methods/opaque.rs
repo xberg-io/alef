@@ -22,7 +22,6 @@ pub fn gen_opaque_impl_block(
     adapter_bodies: &AdapterBodies,
 ) -> String {
     let (instance, statics) = partition_methods(&typ.methods);
-    // Compute effective (non-sanitized or adapter-overridden) method counts.
     let has_emittable_instance = instance
         .iter()
         .any(|m| !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name)));
@@ -36,10 +35,7 @@ pub fn gen_opaque_impl_block(
     let mut out = String::with_capacity(2048);
     let prefixed_name = format!("{}{}", cfg.type_name_prefix, typ.name);
 
-    // Instance methods — delegate to self.inner
     for m in &instance {
-        // Skip sanitized methods that have no adapter override — they cannot be delegated
-        // and emitting an unimplemented stub pollutes the public API with dead placeholders.
         let adapter_key = format!("{}.{}", typ.name, m.name);
         if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;
@@ -63,9 +59,7 @@ pub fn gen_opaque_impl_block(
         out.push_str("\n\n");
     }
 
-    // Static methods
     for m in &statics {
-        // Skip sanitized static methods that have no adapter override.
         let adapter_key = format!("{}.{}", typ.name, m.name);
         if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;

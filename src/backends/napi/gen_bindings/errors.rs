@@ -26,11 +26,7 @@ pub(super) fn gen_dts(
     let mut lines: Vec<String> = header.lines().map(|l| l.to_string()).collect();
     lines.push("/* eslint-disable */".to_string());
 
-    // Emit `import type { TypeName } from "module"` for each capsule type.
-    // These must appear after the header but before all declarations so TypeScript
-    // resolves them before they are referenced in function signatures.
     if !capsule_types.is_empty() {
-        // Group by from_module for compact output.
         let mut by_module: std::collections::BTreeMap<&str, Vec<&str>> = std::collections::BTreeMap::new();
         for cfg in capsule_types.values() {
             by_module
@@ -44,19 +40,12 @@ pub(super) fn gen_dts(
         }
     }
 
-    // Emit JsonValue type definition for serde_json::Value fields.
-    // This recursive type supports arbitrary JSON: primitives, arrays, and objects.
     lines.push(String::new());
     lines.push(
         "export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };"
             .to_string(),
     );
 
-    // Collect all declarations: opaque types (classes), plain structs (interfaces), visitor traits (interfaces), enums, functions.
-    // Sort each group alphabetically to produce stable, deterministic output.
-
-    // Opaque non-trait types → `export declare class`
-    // Skip capsule types — they are not emitted as napi classes.
     let mut opaque_types: Vec<&TypeDef> = api
         .types
         .iter()
@@ -64,23 +53,15 @@ pub(super) fn gen_dts(
         .collect();
     opaque_types.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // Plain structs → `export interface`
     let mut plain_types: Vec<&TypeDef> = api.types.iter().filter(|t| !t.is_opaque && !t.is_trait).collect();
     plain_types.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // Visitor traits (opaque or not) → `export interface` (for callback object shape)
     let mut visitor_traits: Vec<&TypeDef> = api.types.iter().filter(|t| t.is_trait).collect();
     visitor_traits.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // Enums → `export declare enum`
     let mut sorted_enums: Vec<&EnumDef> = api.enums.iter().collect();
     sorted_enums.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // Functions → `export declare function`
-    // Apply the same filtering as `gen_function`: drop excluded names, and drop
-    // sanitized functions unless a trait_bridge can adapt their signature. This
-    // keeps the emitted `index.d.ts` declarations in lockstep with the actually
-    // exported NAPI functions in `lib.rs`.
     let mut sorted_fns: Vec<&FunctionDef> = api
         .functions
         .iter()
@@ -96,21 +77,16 @@ pub(super) fn gen_dts(
         .collect();
     sorted_fns.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // Trait-bridge registration functions → `export declare function`
-    // For each trait bridge, emit register, unregister, and clear functions.
     let mut trait_bridge_fns: Vec<(String, String, String)> = Vec::new();
     for bridge in trait_bridges {
-        // register_{trait_name_lower}
         if let Some(register) = &bridge.register_fn {
             let js_name = crate::codegen::naming::to_node_name(register);
             trait_bridge_fns.push((js_name, format!("impl: {}", bridge.trait_name), "void".to_string()));
         }
-        // unregister_{trait_name_lower}
         if let Some(unregister) = &bridge.unregister_fn {
             let js_name = crate::codegen::naming::to_node_name(unregister);
             trait_bridge_fns.push((js_name, "name: string".to_string(), "void".to_string()));
         }
-        // clear_{trait_name_lower}s
         if let Some(clear) = &bridge.clear_fn {
             let js_name = crate::codegen::naming::to_node_name(clear);
             trait_bridge_fns.push((js_name, String::new(), "void".to_string()));
@@ -118,16 +94,11 @@ pub(super) fn gen_dts(
     }
     trait_bridge_fns.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Service entrypoint bridge functions → `export declare function`
-    // For each service, emit bridge functions for each entrypoint (run/finalize).
-    // The bridge function receives the registrations array and materializes the service.
     let mut service_entrypoint_fns: Vec<(String, String, String)> = Vec::new();
     for service in &api.services {
         for entrypoint in &service.entrypoints {
             let bridge_name = to_node_name(&format!("{}_{}", service.name.to_lowercase(), entrypoint.method));
-            // Registrations parameter: Array<[string, any[], (...args: any[]) => any]>
             let registrations_param = "registrations: Array<[string, any[], (...args: any[]) => any]>".to_string();
-            // Return type: Promise<void> for async, void for sync
             let return_type = if entrypoint.is_async {
                 "Promise<void>".to_string()
             } else {
@@ -138,8 +109,6 @@ pub(super) fn gen_dts(
     }
     service_entrypoint_fns.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Build a merged list of all declarations sorted by their Js-prefixed name so the
-    // output is fully alphabetical (matching the committed index.d.ts format).
     enum Decl<'a> {
         Class(&'a TypeDef),
         Interface(&'a TypeDef),
@@ -196,16 +165,11 @@ pub(super) fn gen_dts(
     }
     all_decls.sort_by_key(|a| a.0.to_lowercase());
 
-    // Deduplicate declarations by name — trait bridges may appear multiple times
-    // if trait_bridges config is inadvertently loaded twice.
     all_decls.dedup_by(|a, b| a.0 == b.0);
 
-    // Emit declarations with unprefixed TS names. The Rust structs carry
     // `#[napi(js_name = "Foo")]` so NAPI-RS maps JsFoo → Foo at runtime.
-    // Passing empty string to dts_type/dts_params ensures field type references
-    // (e.g. `Array<Config>`) are also unprefixed in the generated .d.ts.
     let no_prefix: &str = "";
-    let _ = prefix; // prefix is still used in the sort-key strings above
+    let _ = prefix;
     for (_, decl) in &all_decls {
         lines.push(String::new());
         match decl {
@@ -215,17 +179,10 @@ pub(super) fn gen_dts(
                 for method in &typ.methods {
                     let js_name = to_node_name(&method.name);
                     let params = dts_params(&method.params, no_prefix, default_types);
-                    // Check if this is a streaming method — if so, override the return type to
-                    // Promise<AsyncGenerator<ItemType, void, undefined>> so `for await...of` is
-                    // typesafe. The iterator class name follows the PascalCase(method_name)+Iterator
-                    // convention emitted by alef-adapters streaming codegen.
                     let streaming_key = format!("{}.{}", typ.name, method.name);
                     let ret = if let Some(item_type) = streaming_item_types.get(&streaming_key) {
                         format!("Promise<AsyncGenerator<{item_type}, void, undefined>>")
                     } else {
-                        // Use capsule-aware return type so that methods returning a capsule type
-                        // emit the ecosystem type name (e.g. `Language`) rather than the now-
-                        // undeclared opaque handle (e.g. `JsLanguage`).
                         dts_return_type_capsule(
                             &method.return_type,
                             method.error_type.is_some(),
@@ -250,13 +207,7 @@ pub(super) fn gen_dts(
                     let js_name = to_node_name(&field.name);
                     let ts_ty = dts_type(&field.ty, no_prefix);
                     lines.extend(format_jsdoc(&field.doc, "  "));
-                    // Mark a field optional when:
-                    //   1. The underlying Rust type is Option<T> (TypeRef::Optional)
-                    //   2. The field itself has `optional = true` in the IR (e.g. *Update struct fields)
-                    //   3. The parent type has `has_default = true` — the NAPI binding wraps every
-                    //      field in Option<T> so callers can omit fields and rely on defaults.
                     let is_optional = matches!(field.ty, TypeRef::Optional(_)) || field.optional || typ.has_default;
-                    // DTO fields are readonly — callers construct new objects rather than mutating.
                     if is_optional {
                         lines.push(format!("  readonly {js_name}?: {ts_ty}"));
                     } else {
@@ -266,12 +217,6 @@ pub(super) fn gen_dts(
                 lines.push("}".to_string());
             }
             Decl::VisitorInterface(typ) => {
-                // Emit visitor trait as a TypeScript interface with optional callback methods.
-                // Each method becomes an optional property with a function signature.
-                //
-                // Types excluded from the binding surface (e.g. `InternalDocument`) are not emitted as
-                // `.d.ts` declarations, so substitute them with their JSON marshaling form in method
-                // signatures — otherwise the interface references an undefined TS name.
                 let excluded: std::collections::HashSet<&str> = api
                     .excluded_type_paths
                     .keys()
@@ -282,8 +227,6 @@ pub(super) fn gen_dts(
                 lines.push(format!("export interface {} {{", typ.name));
                 if trait_bridge_requires_plugin_name(typ, trait_bridges) {
                     lines.push("  name(): string".to_string());
-                    // Lifecycle hooks the bridge calls when present (no-op otherwise) —
-                    // part of the host surface so they are discoverable and type-checked.
                     lines.push("  version?(): string".to_string());
                     lines.push("  initialize?(): void".to_string());
                     lines.push("  shutdown?(): void".to_string());
@@ -317,8 +260,6 @@ pub(super) fn gen_dts(
                 let is_data_enum = e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty());
                 lines.extend(format_jsdoc(&e.doc, ""));
                 if is_data_enum {
-                    // Discriminated union: emit a type alias instead of an enum declaration.
-                    // Each variant becomes an object literal type with the tag field and its own fields.
                     let tag_field = e.serde_tag.as_deref().unwrap_or("type");
                     let mut member_lines: Vec<String> = Vec::new();
                     for variant in &e.variants {
@@ -344,8 +285,6 @@ pub(super) fn gen_dts(
                 } else {
                     lines.push(format!("export declare enum {} {{", e.name));
                     for variant in &e.variants {
-                        // NAPI string_enum: variant values follow serde_rename_all casing.
-                        // Prefer explicit serde_rename, then apply rename_all, then fall back to variant name.
                         let value = wire_variant_value(
                             &variant.name,
                             variant.serde_rename.as_deref(),
@@ -360,8 +299,6 @@ pub(super) fn gen_dts(
             Decl::Function(func) => {
                 let js_name = to_node_name(&func.name);
                 let params = dts_params(&func.params, no_prefix, default_types);
-                // When the function returns a capsule type, use the ecosystem type name
-                // (e.g. `Language` from `tree-sitter`) instead of the Js-prefixed wrapper.
                 let ret = dts_return_type_capsule(
                     &func.return_type,
                     func.error_type.is_some(),
@@ -389,17 +326,10 @@ pub(super) fn gen_dts(
         }
     }
 
-    // Emit a class declaration for each streaming iterator struct. These are adapter-generated
-    // types (not in api.types) that implement Symbol.asyncIterator via NAPI-RS's AsyncGenerator
-    // trait. Each iterator wraps a channel receiver and yields streaming chunks.
-    //
-    // The iterator class name follows the PascalCase(adapter.name)+Iterator convention from
-    // alef-adapters/src/streaming.rs: gen_node_body. The [Symbol.asyncIterator]() method is
     // automatically added by #[napi(async_iterator)] at build time.
     let mut sorted_streaming: Vec<(&String, &String)> = streaming_item_types.iter().collect();
     sorted_streaming.sort_by_key(|(k, _)| k.as_str());
     for (owner_method_key, item_type) in sorted_streaming {
-        // Derive the iterator class name: "OwnerType.method_name" → PascalCase(method_name) + "Iterator"
         let method_name = owner_method_key
             .split('.')
             .next_back()
@@ -426,9 +356,7 @@ pub(super) fn gen_dts(
         lines.push("}".to_string());
     }
 
-    // Emit a class declaration for each error type that has introspection methods.
     // The Rust-side #[napi] struct is named `Js{ErrorName}Info`; the TypeScript
-    // declaration strips the Js prefix so it reads `{ErrorName}Info`.
     let mut sorted_errors: Vec<_> = api.errors.iter().filter(|e| !e.methods.is_empty()).collect();
     sorted_errors.sort_by_key(|e| e.name.as_str());
     for error in sorted_errors {
@@ -526,7 +454,6 @@ pub(super) fn dts_type(ty: &TypeRef, prefix: &str) -> String {
             | crate::core::ir::PrimitiveType::I32
             | crate::core::ir::PrimitiveType::F32
             | crate::core::ir::PrimitiveType::F64 => "number".to_string(),
-            // NAPI maps u64/usize/isize to i64 on the Rust side; JS sees it as number.
             crate::core::ir::PrimitiveType::U64
             | crate::core::ir::PrimitiveType::I64
             | crate::core::ir::PrimitiveType::Usize
@@ -565,10 +492,6 @@ fn dts_params_with_order(
             .join(", ");
     }
 
-    // TypeScript requires optional parameters to come after all required parameters (TS1016).
-    // If the Rust source has optional params followed by required params (e.g., `lang: Option<&str>`,
-    // `code: &str`), we must reorder: required first, then optional, preserving relative order within
-    // each group.
     let mut required: Vec<&ParamDef> = Vec::new();
     let mut optional: Vec<&ParamDef> = Vec::new();
     for p in params {
@@ -578,7 +501,6 @@ fn dts_params_with_order(
             required.push(p);
         }
     }
-    // If no reordering is needed (already ordered), use original order to avoid churn.
     let ordered: Vec<&ParamDef> = if params
         .iter()
         .zip(required.iter().chain(optional.iter()))
@@ -689,7 +611,6 @@ mod tests {
             make_param("code", false),
         ];
         let result = dts_params(&params, "Js", &ahash::AHashSet::new());
-        // Required params (ctx, code) must precede optional param (lang)
         let ctx_pos = result.find("ctx:").expect("ctx not found");
         let code_pos = result.find("code:").expect("code not found");
         let lang_pos = result.find("lang?:").expect("lang? not found");
@@ -731,7 +652,6 @@ mod tests {
 
     #[test]
     fn trait_bridge_dts_return_type_wraps_async_methods_in_promise() {
-        // Async methods wrap the (now natively-typed) return in Promise<...>; sync methods do not.
         assert_eq!(
             trait_bridge_dts_return_type(&TypeRef::Named("ExtractionResult".to_string()), true, ""),
             "Promise<ExtractionResult>"
@@ -839,7 +759,6 @@ mod tests {
             &Default::default(),
             &Default::default(),
         );
-        // Verify the service entrypoint function appears in the dts
         assert!(
             dts.contains("export declare function appIntoRouter"),
             "dts should declare appIntoRouter bridge function for App.into_router"

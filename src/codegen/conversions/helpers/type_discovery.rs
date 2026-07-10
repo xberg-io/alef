@@ -17,13 +17,11 @@ use ahash::AHashSet;
 pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
     let mut names = AHashSet::new();
 
-    // Collect Named types from function params
     for func in &surface.functions {
         for param in &func.params {
             collect_named_types(&param.ty, &mut names);
         }
     }
-    // Collect Named types from method params
     for typ in surface.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             for param in &method.params {
@@ -31,22 +29,14 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
             }
         }
     }
-    // Collect Named types from function return types.
-    // Return types and their transitive field types need binding→core From impls
-    // for round-trip conversion completeness.
     for func in &surface.functions {
         collect_named_types(&func.return_type, &mut names);
     }
-    // Collect Named types from method return types.
     for typ in surface.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             collect_named_types(&method.return_type, &mut names);
         }
     }
-    // Collect Named types from fields of non-opaque types that have methods.
-    // When a non-opaque type has methods, codegen generates binding→core struct conversion
-    // (gen_lossy_binding_to_core_fields) which calls `.into()` on Named fields.
-    // Those field types need binding→core From impls.
     for typ in surface.types.iter().filter(|typ| !typ.is_trait) {
         if !typ.is_opaque && !typ.methods.is_empty() {
             for field in binding_fields(&typ.fields) {
@@ -57,11 +47,6 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
         }
     }
 
-    // Collect Named types from enum variant fields. A data enum is an input whenever it is already
-    // referenced as one, OR because alef emits a per-variant constructor for every data-carrying
-    // variant: each constructor takes the variant's fields as inputs and builds the core variant,
-    // so those nested Named field types need binding→core From impls. Skipping sanitized /
-    // binding-excluded fields here matches the variants the constructor pass actually emits.
     for e in &surface.enums {
         let is_data_enum = e.variants.iter().any(|v| !v.fields.is_empty());
         if names.contains(&e.name) || is_data_enum {
@@ -79,7 +64,6 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
         }
     }
 
-    // Transitive closure: if type A is an input and has field of type B, B is also an input
     let mut changed = true;
     while changed {
         changed = false;
@@ -96,7 +80,6 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
                     }
                 }
             }
-            // Also walk enum variant fields in the transitive closure
             if let Some(e) = surface.enums.iter().find(|e| e.name == *name) {
                 for variant in &e.variants {
                     if variant.binding_excluded {
@@ -180,8 +163,6 @@ mod tests {
 
     #[test]
     fn data_enum_variant_field_types_are_inputs_even_when_enum_is_return_only() {
-        // A data enum that is never referenced as an input still gets per-variant constructors, so
-        // its variants' Named field types need binding→core From impls.
         let mut surface = ApiSurface::default();
         surface.enums.push(data_enum(
             "EnrichStatus",
@@ -195,8 +176,6 @@ mod tests {
 
     #[test]
     fn sanitized_and_excluded_variant_fields_are_not_inputs() {
-        // Sanitized / binding-excluded fields are skipped by the constructor pass, so their nested
-        // types must not be pulled into the input set (no constructor references them).
         let mut sanitized = field("points", TypeRef::Named("QuadPoints".to_string()));
         sanitized.sanitized = true;
         let mut excluded = field("entries", TypeRef::Named("MetaEntries".to_string()));

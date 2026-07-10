@@ -39,7 +39,6 @@ SRC_DIR = REPO / "src"
 TESTS_DIR = REPO / "tests"
 BENCHES_DIR = REPO / "benches"
 
-# (former crate name, destination relative to src/)
 MODULE_MOVES: list[tuple[str, str]] = [
     ("alef-core", "core"),
     ("alef-codegen", "codegen"),
@@ -71,7 +70,6 @@ MODULE_MOVES: list[tuple[str, str]] = [
     ("alef-backend-zig", "backends/zig"),
 ]
 
-# alef-cli is special — main.rs → src/main.rs, rest → src/cli/
 CLI_CRATE = "alef-cli"
 CLI_MODULE = "cli"
 
@@ -84,7 +82,6 @@ for crate, dest in MODULE_MOVES:
     else:
         CRATE_TO_USE_PATH[rust_name] = f"crate::{dest}"
 
-# Public re-export names (lib-test use paths)
 LIB_PATH_REWRITES: dict[str, str] = {
     rust_name: path.replace("crate::", "alef::") for rust_name, path in CRATE_TO_USE_PATH.items()
 }
@@ -126,7 +123,6 @@ def assert_clean_tree() -> None:
     for line in out.stdout.splitlines():
         if not line:
             continue
-        # porcelain format: "XY path" or "R  old -> new"
         path_part = line[3:]
         if " -> " in path_part:
             old, new = path_part.split(" -> ", 1)
@@ -166,10 +162,8 @@ def rewrite_uses_in_file(path: Path, *, in_tests: bool) -> bool:
     new_text = text
     for rust_name in sorted(table.keys(), key=len, reverse=True):
         target = table[rust_name]
-        # Match `use alef_core::`, `use alef_core ::`, `alef_core::`, etc.
         pattern = re.compile(rf"\b{rust_name}::")
         new_text = pattern.sub(target + "::", new_text)
-        # `extern crate alef_core;`
         new_text = re.sub(
             rf"\bextern crate {rust_name};\s*\n",
             "",
@@ -208,13 +202,11 @@ def move_module(crate: str, dest: str) -> None:
 
     dest_src_root.parent.mkdir(parents=True, exist_ok=True)
 
-    # src/ → src/<dest>/
     src_root = crate_dir / "src"
     if src_root.exists():
         if dest_src_root.exists():
             raise RuntimeError(f"dest already exists: {dest_src_root}")
         move_tree(src_root, dest_src_root)
-        # rename lib.rs → mod.rs so the dir is a module from its parent
         lib_rs = dest_src_root / "lib.rs"
         mod_rs = dest_src_root / "mod.rs"
         if lib_rs.exists():
@@ -222,25 +214,19 @@ def move_module(crate: str, dest: str) -> None:
                 raise RuntimeError(f"both lib.rs and mod.rs in {dest_src_root}")
             move_file(lib_rs, mod_rs)
 
-    # templates/ → colocated src/<dest>/templates/
     tmpl = crate_dir / "templates"
     if tmpl.exists():
         move_tree(tmpl, dest_src_root / "templates")
 
-    # tests/ → tests/<flat_dest>_<file>.rs
     tests = crate_dir / "tests"
     if tests.exists():
         TESTS_DIR.mkdir(exist_ok=True)
         for child in sorted(tests.iterdir()):
             if child.is_dir():
-                # snapshots/ — move whole dir under tests/snapshots/ with prefix
                 if child.name == "snapshots":
                     snap_dst = TESTS_DIR / "snapshots"
                     snap_dst.mkdir(exist_ok=True)
                     for snap in sorted(child.iterdir()):
-                        # insta snapshots are named `<test_file_stem>__<test>.snap`
-                        # When we rename `foo.rs` → `<flat>_foo.rs`, snapshots
-                        # `foo__test.snap` must rename to `<flat>_foo__test.snap`.
                         new_name = f"{flat}_{snap.name}"
                         move_file(snap, snap_dst / new_name)
                 else:
@@ -248,17 +234,14 @@ def move_module(crate: str, dest: str) -> None:
             elif child.suffix == ".rs":
                 move_file(child, TESTS_DIR / f"{flat}_{child.name}")
             else:
-                # data files, fixtures, etc.
                 move_file(child, TESTS_DIR / f"{flat}_{child.name}")
 
-    # benches/ → benches/<flat>_<file>
     benches = crate_dir / "benches"
     if benches.exists():
         BENCHES_DIR.mkdir(exist_ok=True)
         for child in sorted(benches.iterdir()):
             move_file(child, BENCHES_DIR / f"{flat}_{child.name}")
 
-    # examples/ → examples/<flat>_<file>
     examples = crate_dir / "examples"
     if examples.exists():
         EXAMPLES_DIR = REPO / "examples"
@@ -266,17 +249,14 @@ def move_module(crate: str, dest: str) -> None:
         for child in sorted(examples.iterdir()):
             move_file(child, EXAMPLES_DIR / f"{flat}_{child.name}")
 
-    # README.md inside crate — drop it (we'll write a new root README)
     readme = crate_dir / "README.md"
     if readme.exists():
         run(["git", "rm", str(readme.relative_to(REPO))])
 
-    # Cargo.toml — remove (we'll write a single root Cargo.toml)
     cargo = crate_dir / "Cargo.toml"
     if cargo.exists():
         run(["git", "rm", str(cargo.relative_to(REPO))])
 
-    # any other files in crate dir (build.rs etc.) — defensive iteration
     if crate_dir.exists():
         for stray in list(crate_dir.iterdir()):
             if stray.is_file():
@@ -287,7 +267,6 @@ def move_module(crate: str, dest: str) -> None:
                 except OSError:
                     print(f"WARN: leftover dir not removed: {stray}")
 
-    # remove the now-empty crate dir
     if crate_dir.exists():
         try:
             crate_dir.rmdir()
@@ -305,22 +284,18 @@ def move_cli_crate() -> None:
     cli_dest = SRC_DIR / CLI_MODULE
     cli_dest.mkdir(parents=True, exist_ok=True)
 
-    # main.rs → src/main.rs
     main_src = src_root / "main.rs"
     if main_src.exists():
         move_file(main_src, SRC_DIR / "main.rs")
 
-    # everything else under crates/alef-cli/src/ → src/cli/
     for child in sorted(src_root.iterdir()):
         dest = cli_dest / child.name
         move_tree(child, dest) if child.is_dir() else move_file(child, dest)
 
-    # build.rs → root
     build = crate_dir / "build.rs"
     if build.exists():
         move_file(build, REPO / "build.rs")
 
-    # tests
     tests = crate_dir / "tests"
     if tests.exists():
         TESTS_DIR.mkdir(exist_ok=True)
@@ -330,7 +305,6 @@ def move_cli_crate() -> None:
             else:
                 move_file(child, TESTS_DIR / f"cli_{child.name}")
 
-    # Cargo.toml, README.md, src/ leftover dir
     for stray in [crate_dir / "Cargo.toml", crate_dir / "README.md"]:
         if stray.exists():
             run(["git", "rm", str(stray.relative_to(REPO))])
@@ -350,10 +324,6 @@ def rewrite_main_rs() -> None:
     main = SRC_DIR / "main.rs"
     if not main.exists():
         return
-    # We can't safely rewrite all of main.rs without understanding it;
-    # instead just add `use alef::cli::*` and let manual cleanup follow.
-    # Actually best to leave main.rs alone — rewrite via lib.rs strategy:
-    # the existing `mod cache;` etc. lines will need updating.
     print("INFO: src/main.rs left as-is — will need manual rewrite")
 
 
@@ -362,7 +332,6 @@ def generate_lib_rs() -> None:
     lib = SRC_DIR / "lib.rs"
     modules = []
     for crate, dest in MODULE_MOVES:
-        # Convert `backends/dart` to `backends::dart` — only emit top-level here
         if "/" in dest:
             continue
         modules.append(dest)
@@ -407,12 +376,6 @@ def generate_backends_mod_rs() -> None:
 
 def write_root_cargo_toml() -> None:
     """Synthesize a single root Cargo.toml from the per-crate manifests."""
-    # Parse out per-crate [dependencies], [dev-dependencies], [build-dependencies].
-    # We collect the union, dedupe, and prefer the workspace.* form when the
-    # dep is in the original [workspace.dependencies] block.
-    #
-    # The simplest reliable approach: hand-author the new Cargo.toml here.
-    # We've audited the deps already — see plan + audit.
     new = """[package]
 name = "alef"
 version = "0.18.0"
@@ -519,14 +482,11 @@ def update_alef_toml() -> None:
     if not f.exists():
         return
     text = f.read_text()
-    # name = "alef-cli" → "alef"
     text = text.replace('name = "alef-cli"', 'name = "alef"')
-    # sources = ["crates/alef-cli/src/main.rs"] → ["src/main.rs"]
     text = text.replace(
         'sources = ["crates/alef-cli/src/main.rs"]',
         'sources = ["src/main.rs"]',
     )
-    # alef_version pin → 0.18.0
     text = re.sub(
         r'alef_version = "[^"]+"',
         'alef_version = "0.18.0"',
@@ -556,12 +516,10 @@ def main() -> None:
     generate_backends_mod_rs()
 
     print("\n=== STEP 4: write new root Cargo.toml ===")
-    # Save the old Cargo.toml as it still exists in git; overwrite it.
     write_root_cargo_toml()
 
     print("\n=== STEP 5: rewrite use-paths ===")
     rewrite_all_use_paths()
-    # Stage everything (path rewrites edited tracked files in-place)
     run(["git", "add", "-u"])
 
     print("\n=== STEP 6: update alef.toml ===")

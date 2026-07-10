@@ -29,9 +29,7 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return(
             format!("{expr} as i64")
         }
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
-        // Opaque Named returns need prefix
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
-            // When expr is self.inner or self.inner.clone(), it's already Arc<T>, so don't wrap again.
             let already_arc = expr == "self.inner"
                 || expr == "self.inner.clone()"
                 || expr.starts_with("self.inner.as_ref()")
@@ -48,8 +46,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return(
             }
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-            // When expr is self.inner or self.inner.clone(), it's already Arc<T>, so don't wrap again.
-            // For method calls that return the inner type directly, we need to wrap in Arc.
             let already_arc = expr == "self.inner"
                 || expr == "self.inner.clone()"
                 || expr.starts_with("self.inner.as_ref()")
@@ -171,10 +167,7 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
             format!("{expr} as i64")
         }
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
-        TypeRef::Named(n) if capsule_types.is_some_and(|ct| ct.contains_key(n.as_str())) => {
-            // Capsule types are returned as-is from the core, no wrapper wrapping
-            expr.to_string()
-        }
+        TypeRef::Named(n) if capsule_types.is_some_and(|ct| ct.contains_key(n.as_str())) => expr.to_string(),
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if returns_ref {
                 format!(
@@ -199,15 +192,11 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
                 expr.to_string()
             }
         }
-        // Bytes always converts: core returns Vec<u8>/Bytes, binding expects napi Buffer.
         TypeRef::Bytes => format!("{expr}.into()"),
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         TypeRef::Json => format!("{expr}.to_string()"),
         TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::Named(name) if capsule_types.is_some_and(|ct| ct.contains_key(name.as_str())) => {
-                // Capsule types wrapped in Option are returned as-is
-                expr.to_string()
-            }
+            TypeRef::Named(name) if capsule_types.is_some_and(|ct| ct.contains_key(name.as_str())) => expr.to_string(),
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if returns_ref {
                     format!(
@@ -229,7 +218,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
                 }
             }
             TypeRef::Map(_, _) => {
-                // Optional map return: wrap the map conversion in .map(...)
                 if returns_ref {
                     format!("{expr}.map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())")
                 } else {
@@ -273,26 +261,20 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
             _ => expr.to_string(),
         },
         TypeRef::Map(_, _) => {
-            // Map returns: core may return &BTreeMap or &HashMap.
-            // The NAPI binding maps to HashMap<K, V> (owned).
-            // When core returns a reference (returns_ref=true), iterate and clone both keys and values.
             if returns_ref {
                 format!("{expr}.iter().map(|(k, v)| (k.clone(), v.clone())).collect()")
             } else {
-                // Owned map: collect into HashMap (works for BTreeMap and HashMap via IntoIterator).
                 format!("{expr}.into_iter().collect()")
             }
         }
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Primitive(p) if needs_napi_cast(p) => {
-                // Vec<usize>, Vec<f32>, etc. need element-wise casting to i64 or f64
                 let target_ty = match p {
                     crate::core::ir::PrimitiveType::F32 => "f64",
-                    _ => "i64", // u64, usize, isize
+                    _ => "i64",
                 };
                 format!("{expr}.into_iter().map(|v| v as {target_ty}).collect()")
             }
-            // Vec<Vec<T>> where the inner primitive needs widening (e.g. Vec<Vec<f32>> → Vec<Vec<f64>>)
             TypeRef::Vec(inner2) => {
                 if let TypeRef::Primitive(p) = inner2.as_ref() {
                     if needs_napi_cast(p) {
@@ -316,8 +298,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
             }
             TypeRef::Named(_) => {
                 if returns_ref {
-                    // `&[T]` → `Vec<U>`: clone each `&T` and convert. Use `.iter()`
-                    // not `.into_iter()` because `.into_iter()` on `&[T]` yields `&T`
                     // (clippy::into_iter_on_ref under -D warnings).
                     format!("{expr}.iter().map(|v| v.clone().into()).collect()")
                 } else {
@@ -329,9 +309,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
             }
             TypeRef::String | TypeRef::Char => {
                 if returns_ref {
-                    // `&[&str]` → `Vec<String>`: convert each `&&str` element through
-                    // `.to_string()`. `Into::into` would need
-                    // `impl From<&&str> for String`, which doesn't exist.
                     format!("{expr}.iter().map(|s| s.to_string()).collect()")
                 } else {
                     expr.to_string()

@@ -25,9 +25,6 @@ fn mock_server_module_route_struct_has_headers_field() {
 #[test]
 fn mock_server_module_applies_headers_to_response() {
     let module = render_mock_server_module();
-    // The handler must iterate route.headers and apply each (name, value) to the
-    // response builder. Using `.header(name, value)` repeatedly preserves
-    // multi-value semantics for headers like Set-Cookie.
     assert!(
         module.contains("for (name, value) in &route.headers"),
         "handle_request must iterate `route.headers` and apply each entry via \
@@ -51,17 +48,14 @@ fn mock_server_binary_route_struct_has_headers_field() {
 #[test]
 fn mock_server_binary_deserializes_headers_from_both_schemas() {
     let bin = render_mock_server_binary();
-    // demo-client shape: `mock_response.headers`
     assert!(
         bin.contains("struct MockResponse") && bin.contains("headers: HashMap<String, String>"),
         "Mock-server binary must deserialize `mock_response.headers`"
     );
-    // consumer shape: `http.expected_response.headers`
     assert!(
         bin.contains("struct HttpExpectedResponse"),
         "Mock-server binary must define HttpExpectedResponse"
     );
-    // Both as_mock_response branches must populate the unified headers field.
     assert!(
         bin.contains("headers: mock.headers.clone()")
             && bin.contains("headers: http.expected_response.headers.clone()"),

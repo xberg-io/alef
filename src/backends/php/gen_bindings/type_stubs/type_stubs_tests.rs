@@ -115,9 +115,7 @@ fn maps_named_dto_field_to_its_type() {
 
 #[test]
 fn emits_param_phpdoc_for_map_and_vec_variant_fields() {
-    // A data-carrying variant whose factory takes an array/map parameter must carry an
     // `@param array<...>` PHPDoc, otherwise PHPStan (level max) flags the bare `array`
-    // as `missingType.iterableValue`. Regression for CacheBackend::openDal(array $config).
     let def = enum_def(
         "CacheBackend",
         vec![

@@ -43,13 +43,10 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let output_dir = resolve_output_dir(config.output_paths.get("python"), &config.name, "crates/{name}-py/src/");
     let module_name = config.python_module_name();
 
-    // Rust glue
     let service_rs = gen_service_rs(api, config);
 
-    // Python wrapper
     let service_py = gen_service_py(api, &module_name);
 
-    // Python package output base (same logic as generate_public_api)
     let output_base = config
         .python
         .as_ref()
@@ -73,8 +70,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         },
     ])
 }
-
-// ───────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests {
@@ -328,7 +323,6 @@ mod tests {
     #[test]
     fn python_output_contains_registration_variants() {
         let mut surface = make_fixture_surface();
-        // Add a variant to the registration
         let variant = crate::core::ir::RegistrationVariant {
             name: "get".to_owned(),
             overrides: vec![],
@@ -367,22 +361,18 @@ mod tests {
         surface.services[0].registrations[0].variants.push(variant);
 
         let output = gen_service_py(&surface, "_my_crate");
-        // Check for variant method form
         assert!(
             output.contains("def get(self, path: str, handler: Callable[..., Any])"),
             "expected `def get(self, path: str, handler)` method form:\n{output}"
         );
-        // Check for variant decorator form
         assert!(
             output.contains("def get_decorator(self, path: str)"),
             "expected `def get_decorator(self, path: str)` decorator form:\n{output}"
         );
-        // Check for wrapper constructor call (pyo3 opaque wrappers expose `.new()` classmethod)
         assert!(
             output.contains("builder = RouteBuilder.new(Method.GET, path)"),
             "expected wrapper constructor call with Method.GET:\n{output}"
         );
-        // Wrapper-consumed params (path, method) must NOT appear in the metadata tuple
         assert!(
             output.contains("(\"add_handler\", (builder,), handler)"),
             "expected metadata tuple to contain only the constructed wrapper:\n{output}"
@@ -487,8 +477,6 @@ mod tests {
         let files = generate(&surface, &config).expect("generate should not fail");
         assert!(files.is_empty(), "expected no files for surface without services");
     }
-
-    // ── helpers ──────────────────────────────────────────────────────────────
 
     fn make_test_config() -> ResolvedCrateConfig {
         use crate::core::config::resolved::ResolvedCrateConfig;

@@ -8,8 +8,6 @@ use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef::core::ir::ApiSurface;
 
 // ---------------------------------------------------------------------------
-// Config helpers
-// ---------------------------------------------------------------------------
 
 fn make_config_with_extras(extras: &[&str]) -> ResolvedCrateConfig {
     let extra_list: Vec<String> = extras.iter().map(|s| format!("\"{s}\"")).collect();
@@ -44,10 +42,6 @@ fn empty_api() -> ApiSurface {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Parsing / config tests
-// ---------------------------------------------------------------------------
-
 #[test]
 fn workspace_parses_extra_clippy_allows() {
     let cfg = make_config_with_extras(&["single_match", "clippy::collapsible_match"]);
@@ -61,10 +55,6 @@ fn workspace_extra_clippy_allows_defaults_to_empty() {
     let cfg = make_config_with_extras(&[]);
     assert!(cfg.extra_clippy_allows.is_empty());
 }
-
-// ---------------------------------------------------------------------------
-// Helper unit tests
-// ---------------------------------------------------------------------------
 
 #[test]
 fn format_extra_clippy_allows_returns_none_when_empty() {
@@ -93,10 +83,6 @@ fn format_extra_clippy_allows_deduplicates() {
     // "single_match" normalises to "clippy::single_match", which is a dup → 1 entry
     assert_eq!(result, "allow(clippy::single_match)");
 }
-
-// ---------------------------------------------------------------------------
-// Integration: extras appear in pyo3 generated output
-// ---------------------------------------------------------------------------
 
 #[test]
 fn pyo3_backend_emits_extra_allows() {
@@ -144,12 +130,10 @@ fn pyo3_backend_no_extra_attr_when_empty() {
         !lib_no.content.contains("clippy::single_match"),
         "output without extras must not contain single_match"
     );
-    // With extras → the lint appears
     assert!(
         lib_yes.content.contains("clippy::single_match"),
         "output with extras must contain single_match"
     );
-    // Without extras → byte-identical to baseline (no extra allow line at all)
     assert!(
         !lib_no.content.contains("allow(clippy::single_match"),
         "no-config baseline must not have extra allow line"

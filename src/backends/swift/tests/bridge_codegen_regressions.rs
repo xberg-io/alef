@@ -21,17 +21,6 @@ mod swift_codegen_regressions {
     /// NOT omit it.
     #[test]
     fn test_b2_bridge_adapter_protocol_parity() {
-        // Regression test for B2: Protocol and adapter must iterate the same
-        // trait_def.methods in the same order (see trait_bridge.rs lines 125 and 187).
-        // If this invariant is broken, methods declared in the protocol will not
-        // appear in the adapter, causing "no exact match" compile errors at call sites.
-        //
-        // The fix documents the parity invariant with inline comments:
-        // "The adapter must register ALL methods declared in the protocol above.
-        //  Both loops iterate trait_def.methods in the same order, guaranteeing parity."
-        //
-        // Regression would be: (a) separate filtered collections for protocol vs adapter,
-        // or (b) conditional emission based on method properties.
         assert!(
             true,
             "B2: Protocol and adapter must iterate trait_def.methods in parallel"
@@ -61,8 +50,6 @@ mod swift_codegen_regressions {
     /// ```
     #[test]
     fn test_b3_return_type_string_conversion() {
-        // When method returns String: result must be wrapped in String(...) converter.
-        // When method returns Vec<String>: result must map { String($0) }.
         assert!(true, "B3: String returns must use String(...) wrapper");
     }
 
@@ -91,8 +78,6 @@ mod swift_codegen_regressions {
     /// ```
     #[test]
     fn test_b4_json_dispatch_by_parameter_type() {
-        // Decoder must select type based on parameter type, not position.
-        // Using indexed decoders (first configJson -> ConfigA, second -> ConfigB) is wrong.
         assert!(true, "B4: JSON dispatch must use parameter type, not position");
     }
 
@@ -124,8 +109,6 @@ mod swift_codegen_regressions {
     /// Existing regression test: `src/backends/swift/tests/vec_dto_throws_regression.rs`.
     #[test]
     fn test_b5_throwing_closure_try_placement() {
-        // Wrapper function must declare throws if return conversion emits try.
-        // Return statement must prefix conversion with try (statement-level).
         assert!(
             true,
             "B5: If return_suffix contains try, wrapper must declare throws and prefix return"

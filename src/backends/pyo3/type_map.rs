@@ -32,23 +32,13 @@ impl Default for Pyo3Mapper {
 
 impl TypeMapper for Pyo3Mapper {
     fn json(&self) -> Cow<'static, str> {
-        Cow::Borrowed("String") // JSON as string, user deserializes
+        Cow::Borrowed("String")
     }
 
     fn named<'a>(&self, name: &'a str) -> Cow<'a, str> {
         if self.trait_type_names.contains(name) {
-            // Trait objects cannot be used as bare types (E0782) and cannot cross the
-            // PyO3 FFI boundary as `Arc<dyn Trait>` (Arc breaks IntoPyObject).
-            // Use PyVisitorRef wrapper: a newtype that wraps Py<PyAny> and implements Clone
-            // via Python::with_gil, allowing the binding struct to derive Clone.
             Cow::Borrowed("PyVisitorRef")
         } else if name == "Value" {
-            // Bare `Value` references that the source crate did not fully qualify as
-            // `serde_json::Value`. Map to `serde_json::Value` so the generated struct
-            // compiles without scope issues (PyO3 structs need all types fully qualified
-            // or in scope via imports). Unlike NAPI, PyO3 does not auto-convert
-            // serde_json::Value, so fields remain as serde_json::Value and callers
-            // handle JSON serialization in getter/setter methods if needed.
             Cow::Borrowed("serde_json::Value")
         } else {
             Cow::Borrowed(name)

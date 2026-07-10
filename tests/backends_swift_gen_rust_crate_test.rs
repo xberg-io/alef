@@ -6,8 +6,6 @@ use alef::core::ir::{
 };
 use alef::core::template_versions;
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
 fn make_field(name: &str, ty: TypeRef) -> FieldDef {
     FieldDef {
         name: name.to_string(),
@@ -130,8 +128,6 @@ sources = ["src/lib.rs"]
     let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
     cfg.resolve().expect("test config must resolve").remove(0)
 }
-
-// ── Cargo.toml tests ──────────────────────────────────────────────────────────
 
 #[test]
 fn cargo_toml_contains_swift_bridge_version() {
@@ -281,8 +277,6 @@ demo-http = { path = "../../../crates/demo-http", features = ["server"] }
         cargo.content
     );
 }
-
-// ── lib.rs tests ──────────────────────────────────────────────────────────────
 
 #[test]
 fn lib_rs_contains_bridge_module() {
@@ -449,7 +443,6 @@ fn lib_rs_has_free_function_shim() {
         "lib.rs missing fetch_data shim: {}",
         lib.content
     );
-    // The shim should delegate to the source crate
     assert!(
         lib.content.contains("demo::fetch_data("),
         "lib.rs shim not delegating to source crate: {}",
@@ -459,10 +452,7 @@ fn lib_rs_has_free_function_shim() {
 
 #[test]
 fn lib_rs_async_function_blocks_on_tokio_runtime() {
-    // swift-bridge v0.1.x has no `async` attribute or async-fn extern support
     // (the build script's parser rejects `#[swift_bridge(async)]`). Async
-    // source functions are bridged via a sync wrapper that blocks on a tokio
-    // current-thread runtime, so Swift sees a normal sync call.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -503,7 +493,6 @@ fn lib_rs_async_function_blocks_on_tokio_runtime() {
         "swift_bridge(async) is not a real attribute in v0.1.x: {}",
         lib.content
     );
-    // The wrapper is sync — it spins up a tokio runtime and `block_on` the future.
     assert!(
         lib.content.contains("pub fn load_async("),
         "wrapper should be sync (block_on a tokio runtime): {}",
@@ -570,8 +559,6 @@ fn lib_rs_result_function_has_map_err_chain() {
     );
 }
 
-// ── build.rs tests ────────────────────────────────────────────────────────────
-
 #[test]
 fn build_rs_calls_parse_bridges() {
     let api = ApiSurface {
@@ -602,8 +589,6 @@ fn build_rs_calls_parse_bridges() {
         build.content
     );
 }
-
-// ── file count and path tests ─────────────────────────────────────────────────
 
 #[test]
 fn emit_returns_three_files() {
@@ -693,7 +678,6 @@ fn lib_rs_has_wrapper_newtype_for_type() {
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Wrapper newtype should reference the source crate
     assert!(
         lib.content.contains("pub struct Point("),
         "lib.rs missing Point wrapper newtype: {}",
@@ -725,13 +709,6 @@ fn lib_rs_enum_extern_block_and_wrapper() {
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Enum types ARE declared as opaque `type T;` in their own extern block.
-    // This is required so that the enum can be used as a function parameter
-    // (e.g. `fn new(content: Status, ...)`); without the declaration swift-bridge
-    // rejects any function whose signature mentions the enum.
-    // Struct-field getters that return enum-typed fields still serialize to String
-    // (via to_string()) rather than returning the opaque handle, so that the
-    // swift-bridge Vec<T> Vectorizable conformance does not affect field access.
     assert!(
         lib.content.contains("type Status;"),
         "lib.rs must contain Status opaque type declaration: {}",
@@ -751,10 +728,6 @@ fn lib_rs_enum_extern_block_and_wrapper() {
 
 #[test]
 fn lib_rs_struct_with_enum_field_returns_string() {
-    // A struct with a UNIT enum-typed field must have that getter return `String`,
-    // not the opaque enum wrapper type. The extern block must declare `fn foo(&self) -> String`
-    // (not `fn foo(&self) -> Status`), and the wrapper impl must emit the bare serde raw value
-    // via `Status::from(...).to_string()` (Swift reconstructs it with `Type(rawValue:)`).
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -776,20 +749,16 @@ fn lib_rs_struct_with_enum_field_returns_string() {
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Getter must be declared as String in the extern block.
     assert!(
         lib.content.contains("fn status(&self) -> String;"),
         "extern block must declare status() -> String, not the opaque enum type: {}",
         lib.content
     );
-    // Unit-enum wrapper impl must convert to String via Status::from(...).to_string().
     assert!(
         lib.content.contains("Status::from(") && lib.content.contains(".to_string()"),
         "wrapper impl must call Status::from(...).to_string(): {}",
         lib.content
     );
-    // Opaque enum type IS declared in its own extern block (required for parameter usage).
-    // It must NOT appear inside the struct's extern block (where the getter returns String).
     assert!(
         lib.content.contains("type Status;"),
         "lib.rs must declare Status as opaque extern type (needed for param usage): {}",
@@ -799,10 +768,6 @@ fn lib_rs_struct_with_enum_field_returns_string() {
 
 #[test]
 fn lib_rs_struct_with_tagged_enum_field_serializes_to_json() {
-    // A struct with a TAGGED enum field (at least one variant carries data) must serialize the
-    // getter to JSON via serde_json::to_string. The discriminant-only bridge wrapper drops the
-    // variant payload, so its to_string() would emit an invalid bare name; Swift decodes the
-    // JSON back via JSONDecoder (matching the bidirectional `*_from_json` representation).
     let payload = EnumDef {
         name: "Payload".to_string(),
         rust_path: "demo::Payload".to_string(),
@@ -858,21 +823,17 @@ fn lib_rs_struct_with_tagged_enum_field_serializes_to_json() {
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Getter must be declared as String in the extern block.
     assert!(
         lib.content.contains("fn payload(&self) -> String;"),
         "extern block must declare payload() -> String: {}",
         lib.content
     );
-    // Tagged enum must serialize via serde_json::to_string, NOT the discriminant wrapper to_string().
     assert!(
         lib.content.contains("serde_json::to_string(&self.0.payload)"),
         "tagged-enum getter must serialize via serde_json::to_string: {}",
         lib.content
     );
 }
-
-// ── trait bridge tests ────────────────────────────────────────────────────────
 
 fn make_method(
     name: &str,
@@ -997,13 +958,11 @@ fn trait_bridge_sync_unit_methods_emits_box_type_and_trampolines() {
     let files = gen_rust_crate::emit(&api, &cfg).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The extern block must declare the opaque box type.
     assert!(
         lib.content.contains("type ValidatorBox;"),
         "lib.rs missing ValidatorBox extern type: {}",
         lib.content
     );
-    // Trampoline functions must appear in the extern block.
     assert!(
         lib.content.contains("fn validator_call_validate("),
         "lib.rs missing validator_call_validate trampoline: {}",
@@ -1014,14 +973,12 @@ fn trait_bridge_sync_unit_methods_emits_box_type_and_trampolines() {
         "lib.rs missing validator_call_priority trampoline: {}",
         lib.content
     );
-    // Wrapper struct must wrap Box<dyn Trait>.
     assert!(
         lib.content
             .contains("pub struct ValidatorBox(pub Box<dyn demo::Validator"),
         "lib.rs missing ValidatorBox wrapper struct: {}",
         lib.content
     );
-    // Trampoline implementations must delegate to this.0.{method}.
     assert!(
         lib.content.contains("this.0.validate("),
         "lib.rs trampoline not delegating to this.0.validate: {}",
@@ -1066,7 +1023,6 @@ fn trait_bridge_async_method_emits_block_on() {
     let files = gen_rust_crate::emit(&api, &cfg).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Extern block and wrapper struct.
     assert!(
         lib.content.contains("type ProcessorBox;"),
         "lib.rs missing ProcessorBox extern type: {}",
@@ -1078,7 +1034,6 @@ fn trait_bridge_async_method_emits_block_on() {
         "lib.rs missing ProcessorBox wrapper struct: {}",
         lib.content
     );
-    // Async method trampoline must use tokio block_on.
     assert!(
         lib.content.contains("tokio::runtime::Builder"),
         "async trait method trampoline must use tokio runtime: {}",
@@ -1089,7 +1044,6 @@ fn trait_bridge_async_method_emits_block_on() {
         "async trait method trampoline must call block_on: {}",
         lib.content
     );
-    // Result-returning method must return a JSON envelope for swift-bridge transport.
     assert!(
         lib.content.contains(r#"format!("{{\"ok\": {}}}""#) && lib.content.contains(r#"format!("{{\"err\": {}}}""#),
         "async Result trampoline must emit JSON envelope: {}",
@@ -1232,10 +1186,6 @@ fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
 
 #[test]
 fn cargo_toml_includes_serde_json_dep() {
-    // serde_json is always required: the generated lib.rs may emit
-    // `::serde_json::to_value(...)` / `::serde_json::from_value(...)` for types
-    // that carry `has_serde: true` with Vec/Primitive fields (Codable propagation).
-    // Without the dep the generated crate fails to compile with E0433.
     let api = ApiSurface {
         crate_name: "my-lib".into(),
         version: "0.1.0".into(),
@@ -1262,9 +1212,6 @@ fn cargo_toml_includes_serde_json_dep() {
 
 #[test]
 fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
-    // Specifically reproduce the sample_crate bug: a type with has_serde=true and a
-    // Vec field causes the generator to emit ::serde_json::to_value calls in the
-    // wrapper impl, but the dep was missing from Cargo.toml → E0433 compile error.
     let serde_type = TypeDef {
         name: "DeviceInfo".to_string(),
         rust_path: "demo::DeviceInfo".to_string(),
@@ -1300,7 +1247,7 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         has_stripped_cfg_fields: false,
         is_return_type: false,
         serde_rename_all: None,
-        has_serde: true, // triggers ::serde_json::to_value path in wrappers.rs
+        has_serde: true,
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
@@ -1328,23 +1275,17 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The lib.rs must emit the serde_json call for this case.
     assert!(
         lib.content.contains("serde_json"),
         "lib.rs should emit serde_json calls for has_serde type with Vec field; got:\n{}",
         lib.content
     );
-    // The Cargo.toml must declare the dep so the crate compiles.
     assert!(
         cargo.content.contains("serde_json"),
         "Cargo.toml must list serde_json when lib.rs emits serde_json calls; got:\n{}",
         cargo.content
     );
 }
-
-// ---------------------------------------------------------------------------
-// gen_unregistration_fn / gen_clear_fn tests
-// ---------------------------------------------------------------------------
 
 fn config_with_full_bridge(
     trait_name: &str,
@@ -1400,34 +1341,29 @@ fn trait_bridge_unregister_and_clear_fns_emitted_when_both_configured() {
     let files = gen_rust_crate::emit(&api, &cfg).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // unregister_fn must be present with the configured name and String arg.
     assert!(
         lib.content
             .contains("pub fn unregister_analyzer(name: String) -> Result<(), String>"),
         "lib.rs must contain unregister_analyzer signature; got:\n{}",
         lib.content
     );
-    // unregister body must call the registry getter.
     assert!(
         lib.content.contains("demo::plugins::registry::get_test_registry()"),
         "unregister_analyzer body must call registry getter; got:\n{}",
         lib.content
     );
 
-    // clear_fn must be present with the configured name and no args.
     assert!(
         lib.content.contains("pub fn clear_analyzers() -> Result<(), String>"),
         "lib.rs must contain clear_analyzers signature; got:\n{}",
         lib.content
     );
-    // clear body must also call the registry getter.
     assert!(
         lib.content.contains("pub fn clear_analyzers() -> Result<(), String>"),
         "clear_analyzers body must be emitted; got:\n{}",
         lib.content
     );
 
-    // Both names must appear in the extern "Rust" block for swift-bridge visibility.
     assert!(
         lib.content
             .contains("fn unregister_analyzer(name: String) -> Result<(), String>;"),
@@ -1462,8 +1398,6 @@ fn trait_bridge_no_unregister_or_clear_when_both_none() {
         lib.content
     );
 }
-
-// ── streaming adapter bridge function tests ───────────────────────────────────
 
 /// When a `[[crates.adapters]]` entry has `pattern = "streaming"` and
 /// `owner_type` set to an opaque-handle type, the generated `lib.rs` must:
@@ -1565,17 +1499,11 @@ type = "ChatCompletionRequest"
     let files = gen_rust_crate::emit(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // 1. The extern "Rust" block must declare the opaque handle type and the
-    //    `_start` free function that returns it.
     assert!(
         lib.content.contains("type DefaultClientChatStreamStreamHandle;"),
         "extern block must declare DefaultClientChatStreamStreamHandle; got:\n{}",
         lib.content
     );
-    // The owner `DefaultClient` already has its canonical `type DefaultClient;`
-    // declaration in its own type block, so the streaming block references it bare.
-    // A second declaration (even `already_declared`) would suppress the owner's
-    // Swift class + `$_free`, so exactly one declaration must exist module-wide.
     assert_eq!(
         lib.content.matches("type DefaultClient;").count(),
         1,
@@ -1598,22 +1526,18 @@ type = "ChatCompletionRequest"
         "_start must return Result<Handle, String>; got:\n{}",
         lib.content
     );
-    // _next must appear as a method on the handle in the extern "Rust" block.
     assert!(
         lib.content
             .contains("fn next(self: &mut DefaultClientChatStreamStreamHandle) -> Result<String, String>"),
         "extern block must declare `next(&mut self) -> Result<String, String>`; got:\n{}",
         lib.content
     );
-    // The Swift wrapper references `defaultClientChatStreamStart`, so the
-    // camelCased swift_name must be emitted.
     assert!(
         lib.content.contains("defaultClientChatStreamStart"),
         "extern block must set swift_name = \"defaultClientChatStreamStart\"; got:\n{}",
         lib.content
     );
 
-    // 2. The concrete Rust struct + functions must be emitted.
     assert!(
         lib.content.contains("pub struct DefaultClientChatStreamStreamHandle"),
         "lib.rs must emit a concrete DefaultClientChatStreamStreamHandle struct; got:\n{}",
@@ -1644,7 +1568,6 @@ type = "ChatCompletionRequest"
         "stream shim must call block_on; got:\n{}",
         lib.content
     );
-    // EOF sentinel: empty-string return on clean stream end.
     assert!(
         lib.content.contains("Ok(String::new())"),
         "next() must return Ok(String::new()) on clean EOF; got:\n{}",
@@ -1756,8 +1679,6 @@ type = "CompletionRequest"
     let files = gen_rust_crate::emit(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The owner is declared once in its own type block and referenced bare from
-    // both streaming adapters, so exactly one `type DefaultClient;` exists overall.
     let total_decls = lib.content.matches("type DefaultClient;").count();
     assert_eq!(
         total_decls, 1,
@@ -1765,7 +1686,6 @@ type = "CompletionRequest"
         total_decls, lib.content
     );
 
-    // Both handle types must be declared in the streaming block.
     assert!(
         lib.content.contains("type DefaultClientChatStreamStreamHandle;"),
         "streaming extern must declare ChatStream handle; got:\n{}",
@@ -1862,19 +1782,16 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The extern "Rust" block must declare the method with &mut receiver.
     assert!(
         lib.content.contains("client: &mut Parser"),
         "extern block and shim must use &mut Parser for RefMut method; got:\n{}",
         lib.content
     );
-    // The pub fn shim must also take &mut.
     assert!(
         lib.content.contains("pub fn parser_set_language(client: &mut Parser"),
         "shim must declare `client: &mut Parser` for RefMut receiver; got:\n{}",
         lib.content
     );
-    // Must NOT use an immutable reference for the RefMut method.
     assert!(
         !lib.content.contains("pub fn parser_set_language(client: &Parser"),
         "shim must not use immutable &Parser for a RefMut receiver; got:\n{}",
@@ -1901,8 +1818,6 @@ fn no_streaming_adapters_emits_no_extra_blocks() {
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The only extern block present should be the module declaration itself.
-    // A bare config with no adapters must not mention "chat_stream" or streaming symbols.
     assert!(
         !lib.content.contains("chat_stream"),
         "lib.rs must not contain streaming symbols when no adapters configured; got:\n{}",
@@ -1965,7 +1880,6 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
 /// This is the Class A fix: capsule_types / handle-returned-type passthrough.
 #[test]
 fn option_named_return_on_method_uses_map_not_serde_json() {
-    // Build a Node type with a `parent()` method returning Option<Node>.
     let parent_method = make_simple_method(
         "parent",
         vec![],
@@ -2010,7 +1924,6 @@ fn option_named_return_on_method_uses_map_not_serde_json() {
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Must use .map(Node) not serde_json::to_string for Option<Node> returns.
     assert!(
         lib.content.contains(".map(Node)"),
         "Option<Named> return must use .map(T) not serde_json; got:\n{}",
@@ -2026,7 +1939,6 @@ fn option_named_return_on_method_uses_map_not_serde_json() {
         "child() must not serialize Option<Node> via serde_json; got:\n{}",
         lib.content
     );
-    // The extern block must declare Option<Node> not String for these methods.
     assert!(
         lib.content.contains("fn node_parent(client: &Node) -> Option<Node>"),
         "extern block must declare node_parent -> Option<Node>, not String; got:\n{}",
@@ -2381,8 +2293,6 @@ fn vec_string_ref_param_on_method_converts_to_str_slice() {
     );
 }
 
-// ── features array formatting tests ──────────────────────────────────────
-
 /// Test 1: Two features should stay on a single line.
 #[test]
 fn cargo_toml_two_features_stay_single_line() {
@@ -2416,13 +2326,11 @@ features = ["serde", "config"]
     let files = gen_rust_crate::emit(&api, &config).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
-    // Two sorted features should remain on a single line.
     assert!(
         cargo.content.contains("features = [\"config\", \"serde\"]"),
         "Two features should stay on single line; got:\n{}",
         cargo.content
     );
-    // Must NOT be multi-line.
     assert!(
         !cargo.content.contains("features = [\n    \"config\","),
         "Two features should not be multi-line; got:\n{}",
@@ -2463,7 +2371,6 @@ features = ["serde", "config", "download"]
     let files = gen_rust_crate::emit(&api, &config).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
-    // Three features should be multi-line.
     assert!(
         cargo
             .content
@@ -2471,7 +2378,6 @@ features = ["serde", "config", "download"]
         "Three features should be multi-line; got:\n{}",
         cargo.content
     );
-    // Must NOT be single-line.
     assert!(
         !cargo
             .content
@@ -2479,7 +2385,6 @@ features = ["serde", "config", "download"]
         "Three features should not be single-line; got:\n{}",
         cargo.content
     );
-    // The TOML must be parseable.
     let parsed: toml::Value = toml::from_str(&cargo.content).expect("Generated Cargo.toml must be valid TOML");
     assert!(
         parsed.get("dependencies").is_some(),
@@ -2521,11 +2426,9 @@ features = ["serde", "config", "download"]
     let files = gen_rust_crate::emit(&api, &config).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
-    // Parse the generated Cargo.toml to ensure it's valid TOML.
     let _parsed: toml::Value =
         toml::from_str(&cargo.content).expect("Generated Cargo.toml must be valid TOML after multi-line features");
 
-    // Verify the multi-line format is present.
     assert!(
         cargo
             .content
@@ -2534,8 +2437,6 @@ features = ["serde", "config", "download"]
         cargo.content
     );
 }
-
-// ── Vec<TaggedEnum> parameter bridging tests ──────────────────────────────────
 
 /// Helper to create a tagged enum with variants that have fields.
 fn make_tagged_enum(name: &str, variants: Vec<(&str, Vec<&str>)>) -> EnumDef {
@@ -2658,28 +2559,24 @@ fn function_with_vec_tagged_enum_param_uses_json_deserial() {
     let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Extern block must declare the parameter as Vec<String> (JSON-encoded).
     assert!(
         lib.content.contains("fn interact(actions: Vec<String>)"),
         "extern block must declare actions: Vec<String> for tagged enum; got:\n{}",
         lib.content
     );
 
-    // Shim impl must match: take Vec<String> and deserialize each element.
     assert!(
         lib.content.contains("pub fn interact(actions: Vec<String>)"),
         "shim impl must take Vec<String>, not Vec<PageAction>; got:\n{}",
         lib.content
     );
 
-    // Shim must use serde_json::from_str to deserialize each string element.
     assert!(
         lib.content.contains("::serde_json::from_str::<demo::PageAction>"),
         "shim impl must JSON-deserialize each Vec<String> element; got:\n{}",
         lib.content
     );
 
-    // Shim must NOT use `.0` unwrapping (that's for struct wrappers, not enums).
     assert!(
         !lib.content.contains("actions.into_iter().map(|w| w.0)"),
         "shim impl must not use .0 unwrapping for tagged enum; got:\n{}",

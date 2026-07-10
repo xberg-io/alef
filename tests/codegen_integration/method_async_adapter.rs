@@ -2,7 +2,6 @@ use super::*;
 
 #[test]
 fn test_gen_method_error_type_napi_async_pattern() {
-    // Non-opaque method with error type and NapiNativeAsync should use napi::Error
     let typ = simple_type_def();
     let method = MethodDef {
         name: "validate".to_string(),
@@ -49,7 +48,6 @@ fn test_gen_method_error_type_napi_async_pattern() {
 
 #[test]
 fn test_gen_method_error_type_pyo3_async_pattern() {
-    // Non-opaque method with error type and Pyo3FutureIntoPy should use PyRuntimeError
     let typ = simple_type_def();
     let method = MethodDef {
         name: "validate".to_string(),
@@ -96,12 +94,10 @@ fn test_gen_method_error_type_pyo3_async_pattern() {
 
 #[test]
 fn test_gen_static_method_adapter_body_used() {
-    // When an adapter body is provided, it should override the generated body
     let typ = simple_type_def();
     let method = MethodDef {
         name: "create_special".to_string(),
         params: vec![],
-        // Json is not delegatable, so the adapter body path is exercised
         return_type: TypeRef::Json,
         is_async: false,
         is_static: true,
@@ -146,7 +142,6 @@ fn test_gen_static_method_adapter_body_used() {
 
 #[test]
 fn test_gen_method_adapter_body_used() {
-    // When an adapter body is provided for an instance method, it overrides generated body
     let typ = simple_type_def();
     let method = MethodDef {
         name: "custom_method".to_string(),
@@ -276,7 +271,6 @@ fn test_gen_constructor_more_than_7_fields_gets_clippy_allow() {
 
 #[test]
 fn test_gen_static_method_async_napi_pattern() {
-    // Async static method with NAPI pattern should use native async await
     let typ = simple_type_def();
     let method = MethodDef {
         name: "load_async".to_string(),
@@ -320,7 +314,6 @@ fn test_gen_static_method_async_napi_pattern() {
 
 #[test]
 fn test_gen_method_opaque_with_error_non_unit_return() {
-    // Opaque method with error type and non-unit return wraps result appropriately
     let mut typ = simple_type_def();
     typ.is_opaque = true;
     let method = MethodDef {

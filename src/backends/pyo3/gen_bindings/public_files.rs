@@ -41,8 +41,6 @@ pub(super) fn generate_public_api(
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let module_name = config.python_module_name();
 
-    // Use stubs output path as the package directory (e.g., packages/python/sample_markdown/)
-    // This ensures we write to the correct Python package, not the Rust crate name.
     let output_base = config
         .python
         .as_ref()
@@ -59,16 +57,12 @@ pub(super) fn generate_public_api(
 
     let mut files = vec![];
 
-    // Types re-exported in the public package as native pyclasses (e.g. `ExtractionResult`). Such a
-    // type is native everywhere — it must NOT also be emitted as a parallel `options.py` TypedDict,
-    // or fields referencing it would carry a structurally-incompatible second identity.
     let reexported_types = config
         .python
         .as_ref()
         .map(|c| c.reexported_types.clone())
         .unwrap_or_default();
 
-    // 1. Generate options.py (enums and dataclasses)
     let options_content = types::gen_options_py(api, &module_name, &config.dto, &reexported_types);
     files.push(GeneratedFile {
         path: output_base.join("options.py"),
@@ -76,7 +70,6 @@ pub(super) fn generate_public_api(
         generated_header: true,
     });
 
-    // 2. Generate api.py (wrapper functions)
     let exclude_functions: AHashSet<String> = config
         .python
         .as_ref()
@@ -105,7 +98,6 @@ pub(super) fn generate_public_api(
         generated_header: true,
     });
 
-    // 3. Generate exceptions.py (exception hierarchy)
     let exceptions_content = errors::gen_exceptions_py(api, &module_name);
     files.push(GeneratedFile {
         path: output_base.join("exceptions.py"),
@@ -113,7 +105,6 @@ pub(super) fn generate_public_api(
         generated_header: true,
     });
 
-    // 4. Generate __init__.py (re-exports)
     let extra_init_imports = config
         .python
         .as_ref()

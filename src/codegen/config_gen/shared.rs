@@ -15,10 +15,6 @@ pub(super) fn use_unwrap_or_default(field: &FieldDef) -> bool {
     if let Some(typed_default) = &field.typed_default {
         return matches!(typed_default, DefaultValue::Empty | DefaultValue::None);
     }
-    // No typed_default — the fallback default_value_for_field generates type-based zero values
-    // which are the same as Default::default() for the type.
-    // Named types may not implement Default in some bindings (e.g. Magnus), so they
-    // fall through to the explicit default path.
     field.default.is_none() && !matches!(&field.ty, TypeRef::Named(_))
 }
 
@@ -27,7 +23,6 @@ pub(super) fn constructor_fields(typ: &TypeDef) -> impl Iterator<Item = &FieldDe
 }
 
 pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
-    // First try typed_default if it exists
     if let Some(typed_default) = &field.typed_default {
         return match typed_default {
             DefaultValue::BoolLiteral(b) => match language {
@@ -105,9 +100,6 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
                 if !s.contains('.') { format!("{}.0", s) } else { s }
             }
             DefaultValue::EnumVariant(v) => {
-                // When the field's original enum type was excluded/sanitized and mapped to
-                // String, we must emit a string literal rather than an enum type path.
-                // Example: OutputFormat::Plain → "plain".to_string() (Rust), "plain" (others).
                 if matches!(field.ty, TypeRef::String) {
                     let snake = v.to_snake_case();
                     return match language {
@@ -127,64 +119,61 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
                     _ => v.clone(),
                 }
             }
-            DefaultValue::Empty => {
-                // Empty means "type's default" — check field type to pick the right zero value
-                match &field.ty {
-                    TypeRef::Vec(_) => match language {
-                        "python" | "ruby" | "csharp" => "[]".to_string(),
-                        "go" => "nil".to_string(),
-                        "java" => "List.of()".to_string(),
-                        "php" => "[]".to_string(),
-                        "r" => "c()".to_string(),
-                        "rust" => "vec![]".to_string(),
-                        _ => "null".to_string(),
+            DefaultValue::Empty => match &field.ty {
+                TypeRef::Vec(_) => match language {
+                    "python" | "ruby" | "csharp" => "[]".to_string(),
+                    "go" => "nil".to_string(),
+                    "java" => "List.of()".to_string(),
+                    "php" => "[]".to_string(),
+                    "r" => "c()".to_string(),
+                    "rust" => "vec![]".to_string(),
+                    _ => "null".to_string(),
+                },
+                TypeRef::Map(_, _) => match language {
+                    "python" => "{}".to_string(),
+                    "go" => "nil".to_string(),
+                    "java" => "Map.of()".to_string(),
+                    "rust" => "Default::default()".to_string(),
+                    _ => "null".to_string(),
+                },
+                TypeRef::Primitive(p) => match p {
+                    PrimitiveType::Bool => match language {
+                        "python" => "False".to_string(),
+                        "ruby" => "false".to_string(),
+                        _ => "false".to_string(),
                     },
-                    TypeRef::Map(_, _) => match language {
-                        "python" => "{}".to_string(),
-                        "go" => "nil".to_string(),
-                        "java" => "Map.of()".to_string(),
-                        "rust" => "Default::default()".to_string(),
-                        _ => "null".to_string(),
-                    },
-                    TypeRef::Primitive(p) => match p {
-                        PrimitiveType::Bool => match language {
-                            "python" => "False".to_string(),
-                            "ruby" => "false".to_string(),
-                            _ => "false".to_string(),
-                        },
-                        PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
-                        _ => "0".to_string(),
-                    },
-                    TypeRef::String | TypeRef::Char | TypeRef::Path => match language {
-                        "rust" => "String::new()".to_string(),
-                        _ => "\"\"".to_string(),
-                    },
-                    TypeRef::Json => match language {
-                        "python" | "ruby" => "{}".to_string(),
-                        "go" => "json.RawMessage(nil)".to_string(),
-                        "java" => "new com.fasterxml.jackson.databind.node.ObjectNode(null)".to_string(),
-                        "csharp" => "JObject.Parse(\"{}\")".to_string(),
-                        "php" => "[]".to_string(),
-                        "r" => "list()".to_string(),
-                        "rust" => "serde_json::json!({})".to_string(),
-                        _ => "{}".to_string(),
-                    },
-                    TypeRef::Duration => "0".to_string(),
-                    TypeRef::Bytes => match language {
-                        "python" => "b\"\"".to_string(),
-                        "go" => "[]byte{}".to_string(),
-                        "rust" => "vec![]".to_string(),
-                        _ => "\"\"".to_string(),
-                    },
-                    _ => match language {
-                        "python" => "None".to_string(),
-                        "ruby" => "nil".to_string(),
-                        "go" => "nil".to_string(),
-                        "rust" => "Default::default()".to_string(),
-                        _ => "null".to_string(),
-                    },
-                }
-            }
+                    PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
+                    _ => "0".to_string(),
+                },
+                TypeRef::String | TypeRef::Char | TypeRef::Path => match language {
+                    "rust" => "String::new()".to_string(),
+                    _ => "\"\"".to_string(),
+                },
+                TypeRef::Json => match language {
+                    "python" | "ruby" => "{}".to_string(),
+                    "go" => "json.RawMessage(nil)".to_string(),
+                    "java" => "new com.fasterxml.jackson.databind.node.ObjectNode(null)".to_string(),
+                    "csharp" => "JObject.Parse(\"{}\")".to_string(),
+                    "php" => "[]".to_string(),
+                    "r" => "list()".to_string(),
+                    "rust" => "serde_json::json!({})".to_string(),
+                    _ => "{}".to_string(),
+                },
+                TypeRef::Duration => "0".to_string(),
+                TypeRef::Bytes => match language {
+                    "python" => "b\"\"".to_string(),
+                    "go" => "[]byte{}".to_string(),
+                    "rust" => "vec![]".to_string(),
+                    _ => "\"\"".to_string(),
+                },
+                _ => match language {
+                    "python" => "None".to_string(),
+                    "ruby" => "nil".to_string(),
+                    "go" => "nil".to_string(),
+                    "rust" => "Default::default()".to_string(),
+                    _ => "null".to_string(),
+                },
+            },
             DefaultValue::None => match language {
                 "python" => "None".to_string(),
                 "ruby" => "nil".to_string(),
@@ -199,13 +188,8 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
         };
     }
 
-    // Fall back to string default if it exists. The extractor encodes
     // `#[serde(default)]` as a "/* serde(default) */" placeholder and
     // `#[serde(default = "path")]` as a `serde(default = "path")` marker. Both are
-    // signal flags for backends that parse them directly (e.g. php, java emit a
-    // dedicated serde_defaults module), NOT value expressions — emitting either
-    // verbatim produces invalid code in every target language. Treat them as absent
-    // here and fall through to the type-based zero value below.
     if let Some(default_str) = &field.default
         && default_str != "/* serde(default) */"
         && !default_str.starts_with("serde(default = \"")
@@ -213,7 +197,6 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
         return default_str.clone();
     }
 
-    // Final fallback: type-based zero value
     match &field.ty {
         TypeRef::Primitive(p) => match p {
             crate::core::ir::PrimitiveType::Bool => match language {
@@ -328,7 +311,6 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
     }
 }
 
-// Helper trait extension for TypeRef to get type name
 trait TypeRefExt {
     fn type_name(&self) -> String;
 }

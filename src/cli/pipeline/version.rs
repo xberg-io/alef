@@ -43,7 +43,6 @@ pub fn sync_versions(
     skip_swift_checksum: bool,
     release_date_override: Option<&str>,
 ) -> anyhow::Result<()> {
-    // If bump is requested, read current version, bump it, and write it back to Cargo.toml.
     if let Some(component) = bump {
         let current = read_version(&config.version_from)?;
         let bumped = bump_version(&current, component)?;
@@ -54,53 +53,21 @@ pub fn sync_versions(
 
     let version = read_version(&config.version_from)?;
 
-    // Always do the manifest scan. The previous warm-path short-circuit
-    // checked `.alef/last_synced_version` and returned early when the
-    // canonical version matched, which silently masked real drift:
-    // a manifest hand-edited to the wrong version, a newly-added manifest
-    // file (e.g. `e2e/rust/Cargo.toml` introduced after the last sync), or
-    // a stale `alef:hash:` line all looked the same as "already synced"
-    // because the cache key was only the version string. CI runs without
-    // the cache, so it produced a different result and the alef-sync-versions
-    // hook failed for downstream consumers. The scan is fast (sub-second
-    // on sample_core-sized repos) and the work is idempotent when nothing
-    // is actually stale.
     let last_path = std::path::Path::new(".alef").join("last_synced_version");
     info!("Syncing version {version}");
 
     let mut updated = vec![];
-    // Track which ecosystems had manifests rewritten, so we can refresh
-    // their lockfiles after all updates complete (BLK-11).
     let mut any_node_pkg_modified = false;
     let mut any_cargo_toml_modified = false;
     let mut any_composer_json_modified = false;
     let mut any_mix_exs_modified = false;
-    // All paths matched by [[workspace.sync.text_replacements]] globs, whether
-    // or not the version substitution actually changed their content.  Used to
-    // ensure finalize_hashes is called on every sync target so that stale
-    // alef:hash: lines are refreshed even when the version was already correct.
     let mut text_replacement_paths: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
 
-    // Workspace Cargo.toml files: sync [package] version in both members and excluded crates.
-    // After updating [package] version, also patch intra-workspace dep version pins so that
-    // entries like `sample_core = { path = "...", version = "X.Y.Z" }` get bumped to match.
     sync_workspace_cargo_toml_versions(&config.name, &version, &mut updated, &mut any_cargo_toml_modified);
 
-    // Python: pyproject.toml — convert semver pre-release to PEP 440 format
-    // e.g., "0.1.0-rc.1" → "0.1.0rc1", "0.1.0-alpha.2" → "0.1.0a2", "0.1.0-beta.3" → "0.1.0b3"
-    //
-    // Three candidate paths are checked, deduplicated by canonicalized path:
-    //   1. "packages/python/pyproject.toml" — legacy default kept for back-compat.
-    //   2. "{config.package_dir(Language::Python)}/pyproject.toml" — configurable
-    //      distribution manifest (e.g. when [crates.output] python = "packages/mypkg/").
-    //   3. "{config.output_for("python")}/pyproject.toml" — the maturin-build
-    //      pyproject that lives alongside the PyO3 source crate (e.g.
-    //      "crates/{lib}-py/src/pyproject.toml").  This was the missed case that
-    //      caused version drift in prerelease downstream packages.
     let python_version = to_pep440(&version);
     sync_python_versions(config, &version, &python_version, &mut updated)?;
 
-    // Node: package.json — use the configured Node package_dir.
     let node_pkg_dir = config.package_dir(Language::Node);
     let node_paths: Vec<String> = vec![format!("{node_pkg_dir}/package.json")];
     for node_path in node_paths {
@@ -113,7 +80,6 @@ pub fn sync_versions(
         }
     }
 
-    // Ruby: *.gemspec (convert to RubyGems prerelease format)
     let ruby_version = to_rubygems_prerelease(&version);
     if let Ok(entries) = std::fs::read_dir("packages/ruby") {
         for entry in entries.flatten() {
@@ -131,7 +97,6 @@ pub fn sync_versions(
         }
     }
 
-    // Ruby: {lib/*/,ext/*/src/*/,ext/*/native/src/*/}version.rb (convert to RubyGems prerelease format)
     for pattern in &[
         "packages/ruby/lib/*/version.rb",
         "packages/ruby/ext/*/src/*/version.rb",
@@ -149,12 +114,6 @@ pub fn sync_versions(
         }
     }
 
-    // Ruby: Gemfile.lock — update the path-gem version entries so bundler does not
-    // reject the lockfile with "frozen mode" errors on the next CI run.
-    // The lockfile contains the gem version in two places:
-    //   1. Under PATH > specs: `    <name> (<version>)` (4-space indent)
-    //   2. Under CHECKSUMS:    `  <name> (<version>)` (2-space indent, no sha256)
-    // We replace both textually, reusing the already-computed ruby_version.
     let gemfile_lock_path = std::path::Path::new("packages/ruby/Gemfile.lock");
     if gemfile_lock_path.exists() {
         if let Ok(content) = std::fs::read_to_string(gemfile_lock_path) {
@@ -166,14 +125,6 @@ pub fn sync_versions(
         }
     }
 
-    // Ruby native (Magnus) crate Cargo.toml: the rb-sys/magnus binding crate lives
-    // under `packages/ruby/ext/<gem>_rb/native/` and pins the core crate as
-    // `<core> = { version = "X.Y.Z", path = "..." }` (see `scaffold::render_core_dep`).
-    // This crate is compiled by rb-sys at gem-install time and is NOT a workspace
-    // member, so the workspace dep-pin pass (`sync_workspace_cargo_toml_versions`)
-    // never sees it and the pinned version drifts on every release — a source-gem
-    // `cargo build` then resolves the wrong core version. Patch the core-crate dep
-    // pin directly, reusing the same toml_edit rewrite used for workspace members.
     {
         let core_member: std::collections::HashSet<String> = std::iter::once(config.name.clone()).collect();
         for entry in glob::glob("packages/ruby/ext/*/native/Cargo.toml")
@@ -194,7 +145,6 @@ pub fn sync_versions(
         }
     }
 
-    // PHP: composer.json
     if let Ok(content) = std::fs::read_to_string("packages/php/composer.json") {
         if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
             std::fs::write("packages/php/composer.json", &new_content)?;
@@ -216,15 +166,6 @@ pub fn sync_versions(
         }
     }
 
-    // Elixir NIF crate Cargo.lock: a Rustler NIF crate lives under the Elixir
-    // package's `native/<nif>/` directory and ships a committed `Cargo.lock`
-    // inside the Hex source tarball. The NIF `Cargo.toml` is bumped elsewhere
-    // (workspace member pass or a `[sync].extra_paths` entry), but its committed
-    // lockfile keeps the OLD version on every local/path-source entry — the
-    // consumer's own crates plus the NIF crate itself — which makes `cargo build`
-    // from the published tarball fail with a lock/manifest version mismatch.
-    // Glob the lockfiles under the Elixir package's `native/` tree (the NIF crate
-    // name is consumer-specific) and rewrite only their sourceless entries.
     {
         let elixir_pkg = config.package_dir(Language::Elixir);
         let nif_lock_glob = format!("{elixir_pkg}/native/*/Cargo.lock");
@@ -239,9 +180,6 @@ pub fn sync_versions(
         }
     }
 
-    // Go: go.mod (no version field, skip)
-
-    // Java: pom.xml
     if let Ok(content) = std::fs::read_to_string("packages/java/pom.xml") {
         if let Some(new_content) = replace_version_pattern(&content, r#"<version>[^<]*</version>"#, &version) {
             std::fs::write("packages/java/pom.xml", &new_content)?;
@@ -249,14 +187,6 @@ pub fn sync_versions(
         }
     }
 
-    // C#: *.csproj (recursive under packages/csharp).
-    //
-    // Two version-bearing elements live in the csproj and BOTH must track the
-    // workspace version: `<Version>` (the NuGet package version) and
-    // `<InformationalVersion>` (the assembly's informational/product version,
-    // surfaced by `dotnet list package` and runtime `AssemblyInformationalVersion`).
-    // Bumping only `<Version>` leaves `<InformationalVersion>` pinned at the prior
-    // release, so the shipped assembly reports a stale version. Apply both rewrites.
     for entry in glob::glob("packages/csharp/**/*.csproj")
         .into_iter()
         .flatten()
@@ -281,11 +211,6 @@ pub fn sync_versions(
         }
     }
 
-    // Kotlin (JVM/Multiplatform): packages/kotlin/build.gradle.kts carries a
-    // top-level `version = "..."` (Gradle `Project.version`) used by the
-    // maven-publish task. It is distinct from the e2e Gradle build (handled via
-    // the e2e codegen path) and from plugin/extension `version` constructs in the
-    // same file, which `replace_gradle_project_version` deliberately skips.
     let kotlin_gradle = std::path::Path::new(&config.package_dir(Language::Kotlin)).join("build.gradle.kts");
     if let Ok(content) = std::fs::read_to_string(&kotlin_gradle) {
         if let Some(new_content) = replace_gradle_project_version(&content, &version) {
@@ -295,8 +220,6 @@ pub fn sync_versions(
         }
     }
 
-    // Kotlin Android stores the package version in `coordinates(...)`; also drop
-    // stale AGP 8-era `kotlin("android")` plugin lines when AGP 9+ is pinned.
     let kotlin_android_gradle =
         std::path::Path::new(&config.package_dir(Language::KotlinAndroid)).join("build.gradle.kts");
     if let Ok(content) = std::fs::read_to_string(&kotlin_android_gradle) {
@@ -309,7 +232,6 @@ pub fn sync_versions(
         }
     }
 
-    // WASM: package.json
     for wasm_pkg in glob::glob("crates/*-wasm/package.json").into_iter().flatten().flatten() {
         if let Ok(content) = std::fs::read_to_string(&wasm_pkg) {
             if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
@@ -319,29 +241,12 @@ pub fn sync_versions(
         }
     }
 
-    // Node binding crate manifest: crates/*-node/package.json. Some repos keep
-    // a `package.json` next to the NAPI-RS binding crate (alongside the Cargo
-    // manifest) so `npm publish --workspace` can resolve the prebuilt binary.
-    // `validate-versions` already checks this file; sync must write to it too.
-    //
-    // Two version surfaces live in this manifest and both must be bumped:
-    //   1. the top-level `"version"` (the parent NAPI package version), and
-    //   2. every `optionalDependencies` entry pointing at a sibling NAPI
-    //      platform package (e.g. `"@scope/foo-linux-x64-gnu": "X.Y.Z"`).
-    // Leaving (2) stale makes `pnpm install --frozen-lockfile` fail with
-    // `ERR_PNPM_OUTDATED_LOCKFILE` because the lockfile's recorded specifiers
-    // diverge from the manifest. The platform deps are emitted by the scaffold
-    // with the parent's version (see `scaffold_node`), so they are always
-    // in lock-step with the parent and can be rewritten unconditionally.
     for node_pkg in glob::glob("crates/*-node/package.json").into_iter().flatten().flatten() {
         if let Ok(content) = std::fs::read_to_string(&node_pkg) {
             let mut working = content.clone();
             if let Some(rewritten) = replace_version_pattern(&working, r#""version":\s*"[^"]*""#, &version) {
                 working = rewritten;
             }
-            // Rewrite sibling NAPI platform-package version pins. Source the
-            // parent package name from the manifest itself so this stays
-            // generic across consumers (no hardcoded scope/prefix).
             if let Ok(pkg_json) = serde_json::from_str::<serde_json::Value>(&working) {
                 if let Some(parent_name) = pkg_json.get("name").and_then(|v| v.as_str()) {
                     let pattern = format!(r#""({}-[^"]+)":\s*"[^"]*""#, regex::escape(parent_name));
@@ -359,10 +264,6 @@ pub fn sync_versions(
         }
     }
 
-    // Pre-staged NAPI platform manifests: crates/*-node/npm/<platform>/package.json.
-    // alef pre-stages these at scaffold time so `napi prepublish` does not have to
-    // `napi create-npm-dirs` during release; each carries its own top-level
-    // `"version"` that must follow the parent package version on every bump.
     for platform_pkg in glob::glob("crates/*-node/npm/*/package.json")
         .into_iter()
         .flatten()
@@ -377,10 +278,6 @@ pub fn sync_versions(
         }
     }
 
-    // Root package.json (if present): typically a private "root" manifest
-    // bookkeeping pnpm workspaces alongside the published bindings. Without
-    // this, `validate-versions` flags a mismatch every release because the
-    // root manifest carries its own `"version"` that nothing else writes to.
     if let Ok(content) = std::fs::read_to_string("package.json") {
         if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
             std::fs::write("package.json", &new_content)?;
@@ -389,7 +286,6 @@ pub fn sync_versions(
         }
     }
 
-    // Root composer.json (if present)
     if let Ok(content) = std::fs::read_to_string("composer.json") {
         if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
             std::fs::write("composer.json", &new_content)?;
@@ -398,7 +294,6 @@ pub fn sync_versions(
         }
     }
 
-    // R: DESCRIPTION file — CRAN rejects SemVer dash prereleases.
     if let Ok(content) = std::fs::read_to_string("packages/r/DESCRIPTION") {
         let r_version = to_r_version(&version);
         if let Some(new_content) = replace_version_pattern(&content, r"Version:\s*[^\n]*", &r_version) {
@@ -407,7 +302,6 @@ pub fn sync_versions(
         }
     }
 
-    // Dart: pubspec.yaml — uses `version: X.Y.Z` YAML syntax (unquoted, no quotes)
     if let Ok(content) = std::fs::read_to_string("packages/dart/pubspec.yaml") {
         static PUBSPEC_VERSION_RE: LazyLock<regex::Regex> =
             LazyLock::new(|| regex::Regex::new(r"(?m)^version:\s*[^\s#\n]+").expect("valid regex"));
@@ -420,10 +314,6 @@ pub fn sync_versions(
         }
     }
 
-    // Zig: build.zig.zon — `.version = "X.Y.Z"`. The anchor `(?m)^(\s*)\.version`
-    // captures the leading indent so the rewrite preserves it, and prevents the
-    // `.minimum_zig_version = "..."` line on the same file from being touched
-    // (it starts with `.minimum_zig_version`, not `.version`).
     if let Ok(content) = std::fs::read_to_string("packages/zig/build.zig.zon") {
         static ZON_VERSION_RE: LazyLock<regex::Regex> =
             LazyLock::new(|| regex::Regex::new(r#"(?m)^(\s*)\.version\s*=\s*"[^"]*""#).expect("valid regex"));
@@ -436,7 +326,6 @@ pub fn sync_versions(
         }
     }
 
-    // Go: ffi_loader.go
     if let Ok(content) = std::fs::read_to_string("packages/go/ffi_loader.go") {
         if let Some(new_content) = replace_version_pattern(&content, r#"defaultFFIVersion\s*=\s*"[^"]*""#, &version) {
             std::fs::write("packages/go/ffi_loader.go", &new_content)?;
@@ -444,11 +333,6 @@ pub fn sync_versions(
         }
     }
 
-    // Go: cmd/download_ffi/main.go — `moduleVersion` constant is interpolated
-    // by the Go backend at binding-generation time and therefore not covered by
-    // the regular `alef generate` / `alef all` flow when only `sync-versions` is
-    // run. Without this, consumers of a freshly released version will pull the
-    // prior release's FFI binary because `moduleVersion` still points at the old tag.
     for entry in glob::glob("packages/go/cmd/download_ffi/main.go")
         .into_iter()
         .flatten()
@@ -462,19 +346,6 @@ pub fn sync_versions(
         }
     }
 
-    // Swift Package.swift files: root + test_apps + e2e.
-    // Root Package.swift (seed file) uses `url: "...v__ALEF_SWIFT_VERSION__..."` placeholder.
-    // Generated test_apps and e2e entries use `from: "X.Y.Z"` version bounds.
-    // Without bumping these, `swift package resolve` fetches the prior release when
-    // the app is run against a freshly cut tag — causing 404s or wrong-version failures.
-    // The glob crate (0.3.x) does not support brace alternatives, so we run separate passes.
-
-    // Root Package.swift (seed file with binary URL placeholder).
-    // First substitute the `v__ALEF_SWIFT_VERSION__` placeholder (present only in
-    // the freshly-scaffolded seed), then rewrite the concrete
-    // `releases/download/vX.Y.Z/` segment. The second pass is what keeps an
-    // already-substituted (committed) manifest tracking the workspace version on
-    // every subsequent bump, since the placeholder is gone after the first sync.
     if let Ok(content) = std::fs::read_to_string("Package.swift") {
         let placeholder_applied = content.replace("v__ALEF_SWIFT_VERSION__", &format!("v{version}"));
         let new_content = sync_swift_binary_release_url(&placeholder_applied, &version).unwrap_or(placeholder_applied);
@@ -486,11 +357,6 @@ pub fn sync_versions(
 
     sync_swift_package_versions(config, &version, &mut updated)?;
 
-    // C FFI download_ffi.sh: the generated shell helper declares `VERSION="X.Y.Z"`
-    // (no spaces around `=`) at the top of the script so it can construct the
-    // correct GitHub-Releases tarball URL for the prebuilt FFI binary. Both the
-    // e2e and test_apps copies must be bumped in lock-step with the workspace version.
-    // The glob crate (0.3.x) does not support brace alternatives; run two passes.
     for sh_pattern in &["e2e/c/download_ffi.sh", "test_apps/c/download_ffi.sh"] {
         for sh_script in glob::glob(sh_pattern).into_iter().flatten().flatten() {
             if let Ok(content) = std::fs::read_to_string(&sh_script) {
@@ -503,23 +369,6 @@ pub fn sync_versions(
         }
     }
 
-    // E2e manifests: the generated integration test trees under e2e/<lang>/ use
-    // local-source references to the library packages but still embed a hardcoded
-    // version string in language-native manifests (pom.xml, Gemfile.lock, go.mod,
-    // pubspec.lock). Without syncing these, CI's frozen-lockfile / dependency-
-    // resolution modes reject the mismatched version on the next run.
-    //
-    // Rules:
-    //   • Java  — e2e/java/pom.xml: <version> inside system-scope dep + <systemPath>
-    //   • Ruby  — e2e/ruby/Gemfile.lock: path-gem version (reuses sync_gemfile_lock)
-    //   • Go    — e2e/go/go.mod: require line version for the library module
-    //   • Dart  — e2e/dart/pubspec.lock: `version:` under path-source package entry
-    //
-    // These paths are alef-generated and therefore always present when the language
-    // backend is active; soft-skip (read_to_string returning Err) handles repos
-    // that do not yet generate them.
-
-    // Java e2e pom.xml
     let e2e_java_pom = std::path::Path::new("e2e/java/pom.xml");
     if let Ok(content) = std::fs::read_to_string(e2e_java_pom) {
         if let Some(new_content) = sync_e2e_java_pom(&content, &version) {
@@ -528,7 +377,6 @@ pub fn sync_versions(
         }
     }
 
-    // Ruby e2e Gemfile.lock
     let e2e_ruby_lock = std::path::Path::new("e2e/ruby/Gemfile.lock");
     if e2e_ruby_lock.exists() {
         if let Ok(content) = std::fs::read_to_string(e2e_ruby_lock) {
@@ -539,14 +387,8 @@ pub fn sync_versions(
         }
     }
 
-    // Go e2e go.mod — discover the module path fragment from the file itself
-    // so this logic works for any consumer repo.
-    // We look for a `require` line whose module path ends with `/packages/go`
-    // and update its version.
     for entry in glob::glob("e2e/go/go.mod").into_iter().flatten().flatten() {
         if let Ok(content) = std::fs::read_to_string(&entry) {
-            // Find the module path fragment: any require entry ending in /packages/go
-            // that pairs with a local `replace` directive.
             static GO_MOD_REQUIRE_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
                 regex::Regex::new(r"(?m)^\s+([\w./\-]+/packages/go)\s+v[\w.\-]+").expect("valid regex")
             });
@@ -561,7 +403,6 @@ pub fn sync_versions(
         }
     }
 
-    // Dart e2e pubspec.lock
     let e2e_dart_lock = std::path::Path::new("e2e/dart/pubspec.lock");
     if e2e_dart_lock.exists() {
         if let Ok(content) = std::fs::read_to_string(e2e_dart_lock) {
@@ -572,23 +413,8 @@ pub fn sync_versions(
         }
     }
 
-    // CITATION.cff (Citation File Format) — YAML at repo root.
-    //
-    // Two modes:
-    //   1. `[workspace.citation]` block present in alef.toml: render the whole
-    //      file from config + canonical version. Idempotent — file is only
-    //      rewritten when the rendered content differs from disk.
-    //   2. No `[workspace.citation]` block but a hand-authored CITATION.cff
-    //      exists at the repo root: leave content alone and only update the
-    //      top-level `version:` scalar.
     if let Some(citation_config) = config.citation.as_ref() {
         let fallback_license = read_workspace_license(&config.version_from);
-        // Date precedence: `--release-date` CLI flag (release_date_override) wins
-        // unconditionally; otherwise the renderer applies its own policy
-        // (configured `[workspace.citation].date-released` if set, else today's
-        // system date). The override is materialised here by transiently cloning
-        // the config and overwriting `date_released`, so the renderer's existing
-        // precedence rules continue to drive emission.
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let owned_config_with_override;
         let effective_citation = if let Some(date) = release_date_override {
@@ -616,7 +442,6 @@ pub fn sync_versions(
         }
     }
 
-    // Process extra_paths from config [sync] section (glob patterns)
     if let Some(sync_config) = &config.sync {
         for pattern in &sync_config.extra_paths {
             match glob::glob(pattern) {
@@ -628,8 +453,6 @@ pub fn sync_versions(
                                     let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
                                     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                                     if file_name == "package.json" {
-                                        // For package.json files, only update the top-level
-                                        // "version" field to avoid clobbering dependency versions.
                                         if let Some(new_content) =
                                             replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version)
                                         {
@@ -640,16 +463,11 @@ pub fn sync_versions(
                                             }
                                         }
                                     } else if file_name == "Cargo.toml" {
-                                        // Cargo.toml: only update [package] version (line-anchored).
-                                        // Never use replace_all — it corrupts dependency version specs.
                                         let path_str = path.to_string_lossy().to_string();
                                         if write_version_to_cargo_toml(&path_str, &version).is_ok() {
                                             updated.push(path_str);
                                         }
                                     } else if file_name == "pyproject.toml" {
-                                        // pyproject.toml: only update the `version = "..."` field.
-                                        // Never do blanket regex replace — it corrupts requires-python
-                                        // and dependency version specifiers.
                                         let py_ver = to_pep440(&version);
                                         if let Some(new_content) =
                                             replace_version_pattern(&content, r#"version = "[^"]*""#, &py_ver)
@@ -661,9 +479,6 @@ pub fn sync_versions(
                                             }
                                         }
                                     } else if file_name == "version.rb" {
-                                        // Ruby version.rb: gem-formatted, replace VERSION constant only.
-                                        // Never use SEMVER_RE — `0.3.0` in `0.3.0.pre.rc.2` would re-acquire
-                                        // a dash-form prerelease, corrupting the gem version.
                                         let rb_ver = to_rubygems_prerelease(&version);
                                         if let Some(new_content) = replace_version_pattern(
                                             &content,
@@ -677,7 +492,6 @@ pub fn sync_versions(
                                             }
                                         }
                                     } else if extension == "gemspec" {
-                                        // gemspec: gem-formatted, replace spec.version only.
                                         let rb_ver = to_rubygems_prerelease(&version);
                                         if let Some(new_content) = replace_version_pattern(
                                             &content,
@@ -691,16 +505,6 @@ pub fn sync_versions(
                                             }
                                         }
                                     } else if file_name == "gleam.toml" {
-                                        // gleam.toml: update the package version field AND restore
-                                        // canonical dependency version ranges. The restore is a
-                                        // self-healing safeguard — earlier alef releases routed
-                                        // `gleam.toml` through the SEMVER_RE catch-all path, which
-                                        // rewrote `gleam_stdlib = ">= 0.34.0 and < 2.0.0"` into
-                                        // `>= {workspace_version} and < {workspace_version}` (an
-                                        // empty range gleam refuses to resolve). Without the
-                                        // dep-range restore, any package that still has the
-                                        // corrupted shape on disk stays broken until a contributor
-                                        // notices.
                                         let mut new_content = content.clone();
                                         if let Some(updated_version) =
                                             replace_version_pattern(&new_content, r#"version = "[^"]*""#, &version)
@@ -739,21 +543,12 @@ pub fn sync_versions(
             }
         }
 
-        // Process text_replacements from config [sync] section.
-        // Collect every resolved path regardless of whether its content changes —
-        // we need to run finalize_hashes on all of them so that a file whose
-        // version string was already correct but whose alef:hash: is stale (e.g.
-        // because the registry-e2e codegen changed between alef releases) still
-        // gets its hash header refreshed by `alef generate`.
         for replacement in &sync_config.text_replacements {
             match glob::glob(&replacement.path) {
                 Ok(paths) => {
                     for entry in paths {
                         match entry {
                             Ok(path) => {
-                                // Always record the path so finalize_hashes can
-                                // refresh a stale alef:hash: even when the version
-                                // substitution is a no-op.
                                 text_replacement_paths.insert(path.clone());
                                 if let Ok(content) = std::fs::read_to_string(&path) {
                                     let pep440 = to_pep440(&version);
@@ -796,21 +591,10 @@ pub fn sync_versions(
         }
     }
 
-    // Docs API-reference version badges: `alef docs` injects the workspace
-    // version into the `<span class="version-badge">v…</span>` heading marker,
-    // but consumers bump via `alef sync-versions`, which regenerates READMEs and
-    // not the docs tree. Without this, the badge stays pinned at the previous
-    // version after a sync-only bump. The default docs output directory mirrors
-    // the `alef docs` default (`docs/reference`). Updated files are added to
-    // `updated`, so finalize_hashes below refreshes their alef:hash headers.
     for badge_file in sync_docs_version_badges(std::path::Path::new("docs/reference"), &version) {
         updated.push(badge_file);
     }
 
-    // Refresh lockfiles for any ecosystem whose manifests were rewritten.
-    // This ensures CI's frozen-lockfile mode won't reject mismatched lockfiles.
-    // Each command is idempotent and run_optional gracefully handles absent binaries.
-    // See BLK-11 for context.
     if any_node_pkg_modified {
         run_optional("pnpm", &["install", "--no-frozen-lockfile", "--ignore-scripts", "-w"]);
     }
@@ -824,13 +608,6 @@ pub fn sync_versions(
         run_optional("mix", &["deps.get"]);
     }
 
-    // Finalize alef:hash lines in every file that carries the alef header and
-    // was either rewritten by this sync OR is a text_replacement target whose
-    // embedded hash may be stale even when the version string was already correct.
-    // Without including all text_replacement targets, a file generated by a
-    // different alef sub-command (e.g. `alef e2e generate --registry`) can end up
-    // with a hash that was valid for the old codegen output but is no longer valid
-    // after an alef version bump — and `alef generate` would silently leave it stale.
     let mut finalize_paths: std::collections::HashSet<std::path::PathBuf> =
         updated.iter().map(std::path::PathBuf::from).collect();
     finalize_paths.extend(text_replacement_paths);
@@ -858,16 +635,12 @@ pub fn sync_versions(
         info!("  Updated: {file}");
     }
 
-    // Rebuild FFI to refresh C headers (cbindgen) if FFI language is configured
-    // AND something actually changed. Skip when versions were already in sync —
-    // a warm rerun should not invoke cargo at all.
     if !updated.is_empty() && config.languages.contains(&Language::Ffi) {
         let ffi_crate = config
             .explicit_output
             .ffi
             .as_ref()
             .and_then(|p| {
-                // Output path is like "crates/sample-markdown-ffi/src/" — get the crate dir name
                 let p = p.to_string_lossy();
                 let trimmed = p.trim_end_matches('/');
                 let trimmed = trimmed.strip_suffix("/src").unwrap_or(trimmed);
@@ -879,16 +652,9 @@ pub fn sync_versions(
         let _ = run_command(&format!("cargo build -p {ffi_crate}"));
     }
 
-    // Stamp the last-synced version so the next warm run can skip the entire
-    // glob+regex pass without re-stat'ing every manifest.
     let _ = std::fs::create_dir_all(".alef");
     let _ = std::fs::write(&last_path, &version);
 
-    // Sync [crates.e2e.registry.packages.*].version fields in alef.toml so that
-    // registry-mode e2e test apps always reference the current workspace version.
-    // This runs unconditionally (even when no consumer manifest changed) because
-    // the registry entries in alef.toml may be stale independently of the
-    // language binding manifests.
     match sync_registry_package_versions(config_path, &version) {
         Ok(true) => {
             info!("Updated registry package versions in {}", config_path.display());
@@ -902,17 +668,6 @@ pub fn sync_versions(
         }
     }
 
-    // Regenerate test_apps/ scaffold files so version pins in generated files
-    // (pyproject.toml, mix.exs, build.zig.zon, Package.swift, etc.) are
-    // atomically in sync with the updated registry package versions in alef.toml.
-    //
-    // This is the fix for the rc.13 incident: sync-versions updated alef.toml
-    // registry entries but left stale version strings in previously-generated
-    // test_apps/ files, causing 4 of 15 test_apps to fail with version mismatches.
-    //
-    // Skipped when:
-    //   (a) --no-regen was passed by the caller, OR
-    //   (b) no [e2e] block is configured (nothing to regenerate)
     if !no_regen {
         if let Some(e2e_config) = config.e2e.as_ref() {
             match regenerate_test_apps_after_sync(config, e2e_config, config_path) {
@@ -926,17 +681,6 @@ pub fn sync_versions(
             }
         }
 
-        // Regenerate scaffold files so version fields embedded at scaffold-generation
-        // time (gemspec spec.version, pubspec.yaml version:, R DESCRIPTION Version:,
-        // binding-crate Cargo.toml [package] version, etc.) reflect the bumped
-        // workspace version atomically with the sync.
-        //
-        // This closes the gap where `alef all` was run against Cargo.toml@rc.N,
-        // then `sync-versions` bumped to rc.(N+1) and only updated test_apps —
-        // leaving scaffold output with the stale rc.N version baked in.
-        //
-        // Always runs when `no_regen=false`, regardless of whether an [e2e] block
-        // is configured, since scaffold emission does not depend on e2e config.
         match regenerate_scaffold_after_sync(config, config_path) {
             Ok(count) if count > 0 => {
                 info!("  Regenerated {count} scaffold file(s) with updated version pins");
@@ -947,21 +691,6 @@ pub fn sync_versions(
             }
         }
 
-        // Re-apply the root `Package.swift` URL placeholder substitution after
-        // scaffold regen, because `scaffold_swift` emits the manifest with
-        // `v__ALEF_SWIFT_VERSION__` (so the file under VCS stays stable across
-        // version bumps) and `regenerate_scaffold_after_sync` overwrites the
-        // substituted file with the placeholder form. Without this second pass,
-        // every `alef sync-versions` run leaves Package.swift pointing at a
-        // literal `v__ALEF_SWIFT_VERSION__` GitHub release URL, breaking
-        // SwiftPM resolution for downstream consumers.
-        //
-        // The checksum placeholder `__ALEF_SWIFT_CHECKSUM__` is now substituted
-        // by `precompute_swift_checksum` below (when `--skip-swift-checksum` is
-        // not passed) rather than deferring to the publish flow. This means the
-        // main version tag's Package.swift contains the real sha256 from day one,
-        // and SwiftPM consumers using `from: "X.Y.Z"` get the correct checksum
-        // without needing a separate `swift-X.Y.Z` namespace tag.
         if let Ok(content) = std::fs::read_to_string("Package.swift") {
             let placeholder_applied = content.replace("v__ALEF_SWIFT_VERSION__", &format!("v{version}"));
             let new_content =
@@ -974,11 +703,6 @@ pub fn sync_versions(
             }
         }
 
-        // Precompute the artifactbundle checksum and substitute `__ALEF_SWIFT_CHECKSUM__`
-        // in root Package.swift so the version tag tree has a real sha256 baked in.
-        // Skipped when `--skip-swift-checksum` is passed, when swift is not configured,
-        // when the swift binding crate is absent, or when no pre-built bundle is available
-        // and the build prerequisites (Xcode / Apple targets) are not on this host.
         if !skip_swift_checksum {
             match precompute_swift_checksum(config) {
                 Ok(Some(checksum)) => {
@@ -995,19 +719,11 @@ pub fn sync_versions(
         }
     }
 
-    // If no manifest actually changed, nothing else needs refreshing — the
-    // generated README/docs/binding hashes still match. This is the warm-path
-    // fast exit: hundreds of files were already on disk with the right
-    // version, so we skip the cache wipe + README regeneration entirely.
     if updated.is_empty() {
         debug!("Versions already in sync — skipping README regeneration");
         return Ok(());
     }
 
-    // Selective cache invalidation: only README (and stage caches that embed
-    // version strings) are stale after a sync. Leave the IR cache and the
-    // per-language binding hashes in place so the next `alef generate` does
-    // not have to re-extract or re-emit unchanged backends.
     let hashes_dir = std::path::Path::new(".alef").join("hashes");
     for stem in ["readme", "docs", "scaffold"] {
         for ext in [".hash", ".manifest", ".output_hashes"] {
@@ -1018,7 +734,6 @@ pub fn sync_versions(
         }
     }
 
-    // Regenerate READMEs with the new version.
     info!("Regenerating READMEs with updated version");
     match regenerate_readmes(config, config_path) {
         Ok(count) => {

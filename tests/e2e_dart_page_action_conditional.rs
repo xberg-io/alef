@@ -44,7 +44,6 @@ fn make_group(category: &str, id: &str, input: serde_json::Value) -> FixtureGrou
     }
 }
 
-// Configuration without PageAction args.
 const TOML_NO_PAGE_ACTION: &str = r#"
 [workspace]
 languages = ["dart"]
@@ -96,26 +95,21 @@ fn page_action_not_emitted_when_not_used() {
         }),
     );
 
-    // Must NOT contain _parsePageAction function definition.
     assert!(
         !rendered.contains("PageAction _parsePageAction"),
         "_parsePageAction should not be emitted when not used. Rendered:\n{rendered}"
     );
 
-    // Must NOT contain ScrollDirection references.
     assert!(
         !rendered.contains("ScrollDirection"),
         "ScrollDirection should not be emitted when not used. Rendered:\n{rendered}"
     );
 
-    // Must still have the standard enum conversion helper.
     assert!(
         rendered.contains("String _alefE2eText(Object? value)"),
         "_alefE2eText helper should still be emitted. Rendered:\n{rendered}"
     );
 
-    // Must not import dart:convert if no PageAction, HTTP, or handle args are used.
-    // (This fixture has neither, so dart:convert should not be imported.)
     assert!(
         !rendered.contains("import 'dart:convert';"),
         "dart:convert should not be imported when not needed. Rendered:\n{rendered}"

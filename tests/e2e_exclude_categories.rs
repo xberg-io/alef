@@ -89,9 +89,6 @@ fn exclude_categories_removes_matching_fixture_groups() {
 
 #[test]
 fn exclude_categories_resolves_from_directory_when_field_missing() {
-    // The fixture has no explicit `category` field — it should fall back to
-    // the parent directory of `source`, and still be filtered by the excluded
-    // category set.
     let fixtures = vec![
         make_fixture("cache_hit", None, "cache/cache_hit.json"),
         make_fixture("chat_simple", None, "chat/chat_simple.json"),
@@ -127,9 +124,6 @@ fn empty_exclude_categories_is_a_noop() {
 
 #[test]
 fn exclude_categories_parses_from_toml() {
-    // Verify the TOML field deserializes onto E2eConfig with the expected
-    // contents; this is the only edge that matters for the alef.toml-side
-    // wire format.
     let toml_src = r#"
 fixtures = "fixtures"
 output = "e2e"

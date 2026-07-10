@@ -21,10 +21,8 @@ pub fn gen_bridge_function(
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
-    // Check if this is an options_field binding pattern (visitor embedded in options struct)
     let is_options_field_binding = matches!(bridge_cfg.bind_via, crate::core::config::BridgeBinding::OptionsField);
 
-    // Find the options parameter when using options_field binding
     let options_param_idx = if is_options_field_binding {
         func.params.iter().enumerate().find(|(_, p)| {
             matches!(&p.ty, TypeRef::Named(n) if bridge_cfg.options_type.as_ref().is_some_and(|opt_type| n == opt_type))
@@ -33,12 +31,9 @@ pub fn gen_bridge_function(
         None
     };
 
-    // Build parameter list: bridge param becomes Option<Object>, no explicit env param
-    // (napi v3 does not implement FromNapiValue for Env; env is obtained from the Object)
     let mut sig_parts = vec![];
     for (idx, p) in func.params.iter().enumerate() {
         if is_options_field_binding && Some(idx) == options_param_idx {
-            // For options_field binding, visitor is extracted from options, not a separate param
             let ty = if p.optional || (idx > 0 && func.params[..idx].iter().any(|pp| pp.optional)) {
                 format!("Option<{}>", mapper.map_type(&p.ty))
             } else {
@@ -68,7 +63,6 @@ pub fn gen_bridge_function(
 
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
 
-    // Bridge wrapping code: constructor is infallible (transmute-based).
     let bridge_wrap = if is_optional {
         crate::backends::napi::template_env::render(
             "bridge_optional_wrap.jinja",
@@ -89,7 +83,6 @@ pub fn gen_bridge_function(
         )
     };
 
-    // Use From/Into for non-bridge Named params — the generated bindings have From impls.
     let serde_bindings: String = func
         .params
         .iter()
@@ -141,7 +134,6 @@ pub fn gen_bridge_function(
         })
         .collect();
 
-    // Build call args
     let call_args: Vec<String> = func
         .params
         .iter()

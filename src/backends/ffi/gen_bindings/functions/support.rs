@@ -41,9 +41,6 @@ pub(super) fn sanitized_recoverable(func: &FunctionDef) -> bool {
     if !params_ok {
         return false;
     }
-    // Conservative: if the function was sanitized but no param was sanitized, the trigger was
-    // the return type. Recovering that requires JSON-serializing the actual core value, which
-    // requires the core type to derive Serialize; alef has no way to know that here. Stub.
     let any_param_sanitized = func.params.iter().any(|p| p.sanitized);
     !func.sanitized || any_param_sanitized
 }

@@ -297,8 +297,6 @@ fn run_gaps(
                 .collect()
         })
         .unwrap_or_default();
-    // When no explicit base paths are given, default to the docs dirs so that
-    // the behaviour is identical to before this flag was introduced.
     let resolved_base_paths: Vec<PathBuf> = if include_base_paths.is_empty() {
         docs_dirs.to_vec()
     } else {

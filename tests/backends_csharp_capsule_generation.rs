@@ -58,7 +58,6 @@ package_version = "0.8.0"
 fn test_csharp_capsule_function_generation() {
     let backend = CsharpBackend;
 
-    // Create test API surface with a capsule function (returns Language type)
     let api = ApiSurface {
         crate_name: "tree_sitter".to_string(),
         version: "0.25.0".to_string(),
@@ -97,7 +96,6 @@ fn test_csharp_capsule_function_generation() {
 
     let files = result.unwrap();
 
-    // Look for the wrapper class file
     let wrapper_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("TreeSitterConverter.cs"))
@@ -105,21 +103,18 @@ fn test_csharp_capsule_function_generation() {
 
     let content = &wrapper_file.content;
 
-    // Verify capsule function wrapper is generated with correct return type
     assert!(
         content.contains("public static TreeSitter.Language LanguageRust"),
         "Capsule wrapper method signature not found. Content:\n{}",
         content
     );
 
-    // Verify construction call
     assert!(
         content.contains("new TreeSitter.Language(nativeResult)"),
         "Capsule construction not found. Content:\n{}",
         content
     );
 
-    // Verify null guard
     assert!(
         content.contains("if (nativeResult == IntPtr.Zero)"),
         "Null guard not found. Content:\n{}",
@@ -131,7 +126,6 @@ fn test_csharp_capsule_function_generation() {
 fn test_csharp_capsule_requires_construct_expr() {
     let backend = CsharpBackend;
 
-    // Create test API surface with a capsule function
     let api = ApiSurface {
         crate_name: "tree_sitter".to_string(),
         version: "0.25.0".to_string(),

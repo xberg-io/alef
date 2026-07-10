@@ -70,9 +70,6 @@ fn api_has_json_or_enum_field(api: &ApiSurface) -> bool {
         return true;
     }
 
-    // D6: also return true when any non-opaque, non-trait struct has a Named field
-    // whose resolved type is an enum. The bridge emits `serde_json::to_string` for
-    // those fields in the `From<CoreT>` impls and the `create_*_from_json` helpers.
     let enum_names: std::collections::HashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
 
     fn type_ref_contains_enum(t: &TypeRef, enum_names: &std::collections::HashSet<&str>) -> bool {
@@ -118,9 +115,6 @@ pub(crate) fn emit_cargo_toml(
     let frb_version = crate::backends::dart::naming::dart_frb_version(config);
     let core_crate_dir = config.core_crate_for_language(crate::core::config::extras::Language::Dart);
     let dart_override = config.dart.as_ref().and_then(|c| c.core_crate_override.as_deref());
-    // Cargo dep KEY: when an override is set, use it as-is; otherwise preserve
-    // the historical behaviour (`source_crate_name`, the Rust-ident form of
-    // the umbrella crate name) so existing configs produce identical output.
     let core_dep_key: String = match dart_override {
         Some(name) => name.to_string(),
         None => source_crate_name.to_string(),
@@ -144,24 +138,12 @@ pub(crate) fn emit_cargo_toml(
         format!(", features = [{list}]")
     };
 
-    // When the Rust ident form of the umbrella crate name (`core_dep_key`,
-    // e.g. `sample_llm`) differs from the actual cargo package name in the
-    // umbrella Cargo.toml (`crate_name`, e.g. `sample-llm`), cargo will not
-    // resolve the path dependency unless we add an explicit `package = "..."`
-    // rename. Use `crate_name` (the [[crates]] `name` field, which is the
-    // cargo package name) rather than `core_crate_dir` (the directory name)
-    // because the two can differ — e.g. `[[crates]] name = "sample-markdown-rs"`
-    // with sources under `crates/sample-markdown/` where the package on disk
-    // is `sample-markdown-rs` but the directory is `sample-markdown`.
     let package_rename_block = if dart_override.is_none() && core_dep_key != crate_name {
         format!(", package = \"{crate_name}\"")
     } else {
         String::new()
     };
 
-    // Trait bridge impl methods use tokio::runtime::Handle::current().block_on(...) and
-    // async-trait for async trait impls. Add these only when trait bridges are configured.
-    // Note: anyhow is NOT included — bridge impls use source_crate::Result directly.
     let has_trait_bridges = config.trait_bridges.iter().any(|b| {
         !b.exclude_languages.iter().any(|l| l == "dart")
             && api.types.iter().any(|t| t.name == b.trait_name && t.is_trait)
@@ -172,10 +154,6 @@ pub(crate) fn emit_cargo_toml(
         ""
     };
 
-    // Merge [crate.extra_dependencies] from alef.toml — required for multi-crate
-    // workspaces where the bindings codegen emits qualified paths from sibling
-    // crates (e.g. mylib_extra::QueryOnlyConfig). The umbrella crate is
-    // already listed above; these are the additional sibling crates.
     let workspace_extra = config.extra_deps_for_language(crate::core::config::extras::Language::Dart);
     let mut workspace_dep_lines: Vec<String> = workspace_extra
         .iter()
@@ -188,37 +166,23 @@ pub(crate) fn emit_cargo_toml(
         })
         .collect();
     workspace_dep_lines.sort();
-    // serde_json is required when generated conversions serialize JSON fields,
-    // enum fields, or excluded trait-bridge carrier values.
     let has_trait_bridge_excluded_carrier = api_has_trait_bridge_excluded_carrier(api, config);
     let needs_serde_json = api_has_json_or_enum_field(api) || has_trait_bridge_excluded_carrier;
     let serde_json_dep = if needs_serde_json { "serde_json = \"1\"\n" } else { "" };
-    // Excluded-type carrier derives need serde as a direct dependency.
     let needs_serde_derive = has_trait_bridge_excluded_carrier;
     let serde_dep = if needs_serde_derive {
         "serde = { version = \"1\", features = [\"derive\"] }\n"
     } else {
         ""
     };
-    // ahash is needed when any function takes an AHashMap<Cow, _> param — the generated
-    // bridge fn emits a `let __<name>_ahash: ahash::AHashMap<...>` pre-call binding.
     let needs_ahash = api_has_ahash_param(api);
     let ahash_dep = if needs_ahash { "ahash = \"0.8\"\n" } else { "" };
-    // The dart streaming-adapter codegen emits `use futures_util::StreamExt;` and
-    // calls `stream.next().await`, so add futures-util whenever the API has any
-    // streaming adapters configured for dart.
     let has_streaming = config
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, crate::core::config::extras::AdapterPattern::Streaming));
     let futures_util_dep = if has_streaming { "futures-util = \"0.3\"\n" } else { "" };
-    // Trait-bridge impls use `tokio::runtime::Handle::current().block_on(...)`
-    // and the streaming codegen installs a shared multi-thread runtime via
-    // `OnceLock`. The service-API codegen wraps the inner service owner in a
     // `tokio::sync::Mutex<Option<…>>` for thread-safe handoff between `#[frb(sync)]`
-    // registration calls and the async `run()` entrypoint. Merge all three needs
-    // into a single declaration: `rt-multi-thread` (transitively includes `rt`)
-    // plus `sync` (for `tokio::sync::Mutex`).
     let has_services = !api.services.is_empty();
     let tokio_dep = if has_streaming || has_trait_bridges || has_services {
         "tokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }\n"
@@ -231,13 +195,6 @@ pub(crate) fn emit_cargo_toml(
         .map(|c| c.target_dep_overrides.as_slice())
         .unwrap_or(&[]);
 
-    // Collect every line that belongs in `[dependencies]` and sort them alphabetically
-    // by package name so the generated Cargo.toml is idempotent under cargo-sort.
-    //
-    // The conditional `*_dep` strings above are either empty or shaped as
-    // `"<name> = <value>\n"`; strip the trailing newline and parse the package name
-    // from the substring before the first `=`. Core + flutter_rust_bridge are
-    // unconditional (core is omitted when per-target overrides apply, since it then
     // lives in `[target.'cfg(...)'.dependencies]` blocks instead).
     let frb_line = format!("flutter_rust_bridge = \"={frb_version}\"");
     let mut dep_lines: Vec<String> = Vec::new();
@@ -277,12 +234,6 @@ pub(crate) fn emit_cargo_toml(
         .and_then(|s| s.license.as_deref())
         .unwrap_or("MIT");
 
-    // Build the cargo-machete ignored list: the umbrella crate plus every sibling
-    // crate from [crate.extra_dependencies]. flutter_rust_bridge resolves types
-    // across all of them, but the generated Rust wrapper only `use`s a subset —
-    // cargo-machete would otherwise flag the rest. `ahash` is added when any
-    // function parameter uses AHashMap<Cow, _>, but the bridge never directly uses
-    // ahash—it's used only in the Rust core for type field marshalling.
     let mut machete_ignored: Vec<String> = std::iter::once(core_dep_key.clone())
         .chain(workspace_extra.keys().cloned())
         .collect();
@@ -290,10 +241,6 @@ pub(crate) fn emit_cargo_toml(
         machete_ignored.push("ahash".to_string());
     }
     if has_trait_bridges {
-        // async-trait is declared for async trait-bridge impls, but a synchronous
-        // bridge (e.g. a visitor) never `use`s it in the generated wrapper, so
-        // cargo-machete would otherwise flag it. tokio stays out of the list — the
-        // bridge always drives callbacks through a tokio runtime.
         machete_ignored.push("async-trait".to_string());
     }
     machete_ignored.sort();
@@ -304,7 +251,6 @@ pub(crate) fn emit_cargo_toml(
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Per-target dependency overrides: if configured, emit the base core dep
     // gated on `cfg(not(<overrides>))` and an override block per cfg.
     let (core_dep_line, target_override_blocks) = if target_overrides.is_empty() {
         (String::new(), String::new())
@@ -362,37 +308,20 @@ pub(crate) fn emit_cargo_toml(
         (String::new(), blocks)
     };
 
-    // Collect every feature name referenced by a cfg attribute on any type, field,
-    // enum variant, or function in the API surface and emit a forwarding `[features]`
-    // table so the binding crate can re-export them to the core dep. Without this,
     // `#[cfg(feature = "X")]` arms emitted by the codegen produce
-    // `error: unexpected cfg condition value: X` because the binding crate's
-    // `Cargo.toml` does not declare that feature.
     let cfg_features_table: String = {
         let features = shared_cfg::collect_cfg_features(api);
         if features.is_empty() {
             String::new()
         } else {
-            // Feature names listed under `[crates.dart.excluded_default_features]`
-            // are still declared as opt-in flags (forwarding to the core dep) but
-            // are omitted from `default = [...]`. This lets desktop builds opt
-            // into a feature explicitly via `--features <name>` while keeping
-            // cross-compile targets (iOS / Android NDK) green: the wrapper's
-            // default build does not auto-activate features that pull in system
-            // libraries like `libheif-sys` whose `build.rs` cannot satisfy
-            // `pkg-config` under cross-compilation. The target-conditional
             // `[target.'cfg(...)'.dependencies]` block alone is insufficient
-            // because cargo unions feature sets across dep instances.
             let excluded: std::collections::HashSet<&str> = config
                 .dart
                 .as_ref()
                 .map(|c| c.excluded_default_features.iter().map(String::as_str).collect())
                 .unwrap_or_default();
             let mut lines: Vec<String> = Vec::with_capacity(features.len() + 1);
-            // Enable all cfg-forwarded features by default so that
             // `#[cfg(feature = "X")]` arms emitted by the codegen compile
-            // without requiring the caller to explicitly activate them.
-            // Mirrors the swift backend behaviour (see cargo.rs there).
             let default_list: Vec<String> = features
                 .iter()
                 .filter(|name| !excluded.contains(name.as_str()))
@@ -402,13 +331,6 @@ pub(crate) fn emit_cargo_toml(
             for name in &features {
                 lines.push(format!(r#"{name} = ["{core_dep_key}/{name}"]"#));
             }
-            // Emit an `android-target` aggregate feature when the core crate
-            // defines one, so the bridge crate can be cross-compiled for Android
-            // (ORT-free, libheif-free) with `--no-default-features --features
-            // android-target`. The forwarding entries above are the binding's
-            // passthrough features; intersect them with the core aggregate's
-            // members. Use `core_dep_key` (the cargo dep key for the core crate)
-            // for the `android-target` forward to match the other entries.
             let passthrough_names: Vec<&str> = features.iter().map(String::as_str).collect();
             if let Some(line) =
                 crate::scaffold::android_target_feature_line_for_dep(config, &core_dep_key, &passthrough_names)
@@ -442,18 +364,6 @@ pub(crate) fn emit_cargo_toml(
 }
 
 pub(crate) fn emit_build_rs(rust_dir: &str, package_name: &str, module_name: &str, stem: &str) -> GeneratedFile {
-    // Invoke `flutter_rust_bridge_codegen generate` at `cargo build` time so that
-    // `src/frb_generated.rs` is always present before rustc tries to compile
-    // `mod frb_generated;` in lib.rs. The invocation is conditional: when the
-    // tool is not on PATH the build emits a cargo warning and proceeds against
-    // the committed generated sources. This keeps `cargo check --workspace` and
-    // `cargo build` working in CI environments and downstream projects that do
-    // not have FRB installed.
-    //
-    // After codegen, the generated `frb_generated.dart` is patched so the
-    // published package can locate its native library from its own installed
-    // location (see `patch_published_loader`) instead of flutter_rust_bridge's
-    // build-tree-relative default `ioDirectory`.
     let loader_patch = render_loader_patch_fn(package_name, module_name, stem);
     let content = template_env::render(
         "rust_build_rs.rs.jinja",
@@ -483,9 +393,6 @@ pub(crate) fn emit_build_rs(rust_dir: &str, package_name: &str, module_name: &st
 /// local development builds). The patch is idempotent (keyed off a marker) and a
 /// no-op when the FRB entrypoint signature is absent.
 fn render_loader_patch_fn(package_name: &str, module_name: &str, stem: &str) -> String {
-    // The Dart loader-helper method + patched `init` prologue, computed once and
-    // embedded as a raw literal in the generated build.rs. The original FRB
-    // `init` prologue is matched verbatim and replaced.
     let dart_replacement = dart_init_prologue_replacement(package_name, module_name, stem);
     template_env::render(
         "rust_loader_patch_fn.rs.jinja",
@@ -516,14 +423,6 @@ fn dart_init_prologue_replacement(package_name: &str, module_name: &str, stem: &
 }
 
 pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile {
-    // FRB v2 schema: `rust_root` points at the Rust crate dir, `rust_input` at the
-    // module path(s) to scan for `pub` items (the alef-generated crate places its
-    // entire surface at the crate root `lib.rs`), and `dart_output` at the bindings
-    // directory. `rust_input` is required by the FRB CLI even in v2 — omitting it
-    // causes `flutter_rust_bridge_codegen generate` to panic with
-    // "Please provide `rust_input`".
-    // `add_mod_to_lib: false` prevents FRB codegen from prepending its own
-    // `mod frb_generated;` at line 1 of lib.rs — alef already emits it in the
     // correct position (after crate-level #![allow] attrs) to avoid E0753.
     let content = template_env::render(
         "flutter_rust_bridge_yaml.jinja",
@@ -539,8 +438,6 @@ pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile 
 }
 
 fn api_version(config: &ResolvedCrateConfig) -> String {
-    // Use the resolved version from Cargo.toml if available, otherwise fall back to "0.1.0"
-    // as a safe default (the real version is resolved from Cargo.toml at publish time).
     config.resolved_version().unwrap_or_else(|| "0.1.0".to_string())
 }
 
@@ -598,7 +495,6 @@ mod feature_cfg_tests {
             "Cargo.toml must contain a [features] section; got:\n{}",
             file.content
         );
-        // The `default` feature must enable all cfg-forwarded features so
         // `#[cfg(feature = "X")]` arms compile without explicit activation.
         assert!(
             file.content.contains("default = ["),
@@ -610,19 +506,16 @@ mod feature_cfg_tests {
             "default feature list must include all cfg-forwarded features; got:\n{}",
             file.content
         );
-        // frb_expand must still be declared (FRB-internal cfg key, not a feature).
         assert!(
             file.content.contains("'cfg(frb_expand)'"),
             "Cargo.toml must still include cfg(frb_expand); got:\n{}",
             file.content
         );
-        // No feature values in check-cfg any more — forwarding replaces the allow-list.
         assert!(
             !file.content.contains("values("),
             "Cargo.toml must not contain check-cfg values() — forwarding replaces allow-list; got:\n{}",
             file.content
         );
-        // Output must be valid TOML.
         toml::from_str::<toml::Value>(&file.content).expect("generated Cargo.toml must be valid TOML");
     }
 
@@ -693,13 +586,11 @@ mod feature_cfg_tests {
         };
         let file = emit_cargo_toml("packages/dart/rust", &api, &config, "sample_lib");
 
-        // Forwarding entry still present so `--features heic` works.
         assert!(
             file.content.contains(r#"heic = ["sample_lib/heic"]"#),
             "Cargo.toml must keep `heic` forwarding entry; got:\n{}",
             file.content
         );
-        // `svg` is not excluded — must still appear in default.
         assert!(
             file.content.contains(r#"svg = ["sample_lib/svg"]"#),
             "Cargo.toml must keep `svg` forwarding entry; got:\n{}",
@@ -760,7 +651,6 @@ embeddings = []
         )
         .unwrap();
 
-        // cfg-gated variants drive the dart passthrough/forwarding feature set.
         let api = ApiSurface {
             enums: vec![EnumDef {
                 name: "Format".to_string(),
@@ -842,7 +732,6 @@ mod build_rs_tests {
             "sample_router",
             "sample_router_dart",
         );
-        // The patch runs only on a successful FRB codegen.
         assert!(
             file.content.contains("patch_published_loader();"),
             "build.rs must invoke the loader patch after codegen"
@@ -851,13 +740,11 @@ mod build_rs_tests {
             file.content.contains("fn patch_published_loader()"),
             "build.rs must define the loader patch"
         );
-        // Targets the generated dart entrypoint by module name.
         assert!(
             file.content
                 .contains(r#"../lib/src/sample_router_bridge_generated/frb_generated.dart"#),
             "build.rs must target the generated frb dart file"
         );
-        // The injected Dart resolves the package-relative library.
         assert!(
             file.content
                 .contains("Isolate.resolvePackageUri(Uri.parse('package:sample_router/sample_router.dart'))"),
@@ -894,8 +781,6 @@ mod build_rs_tests {
             "sample_router",
             "sample_router_dart",
         );
-        // The loader patch must report and return on write failures instead of continuing
-        // to format a stale or partially-written generated Dart file.
         assert!(
             file.content
                 .contains("if let Err(err) = std::fs::write(path, &patched)")

@@ -38,10 +38,6 @@ where
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// "Which main fields are set?" helpers
-// ---------------------------------------------------------------------------
-
 pub(super) fn lint_main_fields(c: &LintConfig) -> Vec<&'static str> {
     let mut v = Vec::new();
     if c.format.is_some() {
@@ -103,14 +99,6 @@ pub(super) fn update_main_fields(c: &UpdateConfig) -> Vec<&'static str> {
 pub(super) fn clean_main_fields(c: &CleanConfig) -> Vec<&'static str> {
     if c.clean.is_some() { vec!["clean"] } else { Vec::new() }
 }
-
-// ---------------------------------------------------------------------------
-// Tool-name well-formedness
-//
-// `[tools]` values name a single executable that is interpolated into a
-// `command -v <tool>` precondition, so they should be short identifier-shaped
-// strings. Rejecting non-identifier characters here catches typos up-front.
-// ---------------------------------------------------------------------------
 
 /// Validate that all configured tool names are well-formed identifiers.
 pub(super) fn validate_tools(tools: &ToolsConfig) -> Result<(), AlefError> {

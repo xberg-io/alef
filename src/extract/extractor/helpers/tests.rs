@@ -19,21 +19,18 @@ fn test_normalize_rustdoc_strips_rustdoc_hidden_lines_inside_rust_fence() {
         !normalized.contains("# Ok::"),
         "must drop trailing Ok scaffolding: {normalized}"
     );
-    // Code body survives.
     assert!(normalized.contains("use foo::Bar;"));
     assert!(normalized.contains("let x = 1;"));
 }
 
 #[test]
 fn test_normalize_rustdoc_preserves_pound_outside_fence() {
-    // `# Errors` is a section heading, not rustdoc-hidden — must survive.
     let raw = "Summary line.\n\n# Errors\n\nMay fail.";
     assert_eq!(normalize_rustdoc(raw), "Summary line.\n\n# Errors\n\nMay fail.");
 }
 
 #[test]
 fn test_normalize_rustdoc_preserves_pound_in_non_rust_fence() {
-    // `# foo` inside a python fence is part of the snippet.
     let raw = "Example:\n\n```python\n# This is a python comment\nx = 1\n```";
     let normalized = normalize_rustdoc(raw);
     assert!(normalized.contains("# This is a python comment"));
@@ -56,8 +53,6 @@ fn test_normalize_rustdoc_rewrites_link_with_target() {
     let raw = "When set on [`ExtractionConfig`](super::ExtractionConfig), it works.";
     assert_eq!(
         normalize_rustdoc(raw),
-        // The leading link target is `ExtractionConfig` (no crate::/super:: prefix on
-        // the *backtick* portion), so this form is left for downstream renderers.
         "When set on [`ExtractionConfig`](super::ExtractionConfig), it works."
     );
 }
@@ -91,12 +86,9 @@ fn test_normalize_rustdoc_handles_rust_no_run_fence() {
 }
 
 fn parse_attrs(input: &str) -> Vec<syn::Attribute> {
-    // Wrap the attribute in a dummy struct so syn can parse it.
     let item: syn::ItemStruct = syn::parse_str(&format!("{input} struct _Dummy;")).unwrap();
     item.attrs
 }
-
-// --- has_derive ---
 
 #[test]
 fn test_has_derive_bare_positive() {
@@ -121,7 +113,6 @@ fn test_has_derive_cfg_attr_simple() {
 
 #[test]
 fn test_has_derive_cfg_attr_multi_derive() {
-    // multiple derives inside cfg_attr
     let attrs = parse_attrs(r#"#[cfg_attr(feature = "x", derive(Foo, Bar, Baz))]"#);
     assert!(has_derive(&attrs, "Foo"));
     assert!(has_derive(&attrs, "Bar"));
@@ -133,14 +124,12 @@ fn test_has_derive_cfg_attr_multi_derive() {
 fn test_has_derive_cfg_attr_any_condition() {
     // #[cfg_attr(any(feature = "x", test), derive(thiserror::Error))]
     let attrs = parse_attrs(r#"#[cfg_attr(any(feature = "x", test), derive(thiserror::Error))]"#);
-    // Last segment of thiserror::Error is "Error"
     assert!(has_derive(&attrs, "Error"));
     assert!(!has_derive(&attrs, "thiserror"));
 }
 
 #[test]
 fn test_has_derive_cfg_attr_qualified_path_last_segment() {
-    // serde::Serialize — last segment is "Serialize"
     let attrs = parse_attrs(r#"#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]"#);
     assert!(has_derive(&attrs, "Serialize"));
     assert!(has_derive(&attrs, "Deserialize"));
@@ -149,12 +138,9 @@ fn test_has_derive_cfg_attr_qualified_path_last_segment() {
 
 #[test]
 fn test_has_derive_cfg_attr_negative_no_derive() {
-    // cfg_attr with a non-derive inner attribute
     let attrs = parse_attrs(r#"#[cfg_attr(feature = "x", serde(rename_all = "camelCase"))]"#);
     assert!(!has_derive(&attrs, "Serialize"));
 }
-
-// --- has_derive_path ---
 
 #[test]
 fn test_has_derive_path_bare_single_segment() {
@@ -208,8 +194,6 @@ fn test_has_derive_path_empty_attrs() {
     assert!(!has_derive_path(&attrs, &["Debug"]));
 }
 
-// --- detect_core_wrapper: Arc<Mutex<T>> / Arc<RwLock<T>> unwrap ---
-
 use super::detect_core_wrapper;
 use crate::core::ir::CoreWrapper;
 
@@ -231,34 +215,27 @@ fn test_detect_core_wrapper_arc_rwlock_returns_arc_mutex() {
 
 #[test]
 fn test_detect_core_wrapper_option_arc_mutex_peeks_through_option() {
-    // Option<Arc<Mutex<T>>> must resolve to ArcMutex (peek through Option).
     let ty = parse_type("Option<Arc<Mutex<String>>>");
     assert_eq!(detect_core_wrapper(&ty), CoreWrapper::ArcMutex);
 }
 
 #[test]
 fn test_detect_core_wrapper_plain_arc_returns_arc() {
-    // Bare Arc<T> (no inner Mutex/RwLock) must stay as plain Arc.
     let ty = parse_type("Arc<String>");
     assert_eq!(detect_core_wrapper(&ty), CoreWrapper::Arc);
 }
 
 #[test]
 fn test_detect_core_wrapper_arc_dyn_trait_stays_plain_arc() {
-    // Arc<dyn Trait> deliberately NOT collapsed — trait-object ownership differs.
     let ty = parse_type("Arc<dyn MyTrait>");
     assert_eq!(detect_core_wrapper(&ty), CoreWrapper::Arc);
 }
 
 #[test]
 fn test_detect_core_wrapper_tokio_sync_mutex_last_segment_match() {
-    // `tokio::sync::Mutex<T>` matches via last-segment ident — intentional, same
-    // handling as `std::sync::Mutex` since the binding shape (.lock()) is identical.
     let ty = parse_type("Arc<tokio::sync::Mutex<u64>>");
     assert_eq!(detect_core_wrapper(&ty), CoreWrapper::ArcMutex);
 }
-
-// --- extract_deprecation ---
 
 #[test]
 fn test_extract_deprecation_bare_deprecated_returns_empty_info() {
@@ -300,8 +277,6 @@ fn test_extract_deprecation_absent_returns_none() {
     assert!(extract_deprecation(&attrs).is_none());
 }
 
-// --- extract_alef_since ---
-
 #[test]
 fn test_extract_alef_since_bare_alef_since_returns_version() {
     let attrs = parse_attrs(r#"#[alef(since = "1.5.0")]"#);
@@ -310,7 +285,6 @@ fn test_extract_alef_since_bare_alef_since_returns_version() {
 
 #[test]
 fn test_extract_alef_since_cfg_attr_alef_since_returns_version() {
-    // Real usage: cfg_attr with a feature gate, not a bare identifier.
     let attrs = parse_attrs(r#"#[cfg_attr(feature = "alef-meta", alef(since = "0.9.0"))]"#);
     assert_eq!(extract_alef_since(&attrs).as_deref(), Some("0.9.0"));
 }

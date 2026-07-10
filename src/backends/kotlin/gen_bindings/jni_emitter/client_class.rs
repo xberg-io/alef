@@ -22,9 +22,6 @@ pub fn emit_jni_client_class(
         return None;
     }
 
-    // Honour `[crates.kotlin_android].exclude_functions` / `[crates.kotlin].exclude_functions`
-    // for instance methods, mirroring the top-level function filter at the start
-    // of the bridge-object emitter (line 40-55 above).
     let exclude_functions: std::collections::HashSet<&str> = config
         .kotlin_android
         .as_ref()
@@ -43,7 +40,6 @@ pub fn emit_jni_client_class(
         .map(str::to_string)
         .unwrap_or_else(|| jni_kotlin_package(config));
 
-    // Opaque type names: Named params of this shape are handles (Long), not JSON (String).
     let opaque_type_names: std::collections::HashSet<&str> = api
         .types
         .iter()
@@ -86,7 +82,6 @@ pub fn emit_jni_client_class(
     for ty in &client_types {
         let class_name = &ty.name;
 
-        // Pre-scan to collect type imports.
         for m in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
             kotlin_type_with_string_imports(&m.return_type, false, &mut imports);
             for p in &m.params {
@@ -98,13 +93,10 @@ pub fn emit_jni_client_class(
             .filter(|a| a.owner_type.as_deref() == Some(class_name.as_str()))
         {
             if let Some(item) = adapter.item_type.as_deref() {
-                // Item type only references the simple name; no import needed in same pkg.
                 let _ = item;
             }
         }
 
-        // Suppress detekt TooManyFunctions: the number of methods scales with
-        // the API surface; large APIs naturally exceed the default threshold of 11.
         body.push_str(&template_env::render(
             "jni_client_class_header.jinja",
             minijinja::context! {
@@ -112,8 +104,6 @@ pub fn emit_jni_client_class(
             },
         ));
 
-        // Emit MAPPER companion object for JSON serialisation/deserialisation.
-        // Used by all method wrappers that marshal to/from the JNI String boundary.
         let has_json_methods = ty
             .methods
             .iter()
@@ -152,7 +142,6 @@ pub fn emit_jni_client_class(
             );
         }
 
-        // Streaming methods owned by this client type.
         for adapter in streaming_adapters
             .iter()
             .filter(|a| a.owner_type.as_deref() == Some(class_name.as_str()))
@@ -171,8 +160,6 @@ pub fn emit_jni_client_class(
         body.push_str("}\n");
     }
 
-    // File-level @file:Suppress for the JNI client class silences ktlint/detekt
-    // rules that the generated client wrapper naturally violates.
     let imports = imports.iter().cloned().collect::<Vec<_>>();
     let content = template_env::render(
         "jni_client_file.jinja",
@@ -190,7 +177,3 @@ pub fn emit_jni_client_class(
         generated_header: false,
     })
 }
-
-// ---------------------------------------------------------------------------
-// Private helpers
-// ---------------------------------------------------------------------------

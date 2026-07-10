@@ -8,10 +8,6 @@ use alef::core::config::TraitBridgeConfig;
 use alef::core::ir::{MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeRef};
 use alef::e2e::codegen::rust::emit_test_backend;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 fn make_param(name: &str, ty: TypeRef) -> ParamDef {
     ParamDef {
         name: name.to_string(),
@@ -71,10 +67,6 @@ fn make_fixture(id: &str) -> alef::e2e::fixture::Fixture {
     .expect("fixture JSON must parse")
 }
 
-// ---------------------------------------------------------------------------
-// Snapshot tests
-// ---------------------------------------------------------------------------
-
 /// One async method returning `Result<T, E>`, one sync unit method, one sync
 /// `Vec<T>` method — covers all three basic return-type shapes.
 #[test]
@@ -85,7 +77,6 @@ fn snapshot_emit_test_backend_mixed_return_types() {
         ..Default::default()
     };
 
-    // async fn extract(&self, _p0: Vec<u8>, _p1: String) -> Result<ProcessingResult, SampleCrateError>
     let extract = make_method(
         "extract",
         vec![
@@ -98,10 +89,8 @@ fn snapshot_emit_test_backend_mixed_return_types() {
         false,
     );
 
-    // fn initialize(&self) — unit return, no error
     let initialize = make_method("initialize", vec![], TypeRef::Unit, false, None, false);
 
-    // fn supported_mime_types(&self) -> Vec<String>
     let supported = make_method(
         "supported_mime_types",
         vec![],
@@ -115,10 +104,8 @@ fn snapshot_emit_test_backend_mixed_return_types() {
     let fixture = make_fixture("mixed_return_types");
     let emission = emit_test_backend(&bridge, &methods, &fixture);
 
-    // Snapshot the setup_block.
     insta::assert_snapshot!("snapshot_emit_test_backend_setup_block", &emission.setup_block);
 
-    // type_imports must include the trait and the named return type.
     assert!(
         emission.type_imports.contains(&"MyTrait".to_string()),
         "type_imports must include the trait name, got: {:?}",
@@ -129,13 +116,11 @@ fn snapshot_emit_test_backend_mixed_return_types() {
         "type_imports must include ProcessingResult, got: {:?}",
         emission.type_imports
     );
-    // SampleCrateError is the error type — it must be imported too.
     assert!(
         emission.type_imports.contains(&"SampleCrateError".to_string()),
         "type_imports must include SampleCrateError, got: {:?}",
         emission.type_imports
     );
-    // Std types that are always in scope must not appear.
     assert!(
         !emission.type_imports.contains(&"String".to_string()),
         "String must not appear in type_imports (always in scope)"
@@ -154,7 +139,6 @@ fn snapshot_emit_test_backend_typed_params() {
         ..Default::default()
     };
 
-    // fn process_image(&self, _p0: Vec<u8>, _p1: bool) -> Result<String, String>
     let process = make_method(
         "process_image",
         vec![
@@ -171,7 +155,6 @@ fn snapshot_emit_test_backend_typed_params() {
     let fixture = make_fixture("typed_params_fixture");
     let emission = emit_test_backend(&bridge, &methods, &fixture);
 
-    // Must emit typed parameters, not bare `_` wildcards.
     assert!(
         emission.setup_block.contains("_p0: Vec<u8>"),
         "param 0 must have type annotation Vec<u8>, got:\n{}",
@@ -183,7 +166,6 @@ fn snapshot_emit_test_backend_typed_params() {
         emission.setup_block
     );
 
-    // Must emit the return type arrow.
     assert!(
         emission.setup_block.contains("-> Result<String, String>"),
         "must emit -> Result<String, String>, got:\n{}",
@@ -199,20 +181,17 @@ fn snapshot_emit_test_backend_unit_return_no_arrow() {
         ..Default::default()
     };
 
-    // fn validate(&self) — unit, no error
     let validate = make_method("validate", vec![], TypeRef::Unit, false, None, false);
     let methods = [&validate];
     let fixture = make_fixture("unit_return_fixture");
     let emission = emit_test_backend(&bridge, &methods, &fixture);
 
-    // Unit return: no `->` arrow.
     assert!(
         !emission.setup_block.contains("->"),
         "unit-returning method must not emit a return arrow, got:\n{}",
         emission.setup_block
     );
 
-    // Body must be `{ () }`.
     assert!(
         emission.setup_block.contains("{ () }"),
         "unit method body must be `{{ () }}`, got:\n{}",
@@ -228,7 +207,6 @@ fn snapshot_emit_test_backend_async_method() {
         ..Default::default()
     };
 
-    // async fn embed(&self, _p0: String) -> Result<Vec<f32>, String>
     let embed = make_method(
         "embed",
         vec![make_param("text", TypeRef::String)],

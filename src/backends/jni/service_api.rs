@@ -22,8 +22,6 @@ use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, Registrati
 use crate::core::jni::{bridge_method_name, jni_package, jni_symbol, service_bridge_class_name};
 use std::path::PathBuf;
 
-// ───────────────────────────────────────────────────────────────── helpers ──
-
 /// Find the `HandlerContractDef` by trait name in the surface.
 fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a HandlerContractDef> {
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
@@ -77,8 +75,6 @@ fn typeref_to_jni_type(ty: &TypeRef, _core_import: &str) -> String {
     .to_owned()
 }
 
-// ──────────────────────────────────────────────────────────────── Rust glue ──
-
 /// Generate the Rust JNI glue module (`service.rs`).
 ///
 /// For each service this emits:
@@ -96,16 +92,11 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 
     out.push_str(&template_env::render("service_header.rs.jinja", context! {}));
 
-    // Emit service opaque types and constructor/destructor.
-    // The JVM class hosting the `external fun`s is the per-service bridge object
-    // `{ServicePascal}ServiceBridge` — it MUST match the Kotlin `object` name so the
-    // `Java_*` symbols and the Kotlin `external fun` declarations link.
     for service in &api.services {
         let service_bridge_class = service_bridge_class_name(&service.name);
         gen_service_opaque(&mut out, service, &core_import, &package, &service_bridge_class);
     }
 
-    // Emit one handler bridge per unique handler contract referenced by any registration
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
             .services
@@ -122,7 +113,6 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         gen_handler_bridge(&mut out, contract, &core_import);
     }
 
-    // Emit handler registration and lifecycle entry points per service
     for service in &api.services {
         let service_bridge_class = service_bridge_class_name(&service.name);
         for reg in &service.registrations {
@@ -186,7 +176,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let bridge_name = format!("Jni{}Bridge", internal_class_component(trait_name));
     let dispatch_name = &contract.dispatch.name;
 
-    // Determine wire types
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
@@ -198,10 +187,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         },
     ));
 
-    // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
-    // contract's dispatch method receives but the wire bridge does not consume). Their concrete
-    // types cannot be reconstructed from the sanitized surface, so the library supplies them
-    // verbatim via `dispatch_extra_params`. Each is emitted as a `, {decl}` prefix argument.
     let extra_param: String = contract
         .dispatch_extra_params
         .iter()
@@ -209,8 +194,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .collect();
     let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
-    // Build module paths for types. If the wire type includes the core import prefix, strip it
-    // and add it back; otherwise use plain serde_json::Value if name is "Value".
     let req_path = if req_type == "Value" {
         "serde_json::Value".to_string()
     } else if req_type.contains("::") {
@@ -226,11 +209,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         format!("{core_import}::{resp_type}")
     };
 
-    // The future's `Output` is the contract dispatch's real return type when the library
-    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
-    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
-    // fallible computation produces the wire `Result` and the adapter converts it into the
-    // dispatch return type — keeping the generator ignorant of the library's response model.
     let box_err = "Box<dyn std::error::Error + Send + Sync>";
     let wire_output = format!("Result<{resp_path}, {box_err}>");
     let output_type = contract
@@ -242,10 +220,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         None => "outcome".to_string(),
     };
 
-    // Trait impl. Returns a boxed future directly (canonical object-safe
-    // async-trait shape) instead of via the async_trait macro, matching a
-    // contract whose dispatch method is hand-written as
-    // `-> Pin<Box<dyn Future<..> + Send + '_>>`.
     out.push_str(&template_env::render(
         "handler_bridge_impl.rs.jinja",
         context! {
@@ -317,7 +291,6 @@ fn gen_register_jni_function(
             },
         ));
 
-        // Emit registration variants
         for variant in &reg.variants {
             gen_register_variant_jni_function(
                 out,
@@ -364,7 +337,6 @@ fn gen_register_variant_jni_function(
             free_params_decl.push_str(&render_service_param_decl(&param.name, &rust_type));
         }
 
-        // Build wrapper if wrapper_call is present
         let mut wrapper_block = String::new();
         if let Some(wc) = &variant.wrapper_call {
             let mut constructor_args = Vec::new();
@@ -392,15 +364,12 @@ fn gen_register_variant_jni_function(
             ));
         }
 
-        // Build arguments for base register call
         let mut base_call_args = Vec::new();
 
-        // Add wrapper param if present
         if let Some(wc) = &variant.wrapper_call {
             base_call_args.push(wc.metadata_param.clone());
         }
 
-        // Add overridden metadata params
         for override_ in &variant.overrides {
             base_call_args.push(override_.value_expr.clone());
         }
@@ -491,8 +460,6 @@ fn gen_entrypoint_jni_function(
     }
 }
 
-// ──────────────────────────────────────────────────────── public entry point ──
-
 /// Generate all service-API files for the JNI backend.
 ///
 /// Returns up to one `GeneratedFile`:
@@ -513,8 +480,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         generated_header: true,
     }])
 }
-
-// ───────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests {
@@ -647,7 +612,6 @@ mod tests {
         let mut surface = make_fixture_surface();
         if let Some(service) = surface.services.first_mut() {
             if let Some(reg) = service.registrations.first_mut() {
-                // Add a "get" variant
                 reg.variants.push(crate::core::ir::RegistrationVariant {
                     name: "get".to_owned(),
                     overrides: vec![crate::core::ir::RegistrationVariantOverride {
@@ -751,17 +715,14 @@ mod tests {
             output.contains("nativeTestServiceRegisterAddHandler"),
             "expected register function for TestService.add_handler:\n{output}"
         );
-        // Verify the register function actually calls owner.add_handler
         assert!(
             output.contains(".inner.add_handler("),
             "register function must call owner.add_handler():\n{output}"
         );
-        // Verify it creates the bridge
         assert!(
             output.contains("JniRequestHandlerBridge"),
             "register function must create the bridge:\n{output}"
         );
-        // Verify it creates a GlobalRef and jmethodID
         assert!(
             output.contains("new_global_ref"),
             "register function must create global reference to handler:\n{output}"
@@ -782,17 +743,14 @@ mod tests {
             output.contains("nativeTestServiceRun"),
             "expected run entrypoint function:\n{output}"
         );
-        // Verify the run function creates a tokio runtime
         assert!(
             output.contains("tokio::runtime::Runtime::new"),
             "run function must create tokio runtime:\n{output}"
         );
-        // Verify it dereferences and calls the owner's run method
         assert!(
             output.contains("owner_ref.run("),
             "run function must call owner.run():\n{output}"
         );
-        // Verify it blocks on the async runtime
         assert!(
             output.contains("block_on"),
             "run function must block_on the async entrypoint:\n{output}"
@@ -805,22 +763,18 @@ mod tests {
         let surface = make_fixture_surface();
         let config = make_test_config();
         let output = gen_service_rs(&surface, &config);
-        // Verify opaque struct is defined
         assert!(
             output.contains("pub struct TestServiceOpaque"),
             "expected TestServiceOpaque struct:\n{output}"
         );
-        // Verify constructor entry point
         assert!(
             output.contains("nativeTestServiceNew"),
             "expected nativeTestServiceNew entry point:\n{output}"
         );
-        // Verify it calls the Rust constructor
         assert!(
             output.contains("my_crate::TestService::new()"),
             "constructor must call the Rust service constructor:\n{output}"
         );
-        // Verify it returns jlong (via Box::into_raw)
         assert!(
             output.contains("Box::into_raw"),
             "constructor must return raw pointer as jlong:\n{output}"
@@ -833,17 +787,14 @@ mod tests {
         let surface = make_fixture_surface();
         let config = make_test_config();
         let output = gen_service_rs(&surface, &config);
-        // Verify free entry point
         assert!(
             output.contains("nativeTestServiceFree"),
             "expected nativeTestServiceFree entry point:\n{output}"
         );
-        // Verify it reconstructs from raw pointer
         assert!(
             output.contains("Box::from_raw"),
             "destructor must reconstruct from raw pointer:\n{output}"
         );
-        // Verify it validates null pointer
         assert!(
             output.contains("if handle != 0"),
             "destructor must check for null pointer:\n{output}"
@@ -888,19 +839,15 @@ mod tests {
         let surface = make_fixture_surface_with_variants();
         let config = make_test_config();
         let output = gen_service_rs(&surface, &config);
-        // Verify the variant registration function is emitted
         assert!(
             output.contains("nativeTestServiceRegisterAddHandlerGet"),
             "expected variant registration function nativeTestServiceRegisterAddHandlerGet:\n{output}"
         );
-        // Verify it builds wrapper and calls base registration
         assert!(
             output.contains("inner.add_handler("),
             "variant function must call the base registration method:\n{output}"
         );
     }
-
-    // ── helpers ──────────────────────────────────────────────────────────────
 
     fn make_test_config() -> ResolvedCrateConfig {
         use crate::core::config::resolved::ResolvedCrateConfig;

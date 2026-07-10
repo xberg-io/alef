@@ -133,12 +133,6 @@ def _resolve_version_from(alef_toml: Path, version_from: str) -> str | None:
 
 
 def _version() -> str:
-    # alef.toml's resolution order (consumer convention first, then alef-self-bootstrap):
-    #   1. `[workspace] alef_version = "X.Y.Z"` — the standard consumer-side declaration of
-    #      which alef BINARY version to use. Lives at the top of every consumer alef.toml.
-    #   2. `[crate] version_from = "Cargo.toml"` — alef's own repo, where alef.toml is
-    #      version-less and defers to the workspace `Cargo.toml`'s package version.
-    #   3. Bare top-level `version = "X.Y.Z"` — legacy/manual fallback.
     alef_toml = _find_consumer_alef_toml()
     workspace_alef_version, version_from, inline_version = _parse_alef_toml(alef_toml)
     if workspace_alef_version:
@@ -147,7 +141,6 @@ def _version() -> str:
         resolved = _resolve_version_from(alef_toml, version_from)
         if resolved:
             return resolved
-        # Fall through to the inline version if the referenced file is missing.
     if inline_version:
         return inline_version
     msg = "Could not resolve alef version: no [workspace].alef_version, no [crate].version_from, no top-level version"
@@ -242,7 +235,6 @@ def _system_binary_matches(version: str) -> Path | None:
         return None
     if result.returncode != 0:
         return None
-    # Typical output: "alef 0.15.8" — accept the last whitespace-separated token.
     last_token = (result.stdout.strip().split() or [""])[-1].lstrip("v")
     if last_token != version:
         return None
@@ -252,7 +244,6 @@ def _system_binary_matches(version: str) -> Path | None:
 def _resolve_binary() -> Path:
     version = _version()
 
-    # Prefer a pre-installed `alef` on PATH whose --version matches.
     system_binary = _system_binary_matches(version)
     if system_binary is not None:
         return system_binary

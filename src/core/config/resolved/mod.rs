@@ -54,9 +54,6 @@ use crate::core::config::workspace::ClientConstructorConfig;
 /// placeholders substituted).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResolvedCrateConfig {
-    // -----------------------------------------------------------------
-    // Identity
-    // -----------------------------------------------------------------
     pub name: String,
     pub sources: Vec<PathBuf>,
     pub source_crates: Vec<SourceCrate>,
@@ -71,14 +68,8 @@ pub struct ResolvedCrateConfig {
     pub extra_dependencies: HashMap<String, toml::Value>,
     pub auto_path_mappings: bool,
 
-    // -----------------------------------------------------------------
-    // Languages targeted by this crate
-    // -----------------------------------------------------------------
     pub languages: Vec<Language>,
 
-    // -----------------------------------------------------------------
-    // Per-language settings (workspace defaults already merged)
-    // -----------------------------------------------------------------
     pub python: Option<PythonConfig>,
     pub node: Option<NodeConfig>,
     pub ruby: Option<RubyConfig>,
@@ -98,9 +89,6 @@ pub struct ResolvedCrateConfig {
     pub r: Option<RConfig>,
     pub zig: Option<ZigConfig>,
 
-    // -----------------------------------------------------------------
-    // Filters
-    // -----------------------------------------------------------------
     pub exclude: ExcludeConfig,
     pub include: IncludeConfig,
 
@@ -116,9 +104,6 @@ pub struct ResolvedCrateConfig {
     /// any other consumer that derives identifiers from the user-supplied path.
     pub explicit_output: OutputConfig,
 
-    // -----------------------------------------------------------------
-    // Pipelines (workspace defaults merged with per-crate overrides)
-    // -----------------------------------------------------------------
     pub lint: HashMap<String, LintConfig>,
     pub test: HashMap<String, TestConfig>,
     pub setup: HashMap<String, SetupConfig>,
@@ -126,25 +111,16 @@ pub struct ResolvedCrateConfig {
     pub clean: HashMap<String, CleanConfig>,
     pub build_commands: HashMap<String, BuildCommandConfig>,
 
-    // -----------------------------------------------------------------
-    // Generation flags
-    // -----------------------------------------------------------------
     pub generate: GenerateConfig,
     pub generate_overrides: HashMap<String, GenerateConfig>,
     pub dto: DtoConfig,
 
-    // -----------------------------------------------------------------
-    // Workspace concerns surfaced to the crate (read-only inheritance)
-    // -----------------------------------------------------------------
     pub tools: ToolsConfig,
     pub opaque_types: HashMap<String, String>,
     pub client_constructors: HashMap<String, ClientConstructorConfig>,
     pub sync: Option<SyncConfig>,
     pub citation: Option<CitationConfig>,
 
-    // -----------------------------------------------------------------
-    // Packaging, e2e, extensibility
-    // -----------------------------------------------------------------
     pub publish: Option<PublishConfig>,
     pub e2e: Option<E2eConfig>,
     pub adapters: Vec<AdapterConfig>,

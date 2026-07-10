@@ -26,8 +26,6 @@ use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-// ──────────────────────────────────────────────────────────────── helpers ──
-
 /// Whether an entrypoint's return type can be represented as a Kotlin return
 /// (mirrors the gate in every host backend so non-representable `Finalize`
 /// entrypoints — e.g. one returning an axum `Router` — are skipped).
@@ -89,11 +87,9 @@ fn kotlin_return_type(ty: &TypeRef, api: &ApiSurface) -> String {
 /// `SCREAMING_SNAKE_CASE`.  This function strips the leading crate/module
 /// segments and emits `{TypeName}.{VariantName}`.
 fn rust_enum_expr_to_kotlin(value_expr: &str) -> String {
-    // Split on `::` and take the last two segments: TypeName and VariantName.
     let parts: Vec<&str> = value_expr.split("::").collect();
     match parts.as_slice() {
         [.., type_name, variant] => format!("{}.{}", type_name, variant),
-        // Single segment or empty — return as-is (already a plain literal).
         _ => value_expr.to_owned(),
     }
 }
@@ -114,10 +110,8 @@ fn gen_registration_variant(
     let variant_method_kt = variant.name.to_lower_camel_case();
     let base_method_kt = base_reg.method.to_lower_camel_case();
 
-    // The variant always takes a handler lambda as the first parameter.
     let handler_param = "handler: (String) -> String".to_owned();
 
-    // Build parameter list: handler first, then signature_params.
     let mut param_parts = vec![handler_param];
     param_parts.extend(variant.signature_params.iter().map(|p| {
         format!(
@@ -128,21 +122,7 @@ fn gen_registration_variant(
     }));
     let params = param_parts.join(", ");
 
-    // Build argument list forwarded to the base registration method.
     let args_str = if let Some(wc) = &variant.wrapper_call {
-        // Wrapper-constructor mode.
-        //
-        // The JVM binding generates a static factory `{TypeName}.create(...)` on the
-        // Java class (alef maps Rust `fn new(...)` to a Java `create(...)` static
-        // method). The Kotlin coroutine wrapper expects the Kotlin wrapper type, so
-        // the call sequence is:
-        //
-        //   val javaInstance = {java_package}.{TypeName}.create({ctor_args})
-        //   route(handler, {TypeName}(javaInstance))
-        //
-        // Fixed args are translated from Rust enum path to Kotlin/JVM form
-        // (PascalCase variant, no crate prefix). Free args come from the variant's
-        // own signature params.
         let ctor_args: Vec<String> = wc
             .args
             .iter()
@@ -158,7 +138,6 @@ fn gen_registration_variant(
         let wrapper_expr = format!("{type_name}({java_factory})");
         format!("handler, {wrapper_expr}")
     } else {
-        // Direct override mode: handler + translated overrides + free params.
         let mut args = vec!["handler".to_owned()];
         for ov in &variant.overrides {
             args.push(rust_enum_expr_to_kotlin(&ov.value_expr));
@@ -169,7 +148,6 @@ fn gen_registration_variant(
         args.join(", ")
     };
 
-    // Render via template
     let ctx = minijinja::context! {
         variant_method_kt => variant_method_kt,
         params => params,
@@ -182,14 +160,11 @@ fn gen_registration_variant(
     out.push('\n');
 }
 
-// ──────────────────────────────────────────────────────────────── Kotlin ──
-
 /// Generate the coroutine-friendly Kotlin wrapper for a single service.
 fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, java_package: &str) -> String {
     let class_name = service.name.to_upper_camel_case();
     let java_fqn = format!("{java_package}.{class_name}");
 
-    // Collect imports up front so the file header is deterministic.
     let mut imports: BTreeSet<String> = BTreeSet::new();
     imports.insert(format!("import {java_package}.Callable"));
 
@@ -202,12 +177,6 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
         imports.insert("import kotlinx.coroutines.withContext".to_string());
     }
 
-    // If a metadata param or entrypoint param references a surface-wrapped type
-    // whose Kotlin wrapper lives in this same `package`, no extra import is
-    // needed. When the Kotlin coroutine package differs from the Java package,
-    // the wrapper types still live in `package` (`emit_client_type_file` writes
-    // them there), so cross-package imports are not required here.
-
     let mut body = String::new();
 
     body.push_str(&template_env::render(
@@ -218,13 +187,11 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
         },
     ));
 
-    // Registrations.
     for reg in &service.registrations {
         let reg_method_kt = reg.method.to_lower_camel_case();
         let reg_method_camel = reg.method.to_upper_camel_case();
         let java_method = format!("register{class_name}{reg_method_camel}");
 
-        // Signature: handler + each metadata param in Kotlin types.
         let mut params: Vec<String> = vec!["handler: (String) -> String".to_owned()];
         for meta in &reg.metadata_params {
             params.push(format!(
@@ -234,7 +201,6 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
             ));
         }
 
-        // Delegation args: SAM-convert the handler, unwrap opaque wrappers.
         let mut args: Vec<String> = vec!["Callable { request -> handler(request) }".to_owned()];
         for meta in &reg.metadata_params {
             let name = meta.name.to_lower_camel_case();
@@ -266,13 +232,11 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
             },
         ));
 
-        // Emit registration variants (shortcuts for common patterns)
         for variant in &reg.variants {
             gen_registration_variant(&mut body, variant, reg, &class_name, java_package);
         }
     }
 
-    // Entrypoints.
     for ep in &service.entrypoints {
         if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
             continue;
@@ -317,7 +281,6 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
 
         match ep.kind {
             EntrypointKind::Run => {
-                // Always suspend + hop to Dispatchers.IO — the Java call is blocking.
                 body.push_str(&template_env::render(
                     "service_run_method.jinja",
                     minijinja::context! {
@@ -348,8 +311,6 @@ fn gen_service_kotlin(api: &ApiSurface, service: &ServiceDef, package: &str, jav
 
     shared::assemble_kt_file(package, &imports, &body)
 }
-
-// ──────────────────────────────────────────────────────────────── public ──
 
 /// Generate all service-API files for the Kotlin backend.
 ///
@@ -399,8 +360,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 
     Ok(files)
 }
-
-// ─────────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests {
@@ -533,7 +492,6 @@ mod tests {
 
         assert!(kt.contains("package com.example.kt"));
         assert!(kt.contains("import com.example.Callable"));
-        // Run entrypoint forces coroutine imports.
         assert!(kt.contains("import kotlinx.coroutines.Dispatchers"));
         assert!(kt.contains("import kotlinx.coroutines.withContext"));
     }
@@ -584,7 +542,6 @@ mod tests {
         let service = &api.services[0];
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
 
-        // No JNI bridge, no native lib loading, no external funs.
         assert!(!kt.contains("external fun"));
         assert!(!kt.contains("System.loadLibrary"));
         assert!(!kt.contains("nativeTestService"));
@@ -612,7 +569,6 @@ mod tests {
     #[test]
     fn coroutine_wrapper_finalize_non_representable_is_skipped() {
         let mut api = make_fixture_surface();
-        // Return type is not Unit/primitive and not a surface-wrapped type → skipped.
         api.services[0].entrypoints.push(EntrypointDef {
             method: "into_router".to_owned(),
             kind: EntrypointKind::Finalize,
@@ -631,7 +587,6 @@ mod tests {
     #[test]
     fn coroutine_wrapper_opaque_metadata_unwraps_inner() {
         let mut api = make_fixture_surface();
-        // Add a surface-wrapped opaque type.
         api.types.push(crate::core::ir::TypeDef {
             name: "RouteBuilder".to_owned(),
             rust_path: "my_crate::RouteBuilder".to_owned(),
@@ -713,7 +668,6 @@ mod tests {
     #[test]
     fn coroutine_wrapper_emits_registration_variants() {
         let mut api = make_fixture_surface();
-        // Add a variant to the first registration (direct-override mode, no wrapper_call)
         api.services[0].registrations[0].variants.push(RegistrationVariant {
             name: "get".to_owned(),
             overrides: vec![crate::core::ir::RegistrationVariantOverride {
@@ -735,10 +689,8 @@ mod tests {
         let service = &api.services[0];
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
 
-        // Handler is now always included in the variant signature.
         assert!(kt.contains("fun get(handler: (String) -> String, path: String): Int"));
         assert!(kt.contains("Register a GET handler."));
-        // Doc comment must appear on its own line, not merged with `fun`.
         assert!(!kt.contains("Register a GET handler.    fun get"));
         assert!(kt.contains("addHandler(handler, HttpMethod.GET, path)"));
     }
@@ -746,7 +698,6 @@ mod tests {
     #[test]
     fn coroutine_wrapper_variant_with_wrapper_call() {
         let mut api = make_fixture_surface();
-        // Simulate a wrapper_call variant: RouteBuilder(Method.GET, path)
         api.services[0].registrations[0].variants.push(RegistrationVariant {
             name: "get".to_owned(),
             overrides: vec![],
@@ -786,9 +737,6 @@ mod tests {
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
 
         assert!(kt.contains("fun get(handler: (String) -> String, path: String): Int"));
-        // Enum value_expr translated: my_crate::Method::Get -> Method.Get (PascalCase preserved).
-        // Java factory call: com.example.RouteBuilder.create(Method.Get, path)
-        // Wrapped in Kotlin coroutine wrapper: RouteBuilder(com.example.RouteBuilder.create(...))
         assert!(kt.contains("com.example.RouteBuilder.create(Method.Get, path)"));
         assert!(kt.contains("RouteBuilder(com.example.RouteBuilder.create(Method.Get, path))"));
         assert!(kt.contains("addHandler(handler, RouteBuilder(com.example.RouteBuilder.create(Method.Get, path))"));

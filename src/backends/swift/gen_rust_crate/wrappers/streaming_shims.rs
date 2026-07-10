@@ -57,15 +57,8 @@ pub(crate) fn emit_streaming_adapter_shims(
         let handle_name = format!("{owner_pascal}{adapter_pascal}StreamHandle");
         let fn_start = format!("{owner_snake}_{}_start", adapter.name);
 
-        // The fully-qualified item type lives in the umbrella source crate.
-        // Consumers' item types are serde-bridged DTOs that already derive
-        // `Serialize`; we use `serde_json::to_string` on each chunk so the
-        // bridge boundary only sees `Result<String, String>`.
         let core_item = format!("{source_crate}::{item_type}");
 
-        // Build start-function param list: first param is the opaque client receiver,
-        // then adapter params (passed by reference because their swift-bridge wrapper
-        // newtypes are non-Copy).
         let mut start_params_vec: Vec<String> = vec![format!("client: &{owner_type}")];
         for p in &adapter.params {
             let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);
@@ -74,9 +67,6 @@ pub(crate) fn emit_streaming_adapter_shims(
         }
         let start_params_str = start_params_vec.join(", ");
 
-        // Build call args (excluding the receiver). Named types bridged as
-        // newtypes must be unwrapped to `.0` and cloned because the core API
-        // takes ownership of the request.
         let call_args: Vec<String> = adapter
             .params
             .iter()
@@ -87,9 +77,6 @@ pub(crate) fn emit_streaming_adapter_shims(
             .collect();
         let call_args_str = call_args.join(", ");
 
-        // Resolve the core Rust call. A bare `core_path` (no `::`) names a method
-        // on the owner type — invoke it as `client.0.<method>(args)`. A fully
-        // qualified `core_path` is invoked as a free function.
         let core_call = if adapter.core_path.contains("::") {
             format!("{}(&client.0, {call_args_str})", adapter.core_path)
         } else {
@@ -106,13 +93,6 @@ pub(crate) fn emit_streaming_adapter_shims(
             },
         ));
 
-        // _start: open the stream. HTTP-level errors (e.g. 401) surface as
-        // Err(String) before any chunks arrive, so Swift `try` catches them.
-        //
-        // RUNTIME FIX: The core Rust API (e.g., client.crawl_stream) spawns
-        // work on tokio::spawn, which registers on the current task's runtime.
-        // We must use the same runtime context — the process-wide __alef_tokio_runtime() —
-        // so that spawned tasks and block_on calls operate on the same executor.
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_stream_handle_start.rs.jinja",
             minijinja::context! {
@@ -126,14 +106,7 @@ pub(crate) fn emit_streaming_adapter_shims(
             },
         ));
 
-        // The `next` method on the handle drives the stream forward.
         // #[allow(clippy::should_implement_trait)] — the method name `next` deliberately
-        // mirrors `Iterator::next` for ergonomic parity, but the signature is fallible
-        // (`Result<String, String>`) so it cannot implement the trait directly.
-        //
-        // Uses the process-wide __alef_tokio_runtime() to block on the stream. This ensures
-        // the stream consumer is on the same runtime as the populator tasks spawned by the
-        // core Rust API.
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_stream_handle_next.rs.jinja",
             minijinja::context! {

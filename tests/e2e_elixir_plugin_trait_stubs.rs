@@ -69,19 +69,16 @@ fn elixir_stub_emits_super_trait_name_and_initialize() {
     let emission = emit_test_backend(&bridge, &methods, &fixture, "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
-    // Should emit `name/0` from super-trait
     assert!(
         output.contains("def name, do: \"test-extractor\""),
         "must emit name() from super-trait, got:\n{output}"
     );
 
-    // Should emit `initialize/0` unconditionally when super_trait is set
     assert!(
         output.contains("def initialize, do: :ok"),
         "must emit initialize() from super-trait, got:\n{output}"
     );
 
-    // Should still emit the required method
     assert!(
         output.contains("def extract_bytes"),
         "must emit extract_bytes() required method, got:\n{output}"
@@ -99,19 +96,16 @@ fn elixir_stub_emits_integer_methods_as_one() {
     let emission = emit_test_backend(&bridge, &methods, &fixture, "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
-    // Should emit `dimensions` returning 1 (not 0)
     assert!(
         output.contains("def dimensions, do: 1"),
         "must emit dimensions() returning 1, got:\n{output}"
     );
 
-    // Should emit `initialize/0` from super-trait
     assert!(
         output.contains("def initialize, do: :ok"),
         "must emit initialize() from super-trait, got:\n{output}"
     );
 
-    // Should emit other required methods
     assert!(
         output.contains("def embed"),
         "must emit embed() required method, got:\n{output}"
@@ -130,7 +124,6 @@ fn elixir_stub_emits_all_required_trait_methods() {
     let emission = emit_test_backend(&bridge, &methods, &fixture, "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
-    // All three required methods should be present
     assert!(
         output.contains("def process_image"),
         "must emit process_image(), got:\n{output}"
@@ -144,7 +137,6 @@ fn elixir_stub_emits_all_required_trait_methods() {
         "must emit backend_type(), got:\n{output}"
     );
 
-    // Super-trait methods should also be present
     assert!(output.contains("def name, do:"), "must emit name(), got:\n{output}");
     assert!(
         output.contains("def initialize, do:"),

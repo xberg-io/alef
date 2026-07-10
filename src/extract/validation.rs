@@ -56,10 +56,6 @@ pub fn sanitized_public_api_diagnostics(api: &ApiSurface) -> Vec<SanitizedPublic
             continue;
         }
         for variant in &enum_def.variants {
-            // Skip variants that are explicitly excluded from the binding surface.
-            // Excluded variants are internal-only and their field types are intentionally
-            // not part of the public API; walking them would produce false-positive
-            // lossy-sanitization diagnostics.
             if variant.binding_excluded {
                 continue;
             }
@@ -457,7 +453,6 @@ mod tests {
     fn skips_binding_excluded_enum_variants_with_sanitized_fields() {
         // Regression: a variant marked `#[cfg_attr(alef, alef(skip))]` or
         // `#[doc(hidden)]` wraps an internal type that sanitizes to String.  The
-        // validator must not flag it because the entire variant is excluded.
         let excluded_variant = EnumVariant {
             name: "Code".to_string(),
             fields: vec![sanitized_field("_0", "CodeMetadataInner")],
@@ -465,7 +460,6 @@ mod tests {
             binding_exclusion_reason: Some("alef(skip)".to_string()),
             ..EnumVariant::default()
         };
-        // A non-excluded variant with a clean (non-sanitized) field must pass.
         let public_variant = EnumVariant {
             name: "Document".to_string(),
             ..EnumVariant::default()

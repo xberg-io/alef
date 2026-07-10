@@ -18,7 +18,6 @@ use alef::codegen::conversions::{
 use alef::core::ir::{EnumDef, EnumVariant};
 
 fn make_color_enum() -> EnumDef {
-    // Exhaustive unit enum — no excluded variants.
     EnumDef {
         name: "Color".to_string(),
         rust_path: "my_crate::Color".to_string(),
@@ -126,8 +125,6 @@ fn excluded_variant_enum_binding_to_core_never_has_catch_all() {
 
     let config = ConversionConfig::default();
 
-    // From<BindingEnum>→core: match on the binding type, which lacks "Invisible".
-    // All binding arms are covered; catch-all is unreachable and must not be emitted.
     let binding_to_core = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
     assert!(
         !binding_to_core.contains("_ => Default::default()"),
@@ -135,8 +132,6 @@ fn excluded_variant_enum_binding_to_core_never_has_catch_all() {
          the binding match is always exhaustive over the binding type.\n{binding_to_core}"
     );
 
-    // From<CoreEnum>→binding: match on the core type, which includes "Invisible".
-    // The catch-all covers the excluded variant; it IS required.
     let core_to_binding = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
     assert!(
         core_to_binding.contains("_ => Default::default()"),
@@ -154,8 +149,8 @@ fn magnus_data_enum_with_excluded_variant_no_catch_all_in_binding_to_core() {
     enum_def.excluded_variants.push(excluded_variant());
 
     let config = ConversionConfig {
-        binding_enums_have_data: true,                  // Magnus
-        binding_tuple_form_for_untagged_variants: true, // Magnus
+        binding_enums_have_data: true,
+        binding_tuple_form_for_untagged_variants: true,
         ..Default::default()
     };
 

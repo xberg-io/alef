@@ -29,9 +29,6 @@ fn method_return_type_decl(return_type: &TypeRef) -> String {
 fn method_return_null(return_type: &TypeRef) -> &'static str {
     match return_type {
         TypeRef::Unit => "()",
-        // jni 0.22 + jni-sys 0.4 changed `jboolean` from `u8` to `bool`; the
-        // sentinel value for an error-path return therefore needs to be `false`,
-        // not the legacy `0u8`.
         TypeRef::Primitive(PrimitiveType::Bool) => "false",
         TypeRef::Primitive(PrimitiveType::F32) => "0.0f32",
         TypeRef::Primitive(PrimitiveType::F64) => "0.0f64",
@@ -43,10 +40,6 @@ fn method_return_null(return_type: &TypeRef) -> &'static str {
         _ => "std::ptr::null_mut()",
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /// Map a TypeRef to a JNI return type string.
 fn jni_return_type(ty: &TypeRef) -> &'static str {
@@ -61,9 +54,7 @@ fn jni_return_type(ty: &TypeRef) -> &'static str {
         {
             "jbyteArray"
         }
-        // String and complex types cross the boundary as Java objects.
         TypeRef::String | TypeRef::Named(_) | TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => "jstring",
-        // Opaque handles → Long.
         _ => "jlong",
     }
 }
@@ -105,13 +96,11 @@ fn primitive_zero_literal(p: &PrimitiveType) -> Option<&'static str> {
 /// jboolean is bool (jni 0.22+) and jint is i32, so those types need no cast.
 fn primitive_cast(p: &PrimitiveType) -> &'static str {
     match p {
-        // jboolean is now `bool` in jni 0.22+; no cast needed
         PrimitiveType::Bool => "",
         PrimitiveType::I8 => "i8",
         PrimitiveType::U8 => "u8",
         PrimitiveType::I16 => "i16",
         PrimitiveType::U16 => "u16",
-        // jint is i32; no cast needed
         PrimitiveType::I32 => "",
         PrimitiveType::U32 => "u32",
         PrimitiveType::I64 => "i64",

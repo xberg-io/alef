@@ -25,8 +25,6 @@ use crate::core::ir::{
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
-// ───────────────────────────────────────────────────────────────── helpers ──
-
 /// Find the `HandlerContractDef` by trait name in the surface.
 fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a HandlerContractDef> {
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
@@ -65,8 +63,6 @@ fn trim_pending_service_h_decl_newline(out: &mut String) {
     }
 }
 
-// ──────────────────────────────────────────────────── C Header (.h output) ──
-
 /// Generate the C FFI header that declares the callback typedef and service API.
 ///
 /// This header is an input to cbindgen for human-readable API documentation,
@@ -86,7 +82,6 @@ fn gen_service_h(api: &ApiSurface, crate_name: &str) -> String {
     ));
     out.push('\n');
 
-    // Forward-declare each service opaque type.
     for service in &api.services {
         let opaque_name = format!("{}Opaque", service.name);
         out.push_str(&render(
@@ -96,7 +91,6 @@ fn gen_service_h(api: &ApiSurface, crate_name: &str) -> String {
     }
     out.push('\n');
 
-    // Service API declarations for each service.
     for service in &api.services {
         gen_service_h_decls(&mut out, service, api, crate_name);
     }
@@ -114,7 +108,6 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
     let opaque_name = format!("{}Opaque", service.name);
     let prefix_lower = prefix.to_lowercase();
 
-    // Constructor: allocates and returns an opaque handle
     out.push_str(&render(
         "service_api_h_constructor_decl.h.jinja",
         minijinja::context! {
@@ -125,7 +118,6 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
         },
     ));
 
-    // Destructor: frees the opaque handle
     out.push_str(&render(
         "service_api_h_destructor_decl.h.jinja",
         minijinja::context! {
@@ -136,7 +128,6 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
         },
     ));
 
-    // Registration functions
     for reg in &service.registrations {
         let reg_method_snake = reg.method.to_snake_case();
         out.push_str(&render_inline(
@@ -150,7 +141,6 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
             },
         ));
 
-        // Metadata parameters
         if !reg.metadata_params.is_empty() {
             trim_pending_service_h_decl_newline(out);
         }
@@ -161,7 +151,6 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
         out.push_str("\n);\n\n");
     }
 
-    // Entrypoint functions
     for ep in &service.entrypoints {
         let ep_name_snake = ep.method.to_snake_case();
         let return_type = typeref_to_c_type(&ep.return_type);
@@ -183,7 +172,6 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
             },
         ));
 
-        // Parameters
         if !ep.params.is_empty() {
             trim_pending_service_h_decl_newline(out);
         }
@@ -221,8 +209,8 @@ fn typeref_to_c_type(ty: &TypeRef) -> String {
         }
         TypeRef::Bytes => "const uint8_t*".to_owned(),
         TypeRef::Unit => "void".to_owned(),
-        TypeRef::Named(_) => "int32_t".to_owned(), // Enums are passed as int32_t discriminant
-        _ => "void*".to_owned(),                   // Json, Vec, Map, etc. go through JSON serialization
+        TypeRef::Named(_) => "int32_t".to_owned(),
+        _ => "void*".to_owned(),
     }
 }
 
@@ -252,8 +240,6 @@ fn typeref_to_rust_ffi_type(ty: &TypeRef, core_import: &str) -> String {
         TypeRef::Bytes => "*const u8".to_owned(),
         TypeRef::Unit => "()".to_owned(),
         TypeRef::Named(n) => {
-            // Enums will be handled specially by ffi_param_binding
-            // but if this is called directly, emit the core path
             if core_import.is_empty() {
                 n.clone()
             } else {
@@ -336,7 +322,6 @@ fn ffi_param_binding(p: &crate::core::ir::ParamDef, core_import: &str, api: &Api
             pointer: true,
         },
         TypeRef::Named(n) if api.enums.iter().any(|e| e.name == *n) => {
-            // Enum: passed as i32 discriminant, reconstructed via from_i32
             let enum_snake = heck::ToSnakeCase::to_snake_case(n.as_str());
             FfiParamBinding {
                 decl: format!("{}: i32", p.name),
@@ -382,8 +367,6 @@ fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &Ap
     }
 }
 
-// ──────────────────────────────────────────────── Rust glue (extern "C") ──
-
 /// Generate the Rust FFI glue module (`service.rs`).
 ///
 /// For each service this emits:
@@ -399,7 +382,6 @@ fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
 
     out.push_str(&render("service_api_rs_header.rs.jinja", minijinja::context! {}));
 
-    // Emit one handler bridge per unique handler contract referenced by any registration
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
             .services
@@ -416,7 +398,6 @@ fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
         gen_handler_bridge(&mut out, contract, &core_import);
     }
 
-    // Emit service opaques, constructors, destructors, and registration/entrypoint functions
     for service in &api.services {
         gen_service_opaque(&mut out, service, &core_import, &prefix);
         gen_service_functions(&mut out, service, api, &core_import, &prefix);
@@ -461,11 +442,9 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         },
     ));
 
-    // Determine wire types — use plain serde_json::Value as fallback
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
-    // Strip leading core import prefix if present
     let req_type = if req_type.contains("::") {
         req_type.split("::").last().unwrap_or(req_type)
     } else {
@@ -477,7 +456,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         resp_type
     };
 
-    // Leading dispatch parameters (extra params the bridge ignores)
     let extra_param: String = contract
         .dispatch_extra_params
         .iter()
@@ -485,7 +463,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .collect();
     let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
-    // Build full request and response paths
     let req_path = if req_type == "Value" {
         "serde_json::Value".to_string()
     } else {
@@ -497,7 +474,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         format!("{core_import}::{resp_type}")
     };
 
-    // Build the future's Output type
     let box_err = "Box<dyn std::error::Error + Send + Sync>";
     let wire_output = format!("Result<{resp_path}, {box_err}>");
     let output_type = contract
@@ -509,10 +485,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         None => "outcome".to_string(),
     };
 
-    // Trait impl. Returns a boxed future directly (canonical object-safe
-    // async-trait shape) instead of via the async_trait macro, matching a
-    // contract whose dispatch method is hand-written as
-    // `-> Pin<Box<dyn Future<..> + Send + '_>>`.
     out.push_str(&render(
         "service_api_handler_bridge_impl.rs.jinja",
         minijinja::context! {
@@ -536,18 +508,15 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 fn gen_service_functions(out: &mut String, service: &ServiceDef, api: &ApiSurface, core_import: &str, prefix: &str) {
     let opaque_name = format!("{}Opaque", service.name);
 
-    // Registration functions + per-variant shortcut symbols
     for reg in &service.registrations {
         gen_registration_function(out, service, reg, api, core_import, prefix, &opaque_name);
         gen_registration_variants(out, service, reg, api, core_import, prefix, &opaque_name);
     }
 
-    // Configurator functions
     for cfg in &service.configurators {
         gen_configurator_function(out, service, cfg, api, core_import, prefix, &opaque_name);
     }
 
-    // Entrypoint functions
     for ep in &service.entrypoints {
         gen_entrypoint_function(out, service, ep, api, core_import, prefix, &opaque_name);
     }
@@ -574,7 +543,6 @@ fn gen_registration_function(
     let contract = find_contract(api, &reg.callback_contract).expect("contract not found");
     let bridge_name = format!("Ffi{}Bridge", contract.trait_name.to_upper_camel_case());
 
-    // Add metadata parameters as C-ABI declarations.
     let meta_bindings: Vec<FfiParamBinding> = reg
         .metadata_params
         .iter()
@@ -659,8 +627,6 @@ fn gen_registration_variants(
     let bridge_name = format!("Ffi{}Bridge", contract.trait_name.to_upper_camel_case());
 
     for variant in &reg.variants {
-        // Only emit variants that carry a wrapper constructor recipe; plain-override
-        // variants have no C-representable form without duplicating all metadata params.
         let wrapper_call = match &variant.wrapper_call {
             Some(wc) => wc,
             None => continue,
@@ -708,18 +674,15 @@ fn gen_registration_variant(
         variant.name.to_snake_case()
     );
 
-    // Build FFI param bindings for the free (variant-level) signature params only.
     let sig_bindings: Vec<FfiParamBinding> = variant
         .signature_params
         .iter()
         .map(|p| ffi_param_binding(p, core_import, api))
         .collect();
 
-    // Safety doc + function signature
     let default_doc = format!("Variant shortcut `{}` over `{}`.", variant.name, base_fn_name);
     let doc = variant.doc.as_deref().unwrap_or(&default_doc);
 
-    // Build the wrapper value: `let <metadata_param> = <WrapperType>::<method>(<args>);`
     let mut ctor_args = String::new();
     for arg in &wrapper_call.args {
         match arg {
@@ -730,13 +693,9 @@ fn gen_registration_variant(
                 ));
             }
             WrapperConstructorArg::Free { param } => {
-                // Use the marshaled binding arg expression (the owned Rust-typed value).
                 let binding = sig_bindings
                     .iter()
-                    .find(|b| {
-                        // Match by checking decl starts with the param name
-                        b.decl.starts_with(&format!("{}: ", param.name)) || b.arg == param.name
-                    })
+                    .find(|b| b.decl.starts_with(&format!("{}: ", param.name)) || b.arg == param.name)
                     .map(|b| b.arg.as_str())
                     .unwrap_or(param.name.as_str());
                 ctor_args.push_str(&render(
@@ -747,18 +706,12 @@ fn gen_registration_variant(
         }
     }
 
-    // Forward to base register method on owner (reusing the same `reg.method` call).
-    // The wrapper value is the first metadata arg; remaining base metadata params that
-    // are NOT overridden by this variant would need values — but by convention variants
-    // with wrapper_call pin ALL non-free metadata params, so only the wrapper itself is needed.
     let meta_args: String = {
         let mut args = render_service_api_arg(&wrapper_call.metadata_param);
-        // Any remaining non-pinned base metadata params that aren't the wrapper param
         for meta_param in &reg.metadata_params {
             if meta_param.name == wrapper_call.metadata_param {
                 continue;
             }
-            // Check if this param is overridden by the variant
             let is_overridden = variant.overrides.iter().any(|o| o.param_name == meta_param.name);
             if is_overridden {
                 let override_expr = variant
@@ -769,7 +722,6 @@ fn gen_registration_variant(
                     .unwrap_or("");
                 args.push_str(&render_service_api_arg(override_expr));
             } else {
-                // Free param — use the marshaled binding
                 let binding_arg = sig_bindings
                     .iter()
                     .find(|b| b.arg == meta_param.name)
@@ -837,7 +789,6 @@ fn gen_configurator_function(
     let cfg_method_snake = cfg.name.to_snake_case();
     let fn_name = format!("{}_{}_{}", prefix.to_lowercase(), service_snake, cfg_method_snake);
 
-    // Build FFI parameter bindings for the configurator's params.
     let param_bindings: Vec<FfiParamBinding> = cfg
         .params
         .iter()
@@ -850,9 +801,6 @@ fn gen_configurator_function(
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Configurator methods on the owner type take `self` (consuming) and return `Self`.
-    // `owner.inner` is `Box<OwnerType>`, so calling a consuming method through auto-deref
-    // yields `OwnerType` (unboxed). The result must be re-boxed before assigning back.
     let pre_call_body = format!(
         "{}\n{}",
         pointer_null_checks(cfg.params.iter(), &param_bindings, "std::ptr::null_mut()", false,),
@@ -881,8 +829,6 @@ fn gen_entrypoint_function(
     prefix: &str,
     opaque_name: &str,
 ) {
-    // A `finalize` that converts the owner into a type this backend cannot represent over the C
-    // ABI (e.g. a foreign framework router) has no C-callable form — skip it.
     if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
         return;
     }
@@ -891,8 +837,6 @@ fn gen_entrypoint_function(
     let ep_name_snake = ep.method.to_snake_case();
     let fn_name = format!("{}_{}_ep_{}", prefix.to_lowercase(), service_snake, ep_name_snake);
 
-    // A finalize producing an opaque this surface wraps returns a `*mut {core}::{name}` pointer;
-    // everything else returns an `i32` status code (0 = ok, non-zero = error / null owner).
     let returns_opaque = matches!(&ep.return_type, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n));
     let return_type = match &ep.return_type {
         TypeRef::Named(n) if returns_opaque => format!("*mut {core_import}::{n}"),
@@ -968,8 +912,6 @@ fn gen_entrypoint_function(
     ));
 }
 
-// ──────────────────────────────────────────────────── public entry point ──
-
 /// Generate all service-API files for the FFI backend.
 ///
 /// Returns one `GeneratedFile` when services are present:
@@ -984,7 +926,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| format!("crates/{}-ffi/src/", config.name));
 
-    // Rust glue
     let service_rs = gen_service_rs(api, config);
 
     Ok(vec![GeneratedFile {
@@ -993,8 +934,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         generated_header: true,
     }])
 }
-
-// ───────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests;

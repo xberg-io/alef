@@ -34,7 +34,6 @@ pub(super) fn stub_var_name(java_method: &str) -> String {
 }
 
 pub(super) fn handle_method_name(java_method: &str) -> String {
-    // camelCase: "handle" + capitalize first letter of java_method
     let mut name = String::with_capacity(7 + java_method.len());
     name.push_str("handle");
     let mut chars = java_method.chars();
@@ -59,40 +58,30 @@ pub(super) fn iface_param_str(spec: &CallbackSpec, context_type: &str) -> String
 /// All callbacks: (ADDRESS ctx, ADDRESS userData, ..extra.., ADDRESS outCustom, ADDRESS outLen) -> JAVA_INT
 /// Returns a multi-line string with 20-space continuation indent so no line exceeds 80 chars.
 pub(super) fn callback_descriptor(spec: &CallbackSpec) -> String {
-    let mut layouts = vec![
-        "ValueLayout.ADDRESS".to_string(), // ctx
-        "ValueLayout.ADDRESS".to_string(), // user_data
-    ];
+    let mut layouts = vec!["ValueLayout.ADDRESS".to_string(), "ValueLayout.ADDRESS".to_string()];
     for ep in &spec.extra {
         for layout in &ep.c_layouts {
             layouts.push(layout.clone());
         }
     }
-    layouts.push("ValueLayout.ADDRESS".to_string()); // out_custom
-    layouts.push("ValueLayout.ADDRESS".to_string()); // out_len
+    layouts.push("ValueLayout.ADDRESS".to_string());
+    layouts.push("ValueLayout.ADDRESS".to_string());
     let indent = "                    ";
     let args = layouts.join(&format!(",\n{indent}"));
-    // Visitor callbacks return i32 status codes, so the FunctionDescriptor return
-    // layout must be JAVA_INT (matching the `int` upcall return and the int.class
-    // MethodType); JAVA_LONG mismatches the bound handle type. Any JAVA_LONG in
-    // `args` is a genuine i64 parameter (e.g. depth, index_in_parent).
     format!("FunctionDescriptor.of(\n{indent}ValueLayout.JAVA_INT,\n{indent}{args})")
 }
 
 /// Build the `MethodType` for `LOOKUP.bind(this, name, type)`.
 /// Returns a multi-line string with 20-space continuation indent so no line exceeds 80 chars.
 pub(super) fn callback_method_type(spec: &CallbackSpec) -> String {
-    let mut types = vec![
-        "MemorySegment.class".to_string(), // ctx
-        "MemorySegment.class".to_string(), // user_data
-    ];
+    let mut types = vec!["MemorySegment.class".to_string(), "MemorySegment.class".to_string()];
     for ep in &spec.extra {
         for layout in &ep.c_layouts {
             types.push(layout_to_java_class(layout).to_string());
         }
     }
-    types.push("MemorySegment.class".to_string()); // out_custom
-    types.push("MemorySegment.class".to_string()); // out_len
+    types.push("MemorySegment.class".to_string());
+    types.push("MemorySegment.class".to_string());
     let indent = "                    ";
     let args = types.join(&format!(",\n{indent}"));
     format!("MethodType.methodType(\n{indent}int.class,\n{indent}{args})")
@@ -165,8 +154,6 @@ pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec, context_t
 }
 
 pub(super) fn raw_var_name(java_name: &str, c_idx: usize) -> String {
-    // camelCase: "raw" + capitalize first letter of java_name + "_" + index
-    // e.g. raw_text_0 -> rawText0, raw_cells_1 -> rawCells1
     let mut name = String::with_capacity(4 + java_name.len() + 2);
     name.push_str("raw");
     let mut chars = java_name.chars();
@@ -237,7 +224,6 @@ mod tests {
             descriptor.starts_with("FunctionDescriptor.of(\n                    ValueLayout.JAVA_INT,"),
             "return layout must be JAVA_INT to match the int upcall return"
         );
-        // ctx + user_data always present
         assert!(descriptor.contains("ValueLayout.ADDRESS"), "must have ADDRESS layouts");
     }
 

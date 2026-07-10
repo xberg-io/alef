@@ -2,9 +2,6 @@ use super::*;
 
 #[test]
 fn test_stubs_non_void_methods_have_return_statements() {
-    // PHPStan at level 9 rejects non-void methods with empty `{ }` bodies.
-    // All stub methods with non-void return types must emit a body that
-    // satisfies the static analyser — `throw new \RuntimeException(...)`.
     let backend = PhpBackend;
 
     let api = ApiSurface {
@@ -87,14 +84,11 @@ fn test_stubs_non_void_methods_have_return_statements() {
     let stubs = files.first().unwrap();
     let content = &stubs.content;
 
-    // getErrorCode(): int must NOT be bare `{ }` — PHPStan rejects it.
     assert!(
         !content.contains("getErrorCode(): int { }"),
         "getErrorCode stub must not have an empty body `{{ }}`; content:\n{content}"
     );
 
-    // Non-void getter stubs must contain a throw or return, not bare `{ }`.
-    // The pattern `): int { }` or `): string { }` or `): ?string { }` are all wrong.
     assert!(
         !content.contains("): int { }"),
         "no non-void stub method may have an empty body `{{ }}`; content:\n{content}"
@@ -108,13 +102,11 @@ fn test_stubs_non_void_methods_have_return_statements() {
         "no non-void stub method may have an empty body `{{ }}`; content:\n{content}"
     );
 
-    // The static method stub in the Api class must also not be empty.
     assert!(
         !content.contains("): \\Test\\Lib\\Config { }"),
         "Api class stub method must not have an empty body; content:\n{content}"
     );
 
-    // Stubs should use throw to satisfy PHPStan.
     assert!(
         content.contains("throw new \\RuntimeException"),
         "stub bodies must throw \\RuntimeException to satisfy PHPStan level 9; content:\n{content}"
@@ -223,7 +215,6 @@ fn test_static_stubs_promote_parameters_after_first_optional() {
 fn test_vec_named_struct_parameter() {
     let backend = PhpBackend;
 
-    // Create test API with Vec<Item> parameter
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -301,7 +292,6 @@ fn test_vec_named_struct_parameter() {
 
     let config = make_config();
 
-    // Generate bindings
     let result = backend.generate_bindings(&api, &config);
     assert!(
         result.is_ok(),
@@ -314,26 +304,21 @@ fn test_vec_named_struct_parameter() {
         .find(|f| f.path.to_string_lossy().contains("lib.rs"))
         .unwrap();
 
-    // Should contain the Item type definition
     assert!(
         lib_rs.content.contains("pub struct Item"),
         "Should contain Item struct definition"
     );
 
-    // Should contain the batch_process function with Vec<Item> parameter handling
     assert!(
         lib_rs.content.contains("batch_process"),
         "Should contain batch_process function"
     );
 
-    // The generated code should contain array iteration logic for Vec<Item>
-    // (looking for the manual conversion pattern we implemented)
     assert!(
         lib_rs.content.contains("items_core") || lib_rs.content.contains(".iter()"),
         "Should contain array iteration logic for Vec<Item> parameter conversion"
     );
 
-    // Should NOT contain a panic stub or empty body for the function
     assert!(
         !lib_rs
             .content
@@ -344,8 +329,6 @@ fn test_vec_named_struct_parameter() {
 
 #[test]
 fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
-    // PHP 8.3+ idiom: DTOs must be emitted as `final class` with constructor property
-    // promotion (`public readonly`) and no redundant getter methods.
     let backend = PhpBackend;
 
     let api = ApiSurface {
@@ -394,13 +377,11 @@ fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
     let stubs = files.first().unwrap();
     let content = &stubs.content;
 
-    // (a) DTOs must use `final class`, not bare `class`
     assert!(
         content.contains("final class SystemMessage"),
         "DTO stub must use `final class`; content:\n{content}"
     );
 
-    // (b) Constructor parameters must use `public readonly` promotion
     assert!(
         content.contains("public readonly string $content"),
         "Required field must use `public readonly` promotion; content:\n{content}"
@@ -410,7 +391,6 @@ fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
         "Optional field must use `public readonly` promotion with nullable type; content:\n{content}"
     );
 
-    // (c) No redundant getFoo() getter methods alongside public readonly properties
     assert!(
         !content.contains("getContent()"),
         "Redundant getter `getContent()` must not be emitted; content:\n{content}"
@@ -420,7 +400,6 @@ fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
         "Redundant getter `getName()` must not be emitted; content:\n{content}"
     );
 
-    // (d) No separate property declarations (they are promoted into the constructor)
     assert!(
         !content.contains("    public string $content;"),
         "Separate property declaration must not be emitted; content:\n{content}"
@@ -482,7 +461,6 @@ fn test_dto_properties_use_camel_case_php_names() {
     let stubs = stubs_files.first().expect("Should generate stubs file");
     let content = &stubs.content;
 
-    // Verify camelCase conversion in PHP stubs: snake_case Rust names → camelCase PHP names
     assert!(
         content.contains("$deviceId"),
         "Property device_id should be converted to $deviceId (camelCase)\nContent:\n{content}"
@@ -500,7 +478,6 @@ fn test_dto_properties_use_camel_case_php_names() {
         "Property timeout_ms should be converted to $timeoutMs (camelCase)\nContent:\n{content}"
     );
 
-    // Verify snake_case names are NOT present in stubs
     assert!(
         !content.contains("$device_id"),
         "Property name should NOT be in snake_case: $device_id\nContent:\n{content}"
@@ -595,7 +572,6 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
     let stubs = stubs_files.first().expect("Should generate stubs file");
     let content = &stubs.content;
 
-    // Unit-variant enums should emit as native PHP 8.1+ backed enums
     assert!(
         content.contains("enum OutputFormat: string"),
         "Unit-variant enum should be emitted as PHP 8.1+ native enum with string backing\nContent:\n{content}"
@@ -613,7 +589,6 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
         "Enum case Html should be present with value\nContent:\n{content}"
     );
 
-    // Should NOT emit as a class with constants
     assert!(
         !content.contains("final class OutputFormat") && !content.contains("public const Text"),
         "Unit-variant enum should NOT be emitted as a class with constants\nContent:\n{content}"

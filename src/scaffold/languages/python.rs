@@ -48,13 +48,10 @@ fn format_toml_array_with_prefix(entries: &[String], prefix_len: usize) -> Strin
 /// A trailing `.0` is only stripped when it is not the sole release segment — a
 /// bare `0` (e.g. `==0`) is left untouched.
 fn canonicalize_pep440_specifier(specifier: &str) -> String {
-    // Split into comma-separated clauses, normalize each, rejoin without spaces
-    // (pyproject-fmt emits `>=1,<2`, not `>=1, <2`).
     specifier
         .split(',')
         .map(|clause| {
             let clause = clause.trim();
-            // Separate the comparison operator prefix from the version number.
             let op_len = clause
                 .char_indices()
                 .find(|(_, c)| c.is_ascii_digit())
@@ -71,8 +68,6 @@ fn canonicalize_pep440_specifier(specifier: &str) -> String {
 /// number while preserving at least one release segment (`2.0` → `2`, `1.19.0`
 /// → `1.19`, `0` → `0`). Pre/post/dev suffixes and local versions are left as-is.
 fn canonicalize_pep440_version(version: &str) -> String {
-    // Only touch the leading release segment (digits and dots before any
-    // pre/post/dev/local marker); leave the remainder untouched.
     let release_len = version
         .char_indices()
         .find(|(_, c)| !(c.is_ascii_digit() || *c == '.'))
@@ -134,13 +129,6 @@ pub(crate) fn scaffold_python_cargo(
     } else {
         format!("\n{all_deps}")
     };
-    // Build the cargo-machete ignored list. `pyo3-async-runtimes` and
-    // `serde_json` are emitted unconditionally above so they are always
-    // ignored. Conditional deps (`async-trait` / `tokio` for trait bridges
-    // and streaming, `futures` for streaming) are appended only when the
-    // scaffold actually adds them to `[dependencies]`, so cargo-machete
-    // doesn't flap on umbrellas whose API surface doesn't exercise the
-    // trait-bridge / streaming codepath.
     let mut machete_ignored: Vec<&str> = vec!["pyo3-async-runtimes", "serde_json"];
     if has_trait_bridges {
         machete_ignored.push("async-trait");
@@ -156,8 +144,6 @@ pub(crate) fn scaffold_python_cargo(
         .map(|d| format!("\"{d}\""))
         .collect::<Vec<_>>()
         .join(", ");
-    // Build [dependencies] block alphabetically sorted to match cargo-sort.
-    // When target_dep_overrides are configured, the core dep moves into
     // `[target.'cfg(...)'.dependencies]` blocks (core_dep_py is then empty).
     let core_overrides = config
         .python
@@ -276,7 +262,6 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let dependencies_toml = match config.python.as_ref().map(|p| &p.pip_dependencies) {
         Some(deps) if !deps.is_empty() => {
             let entries: Vec<String> = deps.iter().map(|d| format!("\"{}\"", d)).collect();
-            // Force multi-line to match pyproject-fmt's output (dependencies always wraps)
             let inner = entries.iter().map(|e| format!("  {e},")).collect::<Vec<_>>().join("\n");
             format!("dependencies = [\n{inner}\n]\n")
         }
@@ -311,10 +296,6 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     ];
     let dev_group_array = format_toml_array_with_prefix(&dev_group_entries, "dev = ".len());
 
-    // Extra `[[tool.pyrefly.sub-config]]` blocks from `[workspace.poly.pyrefly-sub-configs]`.
-    // Keyed by glob, each value is the list of pyrefly error codes to disable for
-    // extension-generated modules whose runtime-reconciled pyo3 boundaries a static
-    // checker cannot follow (same rationale as the built-in api.py sub-config).
     let pyrefly_extra = config
         .poly
         .pyrefly_sub_configs
@@ -401,9 +382,6 @@ missing-attribute = false
         },
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/{python_package}/py.typed")),
-            // Empty (0 bytes): end-of-file-fixer leaves a 0-byte file alone, but strips a
-            // file whose sole content is a trailing newline back to empty — emitting "\n"
-            // here causes churn on every regen. py.typed is a PEP 561 marker; empty is correct.
             content: String::new(),
             generated_header: false,
         },
@@ -421,12 +399,9 @@ mod tests {
         assert_eq!(canonicalize_pep440_version("2.0"), "2");
         assert_eq!(canonicalize_pep440_version("1.19.0"), "1.19");
         assert_eq!(canonicalize_pep440_version("1.0.0"), "1");
-        // Non-redundant segments are preserved.
         assert_eq!(canonicalize_pep440_version("1.19"), "1.19");
         assert_eq!(canonicalize_pep440_version("0.14.8"), "0.14.8");
-        // A bare zero is the sole segment and must be kept.
         assert_eq!(canonicalize_pep440_version("0"), "0");
-        // Suffixes (pre/post/dev/local) are left untouched.
         assert_eq!(canonicalize_pep440_version("1.0rc1"), "1rc1");
     }
 
@@ -438,7 +413,6 @@ mod tests {
         assert_eq!(canonicalize_pep440_specifier(">=1.19.0"), ">=1.19");
         assert_eq!(canonicalize_pep440_specifier(">=0.14.8"), ">=0.14.8");
         assert_eq!(canonicalize_pep440_specifier("==1.0"), "==1");
-        // Surrounding whitespace inside clauses is normalized away.
         assert_eq!(canonicalize_pep440_specifier(">=1.0, <2.0"), ">=1,<2");
     }
 }

@@ -73,7 +73,6 @@ fn test_render_type_with_multiple_methods_have_same_heading_level() {
         .find(|f| f.path.to_str().unwrap().contains("api-python"))
         .unwrap();
 
-    // Method headings should be nested under the type-level Methods heading.
     assert!(
         lang_file.content.contains("###### first_method()"),
         "first method should be H6"
@@ -87,7 +86,6 @@ fn test_render_type_with_multiple_methods_have_same_heading_level() {
         "third method should be H6"
     );
 
-    // Ensure methods live below the H5 Methods heading.
     let content = &lang_file.content;
     if let Some(methods_pos) = content.find("##### Methods") {
         let after_methods = &content[methods_pos..];
@@ -112,7 +110,6 @@ fn test_generated_docs_have_monotonic_heading_increments() {
             original_rust_path: String::new(),
             fields: vec![],
             methods: vec![],
-            // Doc comment with internal headings to test demotion
             doc: "Configuration options.\n\n## Default Behavior\n\nBy default, uses standard settings.\n\n## Advanced Options\n\nFor power users.".to_string(),
             is_opaque: false,
             cfg: None,
@@ -145,7 +142,6 @@ fn test_generated_docs_have_monotonic_heading_increments() {
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
 
-    // Check all generated files for monotonic heading increments
     for file in &files {
         assert!(
             check_monotonic_headings(&file.content).is_ok(),
@@ -193,13 +189,11 @@ fn test_function_doc_with_internal_headings_are_demoted() {
         .find(|f| f.path.to_str().unwrap().contains("api-python"))
         .unwrap();
 
-    // Verify the internal headings were demoted
     assert!(
         lang_file.content.contains("#### Processing Steps") || lang_file.content.contains("##### Processing Steps"),
         "internal heading from doc comment should be demoted"
     );
 
-    // Verify monotonic heading increments
     assert!(
         check_monotonic_headings(&lang_file.content).is_ok(),
         "File must have monotonic heading increments"

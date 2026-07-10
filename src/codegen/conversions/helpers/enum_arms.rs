@@ -30,7 +30,6 @@ pub fn binding_to_core_match_arm_ext_cfg(
     if fields.is_empty() {
         format!("{binding_prefix}::{variant_name} => Self::{variant_name},")
     } else if !binding_has_data {
-        // Binding is unit-only: use Default for core fields
         if is_tuple_variant(fields) {
             let defaults: Vec<&str> = fields.iter().map(|_| "Default::default()").collect();
             format!(
@@ -54,7 +53,6 @@ pub fn binding_to_core_match_arm_ext_cfg(
             .iter()
             .map(|f| {
                 let name = &f.name;
-                // Sanitized fields: binding uses String, use serde_json to deserialize back.
                 if f.sanitized {
                     let expr = if let TypeRef::Vec(_) = &f.ty {
                         sanitized_vec_field_to_core_expr(name, &f.ty)
@@ -63,17 +61,11 @@ pub fn binding_to_core_match_arm_ext_cfg(
                     };
                     return if f.is_boxed { format!("Box::new({expr})") } else { expr };
                 }
-                // Fields referencing excluded types: they appear as String in the binding.
-                // Use serde_json deserialization to convert back to the core type.
                 if !config.exclude_types.is_empty() && field_references_excluded_type(&f.ty, config.exclude_types) {
                     let expr = format!("serde_json::from_str(&{name}).unwrap_or_default()");
                     return if f.is_boxed { format!("Box::new({expr})") } else { expr };
                 }
-                // Use the conversion logic from field_conversion_to_core_cfg.
-                // In an enum match arm, fields are bound by destructuring (not via `val.field`),
-                // so replace `val.{name}` with just `{name}` in the generated expression.
                 let conv = field_conversion_to_core_cfg(name, &f.ty, f.optional, config);
-                // Extract the RHS from "name: expr" format
                 let expr = if let Some(expr) = conv.strip_prefix(&format!("{name}: ")) {
                     let expr = expr.replace(&format!("val.{name}"), name);
                     expr.to_string()
@@ -95,8 +87,6 @@ pub fn binding_to_core_match_arm_ext_cfg(
         let core_fields: Vec<String> = fields
             .iter()
             .map(|f| {
-                // Sanitized fields: the binding stores a simplified type (String for any complex type
-                // like Vec<(String,String)>, Vec<Named>, etc.). Use serde_json to deserialize back.
                 if f.sanitized {
                     if let TypeRef::Vec(_) = &f.ty {
                         let expr = sanitized_vec_field_to_core_expr(&f.name, &f.ty);
@@ -104,11 +94,7 @@ pub fn binding_to_core_match_arm_ext_cfg(
                     }
                     return format!("{}: serde_json::from_str(&{}).unwrap_or_default()", f.name, f.name);
                 }
-                // Use the conversion logic from field_conversion_to_core_cfg.
-                // In an enum match arm, fields are bound by destructuring (not via `val.field`),
-                // so replace `val.{name}` with just `{name}` in the generated expression.
                 let conv = field_conversion_to_core_cfg(&f.name, &f.ty, f.optional, config);
-                // Extract the RHS from "name: expr" format
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
                     let expr = expr.replace(&format!("val.{}", f.name), &f.name);
                     format!("{}: {}", f.name, expr)
@@ -133,7 +119,6 @@ pub fn binding_to_core_match_arm_ext(
     if fields.is_empty() {
         format!("{binding_prefix}::{variant_name} => Self::{variant_name},")
     } else if !binding_has_data {
-        // Binding is unit-only: use Default for core fields
         if is_tuple_variant(fields) {
             let defaults: Vec<&str> = fields.iter().map(|_| "Default::default()").collect();
             format!(
@@ -151,10 +136,8 @@ pub fn binding_to_core_match_arm_ext(
             )
         }
     } else if is_tuple_variant(fields) {
-        // Binding uses struct syntax with _0, _1 etc., core uses tuple syntax
         let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
         let binding_pattern = field_names.join(", ");
-        // Wrap boxed fields with Box::new() and convert Named types with .into()
         let core_args: Vec<String> = fields
             .iter()
             .map(|f| {
@@ -174,7 +157,6 @@ pub fn binding_to_core_match_arm_ext(
             core_args.join(", ")
         )
     } else {
-        // Destructure binding named fields and pass to core, with .into() for Named types
         let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
         let pattern = field_names.join(", ");
         let core_fields: Vec<String> = fields
@@ -183,9 +165,6 @@ pub fn binding_to_core_match_arm_ext(
                 if matches!(&f.ty, TypeRef::Named(_)) {
                     format!("{}: {}.into()", f.name, f.name)
                 } else if f.sanitized {
-                    // Sanitized fields have a simplified type in the binding (e.g. String)
-                    // but the core type is complex (e.g. Vec<(String,String)>).
-                    // Deserialize from JSON string for the binding→core conversion.
                     format!("{}: serde_json::from_str(&{}).unwrap_or_default()", f.name, f.name)
                 } else {
                     format!("{0}: {0}", f.name)
@@ -226,7 +205,6 @@ pub fn core_to_binding_match_arm_ext_cfg(
     if fields.is_empty() {
         format!("{core_prefix}::{variant_name} => Self::{variant_name},")
     } else if !binding_has_data {
-        // Binding is unit-only: discard core data
         if is_tuple_variant(fields) {
             format!("{core_prefix}::{variant_name}(..) => Self::{variant_name},")
         } else {
@@ -238,15 +216,10 @@ pub fn core_to_binding_match_arm_ext_cfg(
         let binding_fields: Vec<String> = fields
             .iter()
             .map(|f| {
-                // Use the conversion logic from field_conversion_from_core_cfg.
-                // In an enum match arm, fields are bound by destructuring (not via `val.field`),
-                // so replace `val.{name}` with just `{name}` in the generated expression.
                 let conv =
                     field_conversion_from_core_cfg(&f.name, &f.ty, f.optional, f.sanitized, &AHashSet::new(), config);
-                // Extract the RHS from "name: expr" format
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
                     let mut expr = expr.replace(&format!("val.{}", f.name), &f.name);
-                    // Boxed fields in core tuple variants need dereferencing before conversion
                     if f.is_boxed {
                         expr = expr.replace(&format!("{}.into()", f.name), &format!("(*{}).into()", f.name));
                     }
@@ -281,15 +254,10 @@ pub fn core_to_binding_match_arm_ext_cfg(
         let binding_fields: Vec<String> = fields
             .iter()
             .map(|f| {
-                // Use the conversion logic from field_conversion_from_core_cfg.
-                // In an enum match arm, fields are bound by destructuring (not via `val.field`),
-                // so replace `val.{name}` with just `{name}` in the generated expression.
                 let conv =
                     field_conversion_from_core_cfg(&f.name, &f.ty, f.optional, f.sanitized, &AHashSet::new(), config);
-                // Extract the RHS from "name: expr" format
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
                     let mut expr = expr.replace(&format!("val.{}", f.name), &f.name);
-                    // Boxed fields in core struct variants need dereferencing before conversion
                     if f.is_boxed {
                         expr = expr.replace(&format!("{}.into()", f.name), &format!("(*{}).into()", f.name));
                     }
@@ -315,17 +283,14 @@ pub fn core_to_binding_match_arm_ext(
     if fields.is_empty() {
         format!("{core_prefix}::{variant_name} => Self::{variant_name},")
     } else if !binding_has_data {
-        // Binding is unit-only: discard core data
         if is_tuple_variant(fields) {
             format!("{core_prefix}::{variant_name}(..) => Self::{variant_name},")
         } else {
             format!("{core_prefix}::{variant_name} {{ .. }} => Self::{variant_name},")
         }
     } else if is_tuple_variant(fields) {
-        // Core uses tuple syntax, binding uses struct syntax with _0, _1 etc.
         let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
         let core_pattern = field_names.join(", ");
-        // Unbox and convert Named types with .into()
         let binding_fields: Vec<String> = fields
             .iter()
             .map(|f| {
@@ -357,9 +322,6 @@ pub fn core_to_binding_match_arm_ext(
                 if matches!(&f.ty, TypeRef::Named(_)) {
                     format!("{}: {}.into()", f.name, f.name)
                 } else if f.sanitized {
-                    // Sanitized fields have a simplified type in the binding (e.g. String)
-                    // but the core type is complex (e.g. Vec<(String,String)>).
-                    // Serialize to JSON string for the conversion.
                     format!("{}: serde_json::to_string(&{}).unwrap_or_default()", f.name, f.name)
                 } else {
                     format!("{0}: {0}", f.name)

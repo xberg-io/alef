@@ -59,42 +59,36 @@ fn test_option_fields_in_constructor_signature() {
         .find(|f| f.path.ends_with("lib.rs"))
         .expect("lib.rs not generated");
 
-    // All optional fields must have Option<T> parameter types, not bare T
     assert!(
         lib_rs.content.contains("pub fn new("),
         "Constructor should exist; content:\n{}",
         lib_rs.content
     );
 
-    // Check for Option<u64> — NOT bare u64
     assert!(
         lib_rs.content.contains("opt_u64: Option<u64>"),
         "Parameter opt_u64 must be Option<u64>, not bare u64; content:\n{}",
         lib_rs.content
     );
 
-    // Check for Option<String> — NOT bare String
     assert!(
         lib_rs.content.contains("opt_string: Option<String>"),
         "Parameter opt_string must be Option<String>, not bare String; content:\n{}",
         lib_rs.content
     );
 
-    // Check for Option<u64> (Duration maps to u64) — NOT bare u64
     assert!(
         lib_rs.content.contains("opt_duration: Option<u64>"),
         "Parameter opt_duration must be Option<u64>, not bare u64; content:\n{}",
         lib_rs.content
     );
 
-    // Required field must be bare type, not optional
     assert!(
         lib_rs.content.contains("required_u32: u32"),
         "Parameter required_u32 must be u32 (not optional); content:\n{}",
         lib_rs.content
     );
 
-    // Defaults should be None for optional fields
     assert!(
         lib_rs.content.contains("opt_u64=None") || lib_rs.content.contains("opt_u64 = None"),
         "Optional field opt_u64 should default to None; content:\n{}",
@@ -124,7 +118,7 @@ fn test_option_fields_on_has_default_type() {
             is_clone: true,
             is_copy: false,
             is_trait: false,
-            has_default: true, // This is the key difference — has_default
+            has_default: true,
             has_stripped_cfg_fields: false,
             is_return_type: false,
             serde_rename_all: None,
@@ -161,7 +155,6 @@ fn test_option_fields_on_has_default_type() {
 
     println!("Generated lib.rs for has_default type:\n{}\n", lib_rs.content);
 
-    // The constructor must have Option<u64> parameters, NOT bare u64
     assert!(
         lib_rs.content.contains("timeout: Option<u64>"),
         "Parameter timeout must be Option<u64> for has_default type; content:\n{}",
@@ -174,7 +167,6 @@ fn test_option_fields_on_has_default_type() {
         lib_rs.content
     );
 
-    // Defaults should be None for optional fields
     assert!(
         lib_rs.content.contains("timeout=None") || lib_rs.content.contains("timeout = None"),
         "Optional field timeout should default to None; content:\n{}",
@@ -342,14 +334,12 @@ fn test_option_fields_with_serde_rename_on_has_default() {
         lib_rs.content
     );
 
-    // The constructor parameter for serde-renamed optional field must still be Option<u64>
     assert!(
         lib_rs.content.contains("timeout_ms: Option<u64>"),
         "Parameter timeout_ms must be Option<u64> even with serde_rename; content:\n{}",
         lib_rs.content
     );
 
-    // Verify it defaults to None
     assert!(
         lib_rs.content.contains("timeout_ms=None") || lib_rs.content.contains("timeout_ms = None"),
         "Optional field timeout_ms should default to None; content:\n{}",
@@ -359,16 +349,12 @@ fn test_option_fields_with_serde_rename_on_has_default() {
 
 #[test]
 fn test_has_default_struct_with_nested_struct_field_accepts_none() {
-    // This test verifies BLK-5 fix: a has_default struct with a non-optional
-    // nested-struct field whose type also has has_default=true should accept None
-    // in the constructor, with an unwrap_or_else falling back to the nested type's default.
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
-            // Nested struct that derives Default
             TypeDef {
                 name: "PreprocessingOptions".to_string(),
                 rust_path: "test_lib::PreprocessingOptions".to_string(),
@@ -379,7 +365,7 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
                 is_clone: true,
                 is_copy: false,
                 is_trait: false,
-                has_default: true, // This type derives Default
+                has_default: true,
                 has_stripped_cfg_fields: false,
                 is_return_type: false,
                 serde_rename_all: None,
@@ -394,14 +380,11 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
                 has_private_fields: false,
                 version: Default::default(),
             },
-            // Parent struct with has_default=true owning non-optional PreprocessingOptions
             TypeDef {
                 name: "ParseOptions".to_string(),
                 rust_path: "test_lib::ParseOptions".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![
-                    // This is the critical case: non-optional nested struct field on a has_default type
-                    // Should be emitted as Option<PreprocessingOptions> with default None
                     make_field(
                         "preprocessing",
                         TypeRef::Named("PreprocessingOptions".to_string()),
@@ -414,7 +397,7 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
                 is_clone: true,
                 is_copy: false,
                 is_trait: false,
-                has_default: true, // Parent also derives Default
+                has_default: true,
                 has_stripped_cfg_fields: false,
                 is_return_type: false,
                 serde_rename_all: None,
@@ -447,22 +430,18 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify that the ParseOptions constructor parameter 'preprocessing' is Option<PreprocessingOptions>
-    // The parameter should be declared as Option<PreprocessingOptions>
     assert!(
         content.contains("preprocessing: Option<PreprocessingOptions>"),
         "Parameter 'preprocessing' must be Option<PreprocessingOptions> to accept None; content:\n{}",
         content
     );
 
-    // Verify the default is None
     assert!(
         content.contains("preprocessing=None") || content.contains("preprocessing = None"),
         "Parameter 'preprocessing' should default to None; content:\n{}",
         content
     );
 
-    // Verify the assignment uses unwrap_or_else to fall back to the nested type's default
     assert!(
         content.contains("preprocessing.unwrap_or_else(|| Self::default().preprocessing)"),
         "Assignment must use unwrap_or_else fallback; content:\n{}",
@@ -472,13 +451,6 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
 
 #[test]
 fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
-    // Regression test: when a trait-bridge `bind_via = OptionsField` field is also
-    // cfg-gated on a `has_default` type, the backend force-restores it into
-    // `never_skip_cfg_field_names`. The constructor rewriter must filter it out of
-    // `sorted_fields` (so it does not appear via the params iterator) and rely on
-    // the existing `bridge_param` append at the end of the param list — otherwise
-    // the field appears twice and rustc rejects with E0415
-    // ("identifier 'visitor' is bound more than once in this parameter list").
     let backend = Pyo3Backend;
 
     let mut visitor_field = make_field(

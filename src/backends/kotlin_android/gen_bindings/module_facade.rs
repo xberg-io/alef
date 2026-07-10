@@ -46,14 +46,8 @@ pub(super) fn emit_module_kt(
     use crate::backends::kotlin::to_lower_camel;
 
     let module_name = kotlin_android_wrapper_object_name(&config.name);
-    // The bridge object is emitted by `gen_bindings::jni_emitter` as
-    // `<Crate>Bridge` via `crate::core::jni::bridge_class_name(&config.name)`.
-    // Use the same helper here so the facade's `Bridge.nativeXxx(...)` calls
-    // resolve — concatenating `{module_name}Bridge` produced
-    // `<Crate>ConverterBridge`, which never matches the on-disk bridge object.
     let bridge_name = crate::core::jni::bridge_class_name(&config.name);
 
-    // Set of all opaque (non-trait) type names.
     let opaque_type_names: std::collections::HashSet<&str> = api
         .types
         .iter()
@@ -61,9 +55,6 @@ pub(super) fn emit_module_kt(
         .map(|t| t.name.as_str())
         .collect();
 
-    // Subset of opaque types that have at least one visible instance method.
-    // These are the "client shape" — `emit_jni_client_class` already emits a
-    // Kotlin class for them with AutoCloseable + close().
     let client_type_names: std::collections::HashSet<&str> = api
         .types
         .iter()
@@ -86,25 +77,6 @@ pub(super) fn emit_module_kt(
         })
         .collect();
 
-    // Collect "handle shape" types: every opaque non-trait type that is NOT
-    // a client (i.e. has no visible instance methods). Each one gets its own
-    // AutoCloseable wrapper class file.
-    //
-    // Previously the set was restricted to opaque types that *also* appeared
-    // as a return or parameter on the free-function surface. That misses
-    // opaque types whose only public entrypoint is a static factory method
-    // (e.g. `TokenCounter::new() -> Self`, lifted by the FFI layer as
-    // `{prefix}_token_counter_new` but kept as a `@staticmethod` on the
-    // class in alef's IR rather than a top-level function) and whose `&mut
-    // self` consumers have been excluded via `[crates.exclude].functions`
-    // (e.g. `apply_strategy`). Such types still need a Kotlin wrapper to give
-    // callers a way to free the handle, and the FFI layer always emits a
-    // matching `{prefix}_{type_snake}_free` symbol so the JNI bridge can
-    // declare its `nativeFree{Type}` external fun. Mirroring Java's
-    // `gen_opaque_handle_class` policy (emit one wrapper per opaque type)
-    // keeps the two backends in lockstep and eliminates the stale-wrapper
-    // class of failure (`TokenCounter.kt` references `nativeFreeTokenCounter`
-    // that was never emitted in the generated bridge file).
     let handle_only_types: std::collections::BTreeMap<&str, &crate::core::ir::TypeDef> = api
         .types
         .iter()
@@ -112,15 +84,12 @@ pub(super) fn emit_module_kt(
         .map(|t| (t.name.as_str(), t))
         .collect();
 
-    // Emit a one-off wrapper class file per handle-only opaque type.
     for (type_name, type_def) in &handle_only_types {
         let class_name = *type_name;
         let free_name = format!("nativeFree{}", to_pascal_case(class_name));
         let mut body = String::new();
         let mut imports: BTreeSet<String> = BTreeSet::new();
 
-        // Emit the IR-supplied rustdoc for the opaque type; omit Kdoc if no doc
-        // is provided to avoid leaking implementation details (JNI handles are internal).
         if !type_def.doc.is_empty() {
             emit_kdoc_pub(&mut body, &type_def.doc, "");
         }
@@ -133,7 +102,6 @@ pub(super) fn emit_module_kt(
             },
         ));
 
-        // Collect streaming adapters owned by this opaque type.
         let streaming_adapters_for_type: Vec<&crate::core::config::AdapterConfig> = config
             .adapters
             .iter()
@@ -147,7 +115,6 @@ pub(super) fn emit_module_kt(
             })
             .collect();
 
-        // If there are streaming adapters, emit Flow wrapper methods and add imports.
         if !streaming_adapters_for_type.is_empty() {
             imports.insert("import com.fasterxml.jackson.databind.ObjectMapper".to_string());
             imports.insert("import com.fasterxml.jackson.datatype.jdk8.Jdk8Module".to_string());
@@ -158,7 +125,6 @@ pub(super) fn emit_module_kt(
             imports.insert("import kotlinx.coroutines.withContext".to_string());
             imports.insert("import kotlinx.coroutines.channels.awaitClose".to_string());
 
-            // Add a mapper field and emit streaming methods.
             body.push_str("\n    private val mapper = ObjectMapper()\n");
             body.push_str("        .registerModule(Jdk8Module())\n");
             body.push_str("        .findAndRegisterModules()\n");
@@ -189,18 +155,6 @@ pub(super) fn emit_module_kt(
                     .map(|p| to_lower_camel(&p.name))
                     .unwrap_or_else(|| "request".to_string());
 
-                // Note: We do not add imports for param and item types here because
-                // they are expected to be simple names (CrawlEvent, CrawlStreamRequest, etc.)
-                // that exist in the same package as this generated file. The Kotlin backend
-                // is responsible for emitting those DTOs alongside this file. If types
-                // were to come from a different package, they would have full paths in the
-                // adapter config, and we'd need to strip to simple names here. For now,
-                // the safe assumption is same-package types with no import needed.
-
-                // ktfmt collapses expression-bodied functions back to a single line, so
-                // we emit the natural `fun ... = callbackFlow {` shape and rely on ktfmt for
-                // formatting. The ktlint multiline-expression-wrapping rule is disabled in
-                // the generated `.editorconfig` because it conflicts with ktfmt here.
                 body.push_str(&template_env::render(
                     "android_streaming_method.jinja",
                     minijinja::context! {
@@ -230,9 +184,6 @@ pub(super) fn emit_module_kt(
         return;
     }
 
-    // Helper: return true when the TypeRef is a non-opaque named type, i.e. a
-    // data-class DTO that crosses the JNI boundary as JSON and should be
-    // serialized/deserialized by Jackson in the high-level facade.
     let is_dto_named = |ty: &crate::core::ir::TypeRef| -> bool {
         match ty {
             crate::core::ir::TypeRef::Named(n) => !opaque_type_names.contains(n.as_str()),
@@ -240,21 +191,13 @@ pub(super) fn emit_module_kt(
         }
     };
 
-    // Helper to resolve the facade Kotlin type for a return TypeRef.
-    // Opaque types become their wrapper class; non-opaque Named types are
-    // exposed as-is (Jackson deserialization makes them real Kotlin objects);
-    // generic containers (`Vec<_>`, `HashMap<_,_>`, and optional variants)
-    // are rendered recursively via `render_kotlin_type` so Jackson's
-    // `TypeReference<...>` and the public signature stay in lockstep.
     let facade_return_type = |ty: &crate::core::ir::TypeRef| -> String {
         if let crate::core::ir::TypeRef::Named(n) = ty {
             if opaque_type_names.contains(n.as_str()) {
                 return n.clone();
             }
-            // Non-opaque Named: expose the real Kotlin type.
             return n.clone();
         }
-        // Generic container (Vec / Map / Option<Vec|Map>): render recursively.
         if matches!(
             unwrap_optional(ty),
             crate::core::ir::TypeRef::Vec(_) | crate::core::ir::TypeRef::Map(_, _)
@@ -264,23 +207,14 @@ pub(super) fn emit_module_kt(
         jni_return_type_str(ty).to_string()
     };
 
-    // Helper to resolve the facade Kotlin type for a parameter TypeRef.
-    // Non-opaque Named types (optionally wrapped) become their Kotlin class so
-    // callers pass typed objects rather than raw JSON strings.  Generic
-    // containers (Vec / HashMap, possibly Option-wrapped) render recursively
-    // so the public signature matches the Jackson-serialized payload.
     let facade_param_type = |ty: &crate::core::ir::TypeRef| -> String {
         let inner = unwrap_optional(ty);
         if let crate::core::ir::TypeRef::Named(n) = inner {
             if opaque_type_names.contains(n.as_str()) {
                 return n.clone();
             }
-            // Non-opaque Named: expose the real Kotlin type.
             return n.clone();
         }
-        // Binary data (ByteArray/Vec<u8>) → ByteArray in the public API.
-        // The wrapper base64-encodes to String before calling the JNI external fun,
-        // which then decodes it back to bytes.
         let is_binary = match inner {
             crate::core::ir::TypeRef::Bytes => true,
             crate::core::ir::TypeRef::Vec(iv) => {
@@ -303,9 +237,6 @@ pub(super) fn emit_module_kt(
         jni_param_type_str(ty).to_string()
     };
 
-    // Helper: detect if a TypeRef is a Vec of DTOs (needs deserialization).
-    // Retained for the legacy DTO-list emission path; broader generic-container
-    // detection lives in `is_generic_container` below.
     let is_vec_of_dtos = |ty: &crate::core::ir::TypeRef| -> bool {
         if let crate::core::ir::TypeRef::Vec(inner) = ty {
             if let crate::core::ir::TypeRef::Named(n) = inner.as_ref() {
@@ -315,11 +246,6 @@ pub(super) fn emit_module_kt(
         false
     };
 
-    // Helper: detect any generic-container TypeRef whose deserialization in
-    // Kotlin requires `TypeReference<T>` rather than a `Class<T>` literal.
-    // Matches `Vec<_>`, `HashMap<_, _>`, and either wrapped in a single
-    // `Option<...>`.  The inner element type may itself be any TypeRef —
-    // primitives, strings, named DTOs, or further nested generics.
     let is_generic_container = |ty: &crate::core::ir::TypeRef| -> bool {
         let base = unwrap_optional(ty);
         matches!(
@@ -328,8 +254,6 @@ pub(super) fn emit_module_kt(
         )
     };
 
-    // Determine whether any function needs Jackson serialization/deserialization.
-    // If so, emit a private mapper field and add the necessary imports.
     let needs_jackson = visible_functions.iter().any(|f| {
         is_dto_named(&f.return_type)
             || is_generic_container(&f.return_type)
@@ -350,10 +274,6 @@ pub(super) fn emit_module_kt(
         imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
         imports.insert("import kotlinx.coroutines.withContext".to_string());
     }
-    // Check if any function returns a generic container that needs TypeReference.
-    // Vec<_>, HashMap<_,_>, and Option<Vec<_>> / Option<HashMap<_,_>> all
-    // require `TypeReference<...>` because Kotlin disallows generic type
-    // arguments on `::class.java` literals.
     let has_generic_container_return = visible_functions.iter().any(|f| is_generic_container(&f.return_type));
     if has_generic_container_return {
         imports.insert("import com.fasterxml.jackson.core.type.TypeReference".to_string());
@@ -368,11 +288,6 @@ pub(super) fn emit_module_kt(
         },
     ));
     if needs_jackson {
-        // Rust serde defaults to snake_case wire keys; Kotlin properties are
-        // camelCase. Configure the property naming strategy on the module
-        // facade's mapper so Jackson translates between them automatically,
-        // matching the streaming-method mapper above and the convention used
-        // across the JVM/Kotlin backends.
         body.push_str("    /// Jackson module that marshals ByteArray as a JSON array of unsigned bytes,\n");
         body.push_str("    /// matching how Rust serde encodes Vec<u8> on the wire.\n");
         body.push_str("    /// Jackson's default writes ByteArray as a Base64 string, which Rust serde rejects\n");
@@ -432,27 +347,18 @@ pub(super) fn emit_module_kt(
         body.push_str("                .build(),\n");
         body.push_str("        )\n");
         body.push_str("        .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)\n");
-        // NON_NULL (not NON_EMPTY): omit only null fields when serializing DTOs across the
-        // JNI boundary, but PRESERVE explicitly-empty values. NON_EMPTY drops empty strings,
-        // so an explicit `mime_type = ""` would vanish from the JSON and the core would treat
-        // it as absent (None) — falling back to filename-based MIME detection instead of
-        // erroring on the empty MIME type. Matches the C#/Rust contract.
         body.push_str(
             "        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)\n",
         );
         body.push_str("        .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)\n\n");
     }
 
-    // Pre-compute all method names to detect potential async-naming collisions.
-    // If a sync method's suspend wrapper would be named the same as an async method,
-    // we'll skip the wrapper to avoid overload conflicts.
     let all_async_method_names: std::collections::HashSet<String> = visible_functions
         .iter()
         .filter(|f| f.name.ends_with("_async"))
         .map(|f| to_lower_camel(&f.name))
         .collect();
 
-    // Host-native capsule (Language) passthrough configuration from kotlin_android.capsule_types.
     let kotlin_android_capsule_types: HashMap<String, HostCapsuleTypeConfig> = config
         .kotlin_android
         .as_ref()
@@ -460,8 +366,6 @@ pub(super) fn emit_module_kt(
         .unwrap_or_default();
 
     for f in &visible_functions {
-        // Host-native capsule function detection: if this function returns a capsule type,
-        // emit a specialized wrapper that constructs the host Language from the raw pointer.
         if let Some(capsule_cfg) = get_capsule_config(f, &kotlin_android_capsule_types) {
             emit_kdoc_pub(&mut body, &f.doc, "    ");
             emit_capsule_function_wrapper(&mut body, f, &bridge_name, capsule_cfg);
@@ -477,8 +381,6 @@ pub(super) fn emit_module_kt(
         let returns_vec_of_dtos = is_vec_of_dtos(&f.return_type);
         let returns_generic_container = is_generic_container(&f.return_type);
 
-        // Build the public param list. Optional non-opaque Named params become
-        // `TypeName? = null`; required ones become `TypeName`.
         let params: Vec<String> = f
             .params
             .iter()
@@ -488,7 +390,6 @@ pub(super) fn emit_module_kt(
                 let is_dto = is_dto_named(inner);
                 if p.optional {
                     if is_dto {
-                        // TypeName? = null — typed nullable with null default.
                         let ty_name = match inner {
                             crate::core::ir::TypeRef::Named(n) => n.clone(),
                             _ => unreachable!(),
@@ -510,32 +411,21 @@ pub(super) fn emit_module_kt(
             })
             .collect();
 
-        // Build the bridge argument list. DTO params are serialized to JSON;
-        // opaque params are unwrapped to `.handle`; generic containers
-        // (`Vec<_>`, `HashMap<_,_>`) are serialized; everything else passes
-        // through.
         let bridge_args: Vec<String> = f
             .params
             .iter()
             .map(|p| {
                 let name = to_lower_camel(&p.name);
                 let inner = unwrap_optional(&p.ty);
-                // Opaque handle: unwrap to `.handle`.
                 if let crate::core::ir::TypeRef::Named(n) = inner {
                     if opaque_type_names.contains(n.as_str()) {
                         return format!("{name}.handle");
                     }
-                    // Non-opaque DTO: serialize to JSON.
                     if p.optional {
-                        // Serialize if non-null, fall back to empty string.
                         return format!("{name}?.let {{ mapper.writeValueAsString(it) }} ?: \"\"");
                     }
                     return format!("mapper.writeValueAsString({name})");
                 }
-                // Binary data (ByteArray/Vec<u8>): Base64 encode to String for JNI.
-                // JNI cannot pass ByteArray directly across the FFI boundary without
-                // conversion; the FFI layer expects a Base64-encoded string that it
-                // decodes. Kotlin's java.util.Base64.Encoder handles the conversion.
                 let is_binary = match inner {
                     crate::core::ir::TypeRef::Bytes => true,
                     crate::core::ir::TypeRef::Vec(inner_ty) => {
@@ -552,7 +442,6 @@ pub(super) fn emit_module_kt(
                     }
                     return format!("java.util.Base64.getEncoder().encodeToString({name})");
                 }
-                // Generic container (Vec<_> or HashMap<_,_>): serialize to JSON.
                 if matches!(
                     inner,
                     crate::core::ir::TypeRef::Vec(_) | crate::core::ir::TypeRef::Map(_, _)
@@ -562,8 +451,6 @@ pub(super) fn emit_module_kt(
                     }
                     return format!("mapper.writeValueAsString({name})");
                 }
-                // Nullable primitive scalar or String: null-coalesce to the JNI
-                // zero value so the non-nullable `external fun` signature is satisfied.
                 if p.optional {
                     let zero = jni_zero_literal(inner);
                     return format!("{name} ?: {zero}");
@@ -581,9 +468,6 @@ pub(super) fn emit_module_kt(
             .join(", ");
         let params_str = params.join(", ");
 
-        // Determine body expression: deserialize from JSON when the return type
-        // is a DTO or Vec<DTO>, wrap in opaque class when it is a handle, pass through
-        // otherwise.
         let returns_opaque =
             matches!(&f.return_type, crate::core::ir::TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
         let generate_config = config
@@ -591,12 +475,7 @@ pub(super) fn emit_module_kt(
             .get("kotlin_android")
             .unwrap_or(&config.generate);
 
-        // Detect if the method name already indicates async (e.g. rerankAsync from
-        // Rust's rerank_async). For these, emit only as suspend function to avoid
-        // overload conflicts; the Rust function is already async, so no sync wrapper.
         let method_name_already_async = method_name.ends_with("Async");
-        // Also check if a sync method's suspend wrapper would collide with an async method.
-        // E.g. sync rerank's wrapper would be rerankAsync, which collides with rerank_async.
         let suspend_wrapper_name = format!("{}Async", method_name);
         let suspend_wrapper_would_collide =
             !method_name_already_async && all_async_method_names.contains(&suspend_wrapper_name);
@@ -604,18 +483,12 @@ pub(super) fn emit_module_kt(
             method_name_already_async || (generate_config.async_wrappers && !suspend_wrapper_would_collide);
 
         if returns_dto || returns_generic_container || returns_opaque || needs_jackson {
-            // Suppress unused-warning on the legacy DTO-list flag — it remains
-            // a useful diagnostic name for downstream readers but the generic
-            // container path now subsumes its emission branch.
             let _ = returns_vec_of_dtos;
-            // Emit a block body so we can introduce local vars for clarity.
             if returns_dto {
                 let return_class = match &f.return_type {
                     crate::core::ir::TypeRef::Named(n) => n.clone(),
                     _ => unreachable!(),
                 };
-                // Only emit the sync wrapper if the method name doesn't already
-                // indicate async. For async-named methods, emit only the suspend variant.
                 if !method_name_already_async {
                     body.push_str(&template_env::render(
                         "android_facade_dto_method.jinja",
@@ -628,13 +501,9 @@ pub(super) fn emit_module_kt(
                         },
                     ));
                 }
-                // Emit the suspend variant. For async-named functions, it's the only
-                // method; for sync-named functions, it wraps the sync version above
-                // (unless the wrapper name would collide).
                 if emit_suspend_wrapper {
                     emit_kdoc_pub(&mut body, &f.doc, "    ");
                     if method_name_already_async {
-                        // For async-named functions, emit suspend with direct JNI call
                         body.push_str("    suspend fun ");
                         body.push_str(&method_name);
                         body.push('(');
@@ -648,7 +517,6 @@ pub(super) fn emit_module_kt(
                         body.push_str(&return_class);
                         body.push_str("::class.java) }\n");
                     } else {
-                        // For sync-named functions, emit suspend wrapper around sync version
                         body.push_str(&template_env::render(
                             "android_facade_async_method.jinja",
                             minijinja::context! {
@@ -661,15 +529,7 @@ pub(super) fn emit_module_kt(
                     }
                 }
             } else if returns_generic_container {
-                // Generic container return: Kotlin disallows generic type
-                // arguments on `::class.java`, so we route through Jackson's
-                // `TypeReference<T>`.  The TypeReference body is the fully
-                // rendered Kotlin type (e.g. `List<String>`, `Map<String, Long>`,
-                // `List<MyDto>?` — `render_kotlin_type` handles every Vec /
-                // Map / Option permutation recursively).
                 let type_ref_body = render_kotlin_type(&f.return_type, &opaque_type_names);
-                // Only emit the sync wrapper if the method name doesn't already
-                // indicate async.
                 if !method_name_already_async {
                     body.push_str(&template_env::render(
                         "android_facade_generic_method.jinja",
@@ -682,11 +542,9 @@ pub(super) fn emit_module_kt(
                         },
                     ));
                 }
-                // Emit the suspend variant (unless the wrapper name would collide).
                 if emit_suspend_wrapper {
                     emit_kdoc_pub(&mut body, &f.doc, "    ");
                     if method_name_already_async {
-                        // For async-named functions, emit suspend with direct JNI call
                         body.push_str("    suspend fun ");
                         body.push_str(&method_name);
                         body.push('(');
@@ -700,7 +558,6 @@ pub(super) fn emit_module_kt(
                         body.push_str(&type_ref_body);
                         body.push_str(">() {}) }\n");
                     } else {
-                        // For sync-named functions, emit suspend wrapper around sync version
                         body.push_str(&template_env::render(
                             "android_facade_async_method.jinja",
                             minijinja::context! {
@@ -789,7 +646,6 @@ fn jni_return_type_str(ty: &crate::core::ir::TypeRef) -> &'static str {
         TypeRef::String => "String",
         TypeRef::Optional(_) => "String?",
         TypeRef::Bytes => "ByteArray",
-        // Vec<u8> (binary data) → ByteArray; other collections → JSON-encoded String
         TypeRef::Vec(inner) => {
             if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) {
                 "ByteArray"
@@ -832,8 +688,6 @@ fn render_kotlin_type(ty: &crate::core::ir::TypeRef, opaque_type_names: &std::co
         TypeRef::Json => "Any".to_string(),
         TypeRef::Duration => "Long".to_string(),
         TypeRef::Named(n) => {
-            // Both opaque-wrapper class names and DTO class names are rendered
-            // verbatim — they share the same Kotlin identifier shape.
             let _ = opaque_type_names;
             n.clone()
         }
@@ -844,7 +698,6 @@ fn render_kotlin_type(ty: &crate::core::ir::TypeRef, opaque_type_names: &std::co
             render_kotlin_type(v, opaque_type_names)
         ),
         TypeRef::Optional(inner) => {
-            // `String?`, `List<String>?`, `Map<String, Long>?`.
             format!("{}?", render_kotlin_type(inner, opaque_type_names))
         }
     }
@@ -869,9 +722,6 @@ fn jni_param_type_str(ty: &crate::core::ir::TypeRef) -> &'static str {
             PrimitiveType::Usize | PrimitiveType::Isize => "Long",
         },
         TypeRef::String => "String",
-        // Binary data (ByteArray/Vec<u8>) → String in external fun signature.
-        // The Kotlin wrapper Base64-encodes ByteArray to String before calling
-        // the external fun; the FFI Rust side Base64-decodes the String.
         TypeRef::Bytes => "String",
         TypeRef::Vec(_) => "String",
         _ => "String",
@@ -908,7 +758,6 @@ fn emit_capsule_function_wrapper(
 
     let method_name = to_lower_camel(&func.name);
     let native_name = format!("native{}", to_pascal_case(&func.name));
-    // Require host_type — no tree-sitter default fallback.
     let host_type = match capsule_cfg.required_host_type("Language", "kotlin_android") {
         Ok(t) => t.to_string(),
         Err(e) => {
@@ -917,7 +766,6 @@ fn emit_capsule_function_wrapper(
         }
     };
 
-    // Build parameter list from function params (capsule functions typically have scalar params).
     let params: Vec<String> = func
         .params
         .iter()
@@ -929,11 +777,9 @@ fn emit_capsule_function_wrapper(
         .collect();
     let params_str = params.join(", ");
 
-    // Build the bridge call argument list.
     let bridge_args: Vec<String> = func.params.iter().map(|p| to_lower_camel(&p.name)).collect();
     let bridge_call = format!("{bridge_name}.{native_name}({})", bridge_args.join(", "));
 
-    // Require construct_expr — no tree-sitter default fallback.
     let construct_expr = match capsule_cfg.construct_required("cLangPtr", "Language", "kotlin_android") {
         Ok(c) => c,
         Err(e) => {
@@ -951,7 +797,6 @@ fn emit_capsule_function_wrapper(
         )
     };
 
-    // Emit function signature and body.
     body.push_str("    fun ");
     body.push_str(&method_name);
     body.push('(');

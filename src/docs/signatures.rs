@@ -43,8 +43,6 @@ pub(crate) fn render_python_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> Stri
         })
         .collect();
     let ret = doc_type(&func.return_type, Language::Python, ffi_prefix);
-    // Python bindings wrap async Rust functions in sync Python functions,
-    // so always emit `def` (never `async def`) for the public API.
     format!("def {}({}) -> {}", name, params.join(", "), ret)
 }
 
@@ -85,7 +83,6 @@ pub(crate) fn render_go_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let ret = doc_type(&func.return_type, Language::Go, ffi_prefix);
     if func.error_type.is_some() {
         if ret.is_empty() {
-            // Result<(), E> → func Foo() error
             format!("func {}({}) error", name, params.join(", "))
         } else {
             format!("func {}({}) ({}, error)", name, params.join(", "), ret)
@@ -143,7 +140,6 @@ pub(crate) fn render_c_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
             format!("{pty} {pname}")
         })
         .collect();
-    // For Named types (structs), return a pointer; for primitives/strings, return directly
     let ret_str = match &func.return_type {
         TypeRef::Named(_) => format!("{}*", ret),
         TypeRef::Unit => "void".to_string(),
@@ -240,7 +236,6 @@ pub(crate) fn render_rust_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String
             if p.optional {
                 format!("{pname}: Option<{pty}>")
             } else {
-                // Use references for String and Vec types in parameters
                 match &p.ty {
                     TypeRef::String | TypeRef::Char => format!("{pname}: &str"),
                     TypeRef::Bytes => format!("{pname}: &[u8]"),
@@ -468,7 +463,6 @@ pub(crate) fn render_method_signature_with_override(
             }
         }
         Language::Go => {
-            // Go methods: func (receiver *TypeName) MethodName(params) ReturnType
             let go_receiver_type = type_name(type_name_str, Language::Go, ffi_prefix);
             let receiver = format!("o *{go_receiver_type}");
             let params: Vec<String> = method
@@ -493,7 +487,6 @@ pub(crate) fn render_method_signature_with_override(
             }
         }
         Language::Java => {
-            // Java: avoid `default` reserved keyword
             let java_name = if name == "default" {
                 "defaultOptions".to_string()
             } else {

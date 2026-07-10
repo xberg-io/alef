@@ -19,7 +19,6 @@ pub(in crate::backends::ffi::gen_bindings) fn should_skip_method_wrapper(
     typ: &TypeDef,
     path_map: &AHashMap<String, String>,
 ) -> bool {
-    // Skip if any parameter is a Named type not in the path_map (likely a generic type parameter)
     for param in &method.params {
         if let TypeRef::Named(name) = &param.ty {
             if !path_map.contains_key(name.as_str()) {
@@ -28,11 +27,7 @@ pub(in crate::backends::ffi::gen_bindings) fn should_skip_method_wrapper(
         }
     }
 
-    // Skip if the method returns a reference to the receiver type (builder-style methods).
-    // These methods return `&mut Self` or `&Self`, which cannot be represented as owned
-    // C handles. They're meant to be accessed through service API instead.
     if method.returns_ref {
-        // Check if the return type (a reference) points back to the receiver type
         if let TypeRef::Named(name) = &method.return_type {
             if name == &typ.name {
                 return true;
@@ -40,14 +35,6 @@ pub(in crate::backends::ffi::gen_bindings) fn should_skip_method_wrapper(
         }
     }
 
-    // Skip static constructors on opaque types — they are handled specially via
-    // gen_opaque_static_constructor to emit proper opaque-handle marshalling.
-    //
-    // This guard must be consistent with `is_static_constructor` in types.rs:
-    // any static method returning Self (not `default`/`to_json`/`from_json`/`clone`)
-    // is routed through the dedicated constructor emitter rather than the generic
-    // method-wrapper path. Named constructors like `MetaSchema::compile` must also
-    // be skipped here so they don't get a second, conflicting method-wrapper export.
     if typ.is_opaque
         && method.is_static
         && !matches!(method.name.as_str(), "default" | "to_json" | "from_json" | "clone")
@@ -105,7 +92,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function_len_companion(
                 _core_import,
                 path_map,
                 enum_names,
-                false // len companion params are ABI-alignment dummies; is_mut irrelevant
+                false
             )
         ));
         if matches!(p.ty, TypeRef::Bytes) {

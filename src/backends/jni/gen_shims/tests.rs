@@ -40,16 +40,12 @@ mod tests {
 
     #[test]
     fn bytes_call_arg_optional_ref_uses_as_deref() {
-        // Option<&[u8]>: Option<Vec<u8>> does not coerce, must deref.
         assert_eq!(
             bytes_call_arg("document_bytes", true, true),
             "document_bytes.as_deref()"
         );
-        // Option<Vec<u8>>: owned, pass through.
         assert_eq!(bytes_call_arg("document_bytes", true, false), "document_bytes");
-        // &[u8]: &Vec<u8> coerces.
         assert_eq!(bytes_call_arg("document_bytes", false, true), "&document_bytes");
-        // Vec<u8>: owned, pass through.
         assert_eq!(bytes_call_arg("document_bytes", false, false), "document_bytes");
     }
 
@@ -191,16 +187,10 @@ namespace = "dev.sample_crate"
             unsupported_public_items: Vec::new(),
         };
         let content = emit_lib_rs(&api, &config);
-        // The generated helper must NOT use `let _ = env.throw_new(...)` which
-        // silently swallows a missing-class error.
         assert!(
             !content.contains("let _ = env.throw_new(ERROR_CLASS"),
             "throw_jni_error must not discard the throw_new result: {content}"
         );
-        // It must check the result and fall back to RuntimeException.
-        // (`ERROR_CLASS` / `msg` are now wrapped in `JNIString::from(...)` per
-        // the jni 0.22 API; assert on the structural pattern instead of the
-        // exact arg form.)
         assert!(
             content.contains("if env.throw_new(&class_jni, &msg_jni).is_err()"),
             "throw_jni_error must check throw_new result: {content}"

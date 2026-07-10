@@ -19,15 +19,8 @@ pub fn gen_options_field_bridge_function(
     let options_param = &func.params[options_param_idx];
     let options_name = &options_param.name;
 
-    // Bridge functions always treat the options param as optional: callers may pass
-    // undefined/null (no options) or an options object (with or without visitor).
-    // Even if the IR marks the param as non-optional (e.g. because has_default types
-    // get their Option<> stripped during IR parsing), we force Option<T> behavior here.
-
-    // Whether the IR already marks the options param as Optional<T>.
     let ir_param_optional = matches!(&options_param.ty, TypeRef::Optional(_));
 
-    // Name of the visitor parameter that will be appended to the function signature.
     let visitor_kwarg = bridge_cfg.param_name.as_deref().unwrap_or("visitor");
     let field_name = bridge_cfg.resolved_options_field().unwrap_or(visitor_kwarg);
     let options_type = bridge_cfg
@@ -43,8 +36,6 @@ pub fn gen_options_field_bridge_function(
         });
     let options_path = format!("{core_import}::{options_type}");
 
-    // Build parameter list; force the options param to Option<T> if the IR didn't already.
-    // DO NOT append a separate visitor parameter — the visitor is extracted from options.visitor.
     let params_str = {
         let mut sig_parts = vec![];
         for (i, p) in func.params.iter().enumerate() {
@@ -63,9 +54,6 @@ pub fn gen_options_field_bridge_function(
 
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
 
-    // Generate bridge wrapping (wrap the extra host parameter into the configured handle).
-    // This mirrors PyO3's approach: take visitor as a separate parameter and wrap it.
-    // Build call args, replacing options param with the _core version
     let call_args: String = func
         .params
         .iter()
@@ -127,7 +115,6 @@ pub fn gen_options_field_bridge_function(
         _ => "val".to_string(),
     };
 
-    // Build function body with visitor wrapping and options conversion.
     let body = crate::backends::napi::template_env::render(
         "options_field_bridge_body.jinja",
         minijinja::context! {

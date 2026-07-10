@@ -191,10 +191,6 @@ fn make_basic_api() -> ApiSurface {
 }
 
 fn make_basic_config() -> ResolvedCrateConfig {
-    // Use a nonexistent version_from path so resolved_version() returns None and
-    // falls back to "0.1.0". This prevents the test from accidentally reading the
-    // alef repo's own Cargo.toml (which has version = "0.18.0") when running from
-    // the consolidated repo root.
     let toml = r#"
 [workspace]
 languages = ["dart"]

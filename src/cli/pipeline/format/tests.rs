@@ -29,10 +29,6 @@ fn formatter_error_includes_stdout_and_stderr() {
     assert!(msg.contains("stderr text"), "missing stderr in error: {msg}");
 }
 
-// ---------------------------------------------------------------------------
-// Residual native passes (the project-wide tools poly cannot wrap).
-// ---------------------------------------------------------------------------
-
 #[test]
 fn wasm_residual_is_cargo_sort_n_on_the_crate_dir() {
     let config = make_config("sample-model");
@@ -106,8 +102,6 @@ fn ruby_residual_sorts_the_native_crate() {
 
 #[test]
 fn elixir_residual_is_cargo_sort_n_only() {
-    // `.ex`/`.exs` are formatted by poly's tier-2 tier (no `mix format`); the
-    // only residual is cargo sort for the workspace-excluded NIF crate.
     let config = make_config("sample-model");
     let steps = language_residuals(&config, Language::Elixir, Path::new("/repo"));
     assert_eq!(steps.len(), 1, "Elixir residual must be cargo sort only");
@@ -133,7 +127,6 @@ fn r_residual_sorts_the_extendr_crate() {
 
 #[test]
 fn csharp_has_no_residual() {
-    // C# is formatted by poly's tier-2 tier — no `dotnet format` residual.
     let config = make_config("sample-model");
     assert!(language_residuals(&config, Language::Csharp, Path::new("/repo")).is_empty());
 }
@@ -156,17 +149,11 @@ fn languages_without_residuals_have_none() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// cargo_sort_residuals — always-on fixed set.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn cargo_sort_residuals_returns_fixed_set() {
     let config = make_config("sample-model");
     let steps = cargo_sort_residuals(&config, Path::new("/repo"));
-    // Fixed set: ffi (workspace), wasm, ruby, elixir, R.
     assert_eq!(steps.len(), 5, "cargo_sort_residuals must return exactly 5 steps");
-    // All steps must use cargo sort -n.
     for step in &steps {
         assert_eq!(step.command, "cargo");
         assert_eq!(step.args[0], "sort");
@@ -184,10 +171,6 @@ fn cargo_sort_residuals_includes_workspace_wide_step() {
         "cargo_sort_residuals must include a workspace-wide step"
     );
 }
-
-// ---------------------------------------------------------------------------
-// poly_paths scoping.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn poly_paths_full_regen_is_repo_root() {
@@ -222,22 +205,17 @@ fn poly_paths_partial_regen_drops_nonexistent_dirs() {
     let dir = tempfile::tempdir().expect("tempdir");
     let base = dir.path();
     let config = make_config("sample-model");
-    // No package dirs created on disk.
     let only: HashSet<Language> = [Language::Python].into_iter().collect();
     let paths = poly_paths(&config, base, Some(&only), &[Language::Python]);
     assert!(paths.is_empty(), "nonexistent package dirs are dropped");
 }
 
-// Behavioral: when the `poly` CLI is installed, `format_generated` shells out to
-// it and a badly-spaced Python file ends up ruff-formatted. When `poly` is absent
-// the pass is a best-effort no-op — the file is left untouched and nothing panics.
 #[test]
 fn poly_pass_formats_generated_python_when_poly_installed() {
     let dir = tempfile::tempdir().expect("tempdir");
     let base = dir.path();
     let py_path = base.join("packages/python/foo.py");
     std::fs::create_dir_all(py_path.parent().unwrap()).unwrap();
-    // ruff format normalizes `x=1` -> `x = 1` and guarantees a trailing newline.
     std::fs::write(&py_path, "x=1").unwrap();
 
     let cfg: NewAlefConfig = toml::from_str(
@@ -270,16 +248,12 @@ sources = ["src/lib.rs"]
             "with poly installed, `poly fmt --fix` must reformat the generated Python file"
         );
     } else {
-        // Best-effort: no poly on PATH means no reformat and no crash.
         assert_eq!(formatted, "x=1", "without poly the file must be left untouched");
     }
 }
 
-// `install_poly_hooks` is a best-effort no-op outside a git repository: a temp
-// dir with no `.git` must not panic and must not shell out.
 #[test]
 fn install_poly_hooks_is_noop_outside_git_repo() {
     let dir = tempfile::tempdir().expect("tempdir");
-    // No `.git` directory present → returns cleanly regardless of poly on PATH.
     install_poly_hooks(dir.path());
 }

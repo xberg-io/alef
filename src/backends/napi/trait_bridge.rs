@@ -77,16 +77,9 @@ mod tests {
 
     #[test]
     fn plugin_trait_bridge_emits_dispose_method_on_rust_struct() {
-        // Regression: napi-rs `ThreadsafeFunction` handles held by trait-bridge
-        // wrappers kept the Node event loop alive. The generated Rust bridge
-        // struct must expose `pub async fn dispose()` so TypeScript callers can
-        // release the TSFN and allow test workers to exit.
         use crate::core::config::{BridgeBinding, TraitBridgeConfig};
         use crate::core::ir::{ApiSurface, MethodDef, TypeRef};
 
-        // A trait method so the generated trait impl exercises a method body and we
-        // can assert it materialises the JS object via the released-on-dispose
-        // reference rather than a borrowed `Object` transmuted to `'static`.
         let process_method = MethodDef {
             name: "process".to_string(),
             return_type: TypeRef::Named("String".to_string()),
@@ -169,9 +162,6 @@ mod tests {
             "bridge struct must expose `dispose()` to release TSFN and allow vitest workers to exit;\nactual code:\n{code}"
         );
 
-        // The bridge must hold the JS object via a persistent napi reference, not a
-        // borrowed `Object` transmuted to `'static` and stored in a field. That stale
-        // reference is what pinned the libuv event loop and hung vitest workers.
         assert!(
             code.contains("ObjectRef<false>"),
             "bridge must hold an unref'able ObjectRef<false>, not a borrowed Object;\nactual code:\n{code}"
@@ -181,8 +171,6 @@ mod tests {
             "bridge must NOT store a borrowed Object transmuted to 'static (event-loop pin);\nactual code:\n{code}"
         );
 
-        // `dispose()` and `Drop` must release the reference so the event loop is no
-        // longer pinned and the worker can exit.
         assert!(
             code.contains("fn release_ref") && code.contains(".unref(") && code.contains("self.release_ref()"),
             "bridge must release the napi reference via unref() in dispose()/Drop;\nactual code:\n{code}"
@@ -192,8 +180,6 @@ mod tests {
             "bridge must impl Drop to defensively release the reference;\nactual code:\n{code}"
         );
 
-        // Method bodies must materialise the object through the released-on-dispose
-        // reference helper, never directly off a stored `self.inner` handle.
         assert!(
             code.contains("self.obj(&__env)") && !code.contains("self.inner"),
             "method bodies must fetch the object via the disposable self.obj helper, not self.inner;\nactual code:\n{code}"

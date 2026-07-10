@@ -26,16 +26,9 @@ pub(super) fn emit_trait_bridge_method(
 ) {
     let method_name = &method.name;
 
-    // Build the method signature matching the actual trait.
-    // - Reference params use `&` / `&mut` prefix.
-    // - Primitive params use their original width (not FRB-widened).
-    // Emit the self receiver matching the trait definition so rustc's E0053
-    // ("method has an incompatible type for trait") is not triggered for
-    // traits that use `&mut self` (e.g. `HtmlVisitor`).
     let self_receiver = match method.receiver {
         Some(ReceiverKind::RefMut) => "&mut self",
         Some(ReceiverKind::Owned) => "self",
-        // Default: `&self` (covers `Some(ReceiverKind::Ref)` and `None`).
         _ => "&self",
     };
     let params_sig: Vec<String> = std::iter::once(self_receiver.to_string())
@@ -45,19 +38,11 @@ pub(super) fn emit_trait_bridge_method(
         }))
         .collect();
 
-    // Detect the `&[&str]` (Vec<String> + returns_ref) special case — the trait method
-    // expects a borrowed static slice but the Dart-side closure produces owned
-    // `Vec<String>`. We materialise that into `&'static [&'static str]` via Box::leak
-    // (same pattern as the napi/pyo3 trait-bridges, see
-    // `alef-codegen::trait_bridge::gen_method`). The owned vector is leaked once per
-    // method invocation: acceptable for plugin metadata that's typically read at
-    // registration time.
     let is_ref_slice_of_str = method.returns_ref
         && matches!(
             &method.return_type,
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String)
         );
-    // Return type: use original primitive/named type; wrap in source-crate Result when error_type set.
     let ret = if is_ref_slice_of_str {
         "&[&str]".to_string()
     } else {
@@ -84,8 +69,6 @@ pub(super) fn emit_trait_bridge_method(
         },
     ));
 
-    // Emit owned-conversion let-bindings for each parameter before calling the closure.
-    // References become owned; primitives may be widened; mut refs are copied for the callback.
     for p in &method.params {
         let conv = trait_impl_param_conversion(p, excluded_type_paths);
         if !conv.is_empty() {
@@ -98,11 +81,6 @@ pub(super) fn emit_trait_bridge_method(
         }
     }
 
-    // Build call-site arg list (use the local owned var names).
-    //
-    // For params whose original type was excluded from public bindings, the Dart-facing
-    // closure receives an opaque JSON carrier. The Rust trait method itself still
-    // receives the source-crate type, so serialize at the bridge edge explicitly.
     let mut pre_bindings = String::new();
     let call_args: Vec<String> = method
         .params
@@ -156,16 +134,10 @@ pub(super) fn emit_trait_bridge_method(
     }
     let call_expr = format!("(self.{method_name})({})", call_args.join(", "));
 
-    // Emit the body, adapting the return value from FRB-widened to original type.
     let ret_conv = trait_impl_return_conversion(&method.return_type, source_crate_name);
 
-    // Special case: Named return type — the mirror type cannot be trivially converted
-    // back to the core type. Drop the result and return Default::default().
     let named_return_default = ret_conv == "__NAMED_RETURN_DEFAULT__";
 
-    // Special case: the return type was excluded from public bindings, substituted
-    // to a JSON-backed carrier in the closure signature. Deserialize explicitly
-    // to the source trait's exact return type.
     let excluded_return_name = match &method.return_type {
         TypeRef::Named(name) if excluded_type_paths.contains_key(name) => Some(name.as_str()),
         _ => None,
@@ -200,8 +172,6 @@ pub(super) fn emit_trait_bridge_method(
                     call_expr => call_expr.as_str(),
                     result_var => "__ret_bridge",
                     has_error => method.error_type.is_some(),
-                    // Excluded core return types have no Default guarantee —
-                    // log the panic, then re-raise instead of substituting.
                     resume_panic => true,
                     wrapper => bridge_name,
                     method_name => method_name.as_str(),
@@ -233,12 +203,7 @@ pub(super) fn emit_trait_bridge_method(
     }
 
     if method.error_type.is_some() {
-        // DartFnFuture never fails: wrap the awaited value in Ok(...).
         if method.is_async {
-            // Async trait methods are `async fn`, so the DartFnFuture is awaited
-            // directly on flutter_rust_bridge's runtime — no block_on, hence no
-            // "runtime from within a runtime" panic and no `&self` escape into a
-            // 'static spawn_blocking closure.
             if named_return_default {
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_method_default_await.jinja",
@@ -264,9 +229,6 @@ pub(super) fn emit_trait_bridge_method(
                 ));
             }
         } else {
-            // FRB workers run inside flutter_rust_bridge's active tokio runtime.
-            // Spawn a dedicated OS thread with its own tokio runtime to avoid
-            // "Cannot start a runtime from within a runtime" panic.
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_block_on.jinja",
                 minijinja::context! {
@@ -285,7 +247,6 @@ pub(super) fn emit_trait_bridge_method(
                     },
                 ));
             } else {
-                // error_type present: the Dart callback never fails, so wrap in Ok(...).
                 out.push_str(&crate::backends::dart::template_env::render(
                     "rust_trait_method_ok_block_on.jinja",
                     minijinja::context! {
@@ -295,9 +256,6 @@ pub(super) fn emit_trait_bridge_method(
             }
         }
     } else if method.is_async {
-        // Async trait methods `.await` the DartFnFuture directly on flutter_rust_bridge's
-        // runtime — no block_on (no nested-runtime panic) and no `&self` escape into a
-        // 'static spawn_blocking closure.
         if named_return_default {
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_default_await.jinja",
@@ -323,9 +281,6 @@ pub(super) fn emit_trait_bridge_method(
             ));
         }
     } else {
-        // FRB workers run inside flutter_rust_bridge's active tokio runtime.
-        // Spawn a dedicated OS thread with its own tokio runtime to avoid
-        // "Cannot start a runtime from within a runtime" panic.
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_method_block_on.jinja",
             minijinja::context! {
@@ -344,9 +299,6 @@ pub(super) fn emit_trait_bridge_method(
                 },
             ));
         } else if is_ref_slice_of_str {
-            // Materialise `Vec<String>` into `&'static [&'static str]` so the trait
-            // method's `&[&str]` return type is satisfied. Each closure invocation
-            // leaks its strings — acceptable for plugin-metadata callsites.
             out.push_str(
                 "            ;\n        \
                  let __strs: Vec<&'static str> = __result\n            \
@@ -356,7 +308,6 @@ pub(super) fn emit_trait_bridge_method(
                  Box::leak(__strs.into_boxed_slice())\n",
             );
         } else {
-            // No error_type: return the plain value (no Ok() wrapping).
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_method_plain_block_on_result.jinja",
                 minijinja::context! {

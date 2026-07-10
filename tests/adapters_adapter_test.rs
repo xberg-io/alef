@@ -56,7 +56,6 @@ fn test_sync_function_python() {
     assert!(bodies.contains_key("convert"), "Expected 'convert' adapter body");
     let body = &bodies["convert"];
 
-    // For Python, expect PyErr error handling
     assert!(
         body.contains("PyErr"),
         "Python body should contain PyErr conversion. Got: {}",
@@ -98,7 +97,6 @@ fn test_sync_function_node() {
     assert!(bodies.contains_key("validate"), "Expected 'validate' adapter body");
     let body = &bodies["validate"];
 
-    // For Node, expect napi::Error error handling
     assert!(
         body.contains("napi::Error"),
         "Node body should contain napi::Error conversion. Got: {}",
@@ -149,7 +147,6 @@ fn test_async_method_python() {
     );
     let body = &bodies["MyClient.process_async"];
 
-    // For AsyncMethod in Python, expect pyo3_async_runtimes and async handling
     assert!(
         body.contains("pyo3_async_runtimes"),
         "Python async body should use pyo3_async_runtimes. Got: {}",
@@ -225,7 +222,6 @@ fn test_callback_bridge_python() {
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
 
-    // CallbackBridge generates two entries: struct and impl
     assert!(
         bodies.contains_key("event_handler.__bridge_struct__"),
         "Expected bridge struct key"
@@ -238,7 +234,6 @@ fn test_callback_bridge_python() {
     let struct_code = &bodies["event_handler.__bridge_struct__"];
     let impl_code = &bodies["event_handler.__bridge_impl__"];
 
-    // Struct code should contain PyO3 markers
     assert!(
         struct_code.contains("pyo3"),
         "Python bridge struct should reference pyo3. Got: {}",
@@ -249,7 +244,6 @@ fn test_callback_bridge_python() {
         "Python bridge should wrap Python callables"
     );
 
-    // Impl code should implement the trait
     assert!(
         impl_code.contains("EventHandler"),
         "Impl should implement specified trait"
@@ -289,7 +283,6 @@ fn test_callback_bridge_node() {
     let struct_code = &bodies["request_handler.__bridge_struct__"];
     let impl_code = &bodies["request_handler.__bridge_impl__"];
 
-    // NAPI-specific: ThreadsafeFunction for crossing thread boundary
     assert!(
         struct_code.contains("ThreadsafeFunction") || struct_code.contains("napi"),
         "Node bridge should use ThreadsafeFunction or NAPI API. Got: {}",
@@ -330,7 +323,6 @@ fn test_streaming_python() {
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
 
-    // Streaming generates method body and iterator struct
     assert!(
         bodies.contains_key("DataClient.stream_data"),
         "Expected streaming method body"
@@ -344,13 +336,11 @@ fn test_streaming_python() {
     let method_body = &bodies["DataClient.stream_data"];
     let struct_def = &bodies["DataClient.stream_data.__stream_struct__"];
 
-    // Method body should create iterator
     assert!(
         method_body.contains("Iterator") || method_body.contains("StreamData"),
         "Method body should reference iterator"
     );
 
-    // Struct should be a PyO3 class with async iteration support
     assert!(
         struct_def.contains("#[pyclass]"),
         "Streaming struct should be a pyclass"
@@ -388,7 +378,6 @@ fn test_streaming_node() {
 
     let body = &bodies["Client.list_items"];
 
-    // Node now spawns an mpsc-backed iterator instead of collecting eagerly
     assert!(
         body.contains("tokio::sync::mpsc"),
         "Node streaming should use mpsc channel. Got: {}",
@@ -435,7 +424,6 @@ fn test_sync_function_ffi() {
 
     let body = &bodies["compute"];
 
-    // FFI should return raw C pointers and handle errors via update_last_error
     assert!(
         body.contains("match") && body.contains("Ok(result)") && body.contains("Err(e)"),
         "FFI body should match on Result. Got: {}",
@@ -479,18 +467,15 @@ fn test_sync_function_go() {
 
     let body = &bodies["transform"];
 
-    // Go should call C FFI with CString conversion
     assert!(
         body.contains("C.CString") || body.contains("C."),
         "Go body should call C functions. Got: {}",
         body
     );
-    // Go should deserialize JSON result
     assert!(
         body.contains("json.Unmarshal"),
         "Go body should deserialize JSON result"
     );
-    // Go should defer free for C memory
     assert!(body.contains("defer C.free"), "Go body should free C-allocated memory");
 }
 
@@ -525,7 +510,6 @@ fn test_sync_function_java() {
 
     let body = &bodies["process"];
 
-    // Java should use Arena and MemorySegment for FFI
     assert!(
         body.contains("Arena"),
         "Java body should use Arena for memory management. Got: {}",
@@ -569,7 +553,6 @@ fn test_sync_function_csharp() {
 
     let body = &bodies["execute"];
 
-    // C# should use P/Invoke with IntPtr
     assert!(
         body.contains("IntPtr"),
         "C# body should use IntPtr for FFI. Got: {}",
@@ -613,7 +596,6 @@ fn test_sync_function_ruby() {
 
     let body = &bodies["parse"];
 
-    // Ruby should use Magnus error handling
     assert!(
         body.contains("magnus::Error"),
         "Ruby body should use magnus::Error. Got: {}",
@@ -656,7 +638,6 @@ fn test_sync_function_php() {
 
     let body = &bodies["encode"];
 
-    // PHP should use PhpException error handling
     assert!(
         body.contains("PhpException"),
         "PHP body should use PhpException. Got: {}",
@@ -695,7 +676,6 @@ fn test_async_method_elixir() {
 
     let body = &bodies["Client.call_async"];
 
-    // Elixir NIFs must block_on async code since they're synchronous from Erlang perspective
     assert!(
         body.contains("block_on"),
         "Elixir async body should use block_on. Got: {}",
@@ -738,7 +718,6 @@ fn test_sync_function_wasm() {
 
     let body = &bodies["calc"];
 
-    // WASM should convert errors to JsValue
     assert!(body.contains("JsValue"), "WASM body should use JsValue. Got: {}", body);
     assert!(
         body.contains("JsValue::from_str"),
@@ -777,7 +756,6 @@ fn test_sync_function_r() {
 
     let body = &bodies["sum_vals"];
 
-    // R should use extendr error handling
     assert!(
         body.contains("extendr_api::Error"),
         "R body should use extendr_api::Error. Got: {}",
@@ -823,13 +801,11 @@ fn test_sync_function_optional_params() {
 
     let body = &bodies["format_text"];
 
-    // Required params should use .into()
     assert!(
         body.contains("text.into()"),
         "Required param should use .into(). Got: {}",
         body
     );
-    // Optional params should use .map(Into::into)
     assert!(
         body.contains("options.map(Into::into)"),
         "Optional param should use .map(Into::into). Got: {}",
@@ -950,7 +926,7 @@ fn test_sync_function_python_gil_release() {
         error_type: None,
         owner_type: None,
         item_type: None,
-        gil_release: true, // Enable GIL release
+        gil_release: true,
         trait_name: None,
         trait_method: None,
         detect_async: false,
@@ -963,7 +939,6 @@ fn test_sync_function_python_gil_release() {
 
     let body = &bodies["heavy_compute"];
 
-    // With GIL release enabled, should use py.allow_threads
     assert!(
         body.contains("py.allow_threads"),
         "Python body with gil_release=true should call py.allow_threads. Got: {}",
@@ -975,7 +950,6 @@ fn test_sync_function_python_gil_release() {
 #[test]
 fn test_empty_adapters() {
     let config = make_config(vec![Language::Python, Language::Node]);
-    // config.adapters is empty by default
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
 
@@ -1018,7 +992,6 @@ fn test_python_string_params() {
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
 
     let body = &bodies["concat"];
-    // Both params should be converted
     assert!(
         body.contains("a.into()") || body.contains("a"),
         "Should reference 'a' param"
@@ -1059,7 +1032,6 @@ fn test_ffi_string_conversion() {
 
     let body = &bodies["echo"];
 
-    // FFI should convert CStr to owned String
     assert!(
         body.contains("CStr::from_ptr") || body.contains("to_str()"),
         "FFI should convert string parameters from C pointers. Got: {}",
@@ -1104,23 +1076,12 @@ fn test_go_numeric_params() {
 
     let body = &bodies["multiply"];
 
-    // Go should use C.int for i32 types
     assert!(
         body.contains("C.") || body.contains("json"),
         "Go should call C functions or use JSON serialization. Got: {}",
         body
     );
 }
-
-// ---------------------------------------------------------------------------
-// Multi-adapter regression tests.
-//
-// Two streaming adapters sharing one owner_type and item_type must produce
-// distinct iterator/handle struct bodies under per-adapter lookup keys; the
-// previous behaviour keyed bodies on `item_type`, which collapsed the second
-// adapter onto the first and produced duplicate-definition compile errors in
-// the generated PyO3, Rustler, PHP, WASM, and NAPI shims.
-// ---------------------------------------------------------------------------
 
 fn two_streaming_adapters_on_one_owner() -> Vec<AdapterConfig> {
     vec![
@@ -1176,7 +1137,6 @@ fn test_two_streaming_adapters_share_owner_python_emits_distinct_iterators() {
 
     let bodies = build_adapter_bodies(&config, Language::Python).expect("build failed");
 
-    // Both adapters' iterator structs must coexist in the map under per-adapter keys.
     let key_crawl = "CrawlEngineHandle.crawl_stream.__stream_struct__";
     let key_batch = "CrawlEngineHandle.batch_crawl_stream.__stream_struct__";
     assert!(
@@ -1223,7 +1183,6 @@ fn test_two_streaming_adapters_share_owner_elixir_emits_distinct_handles() {
         .get(key_batch)
         .unwrap_or_else(|| panic!("missing '{key_batch}'. Keys: {:?}", bodies.keys().collect::<Vec<_>>()));
 
-    // Per-adapter start NIF function names must be distinct.
     assert!(
         struct_crawl.contains("crawlenginehandle_crawl_stream_start"),
         "crawl_stream body must define start NIF. Got: {struct_crawl}"
@@ -1233,8 +1192,6 @@ fn test_two_streaming_adapters_share_owner_elixir_emits_distinct_handles() {
         "batch_crawl_stream body must define batch start NIF. Got: {struct_batch}"
     );
 
-    // Each body must reference its own request type for the `From` conversion
-    // Each adapter has a distinct request type.
     assert!(
         struct_crawl.contains("CrawlStreamRequest") && !struct_crawl.contains("BatchCrawlStreamRequest"),
         "crawl_stream must use its own request type, not the second adapter's. Got: {struct_crawl}"
@@ -1244,10 +1201,6 @@ fn test_two_streaming_adapters_share_owner_elixir_emits_distinct_handles() {
         "batch_crawl_stream must use its own request type. Got: {struct_batch}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// skip_languages tests
-// ---------------------------------------------------------------------------
 
 /// When an adapter has `skip_languages = ["wasm"]` the WASM backend must not
 /// receive any body entries for that adapter.

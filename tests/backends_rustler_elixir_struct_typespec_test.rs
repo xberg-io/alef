@@ -49,7 +49,6 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
 
 #[test]
 fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
-    // Create a simple struct with various field types
     let struct_def = TypeDef {
         name: "CodeChunk".to_string(),
         rust_path: "my_crate::CodeChunk".to_string(),
@@ -106,7 +105,6 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
         .generate_public_api(&api, &config)
         .expect("generation must succeed");
 
-    // Find the generated struct module file
     let struct_module = generated
         .iter()
         .find(|f| {
@@ -117,24 +115,20 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
 
     let content = &struct_module.content;
 
-    // Verify that @type t typespec is present
     assert!(
         content.contains("@type t ::"),
         "struct module must emit @type t typespec; got:\n{content}"
     );
 
-    // Verify the struct is still there
     assert!(
         content.contains("defstruct"),
         "struct module must still have defstruct; got:\n{content}"
     );
 
-    // Verify @type t comes before defstruct
     let type_pos = content.find("@type t ::").expect("@type t must be present");
     let defstruct_pos = content.find("defstruct").expect("defstruct must be present");
     assert!(type_pos < defstruct_pos, "@type t must appear before defstruct");
 
-    // Verify field types are correctly mapped
     assert!(
         content.contains("content: String.t() | nil"),
         "optional String field should be `String.t() | nil`; got:\n{content}"
@@ -152,7 +146,6 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
         "optional map field should be `map() | nil`; got:\n{content}"
     );
 
-    // Verify proper struct form with %__MODULE__{}
     assert!(
         content.contains("%__MODULE__{"),
         "typespec must use %__MODULE__{{ ... }}; got:\n{content}"
@@ -161,9 +154,6 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
 
 #[test]
 fn test_struct_module_defstruct_defaults_align_with_typespec() {
-    // G7: Test that defstruct field defaults align with @type specs.
-    // Nilable fields (X | nil) must default to nil, regardless of Rust default.
-    // Non-nilable strings default to "", numbers to 0, booleans to false, lists to [].
     let struct_def = TypeDef {
         name: "DefaultAlignmentTest".to_string(),
         rust_path: "my_crate::DefaultAlignmentTest".to_string(),
@@ -239,7 +229,6 @@ fn test_struct_module_defstruct_defaults_align_with_typespec() {
 
     let content = &struct_module.content;
 
-    // Verify nil defaults for nullable fields
     assert!(
         content.contains("nullable_string: nil"),
         "nullable string field should default to nil; got:\n{content}"
@@ -261,7 +250,6 @@ fn test_struct_module_defstruct_defaults_align_with_typespec() {
         "nullable map field should default to nil; got:\n{content}"
     );
 
-    // Verify proper defaults for required fields
     assert!(
         content.contains("required_string: nil"),
         "required string field should default to nil; got:\n{content}"
@@ -286,7 +274,6 @@ fn test_struct_module_defstruct_defaults_align_with_typespec() {
 
 #[test]
 fn test_struct_module_with_named_type_field() {
-    // Create a struct that references another struct type
     let struct_def = TypeDef {
         name: "Container".to_string(),
         rust_path: "my_crate::Container".to_string(),
@@ -346,7 +333,6 @@ fn test_struct_module_with_named_type_field() {
 
     let content = &struct_module.content;
 
-    // Named types should map to map() in the typespec
     assert!(
         content.contains("inner: map()"),
         "named type field should be `map()`; got:\n{content}"
@@ -591,7 +577,6 @@ fn test_struct_module_with_known_named_type_fields() {
 
 #[test]
 fn test_struct_module_with_vec_fields() {
-    // Create a struct with vector fields
     let struct_def = TypeDef {
         name: "Collector".to_string(),
         rust_path: "my_crate::Collector".to_string(),
@@ -660,7 +645,6 @@ fn test_struct_module_with_vec_fields() {
 
     let content = &struct_module.content;
 
-    // Vec types should map to lists in the typespec
     assert!(
         content.contains("strings: [String.t()]"),
         "vec of string should be `[String.t()]`; got:\n{content}"

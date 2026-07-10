@@ -1,7 +1,6 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
-// render_method_signature — Python
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -67,10 +66,6 @@ fn test_render_method_signature_python_with_error_type() {
     assert_eq!(sig, "def parse(self, source: str) -> Ast");
 }
 
-// ---------------------------------------------------------------------------
-// render_method_signature — Node / TypeScript
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_render_method_signature_node_sync_with_params_and_return() {
     let method = make_method(
@@ -133,10 +128,6 @@ fn test_render_method_signature_node_with_error_type() {
     let sig = render_method_signature(&method, "Parser", Language::Node, TEST_PREFIX);
     assert_eq!(sig, "parse(source: string): Ast");
 }
-
-// ---------------------------------------------------------------------------
-// render_method_signature — Rust
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_render_method_signature_rust_sync_with_params_and_return() {
@@ -201,10 +192,6 @@ fn test_render_method_signature_rust_with_error_type() {
     assert_eq!(sig, "pub fn parse(&self, source: &str) -> Result<Ast, ParseError>");
 }
 
-// ---------------------------------------------------------------------------
-// render_method_signature — Go
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_render_method_signature_go_sync_with_params_and_return() {
     let method = make_method(
@@ -260,10 +247,6 @@ fn test_render_method_signature_go_error_type_unit_return() {
     let sig = render_method_signature(&method, "File", Language::Go, TEST_PREFIX);
     assert_eq!(sig, "func (o *File) Save() error");
 }
-
-// ---------------------------------------------------------------------------
-// render_method_signature — Ruby
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_render_method_signature_ruby_sync_with_params() {
@@ -321,10 +304,6 @@ fn test_render_method_signature_ruby_with_error_type() {
     assert_eq!(sig, "def parse()");
 }
 
-// ---------------------------------------------------------------------------
-// render_method_signature — PHP
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_render_method_signature_php_sync_with_params_and_return() {
     let method = make_method(
@@ -380,10 +359,6 @@ fn test_render_method_signature_php_with_error_type() {
     let sig = render_method_signature(&method, "Parser", Language::Php, TEST_PREFIX);
     assert_eq!(sig, "public function parse(): string");
 }
-
-// ---------------------------------------------------------------------------
-// render_method_signature — Java
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_render_method_signature_java_sync_with_params_and_return() {
@@ -448,10 +423,6 @@ fn test_render_method_signature_java_with_error_type() {
     assert_eq!(sig, "public Ast parse(String source) throws ParseError");
 }
 
-// ---------------------------------------------------------------------------
-// render_method_signature — C#
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_render_method_signature_csharp_sync_with_params_and_return() {
     let method = make_method(
@@ -501,10 +472,6 @@ fn test_render_method_signature_csharp_with_error_type() {
     assert_eq!(sig, "public string Parse()");
 }
 
-// ---------------------------------------------------------------------------
-// render_method_signature — Elixir
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_render_method_signature_elixir_sync_with_params() {
     let method = make_method(
@@ -546,10 +513,6 @@ fn test_render_method_signature_elixir_with_error_type() {
     let sig = render_method_signature(&method, "Parser", Language::Elixir, TEST_PREFIX);
     assert_eq!(sig, "def parse()");
 }
-
-// ---------------------------------------------------------------------------
-// render_method_signature — R
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_render_method_signature_r_sync_with_params() {
@@ -593,10 +556,6 @@ fn test_render_method_signature_r_with_error_type() {
     assert_eq!(sig, "parse()");
 }
 
-// ---------------------------------------------------------------------------
-// render_method_signature — WASM (shares Node rendering)
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_render_method_signature_wasm_sync() {
     let method = make_method(
@@ -624,5 +583,3 @@ fn test_render_method_signature_wasm_static() {
     let sig = render_method_signature(&method, "Document", Language::Wasm, TEST_PREFIX);
     assert_eq!(sig, "static create(): Document");
 }
-
-// ---------------------------------------------------------------------------

@@ -8,7 +8,6 @@ use std::collections::HashSet;
 /// that appears more than once across enums + error types, or that matches an
 /// existing top-level type name, must be prefixed with the parent type name.
 pub(crate) fn build_collision_set(api: &ApiSurface) -> HashSet<String> {
-    // Use ahash + &str keys so the count map skips per-variant String clones.
     let mut variant_counts: AHashMap<&str, usize> = AHashMap::new();
     for en in &api.enums {
         for v in &en.variants {
@@ -23,8 +22,6 @@ pub(crate) fn build_collision_set(api: &ApiSurface) -> HashSet<String> {
     for ty in &api.types {
         *variant_counts.entry(ty.name.as_str()).or_insert(0) += 1;
     }
-    // Allocate the owned String only for the small subset of names that
-    // actually collide.
     variant_counts
         .into_iter()
         .filter_map(|(n, c)| if c > 1 { Some(n.to_string()) } else { None })

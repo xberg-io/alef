@@ -495,8 +495,6 @@ mod tests {
     #[test]
     fn expands_command_flatten_in_enum_variant_commands() {
         // `#[command(flatten)]` on a struct-like enum-variant field (e.g. `extract`/`batch`
-        // subcommands that flatten a shared `ExtractionOverrides` args struct) must expand the
-        // flattened args inline, not emit an opaque struct row.
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("cli.rs");
         std::fs::write(

@@ -115,8 +115,6 @@ fn struct_with_primitive_fields_emits_class() {
     };
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
-    // generate_bindings now returns the Dart wrapper, 5 Rust crate files, the shared
-    // native-loader helper, and bin/download_libs.dart.
     assert_eq!(files.len(), 7);
     let content = files
         .iter()
@@ -130,7 +128,6 @@ fn struct_with_primitive_fields_emits_class() {
     assert!(content.contains("class Point {"), "missing class: {content}");
     assert!(content.contains("final int xCoord;"), "missing field xCoord: {content}");
     assert!(content.contains("final int yCoord;"), "missing field yCoord: {content}");
-    // Multi-field constructor uses named required params
     assert!(
         content.contains("required this.xCoord"),
         "missing named ctor param: {content}"
@@ -276,10 +273,8 @@ fn unit_enum_emits_dart_enum() {
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(content.contains("enum Status {"), "missing enum: {content}");
-    // Dart uses lowerCamelCase for enum variants
     assert!(content.contains("active"), "missing active variant: {content}");
     assert!(content.contains("inactive"), "missing inactive variant: {content}");
-    // Last variant has semicolon
     assert!(
         content.contains("inactive;"),
         "missing semicolon on last variant: {content}"
@@ -414,8 +409,6 @@ fn simple_sync_function_emits_static_method() {
         })
         .map(|f| f.content.as_str())
         .expect("missing src/demo_crate.dart");
-    // FRB style: wrappers are always-async (Future<...>) and call into the
-    // bridge-generated lib.dart with named parameters.
     assert!(
         content.contains("class DemoCrateBridge {"),
         "missing bridge class: {content}"
@@ -618,7 +611,6 @@ fn async_function_emits_future_return_and_async_keyword() {
         })
         .map(|f| f.content.as_str())
         .expect("missing src/demo_crate.dart");
-    // dart:async is no longer needed: Dart's core Future is in dart:core (auto-imported).
     assert!(
         content.contains("static Future<String> fetchData() async {"),
         "missing async method: {content}"
@@ -678,7 +670,6 @@ fn error_returning_function_emits_doc_comment() {
         content.contains("/// throws ParseError on failure"),
         "missing error doc comment: {content}"
     );
-    // FRB style emits always-async wrappers — Future<String> rather than bare String.
     assert!(
         content.contains("static Future<String> parseInput(String raw) async {"),
         "missing async parseInput method: {content}"
@@ -802,15 +793,11 @@ fn output_path_uses_module_name() {
     config.name = "my-lib".to_string();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
-    // Even empty API generates one file (or zero if we short-circuit)
-    // With no content, we still return the file — check the path ends with my_lib.dart
     if !files.is_empty() {
         let path_str = files[0].path.to_string_lossy();
         assert!(path_str.ends_with("my_lib.dart"), "wrong output path: {path_str}");
     }
 }
-
-// ── Dart trait abstract class emission ──────────────────────────────────────
 
 fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async: bool) -> MethodDef {
     MethodDef {
@@ -1255,8 +1242,6 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
     );
 }
 
-// ── Dart-side trait bridge wrapper methods ──────────────────────────────────
-
 fn make_config_with_full_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
@@ -1392,7 +1377,6 @@ fn dart_bridge_class_emits_register_unregister_clear_wrappers_when_all_configure
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let content = find_dart_src(&files).expect("src dart file should be emitted");
 
-    // register wrapper
     assert!(
         content.contains("static Future<void> registerOcrBackend(OcrBackendDartImpl impl) async {"),
         "missing registerOcrBackend wrapper: {content}"
@@ -1402,7 +1386,6 @@ fn dart_bridge_class_emits_register_unregister_clear_wrappers_when_all_configure
         "registerOcrBackend must delegate to rust_bridge: {content}"
     );
 
-    // unregister wrapper
     assert!(
         content.contains("static Future<void> unregisterOcrBackend(String name) async {"),
         "missing unregisterOcrBackend wrapper: {content}"
@@ -1412,7 +1395,6 @@ fn dart_bridge_class_emits_register_unregister_clear_wrappers_when_all_configure
         "unregisterOcrBackend must delegate to rust_bridge: {content}"
     );
 
-    // clear wrapper
     assert!(
         content.contains("static Future<void> clearOcrBackends() async {"),
         "missing clearOcrBackends wrapper: {content}"
@@ -1449,12 +1431,9 @@ fn dart_bridge_class_does_not_emit_unregister_or_clear_when_not_configured() {
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
     };
-    // make_config_with_bridge leaves register_fn / unregister_fn / clear_fn all None
     let config = make_config_with_bridge("Validator");
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
 
-    // No Dart bridge class should be emitted at all when there are no functions
-    // and no bridge methods to emit.
     let dart_src = find_dart_src(&files).expect("src dart file should still be emitted");
     assert!(
         !dart_src.contains("unregisterValidator"),
@@ -1466,13 +1445,9 @@ fn dart_bridge_class_does_not_emit_unregister_or_clear_when_not_configured() {
     );
 }
 
-// ── Bug regression: reserved Dart keyword `default` as enum variant name ────
-
 #[test]
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn enum_variant_named_default_is_escaped() {
-    // Regression for: HtmlTheme::Default emitting bare `default` which is a
-    // Dart reserved keyword, causing a parse error.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1534,7 +1509,6 @@ fn enum_variant_named_default_is_escaped() {
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    // `default` must be escaped to `default_`; bare `default` is a Dart reserved word.
     assert!(
         content.contains("default_"),
         "reserved keyword `default` must be escaped to `default_`: {content}"
@@ -1545,13 +1519,9 @@ fn enum_variant_named_default_is_escaped() {
     );
 }
 
-// ── Bug regression: numeric field name `0` from tuple-variant index ─────────
-
 #[test]
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn tuple_variant_with_numeric_field_name_is_escaped() {
-    // Regression for: FormatMetadata::Pdf(PdfMetadata) emitting `final String 0;`
-    // when the IR uses the string "0" as the tuple-field name.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1563,7 +1533,6 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
                 name: "Pdf".into(),
-                // Tuple-variant: the IR represents the unnamed field with name "0".
                 fields: vec![make_field("0", TypeRef::String, false)],
                 doc: String::new(),
                 is_default: false,
@@ -1599,7 +1568,6 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
 
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    // The field must be renamed to `field0`, not bare `0`.
     assert!(
         content.contains("final String field0;"),
         "numeric field name `0` must be renamed to `field0`: {content}"
@@ -1617,10 +1585,6 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
 #[test]
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn error_message_template_strips_placeholders_and_escapes_special_chars() {
-    // Templates carry `thiserror`-style `{name}` placeholders. The Dart Display
-    // string must not leak those placeholders to runtime users — the resolved
-    // string only ever contains the prose with the holes removed. Escaping
-    // (single-quote, backslash, dollar) still applies to the surviving prose.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1682,24 +1646,18 @@ fn error_message_template_strips_placeholders_and_escapes_special_chars() {
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // No `{name}` substitution markers anywhere in emitted message strings.
     assert!(
         !content.contains("{plugin_name}") && !content.contains("{message}") && !content.contains("{amount}"),
         "thiserror placeholders must be stripped from runtime messages: {content}"
     );
-    // The Plugin variant's prose was `Plugin error in '...': ...` — after
-    // placeholder removal and trailing-punctuation cleanup it collapses to
-    // `Plugin error in`. (No surviving stray quote, no leak.)
     assert!(
         content.contains("String get message => 'Plugin error in';"),
         "expected stripped Plugin message: {content}"
     );
-    // Backslash in surviving prose is doubled so Dart doesn't treat it as escape.
     assert!(
         content.contains(r"String get message => 'Path C:\\Users\\';"),
         "backslashes in surviving prose must be escaped as \\\\: {content}"
     );
-    // Dollar sign survives as prose; must be `\$` so Dart doesn't interpolate.
     assert!(
         content.contains(r"String get message => 'Cost: \$';"),
         "dollar sign in surviving prose must be escaped as \\$: {content}"
@@ -1711,7 +1669,7 @@ fn build_config_for_frb_emits_post_process_file_step() {
     use alef::core::backend::{PostBuildStep, PostProcessor};
     use std::path::PathBuf;
 
-    let config = make_config(); // crate name = "demo-crate" → module = "demo_crate"
+    let config = make_config();
     let bc = DartBackend
         .build_config_for(&config)
         .expect("FRB style must yield a BuildConfig");
@@ -1751,7 +1709,6 @@ fn build_config_for_frb_emits_post_process_file_step() {
         .join("demo_crate_bridge_generated")
         .join("lib.freezed.dart");
 
-    // (1) exclude_functions on lib.dart
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[0] {
         assert!(
             matches!(processor, PostProcessor::FrbDartExcludeFunctions(..)),
@@ -1760,7 +1717,6 @@ fn build_config_for_frb_emits_post_process_file_step() {
         assert_eq!(path, &lib_dart_path, "First PostProcessFile must target lib.dart");
     }
 
-    // (2) sealed_variants on lib.dart
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[1] {
         assert_eq!(
             *processor,
@@ -1783,8 +1739,6 @@ fn build_config_for_frb_emits_post_process_file_step() {
         "Dart must not schedule the product-name-based optional field rewriter"
     );
 
-    // (3) exclude_functions on frb_generated.dart — filters Rust FFI bridge wrappers like
-    // `crateCalculateQualityScore` that are also emitted in frb_generated.dart.
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[2] {
         assert!(
             matches!(processor, PostProcessor::FrbDartExcludeFunctions(..)),
@@ -1796,9 +1750,6 @@ fn build_config_for_frb_emits_post_process_file_step() {
         );
     }
 
-    // (4) sealed_variants on frb_generated.dart — reused for the published-package
-    // native-lib loader injection (idempotent — the loader fix is keyed off the FRB
-    // loader config present only in that file).
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[3] {
         assert_eq!(
             *processor,
@@ -1811,8 +1762,6 @@ fn build_config_for_frb_emits_post_process_file_step() {
         );
     }
 
-    // (5) fix handler executor calls on frb_generated.dart — rewrites FRB callback handler
-    // invocations that incorrectly call executeSync/executeNormal on function parameters.
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[4] {
         assert_eq!(
             *processor,
@@ -1855,8 +1804,6 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
         .build_config_for(&config)
         .expect("FRB style must yield a BuildConfig");
 
-    // RunCommand (flutter_rust_bridge_codegen) must run before PostProcessFile steps so the
-    // generated lib.dart exists when the rewriters run.
     let steps: Vec<&str> = bc
         .post_build
         .iter()
@@ -1921,10 +1868,9 @@ fn build_config_for_frb_run_command_uses_config_file() {
 fn build_config_with_config_includes_post_build_steps() {
     use alef::core::backend::PostBuildStep;
 
-    let config = make_config(); // crate name = "demo-crate"
+    let config = make_config();
     let backend = DartBackend;
 
-    // The new method `build_config_with_config` should delegate to `build_config_for`.
     let bc_with_config = backend
         .build_config_with_config(&config)
         .expect("build_config_with_config must return a BuildConfig");
@@ -1932,14 +1878,12 @@ fn build_config_with_config_includes_post_build_steps() {
         .build_config_for(&config)
         .expect("build_config_for must return a BuildConfig");
 
-    // Both should be identical
     assert_eq!(
         bc_with_config.post_build.len(),
         bc_for.post_build.len(),
         "build_config_with_config must have the same number of post-build steps as build_config_for"
     );
 
-    // Verify that the product-name-based optional-field rewriter is not scheduled.
     let has_optional_fields_processor = bc_with_config.post_build.iter().any(|step| {
         if let PostBuildStep::PostProcessFile { processor, .. } = step {
             matches!(
@@ -2004,8 +1948,6 @@ skip_frb = true
             .collect::<Vec<_>>()
     );
 
-    // Post-processors should still be scheduled so they can run on already-generated
-    // FRB output (e.g. from a prior run) — only the upstream codegen invocation is skipped.
     let post_process_count = bc
         .post_build
         .iter()
@@ -2016,7 +1958,6 @@ skip_frb = true
         "skip_frb = true must retain PostProcessFile steps for already-generated FRB output"
     );
 
-    // Verify the DartConfig field itself deserialises correctly.
     let dart_cfg: DartConfig = toml::from_str("skip_frb = true").expect("must parse");
     assert!(dart_cfg.skip_frb, "DartConfig.skip_frb must deserialise from TOML");
 

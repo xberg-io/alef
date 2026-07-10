@@ -93,7 +93,6 @@ arg_type = "file_path"
 #[test]
 fn test_async_true_emits_async_throws() {
     let mut toml = BASE_TOML.to_string();
-    // Insert "async = true\n" before the closing [[ crates.e2e.call.args ]] section
     toml.insert_str(toml.rfind("[[crates.e2e.call.args]]").unwrap(), "async = true\n\n");
     let files = render_swift(&toml, "async_test");
     let content = smoke_test_content(&files);
@@ -123,8 +122,7 @@ fn test_async_false_emits_throws_only() {
 
 #[test]
 fn test_async_defaults_to_false() {
-    // When async is not specified, it should default to false.
-    let toml = BASE_TOML.to_string(); // No async line
+    let toml = BASE_TOML.to_string();
     let files = render_swift(&toml, "default_test");
     let content = smoke_test_content(&files);
     assert!(

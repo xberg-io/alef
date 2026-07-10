@@ -20,7 +20,6 @@ impl FfiBridgeGenerator {
         let bridge = self.bridge_name(spec);
         let vtable = self.vtable_name(spec);
 
-        // Collect required methods with `Vec(T) + returns_ref` that need a cache field.
         let slice_cache_methods: Vec<&crate::core::ir::MethodDef> = spec
             .required_methods()
             .into_iter()
@@ -37,7 +36,6 @@ impl FfiBridgeGenerator {
             );
         }
 
-        // Build the slice-cache initialisation blocks and the field initialisers.
         let mut cache_init_blocks = String::new();
         let mut field_inits = String::new();
 
@@ -45,9 +43,6 @@ impl FfiBridgeGenerator {
             let fname = &method.name;
             let field = format!("{fname}_strs");
 
-            // Emit the block that calls the vtable fn once and leaks the result into
-            // `&'static [&'static str]`.  The block is safe to emit in an `unsafe fn`
-            // context; individual unsafe sub-expressions are annotated inline.
             cache_init_blocks.push_str(&crate::backends::ffi::template_env::render(
                 "constructor_slice_cache_init.jinja",
                 minijinja::context! {
@@ -64,7 +59,6 @@ impl FfiBridgeGenerator {
             ));
         }
 
-        // Generate the constructor with cache init blocks injected before `Self { ... }`.
         crate::backends::ffi::template_env::render(
             "constructor_impl_with_cache.jinja",
             minijinja::context! {
@@ -99,7 +93,6 @@ impl FfiBridgeGenerator {
 
         let mut out = String::with_capacity(2048);
 
-        // --- register function header ---
         out.push_str(&crate::backends::ffi::template_env::render(
             "register_fn_header.jinja",
             minijinja::context! {
@@ -109,7 +102,6 @@ impl FfiBridgeGenerator {
             },
         ));
 
-        // Validate required fn pointers (non-default methods must be non-null)
         for method in spec.required_methods() {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "register_fn_vtable_check.jinja",
@@ -119,7 +111,6 @@ impl FfiBridgeGenerator {
             ));
         }
 
-        // --- register function body ---
         let register_call = if let Some(extra_args) = &spec.bridge_config.register_extra_args {
             format!("registry.register(arc, {extra_args})")
         } else {
@@ -138,7 +129,6 @@ impl FfiBridgeGenerator {
 
         out.push('\n');
 
-        // --- unregister function ---
         out.push_str(&crate::backends::ffi::template_env::render(
             "unregister_fn.jinja",
             minijinja::context! {
@@ -147,10 +137,6 @@ impl FfiBridgeGenerator {
             },
         ));
 
-        // --- clear function ---
-        // Other backends (go/java/csharp/kotlin) expect `{prefix}_clear_{trait_snake}`,
-        // so we always emit under that name regardless of the alef.toml `clear_fn`
-        // alias (which only governs the host-language wrapper name).
         if spec.bridge_config.clear_fn.is_some() {
             let full_clear_name = format!("{prefix}_clear_{trait_snake}");
             out.push('\n');
@@ -180,13 +166,9 @@ impl FfiBridgeGenerator {
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
-        // Check if the trait has async methods
         let has_async_methods = spec.trait_def.methods.iter().any(|m| m.is_async);
         let async_trait_is_send = <Self as TraitBridgeGenerator>::async_trait_is_send(self);
 
-        // Include ALL methods, not just those without defaults (unlike gen_bridge_trait_impl).
-        // FFI visitor bridges must implement every method so the vtable pattern works.
-        // Exception: methods listed in `ffi_skip_methods` fall back to the trait's default impl.
         let skip_methods = &spec.bridge_config.ffi_skip_methods;
         let mut methods_code = String::with_capacity(2048);
         for (i, method) in spec
@@ -200,7 +182,6 @@ impl FfiBridgeGenerator {
                 methods_code.push_str("\n\n");
             }
 
-            // Build the method signature
             let async_kw = if method.is_async { "async " } else { "" };
             let receiver = match &method.receiver {
                 Some(crate::core::ir::ReceiverKind::Ref) => "&self",
@@ -209,10 +190,6 @@ impl FfiBridgeGenerator {
                 None => "",
             };
 
-            // Build params (excluding self), respecting is_ref/is_mut so that
-            // &[u8], &str, &Path, and excluded named types are emitted correctly.
-            // Use the lifetime-aware variant so that Named types with `has_lifetime_params`
-            // (e.g. `SyntaxContext<'a>`) are emitted as `&Type<'_>` to match the trait def.
             let params: Vec<String> = method
                 .params
                 .iter()
@@ -233,7 +210,6 @@ impl FfiBridgeGenerator {
                 format!("{}, {}", receiver, params.join(", "))
             };
 
-            // Return type
             let error_override = method.error_type.as_ref().map(|_| spec.error_path());
             let ret = format_return_type(
                 &method.return_type,
@@ -242,14 +218,12 @@ impl FfiBridgeGenerator {
                 method.returns_ref,
             );
 
-            // Generate body using FFI's vtable call generator
             let raw_body = if method.is_async {
                 self.gen_async_method_body(method, spec)
             } else {
                 self.gen_sync_method_body(method, spec)
             };
 
-            // Indent body
             let indented_body = raw_body
                 .lines()
                 .map(|line| format!("        {line}"))
@@ -268,10 +242,8 @@ impl FfiBridgeGenerator {
             ));
         }
 
-        // Plugin impl is already emitted by the caller (mod.rs orchestration)
-        // before calling gen_ffi_trait_impl — do not duplicate here.
         let mut impl_code = String::new();
-        let _ = gen_bridge_plugin_impl; // silence unused import in case future logic re-adds it
+        let _ = gen_bridge_plugin_impl;
 
         if has_async_methods {
             if async_trait_is_send {
@@ -295,10 +267,6 @@ impl FfiBridgeGenerator {
 
 impl TraitBridgeGenerator for FfiBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
-        // The "foreign object" in the vtable pattern is opaque — there is no
-        // named Rust type for it.  We use this field only as a conceptual handle;
-        // the generated struct does NOT follow the standard `inner: T` layout
-        // (see `gen_trait_bridge` below which calls the generators individually).
         "*const std::ffi::c_void"
     }
 
@@ -310,25 +278,15 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        // `inside_closure = false`: errors must use the trait's actual error type,
-        // not `Box<dyn Error>`, because the body is emitted directly in the trait impl.
         self.gen_vtable_call_body(method, spec, false)
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        // Short-circuit: slice-cache methods (returns_ref + Vec) return from a pre-populated
-        // `&'static [&'static str]` field.  No async work is needed.
         if method.returns_ref && matches!(&method.return_type, TypeRef::Vec(_)) {
             return format!("self.{}_strs\n", method.name);
         }
 
-        // For async methods we block-on inside a spawn_blocking call, mirroring
-        // the Go/Java/C# strategy of running synchronous C callbacks on a thread pool.
-        // The sync body references `self.vtable.*` and `self.user_data`; inside the
-        // closure we have local `vtable` / `user_data` bindings instead.
         let sync_body = self
-            // `inside_closure = true`: the body runs inside a `_SendFn` closure
-            // whose return type is `Box<dyn Error + Send + Sync>`, so `Box::from` is correct.
             .gen_vtable_call_body(method, spec, true)
             .replace("self.vtable.", "vtable.")
             .replace("self.user_data", "user_data");
@@ -343,8 +301,6 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         let _vtable_name = self.vtable_name(spec);
         let mut out = String::with_capacity(1024);
 
-        // *const c_void is !Send, but the caller guarantees thread-safety via the vtable
-        // API contract. Wrap the entire closure in a Send newtype to bypass the check.
         out.push_str(
             "struct _SendFn<F>(F);
 ",
@@ -381,8 +337,6 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             let clone_expr = match &p.ty {
                 TypeRef::Path => format!("{}.to_path_buf()", p.name),
                 TypeRef::Bytes => format!("{}.to_vec()", p.name),
-                // &str is not Clone-into-owned by itself — `.clone()` returns &str (same lifetime).
-                // Use `.to_string()` so the closure captures an owned String that is 'static.
                 TypeRef::String | TypeRef::Char if p.is_ref => format!("{}.to_string()", p.name),
                 _ => format!("{}.clone()", p.name),
             };

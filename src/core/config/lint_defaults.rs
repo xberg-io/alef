@@ -270,9 +270,6 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
             }
         }
         Language::Zig => {
-            // Format `build.zig` (package root) as well as `src/`. `zig fmt src`
-            // alone misses the scaffolded `build.zig`, leaving it for the consumer's
-            // own `zig fmt` hook to reformat — a spurious post-generation diff.
             let format_cmd = wrap(format!("cd {output_dir} && zig fmt src build.zig"), ctx.run_wrapper);
             let check_cmd = wrap(
                 format!("cd {output_dir} && zig fmt --check src build.zig"),

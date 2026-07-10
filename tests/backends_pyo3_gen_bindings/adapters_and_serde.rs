@@ -9,7 +9,6 @@ fn test_adapter_wrapper_functions() {
 
     let backend = Pyo3Backend;
 
-    // Create a minimal API with a handle type and a function that returns an iterator.
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -76,7 +75,6 @@ fn test_adapter_wrapper_functions() {
     };
 
     let mut config = make_config();
-    // Add one adapter
     config.adapters = vec![alef::core::config::AdapterConfig {
         name: "test_stream".to_string(),
         pattern: AdapterPattern::Streaming,
@@ -102,13 +100,11 @@ fn test_adapter_wrapper_functions() {
         .generate_public_api(&api, &config)
         .expect("generate_public_api failed");
 
-    // Check api.py contains the wrapper function
     let api_py = files
         .iter()
         .find(|f| f.path.ends_with("api.py"))
         .expect("api.py not generated");
 
-    // Rust `String` adapter param type must be mapped to Python `str`.
     assert!(
         api_py
             .content
@@ -129,7 +125,6 @@ fn test_adapter_wrapper_functions() {
         api_py.content
     );
 
-    // Check __init__.py imports and exports the adapter
     let init_py = files
         .iter()
         .find(|f| f.path.ends_with("__init__.py"))
@@ -228,7 +223,6 @@ fn test_async_method_adapter_wrapper() {
         .find(|f| f.path.ends_with("api.py"))
         .expect("api.py not generated");
 
-    // Must use return-await form, not async-for-yield.
     assert!(
         api_py
             .content
@@ -257,7 +251,6 @@ fn test_async_method_adapter_wrapper() {
 fn test_serde_rename_in_constructor_and_properties() {
     let backend = Pyo3Backend;
 
-    // Create a struct with a field that has serde_rename
     let mut field_with_rename = make_field("max_characters", TypeRef::Primitive(PrimitiveType::Usize), true);
     field_with_rename.serde_rename = Some("max_chars".to_string());
     field_with_rename.typed_default = Some(alef::core::ir::DefaultValue::IntLiteral(1000));
@@ -309,34 +302,29 @@ fn test_serde_rename_in_constructor_and_properties() {
         .generate_bindings(&api, &config)
         .expect("generate_bindings failed");
 
-    // Find the generated lib.rs
     let lib_rs = files
         .iter()
         .find(|f| f.path.ends_with("lib.rs"))
         .expect("lib.rs not generated");
 
-    // The PyO3 signature should use max_chars (the serde_rename name)
     assert!(
         lib_rs.content.contains("max_chars=None"),
         "PyO3 signature should use serde_rename 'max_chars=None'; content:\n{}",
         lib_rs.content
     );
 
-    // The constructor parameter should be max_chars
     assert!(
         lib_rs.content.contains("pub fn new(max_chars:"),
         "Constructor parameter should use serde_rename 'max_chars'; content:\n{}",
         lib_rs.content
     );
 
-    // The struct literal should use max_characters (bare Rust field name)
     assert!(
         lib_rs.content.contains("Self { max_characters: max_chars"),
         "Struct literal should use bare field name 'max_characters'; content:\n{}",
         lib_rs.content
     );
 
-    // The serde rename attribute should be present on the field
     assert!(
         lib_rs.content.contains("#[serde(rename = \"max_chars\")]"),
         "Field should have serde(rename = \"max_chars\"); content:\n{}",
@@ -348,11 +336,6 @@ fn test_serde_rename_in_constructor_and_properties() {
 fn test_cfg_gated_fields_excluded_from_constructor() {
     let backend = Pyo3Backend;
 
-    // Create fields: one cfg-gated by a predicate `cfg_present_for_pyo3` cannot prove
-    // (a non-feature, non-wasm gate — here a contrived `any(unix, windows)` form),
-    // and one ungated. Feature gates (`feature = "pdf"`) are now treated as present
-    // because the pyo3 Cargo.toml controls which features compile in; only predicates
-    // that may genuinely strip the field at build time are excluded.
     let mut cfg_field = make_field("pdf_options", TypeRef::String, true);
     cfg_field.cfg = Some("any(unix, windows)".to_string());
     cfg_field.typed_default = Some(alef::core::ir::DefaultValue::None);
@@ -407,35 +390,29 @@ fn test_cfg_gated_fields_excluded_from_constructor() {
         .generate_bindings(&api, &config)
         .expect("generate_bindings failed");
 
-    // Find the generated lib.rs
     let lib_rs = files
         .iter()
         .find(|f| f.path.ends_with("lib.rs"))
         .expect("lib.rs not generated");
 
-    // The constructor should NOT have pdf_options as a parameter (it's cfg-gated)
     assert!(
         !lib_rs.content.contains("pub fn new(pdf_options:"),
         "Constructor should NOT have cfg-gated parameter 'pdf_options'; content:\n{}",
         lib_rs.content
     );
 
-    // The constructor should have use_cache as a parameter (not cfg-gated)
     assert!(
         lib_rs.content.contains("#[new]\n    pub fn new(use_cache:"),
         "Constructor should have non-cfg parameter 'use_cache'; content:\n{}",
         lib_rs.content
     );
 
-    // The struct literal should include use_cache (shorthand) and pdf_options (explicitly set to None)
     assert!(
         lib_rs.content.contains("Self { use_cache, pdf_options: None }"),
         "Struct literal should use shorthand for non-cfg field and explicit None for cfg-gated optional field; content:\n{}",
         lib_rs.content
     );
 
-    // The pdf_options field should still be in the struct definition
-    // (cfg attributes are typically not preserved by PyO3 codegen, but the field itself should be there)
     assert!(
         lib_rs.content.contains("pub pdf_options:"),
         "Field should still exist in struct definition; content:\n{}",
@@ -452,7 +429,6 @@ fn test_cfg_gated_fields_excluded_from_constructor() {
 fn test_serde_rename_rust_keyword_emitted_as_raw_ident() {
     let backend = Pyo3Backend;
 
-    // `item_type` field carries serde(rename = "type") — the wire name is a Rust keyword.
     let mut item_type_field = make_field("item_type", TypeRef::String, false);
     item_type_field.serde_rename = Some("type".to_string());
 
@@ -504,28 +480,24 @@ fn test_serde_rename_rust_keyword_emitted_as_raw_ident() {
         .find(|f| f.path.ends_with("lib.rs"))
         .expect("lib.rs not generated");
 
-    // The constructor parameter must use raw-identifier syntax, not the bare keyword `type`.
     assert!(
         lib_rs.content.contains("pub fn new(r#type:"),
         "Constructor parameter for serde-renamed 'type' field must be 'r#type'; content:\n{}",
         lib_rs.content
     );
 
-    // The PyO3 signature attribute must also use the raw identifier (PyO3 strips `r#` → Python sees `type`).
     assert!(
         lib_rs.content.contains("r#type") && !lib_rs.content.contains("(type,") && !lib_rs.content.contains("(type)"),
         "pyo3 signature must not contain bare 'type' token; content:\n{}",
         lib_rs.content
     );
 
-    // The struct literal must assign via raw identifier: `item_type: r#type`.
     assert!(
         lib_rs.content.contains("item_type: r#type"),
         "Struct literal must use 'item_type: r#type' for the renamed field; content:\n{}",
         lib_rs.content
     );
 
-    // Sanity: the field definition should still carry the serde rename attribute.
     assert!(
         lib_rs.content.contains("#[serde(rename = \"type\")]"),
         "Field must retain #[serde(rename = \"type\")] attribute; content:\n{}",

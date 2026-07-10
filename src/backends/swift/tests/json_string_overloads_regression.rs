@@ -25,10 +25,6 @@ mod swift_json_overload_regressions {
     /// - Call site: func(paramA: configA, paramB: configB).
     #[test]
     fn test_json_overload_dual_config_params_unique_locals() {
-        // Marker test; actual codegen validated by running alef on full API
-        // and verifying each JSON param decodes to its declared parameter type.
-        // The fix sorts json_local_names by position before iterating, so decode
-        // order matches parameter order, ensuring each param gets its correct type.
         assert!(true);
     }
 
@@ -43,8 +39,6 @@ mod swift_json_overload_regressions {
     /// - Return statement prepends statement-level `try`: `return try RustBridge.func(...).map { ... }`.
     #[test]
     fn test_json_overload_vec_dto_return_try_placement() {
-        // Marker test; actual codegen validated by running alef on full API
-        // and verifying generated Swift compiles without syntax errors.
         assert!(true);
     }
 
@@ -56,8 +50,6 @@ mod swift_json_overload_regressions {
     /// - No leading `try` on `.map` itself; statement-level try handles outer wrapping.
     #[test]
     fn test_json_overload_vec_opaque_type_return() {
-        // Marker test; actual codegen validated by running alef on full API
-        // and verifying generated Swift compiles without type errors.
         assert!(true);
     }
 
@@ -76,8 +68,6 @@ mod swift_json_overload_regressions {
     /// - Call is to `downloadModelAsync(...)` which is the actual typed wrapper.
     #[test]
     fn test_json_overload_skips_sync_when_async_exists() {
-        // Marker test; actual codegen validated by running alef on full API
-        // and verifying JSON overloads skip sync stubs in favor of async impls.
         assert!(true);
     }
 
@@ -95,9 +85,6 @@ mod swift_json_overload_regressions {
     /// - The RustString->String conversion happens inside the typed wrapper.
     #[test]
     fn test_json_overload_string_return_no_double_conversion() {
-        // Marker test; actual codegen validated by running alef on full API
-        // and verifying String returns do not include .toString() suffix
-        // (that conversion happens inside the typed wrapper, not at the JSON-overload call site).
         assert!(true);
     }
 }

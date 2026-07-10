@@ -73,7 +73,6 @@ fn greeter_api() -> ApiSurface {
     let opts = serde_struct("Opts", vec![make_field("label", TypeRef::String)]);
     let mut doc = serde_struct("Doc", vec![make_field("text", TypeRef::String)]);
     doc.is_return_type = true;
-    // Opaque handle: a serde struct flagged opaque must NOT be native-marshalled.
     let mut handle = serde_struct("Handle", vec![make_field("id", TypeRef::String)]);
     handle.is_opaque = true;
 
@@ -117,10 +116,6 @@ package_name = "test-lib"
     cfg.resolve().unwrap().remove(0)
 }
 
-// ---------------------------------------------------------------------------
-// (a)+(b) Runtime: native-object struct param, others unchanged
-// ---------------------------------------------------------------------------
-
 #[test]
 fn trait_bridge_marshals_struct_param_as_native_js_object() {
     let trait_def = greeter_trait();
@@ -136,9 +131,6 @@ fn trait_bridge_marshals_struct_param_as_native_js_object() {
     .expect("gen_trait_bridge must succeed for Greeter");
     let code = &bridge.code;
 
-    // (a) The known serde struct `Opts` is built as the binding's NATIVE object via the same
-    //     `From<core::T>` conversion used for return values, then handed to JS through
-    //     `ToNapiValue`. No `{:?}` debug string for `opts`.
     assert!(
         code.contains("JsOpts::from"),
         "struct param must be constructed as the native JsOpts via From<core>:\n{code}"
@@ -148,8 +140,6 @@ fn trait_bridge_marshals_struct_param_as_native_js_object() {
         "struct param must NOT be serialized to a debug string:\n{code}"
     );
 
-    // (b) The enum (`mood`), opaque (`handle`), and unknown (`mystery`) params must NOT be
-    //     native-marshalled — no `Js{Name}::from` for them; they keep the prior debug-string path.
     for non_struct in ["JsMood::from", "JsHandle::from", "JsMystery::from"] {
         assert!(
             !code.contains(non_struct),
@@ -164,10 +154,6 @@ fn trait_bridge_marshals_struct_param_as_native_js_object() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// (c)+(d) TypeScript host interface: typed params + typed return + typed register_*
-// ---------------------------------------------------------------------------
-
 #[test]
 fn dts_plugin_bridge_emits_typed_interface_and_typed_register() {
     let backend = NapiBackend;
@@ -178,8 +164,6 @@ fn dts_plugin_bridge_emits_typed_interface_and_typed_register() {
         .content
         .clone();
 
-    // (c) Host-implementable interface emitted with typed struct param + typed native return.
-    // The NAPI `.d.ts` exports the unprefixed DTO names (`Opts`/`Doc`), since the Rust `JsOpts`
     // struct carries `#[napi(object, js_name = "Opts")]`.
     assert!(
         dts.contains("export interface Greeter {"),
@@ -198,7 +182,6 @@ fn dts_plugin_bridge_emits_typed_interface_and_typed_register() {
         "interface method return must not fall back to Promise<string>:\n{dts}"
     );
 
-    // (d) register_* typed against the interface, not bare object.
     assert!(
         dts.contains("export declare function registerGreeter(impl: Greeter): void;"),
         "register fn must type its callback param against the Greeter interface:\n{dts}"

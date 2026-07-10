@@ -206,7 +206,6 @@ pub fn compute_crate_sources_hash(
         }
     }
 
-    // Stable sort by path so the hash is order-independent.
     all_sources.sort();
     all_sources.dedup();
 
@@ -354,7 +353,6 @@ pub fn inject_hash_line(content: &str, hash: &str) -> String {
         if !injected && i < 10 && (line.contains(HEADER_MARKER) || line.contains(ALT_HEADER_MARKER)) {
             let trimmed = line.trim();
             let hash_line = if trimmed.starts_with("<!--") {
-                // XML comment: inject hash line as XML comment
                 format!("<!-- {HASH_PREFIX}{hash} -->")
             } else if trimmed.starts_with("//") {
                 format!("// {HASH_PREFIX}{hash}")
@@ -371,7 +369,6 @@ pub fn inject_hash_line(content: &str, hash: &str) -> String {
         }
     }
 
-    // Preserve original trailing-newline behavior.
     if !content.ends_with('\n') && result.ends_with('\n') {
         result.pop();
     }
@@ -387,7 +384,6 @@ pub fn extract_hash(content: &str) -> Option<String> {
         }
         if let Some(pos) = line.find(HASH_PREFIX) {
             let rest = &line[pos + HASH_PREFIX.len()..];
-            // Trim trailing comment closers and whitespace.
             let hex = rest.trim().trim_end_matches("*/").trim_end_matches("-->").trim();
             if !hex.is_empty() {
                 return Some(hex.to_string());
@@ -407,7 +403,6 @@ pub fn strip_hash_line(content: &str) -> String {
         result.push_str(line);
         result.push('\n');
     }
-    // Preserve original trailing-newline behavior.
     if !content.ends_with('\n') && result.ends_with('\n') {
         result.pop();
     }

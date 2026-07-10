@@ -12,8 +12,6 @@ use super::*;
 fn test_return_type_exported_from_native_module_not_options() {
     let backend = Pyo3Backend;
 
-    // ParseOutput: has_default=true (implements Default), is_return_type=true (returned by convert())
-    // ParseOptions: has_default=true, is_return_type=false (input/config type)
     let conversion_result = TypeDef {
         name: "ParseOutput".to_string(),
         rust_path: "my_lib::ParseOutput".to_string(),
@@ -157,7 +155,6 @@ fn test_return_type_exported_from_native_module_not_options() {
         .find(|f| f.path.ends_with("options.py"))
         .expect("options.py not generated");
 
-    // ParseOutput (return type) must be imported from the native module.
     let native_import_line = init_py
         .content
         .lines()
@@ -169,7 +166,6 @@ fn test_return_type_exported_from_native_module_not_options() {
         init_py.content
     );
 
-    // ParseOutput must NOT appear in the .options import.
     let options_import_line = init_py
         .content
         .lines()
@@ -181,14 +177,12 @@ fn test_return_type_exported_from_native_module_not_options() {
         init_py.content
     );
 
-    // ParseOptions (config/input type) must still be imported from .options.
     assert!(
         options_import_line.contains("ParseOptions"),
         "__init__.py must import ParseOptions from .options, got:\n{}",
         init_py.content
     );
 
-    // Both names must appear in __all__.
     assert!(
         init_py.content.contains("\"ParseOutput\""),
         "__init__.py __all__ must include ParseOutput, got:\n{}",
@@ -200,14 +194,12 @@ fn test_return_type_exported_from_native_module_not_options() {
         init_py.content
     );
 
-    // options.py must NOT define a @dataclass shadow for ParseOutput.
     assert!(
         !options_py.content.contains("class ParseOutput"),
         "options.py must not define a ParseOutput shadow class, got:\n{}",
         options_py.content
     );
 
-    // options.py MUST still define ParseOptions (the input/config type).
     assert!(
         options_py.content.contains("class ParseOptions"),
         "options.py must still define ParseOptions dataclass, got:\n{}",
@@ -217,14 +209,8 @@ fn test_return_type_exported_from_native_module_not_options() {
 
 #[test]
 fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
-    // Regression: alef#72. A has_default config DTO that exposes a builder method
-    // returning `Self` (e.g. `PackConfig::from_toml_file -> PackConfig`) must still
-    // be imported from `.options` in api.py, not from `._native`. The pre-fix code
-    // walked method return types into `return_type_names`, which incorrectly pulled
-    // self-builders out of the options classification.
     let backend = Pyo3Backend;
 
-    // ParseOutput: return type of free function `convert` — stays on ._native.
     let conversion_result = TypeDef {
         name: "ParseOutput".to_string(),
         rust_path: "my_lib::ParseOutput".to_string(),
@@ -251,9 +237,6 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         version: Default::default(),
     };
 
-    // ParseOptions: input/config DTO with `Self`-returning builder methods.
-    // This is the regression: before the fix, the method returns caused this type
-    // to be excluded from options_type_names.
     let with_verbose = MethodDef {
         name: "with_verbose".to_string(),
         params: vec![make_param_def(
@@ -436,8 +419,6 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         .find(|l| l.contains("from .options import"))
         .unwrap_or("");
 
-    // ParseOptions has Self-returning methods, so the pre-fix code put it in
-    // return_type_names and excluded it from options_type_names. Verify the fix.
     assert!(
         options_import_line.contains("ParseOptions"),
         "api.py must import ParseOptions from .options, got native={:?} options={:?}\n\nFull api.py:\n{}",
@@ -452,8 +433,6 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
         api_py.content
     );
 
-    // Regression boundary: ParseOutput IS a free-function return type, so it
-    // must continue to come from the native module.
     assert!(
         native_import_line.contains("ParseOutput"),
         "api.py must import ParseOutput from ._my_lib, got native={:?}\n\nFull api.py:\n{}",
@@ -504,9 +483,6 @@ fn test_typeddict_style_reexports_only_listed_results_as_native() {
     }
 
     let backend = Pyo3Backend;
-    // DocResult: pure result, listed in reexported_types -> native pyclass.
-    // DocConfig: is_return_type (a resolver returns it) AND a param the caller builds, not
-    // reexported -> structural .options TypedDict.
     let api = ApiSurface {
         crate_name: "my_lib".to_string(),
         version: "1.0.0".to_string(),
@@ -616,9 +592,6 @@ fn test_typeddict_style_reexports_only_listed_results_as_native() {
 
 #[test]
 fn test_options_py_emits_from_native_converters_with_nested_recursion() {
-    // Every emitted options dataclass gets a `_from_native_<snake>` converter so
-    // trait-callback bridges can hand hosts the public dataclass; nested dataclass
-    // fields recurse (including through Optional).
     let backend = Pyo3Backend;
 
     let inner = TypeDef {
@@ -678,9 +651,6 @@ fn test_options_py_emits_from_native_converters_with_nested_recursion() {
 
 #[test]
 fn test_from_native_converter_guards_optional_flag_fields() {
-    // Config fields are typically `Named` + `optional: true` in the IR (not
-    // `TypeRef::Optional`) — the converter must still None-guard the recursion,
-    // or a default config with a None nested section crashes the lift.
     let backend = Pyo3Backend;
 
     let inner = TypeDef {
@@ -725,9 +695,6 @@ fn test_from_native_converter_guards_optional_flag_fields() {
 
 #[test]
 fn test_from_native_converter_skips_binding_excluded_fields() {
-    // The converter must use the same field filter as the dataclass emission:
-    // a binding-excluded field is not a dataclass field, so passing it as a
-    // kwarg would fail at runtime (and under mypy).
     let backend = Pyo3Backend;
 
     let mut hidden = make_field("dispatch", TypeRef::String, true);

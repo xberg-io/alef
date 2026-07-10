@@ -15,18 +15,24 @@ exclude = [
     "templates/**",
     "**/templates/**",
     "tests/snapshots/**",
+    "crates/*-ffi/include/*.h",
+    "packages/go/include/*.h",
 ]
 
-# Typo allowlist (ported from .typos.toml [default.extend-words]). poly reads
-# this table natively. The former extend-ignore-re (commit-hash / bitwise-AND
-# regexes) is not portable to poly and is dropped — poly's tokenizer + 3-char
-# minimum already suppress hex-hash noise.
 [lint.typos]
 extend_words = { Prelease = "Prelease", wrkspace = "wrkspace", abl = "abl", unparseable = "unparseable", tring = "tring", ser = "ser", arange = "arange", delocate = "delocate", flate = "flate" }
 
 [lint.markdown.rumdl]
 disable = ["MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076"]
 
+
+[lint.uncomment]
+enabled = true
+remove_todos = false
+remove_fixme = false
+remove_docs = false
+use_default_ignores = true
+preserve_patterns = ["SAFETY", "HACK", "WORKAROUND", "NOTE"]
 [fmt.markdown.rumdl]
 disable = ["MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076"]
 
@@ -98,6 +104,18 @@ pylint_max_returns = 10
     "S",
     "T201",
 ]
+"e2e/**" = ["comment", "doc-comment"]
+"**/e2e/**" = ["comment", "doc-comment"]
+"test_apps/**" = ["comment", "doc-comment"]
+"**/test_apps/**" = ["comment", "doc-comment"]
+"docs/assets/**" = ["comment", "doc-comment"]
+"**/generated/**" = ["comment", "doc-comment"]
+"**/*.generated.*" = ["comment", "doc-comment"]
+"**/*.g.*" = ["comment", "doc-comment"]
+"**/*.freezed.*" = ["comment", "doc-comment"]
+"crates/*-ffi/include/*.h" = ["comment", "doc-comment"]
+"packages/go/include/*.h" = ["comment", "doc-comment"]
+"Package.swift" = ["comment", "doc-comment"]
 
 [hooks]
 stages = ["pre-commit"]
@@ -119,6 +137,8 @@ lint = { exclude = [
     "templates/**",
     "**/templates/**",
     "tests/snapshots/**",
+    "crates/*-ffi/include/*.h",
+    "packages/go/include/*.h",
 ] }
 fmt = { exclude = [
     "**/*.jinja",
@@ -136,6 +156,8 @@ fmt = { exclude = [
     "templates/**",
     "**/templates/**",
     "tests/snapshots/**",
+    "crates/*-ffi/include/*.h",
+    "packages/go/include/*.h",
 ] }
 file_safety = { exclude = [
     "**/*.jinja",
@@ -153,6 +175,8 @@ file_safety = { exclude = [
     "templates/**",
     "**/templates/**",
     "tests/snapshots/**",
+    "crates/*-ffi/include/*.h",
+    "packages/go/include/*.h",
 ] }
 cargo = true
 commit = { stages = ["commit-msg"] }

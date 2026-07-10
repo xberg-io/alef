@@ -5,7 +5,6 @@ fn test_scaffold_python_license_files_field() {
     // Verify that pyproject.toml includes license-files = ["LICENSE"] to ensure
     // maturin bundles the LICENSE file in the wheel. This fixes BLK-10 where PyPI
     // rejected wheels with License-File: LICENSE in METADATA but no actual LICENSE
-    // in the wheel root.
     let cfg: NewAlefConfig = toml::from_str(
         r#"
 [workspace]
@@ -27,14 +26,11 @@ repository = "https://github.com/test/my-lib"
     let files = scaffold(&api, &config, &[Language::Python]).unwrap();
     let pyproject_content = &files[0].content;
 
-    // Verify license-files field is present and correctly formatted
-    // (inline with inner spaces — pyproject-fmt canonical).
     assert!(
         pyproject_content.contains("license-files = [ \"LICENSE\" ]"),
         "pyproject.toml should declare license-files = [ \"LICENSE\" ] (with inner spaces)"
     );
 
-    // Verify it appears in the [project] section after the license field
     let project_section = pyproject_content
         .split("[tool.maturin]")
         .next()
@@ -146,7 +142,6 @@ fn test_scaffold_license_files_deduplicates_same_package_dir() {
     config.workspace_root = Some(workspace_root);
     let api = test_api();
 
-    // Dart uses packages/dart — single language, single dir.
     let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
     let license_files: Vec<_> = all_files.iter().filter(|f| f.path.ends_with("LICENSE")).collect();
 

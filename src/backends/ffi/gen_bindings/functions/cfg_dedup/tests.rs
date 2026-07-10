@@ -202,9 +202,6 @@ fn does_not_mutate_input_function_list() {
     let cfg_real = r#"all(feature = "reranker", feature = "tokio-runtime")"#;
     let cfg_stub = r#"all(feature = "reranker-presets", not(feature = "reranker"), feature = "tokio-runtime")"#;
 
-    // Mirror the re-export pattern: the re-export-resolved entry and the crate-root stub may
-    // share rust_path (after re-export shortening) — assert both are still present in the input
-    // slice after the dedup pass returns.
     let input = vec![
         make_fn(
             "rerank_async",

@@ -22,28 +22,24 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
     api: &crate::core::ir::ApiSurface,
     emitted_input_dtos: &AHashSet<String>,
 ) -> String {
-    // Collect any Input DTOs needed for config-like parameters
     let mut input_dtos = String::new();
     let mut input_dto_names: HashMap<String, String> = HashMap::new();
 
     for p in &func.params {
         if let TypeRef::Named(name) = &p.ty {
-            if !opaque_types.contains(name.as_str()) {
-                // Find the TypeDef for this named type
-                if let Some(type_def) = api.types.iter().find(|t| t.name == *name)
-                    && should_have_input_dto(type_def)
-                {
-                    // Skip if already emitted (dedup)
-                    if emitted_input_dtos.contains(name) {
-                        input_dto_names.insert(name.clone(), format!("{}Input", name));
-                        continue;
-                    }
-                    let (dto_code, dto_name) = gen_input_dto_for_type(name, core_import, type_def);
-                    if !dto_code.is_empty() {
-                        input_dtos.push_str(&dto_code);
-                        input_dtos.push_str("\n\n");
-                        input_dto_names.insert(name.clone(), dto_name);
-                    }
+            if !opaque_types.contains(name.as_str())
+                && let Some(type_def) = api.types.iter().find(|t| t.name == *name)
+                && should_have_input_dto(type_def)
+            {
+                if emitted_input_dtos.contains(name) {
+                    input_dto_names.insert(name.clone(), format!("{}Input", name));
+                    continue;
+                }
+                let (dto_code, dto_name) = gen_input_dto_for_type(name, core_import, type_def);
+                if !dto_code.is_empty() {
+                    input_dtos.push_str(&dto_code);
+                    input_dtos.push_str("\n\n");
+                    input_dto_names.insert(name.clone(), dto_name);
                 }
             }
         }
@@ -72,11 +68,9 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
     };
 
     let mut attrs = emit_rustdoc(&func.doc);
-    // Per-item clippy suppression: too_many_arguments when >7 params
     if func.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
     }
-    // Per-item clippy suppression: missing_errors_doc for Result-returning functions
     if func.error_type.is_some() {
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
@@ -112,9 +106,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
         } else {
             String::new()
         };
-        // Nested Vec params (e.g. Vec<Vec<String>>) arrive as JsValue because wasm-bindgen
-        // cannot pass them across the boundary directly. Emit a deserialization shadowing
-        // binding so the core call sees a real `Vec<Vec<T>>`.
         let needs_result_wrap = func
             .params
             .iter()
@@ -218,17 +209,11 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
     } else if func.error_type.is_some()
         && (func.sanitized || crate::codegen::generators::has_named_params(&func.params, opaque_types))
     {
-        // Serde recovery: accept Named non-opaque params as JsValue and deserialize
-        // to core types via serde_wasm_bindgen. Also handles sanitized functions (Vec<tuple>).
-        // WASM binding structs don't derive Serialize/Deserialize, so we can't round-trip
-        // through the binding type; instead we accept raw JsValue/Vec<String> from JS and
-        // deserialize directly to core types.
         let serde_params: Vec<String> = func
             .params
             .iter()
             .map(|p| match &p.ty {
                 TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
-                    // Accept as JsValue so serde_wasm_bindgen::from_value can deserialize
                     let mapped_ty = if p.optional {
                         "Option<JsValue>".to_string()
                     } else {
@@ -237,7 +222,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
                     format!("{}: {}", p.name, mapped_ty)
                 }
                 TypeRef::Vec(inner) => {
-                    // Sanitized Vec<tuple>: accept Vec<String> (JSON encoded)
                     if matches!(inner.as_ref(), TypeRef::Named(_)) {
                         if p.optional {
                             format!("{}: Option<Vec<String>>", p.name)
@@ -258,8 +242,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
             })
             .collect();
 
-        // Generate serde_wasm_bindgen::from_value let-bindings for Named non-opaque params
-        // and Vec<String> with is_ref=true (needs texts_refs intermediate)
         let mut serde_bindings = String::new();
         for p in &func.params {
             match &p.ty {
@@ -267,14 +249,12 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
                     let core_path = format!("{}::{}", core_import, name);
                     let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
 
-                    // Check if this is a config-like type that needs camelCase conversion
                     if api
                         .types
                         .iter()
                         .find(|t| t.name == *name)
                         .is_some_and(should_have_input_dto)
                     {
-                        // Use the Input DTO for deserialization with camelCase support
                         let input_dto_type = input_dto_names
                             .get(name)
                             .cloned()
@@ -305,7 +285,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
                             serde_bindings.push_str("    ");
                         }
                     } else {
-                        // Regular named type deserialization
                         if p.optional {
                             serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "serde_named_optional",
@@ -333,7 +312,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
                     }
                 }
                 TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
-                    // Sanitized Vec<tuple>: deserialize from Vec<String> JSON
                     let inner_name = match inner.as_ref() {
                         TypeRef::Named(n) => n,
                         _ => "UnknownTuple",
@@ -367,7 +345,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
                         && p.sanitized
                         && p.original_type.is_some() =>
                 {
-                    // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuple items).
                     let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
                     if p.optional {
                         serde_bindings.push_str(&crate::backends::wasm::template_env::render(
@@ -390,9 +367,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
                     }
                 }
                 TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
-                    // Vec<String> with is_ref=true: core expects &[&str].
-                    // gen_call_args_with_let_bindings emits `&{name}_refs`, so we must create
-                    // the intermediate Vec<&str> binding here.
                     if p.optional {
                         serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                             "serde_vec_string_refs_optional",
@@ -412,10 +386,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
                     }
                 }
                 TypeRef::Vec(outer_inner) if matches!(outer_inner.as_ref(), TypeRef::Vec(_)) => {
-                    // Nested Vec (e.g. Vec<Vec<String>>): wasm-bindgen cannot pass this across
-                    // the boundary directly, so the param arrives as JsValue. Deserialize via
-                    // serde_wasm_bindgen and shadow the original binding so gen_call_args can
-                    // still reference the parameter by its original name.
                     let elem_ty = if let TypeRef::Vec(elem) = outer_inner.as_ref() {
                         typeref_to_core_type_str(elem.as_ref())
                     } else {

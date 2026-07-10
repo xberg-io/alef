@@ -45,7 +45,6 @@ pub(crate) fn emit_trait_bridge_shims(
     let trait_name = &bridge_cfg.trait_name;
     let trait_snake = gleam_public_member_name(trait_name);
 
-    // Documentation comment
     out.push_str(&crate::backends::gleam::template_env::render(
         "trait_bridge_doc_header.jinja",
         minijinja::context! {
@@ -71,9 +70,6 @@ pub(crate) fn emit_trait_bridge_shims(
         minijinja::context! {},
     ));
 
-    // Registration function — only when register_fn is configured.
-    // The PID is passed as Dynamic because Gleam's type system does not have a native
-    // Pid type; Dynamic lets callers pass the Erlang PID term directly.
     if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
         imports.insert("import gleam/dynamic.{type Dynamic}");
         out.push_str(&crate::backends::gleam::template_env::render(
@@ -87,9 +83,6 @@ pub(crate) fn emit_trait_bridge_shims(
         out.push('\n');
     }
 
-    // Unregistration function — only when unregister_fn is configured.
-    // Takes a `name: String` identifying the plugin to remove and returns
-    // `Result(Nil, String)` so callers can handle unknown-name errors.
     if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
         out.push_str(&crate::backends::gleam::template_env::render(
             "unregister_fn.jinja",
@@ -101,9 +94,6 @@ pub(crate) fn emit_trait_bridge_shims(
         out.push('\n');
     }
 
-    // Clear function — only when clear_fn is configured.
-    // Takes no arguments and returns `Result(Nil, String)`.
-    // Typically used in test teardown to remove all registered plugins.
     if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
         out.push_str(&crate::backends::gleam::template_env::render(
             "clear_fn.jinja",
@@ -115,23 +105,11 @@ pub(crate) fn emit_trait_bridge_shims(
         out.push('\n');
     }
 
-    // Per-method response shims.
-    //
-    // For every method defined on the trait, emit a typed helper that the consumer's
-    // callback module calls to send the result back through the Rustler reply-registry.
-    // The NIF name follows the convention: `{trait_snake}_{method_snake}_response`.
-    //
-    // `call_id` is Dynamic because Gleam has no native Erlang reference type;
-    // callers pass the opaque reference term received in the trait_call message.
     if let Some(trait_ty) = trait_type {
         for method in &trait_ty.methods {
             let method_snake = gleam_public_member_name(&method.name);
             let nif_fn_name = format!("{trait_snake}_{method_snake}_response");
 
-            // Build Gleam return type for the ok branch (Nil when Unit).
-            // Excluded/internal types (e.g. `InternalDocument`) are not represented as
-            // generated Gleam types — substitute them with `String` so the signature
-            // does not reference a non-existent symbol.
             let ok_type = match &method.return_type {
                 TypeRef::Unit => "Nil".to_string(),
                 other => {
@@ -140,16 +118,12 @@ pub(crate) fn emit_trait_bridge_shims(
                 }
             };
 
-            // Build Gleam error type: resolve via declared errors list so that
-            // external types like `anyhow::Error` fall back to the module's own
-            // error type (or String when no errors are declared).
             let err_type = method
                 .error_type
                 .as_deref()
                 .map(|e| resolve_gleam_error_type(e, declared_errors))
                 .unwrap_or_else(|| "String".to_string());
 
-            // Doc comment with usage guidance.
             out.push_str(&crate::backends::gleam::template_env::render(
                 "method_doc_header.jinja",
                 minijinja::context! {

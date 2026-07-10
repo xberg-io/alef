@@ -5,13 +5,6 @@ use std::path::PathBuf;
 
 #[test]
 fn scaffold_elixir_nif_cargo_pins_brotli_allocator_crates_as_direct_deps() {
-    // Regression test for the brotli 8.0.x transitive-conflict pin.
-    //
-    // The fix uses DIRECT dependency entries in [dependencies], NOT
-    // [patch.crates-io], because a `name = { version = "=X" }` patch with no
-    // path/git/url is a no-op cargo rejects with
-    // `patch points to the same source`. Direct deps with `=X` constraints
-    // force cargo's resolver to pick the named versions for the whole tree.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),

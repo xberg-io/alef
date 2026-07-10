@@ -39,23 +39,12 @@ pub(crate) fn extract_services(surface: &mut ApiSurface, config: &ResolvedCrateC
 
     let mut warnings = Vec::new();
 
-    // Recover any service method the main extraction skipped — registration
-    // methods generic over the callback bound (e.g. `fn route<H: IntoHandler>`)
-    // and a `new`-returning-`Self` constructor (treated as a field-constructed
-    // default). Those generic-extraction skips are intentional for FFI safety,
-    // but methods named explicitly in `[[crates.services]]` are bridged via the
-    // service codegen and must be recovered. They are re-parsed from the
-    // configured sources and injected into the owner type's method list; the
-    // owner is later marked `binding_excluded`, so they never reach the generic
-    // struct/trait codegen.
     warnings.extend(recover_service_methods(surface, config));
 
-    // Build handler contracts first so we can reference them from service defs.
     for hc_cfg in &config.handler_contracts {
         match build_handler_contract(surface, hc_cfg) {
             Ok(hc_def) => {
                 surface.handler_contracts.push(hc_def);
-                // Mark the trait as binding-excluded so generic trait codegen skips it.
                 mark_type_binding_excluded(
                     surface,
                     &hc_cfg.trait_name,
@@ -70,7 +59,6 @@ pub(crate) fn extract_services(surface: &mut ApiSurface, config: &ResolvedCrateC
         match build_service_def(surface, svc_cfg) {
             Ok(svc_def) => {
                 surface.services.push(svc_def);
-                // Mark the owner type as binding-excluded.
                 mark_type_binding_excluded(surface, &svc_cfg.owner_type, "managed by services service extraction");
             }
             Err(msg) => warnings.push(msg),
@@ -110,10 +98,6 @@ fn mark_variant_wrapper_types(surface: &mut ApiSurface) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
 /// Re-parse the configured Rust sources to recover any service method that the
 /// main extraction pass dropped. Two generic-extraction heuristics commonly drop
 /// methods a service relies on: registration methods are skipped because they are
@@ -125,7 +109,6 @@ fn mark_variant_wrapper_types(surface: &mut ApiSurface) {
 /// injected into the owner `TypeDef`.
 fn recover_service_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfig) -> Vec<String> {
     let mut errors = Vec::new();
-    // (owner_type, method_name) pairs configured but missing from the surface.
     let mut wanted: Vec<(String, String)> = Vec::new();
     for svc in &config.services {
         let owner_methods: Option<Vec<String>> = surface
@@ -134,7 +117,6 @@ fn recover_service_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfi
             .find(|t| t.name == svc.owner_type && !t.is_trait)
             .map(|t| t.methods.iter().map(|m| m.name.clone()).collect());
 
-        // Every method the service config references on the owner.
         let mut names: Vec<String> = vec![svc.constructor.clone().unwrap_or_else(|| "new".to_owned())];
         names.extend(svc.configurators.iter().cloned());
         names.extend(svc.registrations.iter().map(|r| r.method.clone()));
@@ -151,7 +133,6 @@ fn recover_service_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfi
         return errors;
     }
 
-    // Candidate source paths (mirror the pipeline's source grouping).
     let mut sources: Vec<&std::path::Path> = Vec::new();
     if config.source_crates.is_empty() {
         sources.extend(config.sources.iter().map(std::path::PathBuf::as_path));
@@ -267,7 +248,6 @@ fn find_method<'a>(methods: &'a [MethodDef], name: &str) -> Option<&'a MethodDef
 }
 
 fn build_handler_contract(surface: &ApiSurface, cfg: &HandlerContractConfig) -> Result<HandlerContractDef, String> {
-    // Locate the trait TypeDef in the surface.
     let trait_def = surface
         .types
         .iter()
@@ -311,7 +291,6 @@ fn build_handler_contract(surface: &ApiSurface, cfg: &HandlerContractConfig) -> 
 }
 
 fn build_service_def(surface: &ApiSurface, cfg: &ServiceConfig) -> Result<ServiceDef, String> {
-    // Locate the owner TypeDef.
     let owner_def = surface
         .types
         .iter()
@@ -329,7 +308,6 @@ fn build_service_def(surface: &ApiSurface, cfg: &ServiceConfig) -> Result<Servic
     let doc = owner_def.doc.clone();
     let cfg_attr = owner_def.cfg.clone();
 
-    // Constructor
     let constructor_name = cfg.constructor.as_deref().unwrap_or("new");
     let constructor = find_method(methods, constructor_name)
         .ok_or_else(|| {
@@ -340,7 +318,6 @@ fn build_service_def(surface: &ApiSurface, cfg: &ServiceConfig) -> Result<Servic
         })?
         .clone();
 
-    // Configurators
     let mut configurators = Vec::with_capacity(cfg.configurators.len());
     for configurator_name in &cfg.configurators {
         let configurator = find_method(methods, configurator_name).ok_or_else(|| {
@@ -352,9 +329,6 @@ fn build_service_def(surface: &ApiSurface, cfg: &ServiceConfig) -> Result<Servic
         configurators.push(configurator.clone());
     }
 
-    // Registrations — built from RegistrationSpec, sourcing the method from
-    // the owner's methods. Note: these methods were extracted with the
-    // generic-callback-param skip bypassed (see mod.rs extraction logic).
     let mut registrations = Vec::new();
     for reg_spec in &cfg.registrations {
         let method = find_method(methods, &reg_spec.method).ok_or_else(|| {
@@ -366,7 +340,6 @@ fn build_service_def(surface: &ApiSurface, cfg: &ServiceConfig) -> Result<Servic
             )
         })?;
 
-        // Split parameters: callback param vs metadata params.
         let metadata_params: Vec<_> = method
             .params
             .iter()
@@ -386,14 +359,11 @@ fn build_service_def(surface: &ApiSurface, cfg: &ServiceConfig) -> Result<Servic
             error_type: method.error_type.clone(),
             doc: method.doc.clone(),
             variants,
-            // path_param_constraints and handler_shape default to empty/BareCallable;
-            // consumers populate these via alef.toml language overrides in Phase C.
             path_param_constraints: Vec::new(),
             handler_shape: Default::default(),
         });
     }
 
-    // Entrypoints
     let mut entrypoints = Vec::new();
     for ep_spec in &cfg.entrypoints {
         let method = find_method(methods, &ep_spec.method).ok_or_else(|| {
@@ -512,9 +482,6 @@ fn find_wrapper_constructor<'a>(
             continue;
         };
         if found.is_some() {
-            // Multiple wrapper-typed metadata params with a static `new` — too ambiguous
-            // to pick automatically. Fall back to direct mode (callers will get a
-            // direct-mode validation error if `fixed` keys don't match base metadata).
             return None;
         }
         found = Some((param, type_def, ctor));
@@ -563,7 +530,6 @@ fn resolve_via_wrapper(
         }
     }
 
-    // Any `fixed` key that doesn't name a constructor param is an error.
     for fixed_name in v_spec.fixed.keys() {
         if !ctor.params.iter().any(|p| &p.name == fixed_name) {
             return Err(format!(
@@ -573,8 +539,6 @@ fn resolve_via_wrapper(
         }
     }
 
-    // signature_params = free constructor params + any non-wrapper base metadata params,
-    // preserving declared order.
     let mut signature_params = free_params;
     for mp in metadata_params {
         if mp.name != wrapper_param.name {
@@ -702,10 +666,6 @@ fn resolve_enum_override(surface: &ApiSurface, ty: &TypeRef, raw_value: &str) ->
         EnumResolution::UnknownVariant(enum_def.name.clone())
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests — exercise extraction against in-memory Rust source strings
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests;

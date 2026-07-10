@@ -51,8 +51,6 @@ pub(in crate::backends::go::gen_bindings) fn primitive_max_sentinel(
 /// Get a type name suitable for a function suffix (e.g., unmarshalFoo).
 pub(in crate::backends::go::gen_bindings) fn type_name(ty: &TypeRef) -> String {
     match ty {
-        // IR Named types are already PascalCase from Rust source. Avoid
-        // ToPascalCase to preserve all-caps acronyms (GraphQL, JSON, HTTP).
         TypeRef::Named(n) => n.clone(),
         TypeRef::String | TypeRef::Char => "String".to_string(),
         TypeRef::Bytes => "Bytes".to_string(),
@@ -102,37 +100,24 @@ fn go_return_expr_inner(
     var_name: &str,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
-    // value_only_types was previously used to skip _to_json for all-primitive structs.
-    // The FFI backend now emits _to_json for all non-opaque non-Update types, so this
-    // set is no longer consulted. The parameter is kept for API compatibility.
     _value_only_types: &std::collections::HashSet<String>,
 ) -> String {
     match ty {
         TypeRef::Primitive(prim) => match prim {
             crate::core::ir::PrimitiveType::Bool => format!("{var_name} != 0"),
             _ => {
-                // Numeric primitives: plain cast. Non-Optional fallible methods use this
-                // expression in the value position of `return value, nil`; Optional(Primitive)
-                // returns wrap this in a `func() *T { v := <expr>; return &v }()` closure
-                // (handled in the Optional branch below).
                 let go_ty = go_type(ty);
                 format!("{go_ty}({var_name})")
             }
         },
         TypeRef::Named(name) => {
             if opaque_names.contains(name.as_str()) {
-                // Opaque types: wrap the raw C pointer in the Go handle struct.
-                // IR name is already PascalCase from Rust; preserve all-caps
-                // acronyms (GraphQLError stays GraphQLError, not GraphQlError).
                 format!(
                     "&{go_type}{{ptr: unsafe.Pointer({var_name})}}",
                     go_type = name,
                     var_name = var_name,
                 )
             } else {
-                // Full conversion: serialize C handle to JSON, then unmarshal into Go struct.
-                // The FFI backend emits _to_json for all non-opaque types (including those whose
-                // fields are all primitives/strings), so we always use the JSON path here.
                 let type_snake = name.to_snake_case();
                 let go_type = go_type_name(name);
                 format!(
@@ -152,7 +137,6 @@ fn go_return_expr_inner(
             }
         }
         TypeRef::String | TypeRef::Char | TypeRef::Path => {
-            // Non-optional String/Char/Path: return bare string value (C pointer conversion)
             format!("C.GoString({})", var_name)
         }
         TypeRef::Json => {
@@ -164,9 +148,6 @@ fn go_return_expr_inner(
             format!("unmarshalBytes({})", var_name)
         }
         TypeRef::Optional(inner) => match inner.as_ref() {
-            // Optional(Bytes): the bare Bytes arm yields `unmarshalBytes(ptr)` which is `[]byte`,
-            // but an `Option<&[u8]>` return has signature `*[]byte`. Null-check the pointer and
-            // box the copied slice so a null FFI pointer maps to a nil `*[]byte`.
             TypeRef::Bytes => {
                 format!(
                     "func() *[]byte {{\n\
@@ -177,9 +158,6 @@ fn go_return_expr_inner(
                     var_name = var_name,
                 )
             }
-            // Optional(Primitive): wrap the plain primitive expression in a closure that
-            // takes its address. The Primitive branch above emits plain `T(var)` / `var != 0`,
-            // which would be a value (not a pointer); Optional callers want `*T`.
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
                 format!("func() *bool {{ v := {var_name} != 0; return &v }}()")
             }
@@ -187,8 +165,6 @@ fn go_return_expr_inner(
                 let go_ty = go_type(inner);
                 format!("func() *{go_ty} {{ v := {go_ty}({var_name}); return &v }}()")
             }
-            // Optional(String/Char/Path): null-check and box the converted Go string.
-            // The C function returns an allocated string pointer; free it after conversion.
             TypeRef::String | TypeRef::Char | TypeRef::Path => {
                 format!(
                     "func() *string {{\n\
@@ -204,8 +180,6 @@ fn go_return_expr_inner(
             _ => go_return_expr_inner(inner, var_name, ffi_prefix, opaque_names, _value_only_types),
         },
         TypeRef::Vec(inner) => {
-            // Vec types are returned as JSON strings from FFI. Deserialize inline.
-            // Return []T (not *[]T) — slices are already reference types in Go.
             let go_elem = go_type(inner);
             format!(
                 "func() []{go_elem} {{\n\
@@ -221,8 +195,6 @@ fn go_return_expr_inner(
             )
         }
         TypeRef::Map(k, v) => {
-            // Map types are returned as JSON strings from FFI. Deserialize inline.
-            // Return map[K]V (not *map[K]V) — maps are already reference types in Go.
             let go_k = go_type(k);
             let go_v = go_type(v);
             format!(

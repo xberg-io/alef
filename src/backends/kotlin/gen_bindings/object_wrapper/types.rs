@@ -98,9 +98,6 @@ pub(super) fn kotlin_field_default(
     default_constructible_types: &std::collections::HashSet<String>,
 ) -> String {
     if let Some(default) = typed_default {
-        // For optional fields with DefaultValue::Empty, the natural Kotlin default
-        // is null regardless of the inner type — Rust's Option<T>::default() is
-        // None, and we shouldn't synthesise type-specific zero-values like "" or 0.
         if optional && matches!(default, crate::core::ir::DefaultValue::Empty) {
             return " = null".to_string();
         }
@@ -133,15 +130,9 @@ fn render_kotlin_default(
         DefaultValue::BoolLiteral(b) => Some(b.to_string()),
         DefaultValue::IntLiteral(n) => {
             use crate::core::ir::PrimitiveType;
-            // Duration fields represent milliseconds in the IR and must be
-            // wrapped with the Kotlin `.milliseconds` extension to match
-            // the declared type `kotlin.time.Duration`.
             if matches!(ty, TypeRef::Duration) {
                 Some(format!("{n}.milliseconds"))
-            }
-            // Long suffix when the Kotlin field type is Long; Byte/Short would
-            // need a cast but the IR rarely produces those for top-level fields.
-            else if matches!(ty, TypeRef::Primitive(p) if matches!(p,
+            } else if matches!(ty, TypeRef::Primitive(p) if matches!(p,
                 PrimitiveType::I64 | PrimitiveType::U64
                 | PrimitiveType::Usize | PrimitiveType::Isize))
             {
@@ -158,22 +149,12 @@ fn render_kotlin_default(
                 Some(f.to_string())
             }
         }
-        DefaultValue::StringLiteral(s) => {
-            // The Kotlin type for `TypeRef::Char` resolves to `String` in
-            // `KotlinMapper` (mirroring the JVM/Panama convention of
-            // representing a `char` as a one-character `String`), so emit a
-            // double-quoted Kotlin string literal regardless of the IR's
-            // distinction between `Char` and `String`.
-            Some(format!("\"{}\"", escape_kotlin_string(s)))
-        }
+        DefaultValue::StringLiteral(s) => Some(format!("\"{}\"", escape_kotlin_string(s))),
         DefaultValue::EnumVariant(variant) => match ty {
             TypeRef::Named(name) => {
                 if enum_defaults.contains_key(name.as_str()) {
-                    // True enum — variant names are SCREAMING_SNAKE_CASE
                     Some(format!("{name}.{}", to_screaming_snake(variant)))
                 } else {
-                    // Sealed class from a tagged/untagged Rust enum — variant
-                    // names are PascalCase as declared in Rust
                     Some(format!("{name}.{}", variant))
                 }
             }
@@ -196,16 +177,7 @@ fn render_kotlin_default(
                     _ => Some("0".to_string()),
                 }
             }
-            // For Named enum types, the source Rust enum's
             // `#[derive(Default)]` picks a `#[default]` variant; bubble it up
-            // via the supplied lookup so e.g. `heading_style: HeadingStyle`
-            // emits ` = HeadingStyle.ATX`.
-            //
-            // For Named non-enum types (i.e. data class structs): don't try to
-            // synthesize a constructor call because we don't know if all fields
-            // have defaults. Instead, fall through to the field-level logic in
-            // kotlin_field_default which will use `null` for optional fields or
-            // omit the default for required ones (allowing Jackson's Kotlin module
             // to apply its own defaults via `#[serde(default)]` on the wire).
             TypeRef::Named(name) => {
                 if let Some(variant) = enum_defaults.get(name.as_str()) {
@@ -213,31 +185,13 @@ fn render_kotlin_default(
                     let value = variant.as_str();
                     if value.is_empty() {
                         // Sentinel for "enum without a `#[default]` variant".
-                        // No Kotlin literal can synthesise the value; fall
-                        // through to the type-based default path so optional
-                        // fields become `null` and required ones get no
-                        // default.
                         None
                     } else {
                         Some(format!("{name}.{}", to_screaming_snake(value)))
                     }
                 } else if default_constructible_types.contains(name.as_str()) {
-                    // Non-enum data class whose Rust source has `Default` impl
-                    // (has_default = true) and all of whose Kotlin fields also
-                    // get constructor defaults. `Name()` invokes the no-arg
-                    // synthesized constructor — equivalent to the Rust
-                    // `Default::default()` semantics that the IR captures via
-                    // `DefaultValue::Empty` here. Without this, Jackson's
-                    // Kotlin module raises MissingKotlinParameterException
-                    // when the wire JSON omits a non-nullable struct field
-                    // (common for partial-update payloads in test fixtures).
                     Some(format!("{name}()"))
                 } else {
-                    // Non-enum Named types we can't safely default-construct:
-                    // sealed classes from tagged/untagged Rust enums (protected
-                    // constructor) or data classes whose fields don't all have
-                    // defaults. Fall through to the field-level logic: `null`
-                    // for optional fields, no default for required ones.
                     None
                 }
             }
@@ -262,10 +216,6 @@ pub(super) fn escape_kotlin_string(s: &str) -> String {
     out
 }
 
-// ---------------------------------------------------------------------------
-// Type-string rendering (&'static str imports variant — used internally for enums)
-// ---------------------------------------------------------------------------
-
 /// Like the basic kotlin_type helper but fully-qualifies `Named` type references whose
 /// simple name clashes with a sibling variant name in the enclosing sealed
 /// class.  This prevents the Kotlin compiler from resolving the type to the
@@ -285,11 +235,6 @@ fn render_type_ref_disambiguated(
     variant_names: &std::collections::HashSet<&str>,
     package: &str,
 ) -> String {
-    // Built-in Kotlin collection types share simple names (`List`, `Map`, `Set`)
-    // with potential sealed-class variants. Inside the sealed body those simple
-    // names resolve to the nested variant data class, shadowing the stdlib type.
-    // When a generic collection's simple name clashes with a sibling variant the
-    // renderer must fully-qualify the stdlib path.
     let list_name = if variant_names.contains("List") {
         "kotlin.collections.List"
     } else {
@@ -320,10 +265,7 @@ fn render_type_ref_disambiguated(
                 render_type_ref_disambiguated(v, variant_names, package),
             )
         }
-        _ => {
-            // No clash or non-Named type — fall back to the standard renderer.
-            render_type_ref_with_imports(ty, &mut BTreeSet::new())
-        }
+        _ => render_type_ref_with_imports(ty, &mut BTreeSet::new()),
     }
 }
 
@@ -349,5 +291,3 @@ fn render_type_ref_with_imports(ty: &TypeRef, imports: &mut BTreeSet<&'static st
         _ => mapper.map_type(ty),
     }
 }
-
-// ---------------------------------------------------------------------------

@@ -26,10 +26,7 @@ clear_fn = "clear_ocr_backends"
 
 #[test]
 fn extendr_module_registers_trait_bridge_register_unregister_clear() {
-    // Regression: register_<trait> / unregister_<trait> / clear_<trait> are emitted
     // as `#[extendr]` functions by the trait-bridge generator but were missing from
-    // the `extendr_module!` block, so the wrap__<symbol> entry points never reached
-    // the .so and R callers could not invoke them.
     let backend = ExtendrBackend;
     let config = trait_bridge_config_for_tests();
     let api = make_api_surface();
@@ -49,9 +46,6 @@ fn extendr_module_registers_trait_bridge_register_unregister_clear() {
 
 #[test]
 fn extendr_wrappers_emits_trait_bridge_register_unregister_clear() {
-    // Regression: extendr-wrappers.R only iterated `api.functions` and so omitted
-    // the trait-bridge register/unregister/clear functions. R callers had no way to
-    // invoke `wrap__register_text_backend` because no R wrapper existed.
     let backend = ExtendrBackend;
     let config = trait_bridge_config_for_tests();
     let api = make_api_surface();
@@ -77,9 +71,6 @@ fn extendr_wrappers_emits_trait_bridge_register_unregister_clear() {
 
 #[test]
 fn namespace_exports_trait_bridge_register_unregister_clear() {
-    // Regression: without explicit `export()` entries in NAMESPACE, the
-    // trait-bridge wrappers would be loaded internally but unreachable via
-    // `pkg::register_<trait>(...)`.
     let backend = ExtendrBackend;
     let config = trait_bridge_config_for_tests();
     let api = make_api_surface();
@@ -99,8 +90,6 @@ fn namespace_exports_trait_bridge_register_unregister_clear() {
 
 #[test]
 fn extendr_excludes_trait_bridge_functions_when_language_excluded() {
-    // The bridge structs already honour `exclude_languages`. Their register / unregister /
-    // clear free functions must follow the same gate so the module/wrappers/namespace stay in sync.
     let config = resolved_one(
         r#"
 [workspace]
@@ -133,12 +122,9 @@ exclude_languages = ["r"]
 
 #[test]
 fn regression_namespace_exports_functions_types_enums() {
-    // Regression test: Verify that NAMESPACE exports ALL functions, types, and enums.
-    // A bug caused NAMESPACE to only contain `useDynLib(...)` with no exports.
     let backend = ExtendrBackend;
     let config = make_config();
     let mut api = make_api_surface();
-    // Add extra exported types and enums to exercise namespace completeness.
     api.types.push(TypeDef {
         name: "DocumentMetadata".to_string(),
         rust_path: "test_lib::DocumentMetadata".to_string(),
@@ -165,7 +151,6 @@ fn regression_namespace_exports_functions_types_enums() {
         has_private_fields: false,
         version: Default::default(),
     });
-    // Add a flat data enum (has variant with data, single field)
     api.enums.push(EnumDef {
         name: "ConversionResult".to_string(),
         rust_path: "test_lib::ConversionResult".to_string(),
@@ -218,17 +203,14 @@ fn regression_namespace_exports_functions_types_enums() {
         .find(|f| f.path.to_string_lossy().ends_with("NAMESPACE"))
         .expect("NAMESPACE must be generated");
     let content = &namespace.content;
-    // Check for the useDynLib line
     assert!(
         content.contains("useDynLib(testlib, .registration = TRUE)"),
         "NAMESPACE must have useDynLib: {content}"
     );
-    // Check for function exports
     assert!(
         content.contains("export(process)"),
         "NAMESPACE must export free functions, got: {content}"
     );
-    // Check for type exports
     assert!(
         content.contains("export(Config)"),
         "NAMESPACE must export types like Config: {content}"
@@ -237,12 +219,10 @@ fn regression_namespace_exports_functions_types_enums() {
         content.contains("export(DocumentMetadata)"),
         "NAMESPACE must export DocumentMetadata: {content}"
     );
-    // Check for enum exports (flat data enums)
     assert!(
         content.contains("export(ConversionResult)"),
         "NAMESPACE must export flat data enums: {content}"
     );
-    // Make sure NAMESPACE is NOT just 2 lines (the bug symptom)
     let line_count = content.lines().count();
     assert!(
         line_count > 10,
@@ -252,10 +232,6 @@ fn regression_namespace_exports_functions_types_enums() {
 
 #[test]
 fn register_wrapper_roxygen_documents_typed_host_callback_shape() {
-    // The `register_<trait>` R wrapper must surface a typed host-interface contract in roxygen:
-    // one documented line per callback method the host backend must implement, naming the struct
-    // param type and the return type, and flagging native-object params. This is R's equivalent
-    // of the typed plugin Protocol other bindings emit. Neutral fixtures: Greeter / Opts / Doc.
     let backend = ExtendrBackend;
     let config = resolved_one(
         r#"
@@ -342,7 +318,6 @@ clear_fn = "clear_greeters"
         .expect("extendr-wrappers.R must be generated");
     let content = &wrappers.content;
 
-    // The register roxygen names the method, its struct param type, and the return type.
     assert!(
         content.contains("greet(opts: Opts (native object)) -> Doc"),
         "register roxygen must document the typed callback shape with native struct param:\n{content}"
@@ -355,10 +330,6 @@ clear_fn = "clear_greeters"
 
 #[test]
 fn r_field_long_descriptions_are_truncated_to_fit_120_char_lines() {
-    // Ensure roxygen2 @field lines don't exceed 120 chars to satisfy lintr.
-    // Each @field line has format: "#' @field <name> <description>"
-    // which is 10 + len(name) + 1 + len(description) chars.
-    // So description must be truncated to fit within 120 total.
     let backend = ExtendrBackend;
     let config = make_config();
     let long_doc = "Open Graph metadata (og:* properties) for social media Keys like \"title\", \"description\", \"image\", \"url\", etc.";
@@ -410,7 +381,6 @@ fn r_field_long_descriptions_are_truncated_to_fit_120_char_lines() {
         .expect("extendr-wrappers.R must be generated");
     let content = &wrappers.content;
 
-    // Find the @field line and verify it's under 120 chars.
     for line in content.lines() {
         if line.contains("@field open_graph") {
             assert!(
@@ -419,7 +389,6 @@ fn r_field_long_descriptions_are_truncated_to_fit_120_char_lines() {
                 line.len(),
                 line
             );
-            // Also verify it's not just truncated to empty — should have real description.
             assert!(
                 line.contains("Open Graph metadata"),
                 "@field description was over-truncated: {}",

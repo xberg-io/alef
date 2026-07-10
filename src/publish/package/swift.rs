@@ -120,7 +120,6 @@ pub fn package_swift(
     }
     fs::create_dir_all(&staging)?;
 
-    // Copy the full swift package directory into staging.
     let pkg_src = workspace_root.join(&pkg_dir);
     if !pkg_src.exists() {
         anyhow::bail!("Swift package directory not found: {}", pkg_dir);
@@ -133,28 +132,23 @@ pub fn package_swift(
     }
     patch_root_package_manifest(&staging, version).context("patching root Swift Package.swift")?;
 
-    // Emit XCFramework placeholder.
     let xcframework_dir = staging.join("xcframework");
     fs::create_dir_all(&xcframework_dir).context("creating xcframework placeholder directory")?;
     fs::write(xcframework_dir.join("BUILDING.md"), BUILDING_MD).context("writing xcframework/BUILDING.md")?;
 
-    // Emit Linux build instructions alongside the XCFramework guidance.
     let linux_dir = staging.join("linux");
     fs::create_dir_all(&linux_dir).context("creating linux build instructions directory")?;
     fs::write(linux_dir.join("BUILDING.md"), LINUX_BUILDING_MD).context("writing linux/BUILDING.md")?;
 
-    // Copy optional top-level docs into the staging root.
     for filename in ["README.md", "CHANGELOG.md", "LICENSE"] {
         copy_optional_file(workspace_root, filename, &staging)
             .with_context(|| format!("staging {filename} for Swift package"))?;
     }
 
-    // Create tarball.
     let archive_name = format!("{pkg_name}.tar.gz");
     let archive_path = output_dir.join(&archive_name);
     super::create_tar_gz(&staging, &archive_path)?;
 
-    // Clean up staging.
     fs::remove_dir_all(&staging).ok();
 
     Ok(PackageArtifact {
@@ -220,7 +214,6 @@ sources = []
         let config = minimal_config("my-lib");
         let tmp = tempfile::tempdir().expect("tempdir");
 
-        // Create a minimal packages/swift/ tree.
         let swift_pkg = tmp.path().join("packages/swift");
         fs::create_dir_all(swift_pkg.join("Sources/MyLib")).unwrap();
         fs::write(swift_pkg.join("Package.swift"), "// swift-tools-version:5.9\n").unwrap();
@@ -231,7 +224,6 @@ sources = []
 
         let artifact = package_swift(&config, tmp.path(), &output, "0.1.0").unwrap();
         assert!(artifact.path.exists(), "tarball should exist");
-        // Module name is PascalCase of "my-lib" = "MyLib".
         assert_eq!(artifact.name, "MyLib-0.1.0.tar.gz");
     }
 

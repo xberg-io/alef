@@ -21,13 +21,8 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
     let mut out = String::with_capacity(1024);
 
     let repo_url = config.github_repo();
-    // The env var that forces a local source build: {APP_NAME_UPPER}_BUILD
     let build_env_var = format!("{}_BUILD", app_name.to_uppercase());
 
-    // RustlerPrecompiled targets list. Reads from `[languages.elixir]
-    // nif_targets` in alef.toml; falls back to the historical default when
-    // the consumer hasn't customized it. Must agree with the consumer's CI
-    // matrix and `generate-elixir-checksums` action targets input.
     let default_nif_targets: &[&str] = &[
         "aarch64-apple-darwin",
         "aarch64-unknown-linux-gnu",
@@ -39,12 +34,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         _ => default_nif_targets.join(" "),
     };
 
-    // RustlerPrecompiled NIF ABI versions. Reads `[crates.publish.languages.elixir]
-    // nif_versions` — the SAME key that `publish::package::elixir::resolve_nif_versions`
-    // uses for tarball naming — so the generated `nif_versions:` list and the packaged
-    // artifacts always agree (a mismatch makes on-load abort with a 404 at consumer
-    // install). Falls back to the historical default when unset. Must also agree with
-    // the consumer's CI `nif:` build matrix.
     let default_nif_versions: &[&str] = &["2.16", "2.17"];
     let nif_versions: Vec<String> = config
         .publish
@@ -85,7 +74,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
     };
     out.push_str(&template_env::render("native_module_header.jinja", ctx));
 
-    // Stubs for top-level API functions
     let mut last_was_multiline = true;
     let mut emitted_nif_stubs: AHashSet<String> = AHashSet::new();
     for func in api
@@ -109,14 +97,11 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
             .map(|p| format!("_{}", p.name.to_snake_case()))
             .collect();
         if write_nif_doc(&mut out, &func.doc, last_was_multiline) {
-            // @doc attaches to the next def with no blank line between them.
             last_was_multiline = true;
         }
         last_was_multiline = write_nif_stub(&mut out, &fn_name, &underscored_params, last_was_multiline);
         emitted_nif_stubs.insert(fn_name.clone());
 
-        // For functions that have a visitor bridge (FunctionParam pattern), also emit the
-        // async visitor variant stub plus the visitor_reply NIF stub (once).
         let has_visitor_bridge = config.trait_bridges.iter().any(|b| {
             b.bind_via != crate::core::config::BridgeBinding::OptionsField
                 && func.params.iter().any(|p| {
@@ -137,7 +122,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
                 })
         });
         if has_visitor_bridge {
-            // Params for convert_with_visitor: same as convert but visitor is required (not optional).
             let with_visitor_params: Vec<String> = func
                 .params
                 .iter()
@@ -152,8 +136,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
             emitted_nif_stubs.insert(format!("{fn_name}_with_visitor"));
         }
 
-        // For functions that have an options_field visitor bridge, emit
-        // `{fn_name}_with_visitor` stub with the original params + `_visitor` appended.
         let has_options_field_bridge = config.trait_bridges.iter().any(|b| {
             b.bind_via == crate::core::config::BridgeBinding::OptionsField
                 && func.params.iter().any(|p| {
@@ -172,7 +154,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
                 })
         });
         if has_options_field_bridge {
-            // Params: all original params (options is Option<String>) + _visitor at the end.
             let mut with_visitor_params: Vec<String> = func
                 .params
                 .iter()
@@ -189,7 +170,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         }
     }
 
-    // visitor_reply stub: emitted once when there are visitor bridges.
     if !config.trait_bridges.is_empty() {
         last_was_multiline = write_nif_stub(
             &mut out,
@@ -197,7 +177,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
             &["_ref_id".to_string(), "_result".to_string()],
             last_was_multiline,
         );
-        // Visitor trait call completion stubs (for async trait methods)
         last_was_multiline = write_nif_stub(
             &mut out,
             "complete_trait_call",
@@ -212,14 +191,11 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         );
     }
 
-    // Trait bridge registration stubs (register_fn, unregister_fn, clear_fn).
-    // These are emitted for each trait bridge that doesn't exclude Elixir.
     for bridge in &config.trait_bridges {
         if bridge.exclude_languages.contains(&"elixir".to_string()) {
             continue;
         }
 
-        // register_fn stub: takes (env, pid, name, implemented_methods) -> Atom
         if let Some(register_fn) = &bridge.register_fn {
             let params = vec![
                 "_pid".to_string(),
@@ -231,7 +207,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
             }
         }
 
-        // unregister_fn stub: takes (env, name) -> Atom
         if let Some(unregister_fn) = &bridge.unregister_fn {
             let params = vec!["_name".to_string()];
             if emitted_nif_stubs.insert(unregister_fn.clone()) {
@@ -239,7 +214,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
             }
         }
 
-        // clear_fn stub: takes (env) -> Atom (no args besides env)
         if let Some(clear_fn) = &bridge.clear_fn {
             let params = vec![];
             if emitted_nif_stubs.insert(clear_fn.clone()) {
@@ -248,8 +222,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         }
     }
 
-    // Streaming-adapter method keys are emitted as start/next pairs below — skip
-    // them in the regular method-stub loop.
     let streaming_method_keys: AHashSet<String> = config
         .adapters
         .iter()
@@ -257,7 +229,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         .filter_map(|a| a.owner_type.as_deref().map(|owner| format!("{owner}.{}", a.name)))
         .collect();
 
-    // Stubs for type methods
     for typ in api
         .types
         .iter()
@@ -290,10 +261,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         }
     }
 
-    // Stubs for streaming-adapter NIF pairs: `{owner_lc}_{name}_start(_obj, _req)`
-    // and `{owner_lc}_{name}_next(_handle)`. Both NIFs are scheduled on DirtyCpu.
-    // These are internal implementation details (delegated to by the public streaming wrapper
-    // functions in the main module), so they are marked @doc false.
     for adapter in config
         .adapters
         .iter()
@@ -309,8 +276,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         for p in &adapter.params {
             start_params.push(format!("_{}", elixir_safe_param_name(&p.name)));
         }
-        // Streaming NIFs are internal — mark @doc false and skip inherited rustdoc.
-        // The public wrapper functions in the main module expose the high-level API.
         if !out.is_empty() && !out.ends_with("\n\n") {
             out.push('\n');
         }
@@ -324,8 +289,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         let _ = write_nif_stub(&mut out, &next_fn, &["_handle".to_string()], false);
     }
 
-    // Stubs for *_from_json helper NIFs — only for types with NIF wrapper structs.
-    // These are internal test utilities — mark @doc false.
     let nif_wrapped_types = collect_types_for_nif_derives(api, exclude_types);
     for typ in api.types.iter().filter(|t| {
         !t.is_trait
@@ -336,7 +299,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
             && nif_wrapped_types.contains(&t.name)
     }) {
         let from_json_fn_name = format!("{}_from_json", typ.name.to_snake_case());
-        // *_from_json takes a JSON string and returns Result<Type, String>
         let params = vec!["_json".to_string()];
         if !out.is_empty() && !out.ends_with("\n\n") {
             out.push('\n');
@@ -345,15 +307,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         let _ = write_nif_stub(&mut out, &from_json_fn_name, &params, false);
     }
 
-    // Stubs for service-API NIFs. `service.rs` (emitted by the service-API
     // codegen) declares the following `#[rustler::nif]` functions; every one
-    // needs a matching Elixir stub or rustler-precompiled's on_load aborts
-    // with `:bad_lib`:
-    //   - `{service}_{ep.method}` per service × entrypoint (e.g. app_run, app_into_router)
-    //   - `{service}_{variant.name}` per service × registration variant
-    //     (e.g. app_get, app_post)
-    //   - top-level `complete_trait_call(reply_id, response_json)` (forwards
-    //     a GenServer-handled response back into the awaiting Rust bridge).
     if !api.services.is_empty() {
         if !out.is_empty() && !out.ends_with("\n\n") {
             out.push('\n');
@@ -403,10 +357,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         }
     }
 
-    // Stubs for whitelisted error-introspection NIF shims (e.g. `<errname>_status_code`,
-    // `<errname>_is_transient`, `<errname>_error_type`). These mirror the Rust NIFs
-    // emitted by `generate_bindings` so rustler-precompiled's on_load can resolve every
-    // declared NIF — without these stubs, BEAM aborts loading with `:bad_lib`.
     for error in &api.errors {
         for method in error.methods.iter().filter(|m| !m.sanitized) {
             let nif_fn_name = format!("{}_{}", error.name.to_lowercase(), method.name);
@@ -447,21 +397,15 @@ fn write_nif_doc(out: &mut String, doc: &str, _prev_was_multiline: bool) -> bool
     if doc.is_empty() {
         return false;
     }
-    // Ensure a blank line separates this @doc/def block from preceding content. If the
-    // previous stub was multi-line the template already pushed a trailing blank line
-    // (output ends with "\n\n"); otherwise we add one here.
     if !out.is_empty() && !out.ends_with("\n\n") {
         out.push('\n');
     }
     if !doc.contains('\n') {
-        // Single-line form: @doc "..." — escape backslashes then quotes.
         let escaped = doc.replace('\\', "\\\\").replace('"', "\\\"");
         out.push_str("  @doc \"");
         out.push_str(&escaped);
         out.push_str("\"\n");
     } else {
-        // Multi-line heredoc form. Break up any embedded `"""` sequences so they don't
-        // close the heredoc early (mirrors `emit_elixir_doc` in alef-codegen).
         out.push_str("  @doc \"\"\"\n");
         for line in doc.lines() {
             let safe = line.replace("\"\"\"", "\"\" \"");
@@ -497,13 +441,11 @@ fn write_nif_doc(out: &mut String, doc: &str, _prev_was_multiline: bool) -> bool
 /// ```
 fn write_nif_stub(out: &mut String, fn_name: &str, params: &[String], prev_was_multiline: bool) -> bool {
     let args = params.join(", ");
-    // Elixir convention: omit parens on zero-arg defs
     let sig = if args.is_empty() {
         fn_name.to_string()
     } else {
         format!("{fn_name}({args})")
     };
-    // "  def <sig>, do: :erlang.nif_error(:nif_not_loaded)"
     let single_line_len = 6 + sig.len() + 40;
     if single_line_len > 120 {
         let ctx = minijinja::context! { sig => sig, prev_was_multiline => prev_was_multiline };
@@ -522,7 +464,6 @@ pub(in crate::backends::rustler::gen_bindings) fn collect_types_for_nif_derives(
 ) -> AHashSet<String> {
     let mut types = AHashSet::new();
 
-    // Seed with types from function signatures (params and returns)
     for func in &api.functions {
         collect_named_types_from_ref(&func.return_type, &mut types);
         for param in &func.params {
@@ -530,11 +471,7 @@ pub(in crate::backends::rustler::gen_bindings) fn collect_types_for_nif_derives(
         }
     }
 
-    // Seed with types from method signatures
     for typ in api.types.iter().filter(|t| !t.is_trait) {
-        // Seed the owning type itself when it has receiver methods: gen_nif_method emits
-        // `obj: TypeName` for every non-opaque type with a receiver, so the binding struct
-        // must be defined even when the type does not appear in any function signature.
         if !typ.is_opaque && typ.methods.iter().any(|m| m.receiver.is_some()) {
             types.insert(typ.name.clone());
         }
@@ -546,7 +483,6 @@ pub(in crate::backends::rustler::gen_bindings) fn collect_types_for_nif_derives(
         }
     }
 
-    // Seed with types from enum variants
     for enum_def in &api.enums {
         for variant in &enum_def.variants {
             for field in &variant.fields {
@@ -555,7 +491,6 @@ pub(in crate::backends::rustler::gen_bindings) fn collect_types_for_nif_derives(
         }
     }
 
-    // Transitive closure: walk field types recursively
     let mut changed = true;
     while changed {
         changed = false;
@@ -571,7 +506,6 @@ pub(in crate::backends::rustler::gen_bindings) fn collect_types_for_nif_derives(
         }
     }
 
-    // Remove excluded and opaque types
     types.retain(|name| {
         !exclude_types.contains(name.as_str()) && !api.types.iter().any(|t| t.name == *name && t.is_opaque)
     });

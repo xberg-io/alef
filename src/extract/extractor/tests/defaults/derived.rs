@@ -60,7 +60,6 @@ fn test_impl_default_without_fn_default() {
     let incomplete = &surface.types[0];
     let value_field = &incomplete.fields[0];
 
-    // When fn default() is not found, fields should get Empty
     assert_eq!(
         value_field.typed_default,
         Some(crate::core::ir::DefaultValue::Empty),
@@ -87,7 +86,6 @@ fn test_enum_with_default_derive_and_default_variant() {
     assert_eq!(priority.name, "Priority");
     assert_eq!(priority.variants.len(), 3);
 
-    // The Normal variant should be marked as default
     let normal = &priority.variants[0];
     assert_eq!(normal.name, "Normal");
     assert!(
@@ -95,7 +93,6 @@ fn test_enum_with_default_derive_and_default_variant() {
         "Normal variant with #[default] should have is_default=true"
     );
 
-    // Other variants should not be marked as default
     let high = &priority.variants[1];
     assert_eq!(high.name, "High");
     assert!(!high.is_default, "Non-default variant should have is_default=false");
@@ -118,7 +115,6 @@ fn test_enum_without_default() {
     let surface = extract_from_source(source);
     let format = &surface.enums[0];
 
-    // No variants should be marked as default
     for variant in &format.variants {
         assert!(
             !variant.is_default,

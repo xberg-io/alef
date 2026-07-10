@@ -30,7 +30,6 @@ app_name = "{app_name}"
 
 #[test]
 fn enum_variant_with_reserved_word_end_escapes_in_module() {
-    // Build an enum with an "End" variant (converts to "end" in snake_case)
     let boundary_reason = EnumDef {
         name: "BoundaryReason".to_string(),
         rust_path: "my_crate::BoundaryReason".to_string(),
@@ -91,12 +90,11 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
         version: Default::default(),
     };
 
-    // Create a dummy struct that references the enum to force its generation
     let dummy_type = TypeDef {
         name: "Message".to_string(),
         rust_path: "my_crate::Message".to_string(),
         original_rust_path: String::new(),
-        fields: vec![], // Empty struct to force enum generation
+        fields: vec![],
         methods: vec![],
         doc: String::new(),
         cfg: None,
@@ -138,7 +136,6 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
         .generate_public_api(&api, &config)
         .expect("code generation succeeds");
 
-    // Find the enum module file
     let enum_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("boundary_reason.ex"))
@@ -146,8 +143,6 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
 
     let module_content = &enum_file.content;
 
-    // Verify that the generated module does NOT contain `@spec end()` or `def end()`
-    // These would be syntax errors in Elixir.
     assert!(
         !module_content.contains("@spec end()"),
         "Module should not contain `@spec end()` (reserved word), got:\n{}",
@@ -159,21 +154,18 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
         module_content
     );
 
-    // Verify that the safe version exists instead: `end_val` (from `elixir_safe_param_name`)
     assert!(
         module_content.contains("end_val"),
         "Module should contain escaped variant name `end_val`, got:\n{}",
         module_content
     );
 
-    // Verify the type definition contains the safe atom reference
     assert!(
         module_content.contains(":end_val"),
         "Type definition should contain `:end_val` atom, got:\n{}",
         module_content
     );
 
-    // Verify that normal variants are not affected
     assert!(
         module_content.contains(":start"),
         "start variant should be unaffected, got:\n{}",
@@ -188,7 +180,6 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
 
 #[test]
 fn enum_variant_with_multiple_reserved_words() {
-    // Test multiple reserved words: Do, Fn, When
     let keywords_enum = EnumDef {
         name: "Keywords".to_string(),
         rust_path: "my_crate::Keywords".to_string(),
@@ -249,12 +240,11 @@ fn enum_variant_with_multiple_reserved_words() {
         version: Default::default(),
     };
 
-    // Create a dummy struct that references the enum to force its generation
     let dummy_type = TypeDef {
         name: "Message".to_string(),
         rust_path: "my_crate::Message".to_string(),
         original_rust_path: String::new(),
-        fields: vec![], // Empty struct to force enum generation
+        fields: vec![],
         methods: vec![],
         doc: String::new(),
         cfg: None,
@@ -296,7 +286,6 @@ fn enum_variant_with_multiple_reserved_words() {
         .generate_public_api(&api, &config)
         .expect("code generation succeeds");
 
-    // Find the enum module file
     let enum_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("keywords.ex"))
@@ -304,7 +293,6 @@ fn enum_variant_with_multiple_reserved_words() {
 
     let module_content = &enum_file.content;
 
-    // Verify escaped variants exist
     assert!(
         module_content.contains("do_val"),
         "Module should contain escaped variant name `do_val`, got:\n{}",
@@ -321,7 +309,6 @@ fn enum_variant_with_multiple_reserved_words() {
         module_content
     );
 
-    // Verify atoms are escaped
     assert!(
         module_content.contains(":do_val"),
         "Type should contain `:do_val` atom, got:\n{}",

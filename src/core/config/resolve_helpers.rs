@@ -17,7 +17,6 @@ pub(crate) fn resolve_output_paths(
     let mut paths = HashMap::new();
     for lang in languages {
         let lang_str = lang.to_string();
-        // Per-crate explicit output path wins over the workspace template.
         let explicit = per_crate_explicit_output(&krate.output, lang);
         let path = explicit
             .map(PathBuf::from)
@@ -79,7 +78,6 @@ pub fn resolve_output_dir(config_path: Option<&PathBuf>, crate_name: &str, defau
 /// for both `serde` and `serde_json`.
 pub fn detect_serde_available(output_dir: &str) -> bool {
     let src_path = std::path::Path::new(output_dir);
-    // Walk up from the output dir to find Cargo.toml (usually output_dir is `crates/foo/src/`)
     let mut dir = src_path;
     loop {
         let cargo_toml = dir.join("Cargo.toml");
@@ -106,12 +104,8 @@ fn cargo_toml_has_serde(path: &std::path::Path) -> bool {
     };
 
     let has_serde_json = content.contains("serde_json");
-    // Check for `serde` as a direct dependency (not just serde_json).
-    // Must match "serde" as a TOML key, not as a substring of "serde_json".
-    // Valid patterns: `serde = `, `serde.`, `[dependencies.serde]`
     let has_serde_dep = content.lines().any(|line| {
         let trimmed = line.trim();
-        // Match `serde = ...` or `serde.workspace = true` etc., but not `serde_json`
         trimmed.starts_with("serde ")
             || trimmed.starts_with("serde=")
             || trimmed.starts_with("serde.")
@@ -128,9 +122,6 @@ fn cargo_toml_has_serde(path: &std::path::Path) -> bool {
 /// starting immediately after the `crates/` prefix, or `None` if the path
 /// does not contain such a component.
 pub(crate) fn find_after_crates_prefix(path: &str) -> Option<&str> {
-    // Normalise to forward slashes for cross-platform matching.
-    // We search for `/crates/` (with leading slash) first, then fall back to
-    // a leading `crates/` for relative paths that start with that component.
     if let Some(pos) = path.find("/crates/") {
         return Some(&path[pos + "/crates/".len()..]);
     }

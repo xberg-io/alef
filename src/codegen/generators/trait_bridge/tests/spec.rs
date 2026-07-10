@@ -66,7 +66,3 @@ fn test_error_path() {
     let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
     assert_eq!(spec.error_path(), "mylib::MyError");
 }
-
-// ---------------------------------------------------------------------------
-// format_type_ref
-// ---------------------------------------------------------------------------

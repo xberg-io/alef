@@ -87,7 +87,6 @@ pub(super) fn gen_opaque_static_constructor(
 
     let mut out = String::new();
 
-    // Public param list
     let param_parts: Vec<String> = method
         .params
         .iter()
@@ -109,7 +108,6 @@ pub(super) fn gen_opaque_static_constructor(
         minijinja::context! { class_name, param_list },
     ));
 
-    // Emit setup for Named and Bytes parameters (marshal to handles)
     emit_named_param_setup(
         &mut out,
         &method.params,
@@ -120,7 +118,6 @@ pub(super) fn gen_opaque_static_constructor(
         enum_names,
     );
 
-    // Build native call args using the native_call_arg helper
     let native_args: Vec<String> = method
         .params
         .iter()
@@ -128,7 +125,6 @@ pub(super) fn gen_opaque_static_constructor(
         .collect();
     let native_args_str = native_args.join(", ");
 
-    // FFI function name: {class_name}New (matches gen_opaque_factory_method pattern)
     let ffi_method_name = format!("{}New", class_name);
 
     out.push_str(&render(
@@ -141,7 +137,6 @@ pub(super) fn gen_opaque_static_constructor(
         minijinja::context! { exception_name, fallback_message => "Constructor failed" },
     ));
 
-    // Emit cleanup for Named and Bytes parameters
     emit_named_param_teardown(&mut out, &method.params, true_opaque_types, enum_names);
 
     out.push_str(&render(
@@ -163,7 +158,6 @@ pub(super) fn gen_opaque_factory_method(
 
     let mut out = String::new();
 
-    // Public param list: `string apiKey`
     let param_list: String = ctor
         .params
         .iter()
@@ -175,8 +169,6 @@ pub(super) fn gen_opaque_factory_method(
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Native call arg list: pass params directly (P/Invoke handles marshalling via attributes on
-    // the NativeMethods declaration).
     let call_args: String = ctor
         .params
         .iter()

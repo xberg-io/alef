@@ -62,20 +62,16 @@ fn test_php_option_param_emits_nullable_with_default() {
 
     let content = &facade_file.content;
 
-    // Required parameter should be `string $required_str` (not nullable, no default).
     assert!(
         content.contains("string $required_str"),
         "required parameter must be non-nullable; got:\n{content}"
     );
 
-    // Optional parameter should be `?string $optional_str = null` (nullable with default).
-    // Must NOT be `??string` (double-nullable) or `string $optional_str` (missing null default).
     assert!(
         content.contains("?string $optional_str = null"),
         "optional parameter must be ?string with = null default; got:\n{content}"
     );
 
-    // Verify no double-nullable nonsense.
     assert!(
         !content.contains("??string"),
         "must not have double-nullable ??string; got:\n{content}"
@@ -101,15 +97,13 @@ fn test_php_required_str_param_not_nullable_with_optional_tail() {
             rust_path: "test_lib::process_document".to_string(),
             original_rust_path: String::new(),
             params: vec![
-                // Required &str parameter (maps to TypeRef::String with optional=false)
                 ParamDef {
                     name: "content_type".to_string(),
                     ty: TypeRef::String,
                     optional: false,
-                    is_ref: true, // Rust signature: &str
+                    is_ref: true,
                     ..ParamDef::default()
                 },
-                // Optional &str parameter (maps to TypeRef::Optional(String) with is_ref=true)
                 ParamDef {
                     name: "hint".to_string(),
                     ty: TypeRef::Optional(Box::new(TypeRef::String)),
@@ -151,22 +145,16 @@ fn test_php_required_str_param_not_nullable_with_optional_tail() {
 
     let content = &facade_file.content;
 
-    // Required parameter MUST be non-nullable, not "?string $content_type".
-    // The Rust core function signature is processDocument(content_type: &str, ...)
-    // so null is never valid for this parameter.
     assert!(
         content.contains("string $content_type") && !content.contains("?string $content_type"),
         "required &str parameter must be non-nullable string; got:\n{content}"
     );
 
-    // Optional parameter MUST be nullable with default.
-    // The Rust core function accepts Option<&str>, so PHP can pass null.
     assert!(
         content.contains("?string $hint = null"),
         "optional parameter must be ?string with = null default; got:\n{content}"
     );
 
-    // Sanity: no double-nullable.
     assert!(
         !content.contains("??string"),
         "must not have double-nullable ??string; got:\n{content}"
@@ -266,7 +254,6 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
 
     let config = make_config();
 
-    // Collect all generated PHP source files (facade + opaque class files + type stubs).
     let mut php_files: Vec<alef::core::backend::GeneratedFile> = Vec::new();
     php_files.extend(backend.generate_public_api(&api, &config).expect("public api ok"));
     php_files.extend(backend.generate_type_stubs(&api, &config).expect("type stubs ok"));
@@ -282,8 +269,6 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
         );
     }
 
-    // Strongest check: run php-cs-fixer with the scaffold's @PSR12 ruleset and assert it
-    // produces zero changes. Skips when php or php-cs-fixer are unavailable.
     use std::process::Command;
     let tools_available = Command::new("php").arg("--version").output().is_ok()
         && Command::new("php-cs-fixer").arg("--version").output().is_ok();
@@ -294,11 +279,6 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
 
     let dir = tempfile::tempdir().unwrap();
 
-    // The scaffold's php-cs-fixer config formats `src/` but explicitly excludes `stubs/`
-    // (`->notPath('stubs')`) because the stub files carry ext-php-rs scaffolding the formatter
-    // would otherwise rewrite. So the formatter no-op contract applies to the userland `src/`
-    // files (facade + opaque DTO classes) — those are what `alef verify` and the formatter must
-    // agree on. Stub files only need the blank-line-after-`<?php` guarantee asserted above.
     for file in php_files.iter().filter(|f| !f.path.to_string_lossy().contains("stubs")) {
         let php_path = dir.path().join("subject.php");
         std::fs::write(&php_path, &file.content).unwrap();
@@ -322,13 +302,6 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
 
 #[test]
 fn facade_emits_nullable_marker_for_non_tail_optional_param() {
-    // Regression: when an `Option<T>` param is followed by a non-nullable required
-    // param, PHP 8.1 ordering forces the optional param into a non-tail position.
-    // The facade must still emit `?T $name` (nullable, no default) so callers can
-    // pass `null`. Before the fix, the emitter dropped the `?` entirely, producing
-    // `string $mime_type` for the canonical `extract_file(path, mime_type, config)`
-    // signature, which made every test passing `null` for `mime_type` fail with a
-    // PHP TypeError.
     let backend = PhpBackend;
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -410,8 +383,6 @@ fn facade_emits_nullable_marker_for_non_tail_optional_param() {
         "facade must keep the nullable marker on non-tail Option<T> params; got:\n{}",
         facade.content
     );
-    // Reject a non-nullable `string $mime_type` (must be `?string`). Use leading-space
-    // anchors so the `?` form isn't a substring match for the non-`?` form.
     assert!(
         !facade.content.contains(" string $mime_type"),
         "facade must not emit a non-nullable `string $mime_type`; got:\n{}",
@@ -421,13 +392,7 @@ fn facade_emits_nullable_marker_for_non_tail_optional_param() {
 
 #[test]
 fn module_entry_uses_explicit_extension_name_not_cargo_pkg_name() {
-    // Regression test for PHP module registration bug where the module name
-    // did not match the extension name, causing `php -m` to fail and PIE
     // install to error with "already loaded". The root cause was #[php_module]
-    // macro expansion using env!("CARGO_PKG_NAME") which could differ from
-    // the publishable extension_name (e.g., crate "ts-pack-core-php" vs.
-    // extension "tree_sitter_language_pack").
-    // Solution: generate ModuleBuilder::new(extension_name, version) explicitly.
     let backend = PhpBackend;
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -449,21 +414,18 @@ fn module_entry_uses_explicit_extension_name_not_cargo_pkg_name() {
         .find(|f| f.path.ends_with("lib.rs"))
         .expect("lib.rs generated");
 
-    // Verify the module entry function explicitly passes extension_name to ModuleBuilder::new()
     assert!(
         lib_rs.content.contains("ModuleBuilder::new(") && lib_rs.content.contains("tree_sitter_language_pack"),
         "module entry must use explicit extension name in ModuleBuilder::new(); got:\n{}",
         lib_rs.content
     );
 
-    // Verify it does NOT use env!("CARGO_PKG_NAME") fallback
     assert!(
         !lib_rs.content.contains("CARGO_PKG_NAME"),
         "module entry must not rely on CARGO_PKG_NAME macro; got:\n{}",
         lib_rs.content
     );
 
-    // Verify the get_module function is properly formed with manual ModuleBuilder
     assert!(
         lib_rs.content.contains("extern \"C\" fn get_module()"),
         "module entry must export get_module extern function; got:\n{}",

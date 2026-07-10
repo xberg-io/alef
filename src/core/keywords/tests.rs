@@ -38,11 +38,6 @@ fn swift_init_is_reserved() {
 
 #[test]
 fn swift_case_ident_backtick_escapes_reserved_keywords() {
-    // Backtick escape is the Swift-idiomatic form for keyword-collision
-    // identifiers in *emitted Swift code* (enum cases, struct fields,
-    // function parameter labels). Distinct from `swift_ident`, which
-    // emits a trailing-underscore form suitable for the Rust side of the
-    // bridge.
     assert_eq!(swift_case_ident("default"), "`default`");
     assert_eq!(swift_case_ident("protocol"), "`protocol`");
     assert_eq!(swift_case_ident("init"), "`init`");
@@ -51,7 +46,6 @@ fn swift_case_ident_backtick_escapes_reserved_keywords() {
     assert_eq!(swift_case_ident("class"), "`class`");
     assert_eq!(swift_case_ident("inout"), "`inout`");
     assert_eq!(swift_case_ident("rethrows"), "`rethrows`");
-    // Non-reserved identifiers pass through unchanged.
     assert_eq!(swift_case_ident("gitHub"), "gitHub");
     assert_eq!(swift_case_ident("normal"), "normal");
     assert_eq!(swift_case_ident("dracula"), "dracula");
@@ -101,7 +95,6 @@ fn python_keywords_covers_common_cases() {
 
 #[test]
 fn python_str_enum_ident_escapes_str_methods() {
-    // str method-name collisions must be escaped with trailing underscore
     assert_eq!(python_str_enum_ident("title"), "title_");
     assert_eq!(python_str_enum_ident("lower"), "lower_");
     assert_eq!(python_str_enum_ident("upper"), "upper_");
@@ -112,7 +105,6 @@ fn python_str_enum_ident_escapes_str_methods() {
 
 #[test]
 fn python_str_enum_ident_escapes_python_keywords() {
-    // Python keywords should still be escaped (del is a keyword, not a method)
     assert_eq!(python_str_enum_ident("del"), "del_");
     assert_eq!(python_str_enum_ident("class"), "class_");
     assert_eq!(python_str_enum_ident("return"), "return_");
@@ -120,7 +112,6 @@ fn python_str_enum_ident_escapes_python_keywords() {
 
 #[test]
 fn python_str_enum_ident_passes_through_ordinary_names() {
-    // Names that are neither keywords nor str methods pass through unchanged
     assert_eq!(python_str_enum_ident("body"), "body");
     assert_eq!(python_str_enum_ident("div"), "div");
     assert_eq!(python_str_enum_ident("paragraph"), "paragraph");
@@ -174,15 +165,15 @@ fn is_valid_rust_ident_chars_accepts_valid_identifiers() {
     assert!(is_valid_rust_ident_chars("content"));
     assert!(is_valid_rust_ident_chars("self_harm"));
     assert!(is_valid_rust_ident_chars("_private"));
-    assert!(is_valid_rust_ident_chars("type")); // keyword, but char-valid
+    assert!(is_valid_rust_ident_chars("type"));
     assert!(is_valid_rust_ident_chars("CamelCase"));
 }
 
 #[test]
 fn is_valid_rust_ident_chars_rejects_invalid_identifiers() {
-    assert!(!is_valid_rust_ident_chars("self-harm")); // hyphen
-    assert!(!is_valid_rust_ident_chars("self-harm/intent")); // hyphen and slash
-    assert!(!is_valid_rust_ident_chars("sexual/minors")); // slash
-    assert!(!is_valid_rust_ident_chars("")); // empty
-    assert!(!is_valid_rust_ident_chars("123abc")); // starts with digit
+    assert!(!is_valid_rust_ident_chars("self-harm"));
+    assert!(!is_valid_rust_ident_chars("self-harm/intent"));
+    assert!(!is_valid_rust_ident_chars("sexual/minors"));
+    assert!(!is_valid_rust_ident_chars(""));
+    assert!(!is_valid_rust_ident_chars("123abc"));
 }

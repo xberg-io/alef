@@ -294,7 +294,6 @@ fn test_register_fn_validates_name_null() {
         &api,
     );
 
-    // Null name check must be present in register fn
     assert!(
         code.contains("if name.is_null()"),
         "register fn must check for null name"
@@ -306,8 +305,8 @@ fn test_register_fn_validates_required_fn_ptrs() {
     let trait_def = make_trait_def(
         "Transform",
         vec![
-            make_method("transform", TypeRef::String, true, false), // required
-            make_method("describe", TypeRef::String, false, true),  // optional (has default)
+            make_method("transform", TypeRef::String, true, false),
+            make_method("describe", TypeRef::String, false, true),
         ],
     );
     let bridge_cfg = TraitBridgeConfig {
@@ -343,7 +342,6 @@ fn test_register_fn_validates_required_fn_ptrs() {
         &api,
     );
 
-    // Required method fn pointer must be validated; optional one need not be
     assert!(
         code.contains("vtable_ref.transform.is_none()"),
         "required fn ptr must be validated non-null"
@@ -474,7 +472,6 @@ fn test_string_param_marshalled_to_c_char() {
         &api,
     );
 
-    // The vtable fn pointer for 'greet' must accept *const c_char for the message param
     assert!(
         code.contains("*const std::ffi::c_char"),
         "string param must map to *const c_char in vtable"
@@ -506,8 +503,6 @@ fn test_c_return_convention_unit_fallible() {
 #[test]
 fn test_c_return_convention_string_infallible() {
     let (out_params, ret) = FfiBridgeGenerator::c_return_convention(&TypeRef::String, false);
-    // Infallible string is a complex return: it always carries out_result AND out_error
-    // (the latter for stack alignment / C# FFI compatibility), and returns i32.
     assert_eq!(out_params.len(), 2);
     assert!(out_params[0].contains("out_result"));
     assert!(out_params.iter().any(|p| p.contains("out_error")));

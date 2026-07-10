@@ -13,14 +13,6 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
     let core_path = core_enum_path_remapped(enum_def, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, enum_def.name);
 
-    // Arms are emitted unconditionally. The match is on the *binding* enum, which contains
-    // exactly `enum_def.variants` (binding-excluded variants are absent). Each variant gets
-    // its own arm so the match is exhaustive over the binding type.
-    //
-    // A core variant's `cfg` is NOT propagated to the binding-side arm: binding crates
-    // pull the core dependency with all required features enabled, so any cfg-gated core
-    // variant is compiled in when the binding crate is built. Propagating the cfg would
-    // reference features that do not exist on the binding crate itself.
     let arms: Vec<minijinja::value::Value> = enum_def
         .variants
         .iter()
@@ -61,10 +53,6 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
     let core_path = core_enum_path_remapped(enum_def, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, enum_def.name);
 
-    // Arms are emitted unconditionally. Binding crates pull the core dependency with all
-    // required features enabled, so any cfg-gated core variant is compiled in at the
-    // binding-crate build site. Propagating the cfg to the arm would reference features
-    // that do not exist on the binding crate itself.
     let arms: Vec<minijinja::value::Value> = enum_def
         .variants
         .iter()
@@ -84,14 +72,6 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
         })
         .collect();
 
-    // Emit a `_ => Default::default()` catch-all only when the core enum has variants
-    // that are excluded from the binding (`excluded_variants`). Those variants are
-    // present in the core enum but absent from the binding, so the match needs a
-    // wildcard to remain exhaustive.
-    //
-    // When all core variants are in `enum_def.variants`, the per-variant arms make
-    // the match exhaustive and a catch-all would produce an "unreachable pattern"
-    // error under `-D warnings`.
     let needs_catch_all = !enum_def.excluded_variants.is_empty();
 
     crate::codegen::template_env::render(

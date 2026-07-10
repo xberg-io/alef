@@ -4,13 +4,6 @@ use crate::core::backend::Backend;
 use crate::core::ir::*;
 
 // -----------------------------------------------------------------------
-// Doxygen comment emission on extern "C" fn, opaque typedefs, and enums.
-//
-// These tests assert the structural shape of the generated Rust source
-// (`pub unsafe extern "C" fn` declarations carry `\param`, `\return`,
-// `\note` markers; opaque-handle `typedef` lines in cbindgen.toml carry
-// a `/** ... */` block). cbindgen forwards these into the final `.h` file.
-// -----------------------------------------------------------------------
 
 fn doxygen_sample_api() -> ApiSurface {
     ApiSurface {
@@ -132,8 +125,6 @@ fn test_extern_fn_emits_doxygen_param_return_note_markers() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The generated extern fn carries Doxygen markers derived from the
-    // upstream rustdoc sections.
     assert!(
         lib.content.contains("/// \\param name The unique key to search."),
         "expected \\param marker for `name`, got:\n{}",
@@ -151,9 +142,6 @@ fn test_extern_fn_emits_doxygen_param_return_note_markers() {
         "expected \\note marker for # Errors, got:\n{}",
         lib.content
     );
-    // The universal FFI safety clause is now expressed as a Doxygen note
-    // (the previous hard-coded `/// # Safety` lines have been removed
-    // from the templates).
     assert!(
         lib.content.contains("/// \\note SAFETY:"),
         "expected \\note SAFETY: marker derived from synthetic safety clause, got:\n{}",
@@ -171,8 +159,6 @@ fn test_opaque_typedef_carries_doxygen_block_in_cbindgen_toml() {
     let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
     toml::from_str::<toml::Value>(&cbindgen.content).expect("cbindgen.toml must be valid TOML");
 
-    // Doxygen block precedes the typedef in `forward_decls`. The doc text
-    // is lifted from `TypeDef.doc` and rendered as `/** * ... */`.
     assert!(
         cbindgen.content.contains("/**"),
         "expected /** doxygen opener, got:\n{}",
@@ -233,9 +219,6 @@ fn test_enum_opaque_typedef_carries_doxygen_block() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
 
-    // The `Severity` enum is included as an opaque forward declaration
-    // (enums travel across FFI as `*mut EnumName`). Its rustdoc must
-    // surface as a Doxygen block above the typedef.
     assert!(
         cbindgen.content.contains("* Diagnostic severity level."),
         "expected enum typedef doc body, got:\n{}",
@@ -258,8 +241,6 @@ fn test_enum_opaque_typedef_carries_doxygen_block() {
 #[test]
 fn test_error_type_with_methods_gets_opaque_typedef_in_cbindgen_toml() {
     let mut api = sample_api();
-    // Add an error type with a whitelisted method — this is what triggers
-    // gen_ffi_error_methods to emit `*const GraphQLError` in the accessor.
     api.errors.push(ErrorDef {
         name: "GraphQLError".to_string(),
         rust_path: "my_lib::GraphQLError".to_string(),
@@ -296,7 +277,6 @@ fn test_error_type_with_methods_gets_opaque_typedef_in_cbindgen_toml() {
 
     let cbindgen = files.iter().find(|f| f.path.ends_with("cbindgen.toml")).unwrap();
 
-    // The accessor function references *const MY_LIBGraphQLError — the typedef must exist.
     assert!(
         cbindgen
             .content
@@ -305,7 +285,6 @@ fn test_error_type_with_methods_gets_opaque_typedef_in_cbindgen_toml() {
         cbindgen.content
     );
 
-    // Also verify the accessor itself is emitted in lib.rs.
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
     assert!(
         lib.content.contains("my_lib_graph_q_l_error_status_code"),
@@ -358,10 +337,6 @@ fn test_generates_build_rs() {
 
 #[test]
 fn test_build_rs_sets_macos_install_name_and_loader_rpath() {
-    // Without the @loader_path LC_RPATH, transitively-linked dylibs (e.g.
-    // @rpath/libonnxruntime.<ver>.dylib) fail to resolve at consumer load
-    // time with `no LC_RPATH's found`. Co-locating ensures NuGet, Maven,
-    // and wheel layouts that bundle native deps next to the cdylib all work.
     let api = sample_api();
     let config = sample_config();
     let backend = FfiBackend;

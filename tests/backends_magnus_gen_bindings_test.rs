@@ -54,7 +54,6 @@ gem_name = "test_lib"
 fn test_basic_generation() {
     let backend = MagnusBackend;
 
-    // Create test API surface with types, functions, and enums
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -202,21 +201,18 @@ fn test_basic_generation() {
     let files = result.unwrap();
     assert!(!files.is_empty(), "Should generate at least one file");
 
-    // Check for expected file
     let file_names: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
     assert!(
         file_names.iter().any(|f| f.contains("lib.rs")),
         "Should generate lib.rs file"
     );
 
-    // Verify content contains Magnus-specific markers
     let lib_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("lib.rs"))
         .unwrap();
     let content = &lib_file.content;
 
-    // Check for Magnus imports and macros
     assert!(
         content.contains("magnus::wrap"),
         "Should contain magnus::wrap attribute"
@@ -234,15 +230,12 @@ fn test_basic_generation() {
         "Should contain TryConvertOwned marker trait"
     );
 
-    // Check for struct generation
     assert!(content.contains("struct Config"), "Should generate Config struct");
 
-    // Check for enum generation
     assert!(content.contains("enum Backend"), "Should generate Backend enum");
     assert!(content.contains("Tesseract"), "Should contain Tesseract variant");
     assert!(content.contains("PaddleOcr"), "Should contain PaddleOcr variant");
 
-    // Check for function/method generation
     assert!(content.contains("process"), "Should contain process function");
 }
 
@@ -250,7 +243,6 @@ fn test_basic_generation() {
 fn test_type_mapping() {
     let backend = MagnusBackend;
 
-    // Create API with various field types to test type mapping
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -307,10 +299,8 @@ fn test_type_mapping() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Check that struct is generated with proper field types
     assert!(content.contains("struct Numbers"), "Should generate Numbers struct");
 
-    // Verify Magnus-specific type wrapping
     assert!(content.contains("magnus::wrap"), "Should have magnus::wrap attribute");
 }
 
@@ -318,7 +308,6 @@ fn test_type_mapping() {
 fn test_enum_generation() {
     let backend = MagnusBackend;
 
-    // Create API with a more complex enum
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -403,13 +392,11 @@ fn test_enum_generation() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Check enum definition
     assert!(content.contains("enum Status"), "Should generate Status enum");
     assert!(content.contains("Pending"), "Should contain Pending variant");
     assert!(content.contains("Processing"), "Should contain Processing variant");
     assert!(content.contains("Complete"), "Should contain Complete variant");
 
-    // Check for conversion traits (IntoValue, TryConvert)
     assert!(
         content.contains("impl magnus::IntoValue for Status"),
         "Should implement IntoValue for enum"
@@ -419,7 +406,6 @@ fn test_enum_generation() {
         "Should implement TryConvert for enum"
     );
 
-    // Check for symbol conversion (Ruby symbols)
     assert!(content.contains("to_symbol"), "Should convert to Ruby symbols");
 }
 
@@ -558,13 +544,11 @@ fn test_generated_header() {
 
     let files = result.unwrap();
 
-    // Check that main lib.rs has auto-generated header (set by with_generated_header())
     let lib_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("lib.rs"))
         .unwrap();
 
-    // The content should include the auto-generated marker from RustFileBuilder::with_generated_header()
     assert!(
         lib_file.content.contains("Code generated")
             || lib_file.content.contains("auto-generated")
@@ -577,7 +561,6 @@ fn test_generated_header() {
 fn test_methods_generation() {
     let backend = MagnusBackend;
 
-    // Create a TypeDef with methods
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -686,20 +669,16 @@ fn test_methods_generation() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Check for struct definition
     assert!(content.contains("struct Store"), "Should generate Store struct");
 
-    // Check for method! macros (Magnus method bindings)
     assert!(
         content.contains("method!("),
         "Should contain method! macro for instance methods"
     );
 
-    // Check for specific method names
     assert!(content.contains("get_name"), "Should contain get_name method");
     assert!(content.contains("increment"), "Should contain increment method");
 
-    // Check for define_method usage in module initialization
     assert!(
         content.contains("define_method") || content.contains("method!"),
         "Should use Magnus method macros"
@@ -710,7 +689,6 @@ fn test_methods_generation() {
 fn test_error_types() {
     let backend = MagnusBackend;
 
-    // Create an API with error types
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -802,24 +780,18 @@ fn test_error_types() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Check for error converter generation (gen_magnus_error_converter)
     assert!(
         content.contains("ValidationError"),
         "Should contain ValidationError type reference"
     );
 
-    // Check for error handling in function
     assert!(content.contains("validate"), "Should contain validate function");
-
-    // Error variants may not appear directly in generated code; just verify the function exists
-    // The important thing is that the error type is processed by gen_magnus_error_converter
 }
 
 #[test]
 fn test_async_function() {
     let backend = MagnusBackend;
 
-    // Create API with async function
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -880,19 +852,16 @@ fn test_async_function() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Check for async function presence
     assert!(
         content.contains("process_async"),
         "Should contain process_async function"
     );
 
-    // Check for tokio/async runtime integration
     assert!(
         content.contains("tokio") || content.contains("async") || content.contains("block_on"),
         "Should contain async/tokio runtime handling"
     );
 
-    // Check for function! macro
     assert!(
         content.contains("function!("),
         "Should use function! macro for free functions"
@@ -950,7 +919,6 @@ fn test_async_helper_registers_under_original_public_name() {
 fn test_opaque_type() {
     let backend = MagnusBackend;
 
-    // Create API with opaque type
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -1035,17 +1003,14 @@ fn test_opaque_type() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Check for opaque struct generation with Arc wrapping
     assert!(content.contains("struct Processor"), "Should generate Processor struct");
     assert!(content.contains("Arc<"), "Opaque types should wrap inner with Arc");
 
-    // Check for magnus::wrap attribute
     assert!(
         content.contains("magnus::wrap"),
         "Should use magnus::wrap for opaque types"
     );
 
-    // Check for TryConvert and IntoValue implementations
     assert!(
         content.contains("impl magnus::TryConvert for Processor"),
         "Should implement TryConvert for opaque type"
@@ -1060,7 +1025,6 @@ fn test_opaque_type() {
 fn test_default_config() {
     let backend = MagnusBackend;
 
-    // Create API with a type that has default: true
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -1114,10 +1078,8 @@ fn test_default_config() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Check for struct generation
     assert!(content.contains("struct Config"), "Should generate Config struct");
 
-    // Check for Default impl generation that delegates to the core default.
     assert!(
         content.contains("impl Default for Config"),
         "Should generate Default implementation for types with has_default: true"
@@ -1127,7 +1089,6 @@ fn test_default_config() {
         "Default implementation must delegate to the core default; content:\n{content}"
     );
 
-    // Check for magnus wrapper
     assert!(content.contains("magnus::wrap"), "Should have magnus::wrap");
 }
 
@@ -1240,14 +1201,11 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Variadic signature: scan_args optional slot must be Option<magnus::Value>
-    // so a plain Ruby Hash (or nil) can be passed through.
     assert!(
         content.contains("(Option<magnus::Value>,)"),
         "scan_args optional tuple must use Option<magnus::Value>, got:\n{content}"
     );
 
-    // Body must use TryConvert for has_default struct types (no JSON round-trip)
     assert!(
         content.contains("ConversionOptions::try_convert"),
         "Binding body must use TryConvert for has_default struct params, got:\n{content}"
@@ -1257,16 +1215,11 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
         "Binding body must convert binding struct via Into, got:\n{content}"
     );
 
-    // Must not use the old as_deref pattern (which assumed a String input)
     assert!(
         !content.contains("options.as_deref()"),
         "Must not use as_deref on options — options is now magnus::Value, got:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Trait bridge tests (Magnus plugin bridge via gen_trait_bridge)
-// ---------------------------------------------------------------------------
 
 mod trait_bridge {
     use alef::backends::magnus::trait_bridge::gen_trait_bridge;
@@ -1477,8 +1430,6 @@ mod trait_bridge {
         }
     }
 
-    // ---- Visitor bridge: type_alias still generates bridge ---
-
     #[test]
     fn test_visitor_bridge_generates_rb_bridge_struct() {
         let trait_def = make_trait_def("HtmlVisitor", vec![make_visitor_method("visit_node")]);
@@ -1538,8 +1489,6 @@ mod trait_bridge {
             "visitor bridge must implement the trait"
         );
     }
-
-    // ---- Plugin-pattern bridges: register_fn + super_trait ----
 
     fn make_plugin_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         let register_fn_name = trait_name.chars().fold(String::new(), |mut acc, c| {
@@ -1743,8 +1692,8 @@ mod trait_bridge {
         let trait_def = make_trait_def(
             "OcrBackend",
             vec![
-                make_method("recognize", TypeRef::String, true, false), // required
-                make_method("shutdown", TypeRef::Unit, false, true),    // optional
+                make_method("recognize", TypeRef::String, true, false),
+                make_method("shutdown", TypeRef::Unit, false, true),
             ],
         );
         let cfg = make_plugin_bridge_cfg("OcrBackend");
@@ -1769,9 +1718,6 @@ mod trait_bridge {
 fn test_tagged_union_enum_vec_field_serde_marshalling() {
     let backend = MagnusBackend;
 
-    // Create API with a tagged-union enum that has a Vec<Named> field on one variant.
-    // Named types require JSON marshalling, so Vec<Named> should map to String in the
-    // Magnus binding enum, and the conversion code will use serde_json to deserialize.
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -1905,33 +1851,22 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Print the relevant chunk on failure for diagnosis.
     eprintln!("---generated lib.rs (Result enum context)---");
     if let Some(idx) = content.find("enum Result") {
         eprintln!("{}", &content[idx..idx.saturating_add(500).min(content.len())]);
     }
 
-    // Vec<Named> fields must round-trip as actual Vec<Named> so serde can deserialize a
-    // JSON array. Mapping to bare `String` previously broke decoding for tagged-union
-    // variants like StopSequence::Multiple(Vec<String>) — the FFI sends a JSON array, not
-    // a JSON-encoded string.
     assert!(
         content.contains("items: Vec<Item>"),
         "Tagged-union enum variant with Vec<Named> field should map to Vec<Named> for JSON array round-trip"
     );
 
-    // Verify the enum definition includes proper variant structure
     assert!(content.contains("enum Result"), "Should generate Result enum");
     assert!(content.contains("Success"), "Should contain Success variant");
     assert!(content.contains("Error"), "Should contain Error variant");
 
-    // Verify that the serde tag attribute is present
     assert!(content.contains("tag = \"type\""), "Should have serde tag attribute");
 
-    // Tagged data enums get NO Rust factory class: it is represented on the Ruby side as a
-    // `module Result` with per-variant `Data.define` classes, and a `define_class("Result")` would
-    // collide with that module (raising `TypeError: Result is not a module` at load). The factory
-    // methods, class registration, and singleton constructors are all gated on `serde_tag.is_none()`.
     assert!(
         !content.contains("pub fn _factory_success"),
         "tagged data enum must not emit per-variant factory constructors: {content}"
@@ -2031,12 +1966,10 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
         .unwrap();
     let content = &lib.content;
 
-    // Vec<u8> (primitive) must NOT be collapsed to String
     assert!(
         content.contains("_0: Vec<u8>"),
         "Vec<u8> tuple variant field must stay as Vec<u8>, got:\n{content}"
     );
-    // Conversion must not use serde_json for Vec<u8>
     assert!(
         !content.contains("serde_json::from_str(&_0)"),
         "Vec<u8> must not use serde_json::from_str; got:\n{content}"
@@ -2402,12 +2335,10 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
         .unwrap();
     let content = &lib.content;
 
-    // Vec<Bar> (Named) must stay as Vec<Bar>, not String
     assert!(
         content.contains("_0: Vec<Bar>"),
         "Vec<Named> tuple variant field must stay as Vec<Bar>, got:\n{content}"
     );
-    // Conversion must not use serde_json for Vec<Named>
     assert!(
         !content.contains("serde_json::from_str(&_0)"),
         "Vec<Named> must not use serde_json::from_str; got:\n{content}"
@@ -2416,7 +2347,6 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
         !content.contains("serde_json::to_string(&_0)"),
         "Vec<Named> must not use serde_json::to_string; got:\n{content}"
     );
-    // Conversion must use .into() for each element
     assert!(
         content.contains("into_iter().map(Into::into).collect()"),
         "Vec<Named> conversion must use .into_iter().map(Into::into).collect(); got:\n{content}"
@@ -2438,8 +2368,6 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
             original_rust_path: String::new(),
             fields: vec![FieldDef {
                 name: "max_depth".to_string(),
-                // ty = Optional(Usize) AND optional = true mimics a core Option<Option<usize>>
-                // that the binding flattens to Option<usize>.
                 ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
                 optional: true,
                 default: None,
@@ -2496,7 +2424,6 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
         .unwrap();
     let content = &lib.content;
 
-    // Getter must return Option<usize>, not Option<Option<usize>>
     assert!(
         !content.contains("Option<Option<usize>>"),
         "field accessor must not emit Option<Option<usize>>:\n{content}"
@@ -2733,7 +2660,6 @@ fn test_module_init_requires_json_stdlib() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Module init function must emit require "json" to ensure Hash#to_json is available
     assert!(
         content.contains("require") && content.contains("json"),
         "Module init must emit require \"json\" to load JSON stdlib for Hash#to_json"
@@ -2743,11 +2669,6 @@ fn test_module_init_requires_json_stdlib() {
 
 #[test]
 fn test_trait_bridge_options_field_error_propagation_in_generated_code() {
-    // This test verifies that trait bridge code generation includes proper error
-    // handling when deserializing Ruby Hash to options via JSON. Previously, the
-    // code silently swallowed errors via unwrap_or_default(), causing missing
-    // options like include_document_structure to be lost.
-
     let backend = MagnusBackend;
 
     let api = ApiSurface {
@@ -2800,10 +2721,6 @@ fn test_trait_bridge_options_field_error_propagation_in_generated_code() {
         .unwrap();
     let content = &lib_file.content;
 
-    // The generated code should include error-safe deserialization patterns
-    // (These patterns are generated within trait bridges when options_field binding is used)
-    // For this test, we verify that the codebase pattern is NOT using .unwrap_or_default()
-    // after to_json calls.
     assert!(
         !content.contains(".unwrap_or_default()") || !content.contains("funcall::<_, _, String>(\"to_json\""),
         "Generated trait bridge code must not use unwrap_or_default() for JSON serialization"
@@ -3098,8 +3015,6 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
         .unwrap()
         .content;
 
-    // Discriminator access, `when` arms, and per-variant field reads use double quotes
-    // to match rubocop's `Style/StringLiterals: double_quotes` default.
     assert!(
         content.contains("hash[:role] || hash[\"role\"]"),
         "discriminator read must use double quotes:\n{content}"
@@ -3112,30 +3027,23 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
         content.contains("hash[:content] || hash[\"content\"]"),
         "variant field read must use double quotes:\n{content}"
     );
-    // No single-quoted non-interpolated string literals leak into the dispatcher.
     assert!(
         !content.contains("hash['role']") && !content.contains("when 'system'"),
         "no single-quoted literals expected in dispatcher:\n{content}"
     );
-    // The interpolated raise message stays double-quoted (single quotes don't interpolate).
     assert!(
         content.contains("raise \"Unknown discriminator: #{discriminator}\""),
         "interpolated raise must remain double-quoted:\n{content}"
     );
 
-    // Layout/EmptyLinesAfterModuleInclusion: blank line after the inclusion group.
     assert!(
         content.contains("    extend T::Sig\n\n    interface!"),
         "must emit a blank line after the module-inclusion group:\n{content}"
     );
-    // Layout/EmptyLinesAroundModuleBody: the dispatcher's `end` sits directly
-    // against the marker module's `end` — no intervening blank line.
     assert!(
         content.contains("    end\n  end\n"),
         "marker module body must not end with a blank line:\n{content}"
     );
-    // Layout/EmptyLinesAroundModuleBody: the outer module closes without a
-    // trailing blank line after the last variant class.
     assert!(
         content.contains("  end\nend\n") && !content.contains("  end\n\nend"),
         "outer module body must not end with a blank line:\n{content}"
@@ -3335,13 +3243,11 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
         .unwrap();
     let content = &native_file.content;
 
-    // Base marker module
     assert!(
         content.contains("module Message"),
         "must emit a Message marker module:\n{content}"
     );
 
-    // Per-variant Data.define classes including the marker module
     assert!(
         content.contains("MessageSystem = Data.define(:content) do"),
         "must emit MessageSystem as Data.define with symbol args:\n{content}"
@@ -3355,7 +3261,6 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
         "variant must include the marker module:\n{content}"
     );
 
-    // Variant predicate methods
     assert!(
         content.contains("def system? = true"),
         "MessageSystem must override system? to true:\n{content}"
@@ -3369,8 +3274,6 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
         "non-system variants must define system? as false:\n{content}"
     );
 
-    // Field accessor wraps Data-auto-generated method via super (no infinite recursion).
-    // Endless def with rubocop disable so `rubocop -a` doesn't strip the def.
     assert!(
         content.contains("def content = super"),
         "variant accessor must delegate to Data's auto-getter via super:\n{content}"
@@ -3385,8 +3288,6 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
 fn test_enum_yard_doc_emission() {
     let backend = MagnusBackend;
 
-    // Create test API surface with an enum that has documentation
-    // Must have serde_tag and at least one variant with fields to generate Ruby classes
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -3473,7 +3374,6 @@ fn test_enum_yard_doc_emission() {
         .unwrap();
     let content = &native_file.content;
 
-    // Test base class YARD doc
     assert!(
         content.contains("# Tagged enum for various status states."),
         "base class should have YARD doc from enum.doc:\n{content}"
@@ -3483,7 +3383,6 @@ fn test_enum_yard_doc_emission() {
         "base class should translate Returns section to @return tag:\n{content}"
     );
 
-    // Test variant YARD doc
     assert!(
         content.contains("# Represents an active status."),
         "variant subclass should have YARD doc from variant.doc:\n{content}"
@@ -3573,13 +3472,11 @@ fn test_enum_variant_method_yard_docs() {
         .unwrap();
     let content = &native_file.content;
 
-    // Data field with doc should emit the doc as YARD
     assert!(
         content.contains("# The success value."),
         "field accessor with doc must emit YARD comment:\n{content}"
     );
 
-    // predicate must have a Sorbet sig declaring Boolean return
     assert!(
         content.contains("sig { returns(T::Boolean) }"),
         "predicate method must have Sorbet boolean return sig:\n{content}"
@@ -3600,8 +3497,6 @@ fn test_enum_variant_method_yard_docs() {
 fn test_explicit_re_export_list_filters_internal_types() {
     let backend = MagnusBackend;
 
-    // Create a test API with types that should be filtered (Update, Builder),
-    // excluded types, and valid public types.
     let types = vec![
         TypeDef {
             name: "Config".to_string(),
@@ -3628,7 +3523,6 @@ fn test_explicit_re_export_list_filters_internal_types() {
             has_private_fields: false,
             version: Default::default(),
         },
-        // Update struct should be filtered out
         TypeDef {
             name: "ConfigUpdate".to_string(),
             rust_path: "test_lib::ConfigUpdate".to_string(),
@@ -3654,7 +3548,6 @@ fn test_explicit_re_export_list_filters_internal_types() {
             has_private_fields: false,
             version: Default::default(),
         },
-        // Builder struct should be filtered out
         TypeDef {
             name: "ConfigBuilder".to_string(),
             rust_path: "test_lib::ConfigBuilder".to_string(),
@@ -3766,7 +3659,6 @@ exclude_types = ["ExcludedType"]
         .unwrap();
     let content = &native_file.content;
 
-    // Verify no dynamic re-export pattern (old behavior)
     assert!(
         !content.contains(".methods(false).each"),
         "native.rb must NOT use dynamic .methods(false).each pattern:\n{content}"
@@ -3776,7 +3668,6 @@ exclude_types = ["ExcludedType"]
         "native.rb must NOT use dynamic .constants.each pattern:\n{content}"
     );
 
-    // Verify explicit re-exports are present
     assert!(
         content.contains("Config = TestLibRs.const_get(:Config)"),
         "valid type Config should be explicitly re-exported:\n{content}"
@@ -3786,7 +3677,6 @@ exclude_types = ["ExcludedType"]
         "enum Status must NOT be re-exported — Magnus does not register enums as module constants:\n{content}"
     );
 
-    // Verify Update and Builder types are NOT exported
     assert!(
         !content.contains("ConfigUpdate"),
         "Update-type ConfigUpdate must NOT be re-exported:\n{content}"
@@ -3796,13 +3686,11 @@ exclude_types = ["ExcludedType"]
         "Builder-type ConfigBuilder must NOT be re-exported:\n{content}"
     );
 
-    // Verify function is explicitly re-exported
     assert!(
         content.contains("define_singleton_method(:process)"),
         "function process should be explicitly re-exported:\n{content}"
     );
 
-    // Verify no leakage of dynamic re-export patterns
     assert!(
         !content.contains(".methods(false).each") && !content.contains(".constants.each"),
         "must not use dynamic .methods or .constants patterns:\n{content}"
@@ -3895,7 +3783,6 @@ fn test_registration_variant_styles_emit_unified_block_form() {
 
     let config = make_config();
 
-    // Generate bindings for all three styles
     for style in [
         RegistrationVariantStyle::Builder,
         RegistrationVariantStyle::VerbDecorator,
@@ -3912,7 +3799,6 @@ fn test_registration_variant_styles_emit_unified_block_form() {
             .unwrap();
         let content = &service_file.content;
 
-        // All styles must emit the same block-form method signature.
         assert!(
             content.contains("def get(path: String, &block)"),
             "style {:?} must emit block-form method def get(path: String, &block):\n{}",
@@ -3920,7 +3806,6 @@ fn test_registration_variant_styles_emit_unified_block_form() {
             content
         );
 
-        // No conditionals or branching on style — one unified form only
         assert!(
             !content.contains(&format!("RegistrationVariantStyle::{:?}", style)),
             "Generated code must not mention RegistrationVariantStyle in output for {:?}",
@@ -3933,7 +3818,6 @@ fn test_registration_variant_styles_emit_unified_block_form() {
 fn test_async_function_with_vec_named_params() {
     let backend = MagnusBackend;
 
-    // Create API with an enum (non-opaque) and async function taking Vec<EnumType>
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -4013,7 +3897,7 @@ fn test_async_function_with_vec_named_params() {
                     default: None,
                     sanitized: false,
                     typed_default: None,
-                    is_ref: true, // Core function takes &[T], so is_ref=true
+                    is_ref: true,
                     is_mut: false,
                     newtype_wrapper: None,
                     original_type: None,
@@ -4058,12 +3942,8 @@ fn test_async_function_with_vec_named_params() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Must contain the async function
     assert!(content.contains("detect_async"), "Should contain detect_async function");
 
-    // Each function body must emit `let categories_core:` exactly once; emitting it twice
-    // within a single body causes `use of moved value: categories` (E0382). The sync wrapper
-    // (`fn detect_async`) and the async wrapper (`fn detect_async_async`) each emit it once.
     for fn_decl in ["fn detect_async(", "fn detect_async_async("] {
         let start = content
             .find(fn_decl)
@@ -4084,20 +3964,17 @@ fn test_async_function_with_vec_named_params() {
         );
     }
 
-    // Must use `categories_core` in the core function call
     assert!(
         content.contains("&categories_core"),
         "Should pass &categories_core to inner function (not &categories)"
     );
 
-    // Must not reference undefined `categories_core` before binding
     let detect_async_start = content.find("fn detect_async").unwrap();
     let next_fn = content[detect_async_start..]
         .find("\n    fn ")
         .unwrap_or(content.len() - detect_async_start);
     let detect_async_body = &content[detect_async_start..detect_async_start + next_fn];
 
-    // Find the let binding and the call site
     let categories_core_binding_pos = detect_async_body.find("let categories_core:").unwrap_or(0);
     let categories_core_usage_pos = detect_async_body.find("&categories_core").unwrap_or(0);
 
@@ -4113,9 +3990,6 @@ fn test_async_function_with_vec_named_params() {
 fn test_opaque_async_method_with_vec_named_ref_param() {
     let backend = MagnusBackend;
 
-    // Create API with an enum and an opaque struct with async method taking Vec<EnumType>&.
-    // This regression test covers the case where delegatable async methods on opaque structs
-    // need to emit let-bindings for Vec<Named> params that are passed by reference.
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -4151,7 +4025,7 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
                         default: None,
                         sanitized: false,
                         typed_default: None,
-                        is_ref: true, // Core function takes &[Label]
+                        is_ref: true,
                         is_mut: false,
                         newtype_wrapper: None,
                         original_type: None,
@@ -4274,11 +4148,8 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
         .unwrap();
     let content = &lib_file.content;
 
-    // Must contain the async method
     assert!(content.contains("detect_async"), "Should contain detect_async method");
 
-    // The method body must emit `let labels_core:` to convert Vec<Label> → Vec<core::Label>
-    // and must use `&labels_core` (not `&labels`) when calling the core function
     let detect_async_fn = content
         .find("fn detect_async(&self")
         .expect("Should find detect_async method");
@@ -4297,7 +4168,6 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
         "Method body should use &labels_core (not &labels) in core call"
     );
 
-    // Verify the let binding comes before its use
     let binding_pos = method_body.find("let labels_core:").unwrap_or(0);
     let usage_pos = method_body.find("&labels_core").unwrap_or(0);
 
@@ -4347,8 +4217,6 @@ fn same_named_free_functions_with_ungated_variant_dedup_to_one() {
         functions: vec![
             free_fn("download_model", Some("feature = \"ner-onnx\"")),
             free_fn("download_model", Some("not(feature = \"ner-onnx\")")),
-            // Ungated third entry — the gate that should have carried `not(feature = "ner")`
-            // was lost in extraction; this is the entry that triggers the E0428 collision.
             free_fn("download_model", None),
         ],
         enums: vec![],
@@ -4376,7 +4244,6 @@ fn same_named_free_functions_with_ungated_variant_dedup_to_one() {
         "expected exactly one `fn download_model` definition, found {definition_count} (E0428 regression)"
     );
 
-    // When any group member is unconditional the merged wrapper must be unconditional too:
     // no `#[cfg(...)]` should gate the surviving `download_model`.
     let def_pos = content
         .find("fn download_model(")
@@ -4463,23 +4330,12 @@ fn test_internally_tagged_unit_variant_wraps_bare_string() {
         .find(|f| f.path.to_string_lossy().contains("lib.rs"))
         .expect("lib.rs generated");
 
-    // #132: the bare-string fallback wraps the value as {"<tag>": json_str}.
     assert!(
         lib.content.contains(r#"serde_json::json!({ "type": json_str })"#),
         "internally-tagged enum must keep the {{\"type\": json_str}} fallback;\ncontent:\n{}",
         lib.content
     );
 }
-
-// ---------------------------------------------------------------------------
-// Native-object marshalling of struct callback params (Magnus trait bridge)
-//
-// A trait-callback param that is a known serde struct must be handed to the host as the
-// binding's NATIVE Ruby value — constructed via the same `From<core::T>` conversion the binding
-// uses for return values / struct fields — NOT serialized to a JSON string. Enum / opaque /
-// unknown params keep their prior JSON-string representation. The positive allowlist is computed
-// by the SHARED classifier (`native_marshalled_struct_params`) and seeded into the generator.
-// ---------------------------------------------------------------------------
 
 /// Build a callback `ParamDef` (by-ref) with all the structural defaults.
 fn cb_param(name: &str, ty: TypeRef) -> ParamDef {
@@ -4518,10 +4374,10 @@ fn neutral_plugin_fixture(is_async: bool) -> (ApiSurface, TypeDef, alef::core::c
     let method = MethodDef {
         name: "process".to_string(),
         params: vec![
-            cb_param("opts", TypeRef::Named("Opts".to_string())), // known serde struct
-            cb_param("mood", TypeRef::Named("Mood".to_string())), // enum
-            cb_param("handle", TypeRef::Named("Handle".to_string())), // opaque
-            cb_param("widget", TypeRef::Named("Widget".to_string())), // unknown (not in api.types)
+            cb_param("opts", TypeRef::Named("Opts".to_string())),
+            cb_param("mood", TypeRef::Named("Mood".to_string())),
+            cb_param("handle", TypeRef::Named("Handle".to_string())),
+            cb_param("widget", TypeRef::Named("Widget".to_string())),
         ],
         return_type: TypeRef::Named("Doc".to_string()),
         is_async,
@@ -4543,12 +4399,7 @@ fn neutral_plugin_fixture(is_async: bool) -> (ApiSurface, TypeDef, alef::core::c
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
-        types: vec![
-            trait_def.clone(),
-            serde_struct("Opts"), // qualifies → native
-            handle,               // opaque → JSON string
-            serde_struct("Doc"),  // return type
-        ],
+        types: vec![trait_def.clone(), serde_struct("Opts"), handle, serde_struct("Doc")],
         enums: vec![EnumDef {
             name: "Mood".to_string(),
             rust_path: "test_lib::Mood".to_string(),
@@ -4581,7 +4432,6 @@ fn test_magnus_sync_struct_param_marshalled_as_native_ruby_value() {
     )
     .expect("plugin bridge should generate");
 
-    // (a) The known serde struct param is built as the binding's native Ruby value via From<core>.
     assert!(
         code.contains("Opts::from(opts.clone()).into_value_with(&ruby)"),
         "struct param must be marshalled as the native Ruby value, not a JSON string:\n{code}"
@@ -4591,7 +4441,6 @@ fn test_magnus_sync_struct_param_marshalled_as_native_ruby_value() {
         "struct param must NOT be JSON-serialized:\n{code}"
     );
 
-    // (b) Enum / opaque / unknown params keep the prior JSON-string representation.
     for other in ["mood", "handle", "widget"] {
         assert!(
             code.contains(&format!("serde_json::to_string(&{other})")),
@@ -4617,8 +4466,6 @@ fn test_magnus_async_struct_param_marshalled_as_native_ruby_value() {
     )
     .expect("async plugin bridge should generate");
 
-    // The async preamble clones the core value into `{name}_owned`; the call site builds the
-    // native Ruby value from it.
     assert!(
         code.contains("let opts_owned = opts.clone();"),
         "async preamble must clone the core struct value:\n{code}"
@@ -4631,7 +4478,6 @@ fn test_magnus_async_struct_param_marshalled_as_native_ruby_value() {
         !code.contains("serde_json::to_string(&opts_owned)"),
         "async struct param must NOT be JSON-serialized:\n{code}"
     );
-    // Non-struct params keep JSON serialization on their owned copies.
     assert!(
         code.contains("serde_json::to_string(&mood_owned)") && code.contains("serde_json::to_string(&widget_owned)"),
         "non-struct async params must keep the JSON-string representation:\n{code}"

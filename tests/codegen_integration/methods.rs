@@ -1,7 +1,6 @@
 use super::*;
 
 // ==============================================================================
-// Tests for method code generation
 // ==============================================================================
 
 #[test]
@@ -166,7 +165,6 @@ fn test_gen_async_method_generates_async_signature() {
         "should contain async method name"
     );
     assert!(result.contains("&self"), "should have &self receiver");
-    // The return type wrapping depends on the error_type and async handling
     assert!(
         result.contains("u32") || result.contains("impl"),
         "should reference u32 return type"
@@ -309,7 +307,6 @@ fn test_gen_method_with_error_type() {
     );
 
     assert!(result.contains("pub fn validate"), "should contain method name");
-    // Should be wrapped in Result due to error_type
     assert!(result.contains("Result"), "should return Result when error_type is set");
     assert!(result.contains("String"), "should contain return type in Result");
     // Should have #[allow(clippy::missing_errors_doc)] when returning Result

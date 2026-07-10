@@ -218,18 +218,6 @@ fn snapshot_basic_struct_function_enum_error() {
 
 #[test]
 fn trait_bridge_vtable_builder_coverage() {
-    // Regression test: verify that for every trait bridge configured, the Zig backend
-    // emits a `make_{trait_snake}_vtable` comptime constructor function.
-    // This ensures trait-bridge e2e test fixtures that call these builders will compile.
-    //
-    // The invariant: whenever alef.toml registers a trait bridge with
-    // `trait_name = "SomeTrait"`, the Zig binding must emit both:
-    //   1. A vtable struct: `pub struct ISomeTrait { ... }`
-    //   2. A comptime builder: `pub fn make_some_trait_vtable(...) ISomeTrait { ... }`
-    //
-    // This test uses the public backend API to generate bindings for a synthetic
-    // trait and verifies both are present.
-
     use alef::core::config::{BridgeBinding, TraitBridgeConfig};
 
     let mut api = make_basic_api();
@@ -253,7 +241,6 @@ fn trait_bridge_vtable_builder_coverage() {
         version: Default::default(),
     };
 
-    // Add a trait type (marked as a trait with is_trait=true)
     let trait_def = TypeDef {
         name: "PluginTrait".to_string(),
         rust_path: "demo::PluginTrait".to_string(),
@@ -265,7 +252,7 @@ fn trait_bridge_vtable_builder_coverage() {
         is_copy: false,
         doc: "A test plugin trait".to_string(),
         cfg: None,
-        is_trait: true, // CRITICAL: mark as trait
+        is_trait: true,
         has_default: false,
         has_stripped_cfg_fields: false,
         is_return_type: false,
@@ -281,7 +268,6 @@ fn trait_bridge_vtable_builder_coverage() {
     };
     api.types.push(trait_def);
 
-    // Configure a trait bridge for that trait
     let mut config = make_basic_config();
     config.trait_bridges.push(TraitBridgeConfig {
         trait_name: "PluginTrait".to_string(),
@@ -302,7 +288,6 @@ fn trait_bridge_vtable_builder_coverage() {
         result_type: None,
     });
 
-    // Generate bindings
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();
     let content = files
         .iter()
@@ -312,14 +297,12 @@ fn trait_bridge_vtable_builder_coverage() {
         .content
         .clone();
 
-    // Verify: vtable struct exists
     assert!(
         content.contains("pub const IPluginTrait = extern struct {"),
         "BUG: vtable struct missing. Content preview:\n{}",
         &content[..std::cmp::min(1500, content.len())]
     );
 
-    // Verify: vtable builder exists
     assert!(
         content.contains("pub fn make_plugin_trait_vtable(comptime T: type, instance: *T) IPluginTrait {"),
         "BUG: vtable builder missing. Expected 'pub fn make_plugin_trait_vtable(...)' in generated code."
@@ -328,15 +311,10 @@ fn trait_bridge_vtable_builder_coverage() {
 
 #[test]
 fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
-    // Regression test for B10: verify that ALL registered trait bridges get their
-    // vtable builder functions emitted, not just some of them.
-    // This replicates the kreuzberg scenario with 6 traits.
-
     use alef::core::config::{BridgeBinding, TraitBridgeConfig};
 
     let mut api = make_basic_api();
 
-    // Define 6 traits matching the kreuzberg plugin system
     let trait_names = vec![
         "DocumentExtractor",
         "OcrBackend",
@@ -395,7 +373,6 @@ fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
         api.types.push(trait_def);
     }
 
-    // Configure trait bridges for all 6 traits
     let mut config = make_basic_config();
     for trait_name in &trait_names {
         let snake = heck::AsSnakeCase(trait_name).to_string();
@@ -419,7 +396,6 @@ fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
         });
     }
 
-    // Generate bindings
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();
     let content = files
         .iter()
@@ -429,7 +405,6 @@ fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
         .content
         .clone();
 
-    // Verify all 6 vtable builders are emitted
     for trait_name in &trait_names {
         let snake = heck::AsSnakeCase(trait_name).to_string();
         let expected_builder = format!("pub fn make_{}_vtable(comptime T: type, instance: *T)", snake);
@@ -445,26 +420,12 @@ fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
 
 #[test]
 fn trait_bridge_vcoverage_assertion_catches_missing_trait_definitions() {
-    // Regression test for B10 fallout: trait bridges registered but trait definitions
-    // missing/excluded should produce a hard error, not silent omission of vtable builders.
-    //
     // BUG PATTERN: alef.toml registers a trait bridge with `trait_name = "Foo"`,
-    // but the Rust source doesn't export `Foo` as a trait (or it's excluded from
-    // the binding surface). The current code silently skips emit_trait_bridge()
-    // via the `if let Some(trait_def) = ...` guard at line 280, leaving
-    // e2e tests with dangling references to `make_foo_vtable(...)` that don't
-    // exist in the generated binding.
-    //
-    // This test verifies that the emitter enforces the invariant: every registered
-    // trait bridge MUST have a corresponding trait definition in the API surface,
-    // or the build should fail explicitly.
 
     use alef::core::config::{BridgeBinding, TraitBridgeConfig};
 
     let api = make_basic_api();
 
-    // DO NOT add trait definitions to the API.
-    // Configure trait bridges for 2 traits that don't exist in the API.
     let mut config = make_basic_config();
     config.trait_bridges.push(TraitBridgeConfig {
         trait_name: "MissingTrait1".to_string(),
@@ -497,13 +458,6 @@ fn trait_bridge_vcoverage_assertion_catches_missing_trait_definitions() {
 
 #[test]
 fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
-    // Regression test: B20 — verify that generated registration functions pass
-    // the vtable as a typed pointer (`&_c_vtable`) not as a value (`_c_vtable`).
-    //
-    // The C FFI layer expects `demo_register_ocr_backend(..., vtable: [*c]const struct_*, ...)`.
-    // The Zig wrapper creates a local `_c_vtable` value via `@bitCast`, then must pass
-    // its address `&_c_vtable` to the C function. Passing the value directly causes a type error.
-
     use alef::core::config::{BridgeBinding, TraitBridgeConfig};
 
     let mut api = make_basic_api();
@@ -583,16 +537,12 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
         .content
         .clone();
 
-    // CRITICAL: The register function must pass `&_c_vtable` (typed pointer),
-    // NOT `_c_vtable` (value).
-    // Pattern: `const _rc = c.demo_register_ocr_backend(name, &_c_vtable, ...)`
     assert!(
         content.contains("c.demo_register_ocr_backend(name, &_c_vtable,"),
         "BUG: register_ocr_backend should pass `&_c_vtable` (pointer), not `_c_vtable` (value). Content:\n{}",
         &content
     );
 
-    // Negative check: should NOT pass the value directly
     assert!(
         !content.contains("c.demo_register_ocr_backend(name, _c_vtable,")
             || content.contains("c.demo_register_ocr_backend(name, &_c_vtable,"),
@@ -602,16 +552,7 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
 
 #[test]
 fn fallible_function_returning_primitive_no_null_check() {
-    // Regression test for alef zig codegen bug: primitive return types (u64, bool, etc.)
-    // cannot be null and should NOT emit `if (_result == null)` check.
-    // See: tslp packages/zig/src/tree_sitter_language_pack.zig line 766 in v1.9.0-rc.26
-    //
-    // Bug symptom: Zig 0.16 error "comparison of 'u64' with null"
-    // Root cause: codegen unconditionally emitted null-check for non-Unit, non-Bytes returns
-    // without checking if the type can actually be null.
-
     let mut api = make_basic_api();
-    // Add a function that returns u64 and is fallible (has error_type)
     api.functions.push(FunctionDef {
         name: "count_items".into(),
         rust_path: "demo::count_items".into(),
@@ -642,7 +583,6 @@ fn fallible_function_returning_primitive_no_null_check() {
         .content
         .clone();
 
-    // CRITICAL: Extract just the count_items function and verify it does NOT contain null check
     let start = content
         .find("pub fn count_items")
         .expect("count_items function must exist");
@@ -656,14 +596,12 @@ fn fallible_function_returning_primitive_no_null_check() {
         count_items_fn
     );
 
-    // POSITIVE: Should contain the error check and early return via last_error_code
     assert!(
         content.contains("if (c.demo_last_error_code() != 0)"),
         "BUG: fallible function should check last_error_code. Content:\n{}",
         &content
     );
 
-    // The function should return the result directly without a null guard
     assert!(
         content.contains("return _result;") || content.contains("return"),
         "BUG: function should have a return statement. Content:\n{}",

@@ -1,9 +1,5 @@
 name: Android Emulator (instrumented tests)
 
-# Temporarily restricted to manual dispatch. The GitHub-hosted Android emulator
-# (arm64-v8a API 34 on ubuntu-latest) repeatedly fails to reach boot_completed
-# within the 1800s timeout, blocking unrelated merges. Re-enable push/pull_request
-# triggers once a stable runner/image combination is identified.
 on:
   workflow_dispatch:
 

@@ -88,7 +88,7 @@ fn emit_function_errors_when_construct_expr_empty() {
             host_type: "?*const my_mod.Language".to_string(),
             package: String::new(),
             package_version: String::new(),
-            construct_expr: String::new(), // missing — should produce an ALEF ERROR comment
+            construct_expr: String::new(),
         },
     );
     let mut out = String::new();
@@ -119,7 +119,7 @@ fn emit_function_errors_when_host_type_empty() {
     capsule_types.insert(
         "Language".to_string(),
         HostCapsuleTypeConfig {
-            host_type: String::new(), // missing — should produce an ALEF ERROR comment
+            host_type: String::new(),
             package: String::new(),
             package_version: String::new(),
             construct_expr: "my_mod.Language.fromRaw(@ptrCast({ptr}))".to_string(),

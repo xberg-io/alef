@@ -33,10 +33,6 @@ pub(super) fn gen_function(
     capsule_types: &std::collections::HashMap<String, crate::core::config::NodeCapsuleTypeConfig>,
     mutex_types: &AHashSet<String>,
 ) -> String {
-    // Treat any Named param whose type derives Default as binding-optional so
-    // JS callers can omit it (or pass undefined) — we materialise the default
-    // in the body via `unwrap_or_default()`. Clone the params with that flag
-    // applied so downstream helpers see the augmented optionality.
     let augmented_params: Vec<crate::core::ir::ParamDef> = func
         .params
         .iter()
@@ -53,12 +49,8 @@ pub(super) fn gen_function(
         })
         .collect();
     let params = function_params(&augmented_params, &|ty| {
-        // Capsule types reference external ecosystem types (not wrapped with Js prefix).
-        // Opaque Named params must be received by reference since NAPI opaque
-        // structs don't implement FromNapiValue (they use Arc<T> internally).
         if let TypeRef::Named(n) = ty {
             if capsule_types.contains_key(n.as_str()) {
-                // Capsule types use the external type name from config
                 if let Some(capsule_cfg) = capsule_types.get(n.as_str()) {
                     return capsule_cfg.from_module.clone();
                 }
@@ -69,24 +61,12 @@ pub(super) fn gen_function(
         }
         mapper.map_type(ty)
     });
-    // Prefix the body with `unwrap_or_default()` coercions for params we promoted
-    // to Option<> in the binding signature. After these statements, the param
-    // identifiers refer to non-optional values so the rest of the body emission
-    // (which uses func.params, not augmented) remains correct.
-    //
-    // Skip the prefix when the original param is already considered
-    // "promoted-optional" by `is_promoted_optional` — the let-binding helper
-    // emits its own `unwrap_or_default()` for that case and prefixing here
-    // would yield `T.unwrap_or_default()` (no such method).
     let default_coerce_prefix: String = augmented_params
         .iter()
         .zip(func.params.iter())
         .enumerate()
         .filter_map(|(idx, (aug, orig))| {
             if aug.optional && !orig.optional && !crate::codegen::shared::is_promoted_optional(&func.params, idx) {
-                // Named non-opaque params are handled by gen_named_let_bindings_pub which emits
-                // named_let_binding_optional (.map(|v| v.into()).unwrap_or_default()). Skip the
-                // outer coerce prefix for those to avoid double-unwrapping.
                 let is_named_non_opaque = matches!(&orig.ty,
                     TypeRef::Named(n) if !opaque_types.contains(n.as_str())
                 );
@@ -123,14 +103,10 @@ pub(super) fn gen_function(
         }
     };
 
-    // Use let-binding pattern for non-opaque Named params, or for Vec<f32> params that need conversion,
-    // or for Vec<u8> params that come as napi::Buffer
     let use_let_bindings = generators::has_named_params(&func.params, opaque_types)
         || func.params.iter().any(|p| needs_vec_f32_conversion(&p.ty))
         || func.params.iter().any(|p| is_bytes_param(&p.ty));
     let call_args = if use_let_bindings {
-        // Use the mutex-aware variant so opaque params with is_ref && is_mut get
-        // `&mut *{name}.inner.lock().unwrap()` instead of `&{name}.inner`.
         let base_args = generators::gen_call_args_with_let_bindings_mutex(&func.params, opaque_types, mutex_types);
         napi_apply_primitive_casts_to_call_args(&base_args, &func.params)
     } else {
@@ -145,14 +121,9 @@ pub(super) fn gen_function(
     let async_kw = if func.is_async { "async " } else { "" };
 
     let body = if !can_delegate_fn {
-        // Try serde-based conversion for non-delegatable functions with Named params
-        // Only use serde conversion if cfg.has_serde is true (binding crate has serde deps)
         if cfg.has_serde && use_let_bindings && func.error_type.is_some() {
             let serde_bindings =
                 generators::gen_serde_let_bindings(&func.params, opaque_types, core_import, err_conv, "    ");
-            // Also generate Vec<&str> intermediate bindings for params where the core function
-            // expects &[&str] (vec_inner_is_ref=true). When vec_inner_is_ref=false the core
-            // expects &[String], which the binding Vec<String> satisfies directly via &[..].
             let vec_str_bindings: String = func.params.iter().filter(|p| {
                 p.is_ref && p.vec_inner_is_ref && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char))
             }).map(|p| {
@@ -190,10 +161,6 @@ pub(super) fn gen_function(
             )
         }
     } else if func.is_async {
-        // For async delegatable functions, generate let bindings if needed before the async call.
-        // Use gen_named_let_bindings_with_augmented so augmented optional params (those promoted
-        // from non-optional because they have defaults) use unwrap_or_default().into() rather than
-        // map(Into::into). The call-site borrows &param_core and needs T, not Option<&T>.
         let mut let_bindings = if use_let_bindings {
             generators::gen_named_let_bindings_with_augmented(
                 &augmented_params,
@@ -204,9 +171,7 @@ pub(super) fn gen_function(
         } else {
             String::new()
         };
-        // Add Vec<f32> conversion bindings for parameters not already handled
         let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
-        // Add napi::Buffer to Vec<u8> conversion bindings
         let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
         let core_call = format!("{core_fn_path}({call_args})");
         let return_wrap = napi_wrap_return_fn(
@@ -231,10 +196,6 @@ pub(super) fn gen_function(
         )
     } else {
         let core_call = format!("{core_fn_path}({call_args})");
-        // Generate let bindings for Named params if needed.
-        // Use gen_named_let_bindings_with_augmented so augmented optional params (those promoted
-        // from non-optional because they have defaults) use unwrap_or_default().into() rather than
-        // map(Into::into). The call-site borrows &param_core and needs T, not Option<&T>.
         let mut let_bindings = if use_let_bindings {
             generators::gen_named_let_bindings_with_augmented(
                 &augmented_params,
@@ -245,9 +206,7 @@ pub(super) fn gen_function(
         } else {
             String::new()
         };
-        // Add Vec<f32> conversion bindings for parameters not already handled
         let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
-        // Add napi::Buffer to Vec<u8> conversion bindings
         let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
 
         if func.error_type.is_some() {
@@ -282,18 +241,12 @@ pub(super) fn gen_function(
     };
 
     let mut attrs = String::new();
-    // Doc comments on the function become JSDoc on the corresponding `export
-    // declare function` in the generated .d.ts via napi-derive's typegen.
-    // Sanitize Rust-specific code examples (e.g. ```rust blocks) since they
-    // won't make sense in TypeScript and will break the .d.ts file.
     let sanitized_doc =
         crate::codegen::doc_emission::sanitize_rust_idioms(&func.doc, crate::codegen::doc_emission::DocTarget::TsDoc);
     crate::codegen::doc_emission::emit_rustdoc(&mut attrs, &sanitized_doc, "");
-    // Per-item clippy suppression: too_many_arguments when >7 params
     if func.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
     }
-    // Per-item clippy suppression: missing_errors_doc for Result-returning functions
     if func.error_type.is_some() {
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }

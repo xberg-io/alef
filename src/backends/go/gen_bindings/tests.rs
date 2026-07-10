@@ -67,8 +67,6 @@ fn test_generate_bindings_produces_binding_go_file() {
     assert!(!files.is_empty());
     assert!(files[0].path.to_string_lossy().contains("binding.go"));
 
-    // embed_ffi.go must declare the same package as binding.go, never a
-    // hardcoded foreign package name.
     let binding = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("binding.go"))

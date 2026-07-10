@@ -205,8 +205,6 @@ fn callback_specs_from_trait(
             if named_type_name(&p.ty) == Some(associated_types.context_type.as_str()) {
                 continue;
             }
-            // strip leading underscore; keep snake_case for c_name (C extern),
-            // but convert to lowerCamelCase for go_name (Go identifiers).
             let param_name = p.name.trim_start_matches('_').to_string();
             let go_param_name = snake_to_lower_camel(&param_name);
 
@@ -358,9 +356,6 @@ pub fn gen_visitor_file(
 
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
 
-    // Derive C type names.
-    // VTable: {PREFIX_UPPER}{PascalPrefix}{TraitName}VTable
-    // Bridge: {PREFIX_UPPER}{PascalPrefix}{TraitName}Bridge
     let pascal_prefix = {
         let mut chars = ffi_prefix.chars();
         match chars.next() {
@@ -369,18 +364,11 @@ pub fn gen_visitor_file(
         }
     };
     let prefix_upper = ffi_prefix.to_uppercase();
-    let _ = vtable_trait_name; // retained for backwards-compatibility of the public signature
-    // Go uses the canonical VisitorCallbacks ABI: `{prefix}_visitor_create(&callbacks)`
-    // returns a `{pascal_prefix}Visitor*` handle whose memory layout matches what
-    // `{prefix}_convert` dispatches against. The callbacks struct (`{pascal_prefix}VisitorCallbacks`)
-    // carries `user_data` as a field plus one C function pointer per visitor trait method.
+    let _ = vtable_trait_name;
     let visitor_handle_rust_name = format!("{pascal_prefix}Visitor");
     let visitor_handle_c_type = ffi_c_type_name(ffi_prefix, &visitor_handle_rust_name);
     let callbacks_rust_name = format!("{pascal_prefix}VisitorCallbacks");
     let callbacks_c_type = ffi_c_type_name(ffi_prefix, &callbacks_rust_name);
-    // Visitor context FFI struct: `{prefix_upper}{pascal_prefix}Context` is the cbindgen-
-    // generated repr(C) struct the C callbacks receive, mirroring the Rust core's NodeContext
-    // but with only the FFI-exposed scalar fields (tag_name, depth, etc.).
     let context_rust_name = format!("{pascal_prefix}Context");
     let context_c_type = ffi_c_type_name(ffi_prefix, &context_rust_name);
     let options_type = bridge_cfg
@@ -393,8 +381,6 @@ pub fn gen_visitor_file(
     let return_type_snake = go_visitor_bridge_function_component(return_type);
     let conversion_options_type = format!("{prefix_upper}{options_type}");
 
-    // Canonical visitor handle constructor / destructor: `{prefix}_visitor_create` and
-    // `{prefix}_visitor_free` — the same symbols used by Zig and dynamic-binding consumers.
     let fn_visitor_create = format!("{ffi_prefix}_visitor_create");
     let fn_visitor_free = format!("{ffi_prefix}_visitor_free");
     let fn_options_set_visitor = format!("{ffi_prefix}_options_set_{options_field}");
@@ -406,9 +392,6 @@ pub fn gen_visitor_file(
     );
     let fn_result_free = format!("{ffi_prefix}_{return_type_snake}_free");
 
-    // -------------------------------------------------------------------------
-    // CGo preamble
-    // -------------------------------------------------------------------------
     let callbacks: Vec<_> = specs
         .iter()
         .map(|spec| {
@@ -433,7 +416,6 @@ pub fn gen_visitor_file(
     ));
 
     // NOTE: NodeType is defined in binding.go as `type NodeType string`.
-    // Do NOT re-declare it here — that would cause a redeclaration compile error.
     out.push_str(&crate::backends::go::template_env::render(
         "visitor_node_context_and_result.jinja",
         minijinja::context! {
@@ -445,9 +427,6 @@ pub fn gen_visitor_file(
     ));
     out.push('\n');
 
-    // -------------------------------------------------------------------------
-    // Visitor interface
-    // -------------------------------------------------------------------------
     out.push_str(&crate::backends::go::template_env::render(
         "visitor_interface_header.jinja",
         minijinja::Value::default(),
@@ -470,9 +449,6 @@ pub fn gen_visitor_file(
     ));
     out.push('\n');
 
-    // -------------------------------------------------------------------------
-    // BaseVisitor — no-op defaults
-    // -------------------------------------------------------------------------
     out.push_str(&crate::backends::go::template_env::render(
         "base_visitor_header.jinja",
         minijinja::Value::default(),
@@ -480,7 +456,6 @@ pub fn gen_visitor_file(
     out.push('\n');
     for spec in &specs {
         let param_str = iface_param_str(spec);
-        // Build blank identifiers to suppress "declared but not used" errors.
         let blank_ids: Vec<String> = iface_param_names(spec).into_iter().collect();
         out.push_str(&crate::backends::go::template_env::render(
             "base_visitor_method.jinja",
@@ -496,24 +471,12 @@ pub fn gen_visitor_file(
         out.push('\n');
     }
 
-    // -------------------------------------------------------------------------
-    // Visitor registry
-    // -------------------------------------------------------------------------
     out.push_str(&crate::backends::go::template_env::render(
         "visitor_registry_block.jinja",
         minijinja::Value::default(),
     ));
     out.push('\n');
 
-    // -------------------------------------------------------------------------
-    // Shared helpers
-    // -------------------------------------------------------------------------
-
-    // Decode the configured context type from the C `{context_c_type}` struct.
-    // Only fields whose Go type is a scalar with a corresponding C field are
-    // decoded; typed-alias fields (e.g. NodeType) stay zero-valued because the
-    // FFI struct does not expose them — the dispatched visitor method conveys
-    // that information implicitly via the callback signature.
     let context_fields_for_decode = context_fields_for_decode(&codec_metadata.context_fields);
     out.push_str(&crate::backends::go::template_env::render(
         "decode_node_context.jinja",
@@ -525,10 +488,6 @@ pub fn gen_visitor_file(
     ));
     out.push('\n');
 
-    // Encode the configured result enum into serde-native JSON so the Rust trait bridge
-    // can deserialize it without relying on backend-local variant names.
-    // The return code still carries the numeric variant tag so callers that only
-    // inspect the code (and don't read out_result) remain compatible.
     out.push_str(&crate::backends::go::template_env::render(
         "encode_visit_result.jinja",
         minijinja::context! {
@@ -545,26 +504,16 @@ pub fn gen_visitor_file(
     ));
     out.push('\n');
 
-    // decodeCellsJSON: cells is a JSON-encoded []string in the VTable ABI.
     out.push_str(&crate::backends::go::template_env::render(
         "decode_cells_json.jinja",
         minijinja::Value::default(),
     ));
     out.push('\n');
 
-    // -------------------------------------------------------------------------
-    // //export trampolines
-    // -------------------------------------------------------------------------
     for spec in &specs {
         gen_trampoline(&mut out, spec, &context_c_type);
     }
 
-    // -----------------------------------------------------------------------
-    // Internal helper for the configured visitor bridge function.
-    // -----------------------------------------------------------------------
-    // This helper is called by binding.go when the configured options field is not nil.
-    // It registers the visitor, builds the VTable, creates a bridge, attaches it to
-    // options, calls the FFI convert function, and cleans up.
     let fn_result_to_json = fn_result_free.replace("_free", "_to_json");
     let helper_name = format!(
         "{}WithVisitorHelper",
@@ -615,19 +564,8 @@ pub fn gen_visitor_file(
 /// `const char* const* cells, uintptr_t cell_count` (matching the FFI struct)
 /// instead of the JSON-encoded single-string form used by the old VTable ABI.
 fn c_signature(spec: &CallbackSpec, context_c_type: &str) -> String {
-    // Note: the extern declarations must match the C prototypes cgo synthesises
-    // from //export markers — cgo emits Go `*C.HTMHtmContext` params as
-    // `HTMHtmContext*` (no `const`), so we drop the `const` qualifier from
-    // every param even though the FFI struct signature is "const".
     let mut parts = vec![format!("{context_c_type}* ctx"), "void* user_data".to_string()];
     for ep in &spec.extra {
-        // has_is_header is set only for the table-row case, where the Vec<String>
-        // param expands to a (char**, uintptr_t) pair in the FFI ABI.
-        //
-        // The extern declarations here must match the C prototypes that cgo
-        // synthesises from the //export markers. cgo emits Go `*C.char`
-        // params as `char*` (no `const`), so we mirror that here even though
-        // the C-level callback contract is "const char* const*".
         if spec.has_is_header && ep.c_type == "*C.char" {
             parts.push(format!("char** {}", ep.c_name));
             parts.push("uintptr_t cell_count".to_string());
@@ -678,16 +616,12 @@ fn iface_param_names(spec: &CallbackSpec) -> Vec<String> {
 ///
 /// VisitorCallbacks ABI signature: `(ctx *C.{{ context_c_type }}, userData unsafe.Pointer, ...extras..., outCustom **C.char, outLen *C.uintptr_t) C.int32_t`
 fn gen_trampoline(out: &mut String, spec: &CallbackSpec, context_c_type: &str) {
-    // Build Go function parameter list (CGo types).
-    // VisitorCallbacks ABI: ctx first (typed context struct), then user_data, then
-    // typed extras, then out_custom + out_len pair.
     let mut go_params = vec![
         format!("ctx *C.{context_c_type}"),
         "userData unsafe.Pointer".to_string(),
     ];
     for ep in &spec.extra {
         if spec.has_is_header && ep.c_type == "*C.char" {
-            // Table-row cells: (const char* const*, uintptr_t)
             go_params.push(format!("{} **C.char", ep.c_name));
             go_params.push("cellCount C.uintptr_t".to_string());
         } else {
@@ -718,7 +652,6 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec, context_c_type: &str) {
         minijinja::Value::default(),
     ));
 
-    // Decode each extra parameter.
     for ep in &spec.extra {
         out.push_str(&crate::backends::go::template_env::render(
             "trampoline_param_decode.jinja",
@@ -735,7 +668,6 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec, context_c_type: &str) {
         ));
     }
 
-    // Build call args.
     let mut call_args = vec!["nodeCtx".to_string()];
     for ep in &spec.extra {
         call_args.push(format!("go{}", capitalize(&ep.go_name)));
@@ -903,9 +835,6 @@ fn result_variants_from_enum(enum_def: &EnumDef, result_type: &str) -> Vec<Resul
                 .first()
                 .map(|field| {
                     let name = field.name.as_str();
-                    // If the field name is just a positional index (possibly with leading underscore),
-                    // use a real identifier instead. This handles unnamed tuple fields.
-                    // Examples: "0", "_0", "1", "_1" → all become "value"
                     let trimmed = name.trim_start_matches('_');
                     if trimmed.parse::<usize>().is_ok() && !trimmed.is_empty() {
                         "value"

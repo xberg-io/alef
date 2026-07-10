@@ -1,14 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Update Formula/alef.rb in the homebrew-tap with the new tag's URL and
-# source-tarball SHA256. The bottle DSL is updated separately by
-# homebrew-merge-bottles@v1 after the matrix bottle builds complete.
-#
-# Required env:
-#   TAG     - git tag, e.g. v0.4.6
 #   VERSION - semver without v prefix, e.g. 0.4.6
-#   TAP_DIR - path to a checked-out xberg-io/homebrew-tap
 
 tag="${TAG:?TAG is required (e.g. v0.4.6)}"
 version="${VERSION:?VERSION is required (e.g. 0.4.6)}"

@@ -50,20 +50,6 @@ mod string_path_wrapping_regression {
     /// non-optional, `.map { RustString($0) }` for optional).
     #[test]
     fn test_string_path_consistent_wrapping() {
-        // Conceptual test: if forwarder_param_signature receives TypeRef::Path,
-        // it must generate the same wrapping as TypeRef::String.
-        //
-        // For non-optional TypeRef::Path:
-        //   setup_line = "let _rb_{param} = RustString({param})"
-        //   arg_expr = "_rb_{param}"
-        //
-        // For optional TypeRef::Path:
-        //   setup_line = "let _rb_{param} = {param}.map { RustString($0) }"
-        //   arg_expr = "_rb_{param}"
-        //
-        // This ensures all String-like parameters are uniformly wrapped,
-        // preventing generic type conflicts at call sites.
-
         assert!(true, "String/Path parameters must wrap consistently as RustString");
     }
 
@@ -92,12 +78,6 @@ mod string_path_wrapping_regression {
     /// ```
     #[test]
     fn test_enum_json_serialization_wrapping() {
-        // Enum parameters in async functions must wrap JSON-serialized strings
-        // in RustString(...) before passing to swift-bridge calls.
-        //
-        // This prevents conflicting generic parameter errors when mixing
-        // enum-derived RustString with other RustString parameters.
-
         assert!(true, "Enum JSON-serialized strings must wrap as RustString");
     }
 }

@@ -24,9 +24,6 @@ pub(super) fn generate_readme_hardcoded(
     let example_pointer = format!("See {repository} for usage examples.");
 
     let (lang_display, install_instructions, example_code, dir_name) = match lang {
-        // Examples are derived from the API surface so the snippet shows a real call
-        // signature instead of a `// placeholder. Falls back to a "see main README"
-        // pointer when the API has no public functions to demonstrate.
         Language::Python => {
             let module = config.python_module_name().trim_start_matches('_').to_string();
             let example_body = api
@@ -78,10 +75,6 @@ pub(super) fn generate_readme_hardcoded(
         Language::Php => {
             let ext = config.php_extension_name();
             let example_body = format!("// {example_pointer}");
-            // Composer requires a `<vendor>/<package>` form. Derive the vendor
-            // from the configured repository URL; fall back to the crate name
-            // (which produces `<crate>/<crate>` — recognizably wrong without
-            // smuggling a specific organization's name).
             let vendor = config
                 .try_github_repo()
                 .ok()
@@ -302,8 +295,6 @@ See the [LICENSE]({repository}/blob/main/LICENSE) file in the root repository.
         repository = repository,
     );
 
-    // Use the readme config output pattern if provided, otherwise default.
-    // Node and Rust publish from their crate directories, not packages/ stubs.
     let path = match lang {
         Language::Ffi => PathBuf::from(format!("crates/{}-ffi/README.md", name)),
         Language::Wasm => PathBuf::from(format!("crates/{}-wasm/README.md", name)),

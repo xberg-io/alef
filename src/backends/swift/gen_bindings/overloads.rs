@@ -24,9 +24,6 @@ pub(super) fn emit_json_string_overloads(
                 return vec![];
             }
 
-            // Skip functions whose signature references a type filtered out of the
-            // DTO emitter — the matching Rust bridge symbol and Swift type are both
-            // absent, so any forwarder referencing them won't compile.
             if super::forwarders::function_references_excluded_type(func, exclude_types) {
                 return vec![];
             }
@@ -124,19 +121,15 @@ pub(super) fn emit_json_string_overloads(
         let mut call_args: Vec<String> = Vec::new();
         for (i, param) in func.params.iter().enumerate() {
             let param_name = param.name.to_lower_camel_case();
-            // Check if the original Rust parameter name starts with underscore (positional arg).
-            // If so, emit positional arguments (no parameter label) in the call.
             let is_positional = param.name.starts_with('_');
 
             if is_positional {
-                // Emit positional argument (no label)
                 if let Some((_, type_var_name)) = json_local_names.get(&i) {
                     call_args.push(type_var_name.clone());
                 } else {
                     call_args.push(param_name.clone());
                 }
             } else {
-                // Emit named argument
                 if let Some((_, type_var_name)) = json_local_names.get(&i) {
                     call_args.push(format!("{param_name}: {type_var_name}"));
                 } else {
@@ -524,7 +517,6 @@ mod tests {
     fn from_json_forwarders_skip_cfg_filtered_bridge_types() {
         use crate::core::ir::FieldDef;
 
-        // A Map field makes the type non-first-class, forcing the bridge branch.
         fn bridge_serde_ty(name: &str, cfg: Option<&str>) -> TypeDef {
             TypeDef {
                 name: name.to_string(),
@@ -561,12 +553,10 @@ mod tests {
             &mut out,
         );
 
-        // Satisfied opaque type keeps its bridge forwarder.
         assert!(
             out.contains("RustBridge.pdfMetadataFromJson"),
             "satisfied opaque type must keep its bridge forwarder. Got:\n{out}"
         );
-        // cfg-gated opaque type (feature off) must produce no dangling bridge reference.
         assert!(
             !out.contains("presetFromJson") && !out.contains("RustBridge.Preset"),
             "cfg-filtered type must not emit a dangling RustBridge reference. Got:\n{out}"

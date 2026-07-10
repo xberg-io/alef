@@ -1,7 +1,6 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
-// Bug-regression tests: one per fixed bug so regressions are caught immediately.
 // ---------------------------------------------------------------------------
 
 /// Bug 1: Bare excluded-type references.
@@ -52,7 +51,6 @@ fn bug1_excluded_type_is_fully_qualified_in_trait_impl() {
     let trait_def = make_trait_def("Renderer", vec![internal_doc_method]);
     let bridge_cfg = sample_bridge_cfg("Renderer");
 
-    // Include HiddenDoc as an excluded type path.
     let api = ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
@@ -147,7 +145,6 @@ fn bug2_sync_method_body_uses_trait_error_type_not_box_from() {
         lifetime_type_names: ::std::collections::HashSet::new(),
     };
 
-    // Sync body (inside_closure = false): must use MyError::from, not Box::from
     let sync_body = generator.gen_vtable_call_body(&method, &spec, false);
     assert!(
         sync_body.contains("MyError::from("),
@@ -160,7 +157,6 @@ fn bug2_sync_method_body_uses_trait_error_type_not_box_from() {
          actual body:\n{sync_body}"
     );
 
-    // Closure body (inside_closure = true): must use Box::from, not MyError::from
     let closure_body = generator.gen_vtable_call_body(&method, &spec, true);
     assert!(
         closure_body.contains("Err(Box::from("),
@@ -185,7 +181,7 @@ fn bug3_returns_ref_vec_string_emits_slice_ref_and_cache_field() {
         receiver: Some(ReceiverKind::Ref),
         sanitized: false,
         trait_source: None,
-        returns_ref: true, // `fn supported_mime_types(&self) -> &[&str]`
+        returns_ref: true,
         returns_cow: false,
         return_newtype_wrapper: None,
         has_default_impl: false,
@@ -208,28 +204,24 @@ fn bug3_returns_ref_vec_string_emits_slice_ref_and_cache_field() {
         &api,
     );
 
-    // The trait impl return type must be `&[&str]`, not `Vec<String>`
     assert!(
         code.contains("fn supported_mime_types(&self) -> &[&str]"),
         "returns_ref Vec<String> must produce &[&str] in trait impl;\n\
          actual code:\n{code}"
     );
 
-    // The bridge struct must have the cache field
     assert!(
         code.contains("supported_mime_types_strs: &'static [&'static str]"),
         "bridge struct must have supported_mime_types_strs cache field;\n\
          actual code:\n{code}"
     );
 
-    // The trait impl body must return from the cache field
     assert!(
         code.contains("self.supported_mime_types_strs"),
         "trait impl body must return from the cached field;\n\
          actual code:\n{code}"
     );
 
-    // The constructor must populate the cache field by calling the vtable
     assert!(
         code.contains("Box::leak"),
         "constructor must use Box::leak to build &'static [&'static str];\n\
@@ -264,14 +256,12 @@ fn bug4_ffi_skip_methods_opts_out_of_trait_impl() {
         &api,
     );
 
-    // Required method must appear in the trait impl
     assert!(
         code.contains("fn run("),
         "required method must appear in trait impl;\n\
          actual code:\n{code}"
     );
 
-    // Method in ffi_skip_methods must NOT appear — let the trait's own default take effect
     assert!(
         !code.contains("fn shutdown("),
         "method listed in ffi_skip_methods must NOT get a generated body;\n\
@@ -296,7 +286,7 @@ fn bug5_async_str_param_uses_to_string_not_clone() {
             default: None,
             sanitized: false,
             typed_default: None,
-            is_ref: true, // &str — the borrow that escapes without .to_string()
+            is_ref: true,
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
@@ -307,7 +297,7 @@ fn bug5_async_str_param_uses_to_string_not_clone() {
             core_wrapper: crate::core::ir::CoreWrapper::None,
         }],
         return_type: TypeRef::Unit,
-        is_async: true, // async method — closure must own all captured data
+        is_async: true,
         is_static: false,
         error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
         doc: String::new(),
@@ -337,7 +327,6 @@ fn bug5_async_str_param_uses_to_string_not_clone() {
         &api,
     );
 
-    // The closure capture must convert &str to String, not clone the borrow.
     assert!(
         code.contains("let mime_type = mime_type.to_string()"),
         "async &str param must be captured via .to_string() to avoid E0521;\n\
@@ -425,7 +414,6 @@ fn bug6_async_excluded_type_return_signature_and_deserialization() {
         &api,
     );
 
-    // Signature must use the fully-qualified path, not String.
     assert!(
         code.contains("-> std::result::Result<my_lib::internal::HiddenDoc,"),
         "async method return type must be qualified excluded type in signature;\n\
@@ -437,7 +425,6 @@ fn bug6_async_excluded_type_return_signature_and_deserialization() {
          actual code:\n{code}"
     );
 
-    // Closure body must deserialize JSON back to the excluded core type, not pass String through.
     assert!(
         code.contains("serde_json::from_str::<my_lib::internal::HiddenDoc>"),
         "async closure body must deserialize JSON to HiddenDoc;\n\
@@ -466,7 +453,7 @@ fn bug_ffi1_trait_impl_param_types_respect_is_ref() {
                 default: None,
                 sanitized: false,
                 typed_default: None,
-                is_ref: true, // &[u8]
+                is_ref: true,
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
@@ -483,7 +470,7 @@ fn bug_ffi1_trait_impl_param_types_respect_is_ref() {
                 default: None,
                 sanitized: false,
                 typed_default: None,
-                is_ref: true, // &str
+                is_ref: true,
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
@@ -500,7 +487,7 @@ fn bug_ffi1_trait_impl_param_types_respect_is_ref() {
                 default: None,
                 sanitized: false,
                 typed_default: None,
-                is_ref: true, // &Path
+                is_ref: true,
                 is_mut: false,
                 newtype_wrapper: None,
                 original_type: None,
@@ -542,7 +529,6 @@ fn bug_ffi1_trait_impl_param_types_respect_is_ref() {
         &api,
     );
 
-    // trait impl must emit the reference types, not the owned equivalents
     assert!(
         code.contains("content: &[u8]"),
         "is_ref Bytes param must be &[u8] in trait impl, not Vec<u8>;\n\
@@ -577,7 +563,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
             default: None,
             sanitized: false,
             typed_default: None,
-            is_ref: true, // &NodeContext<'_> in the trait definition
+            is_ref: true,
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
@@ -598,7 +584,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
-        has_default_impl: true, // visitor method — has default but FFI still emits it
+        has_default_impl: true,
         binding_excluded: false,
         binding_exclusion_reason: None,
         version: Default::default(),
@@ -606,7 +592,6 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
     let trait_def = make_trait_def("HtmlVisitor", vec![method]);
     let bridge_cfg = sample_bridge_cfg("HtmlVisitor");
 
-    // Include the context type as a type with lifetime params.
     let api = ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
@@ -631,7 +616,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-            has_lifetime_params: true, // <-- the key flag
+            has_lifetime_params: true,
             has_private_fields: false,
             version: Default::default(),
         }],
@@ -656,7 +641,6 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
         &api,
     );
 
-    // The trait impl method signature must include a lifetime placeholder, not a bare type.
     assert!(
         code.contains("context: &my_lib::NodeContext<'_>"),
         "lifetime-parameterized Named type must be &Type<'_> in trait impl signature;\n\
@@ -671,11 +655,6 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
 
 #[test]
 fn vtable_registration_signature_takes_const_pointer() {
-    // Regression test for C9: Go cgo vtable cimport unification.
-    // FFI registration function must take `vtable: *const VTableName` (pointer),
-    // not `vtable: VTableName` (value), so that Go can consistently pass `&vtable`
-    // without cgo type unification issues.
-
     let trait_def = make_trait_def(
         "TestBackend",
         vec![make_method("process", TypeRef::String, true, false)],
@@ -713,14 +692,12 @@ fn vtable_registration_signature_takes_const_pointer() {
         &api,
     );
 
-    // The registration function signature must use `*const` for the vtable parameter.
     assert!(
         code.contains("vtable: *const TestTestBackendVTable"),
         "FFI registration function must take vtable as `*const VTableName` pointer;\n\
          actual code:\n{code}"
     );
 
-    // Should not use value-type vtable parameter.
     assert!(
         !code.contains(
             "pub unsafe extern \"C\" fn test_register_backend(\n    name: *const std::ffi::c_char,\n    vtable: TestTestBackendVTable,"
@@ -729,7 +706,6 @@ fn vtable_registration_signature_takes_const_pointer() {
          actual code:\n{code}"
     );
 
-    // Should dereference the pointer in the function body.
     assert!(
         code.contains("let vtable_ref = &*vtable;"),
         "FFI registration function body must dereference vtable pointer;\n\

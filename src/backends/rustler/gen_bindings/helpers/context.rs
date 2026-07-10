@@ -25,7 +25,6 @@ pub(super) fn emit_elixir_doc_attr(out: &mut String, attr: &str, doc: &str, inde
     }
     let trimmed = doc.trim_end_matches('\n');
     if !trimmed.contains('\n') {
-        // Single-line form: escape backslashes then quotes.
         let escaped = trimmed.replace('\\', "\\\\").replace('"', "\\\"");
         out.push_str(indent);
         out.push('@');
@@ -35,7 +34,6 @@ pub(super) fn emit_elixir_doc_attr(out: &mut String, attr: &str, doc: &str, inde
         out.push_str("\"\n");
         return;
     }
-    // Multi-line heredoc form. Break any embedded `"""` so the heredoc terminator is unique.
     out.push_str(indent);
     out.push('@');
     out.push_str(attr);

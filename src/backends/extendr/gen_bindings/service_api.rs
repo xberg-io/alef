@@ -30,8 +30,6 @@ use crate::core::ir::{
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
-// ───────────────────────────────────────────────────────────────── helpers ──
-
 fn render(template_name: &str, ctx: minijinja::Value) -> String {
     crate::backends::extendr::template_env::render(template_name, ctx)
 }
@@ -64,8 +62,6 @@ fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a Handle
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
 }
 
-// ────────────────────────────────────────────────────────── R output ──
-
 /// Generate the idiomatic R service interface (`service.R`).
 ///
 /// Produces an R source file containing one S3 class per service. Each class
@@ -92,7 +88,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
     let class_name = &service.name;
     let constructor = &service.constructor;
 
-    // Service constructor function
     {
         let param_names: Vec<&str> = constructor.params.iter().map(|p| p.name.as_str()).collect();
         let params_str = if param_names.is_empty() {
@@ -127,7 +122,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
         ));
     }
 
-    // Configurator methods
     for method in &service.configurators {
         let method_name = &method.name;
         let params_suffix = method
@@ -163,12 +157,10 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
         ));
     }
 
-    // Registration methods
     for reg in &service.registrations {
         gen_registration_method(out, reg, service, api);
     }
 
-    // Entrypoint methods
     for ep in &service.entrypoints {
         let ep_name = &ep.method;
 
@@ -300,7 +292,6 @@ fn gen_registration_method(out: &mut String, reg: &RegistrationDef, service: &Se
         },
     ));
 
-    // Emit registration variants (shortcuts for common patterns)
     for variant in &reg.variants {
         gen_registration_variant(out, variant, reg, service, class_name, callback_param);
     }
@@ -320,10 +311,8 @@ fn gen_registration_variant(
     let variant_name = &variant.name;
     let base_method = &reg.method;
 
-    // Build wrapper constructor call expression if needed
     let wrapper_expr = if let Some(wc) = &variant.wrapper_call {
         let mut call_args = vec![];
-        // Process constructor args in order: Fixed args substitute values, Free args pull from variant signature
         for arg in &wc.args {
             match arg {
                 WrapperConstructorArg::Fixed { value_expr, .. } => {
@@ -344,7 +333,6 @@ fn gen_registration_variant(
         None
     };
 
-    // Render the variant R method using the template
     let rendered = crate::backends::extendr::template_env::render(
         "registration_variant.rs.jinja",
         minijinja::context! {
@@ -367,8 +355,6 @@ fn gen_registration_variant(
     out.push_str(&rendered);
 }
 
-// ──────────────────────────────────────────────────────────────── Rust glue ──
-
 /// Generate the Rust extendr glue module (`service.rs`).
 ///
 /// For each service this emits:
@@ -383,14 +369,12 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let core_import = config.core_import_name();
     let mut out = String::new();
 
-    // File-level allow attributes
     out.push_str("#![allow(clippy::too_many_arguments)]\n\n");
     out.push_str("use extendr_api::prelude::*;\n");
     out.push_str("use std::sync::Arc;\n");
     out.push_str("use std::future::Future;\n");
     out.push_str("use std::pin::Pin;\n\n");
 
-    // Emit one handler bridge per unique handler contract referenced by any registration
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
             .services
@@ -407,7 +391,6 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         gen_handler_bridge(&mut out, contract, &core_import);
     }
 
-    // Emit one extendr function per service × entrypoint
     for service in &api.services {
         for ep in &service.entrypoints {
             gen_run_extendr_function(&mut out, service, ep, api, &core_import);
@@ -428,11 +411,9 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let bridge_name = format!("Extendr{}Bridge", trait_name.to_upper_camel_case());
     let dispatch_name = &contract.dispatch.name;
 
-    // Determine wire types
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
-    // Build full paths for request/response types; handle plain serde_json::Value specially
     let req_path = if req_type == "Value" {
         "serde_json::Value".to_string()
     } else {
@@ -444,10 +425,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         format!("{core_import}::{resp_type}")
     };
 
-    // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
-    // contract's dispatch method receives but the wire bridge does not consume). Their concrete
-    // types cannot be reconstructed from the sanitized surface, so the library supplies them
-    // verbatim via `dispatch_extra_params`. Each is emitted as a `, {decl}` prefix argument.
     let extra_param: String = contract
         .dispatch_extra_params
         .iter()
@@ -455,11 +432,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .collect();
     let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
-    // The future's `Output` is the contract dispatch's real return type when the library
-    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
-    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
-    // fallible computation produces the wire `Result` and the adapter converts it into the
-    // dispatch return type — keeping the generator ignorant of the library's response model.
     let box_err = "Box<dyn std::error::Error + Send + Sync>";
     let wire_output = format!("Result<{resp_path}, {box_err}>");
     let output_type = contract
@@ -509,7 +481,6 @@ fn gen_run_extendr_function(
         ep_param_decls.push(format!(", {}: {}", p.name, rust_ty));
     }
 
-    // Build the owner instance via its constructor
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&render(
         "service_rs_run_function_header.jinja",
@@ -562,7 +533,6 @@ fn gen_run_extendr_function(
         }
     }
 
-    // Call the entrypoint
     let ep_call = build_ep_call(ep, service, core_import);
     out.push_str(&render(
         "service_rs_run_function_footer.jinja",
@@ -577,8 +547,6 @@ fn build_ctor_call(service: &ServiceDef, owner_path: &str, _core_import: &str) -
     if service.constructor.params.is_empty() {
         format!("{owner_path}::{}()", service.constructor.name)
     } else {
-        // For now, use the constructor with zero-value placeholders.
-        // Full implementation would thread params through from R.
         format!("{owner_path}::{}()", service.constructor.name)
     }
 }
@@ -590,7 +558,6 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
     let args_str = ep_args.join(", ");
 
     if ep.is_async {
-        // Drive the async entrypoint on a blocking task
         format!(
             "    // Run async entrypoint in blocking context\n    \
              let rt = tokio::runtime::Runtime::new().map_err(|e| Error::other(e.to_string()))?;\n    \
@@ -649,8 +616,6 @@ fn typeref_to_rust_type(ty: &TypeRef, core_import: &str) -> String {
     }
 }
 
-// ──────────────────────────────────────────────────────── public entry point ──
-
 /// Generate all service-API files for the extendr backend.
 ///
 /// Returns up to two `GeneratedFile`s per non-empty service list:
@@ -666,13 +631,10 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let output_dir = resolve_output_dir(config.output_paths.get("r"), &config.name, "crates/{name}-extendr/src/");
     let package_name = config.name.replace('-', "_");
 
-    // Rust glue
     let service_rs = gen_service_rs(api, config);
 
-    // R interface
     let service_r = gen_service_r(api, &package_name);
 
-    // R package output base
     let output_base = PathBuf::from(format!("packages/r/{}", package_name));
 
     Ok(vec![
@@ -688,8 +650,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         },
     ])
 }
-
-// ───────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests {
@@ -956,8 +916,6 @@ mod tests {
         let files = generate(&surface, &config).expect("generate should not fail");
         assert!(files.is_empty(), "expected no files for surface without services");
     }
-
-    // ── helpers ──────────────────────────────────────────────────────────────
 
     fn make_test_config() -> ResolvedCrateConfig {
         ResolvedCrateConfig {

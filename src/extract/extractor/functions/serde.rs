@@ -20,8 +20,6 @@ pub(crate) fn collect_manual_serde_type_names(items: &[syn::Item]) -> ahash::AHa
             let Some((_, trait_path, _)) = &item_impl.trait_ else {
                 continue;
             };
-            // Extract the base type name from the self type, ignoring any lifetime/generic args.
-            // Both `impl Trait for Foo` and `impl Trait for Foo<'_>` give type name "Foo".
             let type_name = match &*item_impl.self_ty {
                 syn::Type::Path(p) => p.path.segments.last().map(|s| s.ident.to_string()),
                 _ => None,
@@ -30,12 +28,6 @@ pub(crate) fn collect_manual_serde_type_names(items: &[syn::Item]) -> ahash::AHa
                 continue;
             };
 
-            // Determine which serde trait this impl block implements.
-            // Acceptable forms:
-            //   - `impl Serialize for T`              (single segment)
-            //   - `impl serde::Serialize for T`       (two segments)
-            //   - `impl<'de> Deserialize<'de> for T`  (single segment, generic on impl)
-            //   - `impl<'de> serde::Deserialize<'de> for T` (two segments)
             let trait_last = trait_path.segments.last().map(|s| s.ident.to_string());
             match trait_last.as_deref() {
                 Some("Serialize") => {
@@ -49,7 +41,6 @@ pub(crate) fn collect_manual_serde_type_names(items: &[syn::Item]) -> ahash::AHa
         }
     }
 
-    // Return only names where BOTH impls were found.
     has_serialize
         .into_iter()
         .filter(|name| has_deserialize.contains(name))

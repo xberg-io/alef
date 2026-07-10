@@ -20,8 +20,6 @@ use crate::core::ir::{
 use heck::ToSnakeCase;
 use std::path::PathBuf;
 
-// ───────────────────────────────────────────────────────────────── helpers ──
-
 /// Find the `HandlerContractDef` by trait name in the surface.
 fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a HandlerContractDef> {
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
@@ -87,8 +85,6 @@ fn service_arg(name: &str, ty: &TypeRef, api: &ApiSurface) -> String {
     }
 }
 
-// ──────────────────────────────────────────────── Zig service struct ──
-
 /// Generate the Zig service wrapper module (`service.zig`).
 ///
 /// For each service this emits:
@@ -106,10 +102,6 @@ fn gen_service_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     out.push_str(&config.ffi_header_name());
     out.push_str("\"));\n\n");
 
-    // The C FFI symbols are provided by the `@cImport`ed header (as `c.<symbol>`); no manual
-    // `extern` redeclarations are needed (and they would duplicate / mistype the header's contract).
-
-    // Emit Zig service structs and methods
     for service in &api.services {
         gen_service_struct(&mut out, service, api, &prefix, &prefix_lower);
     }
@@ -122,9 +114,6 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     let service_name = &service.name;
     let service_snake = service_name.to_snake_case();
 
-    // Service struct wrapping the C opaque pointer. The owner is stored as an optional `*anyopaque`
-    // (mirroring how this backend wraps every other opaque handle); the concrete C opaque type is
-    // reached only through `@ptrCast` at each `c.<symbol>` call, so its cbindgen name is never named.
     out.push_str(&crate::backends::zig::template_env::render(
         "service_struct_open.jinja",
         minijinja::context! {
@@ -132,7 +121,6 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         },
     ));
 
-    // Constructor
     out.push_str(&crate::backends::zig::template_env::render(
         "service_init.jinja",
         minijinja::context! {
@@ -141,7 +129,6 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         },
     ));
 
-    // Destructor
     out.push_str(&crate::backends::zig::template_env::render(
         "service_deinit.jinja",
         minijinja::context! {
@@ -150,12 +137,10 @@ fn gen_service_struct(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         },
     ));
 
-    // Registration methods
     for reg in &service.registrations {
         gen_registration_method(out, service, reg, api, prefix_lower);
     }
 
-    // Entrypoint methods
     for ep in &service.entrypoints {
         gen_entrypoint_method(out, service, ep, api, prefix_lower);
     }
@@ -175,10 +160,8 @@ fn gen_registration_method(
     let reg_method_snake = reg.method.to_snake_case();
     let service_name = &service.name;
 
-    // Find the contract
     let _contract = find_contract(api, &reg.callback_contract).expect("contract not found");
 
-    // Metadata parameters (name-first Zig style)
     let mut params_decl = String::new();
     for meta_param in &reg.metadata_params {
         let zig_type = match &meta_param.ty {
@@ -188,7 +171,6 @@ fn gen_registration_method(
         params_decl.push_str(&service_param_decl(&meta_param.name, &zig_type, true));
     }
 
-    // Metadata arguments: extract _handle from opaque Named params
     let mut args = String::new();
     for meta_param in &reg.metadata_params {
         args.push_str(&service_arg(&meta_param.name, &meta_param.ty, api));
@@ -205,7 +187,6 @@ fn gen_registration_method(
         },
     ));
 
-    // Emit registration variants (shortcut methods)
     for variant in &reg.variants {
         gen_registration_variant_method(out, service, variant, reg, api, prefix_lower);
     }
@@ -224,7 +205,6 @@ fn gen_registration_variant_method(
     let service_snake = service.name.to_snake_case();
     let variant_name = &variant.name;
 
-    // Variant signature parameters
     let mut params_decl = String::new();
     for param in &variant.signature_params {
         let zig_type = match &param.ty {
@@ -234,7 +214,6 @@ fn gen_registration_variant_method(
         params_decl.push_str(&service_param_decl(&param.name, &zig_type, true));
     }
 
-    // Variant arguments: extract _handle from opaque Named params
     let mut args = String::new();
     for param in &variant.signature_params {
         args.push_str(&service_arg(&param.name, &param.ty, api));
@@ -261,7 +240,6 @@ fn gen_entrypoint_method(
     api: &ApiSurface,
     prefix_lower: &str,
 ) {
-    // Skip finalize entrypoints whose return type is not representable over the C ABI
     if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
         return;
     }
@@ -271,13 +249,9 @@ fn gen_entrypoint_method(
     let ep_method = &ep.method;
     let service_name = &service.name;
 
-    // Mirror the C ABI: the ffi entrypoint glue returns `*mut T` (an opaque pointer) only when its
-    // return type is an opaque this surface wraps, otherwise an `i32` status code. So the Zig method
-    // returns `?*anyopaque` for the opaque case and `c_int` for the status case.
     let returns_opaque = matches!(&ep.return_type, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n));
     let return_type = if returns_opaque { "?*anyopaque" } else { "c_int" };
 
-    // Entrypoint parameters: opaque Named types are accepted as `*anyopaque` handles.
     let mut params_decl = String::new();
     for ep_param in &ep.params {
         let zig_type = match &ep_param.ty {
@@ -287,7 +261,6 @@ fn gen_entrypoint_method(
         params_decl.push_str(&service_param_decl(&ep_param.name, &zig_type, false));
     }
 
-    // Entrypoint arguments: extract _handle from opaque Named params
     let mut args = String::new();
     for ep_param in &ep.params {
         args.push_str(&service_arg(&ep_param.name, &ep_param.ty, api));
@@ -307,8 +280,6 @@ fn gen_entrypoint_method(
         },
     ));
 }
-
-// ──────────────────────────────────────────────────── public entry point ──
 
 /// Generate all service-API files for the Zig backend.
 ///
@@ -331,8 +302,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         generated_header: true,
     }])
 }
-
-// ─────────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests {
@@ -467,7 +436,6 @@ mod tests {
 
         let zig = gen_service_zig(&api, &config);
 
-        // Verify that the generated Zig contains expected markers
         assert!(zig.contains("const std = @import(\"std\")"));
         assert!(zig.contains("const c = @cImport"));
         assert!(zig.contains("TestService"));
@@ -489,7 +457,6 @@ mod tests {
 
         let zig = gen_service_zig(&api, &config);
 
-        // The service struct must be declared with an optional opaque owner
         assert!(zig.contains("pub const TestService = struct"));
         assert!(zig.contains("owner: ?*anyopaque"));
     }
@@ -504,13 +471,11 @@ mod tests {
 
         let zig = gen_service_zig(&api, &config);
 
-        // No manual extern redeclarations — the C symbols come from the @cImport'd header as `c.<sym>`.
         assert!(!zig.contains("extern \"C\" fn"));
         assert!(zig.contains("c.test_crate_test_service_new()"));
         assert!(zig.contains("c.test_crate_test_service_free("));
         assert!(zig.contains("c.test_crate_test_service_register_add_handler("));
 
-        // The callback parameter signature is still the FFI contract shape.
         assert!(zig.contains("fn (*anyopaque, [*:0]const u8) callconv(.C) [*:0]u8"));
     }
 
@@ -524,7 +489,6 @@ mod tests {
 
         let zig = gen_service_zig(&api, &config);
 
-        // Registration method should be present
         assert!(zig.contains("pub fn add_handler("));
         assert!(zig.contains("self: *TestService"));
         assert!(zig.contains("callback: *const fn (*anyopaque, [*:0]const u8) callconv(.C) [*:0]u8"));
@@ -540,7 +504,6 @@ mod tests {
 
         let zig = gen_service_zig(&api, &config);
 
-        // Metadata param (path: string) should appear in the registration method signature
         assert!(
             zig.contains("path: [*:0]const u8"),
             "Expected 'path: [*:0]const u8' but got:\n{}",
@@ -558,7 +521,6 @@ mod tests {
 
         let zig = gen_service_zig(&api, &config);
 
-        // Entrypoint method should be present
         assert!(zig.contains("pub fn run("));
         assert!(zig.contains("addr: [*:0]const u8"));
     }
@@ -594,7 +556,6 @@ mod tests {
     fn test_registration_variants_emit_shortcut_methods() {
         let mut api = make_fixture_surface();
 
-        // Add variants to the registration
         if let Some(reg) = api.services[0].registrations.get_mut(0) {
             reg.variants.push(RegistrationVariant {
                 name: "get".to_owned(),
@@ -635,12 +596,10 @@ mod tests {
 
         let zig = gen_service_zig(&api, &config);
 
-        // Verify that variant methods are emitted
         assert!(zig.contains("pub fn get("), "Expected 'pub fn get(' in:\n{}", zig);
         assert!(zig.contains("pub fn post("), "Expected 'pub fn post(' in:\n{}", zig);
         assert!(zig.contains("Register a GET handler."));
         assert!(zig.contains("Register a POST handler."));
-        // Verify that variant C symbols are called
         assert!(zig.contains("c.test_crate_test_service_get("));
         assert!(zig.contains("c.test_crate_test_service_post("));
     }

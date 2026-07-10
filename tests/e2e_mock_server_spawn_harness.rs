@@ -117,8 +117,6 @@ fn generate(codegen: &dyn E2eCodegen, language: &str) -> Vec<alef::core::backend
         .expect("generation succeeds")
 }
 
-// ── Dart ───────────────────────────────────────────────────────────────────
-
 #[test]
 fn dart_http_fixture_test_file_spawns_mock_server() {
     let files = generate(&DartE2eCodegen, "dart");
@@ -127,8 +125,6 @@ fn dart_http_fixture_test_file_spawns_mock_server() {
         .find(|f| f.path.to_string_lossy().ends_with("_test.dart"))
         .expect("dart test file is emitted");
     let content = &test_file.content;
-    // The test must spawn the app_harness.dart process and parse the SUT_URL
-    // startup line so the request helpers do not fall back to localhost defaults.
     assert!(
         content.contains("Process.start") || content.contains("Process.run"),
         "dart harness must spawn a server process. Rendered:\n{content}"
@@ -143,8 +139,6 @@ fn dart_http_fixture_test_file_spawns_mock_server() {
     );
 }
 
-// ── Zig ──────────────────────────────────────────────────────────────────────
-
 #[test]
 fn zig_http_fixture_build_spawns_mock_server() {
     let files = generate(&ZigE2eCodegen, "zig");
@@ -153,8 +147,6 @@ fn zig_http_fixture_build_spawns_mock_server() {
         .find(|f| f.path.file_name().is_some_and(|n| n == "build.zig"))
         .expect("build.zig is emitted");
     let content = &build_zig.content;
-    // build.zig must spawn the mock-server and wire MOCK_SERVER_URL into the
-    // run-step environment so test binaries do not hit localhost:8080.
     assert!(
         content.contains("mock-server"),
         "zig build must reference the mock-server binary. Rendered:\n{content}"
@@ -169,8 +161,6 @@ fn zig_http_fixture_build_spawns_mock_server() {
     );
 }
 
-// ── Elixir ────────────────────────────────────────────────────────────────────
-
 #[test]
 fn elixir_http_fixture_forces_http1_on_req() {
     let files = generate(&ElixirCodegen, "elixir");
@@ -179,9 +169,6 @@ fn elixir_http_fixture_forces_http1_on_req() {
         .find(|f| f.path.to_string_lossy().ends_with("_test.exs"))
         .expect("elixir HTTP test file is emitted");
     let content = &test_file.content;
-    // The mock server is plain HTTP/1.1; Req's default HTTP/2 negotiation fails
-    // with `:pool_not_available`. Test helper starts AlefE2EFinch with HTTP/1
-    // protocols, and every Req call must use that named pool.
     assert!(
         content.contains("Req."),
         "elixir test file must emit a Req call. Rendered:\n{content}"
@@ -190,8 +177,6 @@ fn elixir_http_fixture_forces_http1_on_req() {
         content.contains("finch: AlefE2EFinch"),
         "every Req call must use the HTTP/1 Finch pool. Rendered:\n{content}"
     );
-    // No Req call may be emitted without the named Finch pool — otherwise it
-    // would use Req's default pool and may negotiate HTTP/2.
     for line in content.lines().filter(|l| l.contains("Req.")) {
         assert!(
             line.contains("finch: AlefE2EFinch"),

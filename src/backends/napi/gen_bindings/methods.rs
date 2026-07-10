@@ -20,16 +20,9 @@ pub(super) fn gen_tagged_enum_binding_to_core(
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
-    // Determine which Named fields use binding structs vs serde JSON String.
-    // A field uses a binding struct only if: (1) it has a binding struct in struct_names,
-    // (2) it's not sanitized, and (3) the field name maps to a single Named type across
-    // all variants (not shared with different types).
     let fields_with_binding_struct = tagged_enum_binding_struct_fields(enum_def, struct_names);
-    // Fields with different Named types across variants are stored as String (JSON) in the
-    // binding struct and must be deserialized per-variant via serde_json.
     let mixed_named_fields = tagged_enum_mixed_named_fields(enum_def);
 
-    // Precompute all variant data for template
     let variants = enum_def
         .variants
         .iter()
@@ -148,7 +141,6 @@ pub(super) fn gen_tagged_enum_binding_to_core(
         })
         .collect::<Vec<_>>();
 
-    // Default fallback to first variant
     let default_variant = enum_def.variants.first().map(|first| {
         let is_tuple = crate::codegen::conversions::is_tuple_variant(&first.fields);
         let is_empty = first.fields.is_empty();
@@ -205,11 +197,8 @@ pub(super) fn gen_tagged_enum_core_to_binding(
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let fields_with_binding_struct = tagged_enum_binding_struct_fields(enum_def, struct_names);
-    // Fields with different Named types across variants are stored as String (JSON) in the
-    // binding struct and must be serialized per-variant via serde_json.
     let mixed_named_fields = tagged_enum_mixed_named_fields(enum_def);
 
-    // Collect all field names across all variants
     let all_fields: Vec<String> = {
         let mut fields = std::collections::BTreeSet::new();
         for v in &enum_def.variants {
@@ -223,19 +212,14 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         fields.into_iter().collect()
     };
 
-    // Collect synthesized variant-data field names (e.g. `pdf`, `docx`, `archive`).
-    // These are the per-variant optional properties added to the binding struct for
-    // single-tuple Named variants, enabling direct property access in TypeScript.
     let synth_field_names = variant_data_field_names(enum_def);
 
-    // Precompute all variant data for template
     let variants = enum_def
         .variants
         .iter()
         .map(|variant| {
             let default_tag = variant.name.to_lowercase();
             let tag_value = variant.serde_rename.as_deref().unwrap_or(&default_tag);
-            // Synthesized field name for this variant (snake_case of variant name), if any
             let this_synth_field = if variant.fields.len() == 1 {
                 let field = &variant.fields[0];
                 if tagged_enum_field_is_tuple(field) && matches!(&field.ty, crate::core::ir::TypeRef::Named(_)) {
@@ -249,7 +233,6 @@ pub(super) fn gen_tagged_enum_core_to_binding(
 
             if variant.fields.is_empty() {
                 let mut all_fields_none: Vec<String> = all_fields.iter().map(|f| format!("{f}: None")).collect();
-                // Include synthesized fields as None for empty variants
                 for sf in &synth_field_names {
                     all_fields_none.push(format!("{sf}: None"));
                 }
@@ -290,8 +273,6 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                         if let Some(field) = variant_field_map.get(f) {
                             let has_binding = fields_with_binding_struct.contains(f.as_str());
                             let is_mixed = mixed_named_fields.contains(field.name.as_str());
-                            // For Box<T> the destructured variable binds the Box; we must deref
-                            // before calling `.into()` because `Box<T>: Into<JsT>` is not provided.
                             let boxed_deref = if field.is_boxed { "*" } else { "" };
                             if field.optional {
                                 match &field.ty {
@@ -340,11 +321,8 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                         }
                     })
                     .collect();
-                // Append synthesized variant-data fields. The field matching this variant gets
-                // Some(inner.into()), all others get None.
                 for sf in &synth_field_names {
                     if this_synth_field.as_deref() == Some(sf.as_str()) {
-                        // The destructured tuple variable is the first field name
                         let field = &variant.fields[0];
                         let var_name = tagged_enum_field_name(variant, field);
                         let is_boxed = field.is_boxed;
@@ -370,8 +348,6 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         })
         .collect::<Vec<_>>();
 
-    // When the core enum has cfg-gated variants excluded from the IR, emit a wildcard arm
-    // to keep the match exhaustive under --all-features builds.
     let has_excluded_variants = !enum_def.excluded_variants.is_empty();
 
     crate::backends::napi::template_env::render(
@@ -394,7 +370,5 @@ mod tests {
     /// gen_tagged_enum_binding_to_core is tested via integration tests in gen_bindings_test.rs.
     /// This unit test verifies the function exists and is callable.
     #[test]
-    fn tagged_enum_from_impls_exist() {
-        // Compilation check only — integration tests cover the generated output.
-    }
+    fn tagged_enum_from_impls_exist() {}
 }

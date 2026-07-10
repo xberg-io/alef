@@ -130,15 +130,11 @@ core_import = "my_custom_lib"
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The generated code must not contain the old hard-coded sample_core prefix
-    // in any type annotation position.  (It may legitimately appear in doc comments
-    // or string literals, but never as a Rust path qualifier in generated code.)
     assert!(
         !lib.content.contains("sample_crate::"),
         "generated code must not hard-code 'sample_crate::' when core_import is 'my_custom_lib'; got:\n{}",
         &lib.content[..lib.content.len().min(2000)]
     );
-    // The configured import must appear as a qualifier for core types
     assert!(
         lib.content.contains("my_custom_lib::"),
         "generated code must use the configured core_import 'my_custom_lib::' as a type qualifier"
@@ -203,7 +199,6 @@ fn test_bytes_result_return_uses_out_params_and_emits_free_bytes() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The function must use out-params, not return *mut u8 directly
     assert!(
         lib.content.contains("out_ptr: *mut *mut u8"),
         "Result<Vec<u8>> function must have out_ptr out-param"
@@ -216,17 +211,14 @@ fn test_bytes_result_return_uses_out_params_and_emits_free_bytes() {
         lib.content.contains("out_cap: *mut usize"),
         "Result<Vec<u8>> function must have out_cap out-param"
     );
-    // The function must return i32, not *mut u8
     assert!(
         lib.content.contains("fn my_lib_render_page("),
         "function must be emitted with the correct FFI name"
     );
-    // Vec::into_raw_parts must be used to decompose the result
     assert!(
         lib.content.contains("into_raw_parts()"),
         "Result<Vec<u8>> success arm must use Vec::into_raw_parts()"
     );
-    // The module must include a free_bytes companion
     assert!(
         lib.content.contains("fn my_lib_free_bytes("),
         "module must include my_lib_free_bytes companion function"
@@ -327,14 +319,12 @@ type = "ChatRequest"
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Opaque handle struct must be present
     assert!(
         lib.content.contains("MlDefaultClientChatStreamStreamHandle"),
         "handle struct must be emitted: got\n{}",
         &lib.content[..lib.content.len().min(3000)]
     );
 
-    // All three exported functions must be present
     assert!(
         lib.content.contains("fn ml_default_client_chat_stream_start("),
         "_start function must be emitted"
@@ -369,13 +359,11 @@ type = "ChatRequest"
         "_free must be pub unsafe extern C"
     );
 
-    // _next must return a pointer to the item type
     assert!(
         lib.content.contains("-> *mut my_lib::ChatChunk"),
         "_next must return *mut my_lib::ChatChunk"
     );
 
-    // _free must be null-safe
     assert!(
         lib.content.contains("if !handle.is_null()"),
         "_free must check for null before dropping"
@@ -387,7 +375,6 @@ type = "ChatRequest"
         "generated code must include SAFETY comments on unsafe blocks"
     );
 
-    // Error protocol: _next sets last_error on stream errors
     assert!(
         lib.content.contains("set_last_error"),
         "_next must call set_last_error on error"
@@ -570,7 +557,6 @@ fn test_optional_ahashmap_cow_key_uses_as_ref_not_as_deref() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The deserialization turbofish must target AHashMap with Cow key, not HashMap<String, _>
     assert!(
         lib.content.contains("ahash::AHashMap<std::borrow::Cow<'static, str>,"),
         "should deserialize into AHashMap<Cow<'static, str>, ...>, got:\n{}",
@@ -581,7 +567,6 @@ fn test_optional_ahashmap_cow_key_uses_as_ref_not_as_deref() {
         }
     );
 
-    // The call must use .as_ref() not .as_deref() — HashMap doesn't impl Deref
     assert!(
         lib.content.contains("metadata_rs.as_ref()"),
         "should pass metadata_rs.as_ref() (not .as_deref()), got:\n{}",
@@ -724,25 +709,21 @@ fn test_optional_bytes_field_accessor_emits_out_len_and_length_writes() {
         &::std::collections::HashMap::<String, String>::new(),
     );
 
-    // The header must include the out_len companion (the reported contract violation).
     assert!(
         code.contains("out_len: *mut usize"),
         "optional Bytes field accessor must declare out_len param (issue #118), got:\n{code}"
     );
 
-    // Body must write real length on Some path.
     assert!(
         code.contains("*out_len"),
         "optional Bytes field must write length to out_len (Some path writes real len, None writes 0), got:\n{code}"
     );
 
-    // None arm must write 0, not just any *out_len write.
     assert!(
         code.contains("*out_len = 0"),
         "optional Bytes None arm must write 0 to out_len, got:\n{code}"
     );
 
-    // Both arms must null-check out_len before dereferencing it.
     assert!(
         code.contains("!out_len.is_null()"),
         "optional Bytes field must null-check out_len before writing, got:\n{code}"

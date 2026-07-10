@@ -70,21 +70,16 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
     }
 
     fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
-        // The flag is captured at construction (see `gen_constructor`) because R
-        // objects can only be probed on the R main thread.
         self.forwardable_defaulted
             .contains(&method.name)
             .then(|| format!("self.has_{}", method.name))
     }
 
     fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
-        // Same construction-time flag as trait methods: a host list without the
-        // function makes the lifecycle hook a no-op.
         Some(format!("self.has_{}", method.name))
     }
 
     fn extra_bridge_fields(&self, spec: &TraitBridgeSpec) -> Vec<(String, String)> {
-        // Iterate the trait's method order (not the set) so field order is deterministic.
         let mut fields: Vec<(String, String)> = spec
             .trait_def
             .methods
@@ -100,8 +95,6 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        // Return bare import paths (no `use` keyword, no trailing `;`).
-        // RustFileBuilder::add_import() wraps them as `use {path};`.
         vec!["extendr_api::prelude::*".to_string(), "std::sync::Arc".to_string()]
     }
 
@@ -109,7 +102,6 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         let name = &method.name;
         let has_error = method.error_type.is_some();
 
-        // Build argument list for the R function call
         let (empty_args, args_pairs) = if method.params.is_empty() {
             (true, String::new())
         } else {
@@ -117,11 +109,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 .params
                 .iter()
                 .map(|p| match &p.ty {
-                    // Known serde struct registered as an extendr class: hand the host the
-                    // binding's native R object, built from the core value through the same
-                    // Rust→R conversion used for return values (`Robj::from(Binding::from(core))`).
                     // The `#[extendr]`-generated `From<Binding> for Robj` wraps it as an
-                    // `ExternalPtr` class env. No JSON round-trip.
                     TypeRef::Named(n) if self.is_native_struct_param(n) => {
                         let owned = if p.is_ref {
                             format!("(*{}).clone()", p.name)
@@ -130,8 +118,6 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                         };
                         format!("extendr_api::Robj::from({n}::from({owned}))")
                     }
-                    // Other params (enums, opaque/handle, excluded/unknown, primitives, strings)
-                    // keep their prior representation.
                     _ => build_extendr_arg(p, spec.bridge_config.context_type.as_deref()),
                 })
                 .collect();
@@ -144,7 +130,6 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             (false, pairs.join(", "))
         };
 
-        // Determine which template to use based on return type
         let is_primitive_return = matches!(&method.return_type, TypeRef::Primitive(_));
         let template_name = match &method.return_type {
             TypeRef::Unit => "sync_method_unit_return.jinja",
@@ -208,16 +193,11 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
 
-        // Generate param cloning statements
         let mut params_to_clone = Vec::new();
         for p in &method.params {
             let template_name = match (&p.ty, p.is_ref) {
                 (TypeRef::Bytes, true) => "async_param_clone_bytes_ref.jinja",
                 (TypeRef::Path, true) => "async_param_clone_path_ref.jinja",
-                // Native serde struct: clone the OWNED core value (`{name}_owned`, which is
-                // `Send`) before the closure. The native R object cannot cross the
-                // `spawn_blocking` thread boundary (it wraps a `!Send` `Robj`), so it is
-                // constructed from the cloned core value INSIDE the closure instead.
                 (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
                     "async_param_clone_native_struct_ref.jinja"
                 }
@@ -234,7 +214,6 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             params_to_clone.push(clone_stmt);
         }
 
-        // Build argument list for the R function call
         let (empty_args, args_pairs) = if method.params.is_empty() {
             (true, String::new())
         } else {
@@ -244,10 +223,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 .map(|p| match (&p.ty, p.is_ref) {
                     (TypeRef::Bytes, true) => format!("extendr_api::Robj::from(&{0}[..])", p.name),
                     (TypeRef::Path, true) => format!("extendr_api::Robj::from({0}_str.as_str())", p.name),
-                    // Native serde struct: build the binding's native R object from the cloned
-                    // owned core value INSIDE the closure, through the same `From<core::T>`
                     // conversion used for return values. The `#[extendr]`-generated
-                    // `From<Binding> for Robj` wraps it as an `ExternalPtr`. No JSON round-trip.
                     (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
                         format!("extendr_api::Robj::from({n}::from({0}_owned.clone()))", p.name)
                     }
@@ -264,7 +240,6 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             (false, pairs.join(", "))
         };
 
-        // Choose template based on return type
         let template_name = match &method.return_type {
             TypeRef::Unit => "async_method_unit_return.jinja",
             TypeRef::String | TypeRef::Char => "async_method_string_return.jinja",
@@ -324,8 +299,6 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
         let required_methods: Vec<String> = spec.required_methods().iter().map(|m| m.name.clone()).collect();
-        // Presence flags for forwarded defaulted methods, captured once on the R
-        // main thread. Trait method order keeps the emission deterministic.
         let mut optional_methods: Vec<String> = spec
             .trait_def
             .methods
@@ -333,7 +306,6 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             .filter(|m| self.forwardable_defaulted.contains(&m.name))
             .map(|m| m.name.clone())
             .collect();
-        // Lifecycle hooks are optional too; a missing function makes the hook a no-op.
         if spec.bridge_config.super_trait.is_some() {
             optional_methods.push("initialize".to_string());
             optional_methods.push("shutdown".to_string());
@@ -494,7 +466,6 @@ pub fn gen_trait_bridge(
     let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("R", bridge_cfg);
     let trait_path = trait_type.rust_path.replace('-', "_");
 
-    // Build type name → rust_path lookup (owned HashMap for use with new generator)
     let type_paths: HashMap<String, String> = api
         .types
         .iter()
@@ -504,8 +475,6 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods referencing them (for example, `&HiddenDoc`)
-        // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
                 .iter()
@@ -513,7 +482,6 @@ pub fn gen_trait_bridge(
         )
         .collect();
 
-    // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
     let is_visitor_bridge = bridge_cfg.type_alias.is_some()
         && bridge_cfg.register_fn.is_none()
         && bridge_cfg.super_trait.is_none()
@@ -536,20 +504,9 @@ pub fn gen_trait_bridge(
             code: out,
         })
     } else {
-        // Use the IR-driven TraitBridgeGenerator infrastructure.
-        //
-        // Classify which callback params get native-object marshalling using the SHARED rule
-        // (`native_marshalled_struct_params`) so the allowlist is identical to what other backends
-        // consult, then narrow it to structs extendr can actually represent as a native R object:
-        // extendr-incompatible structs (those with `Vec<Named>` / `Option<Vec<_>>` fields) are NOT
         // registered as extendr classes and have no `#[extendr]`-generated `From<Binding> for Robj`,
-        // so they must keep the JSON-string representation. For the remaining params the bridge hands
-        // the host the binding's native R object (an `ExternalPtr` class env) built via the same
-        // `From<core::T>` conversion used for return values.
         let struct_param_types = native_marshalled_extendr_struct_params(trait_type, api);
         let struct_return_types = native_marshalled_extendr_struct_returns(trait_type, api);
-        // Rust-defaulted methods the bridge can forward to the host (host-defined
-        // implementations win; the Rust default runs otherwise).
         let forwardable_defaulted =
             crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = ExtendrBridgeGenerator {
@@ -578,12 +535,6 @@ pub fn gen_trait_bridge(
         };
         let mut output = gen_bridge_all(&spec, &generator);
         // SAFETY: `extendr_api::Robj` wraps a `*mut SEXPREC` and is therefore neither `Send`
-        // nor `Sync` by default. The Rust `Plugin` super-trait requires `Send + Sync + 'static`,
-        // and `async_trait`-generated futures must be `Send`. R itself is single-threaded — the
-        // user must guarantee that the bridge is only invoked from the R main thread. We assert
-        // `Send + Sync` so the trait bounds are satisfied; callers misusing this from background
-        // threads will encounter R-runtime undefined behaviour. This contract is consistent with
-        // how PyO3 handles `Py<PyAny>` under the GIL.
         let send_sync_impl = format!(
             "\n#[allow(clippy::non_send_fields_in_send_ty)]\n\
              // SAFETY: R is single-threaded; the user must invoke plugins from the R main thread.\n\
@@ -734,7 +685,6 @@ fn gen_visitor_method_extendr(
 fn build_extendr_arg(p: &crate::core::ir::ParamDef, context_type: Option<&str>) -> String {
     use crate::core::ir::TypeRef;
 
-    // context_type param: convert to an R list via nodecontext_to_robj
     if let TypeRef::Named(n) = &p.ty {
         if Some(n.as_str()) == context_type {
             let ref_prefix = if p.is_ref { "" } else { "&" };
@@ -742,7 +692,6 @@ fn build_extendr_arg(p: &crate::core::ir::ParamDef, context_type: Option<&str>) 
         }
     }
 
-    // Option<&str>: IR collapses to String + optional + is_ref
     if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
         return format!(
             "match {name} {{ Some(s) => extendr_api::Robj::from(s), None => extendr_api::Robj::from(extendr_api::NULL) }}",
@@ -750,7 +699,6 @@ fn build_extendr_arg(p: &crate::core::ir::ParamDef, context_type: Option<&str>) 
         );
     }
 
-    // &[u8] / Vec<u8>: pass as a raw vector reference
     if matches!(&p.ty, TypeRef::Bytes) {
         if p.is_ref {
             return format!("extendr_api::Robj::from(&{}[..])", p.name);
@@ -758,19 +706,14 @@ fn build_extendr_arg(p: &crate::core::ir::ParamDef, context_type: Option<&str>) 
         return format!("extendr_api::Robj::from(&{}[..])", p.name);
     }
 
-    // &str: wrap in Robj
     if matches!(&p.ty, TypeRef::String) && p.is_ref {
         return format!("extendr_api::Robj::from({})", p.name);
     }
 
-    // Owned String
     if matches!(&p.ty, TypeRef::String) {
         return format!("extendr_api::Robj::from({}.as_str())", p.name);
     }
 
-    // Named types (structs/enums): serialize to JSON. `extendr_api::Robj` does not
-    // implement `From` for arbitrary user types, so we pass them across the R boundary
-    // as JSON strings. The R callback is responsible for deserializing on its side.
     if let TypeRef::Named(_) = &p.ty {
         let serde_target = if p.is_ref {
             p.name.clone()
@@ -783,12 +726,10 @@ fn build_extendr_arg(p: &crate::core::ir::ParamDef, context_type: Option<&str>) 
         );
     }
 
-    // bool
     if matches!(&p.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
         return format!("extendr_api::Robj::from({})", p.name);
     }
 
-    // Integer-like primitives: cast to i32 (R INTEGER)
     if let TypeRef::Primitive(prim) = &p.ty {
         use crate::core::ir::PrimitiveType;
         match prim {
@@ -812,7 +753,6 @@ fn build_extendr_arg(p: &crate::core::ir::ParamDef, context_type: Option<&str>) 
         }
     }
 
-    // Fallback
     format!("extendr_api::Robj::from({})", p.name)
 }
 
@@ -836,11 +776,9 @@ pub fn gen_bridge_function(
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
-    // Build parameter list — replace the bridge param with Option<extendr_api::Robj>
     let mut sig_parts = Vec::new();
     for (idx, p) in func.params.iter().enumerate() {
         if idx == bridge_param_idx {
-            // The visitor is always optional from R's perspective (NULL means "no visitor")
             sig_parts.push(format!("{}: Option<extendr_api::Robj>", p.name));
         } else {
             let promoted = idx > bridge_param_idx || func.params[..idx].iter().any(|pp| pp.optional);
@@ -860,8 +798,6 @@ pub fn gen_bridge_function(
 
     let err_conv = ".map_err(|e| extendr_api::Error::Other(e.to_string()))";
 
-    // Bridge wrapping: Option<Robj> -> Option<configured handle>
-    // We always treat it as optional since R passes NULL for missing visitors.
     let bridge_wrap = if is_optional {
         format!(
             "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
@@ -873,8 +809,6 @@ pub fn gen_bridge_function(
              }};"
         )
     } else {
-        // Non-optional in IR, but we expose it as Option<Robj> regardless and
-        // unwrap or construct a bridge from a non-null Robj.
         format!(
             "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
              Some(v) if !v.is_null() => {{\n            \
@@ -886,7 +820,6 @@ pub fn gen_bridge_function(
         )
     };
 
-    // Serde let-bindings for non-bridge Named params
     let serde_bindings: String = func
         .params
         .iter()
@@ -940,7 +873,6 @@ pub fn gen_bridge_function(
         })
         .collect();
 
-    // Build call args for the core function
     let call_args: Vec<String> = func
         .params
         .iter()

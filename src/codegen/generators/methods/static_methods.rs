@@ -21,7 +21,6 @@ pub fn gen_static_method(
     mutex_types: &AHashSet<String>,
 ) -> String {
     let type_name = &typ.name;
-    // Use the full rust_path (with hyphens replaced by underscores) for core type references
     let core_type_path = typ.rust_path.replace('-', "_");
     let map_fn = |ty: &crate::core::ir::TypeRef| mapper.map_type(ty);
     let params = function_params(&method.params, &map_fn);
@@ -30,8 +29,6 @@ pub fn gen_static_method(
 
     let core_import = cfg.core_import;
 
-    // Use let bindings when any non-opaque Named or Vec<Named> params exist.
-    // This includes Vec<Named> without is_ref=true, which need element conversion.
     let use_let_bindings = has_named_params(&method.params, opaque_types);
     let (call_args, ref_let_bindings) = if use_let_bindings {
         (
@@ -39,8 +36,6 @@ pub fn gen_static_method(
             gen_named_let_bindings_pub(&method.params, opaque_types, core_import),
         )
     } else if cfg.cast_uints_to_i32 || cfg.cast_large_ints_to_f64 {
-        // Backends that remap numeric params (e.g. extendr maps u32→i32, f32→f64) must cast the
-        // binding-level argument back to the core type at the call site.
         (
             gen_call_args_cfg(
                 &method.params,
@@ -54,9 +49,6 @@ pub fn gen_static_method(
         (gen_call_args(&method.params, opaque_types), String::new())
     };
 
-    // For lifetime-parameterized types, emit let bindings for String→Cow and Map→BTreeMap conversions.
-    // These are needed when static methods of lifetime types receive binding-level String/HashMap
-    // but the core methods expect Cow<'_, str> and BTreeMap (owned for binding wrapper context).
     let lifetime_bindings = if typ.has_lifetime_params {
         let mut bindings = String::new();
         for p in &method.params {
@@ -72,7 +64,6 @@ pub fn gen_static_method(
                     }
                 }
                 TypeRef::Map(_, _) => {
-                    // Map types: convert HashMap to BTreeMap (owned, since wrapper context has no lifetime)
                     bindings.push_str(&format!("let {}_converted = {}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::BTreeMap<_, _>>();\n    ", p.name, p.name));
                 }
                 TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
@@ -86,19 +77,12 @@ pub fn gen_static_method(
         String::new()
     };
 
-    // Adjust call_args to use converted variables when lifetime bindings were emitted.
-    // Special case: for borrowed methods of lifetime types, we need to call the owned variant instead
-    // because the wrapper function can't provide the lifetime required by the borrowed variant.
     let is_borrowed_to_owned = method.name.contains("borrowed_attributes");
     let (call_args, method_name_override) = if !lifetime_bindings.is_empty() {
         let mut adjusted = call_args.clone();
         for p in &method.params {
             match &p.ty {
                 TypeRef::Map(_, _) => {
-                    // The original call arg for is_ref Map params is `&{name}`. When switching
-                    // from borrowed→owned, the owned method takes an owned BTreeMap, so the `&`
-                    // must be dropped. Replace `&{name}` → `{name}_converted` in that case,
-                    // and `{name}` → `{name}_converted` when no ref prefix was generated.
                     if is_borrowed_to_owned && p.is_ref {
                         adjusted = adjusted.replace(&format!("&{}", p.name), &format!("{}_converted", p.name));
                     } else {
@@ -114,7 +98,6 @@ pub fn gen_static_method(
                 _ => {}
             }
         }
-        // If calling a with_borrowed_* method, switch to with_owned_* since we have owned data
         let override_name = if is_borrowed_to_owned {
             Some(method.name.replace("borrowed", "owned"))
         } else {
@@ -125,16 +108,11 @@ pub fn gen_static_method(
         (call_args, None)
     };
 
-    // Update method name if needed (borrowed → owned for wrapper functions)
     let actual_method_name = method_name_override.as_deref().unwrap_or(&method.name);
 
-    // Static methods wire owned `_core` let-bindings (see `use_let_bindings` above), so they
-    // can delegate non-opaque Named `&T` params that the stricter `can_auto_delegate` rejects.
     let can_delegate = crate::codegen::shared::can_auto_delegate(method, opaque_types)
         || crate::codegen::shared::can_auto_delegate_with_named_let_bindings(method, opaque_types);
 
-    // Explicit adapter bodies always take precedence over auto-generated delegation —
-    // they are user overrides that capture intentional non-default behavior.
     let adapter_key = format!("{}.{}", type_name, method.name);
     let adapter_override = adapter_bodies.get(&adapter_key).cloned();
 
@@ -165,7 +143,6 @@ pub fn gen_static_method(
     } else {
         let core_call = format!("{core_type_path}::{}({call_args})", actual_method_name);
         if method.error_type.is_some() {
-            // Backend-specific error conversion
             let err_conv = match cfg.async_pattern {
                 AsyncPattern::Pyo3FutureIntoPy => {
                     ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
@@ -174,15 +151,11 @@ pub fn gen_static_method(
                     ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
                 }
                 AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-                // extendr: `wrap_return` produces `Result<T, extendr_api::Error>`, so a
-                // `String` error does not coerce. Convert to `extendr_api::Error::Other`,
-                // sanitising the message into a valid R condition class.
                 AsyncPattern::TokioBlockOn => {
                     ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
                 }
                 _ => ".map_err(|e| e.to_string())",
             };
-            // Wrap the Ok value if the return type needs conversion (e.g. PathBuf→String)
             let val_expr = apply_return_newtype_unwrap("val", &method.return_newtype_wrapper);
             let wrapped = wrap_return_with_mutex_mapped(
                 &val_expr,
@@ -205,7 +178,6 @@ pub fn gen_static_method(
                 format!("{core_call}.map(|val| {wrapped}){err_conv}")
             }
         } else {
-            // Wrap return value for non-error case too (e.g. PathBuf→String)
             let unwrapped_call = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
             wrap_return_with_mutex_mapped(
                 &unwrapped_call,
@@ -220,7 +192,6 @@ pub fn gen_static_method(
             )
         }
     };
-    // Prepend let bindings for non-opaque Named ref params and lifetime type conversions
     let body = if ref_let_bindings.is_empty() && lifetime_bindings.is_empty() {
         body
     } else {
@@ -229,7 +200,6 @@ pub fn gen_static_method(
 
     let static_needs_py = method.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
 
-    // For async PyO3 static methods, override return type and add lifetime generic.
     let ret = if static_needs_py {
         "PyResult<Bound<'py, PyAny>>".to_string()
     } else {
@@ -237,7 +207,6 @@ pub fn gen_static_method(
     };
     let method_lifetime = if static_needs_py { "<'py>" } else { "" };
 
-    // Wrap long signature if necessary
     let (sig_start, sig_params, sig_end) = if params.len() > 100 {
         let wrapped_params = method
             .params
@@ -252,7 +221,6 @@ pub fn gen_static_method(
             })
             .collect::<Vec<_>>()
             .join(",\n        ");
-        // For async PyO3, add py parameter
         if static_needs_py {
             (
                 format!("pub fn {}{method_lifetime}(py: Python<'py>,\n        ", method.name),
@@ -288,8 +256,6 @@ pub fn gen_static_method(
         String::new()
     };
 
-    // For static methods, we need a variant of method_signature template
-    // that handles static attributes. For now, build manually but use render for main block
     let mut out = String::with_capacity(1024);
     if total_params > 7 {
         out.push_str("    #[allow(clippy::too_many_arguments)]\n");

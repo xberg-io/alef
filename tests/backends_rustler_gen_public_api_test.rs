@@ -278,25 +278,21 @@ fn test_generate_public_api_creates_all_files() {
         .map(|f| f.path.to_string_lossy().replace('\\', "/"))
         .collect();
 
-    // Should generate the main module file
     assert!(
         paths.iter().any(|p| p.ends_with("my_lib.ex")),
         "Should generate my_lib.ex; got: {paths:?}"
     );
 
-    // Should generate native.ex
     assert!(
         paths.iter().any(|p| p.ends_with("my_lib/native.ex")),
         "Should generate my_lib/native.ex; got: {paths:?}"
     );
 
-    // Should generate struct module for ConversionOptions
     assert!(
         paths.iter().any(|p| p.ends_with("my_lib/conversion_options.ex")),
         "Should generate my_lib/conversion_options.ex; got: {paths:?}"
     );
 
-    // Should generate enum module for HeadingStyle
     assert!(
         paths.iter().any(|p| p.ends_with("my_lib/heading_style.ex")),
         "Should generate my_lib/heading_style.ex; got: {paths:?}"
@@ -397,45 +393,36 @@ fn test_native_ex_has_all_nif_stubs() {
 
     let content = &native.content;
 
-    // Should declare the module correctly
     assert!(
         content.contains("defmodule MyLib.Native do"),
         "Should define MyLib.Native; content:\n{content}"
     );
 
-    // Should use RustlerPrecompiled
     assert!(
         content.contains("use RustlerPrecompiled"),
         "Should use RustlerPrecompiled; content:\n{content}"
     );
 
-    // Should have otp_app atom
     assert!(
         content.contains("otp_app: :my_lib"),
         "Should have otp_app: :my_lib; content:\n{content}"
     );
 
-    // Should have stub for convert/1
     assert!(
         content.contains("def convert(") && content.contains("nif_not_loaded"),
         "Should have convert stub; content:\n{content}"
     );
 
-    // Should have stub for static method: conversionoptions_default/0
     assert!(
         content.contains("def conversionoptions_default"),
         "Should have conversionoptions_default/0 stub; content:\n{content}"
     );
 
-    // Should have stub for instance method: conversionoptions_any_enabled/1
     assert!(
         content.contains("def conversionoptions_any_enabled("),
         "Should have conversionoptions_any_enabled stub; content:\n{content}"
     );
 
-    // base_url and targets are emitted single-line; mix format handles layout per
-    // downstream `.formatter.exs` `line_length:` (default 98). Pre-wrapping at the
-    // generator side caused an idempotence fight against repos with line_length > 98.
     let base_url_line = content
         .lines()
         .find(|l| l.trim_start().starts_with("base_url:"))
@@ -565,19 +552,16 @@ fn test_struct_module_has_defstruct() {
 
     let content = &struct_file.content;
 
-    // Should define the correct module
     assert!(
         content.contains("defmodule MyLib.ConversionOptions do"),
         "Should define MyLib.ConversionOptions; content:\n{content}"
     );
 
-    // Should have defstruct
     assert!(
         content.contains("defstruct "),
         "Should have defstruct; content:\n{content}"
     );
 
-    // Should have correct field defaults
     assert!(
         content.contains("heading_style: :setext"),
         "Should have heading_style: :setext; content:\n{content}"
@@ -590,7 +574,6 @@ fn test_struct_module_has_defstruct() {
         content.contains("debug: false"),
         "Should have debug: false; content:\n{content}"
     );
-    // Optional fields default to nil
     assert!(
         content.contains("title: nil"),
         "Should have title: nil; content:\n{content}"
@@ -652,13 +635,11 @@ fn test_main_module_has_method_wrappers() {
 
     let content = &main.content;
 
-    // Should define the main module
     assert!(
         content.contains("defmodule MyLib do"),
         "Should define MyLib module; content:\n{content}"
     );
 
-    // Methods should NOT be in main module; they're in type modules now
     assert!(
         !content.contains("def config_default"),
         "Methods should NOT be in main module; got:\n{content}"
@@ -764,9 +745,6 @@ fn test_opaque_types_not_get_struct_module() {
     let config = make_config("my_lib");
     let files = backend.generate_public_api(&api, &config).unwrap();
 
-    // Opaque types get a dedicated wrapper module that wraps a ResourceArc
-    // reference (`defstruct [:ref]`), distinct from the value-struct modules
-    // emitted for non-opaque types.
     let engine_file = files
         .iter()
         .find(|f| {
@@ -866,25 +844,21 @@ fn test_simple_enum_module_has_type_and_accessors() {
 
     let content = &enum_file.content;
 
-    // Correct module name
     assert!(
         content.contains("defmodule MyLib.HeadingStyle do"),
         "Should define MyLib.HeadingStyle; content:\n{content}"
     );
 
-    // Moduledoc from enum doc
     assert!(
         content.contains("@moduledoc \"Heading style for Markdown output\""),
         "Should have moduledoc from enum doc; content:\n{content}"
     );
 
-    // @type t union of atoms
     assert!(
         content.contains("@type t :: :setext | :atx"),
         "Should have @type t with atom union; content:\n{content}"
     );
 
-    // Accessor functions for each variant
     assert!(
         content.contains("def setext"),
         "Should have setext/0 accessor; content:\n{content}"
@@ -955,7 +929,6 @@ fn test_generate_bindings_nif_init_uses_native_module() {
         .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("lib.rs"))
         .expect("lib.rs should be generated");
 
-    // The rustler::init! should use the .Native module name to match native.ex
     assert!(
         lib_rs.content.contains("Elixir.MyLib.Native"),
         "rustler::init! should reference Elixir.MyLib.Native; content:\n{}",
@@ -1271,14 +1244,12 @@ fn test_trailing_optional_params_emit_keyword_opts_function() {
 
     let content = &main.content;
 
-    // (a) Exactly one `def create_client` definition — not one per arity.
     let def_count = content.matches("def create_client(").count();
     assert_eq!(
         def_count, 1,
         "Should emit exactly one def create_client (keyword-opts form); got {def_count}; content:\n{content}"
     );
 
-    // (b) Keyword.get pattern for optional params.
     assert!(
         content.contains("Keyword.get(opts, :base_url)"),
         "Should emit Keyword.get(opts, :base_url); content:\n{content}"
@@ -1288,13 +1259,11 @@ fn test_trailing_optional_params_emit_keyword_opts_function() {
         "Should emit Keyword.get(opts, :timeout_secs); content:\n{content}"
     );
 
-    // (c) The `opts \\ []` default is present in the function signature.
     assert!(
         content.contains("opts \\\\ []"),
         "Should emit opts \\\\ [] default argument; content:\n{content}"
     );
 
-    // (d) Required param is positional, not keyword.
     assert!(
         content.contains("def create_client(api_key, opts"),
         "Required param api_key must be positional; content:\n{content}"
@@ -1364,7 +1333,6 @@ fn test_defstruct_string_fields_default_to_nil() {
 
     let content = &struct_file.content;
 
-    // (c) defstruct fields must default to nil, not "".
     assert!(
         !content.contains(": \"\""),
         "defstruct String fields must not default to \"\"; content:\n{content}"
@@ -1436,7 +1404,6 @@ fn render_native_ex(functions: Vec<FunctionDef>) -> String {
 #[test]
 fn test_native_ex_emits_single_line_doc_above_nif_stub() {
     let content = render_native_ex(vec![make_function_with_doc("convert", "Convert markup conversion.")]);
-    // Single-line doc → `@doc "..."` directly above the def, no blank between them.
     assert!(
         content.contains("  @doc \"Convert markup conversion.\"\n  def convert"),
         "Single-line @doc must attach directly to its def; content:\n{content}"
@@ -1468,12 +1435,10 @@ fn test_native_ex_omits_doc_when_function_has_no_rustdoc() {
         .find(|line| !line.trim().is_empty())
         .unwrap_or_default();
 
-    // No @doc attached to the generated NIF stub when the source function has no doc.
     assert!(
         !previous_non_blank_line.trim_start().starts_with("@doc"),
         "Native module must not emit @doc when the source has no rustdoc; content:\n{content}"
     );
-    // Stub itself is still emitted.
     assert!(
         content.contains("  def convert"),
         "Stub must still be present; content:\n{content}"
@@ -1483,7 +1448,6 @@ fn test_native_ex_omits_doc_when_function_has_no_rustdoc() {
 #[test]
 fn test_native_ex_escapes_quotes_in_single_line_doc() {
     let content = render_native_ex(vec![make_function_with_doc("convert", "Quote: \"hi\" and slash: \\.")]);
-    // Both double-quotes and backslashes must be escaped inside the "..." form.
     assert!(
         content.contains("  @doc \"Quote: \\\"hi\\\" and slash: \\\\.\"\n"),
         "Embedded \" and \\ must be escaped in single-line @doc; content:\n{content}"
@@ -1494,7 +1458,6 @@ fn test_native_ex_escapes_quotes_in_single_line_doc() {
 fn test_native_ex_breaks_triple_quote_in_multiline_doc() {
     let doc = "Example:\n\"\"\"\ncode\n\"\"\"";
     let content = render_native_ex(vec![make_function_with_doc("convert", doc)]);
-    // Triple-quote sequences inside the body must be broken so they don't close the heredoc.
     assert!(
         !content.contains("\n  \"\"\"\n  code"),
         "Embedded \\\"\\\"\\\" must not survive verbatim and close the heredoc early; content:\n{content}"
@@ -1511,8 +1474,6 @@ fn test_native_ex_separates_consecutive_docced_stubs_with_blank_line() {
         make_function_with_doc("first", "First."),
         make_function_with_doc("second", "Second."),
     ]);
-    // Two single-line def blocks with @doc must be separated by exactly one blank line
-    // (mix format requires the @doc-block to be visually distinct).
     assert!(
         content.contains("  def first, do: :erlang.nif_error(:nif_not_loaded)\n\n  @doc \"Second.\"\n  def second"),
         "Consecutive docced stubs must have a blank line separator; content:\n{content}"
@@ -1524,7 +1485,6 @@ fn test_native_ex_separates_consecutive_docced_stubs_with_blank_line() {
 #[test]
 fn test_wrapper_module_doc_uses_full_first_paragraph_summary() {
     let backend = RustlerBackend;
-    // Two-line summary that wraps across physical lines (rustdoc convention).
     let doc = "Convert markup conversion, returning\na ConversionResult.\n\n# Arguments\n\n* `html` - Input.";
     let api = ApiSurface {
         crate_name: "my-lib".to_string(),
@@ -1764,7 +1724,6 @@ fn error_methods_emit_matching_native_ex_stubs() {
     };
     let config = make_config("demo");
 
-    // Rust NIF emission side
     let bindings = backend.generate_bindings(&api, &config).unwrap();
     let lib_rs = bindings
         .iter()
@@ -1776,7 +1735,6 @@ fn error_methods_emit_matching_native_ex_stubs() {
         "Rust NIF status_code shim missing — test premise broken:\n{rust_content}"
     );
 
-    // Matching Elixir Native stub side — the actual fix.
     let public = backend.generate_public_api(&api, &config).unwrap();
     let native_ex = public
         .iter()
@@ -1808,16 +1766,13 @@ fn error_methods_emit_matching_native_ex_stubs() {
 fn opaque_static_constructor_wraps_return_in_struct() {
     let backend = RustlerBackend;
 
-    // Create an opaque type with a static `new` constructor that returns Self.
     let opaque_type = TypeDef {
         name: "RouteBuilder".to_string(),
         rust_path: "sample::RouteBuilder".to_string(),
         original_rust_path: String::new(),
         fields: vec![],
         methods: vec![
-            // Static constructor that returns Self
             make_static_method("new", TypeRef::Named("RouteBuilder".to_string())),
-            // Instance method that uses the wrapped struct
             MethodDef {
                 name: "handler_name".into(),
                 params: vec![ParamDef {
@@ -1901,36 +1856,22 @@ fn opaque_static_constructor_wraps_return_in_struct() {
         .expect("route_builder.ex must be generated");
     let content = &ex_file.content;
 
-    // Static `new` must return a wrapped struct, not raw reference
     assert!(
         content.contains("def new do") || content.contains("def new("),
         "new method not found in:\n{content}"
     );
 
-    // The key assertion: `new` wraps the NIF result in the struct
     assert!(
         content.contains("ref = Native.routebuilder_new(") && content.contains("%__MODULE__{ref: ref}"),
         "static constructor `new` must wrap NIF result in struct; got:\n{content}"
     );
 
-    // Instance method `handler_name` unpacks obj.ref for the NIF call
     assert!(
         content.contains("def handler_name(obj, name) do")
             && content.contains("Native.routebuilder_handler_name(obj.ref, name)"),
         "instance method handler_name must unpack obj.ref; got:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Typed host surface for plugin trait bridges
-// ---------------------------------------------------------------------------
-//
-// A plugin-pattern bridge (one with a `register_*` function) emits a typed,
-// host-implementable Elixir behaviour: one `@callback` per trait method with
-// typed params and return. This is the Rustler analog of the pyo3 plugin
-// `Protocol`. The runtime args reach the host as a NATIVE Erlang term map
-// carried in `{:trait_call, method, args_map, reply_id}` (built via
-// `Term::map_new`/`map_put`, no `Jason.decode`); the reply stays JSON.
 
 fn make_plugin_bridge_trait() -> TypeDef {
     TypeDef {
@@ -2005,7 +1946,6 @@ fn test_plugin_bridge_emits_typed_host_behaviour() {
         .expect("main module file should be generated");
     let content = &main.content;
 
-    // Typed, host-implementable behaviour with one @callback per trait method.
     assert!(
         content.contains("defmodule Greeter.Host do"),
         "plugin bridge must emit a typed host behaviour module; got:\n{content}"
@@ -2015,7 +1955,6 @@ fn test_plugin_bridge_emits_typed_host_behaviour() {
         "behaviour @callback must type the struct param and the result; got:\n{content}"
     );
 
-    // register_* delegate references the behaviour for the host to implement.
     assert!(
         content.contains("def register_greeter(genserver_pid, plugin_name, implemented_methods \\\\ []) do")
             && content.contains("Greeter.Host"),
@@ -2025,8 +1964,6 @@ fn test_plugin_bridge_emits_typed_host_behaviour() {
 
 #[test]
 fn test_visitor_bridge_does_not_emit_host_behaviour() {
-    // A bridge with no `register_*` function (visitor/options-field style) keeps
-    // its prior surface and must NOT get a typed host behaviour.
     let backend = RustlerBackend;
     let api = make_plugin_bridge_api();
     let mut config = make_config("my_lib");
@@ -2055,10 +1992,6 @@ fn test_visitor_bridge_does_not_emit_host_behaviour() {
 
 #[test]
 fn test_trait_behaviour_callback_params_are_maps_with_optional_callbacks() {
-    // Callback direction: the bridge hands the host a native Erlang map for struct
-    // params — the input-direction "config as optional JSON string" convention must
-    // not leak into @callback specs. Rust-defaulted methods and the lifecycle hooks
-    // are @optional_callbacks.
     let backend = RustlerBackend;
 
     let ocr_config = TypeDef {
@@ -2143,9 +2076,6 @@ fn test_trait_behaviour_callback_params_are_maps_with_optional_callbacks() {
 
 #[test]
 fn test_register_nif_stub_has_implemented_methods_parameter() {
-    // Verifies that the NIF stub for register_* has the correct arity: pid, name, implemented_methods.
-    // This is critical for the on_load callback to succeed: the Elixir stub arity must match
-    // the Rust NIF signature, or rustler-precompiled fails with `:bad_lib`.
     let backend = RustlerBackend;
     let api = ApiSurface {
         crate_name: "my-lib".to_string(),
@@ -2181,9 +2111,6 @@ fn test_register_nif_stub_has_implemented_methods_parameter() {
         })
         .expect("native.ex should be generated");
 
-    // The NIF stub must include _pid, _name, AND _implemented_methods parameters.
-    // Arity must be 3 to match the Rust NIF signature:
-    // pub fn register_ocr_backend(env, genserver_pid: LocalPid, plugin_name: String, implemented_methods: Vec<String>) -> Atom
     assert!(
         native
             .content

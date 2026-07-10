@@ -6,11 +6,6 @@ pub(in crate::backends::rustler::gen_bindings) fn json_encode_param_indices(
     opaque_types: &AHashSet<String>,
     default_types: &AHashSet<String>,
 ) -> AHashSet<usize> {
-    // The NIF side (`sync_functions.rs::gen_nif_function`) marshals every
-    // default-typed `Named` param and every `Vec<Named>` whose inner is a
-    // *non-opaque* struct as `Option<String>` JSON. The wrapper must mirror
-    // that exact predicate, otherwise structured DTOs reach the NIF as raw
-    // Erlang terms and Rustler raises `ArgumentError`.
     params
         .iter()
         .enumerate()
@@ -135,7 +130,6 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
         return String::new();
     };
     if enum_def.serde_untagged {
-        // Untagged enums have no discriminator — skip.
         return String::new();
     }
 
@@ -145,28 +139,21 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
     let mut out = String::with_capacity(1024);
     let mut first_clause = true;
 
-    // No `@doc` on `defp` — Elixir warns on @doc attached to private functions.
-    // The clauses below collectively define the encoder; no function head is needed
-    // because none of the clauses use default arguments.
-
     for variant in &enum_def.variants {
         if variant.binding_excluded {
             continue;
         }
         let atom = pascal_to_snake(&variant.name);
         let wire = wire_variant_value(&variant.name, variant.serde_rename.as_deref(), rename_all);
-        // Escape any quotes in the wire name (defensive — serde wire names are usually safe).
         let wire_escaped = wire.replace('\\', "\\\\").replace('"', "\\\"");
 
         if variant.fields.is_empty() {
-            // Unit variant: accept both bare atom and tuple form with an empty/any map.
             if !first_clause {
                 out.push('\n');
             }
             out.push_str(&format!(
                 "  defp {fn_name}(:{atom}), do: %{{\"{tag}\" => \"{wire_escaped}\"}}\n"
             ));
-            // Blank line between the two unit variant clauses (atom form vs tuple form).
             out.push('\n');
             out.push_str(&format!(
                 "  defp {fn_name}({{:{atom}, _}}), do: %{{\"{tag}\" => \"{wire_escaped}\"}}\n"
@@ -175,11 +162,7 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
             continue;
         }
 
-        // Struct variant: build a per-variant field-rename branch.
-        // Map each known Rust snake_case key to its serde wire name.
-        // Field-level rename_all on variants is not currently captured in the IR — only
         // explicit `#[serde(rename = "...")]` per field is honored. Unknown keys are
-        // passed through as their string form, preserving forwards compatibility.
         if !first_clause {
             out.push('\n');
         }
@@ -193,8 +176,6 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
                 continue;
             }
             let wire_field = wire_field_name(&field.name, field.serde_rename.as_deref(), None);
-            // Only emit a rename arm when the Rust ident differs from the wire form;
-            // otherwise the catch-all `Atom.to_string` already does the right thing.
             if wire_field != field.name {
                 let wire_field_escaped = wire_field.replace('\\', "\\\\").replace('"', "\\\"");
                 out.push_str(&format!("          :{} -> \"{}\"\n", field.name, wire_field_escaped));
@@ -210,12 +191,10 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
         first_clause = false;
     }
 
-    // Map passthrough: caller already produced a wire-shaped map.
     if !first_clause {
         out.push('\n');
     }
     out.push_str(&format!("  defp {fn_name}(%{{}} = m), do: m\n"));
-    // Error path: anything else is a programming error — be loud about it.
     out.push('\n');
     out.push_str(&format!(
         "  defp {fn_name}(other),\n    do: raise(ArgumentError, \"expected {} (atom, {{atom, map}}, or map), got: \" <> inspect(other))\n\n",

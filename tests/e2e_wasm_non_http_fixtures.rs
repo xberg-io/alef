@@ -95,13 +95,11 @@ fn wasm_codegen_emits_extract_file_call_for_non_http_fixture() {
 
     let body = &smoke.content;
 
-    // Function-call fixture is rendered, not a stub or skip.
     assert!(body.contains("extractFile"), "expected extractFile call, got:\n{body}");
     assert!(
         body.contains("await extractFile"),
         "extract_file is async — generated call must await, got:\n{body}"
     );
-    // Imports the wasm package, not the npm node package.
     let imports_wasm_pkg = body.contains("from 'mylib-wasm'")
         || body.contains("from \"mylib-wasm\"")
         || body.contains("import('mylib-wasm')")
@@ -110,7 +108,6 @@ fn wasm_codegen_emits_extract_file_call_for_non_http_fixture() {
         imports_wasm_pkg,
         "expected import from wasm package 'mylib-wasm', got:\n{body}"
     );
-    // describe() block is for the right category and contains the fixture id.
     assert!(
         body.contains("describe('smoke'") || body.contains("describe(\"smoke\""),
         "missing describe block"
@@ -126,14 +123,11 @@ fn wasm_codegen_emits_setup_ts_when_file_path_args_are_used() {
         .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
 
-    // setup.ts must be emitted so that vitest chdir's to test_documents
-    // before tests run, otherwise relative file paths fail to resolve.
     assert!(
         files.iter().any(|f| f.path.ends_with("setup.ts")),
         "setup.ts must be generated when any active fixture has a file_path arg"
     );
 
-    // vitest config wires it up.
     let vitest = files
         .iter()
         .find(|f| f.path.ends_with("vitest.config.ts"))
@@ -154,8 +148,6 @@ fn wasm_codegen_skips_globalsetup_when_no_http_fixtures() {
         .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
 
-    // Without any HTTP fixtures, we must not emit globalSetup.ts (which spawns
-    // the rust mock-server). vitest config must also not reference it.
     assert!(
         !files.iter().any(|f| f.path.ends_with("globalSetup.ts")),
         "globalSetup.ts must not be generated when no HTTP fixtures are in scope"

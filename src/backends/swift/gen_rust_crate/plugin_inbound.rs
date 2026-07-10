@@ -72,8 +72,6 @@ mod tests {
 
     #[test]
     fn test_inbound_bridge_type_optional_vec_named() {
-        // Optional<Vec<Named>> should become Option<Vec<String>>
-        // because Named types are JSON-bridged (String) at inbound boundaries.
         let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named(
             "MyCustomType".to_string(),
         )))));
@@ -87,7 +85,6 @@ mod tests {
 
     #[test]
     fn test_inbound_bridge_type_optional_named() {
-        // Option<Named> should become just String due to line 34 special case.
         let ty = TypeRef::Optional(Box::new(TypeRef::Named("MyStruct".to_string())));
 
         let result = inbound_bridge_type(&ty);
@@ -99,8 +96,6 @@ mod tests {
 
     #[test]
     fn test_inbound_bridge_type_vec_string_in_optional() {
-        // Option<Vec<String>> should remain Option<Vec<String>>
-        // because String is a leaf type that's already bridge-safe.
         let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::String))));
 
         let result = inbound_bridge_type(&ty);
@@ -112,8 +107,6 @@ mod tests {
 
     #[test]
     fn test_inbound_bridge_type_map_named_string() {
-        // Map<Named, String> should become HashMap<String, String>
-        // because Named keys are JSON-bridged (String).
         let ty = TypeRef::Map(
             Box::new(TypeRef::Named("KeyType".to_string())),
             Box::new(TypeRef::String),
@@ -128,7 +121,6 @@ mod tests {
 
     #[test]
     fn test_inbound_bridge_type_vec_u8() {
-        // Vec<u8> (Bytes) is a leaf type that passes through unchanged.
         let ty = TypeRef::Vec(Box::new(TypeRef::Bytes));
 
         let result = inbound_bridge_type(&ty);
@@ -137,7 +129,6 @@ mod tests {
 
     #[test]
     fn test_inbound_bridge_type_vec_named() {
-        // Vec<Named> should become Vec<String> because the inner Named is JSON-bridged.
         let ty = TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string())));
 
         let result = inbound_bridge_type(&ty);

@@ -77,7 +77,6 @@ impl TypeMapper for DartMapper {
                 return typed.to_string();
             }
         }
-        // Fallback to default trait dispatch for everything else.
         match ty {
             TypeRef::Primitive(p) => self.primitive(p).into_owned(),
             TypeRef::String | TypeRef::Char => self.string().into_owned(),
@@ -94,8 +93,6 @@ impl TypeMapper for DartMapper {
     }
 
     fn error_wrapper(&self) -> &str {
-        // Dart has no native `Result` type; Stage 2B emits a sealed-class
-        // `Result<T, E>` (Ok/Err freezed-style variants) and replaces this placeholder.
         "Result"
     }
 }
@@ -138,7 +135,6 @@ mod tests {
 
     #[test]
     fn test_primitive_integers_all_map_to_int() {
-        // Dart has a single `int` type for all integer widths.
         assert_eq!(DartMapper.primitive(&PrimitiveType::U8), "int");
         assert_eq!(DartMapper.primitive(&PrimitiveType::I8), "int");
         assert_eq!(DartMapper.primitive(&PrimitiveType::U16), "int");

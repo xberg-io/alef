@@ -86,10 +86,6 @@ fn swift_sources(files: &[alef::core::backend::GeneratedFile]) -> Vec<&alef::cor
         .iter()
         .filter(|f| {
             let path = f.path.to_string_lossy();
-            // Exclude Package.swift — SwiftPM manifests are not matched by
-            // typical `swift-format` hook regexes (the demo-markup hook
-            // is scoped to `packages/swift/.*\.swift$`, not e2e) and don't
-            // need the ignore directive; only Test sources do.
             path.ends_with(".swift") && !path.ends_with("Package.swift")
         })
         .collect()
@@ -132,7 +128,6 @@ fn ignore_directive_appears_immediately_after_alef_header() {
     let files = render_files();
     for file in swift_sources(&files) {
         let mut lines = file.content.lines();
-        // The alef header is a contiguous block of `// ...` comments at the top.
         let mut header_lines = 0;
         for line in lines.by_ref() {
             if line.starts_with("//") {

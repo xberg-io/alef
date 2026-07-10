@@ -29,8 +29,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type(
     core_import: &str,
     type_def: &crate::core::ir::TypeDef,
 ) -> (String, String) {
-    // Legacy signature without feature gating info — used by tests and legacy callers.
-    // For actual WASM backend generation, use gen_input_dto_for_type_with_cfg.
     gen_input_dto_for_type_with_cfg(
         type_name,
         core_import,
@@ -59,26 +57,17 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type_with_cfg(
     let input_name = format!("{}Input", type_name);
     let core_path = format!("{}::{}", core_import, type_name);
 
-    // Map fields from the real struct definition.
-    // All DTO fields are Option<T> so JS may omit them. The template assigns
-    // each present field into the core type via the per-field `conv` expression
-    // (in terms of the bound variable `v`), respecting the core type's Default
-    // for omitted fields.
     let fields: Vec<_> = crate::codegen::shared::binding_fields(&type_def.fields)
         .map(|f| {
             let field_references_excluded = field_references_excluded_type(&f.ty, exclude_types);
             let field_cfg = f.cfg.as_deref();
 
-            // Check if this field's cfg condition is satisfied by the enabled features
             let cfg_satisfied = if let Some(cfg_str) = field_cfg {
                 cfg_condition_enabled(cfg_str, enabled_features)
             } else {
                 true
             };
 
-            // Detect fields whose Named type does not derive serde::Deserialize
-            // (trait objects, type aliases over `dyn Trait`, opaque handles).
-            // Optional<Named> unwraps to Named for this check.
             let inner_ty = match &f.ty {
                 crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
                 other => other,
@@ -88,9 +77,6 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type_with_cfg(
                 crate::core::ir::TypeRef::Named(name) if non_deserializable_type_names.contains(name)
             );
 
-            // Fields whose type is excluded OR whose cfg is not satisfied OR whose type
-            // is a non-deserializable opaque handle are skipped: they appear in the DTO
-            // struct for symmetry, but are not deserialized from JS.
             let is_skipped = field_references_excluded || !cfg_satisfied || field_references_non_deserializable;
 
             let dto_ty = format!("Option<{}>", type_ref_to_dto_type(&f.ty, core_import));
@@ -184,10 +170,6 @@ pub(super) fn type_ref_to_dto_type(ty: &crate::core::ir::TypeRef, core_import: &
 /// of `.into()`, which doesn't impl for the target type.
 pub(super) fn dto_field_conversion(ty: &crate::core::ir::TypeRef, sanitized: bool, optional: bool) -> String {
     use crate::core::ir::TypeRef;
-    // When the core field is `Option<T>`, the conversion expression must produce
-    // `Option<T>` (not `T`). For `.into()`-based conversions this is papered over
-    // by the blanket `Option<T>: From<T>` impl, but for `collect()` and explicit
-    // constructors there is no such conversion — wrap the result in `Some(...)`.
     let wrap_optional = |expr: &str| -> String {
         if optional {
             format!("Some({expr})")
@@ -198,17 +180,8 @@ pub(super) fn dto_field_conversion(ty: &crate::core::ir::TypeRef, sanitized: boo
     match ty {
         TypeRef::Duration => "Into::into(std::time::Duration::from_millis(v))".to_string(),
         TypeRef::Path => "Into::into(std::path::PathBuf::from(v))".to_string(),
-        // Char: binding uses String, core uses char — take the first character.
         TypeRef::Char => "Into::into(v.chars().next().unwrap_or('\\0'))".to_string(),
-        TypeRef::String if sanitized => {
-            // Sanitized String field: the core type is a structured type (e.g., ParseOptions)
-            // serialized as JSON. Deserialize instead of using .into().
-            "serde_json::from_str(&v).unwrap_or_default()".to_string()
-        }
-        // Vec<T>: the core field may be a Set (HashSet, AHashSet, BTreeSet) which has no
-        // `From<Vec<T>>` impl. Leave `collect()` target-inferred from the core field so
-        // Vec and set assignments both compile. When the core field is `Option<Vec<T>>`,
-        // wrap in `Some(...)` so the assignment matches the target type.
+        TypeRef::String if sanitized => "serde_json::from_str(&v).unwrap_or_default()".to_string(),
         TypeRef::Vec(_) => wrap_optional("v.into_iter().collect()"),
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)) => {
             "v.map(|items| items.into_iter().collect())".to_string()

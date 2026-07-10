@@ -123,7 +123,6 @@ fn struct_fields_emit_zig_doc_comments_above_declaration() {
         "threshold field doc missing:\n{content}"
     );
     assert!(content.contains(label_doc), "label field doc missing:\n{content}");
-    // Each doc must precede its field declaration.
     let threshold_doc_pos = content.find(threshold_doc).unwrap();
     let threshold_field_pos = content.find("threshold:").unwrap();
     assert!(

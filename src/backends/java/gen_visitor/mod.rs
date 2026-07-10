@@ -25,10 +25,6 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::ApiSurface;
 use heck::ToSnakeCase;
 
-// ---------------------------------------------------------------------------
-// Public API: generate visitor-related Java source files
-// ---------------------------------------------------------------------------
-
 /// Returns `(filename, content)` pairs for visitor-related Java files when metadata is complete.
 ///
 /// Callers push these into the `files` vector in `generate_bindings`.

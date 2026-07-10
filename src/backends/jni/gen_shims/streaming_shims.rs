@@ -14,7 +14,6 @@ fn emit_streaming_shims(
     let stream_handle_type = format!("{type_name}{adapter_pascal}StreamHandle");
     let adapter_method = adapter.name.replace('-', "_");
 
-    // Determine item type path.
     let item_type = adapter
         .item_type
         .as_deref()
@@ -66,7 +65,3 @@ fn emit_streaming_shims(
         },
     ));
 }
-
-// ---------------------------------------------------------------------------
-// Return type helpers
-// ---------------------------------------------------------------------------

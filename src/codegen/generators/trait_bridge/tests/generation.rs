@@ -36,10 +36,6 @@ fn test_gen_bridge_wrapper_struct_contains_cached_name() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// gen_bridge_plugin_impl
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_gen_bridge_plugin_impl_returns_none_when_no_super_trait() {
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
@@ -127,10 +123,6 @@ fn test_gen_bridge_plugin_impl_contains_shutdown_fn() {
     assert!(result.contains("fn shutdown("), "missing shutdown() in:\n{result}");
 }
 
-// ---------------------------------------------------------------------------
-// gen_bridge_trait_impl
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_gen_bridge_trait_impl_includes_impl_header() {
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
@@ -213,7 +205,6 @@ fn test_gen_bridge_trait_impl_async_method_uses_async_body() {
 
 #[test]
 fn test_gen_bridge_trait_impl_filters_trait_source_methods() {
-    // Methods with trait_source set come from super-traits and should be excluded
     let methods = vec![
         make_method("own_method", vec![], TypeRef::String, false, false, None, None),
         make_method(
@@ -287,10 +278,6 @@ fn test_gen_bridge_trait_impl_return_type_with_error() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// gen_bridge_registration_fn
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_gen_bridge_registration_fn_returns_none_without_register_fn() {
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
@@ -314,10 +301,6 @@ fn test_gen_bridge_registration_fn_returns_some_with_register_fn() {
         "missing register fn name in:\n{code}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// gen_bridge_all
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_gen_bridge_all_includes_imports() {
@@ -451,10 +434,6 @@ fn test_gen_bridge_all_ordering_struct_before_trait_impl() {
     assert!(struct_pos < impl_pos, "struct should appear before trait impl");
 }
 
-// ---------------------------------------------------------------------------
-// Defaulted-method forwarding (gen_method_presence_check hook)
-// ---------------------------------------------------------------------------
-
 /// Mock generator that opts in to defaulted-method forwarding.
 struct MockForwardingGenerator;
 
@@ -580,9 +559,6 @@ fn default_delegates_route_other_methods_back_through_bridge() {
         code.contains("struct PyOcrBackendBridgeDefaultSupportsTableDetection<'a>(&'a PyOcrBackendBridge);"),
         "delegate struct missing:\n{code}"
     );
-    // The delegate for supports_table_detection must forward every OTHER own method to the
-    // bridge (so the default body's `self.*` calls see host overrides) and must NOT override
-    // supports_table_detection itself (so the genuine Rust default body runs).
     let delegate_impl_start = code
         .find("impl mylib::OcrBackend for PyOcrBackendBridgeDefaultSupportsTableDetection<'_>")
         .expect("delegate trait impl missing");
@@ -603,7 +579,6 @@ fn default_delegates_route_other_methods_back_through_bridge() {
         !delegate_impl_end.contains("fn supports_table_detection"),
         "delegate must not override its own method:\n{delegate_impl_end}"
     );
-    // Plugin super-trait must be forwarded so default bodies can call lifecycle/name methods.
     assert!(
         code.contains("impl mylib::Plugin for PyOcrBackendBridgeDefaultSupportsTableDetection<'_>"),
         "delegate must forward the Plugin super-trait:\n{code}"

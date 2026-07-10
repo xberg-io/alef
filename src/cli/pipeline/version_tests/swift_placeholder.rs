@@ -19,16 +19,12 @@ fn sync_versions_reapplies_swift_version_placeholder_after_scaffold_regen() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let root = tmp.path();
 
-    // Setup Cargo.toml with version 1.5.0
     std::fs::write(
         root.join("Cargo.toml"),
         "[workspace.package]\nversion = \"1.5.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
     )
     .expect("write Cargo.toml");
 
-    // Create a root Package.swift with the version placeholder.
-    // This simulates what scaffold_swift emits — the file with __ALEF_SWIFT_VERSION__
-    // so it stays stable across VCS and version bumps.
     let initial_pkg = concat!(
         "// swift-tools-version: 6.0\n",
         "import PackageDescription\n",
@@ -45,7 +41,6 @@ fn sync_versions_reapplies_swift_version_placeholder_after_scaffold_regen() {
     );
     std::fs::write(root.join("Package.swift"), initial_pkg).expect("write initial Package.swift");
 
-    // Create a Swift binding crate directory and Cargo.toml so the swift binding check passes.
     let swift_crate_dir = root.join("crates/rustlib-swift");
     std::fs::create_dir_all(&swift_crate_dir).expect("mkdir crates/rustlib-swift");
     std::fs::write(
@@ -54,8 +49,6 @@ fn sync_versions_reapplies_swift_version_placeholder_after_scaffold_regen() {
     )
     .expect("write swift crate Cargo.toml");
 
-    // Create a scaffold template that will be used when regen runs.
-    // This simulates the template that scaffold_swift would write back.
     let scaffold_dir = root.join("src/scaffold/templates/swift");
     std::fs::create_dir_all(&scaffold_dir).expect("mkdir scaffold template dir");
     std::fs::write(
@@ -77,9 +70,6 @@ fn sync_versions_reapplies_swift_version_placeholder_after_scaffold_regen() {
     )
     .expect("write scaffold template");
 
-    // Write alef.toml with swift configured.
-    // regenerate_scaffold_after_sync will run when no_regen=false (the default),
-    // regardless of e2e config, since scaffold emission doesn't depend on e2e.
     let alef_toml = format!(
         concat!(
             "[workspace]\n",
@@ -98,24 +88,18 @@ fn sync_versions_reapplies_swift_version_placeholder_after_scaffold_regen() {
     let mut resolved = cfg.resolve().expect("resolve config");
     let resolved_cfg = resolved.remove(0);
 
-    // Call sync_versions with no_regen=false (the default), which triggers scaffold regen.
-    // This is the key test scenario: scaffold regen will write back the placeholder,
-    // then the second-pass substitution must fix it.
     std::env::set_current_dir(root).expect("set_current_dir");
     let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions must succeed");
 
-    // Read the final Package.swift.
     let final_pkg = std::fs::read_to_string(root.join("Package.swift")).expect("read final Package.swift");
 
-    // The URL must contain the resolved version v1.5.0, NOT the placeholder.
     assert!(
         final_pkg.contains("v1.5.0"),
         "Package.swift must contain resolved version v1.5.0, got:\n{final_pkg}"
     );
 
-    // The placeholder must be completely gone.
     assert!(
         !final_pkg.contains("v__ALEF_SWIFT_VERSION__"),
         "Package.swift must not contain the literal placeholder v__ALEF_SWIFT_VERSION__, got:\n{final_pkg}"

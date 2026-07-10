@@ -79,7 +79,6 @@ pub fn run(options: MigrateOptions) -> Result<()> {
 
     let mut doc = content.parse::<DocumentMut>().with_context(|| "Failed to parse TOML")?;
 
-    // Check if already migrated
     if doc.get("workspace").is_some() || doc.get("crates").is_some() {
         return Err(anyhow!(
             "Config already uses new schema (found [workspace] or [[crates]]). Skipping migration."
@@ -88,24 +87,20 @@ pub fn run(options: MigrateOptions) -> Result<()> {
 
     let mut workspace_table = table();
 
-    // Extract the singular [crate] table (becomes the first [[crates]] entry)
     let legacy_crate = doc.remove("crate");
 
-    // Extract version (top-level) -> workspace.alef_version
     if let Some(version) = doc.remove("version") {
         if let Some(ws_tbl) = workspace_table.as_table_mut() {
             ws_tbl["alef_version"] = version;
         }
     }
 
-    // Extract languages (top-level) -> workspace.languages
     if let Some(languages) = doc.remove("languages") {
         if let Some(ws_tbl) = workspace_table.as_table_mut() {
             ws_tbl["languages"] = languages;
         }
     }
 
-    // Move workspace-scoped keys
     for key in WORKSPACE_SCOPED_KEYS {
         if let Some(value) = doc.remove(key) {
             if let Some(ws_tbl) = workspace_table.as_table_mut() {
@@ -114,11 +109,6 @@ pub fn run(options: MigrateOptions) -> Result<()> {
         }
     }
 
-    // Build the crate table. Start by copying the legacy [crate] scalars and
-    // sub-tables into a freshly-created table — this resets per-item position
-    // metadata so toml_edit serializes them in insertion order rather than
-    // their original document positions, which would otherwise produce an
-    // invalid two-`[[crates]]` document when language tables are appended.
     let had_legacy_crate = legacy_crate.is_some();
     let mut crate_table = table();
     if let Some(legacy_item) = &legacy_crate {
@@ -129,8 +119,6 @@ pub fn run(options: MigrateOptions) -> Result<()> {
         }
     }
 
-    // Move crate-scoped keys (each becomes a `[crates.X]` sub-table after the
-    // legacy scalars).
     for key in CRATE_SCOPED_KEYS {
         if let Some(value) = doc.remove(key) {
             if let Some(cr_tbl) = crate_table.as_table_mut() {
@@ -139,7 +127,6 @@ pub fn run(options: MigrateOptions) -> Result<()> {
         }
     }
 
-    // Move array-of-tables keys (each becomes `[[crates.X]]`).
     for key in CRATE_SCOPED_ARRAY_KEYS {
         if let Some(value) = doc.remove(key) {
             if let Some(cr_tbl) = crate_table.as_table_mut() {
@@ -148,9 +135,6 @@ pub fn run(options: MigrateOptions) -> Result<()> {
         }
     }
 
-    // Count moved keys for summary (before doc assignment moves the tables).
-    // Iterate the underlying Table directly (Item::get exists but its semantics
-    // are easy to confuse with Table::get — pin to the table type to be safe).
     let mut workspace_count = 0;
     let mut crate_count = 0;
 
@@ -168,9 +152,6 @@ pub fn run(options: MigrateOptions) -> Result<()> {
     }
 
     let cr_inner = crate_table.as_table().expect("crate_table is a Table");
-    // The promoted [crate] block itself counts as one moved item: it's the
-    // identity (name/sources/...) that the legacy schema kept separate from
-    // the per-language tables.
     if had_legacy_crate {
         crate_count += 1;
     }
@@ -185,16 +166,12 @@ pub fn run(options: MigrateOptions) -> Result<()> {
         }
     }
 
-    // Insert workspace section if it has content
     if let Some(ws_tbl) = workspace_table.as_table() {
         if !ws_tbl.is_empty() {
             doc["workspace"] = workspace_table;
         }
     }
 
-    // Insert crates as array-of-tables: serializes as `[[crates]]`, not `[crates]`.
-    // The single-table form would deserialize as `crates: RawCrateConfig` (singular)
-    // and fail the new schema's `crates: Vec<RawCrateConfig>` shape.
     let mut crates_array = ArrayOfTables::new();
     let crate_inner = crate_table
         .into_table()
@@ -273,7 +250,6 @@ fn strip_position(mut item: toml_edit::Item) -> toml_edit::Item {
 /// mid-write cannot corrupt the original. Symlinks are rejected because
 /// a rename over a symlink would silently redirect to the link's target.
 fn atomic_write(dest: &std::path::Path, content: &str) -> Result<()> {
-    // Reject symlinks — rename over a symlink would write to the link target.
     let meta = dest.symlink_metadata();
     if let Ok(m) = meta {
         if m.file_type().is_symlink() {
@@ -294,7 +270,6 @@ fn atomic_write(dest: &std::path::Path, content: &str) -> Result<()> {
         std::process::id()
     ));
 
-    // Write to temp, then atomically rename.
     let write_result =
         std::fs::write(&tmp_path, content).with_context(|| format!("failed to write temp file {}", tmp_path.display()));
 
@@ -367,15 +342,12 @@ sources = []
 "#;
 
         let output = migrate_toml(input, true)?;
-        // Must emit array-of-tables form so the new schema parses it as
-        // `crates: Vec<RawCrateConfig>` (not a singular table).
         assert!(
             output.contains("[[crates]]"),
             "expected `[[crates]]` (array-of-tables), got:\n{output}"
         );
         assert!(output.contains("name = \"foo\""));
         assert!(!output.contains("[crate]\n"), "leftover singular [crate] section");
-        // Round-trip: the migrated TOML must parse as the new schema.
         let parsed: toml::Value = toml::from_str(&output)?;
         let crates = parsed
             .get("crates")
@@ -450,9 +422,6 @@ sources = []
 
         let output = migrate_toml(input, true)?;
         assert!(output.contains("alef_version = \"0.13.0\""));
-        // Old top-level `version = ` key should be removed (must not appear at the
-        // start of any line). We scan line-prefixes rather than substring-matching
-        // to avoid spuriously matching `alef_version = `.
         for line in output.lines() {
             let trimmed = line.trim_start();
             assert!(
@@ -477,7 +446,6 @@ core_path = "sample_router::handle_request"
 core_path = "sample_router::shutdown"
 "#;
         let output = migrate_toml(input, true)?;
-        // Adapters must remain an array of tables, now nested under crates.
         let parsed: toml::Value = toml::from_str(&output)?;
         let crates = parsed
             .get("crates")
@@ -492,7 +460,6 @@ core_path = "sample_router::shutdown"
             adapters[0].get("core_path").and_then(|v| v.as_str()),
             Some("sample_router::handle_request")
         );
-        // The original top-level `[[adapters]]` must be gone.
         assert!(parsed.get("adapters").is_none(), "leftover top-level [[adapters]]");
         Ok(())
     }
@@ -513,7 +480,6 @@ core_path = "sample_router::shutdown"
             err.contains("symlink"),
             "error message should mention symlink, got: {err}"
         );
-        // Original file must be untouched.
         assert_eq!(fs::read_to_string(&real_file)?, "original");
         Ok(())
     }

@@ -22,8 +22,6 @@ fn make_param(name: &str, ty: TypeRef, is_ref: bool, is_mut: bool, optional: boo
 
 #[test]
 fn is_mut_named_opaque_emits_mut_inner() {
-    // Regression: opaque handle parameter with is_mut=true must produce &mut name.inner,
-    // not &name.inner (which would fail when core fn takes &mut T).
     let p = make_param(
         "result",
         TypeRef::Named("ExtractionResult".to_string()),
@@ -42,8 +40,6 @@ fn is_mut_named_opaque_emits_mut_inner() {
 
 #[test]
 fn is_mut_named_from_emits_mut_borrow() {
-    // Regression: Named param with types_needing_from_conversion and is_mut=true
-    // must produce &mut CoreTy::from(name).
     let p = make_param(
         "cfg",
         TypeRef::Named("TranslationConfig".to_string()),
@@ -65,8 +61,6 @@ fn is_mut_named_from_emits_mut_borrow() {
 
 #[test]
 fn is_mut_named_transmute_emits_mut_transmute() {
-    // Regression: Named param with transmute path and is_mut=true must produce
-    // a mutable transmute, not an immutable one.
     let p = make_param("config", TypeRef::Named("MyConfig".to_string()), false, true, false);
     let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
     let needs_from: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -85,8 +79,6 @@ fn is_mut_named_transmute_emits_mut_transmute() {
 
 #[test]
 fn vec_named_is_ref_emits_slice_not_raw_pointer() {
-    // Regression: Vec<Named> with is_ref=true must produce a &[CoreT] slice via
-    // slice::from_raw_parts, not a raw *const CoreT pointer.
     let p = make_param(
         "categories",
         TypeRef::Vec(Box::new(TypeRef::Named("PiiCategory".to_string()))),
@@ -103,9 +95,6 @@ fn vec_named_is_ref_emits_slice_not_raw_pointer() {
         expr.contains("from_raw_parts"),
         "Vec<Named> is_ref must use slice::from_raw_parts, got: {expr}"
     );
-    // The result must be a &[T] slice, not a bare *const pointer.
-    // The transmute internally uses *const for type punning, but the outer
-    // expression must be a slice via from_raw_parts.
     assert!(
         expr.contains(".len()"),
         "Vec<Named> is_ref must include .len() for slice bounds, got: {expr}"
@@ -114,8 +103,6 @@ fn vec_named_is_ref_emits_slice_not_raw_pointer() {
 
 #[test]
 fn collect_in_return_transmute_vec_has_type_annotation() {
-    // Regression: collect() in Vec<Named> return conversion must use collect::<Vec<_>>()
-    // so Rust can infer the target type without E0282.
     let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ty = TypeRef::Vec(Box::new(TypeRef::Named("QrCode".to_string())));
     let transform = return_transform(&ty, "mylib", &std::collections::HashMap::new(), &opaque, false);
@@ -131,10 +118,6 @@ fn collect_in_return_transmute_vec_has_type_annotation() {
 
 #[test]
 fn vec_named_return_transform_is_suffix_not_closure_call() {
-    // Regression (clippy 1.95 redundant_closure_call): Vec<Named> return MUST be
-    // emitted as a suffix expression (`.into_iter().map(X::from).collect::<Vec<_>>()`)
-    // applied directly to the call, NOT a closure literal wrapping the call site
-    // (e.g. `(|v: Vec<_>| v.into_iter().map(X::from).collect::<Vec<_>>())(call)`).
     let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ty = TypeRef::Vec(Box::new(TypeRef::Named("QrCode".to_string())));
     let transform = return_transform(&ty, "mylib", &std::collections::HashMap::new(), &opaque, false);
@@ -162,9 +145,6 @@ fn vec_named_return_transform_is_suffix_not_closure_call() {
 
 #[test]
 fn vec_named_returns_ref_emits_iter_not_into_iter() {
-    // Regression (clippy 1.95 into_iter_on_ref): when the core fn returns &[T]
-    // (e.g. `&'static [&'static str]`), the bridge must use `.iter()`, NOT
-    // `.into_iter()` (which on &[T] is the same but triggers the lint).
     let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ty = TypeRef::Vec(Box::new(TypeRef::Named("Foo".to_string())));
     let transform = return_transform(&ty, "mylib", &std::collections::HashMap::new(), &opaque, true);
@@ -182,8 +162,6 @@ fn vec_named_returns_ref_emits_iter_not_into_iter() {
 
 #[test]
 fn option_named_return_transform_is_suffix_not_closure_call() {
-    // Regression: Option<Named> return must be emitted as `.map(X::from)` suffix,
-    // not `(|v: Option<_>| v.map(X::from))(call)`.
     let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ty = TypeRef::Optional(Box::new(TypeRef::Named("EmbeddingPreset".to_string())));
     let transform = return_transform(&ty, "mylib", &std::collections::HashMap::new(), &opaque, false);
@@ -206,12 +184,9 @@ fn option_named_return_transform_is_suffix_not_closure_call() {
 
 #[test]
 fn scalar_named_return_transform_does_not_emit_closure_call() {
-    // Sync, no-error, scalar Named return: must NOT emit `(closure)(call)`.
-    // Bare-path form: `MirrorName::from(call)`. Opaque form: `MirrorName { inner: call }`.
     let mut opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ty_named = TypeRef::Named("Foo".to_string());
 
-    // From-conversion path.
     let t = return_transform(&ty_named, "mylib", &std::collections::HashMap::new(), &opaque, false);
     let body = build_body("sample_crate::foo()", "", &t, false, false, false);
     assert!(
@@ -220,7 +195,6 @@ fn scalar_named_return_transform_does_not_emit_closure_call() {
     );
     assert!(!body.contains("(Foo::from)("), "must not use (path)(expr) wrap: {body}");
 
-    // Opaque-wrap path.
     opaque.insert("Foo".to_string());
     let t = return_transform(&ty_named, "mylib", &std::collections::HashMap::new(), &opaque, false);
     let body = build_body("sample_crate::foo()", "", &t, false, false, false);
@@ -233,8 +207,6 @@ fn scalar_named_return_transform_does_not_emit_closure_call() {
 
 #[test]
 fn path_vec_result_cast_uses_to_string_lossy() {
-    // Regression: Vec<Path> result cast must use .to_string_lossy().into_owned()
-    // because PathBuf does not implement Display.
     let ty = TypeRef::Vec(Box::new(TypeRef::Path));
     let cast = build_primitive_result_cast(&ty, false);
     assert!(
@@ -249,11 +221,6 @@ fn path_vec_result_cast_uses_to_string_lossy() {
 
 #[test]
 fn vec_string_returns_ref_result_cast_uses_iter_not_into_iter() {
-    // Regression (clippy 1.95 into_iter_on_ref): when the core fn returns
-    // `&'static [&'static str]` returned by a generated bridge function,
-    // the result cast must use `.iter()` not `.into_iter()`. This is the
-    // suffix path (no mirror transform), so `build_primitive_result_cast`
-    // is responsible.
     let ty = TypeRef::Vec(Box::new(TypeRef::String));
     let cast_owned = build_primitive_result_cast(&ty, false);
     let cast_ref = build_primitive_result_cast(&ty, true);
@@ -270,8 +237,6 @@ fn vec_string_returns_ref_result_cast_uses_iter_not_into_iter() {
 
 #[test]
 fn scalar_path_result_cast_uses_display_not_to_string() {
-    // Regression: scalar Path return cast must use .display().to_string()
-    // not .to_string() because PathBuf does not implement Display.
     let ty = TypeRef::Path;
     let cast = build_primitive_result_cast(&ty, false);
     assert!(cast.contains("display()"), "Path cast must use .display(): {cast}");
@@ -280,13 +245,10 @@ fn scalar_path_result_cast_uses_display_not_to_string() {
 
 #[test]
 fn unit_return_no_error_emits_statement_not_expression() {
-    // Bug 1 fix: Unit return without error_type must emit statement (with semicolon),
-    // not expression, to avoid implicit () return. This prevents clippy's `unused_unit` warning.
     let transform = RetTransform::None;
     let body_sync = build_body("sample_crate::clear()", "", &transform, false, false, true);
     let body_async = build_body("sample_crate::clear()", "", &transform, false, true, true);
 
-    // Sync version should have semicolon.
     assert!(
         body_sync.contains("sample_crate::clear();"),
         "unit return without error must emit semicolon in sync fn: {body_sync}"
@@ -296,7 +258,6 @@ fn unit_return_no_error_emits_statement_not_expression() {
         "unit return must NOT have semicolon-less expression: {body_sync}"
     );
 
-    // Async version should have semicolon after await.
     assert!(
         body_async.contains("sample_crate::clear().await;"),
         "unit return without error must emit semicolon in async fn: {body_async}"
@@ -305,30 +266,22 @@ fn unit_return_no_error_emits_statement_not_expression() {
 
 #[test]
 fn bool_to_bool_cast_skipped_redundant() {
-    // Bug 2 fix: bool -> bool cast should be skipped (redundant cast warning).
-    // build_primitive_result_cast must check if source and target types are identical.
     let ty = TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool);
     let cast = build_primitive_result_cast(&ty, false);
 
-    // The cast should be empty because bool -> bool is redundant.
     assert_eq!(cast, "", "bool->bool cast must be empty (redundant), got: '{cast}'");
 }
 
 #[test]
 fn non_matching_primitive_cast_preserved() {
-    // Verify that casts for non-bool primitives are still emitted when needed.
-    // In FRB, all integers map to i64 and floats map to f64.
-    // A cast is redundant only when source and target types are identical.
     let ty_i64 = TypeRef::Primitive(crate::core::ir::PrimitiveType::I64);
     let cast_i64 = build_primitive_result_cast(&ty_i64, false);
 
-    // i64 → i64 is redundant and should be empty.
     assert_eq!(
         cast_i64, "",
         "i64->i64 cast must be empty (redundant), got: '{cast_i64}'"
     );
 
-    // For F64, FRB maps it to f64, so f64 -> f64 is redundant.
     let ty_f64 = TypeRef::Primitive(crate::core::ir::PrimitiveType::F64);
     let cast_f64 = build_primitive_result_cast(&ty_f64, false);
     assert_eq!(

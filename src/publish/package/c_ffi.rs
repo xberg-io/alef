@@ -30,7 +30,6 @@ pub fn package_c_ffi(
     let pkg_name = format!("{crate_name}-ffi-v{version}-{platform}");
     let staging = output_dir.join(&pkg_name);
 
-    // Clean and create staging dirs.
     if staging.exists() {
         fs::remove_dir_all(&staging)?;
     }
@@ -39,29 +38,24 @@ pub fn package_c_ffi(
     fs::create_dir_all(&lib_dir)?;
     fs::create_dir_all(&include_dir)?;
 
-    // Copy shared library.
     let shared_lib = target.shared_lib_name(&lib_name);
     let shared_src = super::find_built_artifact(workspace_root, target, &shared_lib)?;
     let shared_dst = lib_dir.join(&shared_lib);
     fs::copy(&shared_src, &shared_dst)?;
 
-    // Fix macOS dylib install_name from absolute build path to @rpath-relative.
     super::util::fix_macos_dylib_id(target, &shared_dst, &shared_lib)?;
 
-    // Copy static library (optional — might not exist).
     let static_lib = target.static_lib_name(&lib_name);
     if let Ok(static_src) = super::find_built_artifact(workspace_root, target, &static_lib) {
         fs::copy(&static_src, lib_dir.join(&static_lib))?;
     }
 
-    // Copy header.
     let ffi_crate_dir = crate::publish::ffi_stage::find_ffi_crate_dir_pub(config, workspace_root);
     let header_src = ffi_crate_dir.join("include").join(&header_name);
     if header_src.exists() {
         fs::copy(&header_src, include_dir.join(&header_name))?;
     }
 
-    // Generate pkg-config .pc file.
     let pub_config = publish_lang_config(config);
     if pub_config.pkg_config.unwrap_or(true) {
         let pkgconfig_dir = staging.join("share/pkgconfig");
@@ -70,7 +64,6 @@ pub fn package_c_ffi(
         fs::write(pkgconfig_dir.join(format!("{crate_name}.pc")), pc_content)?;
     }
 
-    // Generate CMake find module.
     if pub_config.cmake_config.unwrap_or(true) {
         let cmake_dir = staging.join("lib/cmake").join(crate_name);
         fs::create_dir_all(&cmake_dir)?;
@@ -92,12 +85,10 @@ pub fn package_c_ffi(
         }
     }
 
-    // Create tarball.
     let archive_name = format!("{pkg_name}.tar.gz");
     let archive_path = output_dir.join(&archive_name);
     super::create_tar_gz(&staging, &archive_path)?;
 
-    // Clean up staging.
     let _ = fs::remove_dir_all(&staging);
 
     Ok(PackageArtifact {

@@ -99,7 +99,6 @@ fn trait_bridge_tests_are_async_and_await_calls() {
         .generate(&fixtures, &e2e_config, &resolved_config, &[], &[])
         .expect("generates without error");
 
-    // Find the test file among generated files.
     let test_file = generated
         .iter()
         .find(|f| f.path.components().any(|component| component.as_os_str() == "tests"))
@@ -107,7 +106,6 @@ fn trait_bridge_tests_are_async_and_await_calls() {
 
     let content = &test_file.content;
 
-    // Verify the test function is async
     assert!(
         content.contains("it(\"register_my_backend_trait_bridge"),
         "test name not found"
@@ -117,13 +115,11 @@ fn trait_bridge_tests_are_async_and_await_calls() {
         "test function should be async when it contains trait bridge args"
     );
 
-    // Verify the call is awaited
     assert!(
         content.contains("await registerMyBackend"),
         "call to register function should be awaited"
     );
 
-    // Verify the test stub class exists
     assert!(
         content.contains("_TestStub_register_my_backend_trait_bridge"),
         "test stub class should be generated"

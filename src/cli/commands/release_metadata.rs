@@ -73,7 +73,6 @@ impl ReleaseMetadata {
         map.insert("release_targets".to_string(), json!(self.release_targets));
         map.insert("release_any".to_string(), json!(self.release_any));
 
-        // Per-target boolean flags.
         for target in ALL_RELEASE_TARGETS {
             let key = format!("release_{}", target.replace('-', "_"));
             let enabled = self.targets.get(*target).copied().unwrap_or(false);
@@ -102,29 +101,23 @@ pub fn compute(
     force_republish: bool,
     config: Option<&ResolvedCrateConfig>,
 ) -> Result<ReleaseMetadata> {
-    // Validate tag format.
     if !tag.starts_with('v') {
         anyhow::bail!("Tag must start with 'v' (got: {tag})");
     }
     let version = tag.trim_start_matches('v').to_string();
 
-    // Resolve ref.
     let resolved_ref = resolve_ref(tag, git_ref, event);
     let (checkout_ref, target_sha) = resolve_checkout(&resolved_ref);
     let matrix_ref = resolve_matrix_ref(&resolved_ref);
     let is_tag = resolved_ref.starts_with("refs/tags/");
 
-    // Prerelease detection.
     let is_prerelease = is_prerelease_version(&version);
     let npm_tag = if is_prerelease { "next" } else { "latest" }.to_string();
 
-    // Resolve valid targets (from config or hardcoded list).
     let valid_targets: HashSet<&str> = ALL_RELEASE_TARGETS.iter().copied().collect();
 
-    // Parse requested targets.
     let enabled = parse_targets(targets_csv, &valid_targets)?;
 
-    // homebrew implies cli.
     let mut enabled = enabled;
     if enabled.get("homebrew").copied().unwrap_or(false) {
         enabled.insert("cli".to_string(), true);
@@ -146,8 +139,6 @@ pub fn compute(
 
     let release_any = !enabled_list.is_empty();
 
-    // Include any extra targets from config languages that aren't in ALL_RELEASE_TARGETS.
-    // (Forward-looking for when new languages are added to alef.toml.)
     if let Some(cfg) = config {
         let _extra_langs: Vec<String> = cfg
             .languages
@@ -155,7 +146,6 @@ pub fn compute(
             .map(|l| l.to_string())
             .filter(|l| !valid_targets.contains(l.as_str()))
             .collect();
-        // release metadata currently omits release_* flags for dynamically discovered languages.
     }
 
     Ok(ReleaseMetadata {
@@ -179,14 +169,12 @@ pub fn compute(
 fn resolve_ref(tag: &str, git_ref: Option<&str>, event: &str) -> String {
     if let Some(r) = git_ref {
         if !r.is_empty() {
-            // If the caller passed just a tag name without refs/ prefix, normalise.
             if r == tag {
                 return format!("refs/tags/{tag}");
             }
             if r.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) && r.starts_with('v')
                 || r.chars().all(|c| c.is_ascii_hexdigit()) && r.len() == 40
             {
-                // Looks like a SHA or a bare version tag.
                 return r.to_string();
             }
             if !r.starts_with("refs/") {
@@ -195,13 +183,11 @@ fn resolve_ref(tag: &str, git_ref: Option<&str>, event: &str) -> String {
             return r.to_string();
         }
     }
-    // Default: all events produce a tag ref.
     let _ = event;
     format!("refs/tags/{tag}")
 }
 
 fn resolve_checkout(git_ref: &str) -> (String, String) {
-    // Full SHA (40 hex chars).
     if git_ref.len() == 40 && git_ref.chars().all(|c| c.is_ascii_hexdigit()) {
         return ("refs/heads/main".to_string(), git_ref.to_string());
     }
@@ -243,7 +229,6 @@ fn parse_targets(csv: &str, valid: &HashSet<&str>) -> Result<std::collections::H
         }
         let normalised = normalise_target(&t);
         if normalised == "none" {
-            // Disable all.
             for &vt in valid {
                 enabled.insert(vt.to_string(), false);
             }
@@ -374,22 +359,15 @@ mod tests {
 
     #[test]
     fn targets_normalisation() {
-        // csharp aliases
         assert_eq!(normalise_target("dotnet"), "csharp");
         assert_eq!(normalise_target("nuget"), "csharp");
-        // go aliases
         assert_eq!(normalise_target("golang"), "go");
-        // c-ffi aliases
         assert_eq!(normalise_target("cffi"), "c-ffi");
         assert_eq!(normalise_target("c_ffi"), "c-ffi");
-        // dart aliases
         assert_eq!(normalise_target("flutter"), "dart");
         assert_eq!(normalise_target("pub"), "dart");
-        // swift aliases
         assert_eq!(normalise_target("spm"), "swift");
-        // kotlin aliases
         assert_eq!(normalise_target("kt"), "kotlin");
-        // kotlin-android aliases (separate target from kotlin/JVM; uses JNI native libs)
         assert_eq!(normalise_target("kotlin-android"), "kotlin-android");
         assert_eq!(normalise_target("kotlin_android"), "kotlin-android");
         assert_eq!(normalise_target("android"), "kotlin-android");

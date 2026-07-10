@@ -18,16 +18,12 @@ pub(super) fn emit_function(
 ) {
     use crate::backends::dart::template_env;
 
-    // Host-native capsule (Language-passthrough) types: when a function returns a
-    // configured capsule type, emit the passthrough wrapper instead of the standard
-    // opaque-handle wrapper.
     if let Some(cap) = capsule_return_config(f, capsule_types) {
         emit_capsule_function(f, prefix, cap, out);
         return;
     }
 
     if f.is_async {
-        // Unsupported: dart:ffi async requires Isolate plumbing; deferred for Phase 3b.
         out.push_str(&template_env::render(
             "ffi_async_todo.jinja",
             minijinja::context! {
@@ -59,7 +55,6 @@ pub(super) fn emit_function(
     let c_symbol = format!("{prefix}_{}", f.name);
     let fn_name = public_host_identifier(Language::Dart, PublicIdentifierKind::Function, &f.name);
 
-    // Emit the native and Dart typedef pair.
     let native_params: Vec<String> = f.params.iter().map(native_param_type).collect();
     let native_return = native_return_type(&f.return_type);
     let dart_params: Vec<String> = f.params.iter().map(dart_callable_type).collect();
@@ -96,7 +91,6 @@ pub(super) fn emit_function(
         },
     ));
 
-    // Emit the public wrapper function.
     let dart_wrapper_params: Vec<String> = f.params.iter().map(dart_wrapper_param).collect();
     let wrapper_return = dart_public_return(&f.return_type);
 
@@ -109,12 +103,10 @@ pub(super) fn emit_function(
         },
     ));
 
-    // Allocate native strings for each string parameter.
     for p in &f.params {
         emit_param_alloc(p, out);
     }
 
-    // Build the C call argument list.
     let call_args: Vec<String> = f.params.iter().map(call_arg_name).collect();
     let call_args_str = call_args.join(", ");
 
@@ -230,10 +222,8 @@ fn emit_capsule_function(
     let c_symbol = format!("{prefix}_{}", f.name);
     let fn_name = public_host_identifier(Language::Dart, PublicIdentifierKind::Function, &f.name);
 
-    // Capsule functions return the raw pointer type; no parameters other than scalars/strings
-    // are expected in practice. Build the native and Dart typedef pair.
     let native_params: Vec<String> = f.params.iter().map(native_param_type).collect();
-    let native_return = "Pointer<Void>".to_string(); // C returns `const TSLanguage *`
+    let native_return = "Pointer<Void>".to_string();
     let dart_params: Vec<String> = f.params.iter().map(dart_callable_type).collect();
     let dart_return = "Pointer<Void>".to_string();
 
@@ -268,10 +258,8 @@ fn emit_capsule_function(
         },
     ));
 
-    // Emit the public wrapper function.
     let dart_wrapper_params: Vec<String> = f.params.iter().map(dart_wrapper_param).collect();
 
-    // Return type: use the configured host_type, or fall back to Pointer<Void>.
     let wrapper_return = if cap.host_type.is_empty() {
         "Pointer<Void>?".to_string()
     } else {
@@ -287,12 +275,10 @@ fn emit_capsule_function(
         },
     ));
 
-    // Allocate native strings for each string parameter.
     for p in &f.params {
         emit_param_alloc(p, out);
     }
 
-    // Build the C call argument list.
     let call_args: Vec<String> = f.params.iter().map(call_arg_name).collect();
     let call_args_str = call_args.join(", ");
 
@@ -306,8 +292,6 @@ fn emit_capsule_function(
 
     emit_param_free_all(&f.params, out);
 
-    // Guard the null pointer (grammar not found) and return the host Language.
-    // The {ptr} placeholder receives the raw C pointer; the default returns it unchanged.
     let default_construct = "Pointer<Void>.fromAddress(_result.address)";
     let construct = cap.construct("_result", default_construct);
     out.push_str("  if (_result == null || _result.address == 0) return null;\n");
@@ -404,7 +388,6 @@ mod tests {
         );
         let mut out = String::new();
         emit_function(&f, "tsp", "", "", &capsule_types, &mut out);
-        // With empty host_type and construct_expr, should use the default: Pointer<Void>.fromAddress
         assert!(
             out.contains("Pointer<Void>?"),
             "empty host_type should default to Pointer<Void>?"

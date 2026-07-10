@@ -20,17 +20,14 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             pipeline::init(config_path, lang.clone())?;
             eprintln!("  Created alef.toml");
 
-            // Load the generated config and bootstrap the project
             let (_workspace, resolved) = load_config(config_path)?;
             let resolved_cfg = &resolved[0];
             let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
             let base_dir = std::env::current_dir()?;
 
-            // Extract API surface
             let api = pipeline::extract(resolved_cfg, config_path, false)?;
             let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
 
-            // Generate bindings
             eprintln!("  Generating bindings...");
             let bindings = pipeline::generate(&api, resolved_cfg, &languages, false, config_path)?;
             let mut binding_count: usize = 0;
@@ -43,7 +40,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 binding_count += pipeline::write_files(&single, &base_dir)?;
             }
 
-            // Scaffold package manifests and lint configs
             eprintln!("  Generating scaffolding...");
             let scaffold_files = pipeline::scaffold(&api, resolved_cfg, &languages, config_path)?;
             let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
@@ -51,19 +47,14 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 all_paths.insert(base_dir.join(&file.path));
             }
 
-            // Format generated code by shelling out to the `poly` CLI when
-            // --format is requested. Best-effort: a poly error never aborts init.
             if format {
                 eprintln!("  Formatting...");
                 pipeline::format_generated(&bindings, resolved_cfg, &base_dir, None);
             }
 
-            // Finalise per-file hashes after formatting.
             let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
             pipeline::finalize_hashes(&all_paths, &sources_hash, &alef_toml_bytes)?;
 
-            // Wire poly's git hooks from the scaffolded poly.toml. Best-effort,
-            // idempotent; a no-op until the project is a git repository.
             pipeline::install_poly_hooks(&base_dir);
 
             println!("Initialized: {binding_count} binding files, {scaffold_count} scaffold files");
@@ -96,12 +87,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
         Commands::E2e { action } => {
             let (_workspace, resolved) = load_config(config_path)?;
             let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
-            // E2e operates on per-crate e2e config. Use first crate that has an
-            // e2e section, or error if none has one. For multi-crate workspaces,
-            // all crates with an e2e section are processed in the loop below.
-            // The action dispatch still uses the first crate's e2e config for
-            // non-Generate actions (Init, Scaffold, List, Validate) since those
-            // are fixture-directory operations.
             let resolved_cfg = crates_to_process
                 .iter()
                 .find(|c| c.e2e.is_some())
@@ -134,8 +119,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             println!("E2E tests up to date (cached)");
                             continue;
                         }
-                        // When --registry is set (deprecated path), clone the e2e config
-                        // and switch to registry dependency mode.
                         let effective_e2e_config;
                         let e2e_ref = if registry {
                             let mut cloned = this_e2e_config.clone();
@@ -161,16 +144,8 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
                         pipeline::finalize_hashes(&path_set, &sources_hash, &alef_toml_bytes)?;
 
-                        // Sweep orphan alef-generated files scoped to effective_output() of
-                        // the current mode — local mode sweeps e2e/, registry mode sweeps
-                        // test_apps/. This prevents each mode from deleting the other's files.
                         let e2e_output_root = base_dir.join(e2e_ref.effective_output());
                         let sweep_roots: Vec<PathBuf> = if lang.is_some() {
-                            // Derive sweep roots from the top-level subdirectories of the
-                            // e2e output root that appear in the generated file set.  Each
-                            // generator writes into `<output>/<lang>/`, so taking the first
-                            // two path components relative to the e2e root gives us the
-                            // per-language directory.
                             let mut seen = std::collections::HashSet::new();
                             for path in &output_paths {
                                 if let Ok(rel) = path.strip_prefix(&e2e_output_root) {
@@ -227,11 +202,9 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     let fixtures_dir = std::path::Path::new(&e2e_config.fixtures);
                     eprintln!("Validating fixtures in {}...", fixtures_dir.display());
 
-                    // Schema validation
                     let mut all_errors = crate::e2e::validate::validate_fixtures(fixtures_dir)
                         .with_context(|| format!("failed to validate fixtures from {}", fixtures_dir.display()))?;
 
-                    // Semantic validation
                     let fixtures = crate::e2e::fixture::load_fixtures(fixtures_dir)
                         .with_context(|| format!("failed to load fixtures from {}", fixtures_dir.display()))?;
                     let semantic_errors =
@@ -265,7 +238,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 .find(|c| c.e2e.is_some())
                 .copied()
                 .unwrap_or_else(|| crates_to_process[0]);
-            // Validate that at least one crate has an [e2e] section.
             let _ = _resolved_cfg.e2e.as_ref().context("no [e2e] section in alef.toml")?;
             match action {
                 TestAppsAction::Generate {
@@ -282,15 +254,11 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             continue;
                         };
 
-                        // Build a registry-mode clone of the e2e config.
                         let mut registry_config = this_e2e_config.clone();
                         registry_config.dep_mode = crate::core::config::e2e::DependencyMode::Registry;
                         let e2e_ref = &registry_config;
                         let output_root = base_dir.join(e2e_ref.effective_output());
 
-                        // --clean: delete the per-language directories before regen.
-                        // Preserve lock files (go.sum, go.mod is regenerated, etc.) — generators
-                        // should not own dependency lock files.
                         if clean {
                             let langs_to_clean: Vec<String> = lang
                                 .as_deref()
@@ -310,7 +278,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             for lang_name in &langs_to_clean {
                                 let lang_dir = output_root.join(lang_name);
                                 if lang_dir.exists() {
-                                    // Save lock files before deletion
                                     let mut saved_locks = std::collections::HashMap::new();
                                     for lock_file in &lock_files {
                                         let lock_path = lang_dir.join(lock_file);
@@ -324,7 +291,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                     std::fs::remove_dir_all(&lang_dir)
                                         .with_context(|| format!("failed to remove {}", lang_dir.display()))?;
 
-                                    // Restore lock files after deletion
                                     std::fs::create_dir_all(&lang_dir)
                                         .with_context(|| format!("failed to recreate {}", lang_dir.display()))?;
                                     for (lock_path, content) in saved_locks {
@@ -354,11 +320,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                         let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
-                        // Regenerate pnpm-lock.yaml for each language's test app if
-                        // package.json was written in registry mode (Node.js ecosystem).
-                        // This ensures the lockfile contains the current version pin and
-                        // won't fail `pnpm install` with ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION
-                        // when the RC is < 24h old (observed on rc.60).
                         let generated_langs: Vec<String> = languages
                             .map(|ls| ls.iter().map(|s| s.to_string()).collect())
                             .unwrap_or_else(|| e2e_ref.languages.clone());
@@ -368,8 +329,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                 let package_json = test_app_dir.join("package.json");
                                 if package_json.exists() {
                                     eprintln!("Regenerating {}/pnpm-lock.yaml...", lang_name);
-                                    // run_optional gracefully handles missing pnpm and logs on failure.
-                                    // Not all environments have pnpm, but CI and local dev setups do.
                                     run_optional(
                                         "pnpm",
                                         &[
@@ -391,7 +350,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
                         pipeline::finalize_hashes(&path_set, &sources_hash, &alef_toml_bytes)?;
 
-                        // Sweep orphans scoped to test_apps/ only — never touches e2e/.
                         let sweep_roots: Vec<PathBuf> = if lang.is_some() {
                             let mut seen = std::collections::HashSet::new();
                             for path in &output_paths {

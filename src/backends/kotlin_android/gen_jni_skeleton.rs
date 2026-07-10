@@ -29,7 +29,6 @@ pub fn emit(config: &ResolvedCrateConfig, aar_root: &Path) -> Vec<GeneratedFile>
         })
         .collect::<Vec<_>>();
 
-    // Emit host-jni test resource directories for each supported platform.
     for platform in HOST_PLATFORMS {
         files.push(GeneratedFile {
             path: aar_root

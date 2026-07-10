@@ -135,12 +135,6 @@ fn make_function(name: &str, return_type: TypeRef) -> FunctionDef {
 
 #[test]
 fn extendr_emits_from_core_for_types_in_return_values() {
-    // Bug: when a function returns a struct that contains fields referencing
-    // nested types (e.g., Bar inside Foo), the nested types don't get From<core::T>
-    // and TryFrom<Robj> impls generated, causing compilation errors.
-    //
-    // Fix: collect all types reachable from return values and emit conversions for them.
-
     let bar = make_type("Bar", vec![make_field("value", TypeRef::String)]);
     let foo = make_type("Foo", vec![make_field("bar", TypeRef::Named("Bar".to_string()))]);
 
@@ -163,7 +157,6 @@ fn extendr_emits_from_core_for_types_in_return_values() {
         .expect("generation succeeds");
     let content = &files[0].content;
 
-    // Both Foo and Bar should have From<core::T> impls since Bar is referenced from Foo's return type
     assert!(
         content.contains("impl From<test_lib::Foo> for Foo"),
         "Foo should have From<core::Foo> impl: {content}"
@@ -176,9 +169,6 @@ fn extendr_emits_from_core_for_types_in_return_values() {
 
 #[test]
 fn extendr_emits_conversions_for_vec_named_struct_in_return() {
-    // Bug: Vec<NamedStruct> in return types doesn't get TryFrom<Robj> impl.
-    // Fix: emit a dedicated TryFrom<Robj> for Vec<Item> types.
-
     let item = make_type("Item", vec![make_field("id", TypeRef::Primitive(PrimitiveType::U32))]);
     let container = make_type(
         "Container",
@@ -207,7 +197,6 @@ fn extendr_emits_conversions_for_vec_named_struct_in_return() {
         .expect("generation succeeds");
     let content = &files[0].content;
 
-    // Both Container and Item should have conversion impls
     assert!(
         content.contains("impl From<test_lib::Container> for Container"),
         "Container should have From<core::Container> impl: {content}"
@@ -220,29 +209,19 @@ fn extendr_emits_conversions_for_vec_named_struct_in_return() {
 
 #[test]
 fn extendr_emits_conversions_for_struct_variant_enum_payloads() {
-    // Bug: enum variants with struct fields (not tuple) don't get proper conversion impls
-    // for the payload types when the enum is in a return type.
-    //
-    // Example: enum Result { Ok(Value), Err { code: u32, message: String } }
-    // The struct variant Err has code/message fields that may not get converted.
-
     let value_type = make_type("Value", vec![make_field("data", TypeRef::String)]);
 
     let result_enum = make_enum(
         "Result",
         vec![
-            make_variant(
-                "Ok",
-                vec![make_field("_0", TypeRef::Named("Value".to_string()))],
-                true, // tuple variant
-            ),
+            make_variant("Ok", vec![make_field("_0", TypeRef::Named("Value".to_string()))], true),
             make_variant(
                 "Err",
                 vec![
                     make_field("code", TypeRef::Primitive(PrimitiveType::U32)),
                     make_field("message", TypeRef::String),
                 ],
-                false, // struct variant
+                false,
             ),
         ],
     );
@@ -266,13 +245,11 @@ fn extendr_emits_conversions_for_struct_variant_enum_payloads() {
         .expect("generation succeeds");
     let content = &files[0].content;
 
-    // Value should have conversion impls since it's in an enum variant used in return
     assert!(
         content.contains("impl From<test_lib::Value> for Value"),
         "Value should have From<core::Value> impl (nested in enum variant): {content}"
     );
 
-    // Result enum should have conversion impl
     assert!(
         content.contains("impl From<test_lib::Result> for Result")
             || content.contains("impl From<Result> for test_lib::Result"),

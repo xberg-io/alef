@@ -67,10 +67,6 @@ pub(super) fn resolve_visitor_generation(
         );
         return None;
     };
-    // The first field of the context record is the node-type discriminant. The C ABI delivers
-    // it as a raw `int`; the Java record constructor expects the typed enum, so we capture the
-    // enum's Java name here and pass it to the VisitorBridge template for `Enum.values()[i]`
-    // conversion. Falls back to None (plain int) when the first field isn't a Named enum.
     let node_type_enum = context_type_def.fields.first().and_then(|field| match &field.ty {
         TypeRef::Named(name) if api.enums.iter().any(|e| e.name == *name) => Some(name.clone()),
         _ => None,
@@ -162,11 +158,6 @@ fn gen_visit_result(package: &str, visitor: &VisitorGeneration) -> String {
 
 fn gen_visitor_interface(package: &str, visitor: &VisitorGeneration) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    // Scan callback parameter types so we know which java.util.* imports the interface needs.
-    // Generic markers (`List<`, `Map<`) on `ExtraParam.java_type` are the simplest reliable
-    // detector — Rust trait params like `&[String]` lower to `List<String>` and `&BTreeMap<K, V>`
-    // to `Map<K, V>` in the generated Java signature. Missing imports produce javac
-    // `cannot find symbol: class List` / `class Map`.
     let mut needs_list_import = false;
     let mut needs_map_import = false;
     for spec in &visitor.callbacks {
@@ -226,17 +217,15 @@ fn wrap_java_file(package: &str, imports: Vec<String>, content: String) -> Strin
 fn gen_visitor_bridge(package: &str, visitor: &VisitorGeneration) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
 
-    let num_fields = visitor.callbacks.len() + 1; // +1 for user_data
+    let num_fields = visitor.callbacks.len() + 1;
     let num_callbacks = visitor.callbacks.len();
 
-    // Build stub_calls list: which registerStubsN method to call at each step
     let num_chunks = visitor.callbacks.chunks(CHUNK_SIZE).count();
     let mut stub_calls = Vec::new();
     for i in 1..=num_chunks {
         stub_calls.push(format!("registerStubs{i}(offset)"));
     }
 
-    // Build stub_methods: the actual method implementations as a list of strings
     let mut stub_methods = Vec::new();
     for (chunk_idx, chunk) in visitor.callbacks.chunks(CHUNK_SIZE).enumerate() {
         let method_num = chunk_idx + 1;
@@ -276,7 +265,6 @@ fn gen_visitor_bridge(package: &str, visitor: &VisitorGeneration) -> String {
         stub_methods.push(method);
     }
 
-    // Build handle_methods: one per callback as a list of strings
     let mut handle_methods = Vec::new();
     for spec in &visitor.callbacks {
         let mut method = String::new();
@@ -824,7 +812,6 @@ pub(super) mod tests {
         assert_eq!(java_factory_name("Continue"), "continue_");
         assert_eq!(java_factory_name("Default"), "default_");
         assert_eq!(java_factory_name("Final"), "final_");
-        // Non-keyword names pass through unchanged.
         assert_eq!(java_factory_name("Skip"), "skip");
         assert_eq!(java_factory_name("PreserveHtml"), "preserveHtml");
         assert_eq!(java_factory_name("Custom"), "custom");
@@ -832,12 +819,10 @@ pub(super) mod tests {
 
     #[test]
     fn java_payload_field_name_replaces_tuple_indices() {
-        // Unnamed tuple fields ("0", "_0", "1") become the synthetic name "value".
         assert_eq!(java_payload_field_name("0"), "value");
         assert_eq!(java_payload_field_name("_0"), "value");
         assert_eq!(java_payload_field_name("1"), "value");
         assert_eq!(java_payload_field_name("_42"), "value");
-        // Named struct-variant fields pass through `to_java_name`.
         assert_eq!(java_payload_field_name("value"), "value");
         assert_eq!(java_payload_field_name("payload_text"), "payloadText");
     }

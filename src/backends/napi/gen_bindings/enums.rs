@@ -83,7 +83,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
         return gen_untagged_data_enum_as_value_wrapper(enum_def, prefix);
     }
 
-    // Simple string enum
     let napi_case = enum_def.serde_rename_all.as_deref().and_then(|s| match s {
         "snake_case" => Some("snake_case"),
         "camelCase" => Some("camelCase"),
@@ -95,8 +94,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
         _ => None,
     });
 
-    // Include js_name so NAPI-RS exports the unprefixed name to TypeScript
-    // while the Rust enum retains its JsFoo identifier internally.
     let js_name = &enum_def.name;
     let string_enum_attr = match napi_case {
         Some(case) => format!("#[napi(string_enum = \"{case}\", js_name = \"{js_name}\")]"),
@@ -108,8 +105,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
     } else {
         "#[derive(Clone)]".to_string()
     };
-    // Emit rustdoc on the enum so napi-derive forwards it to JSDoc in the .d.ts.
-    // Sanitize Rust-specific code examples so they render properly in TypeScript.
     let mut enum_doc = String::new();
     let sanitized_enum_doc = crate::codegen::doc_emission::sanitize_rust_idioms(
         &enum_def.doc,
@@ -118,7 +113,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
     crate::codegen::doc_emission::emit_rustdoc(&mut enum_doc, &sanitized_enum_doc, "");
     let mut lines: Vec<String> = Vec::new();
     if !enum_doc.is_empty() {
-        // Strip the trailing newline emit_rustdoc appends so the lines join doesn't double up.
         lines.push(enum_doc.trim_end_matches('\n').to_string());
     }
     lines.push(string_enum_attr);
@@ -126,14 +120,11 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
     lines.push(format!("pub enum {prefix}{} {{", enum_def.name));
 
     for variant in &enum_def.variants {
-        // Variant-level rustdoc → JSDoc on the corresponding TS enum member.
         let mut variant_doc = String::new();
         let sanitized_variant_doc = crate::codegen::doc_emission::sanitize_rust_idioms(
             &variant.doc,
             crate::codegen::doc_emission::DocTarget::TsDoc,
         );
-        // Further escape */ sequences that may remain to prevent JSDoc block closure.
-        // This handles cases where the sanitizer's escape is lost during rustdoc emission.
         let escaped_variant_doc = sanitized_variant_doc.replace("*/", "* /");
         crate::codegen::doc_emission::emit_rustdoc(&mut variant_doc, &escaped_variant_doc, "    ");
         if !variant_doc.is_empty() {
@@ -147,7 +138,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
 
     lines.push("}".to_string());
 
-    // Default impl for config constructor unwrap_or_default()
     if let Some(first) = enum_def.variants.first() {
         lines.push(String::new());
         lines.push("#[allow(clippy::derivable_impls)]".to_string());
@@ -218,8 +208,6 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     use crate::codegen::type_mapper::TypeMapper;
     let mapper = NapiMapper::new(prefix.to_string());
 
-    // Use the Rust serde tag as the TypeScript discriminant field name to match
-    // what the Rust deserializer expects. If no explicit tag is set, default to "type".
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let ts_discriminant = tag_field;
 
@@ -228,11 +216,8 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     } else {
         "#[derive(Clone)]"
     };
-    // Include js_name so NAPI-RS exports the unprefixed name to TypeScript.
     let js_name = &enum_def.name;
     let mut lines: Vec<String> = Vec::new();
-    // Emit rustdoc on the flattened struct so napi-derive forwards it to JSDoc.
-    // Sanitize Rust-specific code examples so they render properly in TypeScript.
     let mut enum_doc = String::new();
     let sanitized_enum_doc = crate::codegen::doc_emission::sanitize_rust_idioms(
         &enum_def.doc,
@@ -246,19 +231,14 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     lines.push(format!("#[napi(object, js_name = \"{js_name}\")]"));
     lines.push(format!("pub struct {prefix}{} {{", enum_def.name));
     lines.push(format!("    #[napi(js_name = \"{ts_discriminant}\")]"));
-    // The Rust field is `{tag_field}_tag` (e.g., `type_tag`), but the JS name is `{ts_discriminant}` (e.g., `type`).
     // serde will serialize using the Rust field name unless #[serde(rename)] is set.
     if has_serde {
         lines.push(format!("    #[serde(rename = \"{ts_discriminant}\")]"));
     }
     lines.push(format!("    pub {tag_field}_tag: String,"));
 
-    // Fields that appear in multiple variants with different Named types cannot be represented
-    // as a single concrete JsXxx type. Store them as String (JSON) instead, and convert
-    // per-variant via serde_json in the From impls.
     let mixed_named_fields = tagged_enum_mixed_named_fields(enum_def);
 
-    // Collect all unique fields across all variants (all made optional)
     let mut seen_fields: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for variant in &enum_def.variants {
         for field in &variant.fields {
@@ -267,8 +247,6 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
             }
             let field_name = tagged_enum_field_name(variant, field);
             if seen_fields.insert(field_name.clone()) {
-                // Sanitized fields and mixed-type Named fields are represented as String
-                // and converted via serde_json in From/Into impls
                 let field_type = if (field.sanitized || mixed_named_fields.contains(&field_name))
                     && matches!(&field.ty, TypeRef::Named(_))
                 {
@@ -289,8 +267,6 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
         }
     }
 
-    // For tagged enums with variants having single-tuple Named fields, add explicit variant-specific
-    // properties (not via getters, which NAPI-RS doesn't generate .d.ts for) to enable direct property access.
     enum_def.variants.iter().for_each(|v| {
         if v.fields.len() != 1 {
             return;
@@ -316,8 +292,6 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
 
     lines.push("}".to_string());
 
-    // Default impl — must include both shared variant fields and the synthesized variant-data
-    // properties so the struct literal is complete.
     let synth_fields = variant_data_field_names(enum_def);
     let default_inits: Vec<String> = seen_fields
         .iter()
@@ -334,7 +308,6 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     ));
     lines.push("}".to_string());
 
-    // For tagged enums where every non-empty variant is a single-tuple Named field, emit a
     // #[napi] impl block with per-variant getters so callers can do `.excel.sheetCount` etc.
     let _tuple_named_variants: Vec<(&crate::core::ir::EnumVariant, &str)> = enum_def
         .variants
@@ -414,7 +387,6 @@ pub(super) fn tagged_enum_binding_struct_fields<'a>(
         if sanitized_fields.contains(field_name) {
             continue;
         }
-        // All variants sharing this field name must have the same Named type
         if types.iter().all(|t| *t == types[0]) && struct_names.contains(types[0]) {
             result.insert(*field_name);
         }
@@ -486,7 +458,6 @@ mod tests {
     fn gen_tagged_enum_unit_variant_uses_kind_discriminant() {
         use crate::core::ir::{FieldDef, TypeRef};
 
-        // Create a tagged enum with both unit and tuple variants so it's treated as tagged
         let e = EnumDef {
             name: "AnnotationKind".to_string(),
             rust_path: "test::AnnotationKind".to_string(),
@@ -555,8 +526,6 @@ mod tests {
 
         let result = gen_enum(&e, "Js", true);
 
-        // The discriminant field js_name must match the Rust serde tag name so TypeScript
-        // payloads deserialize correctly in Rust. Here the serde_tag is "annotation_type".
         assert!(
             result.contains("js_name = \"annotation_type\""),
             "tagged enum must use js_name matching serde tag (annotation_type);\nactual:\n{result}"
@@ -622,8 +591,6 @@ mod tests {
 
         let result = gen_enum(&e, "Js", true);
 
-        // The variant's serde_rename must be respected at the JS boundary while Rust field names
-        // remain snake_case so generated code is warning-free.
         assert!(
             result.contains("js_name = \"fontSize\"") && result.contains("pub font_size: Option<String>"),
             "tagged enum with tuple variant must expose camelCase js_name and keep Rust snake_case;\nactual:\n{result}"
@@ -689,12 +656,10 @@ mod tests {
 
         let result = gen_enum(&e, "Js", true);
 
-        // Must include the struct variant field names.
         assert!(
             result.contains("reason"),
             "struct variant must emit field names (reason);\nactual:\n{result}"
         );
-        // Discriminant js_name must match the serde tag name (annotation_type here).
         assert!(
             result.contains("js_name = \"annotation_type\""),
             "struct variant enum must use js_name matching serde tag;\nactual:\n{result}"
@@ -757,13 +722,10 @@ mod tests {
         let result = gen_enum(&e, "", false);
         eprintln!("Generated code:\n{}\n", result);
 
-        // The variant docs should have `*/` escaped to `* /` to prevent premature
-        // JSDoc block closure in the generated TypeScript .d.ts
         assert!(
             result.contains("* /"),
             "enum variant doc must escape */ sequences:\nactual:\n{result}"
         );
-        // Verify the unescaped `*/` does not appear (except in the escaped form)
         let unescaped_count = result.matches("*/").count();
         let escaped_count = result.matches("* /").count();
         eprintln!("Unescaped */ count: {}", unescaped_count);

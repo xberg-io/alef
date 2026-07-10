@@ -49,9 +49,7 @@ _PUB_ITEM = re.compile(
     r"\s*([A-Za-z_][A-Za-z0-9_]*)",
     re.MULTILINE,
 )
-# Also pub use foo::bar; — captures the LAST identifier (re-export name)
 _PUB_USE = re.compile(r"^pub\s+use\s+[A-Za-z_:][\w:]*::([A-Za-z_][A-Za-z0-9_]*)(?:\s*;|\s+as\b)", re.MULTILINE)
-# pub use self::foo::* — captures the module name
 _PUB_USE_GLOB = re.compile(
     r"^pub\s+use\s+(?:self::|crate::)?([A-Za-z_][A-Za-z0-9_]*)(?:::[^;]*)?\s*;",
     re.MULTILINE,
@@ -84,9 +82,6 @@ def child_modules(module_dir: Path) -> set[str]:
             names.add(match.group(2))
         for match in _PUB_USE.finditer(text):
             names.add(match.group(1))
-        # `pub use foo::*` — at minimum, foo's submodule is re-exported; the
-        # names from foo aren't introspectable cheaply. The submodule scan above
-        # handles foo itself.
     return names
 
 
@@ -116,13 +111,10 @@ def rewrite_module(module_dir: Path, module_name: str) -> int:
 
     def rewrite_brace_block(match: re.Match) -> str:
         body = match.group("body")
-        # Tokenize by commas at the top level of the brace block. We assume
-        # one-line use-statements here (Rust style — multi-line braces also
-        # work because we matched on \{[^{}]*\}, no nesting).
         items = [item.strip() for item in body.split(",") if item.strip()]
         out: list[str] = []
         for item in items:
-            head = item.split("::", 1)[0].split(" ", 1)[0]  # leading ident
+            head = item.split("::", 1)[0].split(" ", 1)[0]
             if head in safe_children:
                 out.append(f"{module_name}::{item}")
             else:
@@ -144,13 +136,10 @@ def rewrite_module(module_dir: Path, module_name: str) -> int:
 
 def main() -> None:
     total = 0
-    # Top-level: adapters, codegen, core, docs, e2e, extract, publish,
-    # readme, scaffold, snippets, cli
     for entry in sorted(SRC.iterdir()):
         if not entry.is_dir():
             continue
         if entry.name == "backends":
-            # Each backend is its own former crate
             for backend in sorted(entry.iterdir()):
                 if backend.is_dir():
                     n = rewrite_module(backend, f"backends::{backend.name}")

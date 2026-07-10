@@ -30,14 +30,11 @@ pub(super) fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> 
     for p in &method.params {
         let cty = rust_to_plain_c_type(&p.ty);
         params.push(format!("{} {}", cty, p.name));
-        // Bytes params carry a companion length so the trampoline can read the full
-        // buffer without NUL-truncation (mirrors vtable.rs / call_body.rs pattern).
         if matches!(p.ty, TypeRef::Bytes) {
             params.push(format!("size_t {}_len", p.name));
         }
     }
 
-    // Determine if this is a simple primitive return
     let is_simple_primitive = matches!(
         &method.return_type,
         TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)
@@ -50,14 +47,11 @@ pub(super) fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> 
     );
 
     if is_simple_primitive {
-        // Simple primitive: only out_error parameter, return the value directly
         params.push("char** out_error".to_string());
     } else if !matches!(method.return_type, TypeRef::Unit) {
-        // Complex return type: use out_result + out_error
         params.push("char** out_result".to_string());
         params.push("char** out_error".to_string());
     } else {
-        // Unit return: only out_error
         params.push("char** out_error".to_string());
     }
 
@@ -80,7 +74,6 @@ pub(super) fn c_callback_return_type(method: &MethodDef) -> String {
     );
 
     if is_simple_primitive {
-        // Return the actual primitive type
         match &method.return_type {
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "int32_t".to_string(),
             TypeRef::Primitive(crate::core::ir::PrimitiveType::I32) => "int32_t".to_string(),
@@ -92,7 +85,6 @@ pub(super) fn c_callback_return_type(method: &MethodDef) -> String {
             _ => "int32_t".to_string(),
         }
     } else {
-        // All other types return int32_t status code (0 success, 1 error)
         "int32_t".to_string()
     }
 }
@@ -159,12 +151,12 @@ pub(super) fn rust_to_c_type(ty: &TypeRef) -> String {
         }
         TypeRef::String | TypeRef::Char | TypeRef::Path => "*C.char".to_string(),
         TypeRef::Bytes => "*C.uint8_t".to_string(),
-        TypeRef::Optional(_) => "*C.char".to_string(), // JSON-encoded
-        TypeRef::Vec(_) => "*C.char".to_string(),      // JSON-encoded
-        TypeRef::Map(_, _) => "*C.char".to_string(),   // JSON-encoded
+        TypeRef::Optional(_) => "*C.char".to_string(),
+        TypeRef::Vec(_) => "*C.char".to_string(),
+        TypeRef::Map(_, _) => "*C.char".to_string(),
         TypeRef::Unit => "C.void".to_string(),
         TypeRef::Duration => "C.uint64_t".to_string(),
-        TypeRef::Named(_) => "*C.char".to_string(), // JSON-encoded
+        TypeRef::Named(_) => "*C.char".to_string(),
         _ => "*C.char".to_string(),
     }
 }
@@ -184,9 +176,6 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             out.push('\n');
         }
         TypeRef::Bytes => {
-            // Use unsafe.Slice(ptr, len) so the full byte slice is available even
-            // when the data contains embedded NUL bytes (fixes issue #114).
-            // The companion {name}Len parameter is emitted alongside the pointer.
             let name = &param.name;
             let len_name = format!("{name}Len");
             out.push_str(&crate::backends::go::template_env::render(
@@ -199,7 +188,6 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             ));
         }
         TypeRef::Vec(_) => {
-            // Vec types unmarshal directly from JSON array
             let go_type = rust_to_go_type(&param.ty);
             out.push_str(&crate::backends::go::template_env::render(
                 "var_type_decl.jinja",
@@ -226,7 +214,6 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             out.push('\n');
         }
         TypeRef::Named(_) => {
-            // Named types (structs/config types) unmarshal directly into concrete type
             let go_type = rust_to_go_type(&param.ty);
             out.push_str(&crate::backends::go::template_env::render(
                 "var_type_decl.jinja",
@@ -241,7 +228,6 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
                     param => param.name.as_str(),
                 },
             ));
-            // Unmarshal directly into the concrete Go type
             out.push_str(&crate::backends::go::template_env::render(
                 "json_unmarshal_simple.jinja",
                 minijinja::context! {
@@ -254,7 +240,6 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             out.push('\n');
         }
         TypeRef::Map(_, _) => {
-            // Map types unmarshal as map[string]interface{}
             let go_type = rust_to_go_type(&param.ty);
             out.push_str(&crate::backends::go::template_env::render(
                 "var_type_decl.jinja",
@@ -290,7 +275,6 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             out.push('\n');
         }
         TypeRef::Optional(_) => {
-            // Optional types
             let go_type = rust_to_go_type(&param.ty);
             out.push_str(&crate::backends::go::template_env::render(
                 "var_type_decl.jinja",
@@ -326,10 +310,6 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             out.push('\n');
         }
         TypeRef::Json => {
-            // Trait-bridge fallback for binding-excluded named types. The Go-side type is
-            // `json.RawMessage`; the C-side carries the JSON payload as a NUL-terminated
-            // string. Copy the bytes through so the user gets the raw JSON document
-            // without forcing them to unmarshal into a Go type that was never emitted.
             out.push_str(&crate::backends::go::template_env::render(
                 "trampoline_raw_message_decode.jinja",
                 minijinja::context! {
@@ -343,7 +323,6 @@ pub(super) fn gen_param_conversion(out: &mut String, param: &crate::core::ir::Pa
             let cast = match p {
                 Bool => format!("{} != 0", param.name),
                 _ => {
-                    // Get the Go type for this primitive
                     let go_type = match p {
                         U8 => "uint8",
                         U16 => "uint16",

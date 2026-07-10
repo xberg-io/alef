@@ -41,29 +41,24 @@ pub fn package_go_ffi(
     fs::create_dir_all(&lib_dir)?;
     fs::create_dir_all(&include_dir)?;
 
-    // Copy shared library.
     let shared_lib = target.shared_lib_name(&lib_name);
     let shared_src = super::find_built_artifact(workspace_root, target, &shared_lib)?;
     let shared_dst = lib_dir.join(&shared_lib);
     fs::copy(&shared_src, &shared_dst)?;
 
-    // Fix macOS dylib install_name from absolute build path to @rpath-relative.
     super::util::fix_macos_dylib_id(target, &shared_dst, &shared_lib)?;
 
-    // Copy static library (optional).
     let static_lib = target.static_lib_name(&lib_name);
     if let Ok(static_src) = super::find_built_artifact(workspace_root, target, &static_lib) {
         fs::copy(&static_src, lib_dir.join(&static_lib))?;
     }
 
-    // Copy header.
     let ffi_crate_dir = crate::publish::ffi_stage::find_ffi_crate_dir_pub(config, workspace_root);
     let header_src = ffi_crate_dir.join("include").join(&header_name);
     if header_src.exists() {
         fs::copy(&header_src, include_dir.join(&header_name))?;
     }
 
-    // Create tarball.
     let archive_name = format!("{pkg_name}.tar.gz");
     let archive_path = output_dir.join(&archive_name);
     super::create_tar_gz(&staging, &archive_path)?;

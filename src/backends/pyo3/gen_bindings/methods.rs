@@ -21,16 +21,10 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         format!("pub fn {module_name}(m: &Bound<'_, PyModule>) -> PyResult<()> {{"),
     ];
 
-    // Check if we have async functions
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
 
     if has_async {
-        // Provision a worker-thread stack large enough for deep async pipelines. The default
-        // pyo3-async-runtimes multi-thread runtime gives workers a small (~2 MB) stack; a deep
-        // consumer future (e.g. a multi-stage document/OCR pipeline) overflows it and aborts the
-        // process with SIGBUS. This runs at import, before the first `future_into_py` builds the
-        // lazy runtime. `tokio` is a direct dependency of every async pyo3 binding crate.
         lines.push("    {".to_string());
         lines.push("        let mut __rt_builder = tokio::runtime::Builder::new_multi_thread();".to_string());
         lines.push("        __rt_builder.enable_all();".to_string());
@@ -40,7 +34,6 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         lines.push("    m.add_function(wrap_pyfunction!(init_async_runtime, m)?)?;".to_string());
     }
 
-    // Custom registrations (before generated ones so hand-written classes are registered first)
     if let Some(reg) = config.custom_registrations.for_language(Language::Python) {
         for class in &reg.classes {
             lines.push(format!("    m.add_class::<{class}>()?;"));
@@ -53,9 +46,7 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         }
     }
 
-    // Service-API entrypoint functions are generated in `service.rs` as
     // `{service_snake}_{entrypoint}` `#[pyfunction]`s — register each so the Python
-    // `service.py` wrapper can call them through the native module.
     {
         use heck::ToSnakeCase as _;
         for service in &api.services {
@@ -79,12 +70,7 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         .as_ref()
         .map(|c| c.exclude_types.iter().cloned().collect())
         .unwrap_or_default();
-    // Declared opaque types from `[workspace.opaque_types]` that have a per-language
-    // capsule_types override are external host-runtime references — the per-binding wrapper
     // loop skips emitting `#[pyclass]` structs for them, so the module-init loop must also
-    // skip the corresponding `m.add_class::<T>` call to avoid `cannot find type` errors.
-    // Opaque types WITHOUT a capsule override get a binding-side wrapper struct emitted
-    // in mod.rs and MUST be registered here.
     let python_capsule_types: AHashSet<String> = config
         .python
         .as_ref()
@@ -96,24 +82,20 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         }
     }
     // Capsule types have no #[pyclass] struct — emitting m.add_class::<T>() for them
-    // causes a compile error because the struct was never generated.
     let capsule_type_names: AHashSet<String> = config
         .python
         .as_ref()
         .map(|c| c.capsule_types.keys().cloned().collect())
         .unwrap_or_default();
 
-    // Error types are registered via m.add(...) with the exception types, not m.add_class.
     let error_type_names: AHashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
 
-    // Deduplicate registered types and enums
     let mut registered: AHashSet<String> = AHashSet::new();
     for typ in api
         .types
         .iter()
         .filter(|typ| !typ.is_trait && !typ.binding_excluded && !mod_exclude_types.contains(&typ.name))
     {
-        // Error types are handled by gen_pyo3_error_registration below.
         if error_type_names.contains(typ.name.as_str()) {
             continue;
         }
@@ -131,19 +113,14 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         }
     }
 
-    // Register binding-side wrapper structs for opaque_types that have no capsule override.
     // These are emitted as #[pyclass(unsendable)] structs in mod.rs and must be registered
-    // here so Python callers can inspect their type (e.g. `isinstance(lang, Language)`).
     for name in config.opaque_types.keys() {
         if !python_capsule_types.contains(name) && registered.insert(name.clone()) {
             lines.push(format!("    m.add_class::<{}>()?;", name));
         }
     }
 
-    // Register trait marker classes — empty structs that represent plugin trait interfaces.
-    // The Rust struct is named `Py<Trait>Marker` to avoid shadowing the trait import; the PyO3
     // name (declared via `#[pyclass(name = "<Trait>")]` in mod.rs) still matches the trait so
-    // Python imports from the generated native module resolve to the marker class.
     for bridge_cfg in &config.trait_bridges {
         let trait_name = &bridge_cfg.trait_name;
         if registered.insert(trait_name.clone()) {
@@ -158,29 +135,19 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         lines.push(format!("    m.add_function(wrap_pyfunction!({}, m)?)?;", func.name));
     }
 
-    // Register trait bridge registration functions
     for register_fn in crate::backends::pyo3::trait_bridge::collect_bridge_register_fns(&config.trait_bridges) {
         lines.push(format!("    m.add_function(wrap_pyfunction!({register_fn}, m)?)?;"));
     }
-    // Register trait bridge unregister functions. The emitted Rust symbol is
-    // `_alef_<unregister_fn>` (see trait_bridge/unregistration_fn.jinja) but pyo3 exposes
     // it under the bare `unregister_*` name via `#[pyo3(name = ...)]`. Without this
-    // `m.add_function` call the symbol is not part of the native module and Python
-    // callers see `AttributeError: module ... has no attribute 'unregister_*'`.
     for unregister_fn in crate::backends::pyo3::trait_bridge::collect_bridge_unregister_fns(&config.trait_bridges) {
         lines.push(format!(
             "    m.add_function(wrap_pyfunction!(_alef_{unregister_fn}, m)?)?;"
         ));
     }
-    // Register trait bridge clear functions. Same `_alef_<clear_fn>` symbol convention
-    // as unregister — must be added to the module so Python callers can access them.
     for clear_fn in crate::backends::pyo3::trait_bridge::collect_bridge_clear_fns(&config.trait_bridges) {
         lines.push(format!("    m.add_function(wrap_pyfunction!(_alef_{clear_fn}, m)?)?;"));
     }
 
-    // Register error exception types and companion info classes/functions.
-    // Errors with introspection methods also get a companion `{Name}Info` pyclass
-    // and a free `{snake_name}_info` pyfunction to build it from an exception.
     let mut seen_registrations = AHashSet::new();
     for error in &api.errors {
         for reg_line in crate::codegen::error_gen::gen_pyo3_error_registration(error, &mut seen_registrations) {
@@ -248,7 +215,6 @@ module_name = "_test_lib"
         let result = gen_module_init("_test_lib", &api, &config);
         assert!(result.contains("#[pymodule]"));
         assert!(result.contains("Ok(())"));
-        // Sync-only API: no async runtime, so no worker-stack provisioning.
         assert!(!result.contains("thread_stack_size"));
     }
 

@@ -46,7 +46,6 @@ extension_name = "html_to_markdown"
 
     let files = scaffold(&api, config, &[Language::Php]).expect("PHP scaffold must succeed");
 
-    // Find composer.json in the scaffolded files
     let composer_json = files
         .iter()
         .find(|f| f.path.ends_with("composer.json"))
@@ -54,14 +53,12 @@ extension_name = "html_to_markdown"
 
     let content = &composer_json.content;
 
-    // Verify the URL template exists with correct placeholders
     assert!(
         content.contains("\"url-template\": \"https://github.com/xberg-io/html-to-markdown/releases/download/{Version}/php_html_to_markdown-{Version}_php{PhpVersion}-{Arch}-{OSLower}-{Libc}-{TSMode}.tgz\""),
         "composer.json must contain PIE URL template with {{Version}} and {{OSLower}} placeholders.\nActual content:\n{}",
         content
     );
 
-    // Ensure old broken pattern is NOT present
     assert!(
         !content.contains("{OS}-"),
         "composer.json must NOT contain unquoted {{OS}} placeholder (should be {{OSLower}})\nActual content:\n{}",
@@ -110,7 +107,6 @@ extension_name = "html_to_markdown"
 
     let content = &composer_json.content;
 
-    // When no repository is configured, extra.pie should be omitted entirely
     assert!(
         !content.contains("\"pie\":"),
         "composer.json must omit extra.pie block when no repository is configured"

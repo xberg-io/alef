@@ -39,10 +39,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_streaming_method_wrapper(
     )
 }
 
-// ---------------------------------------------------------------------------
-// Method wrappers
-// ---------------------------------------------------------------------------
-
 pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     typ: &TypeDef,
     method: &MethodDef,
@@ -57,17 +53,12 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     let method_name = &method.name;
     let fn_name = format!("{prefix}_{type_snake}_{method_name}");
 
-    // Generate doc comment
     let doc_comment = ffi_doxygen_block(&method.doc);
 
     let has_error = method.error_type.is_some();
 
-    // Detect Result<Vec<u8>> returns — these use the out-param convention instead of
-    // a direct *mut u8 return, because the caller must also receive len and cap to
-    // be able to call {prefix}_free_bytes later.
     let is_bytes_result = has_error && matches!(method.return_type, TypeRef::Bytes);
 
-    // Count total FFI params: this + params + extra _len for Bytes params + 3 for bytes out-params
     let ffi_param_count = (if method.is_static { 0 } else { 1 })
         + method.params.len()
         + method.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count()
@@ -80,14 +71,11 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
 
     let qualified = core_type_path(typ, core_import);
 
-    // Return type
     let mut ret_type = if is_bytes_result {
-        // Out-param convention — always returns i32 (0 = success, non-zero = error)
         "i32".to_string()
     } else if has_error && is_void_return(&method.return_type) {
-        "i32".to_string() // 0 = success, nonzero = error
+        "i32".to_string()
     } else if has_error {
-        // Fallible + non-void: return nullable pointer
         match &method.return_type {
             TypeRef::Primitive(_) => c_return_type_with_paths(&method.return_type, core_import, path_map).into_owned(),
             _ => c_return_type_with_paths(&method.return_type, core_import, path_map).into_owned(),
@@ -96,14 +84,10 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         c_return_type_with_paths(&method.return_type, core_import, path_map).into_owned()
     };
 
-    // Replace "Self" with the actual qualified type name in FFI signatures
     if ret_type.contains("Self") {
         ret_type = ret_type.replace("Self", &qualified);
     }
 
-    // Types with lifetime parameters (e.g. NodeContext<'a>) require an explicit `<'static>`
-    // lifetime in return-position `*mut T` / `*const T` pointers. Append it when the return
-    // type names the enclosing type and that type has lifetime params.
     if typ.has_lifetime_params {
         if let TypeRef::Named(n) = &method.return_type {
             if n == type_name {
@@ -115,15 +99,10 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         }
     }
 
-    // Check if this method will be unimplemented before building params.
-    // Sanitized methods with recoverable params (Vec<String> originally Vec<tuple>) are
-    // re-routed through the standard JSON-roundtrip Vec conversion below.
-    // Also stub out methods returning Vec<Named> / Map where Named lacks serde::Serialize.
     let return_needs_non_serde_named_method = return_type_needs_non_serde_named(&method.return_type, serde_names);
     let will_be_unimplemented =
         (method.sanitized && !method_sanitized_recoverable(method)) || return_needs_non_serde_named_method;
 
-    // Build parameter list — prefix with _ if unimplemented
     let mut params = Vec::new();
     if !method.is_static {
         let receiver_ty = match method.receiver.as_ref().unwrap_or(&ReceiverKind::Ref) {
@@ -150,7 +129,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                 p.is_mut,
             )
         ));
-        // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
             let len_param_name = if will_be_unimplemented {
                 format!("_{}_len", p.name)
@@ -160,7 +138,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
             params.push(format!("    {}: usize", len_param_name));
         }
     }
-    // Result<Vec<u8>> returns use three out-params instead of a direct pointer return
     if is_bytes_result {
         let pfx = if will_be_unimplemented { "_" } else { "" };
         params.push(format!("    {pfx}out_ptr: *mut *mut u8"));
@@ -188,7 +165,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
 
     let mut out = header;
 
-    // If method signature was sanitized, generate unimplemented body
     if will_be_unimplemented {
         out.push_str(&gen_ffi_unimplemented_body(
             if is_bytes_result {
@@ -203,7 +179,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         return out;
     }
 
-    // Null-check the out-params for byte-buffer returns
     if is_bytes_result {
         out.push_str(&crate::backends::ffi::template_env::render(
             "bytes_result_null_check.jinja",
@@ -211,7 +186,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         ));
     }
 
-    // Null-check self
     if !method.is_static {
         let fail_ret = if is_bytes_result || (has_error && is_void_return(&method.return_type)) {
             "return -1;".to_string()
@@ -241,7 +215,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         ));
     }
 
-    // Null-check and convert each parameter
     for p in &method.params {
         out.push_str(&crate::backends::ffi::template_env::render(
             "emitted_code_block.jinja",
@@ -251,10 +224,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         ));
     }
 
-    // For is_ref BTreeMap params, emit a named let binding so the temporary BTreeMap is not
-    // dropped before the function call. An inline `&collect(...)` would produce a reference to a
-    // temporary that is dropped at end-of-statement — rejected when the callee returns a
-    // lifetime-parameterized type (e.g. NodeContext<'a>) that borrows from the map.
     for p in &method.params {
         if matches!(p.ty, TypeRef::Map(_, _)) && !p.optional && p.is_ref && p.map_is_btree {
             let rs = format!("{}_rs", p.name);
@@ -269,7 +238,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         }
     }
 
-    // Build the call expression — pass &ref for String/Bytes params, owned for Path/Named
     let is_owned_receiver = method.receiver.as_ref() == Some(&ReceiverKind::Owned);
     let arg_names: Vec<String> = method
         .params
@@ -278,13 +246,13 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
             let rs = format!("{}_rs", p.name);
             match &p.ty {
                 TypeRef::Path if !p.optional => {
-                    // Pass &Path when is_ref=true, otherwise pass owned PathBuf
-                    if p.is_ref { format!("{rs}.as_path()") } else { rs }
+                    if p.is_ref {
+                        format!("{rs}.as_path()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Named(_) if !p.optional => {
-                    // When is_mut=true, the local rs is already `&mut T` (bound via
-                    // `let rs = unsafe { &mut *ptr }`). Pass it directly — adding
-                    // `&mut` would produce `&mut &mut T` (E0308).
                     if p.is_mut || is_owned_receiver || !p.is_ref {
                         rs
                     } else {
@@ -292,9 +260,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     }
                 }
                 TypeRef::String | TypeRef::Char if !p.optional => {
-                    // Pass &str when is_ref=true, otherwise pass owned String.
-                    // When core_wrapper=Cow, the core function expects `Cow<'_, str>`:
-                    // String implements Into<Cow<str>>, so `.into()` performs the coercion.
                     if p.is_ref {
                         format!("&{rs}")
                     } else if p.core_wrapper == CoreWrapper::Cow {
@@ -304,15 +269,13 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     }
                 }
                 TypeRef::Bytes if !p.optional => {
-                    // Pass &[u8] when is_ref=true (function takes &[u8]),
-                    // otherwise pass owned Vec<u8>
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
-                    // Only convert to &str slice when the core param is a reference (&str).
-                    // When is_ref=false and core_wrapper=Cow, the core takes Option<Cow<str>>:
-                    // convert via `.map(std::borrow::Cow::Owned)`.
-                    // Otherwise when is_ref=false, the core takes Option<String> — pass owned.
                     if p.is_ref {
                         format!("{rs}.as_deref()")
                     } else if p.core_wrapper == CoreWrapper::Cow {
@@ -322,8 +285,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     }
                 }
                 TypeRef::Path if p.optional => {
-                    // Optional Path: rs is Option<String> when is_ref=true, Option<PathBuf> when is_ref=false (from param conversion)
-                    // If is_ref=true, convert to Option<&Path>; else pass owned Option<PathBuf> directly
                     if p.is_ref {
                         format!("{rs}.as_ref().map(|s| std::path::Path::new(s.as_str()))")
                     } else {
@@ -331,33 +292,30 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     }
                 }
                 TypeRef::Named(_) if p.optional => {
-                    // Optional Named: rs is Option<T>
-                    // If is_ref=true, convert to Option<&T>; else pass owned
-                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                    if p.is_ref {
+                        format!("{rs}.as_ref()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Json if !p.optional => {
-                    // Json: rs is already serde_json::Value (from param conversion)
-                    // If is_ref=true, pass &value; else pass owned
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Json if p.optional => {
-                    // Optional Json: rs is Option<Value>
-                    // If is_ref=true, convert to Option<&Value>; else pass owned
-                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                    if p.is_ref {
+                        format!("{rs}.as_ref()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Vec(_inner) if !p.optional => {
-                    // When is_ref=true, pass &rs — &Vec<T> coerces to &[T].
-                    // However, when vec_inner_is_ref=true (e.g. &[&str] params),
-                    // &Vec<String> does NOT coerce to &[&str]. Build a temporary Vec<&str>
-                    // and pass &_refs instead.
                     if p.is_mut {
                         format!("&mut {rs}")
                     } else if p.is_ref && p.vec_inner_is_ref {
-                        // Source: &[&T] (or Vec<&T>). The local `rs` is `Vec<T_owned>`
-                        // after JSON deserialization. Materialize a temporary `Vec<&T>`
-                        // inline so Rust extends the temporary to the enclosing
-                        // statement; the call site then receives `&[&T]`. A `let`
-                        // binding inside a block would drop the Vec before the call.
                         format!("&{rs}.iter().map(|s| s.as_str()).collect::<Vec<&str>>()")
                     } else if p.is_ref {
                         format!("&{rs}")
@@ -366,12 +324,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     }
                 }
                 TypeRef::Map(_, _) if !p.optional => {
-                    // When is_ref=true, pass &map. When is_mut=true, pass &mut map.
-                    // Otherwise pass the map owned.
-                    // When map_is_btree=true with is_ref=true, a named let binding was emitted
-                    // above (`let {name}_btree = ...`) so reference it here instead of using
-                    // an inline &collect() temporary (which would be dropped before the call
-                    // when the callee returns a lifetime-parameterized type).
                     if p.is_mut {
                         format!("&mut {rs}")
                     } else if p.is_ref && p.map_is_btree {
@@ -385,10 +337,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     }
                 }
                 TypeRef::Vec(_) if p.optional => {
-                    // Optional Vec: rs is Option<Vec<T>>.
-                    // Vec<T>: Deref<Target=[T]>, so .as_deref() gives Option<&[T]>.
-                    // If is_mut=true, convert to Option<&mut Vec<T>> with .as_deref_mut()
-                    // Otherwise pass owned Option
                     if p.is_mut {
                         format!("{rs}.as_deref_mut()")
                     } else if p.is_ref {
@@ -398,9 +346,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     }
                 }
                 TypeRef::Map(_, _) if p.optional => {
-                    // Optional Map: rs is Option<HashMap<K, V>> (or AHashMap if map_is_ahash).
-                    // HashMap/AHashMap does NOT implement Deref, so .as_deref() would fail.
-                    // Use .as_ref() to get Option<&Map<K, V>>.
                     if p.is_mut {
                         format!("{rs}.as_deref_mut()")
                     } else if p.is_ref {
@@ -415,8 +360,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         .collect();
     let call_args = arg_names.join(", ");
 
-    // For passthrough returns (primitive non-Bool) without error/ref/cow/newtype,
-    // emit the call as a tail expression directly to avoid `let_and_return`.
     let can_inline = is_passthrough_return(&method.return_type)
         && !has_error
         && !method.returns_ref
@@ -447,8 +390,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
             out.push_str(&crate::backends::ffi::template_env::render("static_method_call_result.jinja", context! { qualified => qualified.clone(), method_name => method_name.clone(), call_args => call_args.clone() }));
         }
     } else if method_name == "drop" {
-        // Special case: Rust's drop method cannot be called directly with dot notation.
-        // Use std::mem::drop instead.
         out.push_str("    std::mem::drop(obj);\n");
     } else if can_inline {
         out.push_str(&crate::backends::ffi::template_env::render(
@@ -462,32 +403,20 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         ));
     }
 
-    // Handle return
     if is_bytes_result {
-        // Result<Vec<u8>> — decompose the Vec and write to out-params.
         out.push_str(&crate::backends::ffi::template_env::render(
             "bytes_result_match.jinja",
             context! {},
         ));
     } else {
-        // When return_newtype_wrapper is set, the core function returns a newtype (e.g. NodeIndex)
-        // but the IR has already resolved it to the inner type (e.g. u32). Unwrap with `.0`.
         let result_expr =
             if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_)) {
                 "result.0"
             } else {
                 "result"
             };
-        // When returns_ref=true, the core returns a reference (&T or &[T]).
-        // We need to convert it to an owned value for C FFI:
-        // - For String/&str: clone to owned String
-        // - For Named/&T: clone to owned T
-        // - For Vec/&[T]: clone to owned Vec
-        // This must happen before passing to gen_owned_value_to_c.
         if method.returns_ref && !has_error {
             match &method.return_type {
-                // &str -> owned String. `.clone()` on &str is a no-op (str: !Sized
-                // doesn't impl Clone) and triggers `noop_method_call`. Use to_owned.
                 TypeRef::String => {
                     out.push_str("    let result = result.to_owned();\n");
                 }
@@ -496,21 +425,15 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     out.push_str("    let result = *result;\n");
                 }
                 TypeRef::Vec(_) => {
-                    // Return type may be `&[T]` (slice) — `.clone()` on a slice is a noop
-                    // because `[T]: !Sized`. Use `.to_vec()` to produce an owned Vec.
                     out.push_str("    let result = result.to_vec();\n");
                 }
                 TypeRef::Map(_, _) => {
-                    // Return type is `&BTreeMap<K, V>` — `.to_vec()` does not exist on maps.
-                    // Use `.clone()` to get an owned `BTreeMap`.
                     out.push_str("    let result = result.clone();\n");
                 }
                 TypeRef::Named(_) => {
                     out.push_str("    let result = result.clone();\n");
                 }
                 TypeRef::Optional(inner) => match inner.as_ref() {
-                    // Option<&str>::cloned() doesn't compile because `str: !Sized`. Use
-                    // .map(str::to_owned) to convert Option<&str> -> Option<String>.
                     TypeRef::String => {
                         out.push_str("    let result = result.map(str::to_owned);\n");
                     }
@@ -522,8 +445,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                 _ => {}
             }
         }
-        // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
-        // Convert to owned by calling .into_owned().
         if method.returns_cow && !has_error {
             out.push_str("    let result = result.into_owned();\n");
         }
@@ -550,9 +471,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                 ));
             }
         } else if is_void_return(&method.return_type) {
-            // void, no error — result is already ()
         } else if can_inline {
-            // Passthrough primitive: call was already emitted as tail expression
         } else {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "emitted_code_block.jinja",
@@ -567,10 +486,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     out
 }
 
-// ---------------------------------------------------------------------------
-// Free functions
-// ---------------------------------------------------------------------------
-
 #[allow(clippy::too_many_arguments)]
 pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     func: &FunctionDef,
@@ -583,7 +498,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
 ) -> String {
     let fn_name_snake = c_symbol_component(&func.name);
     let ffi_name = format!("{prefix}_{fn_name_snake}");
-    // Use the full rust_path for correct module path resolution
     let core_fn_path = {
         let path = func.rust_path.replace('-', "_");
         if path.starts_with(core_import) {
@@ -594,17 +508,12 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     };
     let func_name = &func.name;
 
-    // Generate doc comment
     let doc_comment = ffi_doxygen_block(&func.doc);
 
     let has_error = func.error_type.is_some();
 
-    // Detect Result<Vec<u8>> returns — these use the out-param convention instead of
-    // a direct *mut u8 return, because the caller must also receive len and cap to
-    // be able to call {prefix}_free_bytes later.
     let is_bytes_result = has_error && matches!(func.return_type, TypeRef::Bytes);
 
-    // Count total FFI params: params + extra _len for Bytes params + 3 for bytes out-params
     let ffi_param_count = func.params.len()
         + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count()
         + if is_bytes_result { 3 } else { 0 };
@@ -615,27 +524,18 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     };
 
     let ret_type = if is_bytes_result {
-        // Out-param convention — always returns i32 (0 = success, non-zero = error)
         "i32".to_string()
     } else if has_error && is_void_return(&func.return_type) {
         "i32".to_string()
     } else if let Some(cfg) = capsule_cfg {
-        // Capsule passthrough: return the host runtime's grammar pointer directly
-        // (e.g. `*const tree_sitter::ffi::TSLanguage`) instead of boxing an opaque handle.
         super::super::capsule::capsule_c_return_type(cfg)
     } else {
         c_return_type_with_paths(&func.return_type, core_import, path_map).into_owned()
     };
 
-    // Check if this function will be unimplemented before building params.
-    // Sanitized funcs with recoverable params (Vec<String> originally Vec<tuple>) are
-    // re-routed through the standard JSON-roundtrip Vec conversion below.
-    // Additionally, functions returning Vec<Named> or Map where the Named type does not
-    // derive serde::Serialize cannot be JSON-serialized and must be stubbed.
     let return_needs_non_serde_named = return_type_needs_non_serde_named(&func.return_type, serde_names);
     let will_be_unimplemented = (func.sanitized && !sanitized_recoverable(func)) || return_needs_non_serde_named;
 
-    // Build parameter list — prefix with _ if unimplemented
     let mut params = Vec::new();
     for p in &func.params {
         let param_name = if will_be_unimplemented {
@@ -654,7 +554,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                 p.is_mut,
             )
         ));
-        // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
             let len_param_name = if will_be_unimplemented {
                 format!("_{}_len", p.name)
@@ -664,7 +563,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
             params.push(format!("    {}: usize", len_param_name));
         }
     }
-    // Result<Vec<u8>> returns use three out-params instead of a direct pointer return
     if is_bytes_result {
         let pfx = if will_be_unimplemented { "_" } else { "" };
         params.push(format!("    {pfx}out_ptr: *mut *mut u8"));
@@ -692,7 +590,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
 
     let mut out = header;
 
-    // If function signature was sanitized or involves opaque types, generate unimplemented body
     if will_be_unimplemented {
         out.push_str(&gen_ffi_unimplemented_body(
             if is_bytes_result {
@@ -707,7 +604,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
         return out;
     }
 
-    // Null-check the out-params for byte-buffer returns
     if is_bytes_result {
         out.push_str(&crate::backends::ffi::template_env::render(
             "bytes_result_null_check.jinja",
@@ -715,7 +611,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
         ));
     }
 
-    // Convert parameters
     for p in &func.params {
         out.push_str(&crate::backends::ffi::template_env::render(
             "emitted_code_block.jinja",
@@ -725,10 +620,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
         ));
     }
 
-    // For is_ref BTreeMap params, emit a named let binding so the temporary BTreeMap is not
-    // dropped before the function call. An inline `&collect(...)` would produce a reference to a
-    // temporary that is dropped at end-of-statement — rejected when the callee returns a
-    // lifetime-parameterized type (e.g. NodeContext<'a>) that borrows from the map.
     for p in &func.params {
         if matches!(p.ty, TypeRef::Map(_, _)) && !p.optional && p.is_ref && p.map_is_btree {
             let rs = format!("{}_rs", p.name);
@@ -743,7 +634,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
         }
     }
 
-    // Call — pass &ref for String/Bytes/Named params, owned for Path
     let arg_names: Vec<String> = func
         .params
         .iter()
@@ -751,13 +641,13 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
             let rs = format!("{}_rs", p.name);
             match &p.ty {
                 TypeRef::Path if !p.optional => {
-                    // Pass &Path when is_ref=true, otherwise pass owned PathBuf
-                    if p.is_ref { format!("{rs}.as_path()") } else { rs }
+                    if p.is_ref {
+                        format!("{rs}.as_path()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::String | TypeRef::Char if !p.optional => {
-                    // Pass &str when is_ref=true, otherwise pass owned String.
-                    // When core_wrapper=Cow, the core function expects `Cow<'_, str>`:
-                    // String implements Into<Cow<str>>, so `.into()` performs the coercion.
                     if p.is_ref {
                         format!("&{rs}")
                     } else if p.core_wrapper == CoreWrapper::Cow {
@@ -767,21 +657,20 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                     }
                 }
                 TypeRef::Bytes if !p.optional => {
-                    // Pass &[u8] when is_ref=true (function takes &[u8]),
-                    // otherwise pass owned Vec<u8>
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Named(_) if !p.optional => {
-                    // When is_mut=true, the local rs is already `&mut T` (bound via
-                    // `let rs = unsafe { &mut *ptr }`). Pass it directly — adding
-                    // `&mut` would produce `&mut &mut T` (E0308).
-                    if p.is_mut || !p.is_ref { rs } else { format!("&{rs}") }
+                    if p.is_mut || !p.is_ref {
+                        rs
+                    } else {
+                        format!("&{rs}")
+                    }
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
-                    // Only convert to &str slice when the core param is a reference (&str).
-                    // When is_ref=false and core_wrapper=Cow, the core takes Option<Cow<str>>:
-                    // convert via `.map(std::borrow::Cow::Owned)`.
-                    // Otherwise when is_ref=false, the core takes Option<String> — pass owned.
                     if p.is_ref {
                         format!("{rs}.as_deref()")
                     } else if p.core_wrapper == CoreWrapper::Cow {
@@ -791,8 +680,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                     }
                 }
                 TypeRef::Path if p.optional => {
-                    // Optional Path: rs is Option<String> when is_ref=true, Option<PathBuf> when is_ref=false (from param conversion)
-                    // If is_ref=true, convert to Option<&Path>; else pass owned Option<PathBuf> directly
                     if p.is_ref {
                         format!("{rs}.as_ref().map(|s| std::path::Path::new(s.as_str()))")
                     } else {
@@ -800,33 +687,30 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                     }
                 }
                 TypeRef::Named(_) if p.optional => {
-                    // Optional Named: rs is Option<T>
-                    // If is_ref=true, convert to Option<&T>; else pass owned
-                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                    if p.is_ref {
+                        format!("{rs}.as_ref()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Json if !p.optional => {
-                    // Json: rs is already serde_json::Value (from param conversion)
-                    // If is_ref=true, pass &value; else pass owned
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Json if p.optional => {
-                    // Optional Json: rs is Option<Value>
-                    // If is_ref=true, convert to Option<&Value>; else pass owned
-                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                    if p.is_ref {
+                        format!("{rs}.as_ref()")
+                    } else {
+                        rs
+                    }
                 }
                 TypeRef::Vec(_inner) if !p.optional => {
-                    // When is_ref=true, pass &rs — &Vec<T> coerces to &[T].
-                    // However, when vec_inner_is_ref=true (e.g. &[&str] params),
-                    // &Vec<String> does NOT coerce to &[&str]. Build a temporary Vec<&str>
-                    // and pass &_refs instead.
                     if p.is_mut {
                         format!("&mut {rs}")
                     } else if p.is_ref && p.vec_inner_is_ref {
-                        // Source: &[&T] (or Vec<&T>). The local `rs` is `Vec<T_owned>`
-                        // after JSON deserialization. Materialize a temporary `Vec<&T>`
-                        // inline so Rust extends the temporary to the enclosing
-                        // statement; the call site then receives `&[&T]`. A `let`
-                        // binding inside a block would drop the Vec before the call.
                         format!("&{rs}.iter().map(|s| s.as_str()).collect::<Vec<&str>>()")
                     } else if p.is_ref {
                         format!("&{rs}")
@@ -835,12 +719,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                     }
                 }
                 TypeRef::Map(_, _) if !p.optional => {
-                    // When is_ref=true, pass &map. When is_mut=true, pass &mut map.
-                    // Otherwise pass the map owned.
-                    // When map_is_btree=true with is_ref=true, a named let binding was emitted
-                    // above (`let {name}_btree = ...`) so reference it here instead of using
-                    // an inline &collect() temporary (which would be dropped before the call
-                    // when the callee returns a lifetime-parameterized type).
                     if p.is_mut {
                         format!("&mut {rs}")
                     } else if p.is_ref && p.map_is_btree {
@@ -854,10 +732,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                     }
                 }
                 TypeRef::Vec(_) if p.optional => {
-                    // Optional Vec: rs is Option<Vec<T>>.
-                    // Vec<T>: Deref<Target=[T]>, so .as_deref() gives Option<&[T]>.
-                    // If is_mut=true, convert to Option<&mut Vec<T>> with .as_deref_mut()
-                    // Otherwise pass owned Option
                     if p.is_mut {
                         format!("{rs}.as_deref_mut()")
                     } else if p.is_ref {
@@ -867,9 +741,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                     }
                 }
                 TypeRef::Map(_, _) if p.optional => {
-                    // Optional Map: rs is Option<HashMap<K, V>> (or AHashMap if map_is_ahash).
-                    // HashMap/AHashMap does NOT implement Deref, so .as_deref() would fail.
-                    // Use .as_ref() to get Option<&Map<K, V>>.
                     if p.is_mut {
                         format!("{rs}.as_deref_mut()")
                     } else if p.is_ref {
@@ -915,9 +786,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
         ));
     }
 
-    // Handle return
     if is_bytes_result {
-        // Result<Vec<u8>> — decompose the Vec and write to out-params.
         out.push_str(&crate::backends::ffi::template_env::render(
             "bytes_result_match.jinja",
             context! {},
@@ -975,9 +844,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                 ));
             }
         } else if is_void_return(&func.return_type) {
-            // nothing
         } else if can_inline_fn {
-            // Passthrough primitive: call was already emitted as tail expression
         } else {
             let content = if let Some(cfg) = capsule_cfg {
                 format!("    {}", super::super::capsule::capsule_into_raw_expr(result_expr, cfg))

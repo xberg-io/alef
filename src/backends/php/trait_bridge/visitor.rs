@@ -54,7 +54,6 @@ pub(super) fn gen_visitor_bridge(
     };
     let default_variant = result_metadata.default_variant.name.as_str();
 
-    // Helper: convert the configured context type to a PHP array (Zval).
     out.push_str(&crate::backends::php::template_env::render(
         "visitor_nodecontext_helper.jinja",
         context! {
@@ -63,7 +62,6 @@ pub(super) fn gen_visitor_bridge(
     ));
     out.push('\n');
 
-    // Helper: map a PHP return Zval to the configured result enum.
     out.push_str(&crate::backends::php::template_env::render(
         "visitor_zval_to_visitresult.jinja",
         context! {
@@ -82,7 +80,6 @@ pub(super) fn gen_visitor_bridge(
     ));
     out.push('\n');
 
-    // Helper: apply {param_name} template substitution to Custom visit results.
     out.push_str(&crate::backends::php::template_env::render(
         "php_visit_result_with_template.jinja",
         context! {
@@ -94,7 +91,6 @@ pub(super) fn gen_visitor_bridge(
     ));
     out.push_str("\n\n");
 
-    // Bridge struct — stores a reference to the PHP object.
     out.push_str(&crate::backends::php::template_env::render(
         "visitor_bridge_struct.jinja",
         context! {
@@ -103,7 +99,6 @@ pub(super) fn gen_visitor_bridge(
     ));
     out.push('\n');
 
-    // Trait impl
     out.push_str(&crate::backends::php::template_env::render(
         "php_trait_impl_start.jinja",
         context! {
@@ -166,7 +161,6 @@ fn gen_visitor_method_php(
     out.push_str("        // SAFETY: php_obj is a valid ZendObject pointer for the duration of this call.\n");
     out.push_str("        let php_obj_ref = unsafe { &mut *self.php_obj };\n");
 
-    // Build args array
     let has_args = !method.params.is_empty();
     if has_args {
         out.push_str("        let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();\n");
@@ -184,8 +178,6 @@ fn gen_visitor_method_php(
                     continue;
                 }
             }
-            // Check optional string ref BEFORE non-optional string, since visitor_param_type
-            // returns Option<&str> for optional string ref params.
             if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_visitor_arg_optional_string_ref.jinja",
@@ -225,7 +217,6 @@ fn gen_visitor_method_php(
                 out.push('\n');
                 continue;
             }
-            // Default: format as string
             out.push_str(&crate::backends::php::template_env::render(
                 "php_visitor_arg_default.jinja",
                 context! {
@@ -236,9 +227,6 @@ fn gen_visitor_method_php(
         }
     }
 
-    // Call the PHP method via try_call_method which takes Vec<&dyn IntoZvalDyn>.
-    // If the method does not exist, try_call_method returns Err(Error::Callable),
-    // which we treat as a no-op that returns the configured default result variant.
     if has_args {
         out.push_str("        let dyn_args: Vec<&dyn ext_php_rs::convert::IntoZvalDyn> = args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect();\n");
     }
@@ -251,8 +239,6 @@ fn gen_visitor_method_php(
         },
     ));
 
-    // Build template vars for {param_name} → value substitution in Custom results.
-    // Each non-ctx param gets an owned String so we can take &str references.
     let mut tmpl_var_names: Vec<String> = Vec::new();
     for p in &method.params {
         if let TypeRef::Named(n) = &p.ty {
@@ -260,11 +246,9 @@ fn gen_visitor_method_php(
                 continue;
             }
         }
-        // Skip Vec/slice params — no Display impl; not useful in templates.
         if matches!(&p.ty, TypeRef::Vec(_)) {
             continue;
         }
-        // Strip leading underscore from param name for the template key (e.g. _src → src)
         let key = p.name.strip_prefix('_').unwrap_or(&p.name);
         let owned_var = format!("_{key}_s");
         let expr: String = if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
@@ -294,7 +278,6 @@ fn gen_visitor_method_php(
         format!("&[{}]", tmpl_var_names.join(", "))
     };
 
-    // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>)
     out.push_str(&crate::backends::php::template_env::render(
         "php_visitor_method_result_match.jinja",
         context! {

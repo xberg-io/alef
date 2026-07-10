@@ -35,8 +35,6 @@ pub(super) fn gen_struct(
     opaque_types: &ahash::AHashSet<String>,
     never_skip_cfg_field_names: &[String],
 ) -> String {
-    // Pre-check if any field uses serde_with (HashMap<_, Vec<u8>>) so we can add struct-level attr.
-    // The IR represents `Vec<u8>` as TypeRef::Bytes (not Vec(Bytes)); accept both wrappers for safety.
     let has_serde_with_field = has_serde
         && binding_fields(&typ.fields).any(|f| match &f.ty {
             TypeRef::Map(_k, v) => {
@@ -50,39 +48,20 @@ pub(super) fn gen_struct(
         });
 
     let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
-    // Use napi(object, js_name = "Foo") so NAPI-RS exports the unprefixed name in the
-    // generated .d.ts while the Rust struct retains its JsFoo identifier internally.
     struct_builder.add_attr(&format!("napi(object, js_name = \"{}\")", typ.name));
     if has_serde && has_serde_with_field {
         struct_builder.add_attr("serde_with::serde_as");
     }
     struct_builder.add_derive("Clone");
-    // Binding types always derive Default, Serialize, and Deserialize.
-    // Default: enables using unwrap_or_default() in constructors for types with has_default.
-    // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
     struct_builder.add_derive("Default");
-    // Only derive serde traits when the binding crate has serde as a dependency.
-    // Generating these derives unconditionally causes compile errors in crates
-    // that don't list serde in their Cargo.toml.
     if has_serde {
         struct_builder.add_derive("serde::Serialize");
         struct_builder.add_derive("serde::Deserialize");
     }
 
-    // Suppress unused-variable warning when no field uses it.
     let _ = never_skip_cfg_field_names;
     for field in binding_fields(&typ.fields) {
         // Opaque NAPI classes (e.g. JsVisitorHandle) cannot be embedded in `#[napi(object)]`
-        // structs because they don't implement `FromNapiValue`. Use a raw JavaScript object
-        // (`napi::bindgen_prelude::Object<'static>`) as the field type instead — the convert
-        // function bridges the JS object to the Rust opaque type at call time.
-        //
-        // Returns (base_type, already_optional) where already_optional means the base_type
-        // already includes the Option<> wrapper (either from TypeRef::Optional or opaque handling).
-        //
-        // IMPORTANT: For struct fields, `Bytes` maps to `JsBytes` rather than raw `Vec<u8>`.
-        // `JsBytes` provides custom NAPI conversion for Buffer, Uint8Array, and Array<number>
-        // while still deriving Clone/serde traits for object structs.
         let map_bytes_field_type = |ty: &TypeRef| -> String {
             fn replace_bytes(ty: &TypeRef, mapper: &NapiMapper) -> String {
                 match ty {
@@ -104,7 +83,6 @@ pub(super) fn gen_struct(
             TypeRef::Optional(inner) => {
                 if let TypeRef::Named(name) = inner.as_ref() {
                     if opaque_types.contains(name) {
-                        // Optional<OpaqueClass> → Option<Object<'static>>
                         ("Option<napi::bindgen_prelude::Object<'static>>".to_string(), true)
                     } else {
                         (map_bytes_field_type(&field.ty), true)
@@ -115,18 +93,13 @@ pub(super) fn gen_struct(
             }
             _ => (map_bytes_field_type(&field.ty), false),
         };
-        // For types with Default, make all fields optional so JS callers
-        // can pass partial objects (missing fields get defaults).
         let field_type = if (field.optional || typ.has_default) && !already_optional {
             format!("Option<{base_type}>")
         } else {
             base_type
         };
         // Honor `#[serde(rename = "...")]` on the core field so JS callers see the wire
-        // name (e.g. core `tool_type` with rename `"type"` is exposed to JS as `type`).
         let js_name = field.serde_rename.clone().unwrap_or_else(|| to_node_name(&field.name));
-        // Override the d.ts type to match the runtime contract. The override covers Option,
-        // Map, and Vec wrappers that ultimately bottom out at bytes.
         let ts_type_override = ts_type_for_bytes_field(&field.ty);
         let napi_attr_inner: Vec<String> = {
             let mut v = vec![];
@@ -145,15 +118,10 @@ pub(super) fn gen_struct(
         };
 
         // When js_name differs from field.name, add #[serde(rename = "js_name")] so serde
-        // serialization uses the JavaScript name instead of the Rust field name. This is critical
-        // for async iterators that yield objects: NAPI-RS serializes objects via serde before
-        // sending them to JavaScript, so the serde field names must match the JS schema.
         if has_serde && js_name != field.name {
             attrs.push(format!("serde(rename = \"{}\")", js_name));
         }
 
-        // For HashMap<_, Vec<u8>>, keep serde_with's Bytes helper for map values.
-        // Bare/optional byte fields use JsBytes and do not need serde_bytes attributes.
         fn contains_vec_u8(ty: &TypeRef) -> bool {
             match ty {
                 TypeRef::Bytes => true,
@@ -170,15 +138,12 @@ pub(super) fn gen_struct(
                     if matches!(v.as_ref(), TypeRef::Bytes)
                         || matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Bytes)) =>
                 {
-                    // HashMap<K, Vec<u8>>: use serde_with's Bytes helper for map values.
                     attrs.push("serde_as(as = \"HashMap<_, serde_with::Bytes>\")".to_string());
                 }
                 _ => {}
             }
         }
 
-        // Opaque NAPI types (e.g. JsVisitorHandle) are stored as Object<'static>, which also
-        // does NOT impl Serialize/Deserialize. Skip them too so serde derives still compile.
         let is_opaque_field = match &field.ty {
             TypeRef::Named(name) if opaque_types.contains(name) => true,
             TypeRef::Optional(inner) => {
@@ -187,15 +152,10 @@ pub(super) fn gen_struct(
             _ => false,
         };
         // Emit `#[serde(skip)]` for opaque fields and cfg-gated trait-bridge fields (their
-        // wrapper types don't impl serde). Other cfg-gated fields remain serializable.
         let skip_cfg_bridge_field = field.cfg.is_some() && !never_skip_cfg_field_names.contains(&field.name);
         if has_serde && (is_opaque_field || skip_cfg_bridge_field) {
             attrs.push("serde(skip)".to_string());
         }
-        // Sanitize field doc so explicit-link targets `[`X`](crate::X)` collapse
-        // to `` `X` ``. The core-crate path resolves in the originating crate
-        // but not here; without sanitization rustdoc raises
-        // `broken_intra_doc_links` / `redundant_explicit_links` on the binding.
         let sanitized_field_doc = if field.doc.is_empty() {
             String::new()
         } else {
@@ -208,9 +168,6 @@ pub(super) fn gen_struct(
     }
 
     let body = struct_builder.build();
-    // Prepend rustdoc on the struct so napi-derive picks it up and writes
-    // a `/** … */` JSDoc block above the `export interface` in index.d.ts.
-    // Sanitize Rust-specific code examples so they render properly in TypeScript.
     let mut out = String::new();
     let sanitized_doc =
         crate::codegen::doc_emission::sanitize_rust_idioms(&typ.doc, crate::codegen::doc_emission::DocTarget::TsDoc);
@@ -247,17 +204,10 @@ pub(super) fn gen_opaque_struct_methods(
     let (instance, statics) = partition_methods(&typ.methods);
 
     for method in &instance {
-        // Skip sanitized methods that have no adapter override — they cannot be delegated
-        // and emitting an unimplemented stub pollutes the public API with dead placeholders.
         let adapter_key = format!("{}.{}", typ.name, method.name);
         if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;
         }
-        // Skip methods whose return type is a capsule type — the capsule shim for
-        // free functions emits a JsObject/External, but the method codegen path
-        // here would emit `Result<Js<Capsule>>` referencing a suppressed wrapper
-        // class that no longer exists. The free function alternative covers the
-        // same API. Tracked as a known limitation in alef-backend-napi.
         let returns_capsule = match &method.return_type {
             TypeRef::Named(name) => capsule_type_names.contains(name),
             TypeRef::Optional(inner) => match inner.as_ref() {
@@ -269,9 +219,7 @@ pub(super) fn gen_opaque_struct_methods(
         if returns_capsule {
             continue;
         }
-        // Skip methods that accept opaque-typed params by value — NAPI class types don't implement
         // FromNapiValue and cannot appear as plain `#[napi]` method params. These methods (e.g.
-        // ConversionOptionsBuilder::visitor) require custom adapter code or bridge patterns.
         let has_opaque_by_value_param = method.params.iter().any(|p| {
             let inner_ty = match &p.ty {
                 TypeRef::Optional(inner) => inner.as_ref(),
@@ -296,7 +244,6 @@ pub(super) fn gen_opaque_struct_methods(
         ));
     }
     for method in &statics {
-        // Skip sanitized static methods that have no adapter override.
         let adapter_key = format!("{}.{}", typ.name, method.name);
         if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;
@@ -330,7 +277,6 @@ pub(super) fn gen_opaque_instance_method(
     capsule_types: &std::collections::HashMap<String, crate::core::config::NodeCapsuleTypeConfig>,
 ) -> String {
     let params = function_params(&method.params, &|ty| {
-        // For capsule types in method params, use fully-qualified names
         if let crate::core::ir::TypeRef::Named(name) = ty {
             if let Some(capsule_cfg) = capsule_types.get(name) {
                 return format!(
@@ -345,8 +291,6 @@ pub(super) fn gen_opaque_instance_method(
     let adapter_key_for_stream = format!("{}.{}", typ.name, method.name);
     let stream_item = streaming_item_types.get(&adapter_key_for_stream);
     let return_type = if stream_item.is_some() {
-        // For streaming methods, return the iterator struct (not Vec<item>).
-        // The iterator struct name is {PascalCaseMethodName}Iterator.
         format!("{}Iterator", method.name.to_pascal_case())
     } else {
         mapper.map_type(&method.return_type)
@@ -366,7 +310,6 @@ pub(super) fn gen_opaque_instance_method(
     let is_owned_receiver = matches!(method.receiver.as_ref(), Some(crate::core::ir::ReceiverKind::Owned));
     let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(crate::core::ir::ReceiverKind::RefMut));
 
-    // Check if the type has any RefMut methods (which means inner is wrapped in Mutex).
     let has_mut_methods = typ
         .methods
         .iter()
@@ -374,11 +317,6 @@ pub(super) fn gen_opaque_instance_method(
 
     let call_args = napi_gen_call_args(&method.params, opaque_types);
 
-    // Use the shared can_auto_delegate check for opaque instance methods.
-    // RefMut methods can be delegated if the type is Mutex-wrapped (has_mut_methods).
-    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
-    // Methods with Vec<Named non-opaque> is_ref params cannot be auto-delegated because
-    // the call-site generates &Vec<JsT> but core expects &[T] — let bindings are required.
     let has_named_ref_param = method
         .params
         .iter()
@@ -416,7 +354,6 @@ pub(super) fn gen_opaque_instance_method(
     let body = if let Some(adapter_body) = adapter_bodies.get(&adapter_key) {
         adapter_body.clone()
     } else if !opaque_can_delegate {
-        // Try serde-based param conversion for methods with non-opaque Named params
         if cfg.has_serde
             && !method.sanitized
             && generators::has_named_params(&method.params, opaque_types)
@@ -433,7 +370,6 @@ pub(super) fn gen_opaque_instance_method(
             } else {
                 format!("self.inner.{}({serde_call_args})", method.name)
             };
-            // For async methods, the core call returns a Future — must .await before mapping the error.
             let await_suffix = if method.is_async { ".await" } else { "" };
             if matches!(method.return_type, TypeRef::Unit) {
                 format!("{serde_bindings}{core_call}{await_suffix}{err_conv}?;\n    Ok(())")
@@ -474,9 +410,6 @@ pub(super) fn gen_opaque_instance_method(
             Some(&return_type),
         )
     } else {
-        // When any non-opaque Named param has is_ref=true, generate let-bindings before the call
-        // to avoid E0716 ("temporary value dropped while borrowed"). The inline `.into()` pattern
-        // creates a temporary that Rust can't borrow for the duration of the call expression.
         let use_let_bindings = generators::has_named_params(&method.params, opaque_types);
         let (let_bindings, call_args_for_call) = if use_let_bindings {
             let bindings = generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import);
@@ -530,21 +463,15 @@ pub(super) fn gen_opaque_instance_method(
     };
 
     let mut attrs = String::new();
-    // Doc comments on the method become JSDoc on the corresponding class method
-    // in the generated .d.ts via napi-derive's typegen.
-    // Sanitize Rust-specific code examples so they render properly in TypeScript.
     let sanitized_method_doc =
         crate::codegen::doc_emission::sanitize_rust_idioms(&method.doc, crate::codegen::doc_emission::DocTarget::TsDoc);
     crate::codegen::doc_emission::emit_rustdoc(&mut attrs, &sanitized_method_doc, "");
-    // Per-item clippy suppression: too_many_arguments when >7 params (including &self)
     if method.params.len() + 1 > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
     }
-    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
     if method.error_type.is_some() {
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
-    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
     if generators::is_trait_method_name(&method.name) {
         attrs.push_str("#[allow(clippy::should_implement_trait)]\n");
     }
@@ -648,21 +575,15 @@ pub(super) fn gen_static_method(
     };
 
     let mut attrs = String::new();
-    // Doc comments on the static method become JSDoc on the class's static
-    // method in the generated .d.ts via napi-derive's typegen.
-    // Sanitize Rust-specific code examples so they render properly in TypeScript.
     let sanitized_method_doc =
         crate::codegen::doc_emission::sanitize_rust_idioms(&method.doc, crate::codegen::doc_emission::DocTarget::TsDoc);
     crate::codegen::doc_emission::emit_rustdoc(&mut attrs, &sanitized_method_doc, "");
-    // Per-item clippy suppression: too_many_arguments when >7 params
     if method.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
     }
-    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
     if method.error_type.is_some() {
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
-    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
     if generators::is_trait_method_name(&method.name) {
         attrs.push_str("#[allow(clippy::should_implement_trait)]\n");
     }
@@ -708,8 +629,6 @@ pub(super) fn gen_dto_method_fns(
     let mut out = String::new();
 
     for method in methods {
-        // Only emit Self-returning methods; other signatures are currently out of scope
-        // for this DTO namespace approach.
         let returns_self = matches!(&method.return_type, TypeRef::Named(n) if n == &typ.name);
         if !returns_self {
             continue;
@@ -717,7 +636,6 @@ pub(super) fn gen_dto_method_fns(
 
         let is_static = method.receiver.is_none();
         let method_js = to_node_name(&method.name);
-        // JS name: e.g. `processConfigAll`, `processConfigWithChunking`
         let js_name_upper = {
             let mut s = method_js.clone();
             if let Some(first) = s.get_mut(0..1) {
@@ -728,14 +646,9 @@ pub(super) fn gen_dto_method_fns(
         let full_js_name = format!("{type_js_name}{js_name_upper}");
         let full_rust_name = format!("{}_{}", typ.name.to_snake_case(), method.name.to_snake_case());
 
-        // The binding DTO type name (Js-prefixed if prefix is non-empty).
         let binding_type = format!("{prefix}{}", typ.name);
-        // Do not pre-wrap with mapper.wrap_return here — line 813-815 wraps with
-        // napi::Result<T> when error_type.is_some(). Pre-wrapping would produce
-        // napi::Result<Result<T>> for constructor/static methods that return Result.
         let return_annotation = mapper.map_type(&method.return_type).to_string();
 
-        // Build parameter list.  For instance withers, the receiver struct is the first param.
         let mut param_parts: Vec<String> = vec![];
         if !is_static {
             param_parts.push(format!("cfg: {binding_type}"));
@@ -747,16 +660,8 @@ pub(super) fn gen_dto_method_fns(
         }
         let params_str = param_parts.join(", ");
 
-        // Build the core call arguments. When the method has non-opaque Named `&T` params (or
-        // Vec<Named>/Vec<String> by-ref), bind owned `_core` temporaries and pass borrows of them
-        // so the borrow outlives the call (avoids E0716 / a wrong `result.into()` for `&T`).
         let use_let_bindings = generators::has_named_params(&method.params, opaque_types);
         let (call_args_str, dto_let_bindings) = if use_let_bindings {
-            // The generic let-binding generator only converts Named/opaque/ref params (via `_core`
-            // temporaries). Re-apply NAPI's source→core conversions (i64→usize casts, String→Cow,
-            // Option<String>→Option<Cow>) for the remaining by-value simple params it passes through
-            // verbatim — otherwise the core call receives the raw binding types (E0308). Mirrors the
-            // sibling DTO path above.
             (
                 napi_apply_primitive_casts_to_call_args(
                     &generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types),
@@ -768,18 +673,11 @@ pub(super) fn gen_dto_method_fns(
             (napi_gen_call_args(&method.params, opaque_types), String::new())
         };
 
-        // Build the function body.
         let body = if is_static {
-            // Static preset: call core::TypeName::method(args) and wrap into binding type.
             let core_call = if method.name == "from" && method.params.len() == 1 {
-                // Special case: From trait method. `core::Type::from(arg.into())` is
-                // ambiguous because both `From<RealArg>` and the blanket `From<Type> for Type`
-                // satisfy the call, and `arg.into()` is ambiguous too. Use a let-binding
-                // with an explicit type to disambiguate.
                 let param = &method.params[0];
                 let param_expr = napi_gen_call_args(std::slice::from_ref(param), opaque_types);
 
-                // Look up the param's core type from the API surface
                 let core_param_type = match &param.ty {
                     crate::core::ir::TypeRef::Named(param_type_name) => api
                         .types
@@ -795,8 +693,6 @@ pub(super) fn gen_dto_method_fns(
                 format!("{core_type_path}::{}({call_args_str})", method.name)
             };
             if method.error_type.is_some() {
-                // Constructor/factory returns Result<T>: map the Ok value to the binding type
-                // and convert the error to napi::Error.
                 let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
                 let wrapped = napi_wrap_return(
                     "val",
@@ -826,10 +722,8 @@ pub(super) fn gen_dto_method_fns(
                 )
             }
         } else {
-            // Wither: convert cfg back to core, call method, convert result back to binding.
             let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
             if cfg.has_serde {
-                // Round-trip through serde JSON: binding → JSON → core, call method, core → binding
                 crate::backends::napi::template_env::render(
                     "struct_wither_serde_body.jinja",
                     minijinja::context! {
@@ -848,15 +742,12 @@ pub(super) fn gen_dto_method_fns(
             }
         };
 
-        // Prepend the owned `_core` let-bindings for static methods that take Named params by ref.
-        // The wither branch round-trips through serde and ignores these bindings.
         let body = if is_static && !dto_let_bindings.is_empty() {
             format!("{dto_let_bindings}{body}")
         } else {
             body
         };
 
-        // Emit the function.
         let mut attrs = String::new();
         let sanitized_method_doc = crate::codegen::doc_emission::sanitize_rust_idioms(
             &method.doc,
@@ -899,7 +790,5 @@ mod tests {
     /// gen_struct (pub(super)) is accessible from mod.rs — smoke test via trait.
     /// The actual output is tested via the integration test (gen_bindings_test.rs).
     #[test]
-    fn struct_gen_function_exists() {
-        // Compilation check: if this module compiles, gen_struct is correctly defined.
-    }
+    fn struct_gen_function_exists() {}
 }

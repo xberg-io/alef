@@ -36,7 +36,6 @@ use std::path::PathBuf;
 fn prepend_cfg_for_php(cfg: Option<&str>, item: String) -> String {
     match cfg {
         Some(pred) if !pred.is_empty() => {
-            // Convert the cfg predicate to an always-true variant
             let always_true_cfg = format!("any({pred}, not({pred}))");
             format!("#[cfg({always_true_cfg})]\n{item}")
         }
@@ -79,14 +78,10 @@ fn binding_config(core_import: &str, has_serde: bool) -> RustBindingConfig<'_> {
 }
 
 pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-    // PHP is a single-surface backend: collapse same-named cfg-variant free functions to one
     // host method so the generated `#[php_impl]` block does not emit duplicate associated
-    // functions (E0592). Mirrors java/go/the PHP stub path (`public_api.rs`).
     let deduped_api = api.with_deduped_functions();
     let api = &deduped_api;
 
-    // Separate unit-variant enums (→ String), tagged data enums (→ flat PHP class),
-    // and untagged data enums (→ serde_json::Value, converted via from_value at binding↔core boundary).
     let data_enum_names: AHashSet<String> = api
         .enums
         .iter()
@@ -99,8 +94,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .filter(|e| is_untagged_data_enum(e))
         .map(|e| e.name.clone())
         .collect();
-    // String-mapped enums: everything that is NOT a tagged-data enum AND NOT an untagged-data enum.
-    // Includes unit-variant enums (FilePurpose, ToolType, …) which are exposed as PHP string constants.
     let all_string_enums: AHashSet<String> = api
         .enums
         .iter()
@@ -108,10 +101,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .map(|e| e.name.clone())
         .collect();
 
-    // Within all_string_enums, split into pure unit enums and externally-tagged data enums.
-    // Pure unit enums map to String via serde's default tagging (all variants are unit, e.g. "plain").
-    // Externally-tagged data enums also map to String (no serde_tag/untagged), but need
-    // serde_json::to_string() on return to preserve the data variant shape.
     let json_string_enum_names: AHashSet<String> = all_string_enums
         .iter()
         .filter(|enum_name| {
@@ -140,7 +129,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     let core_import = config.core_import_name();
     let lang_rename_all = config.serde_rename_all_for_language(Language::Php);
 
-    // Get exclusion lists from PHP config
     let php_config = config.php.as_ref();
     let exclude_functions = php_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
     let exclude_types = php_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
@@ -148,10 +136,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     let output_dir = resolve_output_dir(config.output_paths.get("php"), &config.name, "crates/{name}-php/src/");
     let has_serde = detect_serde_available(&output_dir);
 
-    // Build the opaque type names list: IR opaque types + bridge type aliases.
-    // Bridge type aliases wrap Rc-based handles and cannot implement serde::Serialize/Deserialize.
     // Including them ensures gen_php_struct emits #[serde(skip)] for fields of those types so
-    // derives on the enclosing struct still compile.
     let bridge_type_aliases_php: Vec<String> = config
         .trait_bridges
         .iter()
@@ -181,11 +166,9 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .collect();
     cfg.never_skip_cfg_field_names = &never_skip_cfg_field_names;
 
-    // Build the inner module content (types, methods, conversions)
     let mut builder = RustFileBuilder::new().with_generated_header();
     builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables, missing_docs)");
     builder.add_inner_attribute("allow(unsafe_code)");
-    // PHP parameter names are lowerCamelCase; Rust complains about non-snake_case variables.
     builder.add_inner_attribute("allow(non_snake_case)");
     builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::redundant_field_names, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::arc_with_non_send_sync, clippy::collapsible_if, clippy::clone_on_copy, clippy::should_implement_trait, clippy::useless_conversion)");
     if let Some(extra_attr) =
@@ -195,17 +178,14 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     }
     builder.add_import("ext_php_rs::prelude::*");
 
-    // Import serde_json when available (needed for serde-based param conversion)
     if has_serde {
         builder.add_import("serde_json");
     }
 
-    // Import traits needed for trait method dispatch
     for trait_path in generators::collect_trait_imports(api) {
         builder.add_import(&trait_path);
     }
 
-    // Only import HashMap when Map-typed fields or returns are present
     let has_maps = api.types.iter().any(|t| {
         t.fields
             .iter()
@@ -218,10 +198,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         builder.add_import("std::collections::HashMap");
     }
 
-    // PhpBytes wrapper: accepts PHP binary strings without UTF-8 validation.
-    // ext-php-rs's String FromZval rejects non-UTF-8 strings, so binary content
-    // (PDFs, images, etc.) gets "Invalid value given for argument" errors. This
-    // wrapper reads the raw bytes via `zend_str()` and exposes them as Vec<u8>.
     builder.add_item(
         "#[derive(Debug, Clone, Default)]\n\
              pub struct PhpBytes(pub Vec<u8>);\n\
@@ -242,13 +218,11 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
              }\n",
     );
 
-    // Custom module declarations
     let custom_mods = config.custom_modules.for_language(Language::Php);
     for module in custom_mods {
         builder.add_item(&format!("pub mod {module};"));
     }
 
-    // Check if any function or method is async
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
 
@@ -256,7 +230,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         builder.add_item(&gen_tokio_runtime());
     }
 
-    // Check if we have opaque types and add Arc import if needed
     let opaque_types: AHashSet<String> = api
         .types
         .iter()
@@ -267,7 +240,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         builder.add_import("std::sync::Arc");
     }
 
-    // Compute mutex types: opaque types with &mut self methods
     let mutex_types: AHashSet<String> = api
         .types
         .iter()
@@ -278,18 +250,11 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         builder.add_import("std::sync::Mutex");
     }
 
-    // Compute the PHP namespace for namespaced class registration.
-    // Delegates to config so [php].namespace overrides are respected.
     let extension_name = config.php_extension_name();
     let php_namespace = php_autoload_namespace(config);
 
-    // Build adapter body map before type iteration so bodies are available for method generation.
     let adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Php)?;
 
-    // Streaming-adapter method keys ("Owner.method_name") — these methods are emitted
-    // as a triple of standalone functions (start/next/free) from the adapter struct hook, so the
-    // regular method-iteration loop must skip them to avoid double-emitting a function
-    // with the same name.
     let streaming_method_keys: AHashSet<String> = config
         .adapters
         .iter()
@@ -297,7 +262,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .filter_map(|a| a.owner_type.as_deref().map(|owner| format!("{owner}.{}", a.name)))
         .collect();
 
-    // Emit adapter-generated standalone items (streaming iterators, callback bridges).
     for adapter in &config.adapters {
         match adapter.pattern {
             crate::core::config::AdapterPattern::Streaming => {
@@ -328,7 +292,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         if typ.is_opaque {
             // Generate the opaque struct with separate #[php_class] and
             // #[php(name = "Ns\\Type")] attributes (ext-php-rs 0.15+ syntax).
-            // Escape '\' in the namespace so the generated Rust string literal is valid.
             let ns_escaped = php_namespace.replace('\\', "\\\\");
             let php_name_attr = format!("php(name = \"{}\\\\{}\")", ns_escaped, typ.name);
             let opaque_attr_arr = ["php_class", php_name_attr.as_str()];
@@ -349,8 +312,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &config.trait_bridges,
             ));
 
-            // Emit impl Default if the type has a no-arg new() -> Self.
-            // This satisfies clippy's should_implement_trait lint.
             if has_no_arg_new_returning_self(typ) {
                 let default_impl = format!(
                     "impl Default for {} {{\n    fn default() -> Self {{\n        Self::new()\n    }}\n}}",
@@ -365,18 +326,12 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 let ctor_impl = format!("#[php_impl]\nimpl {} {{\n{}}}", typ.name, ctor_body);
                 builder.add_item(&ctor_impl);
             // Variant-wrapper constructor — emit a #[php(constructor)] impl so PHP callers
-            // can instantiate the wrapper with `new TypeName(args)` constructor syntax, as
-            // produced by variant bodies. `client_constructors` takes priority above.
             } else if typ.is_variant_wrapper {
                 if let Some(ctor) = php_variant_wrapper_constructor(typ, &mapper, &core_import) {
                     builder.add_item(&ctor);
                 }
             }
         } else {
-            // gen_php_struct emits an explicit delegating `impl Default for BindingType`
-            // for has_default types (driven by `emit_delegating_default_impl: true` in
-            // the PHP binding config). The auto-derived `Default` is suppressed in the
-            // shared struct generator so the two do not collide.
             builder.add_item(&gen_php_struct(
                 typ,
                 &mapper,
@@ -404,7 +359,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
 
     for enum_def in &api.enums {
         if is_tagged_data_enum(enum_def) {
-            // Tagged data enums (struct variants) are lowered to a flat PHP class.
             builder.add_item(&gen_flat_data_enum(enum_def, &mapper, Some(&php_namespace)));
             builder.add_item(&gen_flat_data_enum_methods(
                 enum_def,
@@ -415,15 +369,11 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &core_import,
             ));
         } else {
-            // Unit-variant enums are lowered to PHP classes with class constants.
             builder.add_item(&gen_enum_constants(enum_def, Some(&php_namespace)));
         }
     }
 
-    // Generate free functions as static methods on a facade class rather than standalone
     // `#[php_function]` items. Standalone functions rely on the `inventory` crate for
-    // auto-registration, which does not work in cdylib builds on macOS. Classes registered
-    // via `.class::<T>()` in the module builder DO work on all platforms.
     let included_functions: Vec<_> = api
         .functions
         .iter()
@@ -484,7 +434,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             }
         }
 
-        // Emit streaming adapter facade methods as static methods
         for adapter in &config.adapters {
             if !matches!(adapter.pattern, crate::core::config::AdapterPattern::Streaming) {
                 continue;
@@ -500,7 +449,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             ));
         }
 
-        // Emit trait-bridge registration functions as static methods
         for bridge_cfg in &config.trait_bridges {
             if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
                 let php_name = register_fn.to_lower_camel_case();
@@ -532,7 +480,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         let methods_joined = method_items
             .iter()
             .map(|m| {
-                // Indent each line of each method by 4 spaces
                 m.lines()
                     .map(|l| {
                         if l.is_empty() {
@@ -546,10 +493,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             })
             .collect::<Vec<_>>()
             .join("\n\n");
-        // The PHP-visible class name gets an "Api" suffix to avoid collision with the
-        // PHP facade class (e.g. `SampleCrawler\SampleCrawler`) that Composer autoloads.
         let php_api_class_name = format!("{facade_class_name}Api");
-        // Escape '\' so the generated Rust string literal is valid (e.g. "Ns\\ClassName").
         let ns_escaped_facade = php_namespace.replace('\\', "\\\\");
         let php_name_attr = format!("php(name = \"{}\\\\{}\")", ns_escaped_facade, php_api_class_name);
         let facade_struct = format!(
@@ -557,7 +501,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         );
         builder.add_item(&facade_struct);
 
-        // Trait bridge structs — top-level items (outside the facade class)
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
                 let bridge = crate::backends::php::trait_bridge::gen_trait_bridge(
@@ -579,10 +522,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     let convertible = crate::codegen::conversions::convertible_types(api);
     let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
     let input_types = crate::codegen::conversions::input_type_names(api);
-    // From/Into conversions with PHP-specific i64 casts.
-    // Types with enum Named fields (or that reference such types transitively) can't
-    // have binding->core From impls because PHP maps enums to String and there's no
-    // From<String> for the core enum type. Core->binding is always safe.
     let enum_names_ref = &mapper.enum_names;
     let bridge_skip_types: Vec<String> = config
         .trait_bridges
@@ -590,10 +529,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .filter(|b| !matches!(b.bind_via, crate::core::config::BridgeBinding::OptionsField))
         .filter_map(|b| b.type_alias.clone())
         .collect();
-    // Trait-bridge fields whose binding-side wrapper holds `inner: Arc<core::T>`
-    // (every OptionsField-style bridge in alef follows this convention). Used by
-    // `binding_to_core` to emit `val.{f}.map(|v| (*v.inner).clone())` instead of
-    // `Default::default()` so the visitor handle survives the `.into()` call.
     let trait_bridge_arc_wrapper_field_names: Vec<String> = config
         .trait_bridges
         .iter()
@@ -601,9 +536,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .filter_map(|b| b.resolved_options_field().map(String::from))
         .collect();
     // Set of opaque type names for ConversionConfig. Combines Rust `#[opaque]`
-    // types in the API with trait-bridge type aliases (e.g. VisitorHandle) so the
-    // `is_opaque_no_wrapper_field` branch in binding_to_core fires for those
-    // fields and emits the Arc-wrapper forwarding pattern.
     let mut conv_opaque_types: AHashSet<String> = opaque_types.clone();
     for bridge in &config.trait_bridges {
         if let Some(alias) = &bridge.type_alias {
@@ -614,9 +546,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         cast_large_ints_to_i64: true,
         enum_string_names: Some(enum_names_ref),
         untagged_data_enum_names: Some(&mapper.untagged_data_enum_names),
-        // PHP keeps `serde_json::Value` as-is in the binding struct (matches PhpMapper::json).
-        // `json_to_string` was previously enabled but caused `from_json` to fail when a JSON
-        // object/array landed in a `String`-typed field (e.g. tool `parameters` schema).
         json_as_value: true,
         include_cfg_metadata: false,
         option_duration_on_defaults: true,
@@ -626,14 +555,12 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         trait_bridge_arc_wrapper_field_names: &trait_bridge_arc_wrapper_field_names,
         ..Default::default()
     };
-    // Build transitive set of types that can't have binding->core From
     let mut enum_tainted: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if has_enum_named_field(typ, enum_names_ref) {
             enum_tainted.insert(typ.name.clone());
         }
     }
-    // Transitively mark types that reference enum-tainted types
     let mut changed = true;
     while changed {
         changed = false;
@@ -647,7 +574,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         }
     }
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        // binding->core: only when not enum-tainted and type is used as input
         if input_types.contains(&typ.name)
             && !enum_tainted.contains(&typ.name)
             && crate::codegen::conversions::can_generate_conversion(typ, &convertible)
@@ -658,12 +584,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &php_conv_config,
             ));
         } else if input_types.contains(&typ.name) && enum_tainted.contains(&typ.name) {
-            // Enum-tainted types: generate From with string->enum parsing for enum-Named
-            // fields, using first variant as fallback. Data-variant enum fields fill
-            // data fields with Default::default().
-            // Note: JSON roundtrip was previously used when has_serde=true, but that
-            // breaks on non-optional Duration fields (null != u64) and empty-string enum
-            // fields ("" is not a valid variant). Field-by-field conversion handles both.
             builder.add_item(&gen_enum_tainted_from_binding_to_core(
                 typ,
                 &core_import,
@@ -674,7 +594,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &bridge_type_aliases_set,
             ));
         }
-        // core->binding: always (enum->String via format, sanitized fields via format)
         if crate::codegen::conversions::can_generate_conversion(typ, &core_to_binding) {
             builder.add_item(&crate::codegen::conversions::gen_from_core_to_binding_cfg(
                 typ,
@@ -685,15 +604,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         }
     }
 
-    // From impls for tagged data enums lowered to flat PHP classes.
-    // Track types whose `From<binding> for core` impl has already been emitted by
-    // the main loop above (or by a prior variant in this loop) to avoid duplicate
-    // impls when the same DTO appears both as a top-level input type and as a
-    // variant payload of a tagged enum (e.g. `CrawlPageResult` used directly and
-    // inside `CrawlEvent::Page { result: Box<CrawlPageResult> }`).
-    // The main loop above emits a `From<binding> for core` impl for any type
-    // that is `input_types.contains(&typ.name)` (either via the plain branch
-    // or the enum-tainted branch). Pre-seed the dedup set with those.
     let mut emitted_binding_to_core: AHashSet<String> = api
         .types
         .iter()
@@ -706,8 +616,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .collect();
     for enum_def in api.enums.iter().filter(|e| is_tagged_data_enum(e)) {
         builder.add_item(&gen_flat_data_enum_from_impls(enum_def, &core_import));
-        // Also generate From impls for variant data types (e.g., ArchiveMetadata from FormatMetadata::Archive).
-        // These are needed when flat enum binding→core conversion calls `.into()` on variant fields.
         for variant in &enum_def.variants {
             for field in &variant.fields {
                 if let TypeRef::Named(type_name) = &field.ty {
@@ -740,9 +648,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         }
     }
 
-    // Emit From impls for all remaining DTO types that are convertible but haven't been
-    // emitted yet. This handles nested types that appear as fields in output structures
-    // but are not direct input types or enum variant payloads.
     for typ in api.types.iter().filter(|t| !t.is_trait) {
         if !emitted_binding_to_core.contains(&typ.name) {
             if enum_tainted.contains(&typ.name) {
@@ -767,7 +672,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         }
     }
 
-    // Error converter functions + optional introspection method impl structs
     for error in &api.errors {
         builder.add_item(&crate::codegen::error_gen::gen_php_error_converter(error, &core_import));
         // Emit #[php_class] + #[php_impl] block for errors with introspection methods.
@@ -777,7 +681,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         }
     }
 
-    // Serde default helpers generated from IR typed-default metadata.
     // Referenced by #[serde(default = "crate::serde_defaults::...")] on struct fields.
     if has_serde {
         if let Some(serde_module) = gen_serde_defaults_module(api) {
@@ -785,33 +688,15 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         }
     }
 
-    // Always enable abi_vectorcall on Windows — ext-php-rs requires the
-    // `vectorcall` calling convention for PHP entry points there. The feature
-    // is unstable on stable Rust; consumers either build with nightly or set
-    // RUSTC_BOOTSTRAP=1 (the upstream-recommended workaround). This cfg_attr
-    // is a no-op on non-windows so it costs nothing on Linux/macOS builds.
-    //
-    // When `[php].feature_gate` is configured (see below), a build that does not
-    // enable that feature compiles the crate body down to an empty shell — no
     // `#[php_function]`/`#[php_class]` expansions remain to emit `extern "vectorcall"`
-    // trampolines, so rustc's `unused_features` lint flags the declaration itself.
-    // Under `-D warnings` (the common CI posture) that promotes to a hard build
-    // failure on Windows even though the attribute is legitimate whenever the
-    // gated feature *is* enabled. Pair it with a matching `allow` so an
-    // ungated-feature build never breaks the build.
     let php_config = config.php.as_ref();
     builder.add_inner_attribute("cfg_attr(windows, feature(abi_vectorcall))");
     builder.add_inner_attribute("cfg_attr(windows, allow(unused_features))");
 
-    // Optional feature gate — when [php].feature_gate is set, the entire crate
-    // is conditionally compiled. Use this for parity with PyO3's `extension-module`
-    // pattern; most PHP bindings don't need it.
     if let Some(feature_name) = php_config.and_then(|c| c.feature_gate.as_deref()) {
         builder.add_inner_attribute(&format!("cfg(feature = \"{feature_name}\")"));
     }
 
-    // PHP module entry point — explicit class registration required because
-    // `inventory` crate auto-registration doesn't work in cdylib on macOS.
     let mut class_registrations = String::new();
     for typ in api
         .types
@@ -823,7 +708,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             context! { class_name => &typ.name },
         ));
     }
-    // Register the facade class that wraps free functions as static methods.
     if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) || !config.trait_bridges.is_empty() {
         let facade_class_name = extension_name.to_pascal_case();
         class_registrations.push_str(&crate::backends::php::template_env::render(
@@ -831,15 +715,12 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             context! { class_name => &format!("{facade_class_name}Api") },
         ));
     }
-    // All enums are lowered to PHP classes: tagged data enums as flat classes,
-    // unit-variant enums as classes with class constants. Register them all.
     for enum_def in api.enums.iter() {
         class_registrations.push_str(&crate::backends::php::template_env::render(
             "php_class_registration.jinja",
             context! { class_name => &enum_def.name },
         ));
     }
-    // Register error info classes for errors that expose introspection methods.
     for error in api.errors.iter().filter(|e| !e.methods.is_empty()) {
         let info_class = format!("{}Info", error.name);
         class_registrations.push_str(&crate::backends::php::template_env::render(
@@ -847,15 +728,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             context! { class_name => &info_class },
         ));
     }
-    // Generate the PHP module entry point explicitly with the correct extension name.
     // The #[php_module] macro defaults to env!("CARGO_PKG_NAME"), which may differ from
-    // the publishable extension name configured for PHP packaging.
-    // By using ModuleBuilder::new(extension_name, version) explicitly, we ensure
-    // the registered module name matches the php.ini directive and PIE installation filename.
-    //
-    // Wire the ModuleStartup returned from `try_into()` into a MINIT function via
-    // `.startup_function(...)`. Without this, classes registered via `.class::<T>()`
-    // never reach PHP's class table and consumers see `Class "X" not found` at runtime.
     let version = &api.version;
     let module_code = format!(
         "static __EXT_PHP_RS_MODULE_STARTUP: ::std::sync::Mutex<::std::option::Option<::ext_php_rs::builders::ModuleStartup>> =\n    ::std::sync::Mutex::new(::std::option::Option::None);\n\nunsafe extern \"C\" fn __ext_php_rs_module_startup(ty: i32, mod_num: i32) -> i32 {{\n    let startup = match __EXT_PHP_RS_MODULE_STARTUP.lock() {{\n        Ok(mut guard) => guard.take(),\n        Err(_) => return 1,\n    }};\n    match startup {{\n        Some(s) => match s.startup(ty, mod_num) {{ Ok(_) => 0, Err(_) => 1 }},\n        None => 1,\n    }}\n}}\n\n#[doc(hidden)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn get_module() -> *mut ::ext_php_rs::zend::ModuleEntry {{\n    static __EXT_PHP_RS_MODULE_ENTRY: ::ext_php_rs::zend::StaticModuleEntry = ::ext_php_rs::zend::StaticModuleEntry::new();\n    __EXT_PHP_RS_MODULE_ENTRY.get_or_init(|| {{\n        let builder = ::ext_php_rs::builders::ModuleBuilder::new(\"{}\", \"{}\")\n            .startup_function(__ext_php_rs_module_startup);\n        let builder = builder{};\n        match builder.try_into() {{\n            Ok((entry, startup)) => {{\n                *__EXT_PHP_RS_MODULE_STARTUP.lock().expect(\"module startup mutex poisoned\") = Some(startup);\n                entry\n            }}\n            Err(e) => panic!(\"Failed to build PHP module: {{:?}}\", e),\n        }}\n    }})\n}}\n",
@@ -865,10 +738,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
 
     let mut content = builder.build();
 
-    // Post-process generated code to replace the bridge builder method.
-    // The generated code produces `visitor(Option<&VisitorHandle>)` which is
-    // unreachable from PHP. Replace the entire method — signature and body —
-    // with one that accepts a ZendObject and builds the proper bridge handle.
     for bridge in &config.trait_bridges {
         if let Some(field_name) = bridge.resolved_options_field() {
             let param_name = bridge.param_name.as_deref().unwrap_or(field_name);
@@ -883,11 +752,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             let bridge_handle_path =
                 crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge, &core_import);
 
-            // Match the verbatim pre-rustfmt output from codegen.
-            // gen_instance_method produces 4-space-indented lines (signature + body),
-            // then ImplBuilder.build() adds 4 more spaces to every line → 8/8/4 indent.
-            // The body is a single-line Self { inner: Arc::new(...) } expression.
-            // rustfmt later reformats this to the 4/8/8/4 multi-line style on disk.
             let old_method = format!(
                 "        pub fn {field_name}(&self, {param_name}: Option<&{type_alias}>) -> {builder_type} {{\n        Self {{ inner: Arc::new((*self.inner).clone().{field_name}({param_name}.as_ref().map(|v| &v.inner))) }}\n    }}"
             );
@@ -899,8 +763,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         }
     }
 
-    // Generate PHP interface files for visitor-style bridges.
-    // Use PHP stubs output path if configured, otherwise fall back to packages/php/src/.
     let php_stubs_dir = config
         .php
         .as_ref()
@@ -916,17 +778,12 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         generated_header: false,
     }];
 
-    // Generate config.m4 for PIE (PHP Installer for Extensions) builds.
-    // When PIE falls back from pre-packaged binaries to source compilation,
-    // phpize expects config.m4 to describe the build process.
     let extension_name = config.php_extension_name();
     let config_m4 = generate_config_m4(&extension_name, &config.name);
-    // The config.m4 file must be at the repository root (one level above the Cargo.toml)
-    // output_dir is like "crates/<name>-core-php/src", so we pop three times to get to root.
     let mut config_m4_path = PathBuf::from(&output_dir);
-    config_m4_path.pop(); // remove "src"
-    config_m4_path.pop(); // remove crate directory
-    config_m4_path.pop(); // remove "crates"
+    config_m4_path.pop();
+    config_m4_path.pop();
+    config_m4_path.pop();
     config_m4_path.push("config.m4");
 
     generated_files.push(GeneratedFile {
@@ -935,10 +792,8 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         generated_header: false,
     });
 
-    // Emit PHP interface files for all trait bridges (visitor-style and registration-style)
     for bridge_cfg in &config.trait_bridges {
         if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
-            // Check if this is a visitor-style bridge (has type_alias, no register_fn, all methods have defaults)
             let is_visitor_bridge = bridge_cfg.type_alias.is_some()
                 && bridge_cfg.register_fn.is_none()
                 && bridge_cfg.super_trait.is_none()
@@ -951,15 +806,14 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                     trait_type,
                     bridge_cfg,
                     &php_namespace,
-                    &HashMap::new(), // type_paths not needed for the interface file itself
+                    &HashMap::new(),
                 )
             } else {
-                // Registration-style bridge: generate full interface with super-trait methods
                 crate::backends::php::trait_bridge::gen_registration_interface(
                     trait_type,
                     bridge_cfg,
                     &php_namespace,
-                    &HashMap::new(), // type_paths not needed for the interface file itself
+                    &HashMap::new(),
                     api,
                 )
             };

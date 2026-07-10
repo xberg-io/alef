@@ -22,10 +22,6 @@ use std::collections::HashMap;
 use crate::codegen::generators::trait_bridge::format_param_type;
 use crate::core::ir::{MethodDef, ReceiverKind};
 
-// ---------------------------------------------------------------------------
-// Public entry points
-// ---------------------------------------------------------------------------
-
 /// Generate the `{prefix}_options_set_{field}` setter.
 ///
 /// The setter wraps the vtable bridge handle in a thin `Rc<RefCell<VtableRef>>` delegating
@@ -56,20 +52,12 @@ pub fn gen_options_set_bridge(
 ) -> String {
     let pascal_prefix = to_class_name(prefix);
     let trait_name = &trait_def.name;
-    // Bridge handle type: when visitor_callbacks is enabled we accept the {PascalPrefix}Visitor
-    // produced by gen_visitor (its `htm_visitor_create` returns *mut {PascalPrefix}Visitor and
-    // strict C consumers like Zig cannot implicitly cast between opaque pointer types).
-    // Otherwise we fall back to the trait-bridge handle {PascalPrefix}{TraitName}Bridge
-    // produced by gen_trait_bridge. Both types implement the configured trait.
     let handle_type = if use_callbacks_visitor {
         format!("{pascal_prefix}Visitor")
     } else {
         format!("{pascal_prefix}{trait_name}Bridge")
     };
     let options_type_snake = ffi_symbol_component(options_type_name);
-    // The constructor symbol differs between the two handle types:
-    // - gen_visitor emits `{prefix}_visitor_create`
-    // - gen_trait_bridge emits `{prefix}_{bridge_snake}_new`
     let handle_constructor = if use_callbacks_visitor {
         format!("{prefix}_visitor_create")
     } else {
@@ -78,7 +66,6 @@ pub fn gen_options_set_bridge(
     let fn_name = format!("{prefix}_options_set_{field_name}");
     let trait_path = trait_def.rust_path.replace('-', "_");
 
-    // Generate the VtableRef delegation impl for every (non-trait-source) method.
     let delegation_methods = gen_vtable_ref_delegation(trait_def, core_import, type_paths);
 
     format!(
@@ -241,10 +228,6 @@ pub unsafe extern "C" fn {ffi_function_name}(
     ))
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
 /// Generate `impl {trait_path} for VtableRef` method bodies.
 ///
 /// Each method delegates to `unsafe { (*self.0).method_name(args...) }`, reusing
@@ -276,10 +259,10 @@ fn gen_vtable_ref_delegation(trait_def: &TypeDef, core_import: &str, type_paths:
             format!("{}, {}", receiver_str, params.join(", "))
         };
 
-        let error_override = method.error_type.as_ref().map(|_| {
-            // Use a Box<dyn Error> error type to stay compatible with bridge impls.
-            "Box<dyn std::error::Error + Send + Sync>".to_string()
-        });
+        let error_override = method
+            .error_type
+            .as_ref()
+            .map(|_| "Box<dyn std::error::Error + Send + Sync>".to_string());
         let ret = crate::codegen::generators::trait_bridge::format_return_type(
             &method.return_type,
             error_override.as_deref(),

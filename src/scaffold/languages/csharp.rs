@@ -57,13 +57,6 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
         .map(|repository| format!("    <RepositoryUrl>{}</RepositoryUrl>\n", xml_escape(repository)))
         .unwrap_or_default();
 
-    // .NET requires AssemblyVersion / FileVersion to be strict 4-component numeric
-    // (MAJOR.MINOR.PATCH.REVISION). Without these explicitly stamped, the resulting
-    // assembly metadata defaults to `0.0.0.0`, which surfaces to consumers as
-    // `warning CS8012: ... Version=0.0.0.0` + `FileNotFoundException`. The full
-    // SemVer (including any `-rc.N` suffix) is preserved on `InformationalVersion`
-    // for diagnostics, while AssemblyVersion / FileVersion strip the prerelease so
-    // all RCs in a release series stamp the same binary-identity version.
     let assembly_version = to_dotnet_assembly_version(version);
     let runtime_identifiers = PUBLISHED_RUNTIME_IDENTIFIERS.join(";");
 
@@ -148,16 +141,9 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 
     Ok(vec![
         GeneratedFile {
-            // Place the csproj under packages/csharp/<Namespace>/<Namespace>.csproj so
-            // the `runtimes/**` glob resolves to
-            // packages/csharp/<Namespace>/runtimes/ — the exact directory where
             // alef-publish stages the FFI shared libraries.  `../../../LICENSE` from that
-            // subdirectory (3 levels deep) reaches the workspace root.
-            // alef-publish's find_csproj also looks here first, so no scanning fallback is needed.
             path: PathBuf::from(format!("packages/csharp/{0}/{0}.csproj", namespace)),
             content,
-            // Scaffold-once so consumers can extend metadata (deps, runtime
-            // configs, package metadata) without alef stomping on it.
             generated_header: false,
         },
         GeneratedFile {

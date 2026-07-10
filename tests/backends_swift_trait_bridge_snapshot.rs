@@ -116,8 +116,6 @@ fn test_trait_bridge_sync_method() {
         &std::collections::HashSet::new(),
     );
 
-    // Two files now: the `SwiftPluginBridge.swift` super-protocol and the
-    // per-trait bridge file (commit 23a58ff9e — drop async from trait bridge).
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].0, "SwiftPluginBridge.swift");
     let (filename, content) = &files[1];
@@ -125,8 +123,6 @@ fn test_trait_bridge_sync_method() {
     assert_eq!(filename, "SwiftDocumentExtractorBridge.swift");
     assert!(content.contains("protocol SwiftDocumentExtractorBridge"));
     assert!(content.contains("func extract"));
-    // Registration function is emitted by `emit_trait_bridge_forwarders` in the
-    // binding-level module file, not here — see commit 896eca93e.
     assert!(!content.contains("public func registerDocumentExtractor"));
 }
 
@@ -156,9 +152,6 @@ fn test_trait_bridge_async_method() {
 
     assert_eq!(filename, "SwiftOcrBackendBridge.swift");
     assert!(content.contains("protocol SwiftOcrBackendBridge"));
-    // Per commit 23a58ff9e ("drop async from trait bridge"), async trait methods
-    // now emit as plain `throws` in the Swift protocol — host implementations
-    // bridge async/non-async at their own boundary.
     assert!(content.contains("throws"));
     assert!(content.contains("func recognize"));
 }
@@ -198,7 +191,7 @@ fn test_trait_bridge_multiple_methods() {
     assert_eq!(filename, "SwiftPostProcessorBridge.swift");
     assert!(content.contains("func process"));
     assert!(content.contains("func validate"));
-    assert!(content.matches("func").count() >= 2); // At least process and validate
+    assert!(content.matches("func").count() >= 2);
 }
 
 #[test]
@@ -238,7 +231,6 @@ fn test_trait_bridge_skips_options_field() {
         &std::collections::HashSet::new(),
     );
 
-    // OptionsField bridges are handled by inbound plugin codegen, not outbound
     assert!(files.is_empty());
 }
 
@@ -269,7 +261,6 @@ fn test_trait_bridge_primitive_params() {
     assert_eq!(files[0].0, "SwiftPluginBridge.swift");
     let (_filename, content) = &files[1];
 
-    // Check that primitive types are properly declared in method signature
     assert!(content.contains("count: Int32"));
     assert!(content.contains("enabled: Bool"));
 }
@@ -297,19 +288,12 @@ fn test_trait_bridge_excluded_type_return() {
     assert_eq!(files[0].0, "SwiftPluginBridge.swift");
     let (_filename, content) = &files[1];
 
-    // Protocol marshals an excluded return type as a JSON String — the native
-    // struct is not visible to the Swift side, so the conformer returns JSON.
-    // Per commit 23a58ff9e the async keyword is no longer emitted; the trait
-    // method shape is now plain `throws`.
     assert!(content.contains("func process(imageBytes: Data) throws -> String"));
 
-    // Adapter method should return String (JSON envelope)
     assert!(content.contains("func processCall(imageBytes: Data) throws -> String"));
 
-    // The marshal_encode_excluded helper should be present
     assert!(content.contains("marshal_encode_excluded"));
     assert!(content.contains("func marshal_encode_excluded<T: Encodable>"));
 
-    // Verify that the body uses the new helper to encode excluded types
     assert!(content.contains("try marshal_encode_excluded(result)"));
 }

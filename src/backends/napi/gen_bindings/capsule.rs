@@ -74,9 +74,6 @@ pub(super) fn gen_capsule_function(
         String::new()
     };
 
-    // Build parameter list: (env: &napi::Env, <user params...>)
-    // napi-rs v3 passes `&Env` as a special injected parameter — the macro recognizes it
-    // as NapiArgType::Env and injects &__wrapped_env without consuming a JS argument slot.
     let mut sig_params: Vec<String> = vec!["env: &napi::Env".to_string()];
     for param in &func.params {
         let ts = match &param.ty {
@@ -92,7 +89,6 @@ pub(super) fn gen_capsule_function(
         sig_params.push(format!("{}: {ts}", param.name));
     }
 
-    // Build core call args
     let call_args: Vec<String> = func
         .params
         .iter()
@@ -116,10 +112,6 @@ pub(super) fn gen_capsule_function(
 
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?";
 
-    // Look up the capsule config for this function's return type to read
-    // `property_name` and optional `type_tag`. Fall back to defaults when missing
-    // so the codegen never panics on a malformed config (validation lives in
-    // alef-core::config).
     let capsule_name = return_type_name(func, capsule_types).unwrap_or("");
     let cfg = capsule_types.get(capsule_name);
     let property_name = cfg
@@ -129,11 +121,6 @@ pub(super) fn gen_capsule_function(
         .and_then(|c| c.type_tag.as_ref())
         .map(|_| format!("__ALEF_CAPSULE_TAG_{}", capsule_name.to_ascii_uppercase()));
 
-    // node-sample_language's `Napi::Value::As<External<TSLanguage>>` only recognises
-    // values produced by raw `napi_create_external`. napi-rs's
-    // `bindgen_prelude::External::new()` wraps the value differently and fails
-    // the C++-side `IsExternal()` check at runtime. We therefore call
-    // `napi_create_external` directly through a hand-declared FFI extern.
     let tag_block = if let Some(const_name) = &type_tag_const {
         format!(
             r#"    let status = unsafe {{
@@ -264,12 +251,12 @@ fn prim_rust_str(p: &crate::core::ir::PrimitiveType) -> &'static str {
         PrimitiveType::U8 => "u8",
         PrimitiveType::U16 => "u16",
         PrimitiveType::U32 => "u32",
-        PrimitiveType::U64 => "i64", // NAPI maps u64 → i64
+        PrimitiveType::U64 => "i64",
         PrimitiveType::I8 => "i8",
         PrimitiveType::I16 => "i16",
         PrimitiveType::I32 => "i32",
         PrimitiveType::I64 => "i64",
-        PrimitiveType::F32 => "f64", // NAPI maps f32 → f64
+        PrimitiveType::F32 => "f64",
         PrimitiveType::F64 => "f64",
         PrimitiveType::Usize => "i64",
         PrimitiveType::Isize => "i64",

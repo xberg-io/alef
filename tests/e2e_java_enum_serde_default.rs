@@ -29,7 +29,6 @@ fn make_keyword_fixture() -> Fixture {
             "config": {
                 "keywords": {
                     "max_keywords": 10
-                    // Note: algorithm is omitted, should default to Yake via Rust's impl Default
                 }
             }
         }),
@@ -126,21 +125,15 @@ fn render_java_test() -> String {
 fn enum_serde_default_builder_not_null() {
     let rendered = render_java_test();
 
-    // The generated test should use JsonUtil.fromJson() to construct the config
     assert!(
         rendered.contains("JsonUtil.fromJson("),
         "must use JsonUtil.fromJson() for JSON config. Rendered:\n{rendered}"
     );
 
-    // The config should be passed to the extraction function
     assert!(
         rendered.contains(".extractFileSync(java.nio.file.Path.of(\"pdf/fake_memo.pdf\"), null, config)"),
         "must pass config to extraction function. Rendered:\n{rendered}"
     );
-
-    // Note: We can't easily verify the Builder field default from generated test code,
-    // but the test passing (not throwing "Null pointer passed for parameter 'config'")
-    // confirms that the Builder and serialization work correctly.
 }
 
 /// Verify JsonUtil is imported for JSON deserialization

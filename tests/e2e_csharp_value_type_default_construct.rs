@@ -29,8 +29,6 @@ fn make_fixture_omit_config(id: &str) -> Fixture {
         call: Some("process_items_async".to_string()),
         input: serde_json::json!({
             "texts": ["sample text"]
-            // Deliberately omit the "config" field to trigger default construction.
-            // The C# binding expects BatchConfig (a struct), not null.
         }),
         mock_response: None,
         visitor: None,
@@ -114,7 +112,6 @@ fn csharp_value_type_default_construct_with_element_type() {
 
     assert!(!generated.is_empty(), "Should generate C# test code");
 
-    // Extract the test file content
     let test_code = generated
         .iter()
         .find(|f| f.path.to_string_lossy().contains("test"))
@@ -123,8 +120,5 @@ fn csharp_value_type_default_construct_with_element_type() {
 
     assert!(!test_code.is_empty(), "Should generate test code");
 
-    // Snapshot the generated C# code to verify:
-    // 1. The config parameter is constructed as `new BatchConfig()` NOT `null`
-    // 2. The generated code is syntactically valid C#
     insta::assert_snapshot!(test_code);
 }

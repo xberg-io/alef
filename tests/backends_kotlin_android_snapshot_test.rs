@@ -310,7 +310,6 @@ kotlin_android = "packages/kotlin-android/src/main/kotlin/dev/sample_crate/demo/
         );
     };
 
-    // Project root: packages/kotlin-android
     expect_at("packages/kotlin-android/build.gradle.kts");
     expect_at("packages/kotlin-android/settings.gradle.kts");
     expect_at("packages/kotlin-android/consumer-rules.pro");
@@ -320,19 +319,15 @@ kotlin_android = "packages/kotlin-android/src/main/kotlin/dev/sample_crate/demo/
     expect_at("packages/kotlin-android/src/main/jniLibs/arm64-v8a/.gitkeep");
     expect_at("packages/kotlin-android/src/main/jniLibs/x86_64/.gitkeep");
 
-    // No Java files — the AAR is pure-Kotlin JNI.
     let java_files: Vec<_> = paths.iter().filter(|p| p.ends_with(".java")).collect();
     assert!(
         java_files.is_empty(),
         "kotlin-android must not emit Java files; got: {java_files:?}"
     );
 
-    // JNI Bridge + module object at the configured Kotlin source path.
     expect_at("packages/kotlin-android/src/main/kotlin/dev/sample_crate/demo/android/DemoBridge.kt");
     expect_at("packages/kotlin-android/src/main/kotlin/dev/sample_crate/demo/android/Demo.kt");
 
-    // Negative assertions: nothing should be emitted under the source
-    // destination as if it were the project root.
     let kotlin_src = "packages/kotlin-android/src/main/kotlin/dev/sample_crate/demo/android";
     expect_none_at_prefix(kotlin_src, "build.gradle.kts");
     expect_none_at_prefix(kotlin_src, "settings.gradle.kts");
@@ -356,15 +351,11 @@ fn build_gradle_uses_vanniktech_maven_publish_plugin() {
 
     let content = &gradle_file.content;
 
-    // Verify vanniktech plugin is applied
     assert!(
         content.contains(r#"id("com.vanniktech.maven.publish")"#),
         "build.gradle.kts should include vanniktech maven.publish plugin"
     );
 
-    // Verify vanniktech DSL imports are present. Vanniktech 0.36 dropped the
-    // `SonatypeHost` enum (Central Portal is now the default destination), so the
-    // `SonatypeHost` import is intentionally absent.
     assert!(
         content.contains("import com.vanniktech.maven.publish.AndroidSingleVariantLibrary"),
         "build.gradle.kts should import AndroidSingleVariantLibrary"
@@ -374,9 +365,6 @@ fn build_gradle_uses_vanniktech_maven_publish_plugin() {
         "build.gradle.kts should NOT import SonatypeHost (removed in vanniktech 0.36)"
     );
 
-    // Verify the new mavenPublishing block exists. Under vanniktech 0.36,
-    // `publishToMavenCentral()` is a no-arg function with Central Portal as the
-    // default destination.
     assert!(
         content.contains("mavenPublishing {"),
         "build.gradle.kts should have mavenPublishing block"
@@ -390,7 +378,6 @@ fn build_gradle_uses_vanniktech_maven_publish_plugin() {
         "build.gradle.kts should call signAllPublications"
     );
 
-    // Verify the old manual publishing block is NOT present
     assert!(
         !content.contains("register<MavenPublication>"),
         "build.gradle.kts should NOT use old manual MavenPublication registration"
@@ -400,7 +387,6 @@ fn build_gradle_uses_vanniktech_maven_publish_plugin() {
         "build.gradle.kts should NOT have old vanilla publishing block"
     );
 
-    // Verify android.publishing singleVariant is removed (now handled by plugin)
     assert!(
         !content.contains("android { publishing {"),
         "build.gradle.kts android block should NOT have publishing configuration (handled by vanniktech plugin)"
@@ -425,9 +411,6 @@ fn buildscript_comes_after_imports_in_correct_order() {
 
     let content = &gradle_file.content;
 
-    // Find positions of the two imports in the entire file. Vanniktech 0.36
-    // dropped `SonatypeHost`, so only AndroidSingleVariantLibrary and JvmTarget
-    // are emitted.
     let pos_android_variant = content
         .find("import com.vanniktech.maven.publish.AndroidSingleVariantLibrary")
         .expect("AndroidSingleVariantLibrary import not found");
@@ -436,7 +419,6 @@ fn buildscript_comes_after_imports_in_correct_order() {
         .expect("JvmTarget import not found");
     let pos_buildscript = content.find("buildscript {").expect("buildscript block not found");
 
-    // All imports must come before buildscript
     assert!(
         pos_android_variant < pos_buildscript,
         "AndroidSingleVariantLibrary import must come before buildscript; found at {}, buildscript at {}",
@@ -450,7 +432,6 @@ fn buildscript_comes_after_imports_in_correct_order() {
         pos_buildscript
     );
 
-    // Verify the imports are in lexicographic order
     assert!(
         pos_android_variant < pos_jvm_target,
         "imports must be in lexicographic order; AndroidSingleVariantLibrary ({}) before JvmTarget ({})",
@@ -461,13 +442,8 @@ fn buildscript_comes_after_imports_in_correct_order() {
 
 #[test]
 fn test_jni_opaque_handle_return_types() {
-    // Test that instance methods on opaque types correctly generate JNI external fun
-    // signatures with Long return types (not String) for handle returns, and DefaultClient
-    // methods that construct opaque types from handles.
-
     use alef::core::ir::{MethodDef, ReceiverKind};
 
-    // Create two opaque types: Tree and TreeCursor
     let tree_type = TypeDef {
         name: "Tree".to_string(),
         rust_path: "lang::Tree".to_string(),
@@ -595,7 +571,6 @@ license = "MIT"
         .generate_bindings(&api, &config)
         .expect("Backend should generate bindings");
 
-    // Find the DefaultClient.kt file
     let client_kt = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("DefaultClient.kt"))
@@ -603,7 +578,6 @@ license = "MIT"
         .content
         .clone();
 
-    // Verify that Tree.walk() method returns TreeCursor(handle) not MAPPER.readValue(...)
     assert!(
         client_kt.contains("fun walk(): TreeCursor"),
         "Tree.walk() should return TreeCursor"
@@ -620,7 +594,6 @@ license = "MIT"
         "Tree.walk() should NOT use JSON deserialization for opaque types"
     );
 
-    // Verify that TreeCursor.next() method handles Optional<TreeCursor> correctly
     assert!(
         client_kt.contains("fun next(): TreeCursor?"),
         "TreeCursor.next() should return TreeCursor?"
@@ -632,7 +605,6 @@ license = "MIT"
         client_kt
     );
 
-    // Find the bridge object file
     let bridge_kt = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("LangBridge.kt"))
@@ -640,16 +612,12 @@ license = "MIT"
         .content
         .clone();
 
-    // Verify JNI external fun for Tree.walk() returns Long (not String)
     assert!(
         bridge_kt.contains("external fun nativeTreeWalk(handle: Long): Long"),
         "Tree.walk() should have JNI signature returning Long, got:\n{}",
         bridge_kt
     );
 
-    // Verify JNI external fun for TreeCursor.next() returns a primitive Long (0L = None),
-    // NOT a boxed Long? — the Rust JNI shim returns a primitive jlong, so Long? would
-    // mismatch (object-vs-primitive) and crash the JVM (tslp #146).
     assert!(
         bridge_kt.contains("external fun nativeTreeCursorNext(handle: Long): Long\n")
             && !bridge_kt.contains("nativeTreeCursorNext(handle: Long): Long?"),

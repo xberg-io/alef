@@ -28,20 +28,15 @@ fn emit_trait_bridge_shims(
     out.push_str("// Trait-bridge shims\n");
     out.push_str("// ---------------------------------------------------------------------------\n\n");
 
-    // Emit the registration functions
     for bridge_cfg in &bridges {
         let trait_pascal = internal_class_component(&bridge_cfg.trait_name);
 
-        // Find the trait definition for method iteration
         let trait_def = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
 
         if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
             let native_name = format!("nativeRegister{trait_pascal}");
             let symbol = jni_symbol(package, bridge, &native_name);
             match trait_def {
-                // With the trait definition available, emit the real bridge: wrapper
-                // struct, dispatching trait impl, default delegates, and a registration
-                // shim that hands the bridge to the host register_fn.
                 Some(trait_def) if !trait_def.methods.is_empty() => {
                     let bridge_output = crate::backends::jni::trait_bridge::gen_plugin_trait_bridge(
                         trait_def,
@@ -55,8 +50,6 @@ fn emit_trait_bridge_shims(
                     out.push_str(&bridge_output.code);
                     out.push_str("\n\n");
                 }
-                // Without the trait definition (excluded from the surface) keep the
-                // registration-accepting stub so linking still succeeds.
                 _ => {
                     let has_super_trait = bridge_cfg.super_trait.is_some();
                     emit_trait_register_shim(out, &symbol, &trait_pascal, register_fn, trait_def, has_super_trait);
@@ -126,7 +119,3 @@ fn emit_trait_clear_shim(out: &mut String, symbol: &str, clear_fn: &str) {
         },
     ));
 }
-
-// ---------------------------------------------------------------------------
-// Inline helper emission
-// ---------------------------------------------------------------------------

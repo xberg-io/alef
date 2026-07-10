@@ -48,7 +48,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         has_stripped_cfg_fields: false,
         is_return_type: false,
         serde_rename_all: None,
-        has_serde: true, // This is important for builder generation
+        has_serde: true,
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
@@ -61,17 +61,13 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
 
 #[test]
 fn test_java_serde_default_tuple_field_uses_nullable_type_and_null_default() {
-    // Regression test for the KeywordConfig.ngram_range bug.
     // When a non-optional field has #[serde(default)], the Java builder should:
-    // 1. Use a boxed/nullable type (not primitive)
-    // 2. Initialize to `null` (not `List.of()` for Vec, not empty collection for tuples)
-    // This allows Jackson to omit the field from JSON, letting Rust's serde apply its own default.
     let backend = JavaBackend;
 
     let tuple_field = make_field(
         "ngram_range",
         TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U64))),
-        false,                                    // non-optional
+        false,
         Some("/* serde(default) */".to_string()), // has #[serde(default)]
     );
     let typ = make_type("KeywordConfig", vec![tuple_field]);
@@ -112,7 +108,6 @@ package = "dev.demo"
     assert!(result.is_ok(), "generation failed: {:?}", result.err());
     let files = result.unwrap();
 
-    // Find the generated type file
     let type_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("KeywordConfig.java"))
@@ -120,20 +115,16 @@ package = "dev.demo"
 
     let content = &type_file.content;
 
-    // The builder should declare the field as a nullable boxed type (List<Long>).
-    // Java's default null value is enough, and it lets Rust's serde default apply.
     assert!(
         content.contains("@Nullable private List<Long> ngramRange;"),
         "Builder field should be nullable without an eager collection default, but got:\n{content}"
     );
 
-    // The builder field should NOT be initialized to List.of()
     assert!(
         !content.contains("private List<Long> ngramRange = List.of();"),
         "Builder field should not initialize Vec fields to List.of() when they have #[serde(default)], but got:\n{content}"
     );
 
-    // Verify withNgramRange setter exists and is present
     assert!(
         content.contains("withNgramRange"),
         "Builder should have withNgramRange setter, but got:\n{content}"

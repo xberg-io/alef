@@ -334,9 +334,6 @@ fn bool_function_uses_widened_long_ffi_layout_and_boolean_wrapper_result() {
         .content
         .as_str();
 
-    // Bool is i32 in the C FFI ABI but its ValueLayout is widened to JAVA_LONG for JBR Win64 Panama
-    // compatibility (the same widening every integer layout gets). The `enabled ? 1 : 0` int arg and
-    // `!= 0` truthiness check still carry the bool semantics over the widened long layout.
     assert!(
         native_lib.contains("FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG)"),
         "bool FFI params and returns must use the widened JAVA_LONG layout, got:\n{native_lib}"
@@ -720,17 +717,8 @@ package = "com.example"
     assert!(result.is_ok());
     let files = result.unwrap();
 
-    // Should generate 6 files:
-    // 1. package-info.java
-    // 2. NativeLib.java
-    // 3. TestLibRs.java (main class — "Rs" suffix avoids facade/FFI name collision)
-    // 4. TestLibRsException.java
-    // 5. Config.java (record) — but Config has no serde, so it's skipped
-    // 6. Mode.java (enum)
-    // Note: Config has no serde, so no record is generated; check actual count
     assert!(files.len() >= 4, "expected at least 4 files, got {}", files.len());
 
-    // Check NativeLib.java
     let native_lib = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("NativeLib"))
@@ -739,7 +727,6 @@ package = "com.example"
     assert!(native_lib.content.contains("TEST_EXTRACT"));
     assert!(native_lib.content.contains("MethodHandle"));
 
-    // Check main class (PascalCase + "Rs" suffix)
     let main_class = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("TestLibRs.java"))
@@ -748,7 +735,6 @@ package = "com.example"
     assert!(main_class.content.contains("public static String extract"));
     assert!(main_class.content.contains("throws TestLibRsException"));
 
-    // Check exception
     let exception = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("Exception"))
@@ -760,7 +746,6 @@ package = "com.example"
     );
     assert!(exception.content.contains("private final int code"));
 
-    // Check enum
     let enum_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("Mode"))
@@ -992,7 +977,6 @@ fn test_package_default_when_unconfigured() {
         unsupported_public_items: Vec::new(),
     };
 
-    // No java package and no scaffold repository configured
     let config = resolved_one(
         r#"
 [workspace]
@@ -1013,9 +997,6 @@ sources = ["src/lib.rs"]
         .find(|f| f.path.to_string_lossy().contains("NativeLib"))
         .unwrap();
 
-    // When neither [java].package nor [scaffold].repository is configured,
-    // alef emits a vendor-neutral placeholder so the build fails loudly
-    // instead of silently inheriting another organization's namespace.
     assert!(native_lib.content.contains("package unconfigured.alef"));
 }
 
@@ -1243,8 +1224,6 @@ package = "com.example"
     assert!(result.is_ok());
     let files = result.unwrap();
 
-    // The builder is now a nested static class inside the record file —
-    // no separate *Builder.java file should exist.
     assert!(
         !files
             .iter()
@@ -1252,7 +1231,6 @@ package = "com.example"
         "No standalone *Builder.java file should be generated; builder is nested inside the record"
     );
 
-    // The record file itself must contain the nested Builder class.
     let record_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("ConfigWithDefaults.java"))
@@ -1260,21 +1238,18 @@ package = "com.example"
 
     let content = &record_file.content;
 
-    // Verify the nested builder class header
     assert!(
         content.contains("public static final class Builder"),
         "Record should contain nested 'public static final class Builder', got:\n{}",
         content
     );
 
-    // @JsonDeserialize must reference the nested class, not a sibling top-level class
     assert!(
         content.contains("@JsonDeserialize(builder = ConfigWithDefaults.Builder.class)"),
         "@JsonDeserialize should reference ConfigWithDefaults.Builder.class, got:\n{}",
         content
     );
 
-    // builder() factory must return Builder (not ConfigWithDefaultsBuilder)
     assert!(
         content.contains("public static Builder builder()"),
         "factory method should return Builder, got:\n{}",
@@ -1324,7 +1299,6 @@ package = "com.example"
 fn test_no_standalone_builder_java_file_emitted() {
     let backend = JavaBackend;
 
-    // Create a type with 8 fields to trigger auto builder emission (>= BUILDER_AUTO_THRESHOLD)
     let mut fields = vec![];
     for i in 1..=8 {
         fields.push(FieldDef {
@@ -1390,7 +1364,6 @@ fn test_no_standalone_builder_java_file_emitted() {
     let config = make_test_config("com.example");
     let files = backend.generate_bindings(&api, &config).unwrap();
 
-    // No standalone MyOptionsBuilder.java must exist
     assert!(
         !files
             .iter()
@@ -1398,7 +1371,6 @@ fn test_no_standalone_builder_java_file_emitted() {
         "No standalone MyOptionsBuilder.java should be emitted; builder is nested inside MyOptions.java"
     );
 
-    // The record file must exist and contain the nested Builder
     let record = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("MyOptions.java"))
@@ -1510,8 +1482,6 @@ fn test_serde_default_boxed_boolean_true_restored_in_compact_ctor() {
 
 #[test]
 fn test_tagged_union_newtype_variants_produce_valid_java() {
-    // Regression: internally tagged enums whose variants are newtypes (single unnamed
-    // field, IR name "0") must not emit the numeric index as a Java field name.
     let backend = JavaBackend;
 
     let api = ApiSurface {
@@ -1612,10 +1582,6 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
         "should be sealed interface:\n{content}"
     );
 
-    // Newtype-variant tagged unions now use a custom Jackson deserializer
-    // (StdDeserializer) instead of @JsonUnwrapped because the latter does not
-    // round-trip cleanly with sealed interfaces. Verify the deserializer is
-    // wired up via @JsonDeserialize and that its body reads/strips the tag.
     assert!(
         content.contains("@JsonDeserialize(using = MessageDeserializer.class)"),
         "should wire MessageDeserializer via @JsonDeserialize:\n{content}"
@@ -1662,7 +1628,6 @@ fn test_output_path_no_doubling() {
     let package = "dev.sample_crate";
     let package_path = package.replace('.', "/");
 
-    // Case 1: User configured the full package path (should NOT append again)
     let output_dir_1 = "packages/java/src/main/java/dev/sample_crate/";
     let base_path_1 = if output_dir_1.ends_with(&package_path) || output_dir_1.ends_with(&format!("{}/", package_path))
     {
@@ -1676,7 +1641,6 @@ fn test_output_path_no_doubling() {
         "Should not double the package path"
     );
 
-    // Case 2: User configured without package path (should append)
     let output_dir_2 = "packages/java/src/main/java/";
     let base_path_2 = if output_dir_2.ends_with(&package_path) || output_dir_2.ends_with(&format!("{}/", package_path))
     {
@@ -1841,7 +1805,6 @@ type = "ChatCompletionRequest"
     let backend = JavaBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();
 
-    // 1. NativeLib must include the three iterator-handle MethodHandles.
     let native_lib = files
         .iter()
         .find(|f| f.path.ends_with("NativeLib.java"))
@@ -1863,7 +1826,6 @@ type = "ChatCompletionRequest"
         );
     }
 
-    // 2. DefaultClient.java must expose a public `chatStream(...)` returning Stream<ChatCompletionChunk>.
     let client = files
         .iter()
         .find(|f| f.path.ends_with("DefaultClient.java"))
@@ -1889,7 +1851,6 @@ type = "ChatCompletionRequest"
         "DefaultClient must bridge via fully-qualified java.util.stream.StreamSupport.stream(...). Got:\n{}",
         client.content
     );
-    // Iteration body must call all three FFI handles.
     for needle in [
         "TL_DEFAULT_CLIENT_CHAT_STREAM_START.invoke",
         "TL_DEFAULT_CLIENT_CHAT_STREAM_NEXT.invoke",
@@ -1906,8 +1867,6 @@ type = "ChatCompletionRequest"
 
 #[test]
 fn test_bytes_parameter_expansion_in_ffi_descriptor_and_invoke() {
-    // Regression test for SIGBUS bug: Bytes parameters must expand to (pointer, length)
-    // in both the FunctionDescriptor AND the invoke() call arguments.
     let backend = JavaBackend;
 
     let api = ApiSurface {
@@ -1918,8 +1877,6 @@ fn test_bytes_parameter_expansion_in_ffi_descriptor_and_invoke() {
             name: "process".to_string(),
             rust_path: "test_lib::process".to_string(),
             original_rust_path: String::new(),
-            // Rust signature: fn(*const u8, usize, *const c_char) -> i32
-            // This mimics sample_crate_extract_bytes signature
             params: vec![
                 ParamDef {
                     name: "content".to_string(),
@@ -2000,30 +1957,22 @@ package = "com.test"
     assert!(result.is_ok());
     let files = result.unwrap();
 
-    // Check NativeLib.java for descriptor
     let native_lib = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("NativeLib"))
         .unwrap();
 
-    // Descriptor must have 4 params: ADDRESS (content ptr), JAVA_LONG (content len), ADDRESS (file_type ptr).
-    // The i32 return uses the widened JAVA_LONG layout (every integer layout is widened to JAVA_LONG for
-    // JBR Win64 Panama compatibility), so the descriptor should be:
-    // FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS)
     assert!(
         native_lib.content.contains("FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS)"),
         "FunctionDescriptor must have 4 params: long return, ptr, len, string ptr. Got:\n{}",
         native_lib.content
     );
 
-    // Check main class for invoke call
     let main_class = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("TestLibRs.java"))
         .unwrap();
 
-    // The invoke call must pass ALL 3 arguments (ptr, len, string), not just 2
-    // Expected pattern: TEST_PROCESS.invoke(ccontent, ccontentLen, cfileType)
     assert!(
         main_class.content.contains(".invoke(ccontent, ccontentLen, cfileType"),
         "invoke() call must pass (ptr, len, string) for bytes parameter. Got:\n{}",
@@ -2124,14 +2073,12 @@ fn test_dto_emits_as_record_with_fields_only() {
         .find(|f| f.path.to_string_lossy().contains("SimpleDto.java"))
         .expect("SimpleDto.java should be generated");
 
-    // Verify it's emitted as a record, not a sealed class
     assert!(
         dto_file.content.contains("public record SimpleDto("),
         "Fields-only DTO should be emitted as record, not sealed class. Got:\n{}",
         dto_file.content
     );
 
-    // Verify record parameters are present
     assert!(
         dto_file.content.contains("String name") && dto_file.content.contains("int count"),
         "Record should contain field parameters. Got:\n{}",
@@ -2256,7 +2203,6 @@ fn test_opaque_handle_type_remains_class() {
         .find(|f| f.path.to_string_lossy().contains("OpaqueHandle.java"))
         .expect("OpaqueHandle.java should be generated");
 
-    // Opaque handles should emit as classes (not records), with AutoCloseable for resource management
     assert!(
         handle_file.content.contains("public class OpaqueHandle")
             && handle_file.content.contains("implements AutoCloseable"),
@@ -2398,14 +2344,12 @@ fn test_sum_type_sealed_interface_with_record_variants() {
         .find(|f| f.path.to_string_lossy().contains("AuthConfig.java"))
         .expect("AuthConfig.java should be generated");
 
-    // Sum types should emit as sealed interface
     assert!(
         enum_file.content.contains("public sealed interface AuthConfig"),
         "Sum type should emit as sealed interface. Got:\n{}",
         enum_file.content
     );
 
-    // Variant records should use record syntax
     assert!(
         enum_file.content.contains("record Basic(") || enum_file.content.contains("record Bearer("),
         "Sealed interface variants should be emitted as records. Got:\n{}",
@@ -2544,7 +2488,6 @@ type = "EventRequest"
         .find(|f| f.path.ends_with("EventSource.java"))
         .expect("EventSource.java must be generated");
 
-    // (a) Stream< appears in streaming method signature (as FQN); no bare Iterator< return type
     assert!(
         source.content.contains("java.util.stream.Stream<"),
         "streaming method must return java.util.stream.Stream<T> (FQN). Got:\n{}",
@@ -2556,15 +2499,12 @@ type = "EventRequest"
         source.content
     );
 
-    // StreamSupport bridge is present via FQN
     assert!(
         source.content.contains("java.util.stream.StreamSupport.stream("),
         "streaming bridge must use java.util.stream.StreamSupport.stream(). Got:\n{}",
         source.content
     );
 
-    // Stream must NOT be imported — template uses fully-qualified names throughout,
-    // so a bare import would trigger Checkstyle's UnusedImports rule.
     assert!(
         !source.content.contains("import java.util.stream.Stream;"),
         "must NOT import java.util.stream.Stream (template uses FQN). Got:\n{}",
@@ -2672,7 +2612,6 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
 
     let content = &shape_file.content;
 
-    // (b) tagged enum emits `sealed interface`; variants listed in file
     assert!(
         content.contains("public sealed interface Shape"),
         "tagged enum must emit as sealed interface. Got:\n{content}"
@@ -2682,7 +2621,6 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
         "sealed interface file must contain all variant names. Got:\n{content}"
     );
 
-    // (c) each variant is a `record` implementing the sealed interface
     assert!(
         content.contains("record Circle("),
         "Circle variant must be emitted as a record. Got:\n{content}"
@@ -2792,7 +2730,6 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
 
     let content = &dto_file.content;
 
-    // (c) plain product DTOs are records, not sealed classes
     assert!(
         content.contains("public record ModelInfo("),
         "plain product DTO must be a record. Got:\n{content}"
@@ -3012,14 +2949,12 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
 
     let content = &facade.content;
 
-    // (1) extract_file has optional mime_type parameter — should be @Nullable String
     assert!(
         content.contains("@Nullable String mimeType"),
         "Optional String parameter should be @Nullable. Got:\n{}",
         content
     );
 
-    // (2) extract_file has required path parameter — should NOT be @Nullable Path
     assert!(
         content.contains("final java.nio.file.Path path"),
         "Non-optional Path parameter should not be annotated. Got:\n{}",
@@ -3031,7 +2966,6 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
         content
     );
 
-    // (3) find_user returns Option<User> — returns are represented as Optional<T>.
     assert!(
         content.contains("public static Optional<User> findUser(final long id)"),
         "Optional return type should be Optional<T>. Got:\n{}",
@@ -3053,7 +2987,6 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
         client.content
     );
 
-    // (4) Import should be present
     assert!(
         content.contains("import org.jspecify.annotations.Nullable;"),
         "Should import @Nullable annotation. Got:\n{}",
@@ -3196,8 +3129,6 @@ type = "EventRequest"
         .find(|f| f.path.ends_with("EventSource.java"))
         .expect("EventSource.java must be generated");
 
-    // The streaming body template uses java.util.stream.Stream<T> as a FQN, so
-    // a bare `import java.util.stream.Stream;` would be unused and Checkstyle-flagged.
     assert!(
         !source.content.contains("import java.util.stream.Stream;"),
         "EventSource.java must NOT import java.util.stream.Stream; \
@@ -3205,7 +3136,6 @@ type = "EventRequest"
         source.content
     );
 
-    // The streaming body must still emit the FQN return type and StreamSupport bridge.
     assert!(
         source.content.contains("java.util.stream.Stream<"),
         "Streaming method must use java.util.stream.Stream<T> FQN in signature. Got:\n{}",
@@ -3217,15 +3147,6 @@ type = "EventRequest"
         source.content
     );
 }
-
-// ---------------------------------------------------------------------------
-// iter-9 Stream B: Java facade must unwrap `Optional<T>` returned from the
-// raw class through `.orElse(null)` so the declared `@Nullable T` signature
-// type-checks under javac.  Also covers the Optional-Named return case where
-// the body of the raw FFI class must wrap the readValue() result in
-// `Optional.of(...)` so the declared `Optional<NamedDto>` signature matches
-// what the body actually returns.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn facade_unwraps_optional_string_return_via_or_else_null() {
@@ -3300,10 +3221,6 @@ fn facade_unwraps_optional_string_return_via_or_else_null() {
 
 #[test]
 fn optional_named_method_body_wraps_via_optional_of() {
-    // Regression for sample_language_pack Node.parent() / Node.child() / Parser.parse():
-    // when an instance method on an opaque type returns `Optional<NamedDto>`,
-    // the body must build the value through `Optional.of(STREAM_MAPPER...)`
-    // — never return a bare NamedDto (which fails javac's type inference).
     let backend = JavaBackend;
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
@@ -3400,9 +3317,6 @@ fn optional_named_method_body_wraps_via_optional_of() {
         content.contains("public Optional<DemoItem> maybeItem("),
         "maybeItem must declare Optional<DemoItem> return, got:\n{content}"
     );
-    // The emitter generates `java.util.Optional.of(...)` (fully qualified);
-    // accept either the qualified or unqualified spelling so we stay robust
-    // to future import-tidying in the line-wrapper.
     let has_wrapped_of = content
         .contains("return java.util.Optional.of(STREAM_MAPPER.readValue(json, DemoItem.class));")
         || content.contains("return Optional.of(STREAM_MAPPER.readValue(json, DemoItem.class));");
@@ -3414,8 +3328,6 @@ fn optional_named_method_body_wraps_via_optional_of() {
         content.contains("return java.util.Optional.empty();") || content.contains("return Optional.empty();"),
         "null-handle branch must return Optional.empty() (not bare null), got:\n{content}"
     );
-    // Regression boundary: the body must not return the bare `STREAM_MAPPER.readValue(...)`
-    // (which is what triggered the type-mismatch error pre-fix).
     assert!(
         !content.contains("return STREAM_MAPPER.readValue(json, DemoItem.class);"),
         "Optional<DemoItem> body must not return a bare DemoItem, got:\n{content}"
@@ -3426,7 +3338,6 @@ fn optional_named_method_body_wraps_via_optional_of() {
 fn builder_optional_fields_use_nullable_not_optional_in_setters() {
     let backend = JavaBackend;
 
-    // Create a DTO with an optional field to test builder setter signatures.
     let api = ApiSurface {
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
@@ -3514,17 +3425,14 @@ fn builder_optional_fields_use_nullable_not_optional_in_setters() {
         .expect("Config.java must be emitted");
     let content = &config_file.content;
 
-    // Builder setter for optional field must use @Nullable, not Optional<String>.
     assert!(
         content.contains("public Builder withDescription(final @Nullable String value)"),
         "Builder setter for optional String field must use @Nullable String, got:\n{content}"
     );
-    // Ensure we're not using Optional<String> in the setter signature (common Rust leak).
     assert!(
         !content.contains("public Builder withDescription(final Optional<String>"),
         "Builder setter must NOT use Optional<String> in signature, got:\n{content}"
     );
-    // @Nullable must be imported from jspecify.
     assert!(
         content.contains("import org.jspecify.annotations.Nullable;"),
         "@Nullable must be imported, got:\n{content}"
@@ -3535,7 +3443,6 @@ fn builder_optional_fields_use_nullable_not_optional_in_setters() {
 fn json_util_centralizes_from_json_deserialization() {
     let backend = JavaBackend;
 
-    // Create a minimal DTO to test JsonUtil emission
     let api = ApiSurface {
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
@@ -3596,14 +3503,12 @@ fn json_util_centralizes_from_json_deserialization() {
     let config = make_test_config("dev.test");
     let files = backend.generate_bindings(&api, &config).expect("generation");
 
-    // Check that JsonUtil is emitted
     let json_util = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("JsonUtil.java"))
         .expect("JsonUtil.java must be emitted");
     let util_content = &json_util.content;
 
-    // Verify JsonUtil structure
     assert!(
         util_content.contains("public final class JsonUtil"),
         "JsonUtil class must be public final, got:\n{util_content}"
@@ -3613,7 +3518,6 @@ fn json_util_centralizes_from_json_deserialization() {
         "JsonUtil must have fromJson generic method, got:\n{util_content}"
     );
 
-    // Check that per-DTO fromJson is removed
     let dto_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("SimpleDto.java"))
@@ -3630,8 +3534,6 @@ fn json_util_centralizes_from_json_deserialization() {
 fn javadoc_sanitizes_rust_syntax() {
     let backend = JavaBackend;
 
-    // Create an opaque handle type to test documentation sanitization
-    // (opaque handles always emit full javadoc, unlike record field docs)
     let api = ApiSurface {
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
@@ -3686,7 +3588,6 @@ Related: `ConversionOptions::output_format` and `Result::unwrap_or()`."#
         .expect("ConfigHandle.java must be emitted");
     let content = &dto_file.content;
 
-    // Rust :: should be converted to . (Java package style)
     assert!(
         content.contains("{@code OutputFormat.None}") || content.contains("OutputFormat.None"),
         "Rust :: should become . in Javadoc, got:\n{content}"
@@ -3706,7 +3607,6 @@ Related: `ConversionOptions::output_format` and `Result::unwrap_or()`."#
         ".expect() Rust idiom must be removed, got:\n{content}"
     );
 
-    // Verify the key idioms are gone
     assert!(
         !content.contains("Result::unwrap_or()"),
         "Rust Result::unwrap_or() must become Result.orElse(), got:\n{content}"
@@ -3717,7 +3617,6 @@ Related: `ConversionOptions::output_format` and `Result::unwrap_or()`."#
 fn test_trait_bridge_clear_fn_generates_correct_error_handling() {
     let backend = JavaBackend;
 
-    // Create a simple API with a unit-return function that should be handled as a clear_fn
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -3808,7 +3707,6 @@ clear_fn = "clear_validators"
     );
     let facade_files = facade_result.unwrap();
 
-    // The raw lifecycle function is owned by the bridge, while the public facade delegates to it.
     let facade_class = facade_files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("TestLib.java"))
@@ -3834,43 +3732,36 @@ clear_fn = "clear_validators"
         .unwrap_or_else(|| panic!("ValidatorBridge.java must be emitted; generated files:\n{generated_paths}"));
     let content = &bridge_class.content;
 
-    // Verify the method exists
     assert!(
         content.contains("public static void clearValidators()"),
         "clearValidators method must exist, got:\n{content}"
     );
 
-    // Verify error handling: should allocate outErr, invoke with it, check result code
     assert!(
         content.contains("MemorySegment outErr = arena.allocate(ValueLayout.ADDRESS)"),
         "Should allocate outErr buffer, got:\n{content}"
     );
 
-    // Verify the invocation passes outErr as an argument
     assert!(
         content.contains("outErr)"),
         "Should pass outErr to FFI invocation, got:\n{content}"
     );
 
-    // Verify error code checking
     assert!(
         content.contains("if (rc != 0)"),
         "Should check rc != 0 for error, got:\n{content}"
     );
 
-    // Verify error message extraction from the out-error pointer
     assert!(
         content.contains("outErr.get(ValueLayout.ADDRESS, 0)"),
         "Should read error pointer from outErr, got:\n{content}"
     );
 
-    // Verify exception throwing on error
     assert!(
         content.contains("throw new RuntimeException(\"clearValidators: \" + msg)"),
         "Should throw exception on error, got:\n{content}"
     );
 
-    // Verify it uses the correct handle constant (singular)
     assert!(
         content.contains("TEST_CLEAR_VALIDATOR"),
         "Should use singular TEST_CLEAR_VALIDATOR handle, got:\n{content}"
@@ -4192,9 +4083,6 @@ result_type = "FlowDecision"
 
 #[test]
 fn test_facade_no_java_lang_imports() {
-    // BLK-12: Regression test that verifies no `java.lang.*` types are explicitly imported
-    // in generated Java facades. These types are auto-imported by the JLS, and checkstyle's
-    // UnusedImports rule will reject any explicit import.
     let backend = JavaBackend;
 
     let api = ApiSurface {
@@ -4259,23 +4147,17 @@ fn test_facade_no_java_lang_imports() {
     assert!(result.is_ok(), "generation failed: {:?}", result);
     let files = result.unwrap();
 
-    // Find the main facade class
     let facade_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("TestLibRs.java"))
         .expect("TestLibRs.java (facade) must be emitted");
     let content = &facade_file.content;
 
-    // BLK-12: Verify that there is NO explicit `import java.lang.X;` statements
-    // Iterable, String, Object, etc. are auto-imported by the JLS and must never
-    // be explicitly imported, or checkstyle's UnusedImports rule will reject them.
     assert!(
         !content.contains("import java.lang."),
         "Facade must NOT contain any 'import java.lang.*' (auto-imported by JLS), got:\n{content}"
     );
 
-    // Sanity checks: verify other non-auto-imported types ARE imported correctly
-    // If the facade uses List or Optional, those should still be imported (from java.util)
     if content.contains("List<") {
         assert!(
             content.contains("import java.util.List;"),
@@ -4326,7 +4208,6 @@ type = "CrawlRequest"
 "#,
     );
 
-    // CrawlEvent has has_serde=false (simulating cfg-gated serde derive)
     let api = ApiSurface {
         crate_name: "crawl_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -4388,7 +4269,7 @@ type = "CrawlRequest"
                 has_stripped_cfg_fields: false,
                 is_return_type: false,
                 serde_rename_all: None,
-                has_serde: false, // Simulates cfg-gated serde derive
+                has_serde: false,
                 super_traits: vec![],
                 doc: String::new(),
                 cfg: None,
@@ -4439,31 +4320,23 @@ type = "CrawlRequest"
     assert!(result.is_ok(), "generation failed: {:?}", result);
     let files = result.unwrap();
 
-    // Check NativeLib.java for _to_json handle for CrawlEvent (stream item type)
     let native_lib = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("NativeLib"))
         .expect("NativeLib.java must be emitted");
 
-    // Even though CrawlEvent has has_serde=false, because it's a streaming item type,
-    // NativeLib must emit KCRAWL_CRAWL_EVENT_TO_JSON handle (referenced by streaming_iterator_method)
     assert!(
         native_lib.content.contains("KCRAWL_CRAWL_EVENT_TO_JSON"),
         "NativeLib must emit KCRAWL_CRAWL_EVENT_TO_JSON MethodHandle for streaming item type CrawlEvent, even with has_serde=false. Got:\n{}",
         native_lib.content
     );
 
-    // Also verify _from_json is emitted for the request type
     assert!(
         native_lib.content.contains("KCRAWL_CRAWL_REQUEST_FROM_JSON"),
         "NativeLib must emit KCRAWL_CRAWL_REQUEST_FROM_JSON MethodHandle for streaming request type CrawlRequest. Got:\n{}",
         native_lib.content
     );
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// untagged_union_text_types — text() accessor emission
-// ──────────────────────────────────────────────────────────────────────────────
 
 fn make_assistant_content_enum() -> alef::core::ir::EnumDef {
     alef::core::ir::EnumDef {
@@ -4607,16 +4480,12 @@ fn java_untagged_wrapper_with_text_types_emits_text_method() {
 
     let src = &content_file.content;
     assert!(src.contains("public String text()"), "text() must be emitted:\n{src}");
-    // Must return string when value is textual
     assert!(src.contains("value.isTextual()"), "must handle JSON string:\n{src}");
-    // Must iterate array for parts
     assert!(src.contains("value.isArray()"), "must handle JSON array:\n{src}");
-    // Must filter by type=="text"
     assert!(
         src.contains("\"text\".equals(typeNode.asText())"),
         "must filter by type=text:\n{src}"
     );
-    // Returns empty string by default
     assert!(
         src.contains("return \"\";"),
         "must return empty string as fallback:\n{src}"
@@ -4625,10 +4494,6 @@ fn java_untagged_wrapper_with_text_types_emits_text_method() {
 
 #[test]
 fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
-    // A sync infallible usize-returning method's C vtable slot is
-    // `fn(user_data, text) -> usize` (ffi c_return_convention direct-value
-    // branch). The upcall stub and handler must match that ABI exactly:
-    // no outResult/outError params, primitive descriptor return.
     let make_method = |name: &str, params: Vec<ParamDef>, ret: TypeRef| MethodDef {
         name: name.to_string(),
         params,
@@ -4677,8 +4542,6 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
                 TypeRef::Primitive(PrimitiveType::Usize),
             ),
             make_method("reset", vec![], TypeRef::Unit),
-            // Round-2 catch-all shapes: infallible Path carries out_result but
-            // NOT out_error; infallible Bytes carries neither pointer.
             make_method("cache_dir", vec![], TypeRef::Path),
             make_method("raw_state", vec![], TypeRef::Bytes),
         ],
@@ -4725,7 +4588,6 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
         .content
         .as_str();
 
-    // Stub: long return, exactly userData + text params — no outResult/outError pair.
     assert!(
         bridge.contains("MethodType.methodType(long.class, MemorySegment.class, MemorySegment.class)"),
         "direct-value stub must bind (userData, text) -> long: {bridge}"
@@ -4734,7 +4596,6 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
         bridge.contains("FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"),
         "direct-value descriptor must be JAVA_LONG(ADDRESS, ADDRESS): {bridge}"
     );
-    // Handler: primitive return, no out-pointers, logged catch with a default.
     assert!(
         bridge.contains("private long handleCountTokens(MemorySegment userData, MemorySegment text_in)"),
         "direct-value handler must return long with no out params: {bridge}"
@@ -4743,7 +4604,6 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
         bridge.contains("host 'count_tokens' threw") && bridge.contains("return 0L;"),
         "direct-value handler must log the host exception and return the default: {bridge}"
     );
-    // Unit method: void stub via ofVoid, void handler.
     assert!(
         bridge.contains("FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)"),
         "infallible unit stub must use ofVoid with only userData: {bridge}"
@@ -4752,13 +4612,10 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
         bridge.contains("private void handleReset(MemorySegment userData)"),
         "infallible unit handler must be void with no out params: {bridge}"
     );
-    // The JSON convention must not leak into these methods.
     assert!(
         !bridge.contains("private int handleCountTokens"),
         "count_tokens must not use the int-status JSON convention: {bridge}"
     );
-    // Infallible Path: outResult but NO outError — the catch logs instead of
-    // writing a pointer the slot doesn't carry.
     assert!(
         bridge.contains("private int handleCacheDir(MemorySegment userData, MemorySegment outResult)"),
         "infallible Path handler must carry outResult only: {bridge}"
@@ -4771,7 +4628,6 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
         bridge.contains("host 'cache_dir' threw"),
         "infallible Path catch must log instead of writeError: {bridge}"
     );
-    // Infallible Bytes: neither pointer — no value channel exists on the C ABI.
     assert!(
         bridge.contains("private int handleRawState(MemorySegment userData)"),
         "infallible Bytes handler must carry no out-pointers: {bridge}"

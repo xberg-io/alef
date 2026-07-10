@@ -91,7 +91,6 @@ fn c_codegen_emits_gitignore() {
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some(".gitignore"))
         .expect("`.gitignore` should be emitted alongside Makefile/main.c");
 
-    // Parent directory is the e2e/c/ output base.
     let parent = gitignore.path.parent().expect("gitignore has a parent dir");
     assert_eq!(
         parent.file_name().and_then(|n| n.to_str()),

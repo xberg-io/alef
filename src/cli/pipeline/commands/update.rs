@@ -22,7 +22,6 @@ fn dedupe_plans(plans: Vec<(Language, Vec<String>)>) -> Vec<(Language, Vec<Strin
 /// 1. Sequential: check preconditions and collect command lists; deduplicate across languages.
 /// 2. Parallel: run each language's deduped command list (within-language order preserved).
 pub fn update(config: &ResolvedCrateConfig, languages: &[Language], latest: bool) -> anyhow::Result<()> {
-    // Phase 1 (sequential): check preconditions, run before hooks, collect command lists.
     let mut plans: Vec<(Language, Vec<String>)> = Vec::new();
     for &lang in languages {
         let update_cfg = config.update_config_for_language(lang);
@@ -41,10 +40,8 @@ pub fn update(config: &ResolvedCrateConfig, languages: &[Language], latest: bool
         plans.push((lang, cmd_strings));
     }
 
-    // Deduplicate shared commands (e.g. pnpm workspace commands shared by Node and Wasm).
     let plans = dedupe_plans(plans);
 
-    // Phase 2 (parallel): run each language's deduped command list with live output.
     let results: Vec<(Language, anyhow::Result<()>)> = plans
         .par_iter()
         .map(|(lang, cmds)| {
@@ -108,10 +105,7 @@ mod dedupe_tests {
                 Language::Rust,
                 vec!["cargo upgrade --incompatible".to_string(), "cargo update".to_string()],
             ),
-            (
-                Language::Node,
-                vec!["cargo update".to_string()], // hypothetical duplicate
-            ),
+            (Language::Node, vec!["cargo update".to_string()]),
         ];
         let result = dedupe_plans(plans);
         assert_eq!(result[0].1, vec!["cargo upgrade --incompatible", "cargo update"]);

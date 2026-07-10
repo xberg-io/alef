@@ -24,8 +24,6 @@ use alef::e2e::codegen::ruby::RubyCodegen;
 use alef::e2e::codegen::rust::RustE2eCodegen;
 use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup};
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
 fn build_validation_config(language: &str) -> (alef::e2e::config::E2eConfig, alef::core::config::ResolvedCrateConfig) {
     let toml_src = format!(
         r#"
@@ -120,21 +118,16 @@ fn generate_content(codegen: &dyn E2eCodegen, language: &str) -> String {
     files.iter().map(|f| f.content.clone()).collect::<Vec<_>>().join("\n")
 }
 
-// ── Ruby ─────────────────────────────────────────────────────────────────────
-
 #[test]
 fn ruby_validation_setup_lines_are_inside_expect_block() {
     let content = generate_content(&RubyCodegen, "ruby");
 
-    // The expect { } block must contain setup lines (engine creation) before call_expr.
     assert!(content.contains("expect {"), "expect block opener missing:\n{content}");
     assert!(
         content.contains("}.to raise_error"),
         "expect block closer missing:\n{content}"
     );
 
-    // Engine creation (create_engine) must appear INSIDE the expect block, not before it.
-    // We verify by checking that `create_engine` appears after `expect {` in the output.
     let expect_pos = content.find("expect {").expect("expect { not found");
     let create_engine_pos = content.find("create_engine").expect("create_engine not found");
     assert!(
@@ -143,8 +136,6 @@ fn ruby_validation_setup_lines_are_inside_expect_block() {
          but found create_engine at {create_engine_pos} before expect at {expect_pos}:\n{content}"
     );
 }
-
-// ── PHP ───────────────────────────────────────────────────────────────────────
 
 #[test]
 fn php_validation_setup_lines_are_after_expect_exception() {
@@ -155,8 +146,6 @@ fn php_validation_setup_lines_are_after_expect_exception() {
         "expectException call missing:\n{content}"
     );
 
-    // Engine creation (createEngine) must appear AFTER expectException.
-    // PHP uses camelCase constructors: createEngine, createHandle, etc.
     let expect_pos = content
         .find("$this->expectException")
         .expect("expectException not found");
@@ -171,20 +160,15 @@ fn php_validation_setup_lines_are_after_expect_exception() {
     );
 }
 
-// ── C# ────────────────────────────────────────────────────────────────────────
-
 #[test]
 fn csharp_validation_setup_lines_are_inside_throws_lambda() {
     let content = generate_content(&CSharpCodegen, "csharp");
 
-    // Assert.ThrowsAnyAsync must be present (async validation fixture).
     assert!(
         content.contains("Assert.ThrowsAnyAsync") || content.contains("Assert.ThrowsAny"),
         "ThrowsAny assertion missing:\n{content}"
     );
 
-    // The lambda body must contain the engine creation.
-    // Verify create_engine appears after the lambda opener `=> {` or `async () =>`.
     let throws_pos = content.find("Assert.ThrowsAny").expect("ThrowsAny not found");
     let create_engine_pos = content.find("CreateEngine").or_else(|| content.find("create_engine"));
     let create_engine_pos = create_engine_pos.expect("engine creation not found in C# output");
@@ -195,49 +179,38 @@ fn csharp_validation_setup_lines_are_inside_throws_lambda() {
     );
 }
 
-// ── Elixir ────────────────────────────────────────────────────────────────────
-
 #[test]
 fn elixir_validation_emits_error_assertion_on_engine_creation() {
     let content = generate_content(&ElixirCodegen, "elixir");
 
-    // Must emit `assert {:error, _} = Module.create_engine(...)`.
     assert!(
         content.contains("assert {:error, _} ="),
         "error assertion pattern missing:\n{content}"
     );
 
-    // The assertion must be on the engine creation call, not on a separate scrape call.
     assert!(
         content.contains("assert {:error, _} =") && content.contains("create_engine"),
         "assert {{:error, _}} must wrap create_engine:\n{content}"
     );
 
-    // Must NOT have `{:ok, engine} = ...` which would crash on bad config.
     assert!(
         !content.contains("{:ok, engine}"),
         "{{:ok, engine}} = ... pattern found — would crash on validation fixture:\n{content}"
     );
 }
 
-// ── Go ────────────────────────────────────────────────────────────────────────
-
 #[test]
 fn go_validation_asserts_error_on_engine_creation() {
     let content = generate_content(&GoCodegen, "go");
 
-    // Must emit `assert.Error(t, createErr)` for the engine creation error.
     assert!(
         content.contains("assert.Error(t, createErr)"),
         "assert.Error(t, createErr) missing for validation fixture:\n{content}"
     );
 
-    // Must NOT use `return` alone (old behavior) as the sole error handling.
-    // The new behavior is `assert.Error(t, createErr)\n\t\treturn`.
     let assert_pos = content
         .find("assert.Error(t, createErr)")
         .expect("assert.Error not found");
-    // Verify it appears in engine creation context (before the main call).
     let scrape_pos = content.find("Scrape(").or_else(|| content.find("scrape("));
     if let Some(scrape_pos) = scrape_pos {
         assert!(
@@ -246,8 +219,6 @@ fn go_validation_asserts_error_on_engine_creation() {
         );
     }
 }
-
-// ── Rust ──────────────────────────────────────────────────────────────────────
 
 #[test]
 fn rust_validation_uses_match_to_propagate_engine_creation_error() {
@@ -265,7 +236,6 @@ fn rust_validation_uses_match_to_propagate_engine_creation_error() {
         "panicking .expect() on handle creation found — would crash before error assertion:\n{content}"
     );
 
-    // Must emit the match wrapper that propagates engine-creation errors.
     assert!(
         content.contains("match engine_result {"),
         "match engine_result block missing:\n{content}"
@@ -279,7 +249,6 @@ fn rust_validation_uses_match_to_propagate_engine_creation_error() {
         "Ok arm with unwrapped engine missing in match:\n{content}"
     );
 
-    // The final assertion must check the result for an error.
     assert!(
         content.contains("result.is_err()"),
         "result.is_err() assertion missing:\n{content}"

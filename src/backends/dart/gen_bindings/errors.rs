@@ -48,9 +48,6 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
             },
         ));
     }
-    // Pre-render method descriptors: (dart_type, dart_getter_name) pairs.
-    // The sealed class declares each as an abstract getter; concrete variant
-    // subclasses may override them when they naturally carry the relevant field.
     let method_entries: Vec<(String, String)> = error
         .methods
         .iter()
@@ -279,7 +276,6 @@ mod tests {
         let mut out = String::new();
         let mut imports = BTreeSet::new();
         emit_error(&error, &mut out, &mut imports);
-        // Sealed class must declare abstract getters for each method.
         assert!(out.contains("int get statusCode;"), "missing statusCode: {out}");
         assert!(out.contains("bool get isTransient;"), "missing isTransient: {out}");
         assert!(out.contains("String get errorType;"), "missing errorType: {out}");

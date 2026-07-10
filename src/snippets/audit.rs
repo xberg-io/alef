@@ -266,18 +266,50 @@ fn issue(kind: AuditIssueKind, path: &Path, line: usize, message: String) -> Aud
 fn is_known_display_tag(tag: &str) -> bool {
     matches!(
         tag.trim().to_lowercase().as_str(),
-        // Data / config formats
-        "json" | "yaml" | "yml" | "xml" | "ini" | "csv" | "tsv" | "properties" | "env" | "diff" | "patch"
-            // Markup / web
-            | "html" | "css" | "scss" | "sass" | "svg" | "markdown" | "md" | "mdx" | "rst" | "tex" | "latex"
-            // Diagrams & docs DSLs
-            | "mermaid" | "plantuml" | "graphviz" | "dot" | "d2"
-            // Build tooling / scripts not yet validated
-            | "groovy" | "gradle" | "make" | "makefile" | "cmake" | "nginx" | "apache"
-            // Misc display
-            | "text" | "txt" | "plain" | "plaintext" | "output" | "log" | "console"
-            // Database / query languages
-            | "sql" | "graphql" | "gql"
+        "json"
+            | "yaml"
+            | "yml"
+            | "xml"
+            | "ini"
+            | "csv"
+            | "tsv"
+            | "properties"
+            | "env"
+            | "diff"
+            | "patch"
+            | "html"
+            | "css"
+            | "scss"
+            | "sass"
+            | "svg"
+            | "markdown"
+            | "md"
+            | "mdx"
+            | "rst"
+            | "tex"
+            | "latex"
+            | "mermaid"
+            | "plantuml"
+            | "graphviz"
+            | "dot"
+            | "d2"
+            | "groovy"
+            | "gradle"
+            | "make"
+            | "makefile"
+            | "cmake"
+            | "nginx"
+            | "apache"
+            | "text"
+            | "txt"
+            | "plain"
+            | "plaintext"
+            | "output"
+            | "log"
+            | "console"
+            | "sql"
+            | "graphql"
+            | "gql"
     )
 }
 

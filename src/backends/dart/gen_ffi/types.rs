@@ -25,7 +25,6 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
     }
 
     if ty.fields.is_empty() || ty.is_opaque {
-        // Opaque handle: wrap a raw pointer.
         out.push_str(&template_env::render(
             "class_open.jinja",
             minijinja::context! {
@@ -46,7 +45,6 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
 
     let visible_fields: Vec<_> = binding_fields(&ty.fields).collect();
 
-    // Emit freezed product-type DTO with value equality, copyWith, and toJson
     if visible_fields.len() == 1 {
         let field = visible_fields[0];
         let ty_str = dart_type(&field.ty, field.optional);
@@ -145,8 +143,6 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
         }
         out.push_str(&template_env::render("enum_close.jinja", minijinja::context! {}));
     } else {
-        // Unsupported: data variants are deferred for FFI mode. dart:ffi cannot represent
-        // tagged unions ergonomically. Emit a unit placeholder for now.
         out.push_str(&template_env::render(
             "enum_data_variants_todo.jinja",
             minijinja::context! {

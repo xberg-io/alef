@@ -236,7 +236,6 @@ fn opaque_handle_instance_method_emits_javadoc_above_signature() {
         body.contains("Run the engine with the given input and return the transcript."),
         "method doc not propagated:\n{body}"
     );
-    // The doc block must precede the method signature, not appear after it.
     let doc_pos = body.find("Run the engine").expect("doc present");
     let sig_pos = body.find("public String run(").expect("signature present");
     assert!(doc_pos < sig_pos, "Javadoc must precede method signature");

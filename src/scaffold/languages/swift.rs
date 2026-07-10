@@ -8,18 +8,13 @@ use std::path::PathBuf;
 pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let module = config.swift_module();
-    // Strip the minor version component: "13.0" → "13", "16.0" → "16".
-    // Swift PackageDescription uses e.g. `.v13` and `.v16`.
     let min_macos_major = swift_min_macos(config).split('.').next().unwrap_or("13").to_string();
     let min_ios_major = swift_min_ios(config).split('.').next().unwrap_or("16").to_string();
 
-    // crate_name is e.g. "sample_core", the Cargo crate being wrapped.
-    // The swift-bridge output files are named after the *binding* crate, e.g. "sample_core-swift".
     let crate_name = &config.name;
     let binding_crate_name = format!("{crate_name}-swift");
     let binding_crate_underscore = binding_crate_name.replace('-', "_");
 
-    // FFI library name: defaults to "{crate_name}_ffi" or from config.ffi.lib_name if configured.
     let ffi_lib_name = config
         .ffi
         .as_ref()
@@ -27,35 +22,6 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("{}_ffi", crate_name.replace('-', "_")));
 
-    // Three-target layout:
-    //   RustBridgeC  — pure C/headers target; Swift files import this to see C types
-    //   RustBridge   — Swift bridge files + linker settings for the static library
-    //   {Module}     — user-facing Swift API, depends on RustBridge
-    //
-    // Rationale: swift-bridge's generated SwiftBridgeCore.swift references C types
-    // (RustStr, RustString, etc.) without import statements. SwiftPM's mixed-target
-    // rules require those types to be exported from a separate C target so that
-    // `import RustBridgeC` at the top of the generated Swift files brings them in scope.
-    //
-    // Linking the Rust staticlib: SwiftPM cannot drive Cargo, so the consumer must run
-    // `cargo build -p {binding_crate}` first. We then declare `linkerSettings` on
-    // RustBridge that pass `-L<repo>/target/{release,debug}` and `-l{binding_underscore}`
-    // to the linker. The `-L` paths are relative to the package root (`packages/swift`).
-    // Both `release` and `debug` are listed so either Cargo profile produces a runnable
-    // `swift test`. macOS Frameworks (Security, CoreFoundation, SystemConfiguration) are
-    // linked because the Rust binding pulls in `ureq` / `rustls-platform-verifier` /
-    // `keyring`-style deps that reference them on macOS targets.
-    //
-    // `.unsafeFlags` prevents this package from being used as a `.package(url: ...)`
-    // dependency by other packages. That is acceptable: the canonical distribution
-    // channel for Apple platforms is a pre-built XCFramework. The linkerSettings
-    // here only support the in-tree `swift test` workflow.
-    // 2-space indentation and no trailing comma on single-element array literals match
-    // `swift-format` defaults so the generated file is lint-clean without a post-pass.
-    // Host-native capsule (Language) passthrough: collect capsule package dependencies and
-    // the SwiftPM product names derived from each capsule type's `host_type`. The product name
-    // is the first component of `host_type` (e.g. `MyLib.Language` → `MyLib`).
-    // Pair: (package_url, package_version, product_name)
     let swift_capsule: Vec<(String, String, String)> = config
         .swift
         .as_ref()
@@ -65,7 +31,6 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
                 .values()
                 .filter(|cap| !cap.package.is_empty())
                 .map(|cap| {
-                    // Derive the SwiftPM product name from the module prefix of host_type.
                     let product = crate::core::config::languages::zig_capsule_import_name(&cap.host_type)
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| cap.host_type.clone());
@@ -93,17 +58,12 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
             .collect();
         format!("\n  dependencies: [\n{}\n  ],", entries.join("\n"))
     };
-    // The SwiftPM product names are the module-prefix parts of each capsule host_type.
     let module_target_capsule_deps = if swift_capsule.is_empty() {
         String::new()
     } else {
         let product_names: Vec<String> = swift_capsule
             .iter()
             .map(|(pkg, _ver, product)| {
-                // A product from a URL-based `.package(url:)` dependency must be referenced as
-                // `.product(name: <Product>, package: <identity>)` — the bare product string only
-                // resolves for same-package targets. SwiftPM's package identity is the last path
-                // component of the URL (sans trailing slash / `.git`).
                 let identity = pkg
                     .trim_end_matches('/')
                     .rsplit('/')
@@ -202,8 +162,6 @@ let package = Package(
 
     let gitignore = ".build/\nPackages/\nxcuserdata/\nDerivedData/\n.swiftpm/\n*.xcodeproj\n";
 
-    // 2-space indentation matches `swift-format` defaults and a blank line between
-    // import groups is required by `swift-format`'s import-ordering rules.
     let test_stub = format!(
         r#"import XCTest
 
@@ -220,15 +178,8 @@ final class {module}Tests: XCTestCase {{
         module = module,
     );
 
-    // RustBridgeC header: umbrella that includes both swift-bridge generated headers, or
-    // a placeholder when the cargo build hasn't run yet.
-    // The umbrella form is used when `cargo build -p {binding_crate}` has already been run
-    // and the output headers are available in `target/*/build/{binding_crate}-*/out/`.
     let rust_bridge_c_header = build_rust_bridge_c_header(&binding_crate_name);
 
-    // RustBridge.swift placeholder — the target needs at least one Swift source.
-    // SwiftBridgeCore.swift and {crate}-swift.swift are copied here (with
-    // `import RustBridgeC` prepended) after `cargo build -p {binding_crate_name}` runs.
     let rust_bridge_swift = format!(
         r#"// Placeholder Swift source for the RustBridge target.
 // Run `cargo build -p {binding_crate}` and then rerun `alef generate` to replace
@@ -241,12 +192,8 @@ public enum RustBridgePlaceholder {{}}
         binding_crate = binding_crate_name,
     );
 
-    // module.modulemap is not needed for the RustBridgeC target approach (SwiftPM
-    // infers the module from publicHeadersPath), but we keep it in RustBridge for
-    // documentation purposes. It is not strictly required.
     let module_modulemap = "// This modulemap is unused — the RustBridgeC target provides the C types.\n// SwiftPM discovers RustBridgeC.h via the publicHeadersPath setting.\n";
 
-    // 2-space indent matches `swift-format` defaults so editors and the formatter agree.
     let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.swift]\nindent_style = space\nindent_size = 2\n";
 
     let swiftformat = "lineLength = 120\nindent = 2\nusesTabs = false\n";
@@ -288,7 +235,6 @@ C bridge sources.
         binding_crate = binding_crate_name,
     ) + &license_section;
 
-    // 2-space indentation matches `swift-format` defaults.
     let demo_swift = format!(
         r#"import {module}
 
@@ -303,27 +249,6 @@ struct Demo {{
         module = module,
     );
 
-    // Root-level Package.swift — published-distribution manifest.
-    //
-    // This file is what external consumers see when they reference the repo via
-    // `.package(url: "<repo>", from: "X.Y.Z")`. SwiftPM REJECTS packages that
-    // contain `.unsafeFlags` from `.package(url:)` resolution, so the root
-    // manifest MUST use `.binaryTarget` referencing a pre-built artifactbundle
-    // hosted on GitHub Releases. The source-based layout (with `.unsafeFlags`
-    // and an absolute `cargo build` dependency) stays under
-    // `packages/swift/Package.swift` for in-tree dev workflows.
-    //
-    // The URL placeholder `v__ALEF_SWIFT_VERSION__` is substituted by
-    // `alef sync-versions` (so `task set-version X.Y.Z` keeps the URL in sync
-    // with the workspace version). The checksum placeholder
-    // `__ALEF_SWIFT_CHECKSUM__` is substituted by the publish flow
-    // (`src/publish/package/swift.rs::patch_root_package_manifest`) when the
-    // artifactbundle is produced and `ALEF_SWIFT_CHECKSUM` is exported. Both
-    // placeholders are required — leaving the manifest source-based here
-    // means every `alef all --clean` regen overwrites a previously published
-    // binaryTarget manifest with an unsafe-flags variant, breaking remote
-    // SwiftPM consumers (`error: the target 'RustBridge' in product
-    // '{module}' contains unsafe build flags`).
     let root_package_swift = meta.repository.as_deref().map(|repository| {
         format!(
             r#"// swift-tools-version: 6.0
@@ -529,13 +454,6 @@ fn render_rust_bridge_c_header(
         }
     }
 
-    // Minimal placeholder that defines C structs used by swift-bridge's
-    // generated `SwiftBridgeCore.swift`.  Without these typedefs the Swift compiler
-    // reports "cannot find type" errors for every extension block that references
-    // RustStr, __private__FfiSlice, or __private__OptionXX types.
-    // The real `SwiftBridgeCore.h` (produced by `cargo build -p {binding_crate_name}`)
-    // defines identical typedefs; the definitions are compatible and SwiftPM merges
-    // them via the module map.
     format!(
         "#ifndef RUST_BRIDGE_C_H\n\
          #define RUST_BRIDGE_C_H\n\
@@ -599,8 +517,6 @@ fn read_swift_bridge_headers(binding_crate_name: &str) -> Option<(String, String
             if !core_h.exists() || !crate_h.exists() {
                 continue;
             }
-            // Use the mtime of the SwiftBridgeCore.h file (written by the build) rather
-            // than the directory mtime, which macOS may update on reads.
             let mtime = std::fs::metadata(&core_h)
                 .and_then(|m| m.modified())
                 .unwrap_or(std::time::UNIX_EPOCH);
@@ -822,7 +738,6 @@ package_version = "0.25.0"
         let files = scaffold_swift(&api, &config).expect("scaffold");
         let pkg = find_file(&files, "packages/swift/Package.swift");
 
-        // Find byte positions of "products:" and "dependencies:"
         let products_pos = pkg.content.find("products: [").expect("must have products: argument");
         let dependencies_pos = pkg
             .content
@@ -838,7 +753,6 @@ package_version = "0.25.0"
             pkg.content
         );
 
-        // Verify the capsule package is present in the dependencies block
         assert!(
             pkg.content.contains("tree-sitter-swift"),
             "capsule package reference must be present in dependencies: block"

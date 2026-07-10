@@ -6,9 +6,6 @@ pub(super) fn php_phpdoc_type(ty: &TypeRef) -> String {
         TypeRef::Vec(inner) => format!("array<{}>", php_phpdoc_type(inner)),
         TypeRef::Map(k, v) => format!("array<{}, {}>", php_phpdoc_type(k), php_phpdoc_type(v)),
         TypeRef::Optional(inner) => {
-            // Flatten nested Option<Option<T>> to a single nullable type.
-            // php_type() already handles nested Optional by returning a string starting with '?',
-            // so we check and avoid double-prepending.
             let inner_type = php_phpdoc_type(inner);
             if inner_type.starts_with('?') {
                 inner_type
@@ -69,8 +66,6 @@ pub(super) fn php_type(ty: &TypeRef) -> String {
             | PrimitiveType::Isize => "int".to_string(),
         },
         TypeRef::Optional(inner) => {
-            // Flatten nested Option<Option<T>> to a single nullable type.
-            // PHP has no double-nullable concept; ?T already covers null.
             let inner_type = php_type(inner);
             if inner_type.starts_with('?') {
                 inner_type
@@ -117,7 +112,6 @@ pub(super) fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> St
             },
         );
     }
-    // Multi-line: description block + @var tag.
     let mut out = format!("{indent}/**\n");
     for line in &lines {
         let trimmed = line.trim();

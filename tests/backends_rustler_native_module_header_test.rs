@@ -2,14 +2,6 @@ use minijinja::context;
 
 #[test]
 fn force_build_uses_mix_env_not_system_get_env() {
-    // Test that the native_module_header template uses Mix.env() instead of
-    // System.get_env("MIX_ENV") for the force_build predicate.
-    //
-    // Context: System.get_env("MIX_ENV") returns nil when the env var is unset,
-    // and nil in ["test", "dev"] is false. But mix compile runs in :dev/:test
-    // environment (internally set by mix) even when MIX_ENV is not exported.
-    // Therefore, force_build must use Mix.env() to detect the actual mix environment.
-
     let mut env = minijinja::Environment::new();
     let template_str = r#"defmodule {{ app_module }}.Native do
   @moduledoc false
@@ -41,7 +33,6 @@ fn force_build_uses_mix_env_not_system_get_env() {
         })
         .expect("template renders");
 
-    // Verify the output contains Mix.env() in [:dev, :test], not System.get_env("MIX_ENV")
     assert!(
         rendered.contains("Mix.env() in [:dev, :test]"),
         "Expected 'Mix.env() in [:dev, :test]' in rendered template, got:\n{}",
@@ -57,14 +48,6 @@ fn force_build_uses_mix_env_not_system_get_env() {
 
 #[test]
 fn base_url_and_targets_wrapped_for_mix_format_idempotency() {
-    // Test that base_url and targets keyword arguments are wrapped onto continuation
-    // lines to match mix-format's canonical output. This prevents non-idempotent
-    // reformatting when the one-line form would exceed mix-format's column threshold.
-    //
-    // mix-format wraps long lines based on dynamic column widths, but the only stable
-    // form is to pre-wrap at 2-space indentation under the keyword. This ensures
-    // idempotent formatting regardless of library name length.
-
     let mut env = minijinja::Environment::new();
     let template_str = r#"defmodule {{ app_module }}.Native do
   @moduledoc false
@@ -87,7 +70,6 @@ fn base_url_and_targets_wrapped_for_mix_format_idempotency() {
 
     let tmpl = env.get_template("test_native_header_wrap").expect("template retrieves");
 
-    // Test case 1: short library name (one-line form would fit; still wrapped)
     let short_rendered = tmpl
         .render(context! {
             app_module => "Foo",
@@ -109,7 +91,6 @@ fn base_url_and_targets_wrapped_for_mix_format_idempotency() {
         short_rendered
     );
 
-    // Test case 2: long library name (one-line form clearly exceeds 98 chars; wrapped)
     let long_rendered = tmpl
         .render(context! {
             app_module => "VeryLongLibraryNameForWrapTest",
@@ -134,14 +115,6 @@ fn base_url_and_targets_wrapped_for_mix_format_idempotency() {
 
 #[test]
 fn targets_with_many_platforms_wraps_at_keyword() {
-    // Test that the native module header with many NIF targets (7+ platforms)
-    // uses a multi-line list literal so each target fits within the consumer's
-    // line_length (120 chars). This is a regression test for kreuzcrawl, which
-    // has 7 targets that would exceed 120 chars on a single ~w(...) line.
-    //
-    // Multi-line list format ensures mix format wraps each target on its own line,
-    // and no single line in the targets list exceeds the 120-char limit.
-
     let mut env = minijinja::Environment::new();
     let template_str = r#"defmodule {{ app_module }}.Native do
   @moduledoc false
@@ -167,7 +140,6 @@ fn targets_with_many_platforms_wraps_at_keyword() {
 
     let tmpl = env.get_template("test_many_targets").expect("template retrieves");
 
-    // Kreuzcrawl's actual targets: 7 platforms
     let rendered = tmpl
         .render(context! {
             app_module => "Kreuzcrawl",
@@ -186,14 +158,12 @@ fn targets_with_many_platforms_wraps_at_keyword() {
         })
         .expect("template renders");
 
-    // The multi-line list form ensures mix format wraps each target on its own line
     assert!(
         rendered.contains("    targets: ["),
         "targets should use list literal form, got:\n{}",
         rendered
     );
 
-    // Verify each target is on its own line
     let lines_with_targets: Vec<&str> = rendered
         .lines()
         .filter(|l| l.contains("x86_64-unknown-linux-gnu") || l.contains("aarch64-apple-darwin"))
@@ -204,10 +174,8 @@ fn targets_with_many_platforms_wraps_at_keyword() {
         rendered
     );
 
-    // Verify each line is under 120 characters (consumer's line_length)
     for line in rendered.lines() {
         if line.contains("\"") && line.contains("-") {
-            // This is a target line
             assert!(
                 line.len() <= 120,
                 "target line exceeds 120 chars ({}): {}",

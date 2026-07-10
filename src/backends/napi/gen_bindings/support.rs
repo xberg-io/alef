@@ -126,12 +126,10 @@ mod tests {
     #[test]
     fn test_js_bytes_def_has_backtick_wrapped_vec_types() {
         let content = js_bytes_def();
-        // Verify that `Vec<u8>` is backtick-wrapped to avoid rustdoc HTML tag warnings
         assert!(
             content.contains("`Vec<u8>`"),
             "js_bytes_def should contain backtick-wrapped `Vec<u8>` to prevent rustdoc unclosed-tag warnings"
         );
-        // Verify no unwrapped Vec<u8> exists in doc comments
         let lines: Vec<&str> = content.lines().collect();
         for (idx, line) in lines.iter().enumerate() {
             if line.trim_start().starts_with("///") && !line.contains("`Vec<u8>`") {

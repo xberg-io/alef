@@ -49,8 +49,6 @@ fn test_generate_bindings_output_path_is_nif_not_rustler() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     assert_eq!(files.len(), 1, "expected exactly one generated file");
     let lib_rs_path = files[0].path.to_string_lossy();
-    // With ResolvedCrateConfig the output_paths template resolves to packages/elixir/.
-    // The important invariant is that the path never falls back to a _rustler/ directory.
     assert!(
         lib_rs_path.ends_with("lib.rs"),
         "generated file must be a lib.rs; got: {lib_rs_path}"
@@ -87,7 +85,6 @@ fn test_service_module_included_when_services_present() {
     let config = test_config();
     let mut api = test_api();
 
-    // Add a minimal service to trigger service.rs generation.
     let service = ServiceDef {
         name: "TestService".to_string(),
         rust_path: "test::TestService".to_string(),
@@ -226,8 +223,6 @@ fn tagged_enum_api_surface() -> ApiSurface {
         version: Default::default(),
     };
 
-    // Opaque engine type so the wrapper's first param is `reference()` and skipped by
-    // the JSON-encode predicate.
     let engine_type = TypeDef {
         name: "CrawlEngine".to_string(),
         rust_path: "demo_crawler::CrawlEngine".to_string(),
@@ -361,17 +356,14 @@ fn test_tagged_enum_encoder_emits_per_variant_clauses() {
     let wrapper = files.iter().find(|f| f.path.ends_with("my_lib.ex")).unwrap();
     let body = &wrapper.content;
 
-    // Unit variant — bare atom form, camelCase wire name from rename_all.
     assert!(
         body.contains("defp encode_page_action(:scrape), do: %{\"type\" => \"scrape\"}"),
         "missing unit variant atom clause; body:\n{body}"
     );
-    // Unit variant — tuple form is also accepted.
     assert!(
         body.contains("defp encode_page_action({:scrape, _}), do: %{\"type\" => \"scrape\"}"),
         "missing unit variant tuple clause; body:\n{body}"
     );
-    // Struct variant — discriminator value camelCased by rename_all.
     assert!(
         body.contains("defp encode_page_action({:click, %{} = data}) do"),
         "missing click struct-variant clause; body:\n{body}"
@@ -380,19 +372,14 @@ fn test_tagged_enum_encoder_emits_per_variant_clauses() {
         body.contains("|> Map.put(\"type\", \"click\")"),
         "click clause must put discriminator with wire-cased value; body:\n{body}"
     );
-    // Explicit `serde(rename = "type")` on TypeText overrides camelCase.
     assert!(
         body.contains("|> Map.put(\"type\", \"type\")"),
         "TypeText variant must use serde(rename = \"type\") as wire name; body:\n{body}"
     );
-    // Explicit `serde(rename = "fullPage")` on Screenshot.full_page is honored as a
-    // per-variant key-mapping arm so user input `{:screenshot, %{full_page: true}}`
-    // round-trips to `%{"type" => "screenshot", "fullPage" => true}`.
     assert!(
         body.contains(":full_page -> \"fullPage\""),
         "Screenshot.full_page must be wire-renamed to fullPage; body:\n{body}"
     );
-    // Map passthrough and catch-all error clauses.
     assert!(
         body.contains("defp encode_page_action(%{} = m), do: m"),
         "encoder must passthrough wire-shaped maps; body:\n{body}"
@@ -402,7 +389,6 @@ fn test_tagged_enum_encoder_emits_per_variant_clauses() {
         "encoder must raise ArgumentError for unrecognized inputs; body:\n{body}"
     );
 
-    // Single emission only — the encoder must not be duplicated.
     let occurrences = body.matches("defp encode_page_action(:scrape),").count();
     assert_eq!(
         occurrences, 1,
@@ -423,12 +409,10 @@ fn test_tagged_enum_encoder_blank_lines_between_clauses() {
     let wrapper = files.iter().find(|f| f.path.ends_with("my_lib.ex")).unwrap();
     let body = &wrapper.content;
 
-    // Extract the defp encode_page_action section from the generated code
     let encoder_start = body.find("defp encode_page_action").expect("encoder must exist");
     let encoder_end = body[encoder_start..].rfind("end\n").expect("encoder must have an end");
     let encoder_section = &body[encoder_start..encoder_start + encoder_end + 4];
 
-    // Count how many distinct defp clauses exist (line starting with "  defp encode_page_action")
     let clause_count = encoder_section.matches("  defp encode_page_action").count();
     assert!(
         clause_count >= 2,
@@ -436,8 +420,6 @@ fn test_tagged_enum_encoder_blank_lines_between_clauses() {
         clause_count
     );
 
-    // Verify that unit variant clauses (:scrape and {:scrape, _}) have a blank line between them.
-    // Look for the pattern that indicates proper formatting with blank line.
     let has_unit_spacing = encoder_section.contains(":scrape), do: %{\"type\" => \"scrape\"}\n\n  defp");
     assert!(
         has_unit_spacing,
@@ -445,8 +427,6 @@ fn test_tagged_enum_encoder_blank_lines_between_clauses() {
         encoder_section
     );
 
-    // Verify that struct variant clauses have blank lines between them.
-    // Look for `end\n\n  defp` pattern which shows blank line before next clause.
     let has_struct_spacing = encoder_section.contains("end\n\n  defp");
     assert!(
         has_struct_spacing,
@@ -460,7 +440,6 @@ fn test_tagged_enum_encoder_blank_lines_between_clauses() {
 /// Cargo.toml must use an empty [features] default instead of forwarding missing core features.
 #[test]
 fn test_elixir_config_parses_nif_features() {
-    // Test 1: Empty nif_features should parse correctly
     let toml_empty = r#"
 [workspace]
 languages = ["elixir"]
@@ -476,7 +455,6 @@ nif_features = []
     let cfg_empty: NewAlefConfig = toml::from_str(toml_empty).expect("config must parse");
     let config_empty = cfg_empty.resolve().expect("config must resolve").remove(0);
 
-    // Verify nif_features was parsed as empty list
     assert!(
         config_empty
             .elixir
@@ -488,7 +466,6 @@ nif_features = []
         config_empty.elixir.as_ref().and_then(|e| e.nif_features.as_ref())
     );
 
-    // Test 2: Default (no nif_features set) should be None
     let toml_default = r#"
 [workspace]
 languages = ["elixir"]
@@ -503,7 +480,6 @@ app_name = "my_lib"
     let cfg_default: NewAlefConfig = toml::from_str(toml_default).expect("config must parse");
     let config_default = cfg_default.resolve().expect("config must resolve").remove(0);
 
-    // When nif_features is not set, should be None (uses default behavior)
     assert!(
         config_default
             .elixir
@@ -514,7 +490,6 @@ app_name = "my_lib"
         config_default.elixir.as_ref().and_then(|e| e.nif_features.as_ref())
     );
 
-    // Test 3: Custom nif_features list
     let toml_custom = r#"
 [workspace]
 languages = ["elixir"]
@@ -530,7 +505,6 @@ nif_features = ["foo", "bar"]
     let cfg_custom: NewAlefConfig = toml::from_str(toml_custom).expect("config must parse");
     let config_custom = cfg_custom.resolve().expect("config must resolve").remove(0);
 
-    // Verify custom features were parsed
     let nif_features = config_custom
         .elixir
         .as_ref()

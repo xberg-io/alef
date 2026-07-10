@@ -211,10 +211,8 @@ pub(crate) fn coercible_field_init(
         CoercibleShape::Map => "__alef_coerce_dto_map",
     };
     if optional {
-        // Genuinely-optional core field: keep the `Option`, coercing the inner value when present.
         format!("{name}.map(|v| {helper}(py, v, {schema})).transpose()?")
     } else if promoted {
-        // Core field is `T` but the param arrived as `Option<&Bound>`: coerce then unwrap to default.
         format!("{name}.map(|v| {helper}(py, v, {schema})).transpose()?.unwrap_or_default()")
     } else {
         format!("{helper}(py, {name}, {schema})?")

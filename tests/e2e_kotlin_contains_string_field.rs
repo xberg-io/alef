@@ -134,14 +134,11 @@ fn contains_on_string_field_does_not_cast_to_list() {
         .expect("transcribe test file should be emitted");
     let content = &test_file.content;
 
-    // Bug repro: the broken codegen emitted `(result.text as List<String>).contains(...)`,
-    // which throws ClassCastException at runtime because `result.text` is a String.
     assert!(
         !content.contains("as List<String>"),
         "must NOT cast a String field to List<String>. Rendered:\n{content}"
     );
 
-    // Sanity: the assertion must still be emitted as a direct String.contains() call.
     assert!(
         content.contains(".contains(\"hello world\")"),
         "must emit a substring check on the text field. Rendered:\n{content}"
@@ -162,8 +159,6 @@ fn contains_on_string_field_does_not_cast_to_list() {
 
 #[test]
 fn contains_on_list_field_stringifies_collection() {
-    // Confirm collection fields use the collection-safe stringification path.
-    // Declare `tags` as an array field via `fields_array`.
     let toml_src = r#"
 [workspace]
 languages = ["kotlin"]
@@ -238,8 +233,6 @@ type = "json_object"
     let files = KotlinE2eCodegen
         .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
-    // Search across every emitted .kt file — the per-category test filename
-    // varies with the call config, so just concatenate and grep.
     let combined = files
         .iter()
         .filter(|f| f.path.to_string_lossy().ends_with(".kt"))

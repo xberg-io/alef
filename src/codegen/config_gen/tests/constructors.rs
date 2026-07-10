@@ -97,7 +97,6 @@ fn test_gen_csharp_record() {
 
 #[test]
 fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
-    // Build a type with 16 fields (> MAGNUS_MAX_ARITY = 15) to force hash path
     let mut fields: Vec<FieldDef> = (0..16)
         .map(|i| FieldDef {
             name: format!("field_{i}"),
@@ -120,7 +119,6 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
             original_type: None,
         })
         .collect();
-    // Make one field optional to exercise that branch in the hash constructor
     fields[0].optional = true;
 
     let typ = TypeDef {
@@ -155,7 +153,6 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
         "should accept RHash via scan_args"
     );
     assert!(output.contains("ruby.to_symbol("), "should use symbol lookup");
-    // Optional field uses and_then without unwrap_or
     assert!(
         output.contains("field_0: kwargs.get(ruby.to_symbol(\"field_0\")).and_then(|v|"),
         "optional field should use and_then"
@@ -166,10 +163,6 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
     );
 }
 
-// -------------------------------------------------------------------------
-// gen_php_kwargs_constructor
-// -------------------------------------------------------------------------
-
 #[test]
 fn test_gen_php_kwargs_constructor_basic() {
     let typ = make_test_type();
@@ -179,7 +172,6 @@ fn test_gen_php_kwargs_constructor_basic() {
         output.contains("pub fn __construct("),
         "should use PHP constructor name"
     );
-    // All params are Option<T>
     assert!(
         output.contains("timeout: Option<u64>"),
         "timeout param should be Option<u64>"
@@ -268,10 +260,6 @@ fn test_gen_php_kwargs_constructor_unwrap_or_default_for_primitive() {
     );
 }
 
-// -------------------------------------------------------------------------
-// gen_rustler_kwargs_constructor
-// -------------------------------------------------------------------------
-
 #[test]
 fn test_gen_rustler_kwargs_constructor_basic() {
     let typ = make_test_type();
@@ -282,12 +270,10 @@ fn test_gen_rustler_kwargs_constructor_basic() {
         "should accept HashMap of Terms"
     );
     assert!(output.contains("Self {"), "should construct Self");
-    // timeout has IntLiteral(30) — explicit unwrap_or
     assert!(
         output.contains("timeout: opts.get(\"timeout\").and_then(|t| t.decode().ok()).unwrap_or(30),"),
         "should apply int default for timeout"
     );
-    // enabled has BoolLiteral(true) — explicit unwrap_or
     assert!(
         output.contains("enabled: opts.get(\"enabled\").and_then(|t| t.decode().ok()).unwrap_or(true),"),
         "should apply bool default for enabled"
@@ -388,16 +374,12 @@ fn test_gen_rustler_kwargs_constructor_named_type_uses_unwrap_or_default() {
 
 #[test]
 fn test_gen_rustler_kwargs_constructor_string_field_uses_unwrap_or_default() {
-    // A String field with a StringLiteral default contains "::", triggering the
-    // is_enum_variant_default check — should fall back to unwrap_or_default().
     let mut typ = make_test_type();
-    // 'name' field in make_test_type() has StringLiteral("default") — verify it
     let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
     assert!(
         output.contains("name: opts.get(\"name\").and_then(|t| t.decode().ok()).unwrap_or_default(),"),
         "String field with quoted default should use unwrap_or_default"
     );
-    // Also verify a plain string field (no default) also falls through to unwrap_or_default
     typ.fields.push(FieldDef {
         name: "label".to_string(),
         ty: TypeRef::String,

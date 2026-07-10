@@ -62,14 +62,13 @@ fn csharp_type_for_metadata(ty: &TypeRef, api: &ApiSurface) -> String {
         TypeRef::Bytes => "byte[]".to_owned(),
         TypeRef::Unit => "void".to_owned(),
         TypeRef::Named(name) => {
-            // Check if this is an opaque type in the surface
             if api.types.iter().any(|t| t.name == *name && t.is_opaque) {
                 csharp_type_name(name)
             } else {
-                "string".to_owned() // Fallback for non-opaque Named or unknown types
+                "string".to_owned()
             }
         }
-        _ => "string".to_owned(), // Fallback for complex types
+        _ => "string".to_owned(),
     }
 }
 
@@ -139,8 +138,6 @@ fn pinvoke_param_lines(params: &[crate::core::ir::ParamDef]) -> String {
         .collect::<String>()
 }
 
-// ──────────────────────────────────────────────────── C# Service Output ──
-
 /// Generate the idiomatic C# service class wrapper.
 ///
 /// The class exposes:
@@ -153,7 +150,6 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
 
     let mut out = String::new();
 
-    // Service class
     let class_name = to_csharp_name(&service.name);
     out.push_str(&render(
         "service_class_header.jinja",
@@ -164,7 +160,6 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
         },
     ));
 
-    // Constructor
     {
         let ctor = &service.constructor;
         let params_decl = metadata_param_decl_list(&ctor.params, api);
@@ -180,7 +175,6 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
         ));
     }
 
-    // Configurator methods
     for method in &service.configurators {
         let method_name = &method.name;
         let params_decl = metadata_param_decl_list(&method.params, api);
@@ -194,7 +188,6 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
         ));
     }
 
-    // Registration methods
     for reg in &service.registrations {
         let reg_method = &reg.method;
         let service_snake = service.name.to_snake_case();
@@ -216,7 +209,6 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
             },
         ));
 
-        // Registration variants
         for variant in &reg.variants {
             let variant_method_name = variant.name.to_upper_camel_case();
             let variant_fn_name = variant.name.to_snake_case();
@@ -240,19 +232,14 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
         }
     }
 
-    // Entrypoint methods
     for ep in &service.entrypoints {
         let ep_method = &ep.method;
         let service_snake = service.name.to_snake_case();
 
-        // Check if return type is representable (skip finalize if not)
         if !entrypoint_return_representable(ep, api) {
             continue;
         }
 
-        // Mirror the C ABI: an entrypoint returns an opaque handle (IntPtr) when its return type is
-        // an opaque this surface wraps, otherwise an i32 status code. The async-ness of the Rust
-        // method does not change the C return shape.
         let returns_opaque =
             matches!(&ep.return_type, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque));
         let return_type = if returns_opaque { "IntPtr" } else { "int" };
@@ -276,7 +263,6 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
         ));
     }
 
-    // Destructor / Dispose
     let service_snake = service.name.to_snake_case();
     let native_free = format!("{}_{}_free", prefix.to_lowercase(), service_snake);
     out.push_str(&render(
@@ -285,8 +271,8 @@ fn gen_service_cs(api: &ApiSurface, service: &ServiceDef, namespace: &str, prefi
     ));
     out.push_str(&render("service_handler_trampoline.jinja", minijinja::context! {}));
 
-    out.push_str("}\n\n"); // Close class
-    out.push_str("}\n"); // Close namespace
+    out.push_str("}\n\n");
+    out.push_str("}\n");
 
     out
 }
@@ -306,11 +292,9 @@ fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> Str
         minijinja::context! { namespace },
     ));
 
-    // Service constructors and destructors
     for service in &api.services {
         let service_snake = service.name.to_snake_case();
 
-        // Constructor
         let dll_name = format!("{}_ffi", prefix.to_lowercase());
         out.push_str(&render(
             "service_native_ctor_free.jinja",
@@ -321,7 +305,6 @@ fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> Str
             },
         ));
 
-        // Registration functions
         for reg in &service.registrations {
             let reg_method_snake = reg.method.to_snake_case();
             out.push_str(&render(
@@ -335,7 +318,6 @@ fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> Str
                 },
             ));
 
-            // Variant P/Invoke declarations
             for variant in &reg.variants {
                 let variant_fn_name = variant.name.to_snake_case();
                 out.push_str(&render(
@@ -351,17 +333,12 @@ fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> Str
             }
         }
 
-        // Entrypoint functions
         for ep in &service.entrypoints {
-            // Skip non-representable finalize entrypoints (e.g., foreign framework returns)
             if !entrypoint_return_representable(ep, api) {
                 continue;
             }
 
             let ep_method_snake = ep.method.to_snake_case();
-            // Mirror the C ABI exactly: the ffi entrypoint glue returns `*mut T` for a finalize
-            // whose return this surface wraps (IntPtr), otherwise an `i32` status code — never the
-            // Rust method's nominal return type (e.g. Unit/String are still i32 status over C).
             let returns_opaque =
                 matches!(&ep.return_type, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n && t.is_opaque));
             let return_type = if returns_opaque { "IntPtr" } else { "int" };
@@ -378,13 +355,11 @@ fn gen_native_methods_cs(api: &ApiSurface, namespace: &str, prefix: &str) -> Str
         }
     }
 
-    out.push_str("}\n\n"); // Close class
-    out.push_str("}\n"); // Close namespace
+    out.push_str("}\n\n");
+    out.push_str("}\n");
 
     out
 }
-
-// ──────────────────────────────────────────────────── public entry point ──
 
 /// Generate all service-API files for the C# backend.
 ///
@@ -409,18 +384,16 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 
     let mut files = Vec::new();
 
-    // Generate one service class per service
     for service in &api.services {
         let service_cs = gen_service_cs(api, service, &namespace, &prefix);
         let class_name = to_csharp_name(&service.name);
         files.push(GeneratedFile {
             path: base_path.join(format!("{}.cs", class_name)),
             content: service_cs,
-            generated_header: false, // Header already included
+            generated_header: false,
         });
     }
 
-    // Generate P/Invoke native methods
     let native_methods = gen_native_methods_cs(api, &namespace, &prefix);
     files.push(GeneratedFile {
         path: base_path.join("ServiceNativeMethods.cs"),
@@ -430,8 +403,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 
     Ok(files)
 }
-
-// ─────────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests {
@@ -634,25 +605,21 @@ mod tests {
         let service = &api.services[0];
         let cs = gen_service_cs(&api, service, "MyNamespace", "test");
 
-        // Verify the delegate type is Func<string, string>
         assert!(
             cs.contains("if (handle.Target is Func<string, string> handler)"),
             "trampoline must cast to Func<string, string>"
         );
 
-        // Verify the delegate is actually invoked
         assert!(
             cs.contains("handler(requestStr)"),
             "trampoline must invoke the handler with request string"
         );
 
-        // Verify the response from the delegate is marshalled (not a hardcoded response)
         assert!(
             cs.contains("string responseStr = handler(requestStr);"),
             "trampoline must capture delegate result into responseStr"
         );
 
-        // Verify there is NO hardcoded "{}" response or "stub" comment
         assert!(
             !cs.contains("\"stub implementation\""),
             "trampoline must not have stub implementation comment"
@@ -662,7 +629,6 @@ mod tests {
             "trampoline must not return hardcoded {{}} response"
         );
 
-        // Verify the marshalled response is properly allocated in native memory
         assert!(
             cs.contains("Marshal.StringToCoTaskMemUTF8(responseStr)"),
             "trampoline must marshal the response back to native memory"
@@ -730,7 +696,6 @@ mod tests {
         let service = &api.services[0];
         let cs = gen_service_cs(&api, service, "MyNamespace", "test");
 
-        // Test Get variant method
         assert!(
             cs.contains("public int Get("),
             "expected Get variant method in service class"
@@ -740,7 +705,6 @@ mod tests {
             "expected Get variant documentation"
         );
 
-        // Test Post variant method
         assert!(
             cs.contains("public int Post("),
             "expected Post variant method in service class"
@@ -750,7 +714,6 @@ mod tests {
             "expected Post variant auto-generated documentation"
         );
 
-        // Test variant P/Invoke calls
         assert!(
             cs.contains("NativeMethods.test_test_service_get("),
             "expected Get variant P/Invoke call"
@@ -766,19 +729,16 @@ mod tests {
         let api = make_fixture_surface();
         let native = gen_native_methods_cs(&api, "MyNamespace", "test");
 
-        // Test Get variant P/Invoke declaration
         assert!(
             native.contains("public static extern int test_test_service_get("),
             "expected Get variant P/Invoke declaration"
         );
 
-        // Test Post variant P/Invoke declaration
         assert!(
             native.contains("public static extern int test_test_service_post("),
             "expected Post variant P/Invoke declaration"
         );
 
-        // Both should have the standard parameters
         assert!(
             native.contains("IntPtr owner,") && native.contains("HandlerCallback callback,"),
             "expected variant P/Invoke to have owner and callback parameters"

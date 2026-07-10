@@ -153,7 +153,6 @@ fn test_gen_service_go_produces_valid_go() {
 
     let go = gen_service_go(&api, &config, "binding", "TEST_CRATE");
 
-    // Verify that the generated Go contains expected markers
     assert!(go.contains("package binding"));
     assert!(go.contains("TestService"));
     assert!(go.contains("NewTestService"));
@@ -162,12 +161,10 @@ fn test_gen_service_go_produces_valid_go() {
     assert!(go.contains("HandlerFunc"));
     assert!(go.contains("handlerRegistry"));
     assert!(go.contains("service_handler_callback"));
-    // Verify cgo preamble
     assert!(go.contains("/*\n#include <string.h>"));
     assert!(go.contains("#include \"test_crate.h\""));
     assert!(go.contains("//export service_handler_callback"));
     assert!(go.contains("import \"C\""));
-    // Verify prefixed struct names (uppercase prefix)
     assert!(go.contains("*TEST_CRATETestServiceOpaque"));
 }
 
@@ -181,7 +178,6 @@ fn test_service_struct_is_generated() {
 
     let go = gen_service_go(&api, &config, "binding", "TEST_CRATE");
 
-    // The service struct must be present with prefixed opaque type
     assert!(go.contains("type TestService struct"));
     assert!(go.contains("owner unsafe.Pointer"));
     assert!(go.contains("*TEST_CRATETestServiceOpaque"));
@@ -198,7 +194,6 @@ fn test_constructor_is_generated() {
 
     let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-    // Constructor should be present with lowercase prefix
     assert!(go.contains("func NewTestService()"));
     assert!(go.contains("test_crate_test_service_new"));
 }
@@ -213,13 +208,10 @@ fn test_registration_method_exists() {
 
     let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-    // Registration method should be present with correct callback passing
     assert!(go.contains("RegisterAddHandler"));
     assert!(go.contains("handler HandlerFunc"));
     assert!(go.contains("registerHandler(handler)"));
-    // Verify callback is obtained from public C helper function.
     assert!(go.contains("C.get_service_handler_callback(),"));
-    // Verify prefixed struct names
     assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
 }
 
@@ -233,7 +225,6 @@ fn test_entrypoint_method_exists() {
 
     let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-    // Entrypoint method should be present with prefixed struct names
     assert!(go.contains("func (s *TestService) Run("));
     assert!(go.contains("test_crate_test_service_ep_run"));
     assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
@@ -249,7 +240,6 @@ fn test_handler_registry_and_trampoline() {
 
     let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-    // Handler registry and trampoline must be present
     assert!(go.contains("handlerRegistry"));
     assert!(go.contains("service_handler_callback"));
     assert!(go.contains("invokeHandler"));
@@ -267,7 +257,6 @@ fn test_c_ffi_imports_generated() {
 
     let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-    // C FFI imports should be present in comments
     assert!(go.contains("test_crate_test_service_new"));
     assert!(go.contains("test_crate_test_service_free"));
     assert!(go.contains("test_crate_test_service_register_add_handler"));
@@ -283,15 +272,11 @@ fn test_registration_variant_method_exists() {
 
     let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-    // Variant method should be present with TitleCase name
     assert!(go.contains("func (s *TestService) Get("));
     assert!(go.contains("handler HandlerFunc"));
     assert!(go.contains("path string"));
-    // Verify it calls the variant C function: symbol is {prefix}_{service}_{variant},
-    // WITHOUT the registration method name in between.
     assert!(go.contains("C.test_crate_test_service_get"));
     assert!(!go.contains("C.test_crate_test_service_add_handler_get"));
-    // Verify that the free wrapper-call arg (path) is marshaled with CString.
     assert!(go.contains("C.CString(path)"));
 }
 
@@ -305,7 +290,6 @@ fn test_start_background_method_exists() {
 
     let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-    // StartBackground method and ServerHandle must be present
     assert!(go.contains("func (s *TestService) StartBackground("));
     assert!(go.contains("type ServerHandle struct"));
     assert!(go.contains("func (h *ServerHandle) Stop()"));
@@ -317,12 +301,10 @@ fn test_start_background_method_exists() {
 fn test_registration_variant_wrapper_call_emits_free_args() {
     use crate::core::ir::{WrapperConstructorArg, WrapperConstructorCall};
 
-    // Build a surface where the variant uses wrapper_call so free args come from wc.args.
     let mut api = make_fixture_surface();
     let svc = &mut api.services[0];
     let reg = &mut svc.registrations[0];
 
-    // Replace the variant with one that has wrapper_call set.
     reg.variants[0] = crate::core::ir::RegistrationVariant {
         name: "get".to_owned(),
         overrides: vec![crate::core::ir::RegistrationVariantOverride {
@@ -368,8 +350,6 @@ fn test_registration_variant_wrapper_call_emits_free_args() {
     };
     let go = gen_service_go(&api, &config, "binding", "test_crate");
 
-    // Free arg from wrapper_call must be emitted as a C arg.
     assert!(go.contains("C.CString(path)"), "missing CString(path) in:\n{go}");
-    // Fixed args must NOT be emitted separately (baked into the FFI function).
     assert!(!go.contains("\"GET\""), "fixed arg must not be re-emitted:\n{go}");
 }

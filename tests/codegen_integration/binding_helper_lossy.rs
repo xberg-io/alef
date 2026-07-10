@@ -452,8 +452,6 @@ fn test_gen_lossy_binding_to_core_fields_char_optional() {
 
 #[test]
 fn test_gen_lossy_binding_to_core_fields_duration_option_on_defaults() {
-    // When option_duration_on_defaults=true and has_default=true, non-optional Duration fields
-    // are stored as Option<u64> and should use .map(...).unwrap_or_default()
     let mut typ = simple_type_def();
     typ.has_default = true;
     typ.fields.push(FieldDef {
@@ -495,7 +493,6 @@ fn test_gen_lossy_binding_to_core_fields_duration_option_on_defaults() {
 
 #[test]
 fn test_has_named_params_vec_string_with_is_ref() {
-    // Vec<String> with is_ref=true should count as having named params (needs &[&str] conversion)
     let opaque_types = AHashSet::new();
     let params = vec![ParamDef {
         name: "labels".to_string(),
@@ -523,7 +520,6 @@ fn test_has_named_params_vec_string_with_is_ref() {
 
 #[test]
 fn test_has_named_params_vec_string_without_is_ref() {
-    // Vec<String> without is_ref should NOT require let bindings
     let opaque_types = AHashSet::new();
     let params = vec![ParamDef {
         name: "labels".to_string(),
@@ -551,7 +547,6 @@ fn test_has_named_params_vec_string_without_is_ref() {
 
 #[test]
 fn test_has_named_params_vec_named_always_requires_binding() {
-    // Vec<Named> (non-opaque) always requires a let binding
     let opaque_types = AHashSet::new();
     let params = vec![ParamDef {
         name: "items".to_string(),
@@ -579,7 +574,6 @@ fn test_has_named_params_vec_named_always_requires_binding() {
 
 #[test]
 fn test_has_named_params_vec_opaque_named_no_binding_needed() {
-    // Vec<OpaqueNamed> does NOT need a let binding (handled directly by gen_call_args)
     let mut opaque_types = AHashSet::new();
     opaque_types.insert("Item".to_string());
     let params = vec![ParamDef {
@@ -608,13 +602,7 @@ fn test_has_named_params_vec_opaque_named_no_binding_needed() {
 
 #[test]
 fn test_gen_lossy_binding_to_core_fields_binding_excluded_no_default_per_field_fallback() {
-    // Regression: spikard rc.25 — `spikard::UploadFile` has an internal
     // `cursor: Cursor<Bytes>` field annotated `#[cfg_attr(alef, alef(skip))]` but
-    // the struct derives only Clone/Debug/Serialize/Deserialize (no Default).
-    // Previously this helper unconditionally appended `..Default::default()`
-    // whenever any binding-excluded field was skipped, producing a struct literal
-    // that failed to compile with E0277 against no-Default core types. Mirrors
-    // the parallel fix in `binding_to_core/render.rs` (096eb298c).
     let mut typ = simple_type_def();
     typ.has_default = false;
     typ.fields.push(FieldDef {
@@ -662,10 +650,6 @@ fn test_gen_lossy_binding_to_core_fields_binding_excluded_no_default_per_field_f
 
 #[test]
 fn test_gen_lossy_binding_to_core_fields_binding_excluded_with_default_uses_spread() {
-    // Companion to the no-Default test above: when the core type DOES impl Default,
-    // skipping the binding-excluded field and emitting `..Default::default()` is the
-    // correct behavior (preserves bespoke core Default invariants like env-derived
-    // policy values that an explicit per-field `Default::default()` would bypass).
     let mut typ = simple_type_def();
     typ.has_default = true;
     typ.fields.push(FieldDef {
@@ -713,10 +697,6 @@ fn test_gen_lossy_binding_to_core_fields_binding_excluded_with_default_uses_spre
 
 #[test]
 fn test_gen_lossy_binding_to_core_fields_fully_mirrored_with_default_emits_spread() {
-    // Forward-compatibility: a has_default core type whose fields are all mirrored
-    // must still end the literal with `..Default::default()`, so an additive core
-    // field falls back to its default instead of breaking the generated method
-    // body with E0063 until the bindings are regenerated.
     let mut typ = simple_type_def();
     typ.has_default = true;
 

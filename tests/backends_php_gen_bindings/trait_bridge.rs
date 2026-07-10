@@ -213,8 +213,8 @@ fn test_php_plugin_bridge_validates_required_methods() {
     let trait_def = make_trait_def_php(
         "Analyzer",
         vec![
-            make_method_php("analyze", TypeRef::String, true, false), // required
-            make_method_php("describe", TypeRef::String, false, true), // optional
+            make_method_php("analyze", TypeRef::String, true, false),
+            make_method_php("describe", TypeRef::String, false, true),
         ],
     );
     let bridge_cfg = alef::core::config::TraitBridgeConfig {
@@ -239,7 +239,6 @@ fn test_php_plugin_bridge_validates_required_methods() {
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
-    // Registration fn must null-check the required method "analyze" via get_property
     assert!(
         code.code.contains("\"analyze\""),
         "PHP registration fn must validate required method 'analyze'"
@@ -304,10 +303,6 @@ fn test_php_visitor_bridge_has_send_sync_impls() {
         "PHP visitor bridge must implement Sync"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Native-object trait-callback args + typed host interface (neutral fixtures)
-// ---------------------------------------------------------------------------
 
 /// A non-opaque serde struct DTO (qualifies for native-object marshalling).
 fn make_serde_struct(name: &str) -> TypeDef {
@@ -376,7 +371,6 @@ fn test_php_sync_struct_param_marshalled_as_native_object_not_json() {
     let bridge_cfg = make_plugin_bridge_cfg_php("Greeter");
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
-    // (a) serde struct param `opts` is built as the binding's native PHP object via From<core::T>,
     //     boxed into a ZendClassObject (the bare #[php_class] struct is not itself IntoZval).
     assert!(
         code.code.contains(
@@ -385,13 +379,11 @@ fn test_php_sync_struct_param_marshalled_as_native_object_not_json() {
         "serde struct param must be marshalled as the native PHP object (boxed ZendClassObject), not a JSON string:\n{}",
         code.code
     );
-    // (b) the struct param must NOT be JSON-serialized.
     assert!(
         !code.code.contains("serde_json::to_string(&opts)"),
         "serde struct param must not be JSON-serialized:\n{}",
         code.code
     );
-    // (b) enum / opaque / excluded params keep the prior JSON-string representation.
     for name in ["mood", "handle", "hidden"] {
         assert!(
             code.code.contains(&format!("serde_json::to_string(&{name})")),
@@ -440,8 +432,6 @@ fn test_php_typed_interface_emitted_for_plugin_bridge() {
         &api,
     );
 
-    // (c) host-implementable interface with the serde struct param typed natively and the
-    //     serde struct return typed natively; non-struct params fall back to mixed.
     assert!(
         iface.contains("interface Greeter"),
         "plugin interface must be emitted:\n{iface}"
@@ -460,17 +450,13 @@ fn test_php_typed_interface_emitted_for_plugin_bridge() {
 
 #[test]
 fn test_php_register_fn_typed_against_interface() {
-    // (d) the PHP facade's register_* method types `backend` against the emitted interface.
     let backend = PhpBackend;
     let mut config = make_config_with_extension("greeter_ext");
 
     let (greeter, mut api) = make_greeter_api();
-    // Give the trait a method with no params so the facade/native surface stays simple; the
-    // register typing comes from the bridge config + interface name.
     api.types.insert(0, greeter);
     config.trait_bridges = vec![make_plugin_bridge_cfg_php("Greeter")];
 
-    // The host-implementable interface file `Greeter.php` carries the typed contract.
     let iface_files = backend
         .generate_bindings(&api, &config)
         .expect("php generation must succeed");
@@ -484,7 +470,6 @@ fn test_php_register_fn_typed_against_interface() {
         "interface file must declare interface:\n{iface}"
     );
 
-    // The PHP facade types the register_* method's `backend` param against that interface.
     let facade = backend
         .generate_public_api(&api, &config)
         .expect("php public-api generation must succeed");

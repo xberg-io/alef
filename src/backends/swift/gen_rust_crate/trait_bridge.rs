@@ -17,10 +17,6 @@ use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
 
-// ---------------------------------------------------------------------------
-// SwiftBridgeGenerator — TraitBridgeGenerator impl for the Swift backend
-// ---------------------------------------------------------------------------
-
 /// Swift-specific trait bridge generator.
 ///
 /// The Swift inbound plugin pattern (Swift class implements a Rust trait) is
@@ -36,7 +32,6 @@ pub struct SwiftBridgeGenerator;
 
 impl TraitBridgeGenerator for SwiftBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
-        // Swift handles are opaque swift-bridge types; no single Rust type name.
         "swift_bridge::opaque"
     }
 
@@ -45,8 +40,6 @@ impl TraitBridgeGenerator for SwiftBridgeGenerator {
     }
 
     fn gen_sync_method_body(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
-        // Not used: swift-bridge trampolines are emitted by emit_trait_bridge_wrapper, not
-        // via the shared TraitBridgeGenerator infrastructure.
         String::new()
     }
 
@@ -138,13 +131,6 @@ pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_name
 
     let trait_snake = heck::AsSnakeCase(trait_def.name.as_str()).to_string();
 
-    // Phantom `Vec<{Trait}Box>` reference: swift-bridge auto-generates Swift Vec
-    // accessor methods for every opaque `type Foo;` declaration. Those Swift methods
-    // reference C symbols `__swift_bridge__$Vec_FooBox$len` etc. which swift-bridge-build
-    // only emits on the Rust side when the type appears in a `Vec<Foo>` somewhere
-    // in an extern block. Without this phantom, the generated Swift fails to link.
-    // Name does NOT use a leading underscore — Swift treats `_`-prefixed C names as
-    // private and excludes them from the imported module scope.
     block.push_str(&crate::backends::swift::template_env::render(
         "trait_phantom_fn.jinja",
         minijinja::context! {
@@ -154,9 +140,6 @@ pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_name
     ));
 
     for method in &trait_def.methods {
-        // Skip methods with a default impl — the Rust trait's default is used automatically.
-        // Methods whose return type involves a trait object cannot be expressed in Swift or serialised via JSON,
-        // so they must rely on the default impl rather than being bridged.
         if method.has_default_impl {
             continue;
         }
@@ -171,9 +154,6 @@ pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_name
             params.push(format!("{name}: {bridge_ty}"));
         }
 
-        // swift-bridge 0.1.59 cannot parse `Result<T, E>` in `extern "Rust"` blocks.
-        // Error-returning methods use a plain `String` return carrying a JSON envelope:
-        // `{"ok": <value>}` on success or `{"err": "<message>"}` on failure.
         let return_ty = if method.error_type.is_some() {
             "String".to_string()
         } else {
@@ -218,7 +198,6 @@ pub fn emit_trait_bridge_wrapper(
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name.as_str()).to_string();
 
-    // Derive the fully-qualified dyn trait path from rust_path.
     let trait_path = if trait_def.rust_path.is_empty() {
         format!("{source_crate}::{trait_name}")
     } else {
@@ -233,10 +212,6 @@ pub fn emit_trait_bridge_wrapper(
         },
     ));
 
-    // Phantom Vec<{Trait}Box> implementation paired with the extern declaration —
-    // never actually called, but its existence forces swift-bridge-build to emit
-    // the `__swift_bridge__$Vec_{Trait}Box$*` C symbols that the auto-generated
-    // Swift Vec extension references.
     out.push_str(&crate::backends::swift::template_env::render(
         "trait_phantom_impl.jinja",
         minijinja::context! {
@@ -246,10 +221,6 @@ pub fn emit_trait_bridge_wrapper(
     ));
 
     for method in &trait_def.methods {
-        // Skip methods with a default impl — the Rust trait's default is used automatically.
-        // Methods returning trait objects (e.g. as_sync_extractor → Option<&dyn SyncExtractor>)
-        // cannot be serialised through the swift-bridge JSON envelope, so they must fall back
-        // to the trait's own default impl rather than being bridged.
         if method.has_default_impl {
             continue;
         }
@@ -257,14 +228,10 @@ pub fn emit_trait_bridge_wrapper(
         let method_name = method.name.to_snake_case();
         let fn_name = format!("{trait_snake}_call_{method_name}");
 
-        // Build parameter list for the trampoline signature.
-        // When a parameter needs to be passed as &mut to the trait, declare it `mut`
-        // in the function signature so we can borrow mutably from the local binding.
         let mut sig_params = vec![format!("this: &{trait_name}Box")];
         for p in &method.params {
             let bridge_ty = bridge_type_for_trait_method(&p.ty, visible_type_names);
             let name = p.name.to_snake_case();
-            // Declare `mut` when the trait method takes `&mut` (is_mut=true for any type).
             let needs_mut = p.is_mut;
             if needs_mut {
                 sig_params.push(format!("mut {name}: {bridge_ty}"));
@@ -274,15 +241,12 @@ pub fn emit_trait_bridge_wrapper(
         }
         let sig_params_str = sig_params.join(", ");
 
-        // swift-bridge 0.1.59 cannot parse `Result<T, E>` in `extern "Rust"` blocks.
-        // Error-returning methods return plain `String` (JSON envelope `{"ok":...}` / `{"err":...}`).
         let return_ty = if method.error_type.is_some() {
             "String".to_string()
         } else {
             bridge_type_for_trait_method(&method.return_type, visible_type_names)
         };
 
-        // Build the call arguments — convert bridge types back to what the trait expects.
         let call_args: Vec<String> = method
             .params
             .iter()
@@ -336,7 +300,6 @@ pub(crate) fn trait_call_arg(
 ) -> String {
     let name = p.name.to_snake_case();
 
-    // JSON-bridged types: deserialize from the bridged String.
     if needs_json_bridge(&p.ty) {
         let native_ty = crate::backends::swift::gen_rust_crate::type_bridge::swift_bridge_rust_type(&p.ty);
         let deser = format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
@@ -349,7 +312,6 @@ pub(crate) fn trait_call_arg(
         return deser;
     }
 
-    // Path: bridged as String; convert to PathBuf.
     if matches!(p.ty, TypeRef::Path) {
         if p.optional {
             if p.is_ref {
@@ -363,12 +325,6 @@ pub(crate) fn trait_call_arg(
         return format!("std::path::PathBuf::from({name})");
     }
 
-    // Named types not in the visible set (e.g. excluded internal types like `InternalDocument`)
-    // are JSON-bridged as `String` at the boundary. Deserialise back to the source type — the
-    // type must implement `serde::Deserialize`.
-    // across plugin trait method boundaries). Resolve the fully-qualified Rust path via
-    // `type_paths` so the deserialise compiles even when the type is not re-exported from the
-    // source crate root.
     if let TypeRef::Named(named) = &p.ty {
         if !visible_type_names.contains(named.as_str()) {
             let qualified = type_paths
@@ -383,8 +339,6 @@ pub(crate) fn trait_call_arg(
         }
     }
 
-    // Named types in trait bridges are swift-bridge wrapper newtypes. The trait method expects the inner type
-    // (possibly behind a reference). Extract `.0` and apply the appropriate reference.
     if matches!(p.ty, TypeRef::Named(_)) {
         if p.optional {
             if p.is_ref {
@@ -401,7 +355,6 @@ pub(crate) fn trait_call_arg(
         return format!("{name}.0");
     }
 
-    // Primitives, String, and Vec.
     if p.is_ref {
         match &p.ty {
             TypeRef::Bytes | TypeRef::String | TypeRef::Char => return format!("&{name}"),
@@ -426,10 +379,6 @@ pub(crate) fn emit_trait_method_body(
     enum_names: &HashSet<&str>,
     visible_type_names: &HashSet<&str>,
 ) -> String {
-    // Wrap the return value for methods that return Named types (bridged as JSON or swift-bridge
-    // newtype wrappers). JSON-bridged types use serde_json::to_string. Named types that have a
-    // visible swift-bridge wrapper are wrapped with the wrapper constructor; excluded types
-    // (not in visible_type_names, e.g. InternalDocument) are JSON-serialised directly.
     let wrap_return = |expr: String| -> String {
         if needs_json_bridge(&method.return_type) {
             format!("serde_json::to_string(&({expr})).expect(\"serializable return\")")
@@ -439,8 +388,6 @@ pub(crate) fn emit_trait_method_body(
                 TypeRef::Path => format!("{expr}.display().to_string()"),
                 TypeRef::Named(name) => {
                     if !visible_type_names.contains(name.as_str()) {
-                        // Excluded/foreign type — not wrapped as a swift-bridge newtype.
-                        // Serialise the core value directly (it must implement serde::Serialize).
                         format!("serde_json::to_string(&({expr})).expect(\"serializable return\")")
                     } else if enum_names.contains(name.as_str()) {
                         format!("{name}::from({expr})")
@@ -453,14 +400,8 @@ pub(crate) fn emit_trait_method_body(
         }
     };
 
-    // Build a JSON-envelope String for a Result-returning method.
-    // swift-bridge 0.1.59 cannot parse `Result<T, E>` in `extern "Rust"` blocks, so we use
-    // a plain `String` carrying `{"ok": <serialised-value>}` on success or
-    // `{"err": "<message>"}` on failure. The Swift caller deserialises this envelope.
     let envelope_result_expr = |base: String| -> String {
-        // Serialise the ok value to a JSON fragment.
         let ok_fragment = if matches!(method.return_type, TypeRef::Unit) {
-            // () -> "null"
             "\"null\"".to_string()
         } else {
             "serde_json::to_string(&v).expect(\"serializable return\")".to_string()
@@ -475,8 +416,6 @@ pub(crate) fn emit_trait_method_body(
     };
 
     if method.is_async {
-        // Use the process-wide tokio runtime — see shims.rs for the rationale
-        // (per-call runtimes orphan reqwest's connection pool).
         let await_expr = format!("{source_call}.await");
         if method.error_type.is_some() {
             let enveloped = envelope_result_expr(await_expr);
@@ -491,9 +430,6 @@ pub(crate) fn emit_trait_method_body(
     } else if method.returns_ref
         && matches!(&method.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
     {
-        // The trait method returns &[&str] (Vec<String> + returns_ref in the IR).
-        // The extern "Rust" declaration uses Vec<String> (the only collection swift-bridge
-        // can handle), so the trampoline must collect the &[&str] slice into an owned Vec.
         format!("    {source_call}.iter().map(|s| s.to_string()).collect()\n")
     } else {
         let wrapped = wrap_return(source_call.to_string());

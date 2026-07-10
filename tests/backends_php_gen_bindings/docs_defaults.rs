@@ -60,13 +60,11 @@ fn test_type_stubs_documented_field_emits_var_phpdoc_with_description() {
     let stubs = files.first().unwrap();
     let content = &stubs.content;
 
-    // Single-line doc: compact /** @var T Description. */ form.
     assert!(
         content.contains("@var ?string Base URL of the remote API endpoint. Defaults to OpenAI's."),
         "Documented optional string field should have @var ?string with description;\ncontent:\n{content}"
     );
 
-    // Multi-line doc: multi-line block with description + @var tag.
     assert!(
         content.contains("@var ?int"),
         "Documented optional int field should have @var ?int tag;\ncontent:\n{content}"
@@ -135,7 +133,6 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
     let stubs = files.first().unwrap();
     let content = &stubs.content;
 
-    // Type-only compact form for undocumented fields.
     assert!(
         content.contains("/** @var bool */"),
         "Undocumented bool field should have type-only /** @var bool */;\ncontent:\n{content}"
@@ -203,7 +200,6 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
     let facade = files.first().unwrap();
     let content = &facade.content;
 
-    // Verify Rust syntax is NOT in the docstring
     assert!(
         !content.contains("use test_lib::convert;"),
         "Rust 'use' statement must not leak into PHPDoc"
@@ -211,7 +207,6 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
     assert!(!content.contains(".unwrap()"), ".unwrap() must not leak into PHPDoc");
     assert!(!content.contains("```rust"), "Raw Rust fence must not appear in PHPDoc");
 
-    // Verify summary IS present
     assert!(
         content.contains("Convert markup conversion"),
         "Summary must be preserved in PHPDoc"
@@ -235,10 +230,6 @@ fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
 fn test_duration_field_on_default_struct_getter_returns_option() {
     let backend = PhpBackend;
 
-    // Simulate a struct like `CacheConfig { ttl: Duration }` with `has_default = true`.
-    // The IR uses TypeRef::Duration for the field and has `optional = false`.
-    // The struct emitter wraps it in Option<i64> when option_duration_on_defaults is enabled;
-    // the getter must match.
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -291,19 +282,16 @@ fn test_duration_field_on_default_struct_getter_returns_option() {
         .unwrap();
     let content = &lib_rs.content;
 
-    // The struct field must be Option<i64> (Duration → i64 ms, wrapped in Option).
     assert!(
         content.contains("pub ttl: Option<i64>"),
         "Duration field on Default struct must be stored as Option<i64>; got:\n{content}"
     );
 
-    // The getter must return Option<i64>, not bare i64, to match the storage type.
     assert!(
         content.contains("fn get_ttl") && content.contains("-> Option<i64>"),
         "getter for Duration field on Default struct must return Option<i64>; got:\n{content}"
     );
 
-    // Must NOT emit the wrong bare return type.
     assert!(
         !content.contains("fn get_ttl(&self) -> i64"),
         "getter must not return bare i64 for a Duration-on-Default field; got:\n{content}"
@@ -334,9 +322,6 @@ fn has_default_struct_emits_delegating_impl_not_derived_default() {
         rust_path: "test_lib::CrawlConfig".to_string(),
         original_rust_path: String::new(),
         fields: vec![
-            // Mirrors the real-world bug: core sets `max_redirects: 10` in its custom
-            // Default, but the binding's derived Default uses `0` for i64, which then
-            // overrides the core's value on round-trip through `From<BindingType>`.
             make_field("max_redirects", TypeRef::Primitive(PrimitiveType::I64), false),
             make_field("respect_robots_txt", TypeRef::Primitive(PrimitiveType::Bool), false),
         ],
@@ -369,9 +354,6 @@ fn has_default_struct_emits_delegating_impl_not_derived_default() {
     }
     let mapper = StubMapper;
 
-    // PHP-shaped config with `emit_delegating_default_impl: true` and serde derives.
-    // Mirrors `gen_php_struct`'s `cfg.has_serde == true` branch but without depending on
-    // crate-private symbols.
     let struct_attrs: &[&str] = &["php_class", "serde(default, rename_all = \"camelCase\")"];
     let struct_derives: &[&str] = &["Clone", "serde::Serialize", "serde::Deserialize"];
     let cfg = RustBindingConfig {
@@ -408,7 +390,6 @@ fn has_default_struct_emits_delegating_impl_not_derived_default() {
 
     let content = gen_struct_with_per_field_attrs(&typ, &mapper, &cfg, |_: &FieldDef| vec![]);
 
-    // The struct must NOT derive Default — that would override the core's custom defaults.
     let struct_start = content
         .find("pub struct CrawlConfig")
         .expect("CrawlConfig struct must be emitted");
@@ -419,7 +400,6 @@ fn has_default_struct_emits_delegating_impl_not_derived_default() {
          delegating to the core's custom Default. Derive block:\n{derive_window}"
     );
 
-    // The delegating `impl Default` must be emitted and delegate to the core type's Default.
     assert!(
         content.contains("impl Default for CrawlConfig"),
         "delegating impl Default must be emitted for has_default types; got:\n{content}"
@@ -430,13 +410,11 @@ fn has_default_struct_emits_delegating_impl_not_derived_default() {
     );
 
     // The struct should still carry struct-level `#[serde(default)]` for from_json to accept
-    // partial JSON — this is the path that previously surfaced the bug.
     assert!(
         content.contains("serde(default"),
         "struct must still carry struct-level `#[serde(default)]`; got:\n{content}"
     );
 
-    // Serde Serialize/Deserialize derives must remain — only Default is suppressed.
     assert!(
         content.contains("serde::Serialize"),
         "struct must still derive serde::Serialize; got:\n{content}"

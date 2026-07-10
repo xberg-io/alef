@@ -181,7 +181,6 @@ fn opaque_no_wrapper_field_without_arc_flag_emits_default() {
 
     let config = ConversionConfig {
         opaque_types: Some(&opaque_set),
-        // trait_bridge_arc_wrapper_field_names left empty (default)
         ..ConversionConfig::default()
     };
 
@@ -233,8 +232,6 @@ fn binding_excluded_non_cfg_field_falls_through_to_core_default_trailer() {
         original_type: None,
     };
     let typ = type_with_field(field);
-    // Crucially: typ.has_stripped_cfg_fields = false (default).
-    // The trailer must still be emitted because a binding-excluded field was skipped.
 
     let out = gen_from_binding_to_core(&typ, "crate");
 
@@ -283,7 +280,7 @@ fn binding_excluded_field_on_type_without_default_uses_per_field_fallback() {
         original_type: None,
     };
     let mut typ = type_with_field(field);
-    typ.has_default = false; // core type does NOT impl Default
+    typ.has_default = false;
     typ.has_stripped_cfg_fields = false;
 
     let out = gen_from_binding_to_core(&typ, "crate");
@@ -359,7 +356,7 @@ fn private_fields_type_without_default_emits_compile_error() {
     let mut typ = type_with_field(string_field("content"));
     typ.has_private_fields = true;
     typ.has_default = false;
-    typ.has_serde = true; // serde alone is not accepted as a construction strategy
+    typ.has_serde = true;
 
     let out = gen_from_binding_to_core(&typ, "crate");
 

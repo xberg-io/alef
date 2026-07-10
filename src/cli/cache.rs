@@ -52,17 +52,12 @@ pub fn sources_hash(sources: &[PathBuf]) -> anyhow::Result<String> {
         current.push((path_str, mtime_nanos, size));
     }
 
-    // If the memo also tracks the same number of files (no rename / removal),
-    // the cached aggregate is valid.
     if all_match && current.len() == memo.entries.len() {
         if let Some(agg) = memo.aggregate {
             return Ok(agg);
         }
     }
 
-    // Cold path / change detected: read+hash every file via the canonical
-    // function so the result remains bit-identical with what existing
-    // alef:hash lines were derived from.
     let aggregate = crate::core::hash::compute_sources_hash(sources)?;
     let _ = write_per_file_memo(&current, &aggregate);
     Ok(aggregate)
@@ -207,7 +202,6 @@ pub fn is_lang_cached(crate_name: &str, lang: &str, lang_hash: &str) -> bool {
             if cached.trim() != lang_hash {
                 return false;
             }
-            // Verify all output files from the manifest still exist on disk
             outputs_exist(&manifest_path)
         }
         Err(_) => false,
@@ -251,7 +245,6 @@ pub fn is_stage_cached(crate_name: &str, stage: &str, stage_hash: &str) -> bool 
             if cached.trim() != stage_hash {
                 return false;
             }
-            // Verify all output files from the manifest still exist on disk
             outputs_exist(&manifest_path)
         }
         Err(_) => false,
@@ -312,8 +305,6 @@ fn outputs_exist(manifest_path: &Path) -> bool {
             .lines()
             .filter(|line| !line.is_empty())
             .all(|line| Path::new(line).exists()),
-        // No manifest means old-style cache entry; treat as valid to avoid
-        // breaking existing caches on upgrade. The next write will create one.
         Err(_) => true,
     }
 }
@@ -346,15 +337,6 @@ fn walkdir(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
     }
     Ok(files)
 }
-
-// ---------------------------------------------------------------------------
-// Generation content hashing — used by `alef verify` for idempotent staleness
-// checking.  We blake3-hash the raw codegen output strings and store
-// `path\thash` entries in `.alef/hashes/<name>.output_hashes`.  During verify
-// we regenerate in-memory, hash the new content, and compare against stored
-// hashes.  Both sides are pure codegen output — on-disk state is never
-// consulted.  Formatter/linter autofixes cannot cause false positives.
-// ---------------------------------------------------------------------------
 
 /// Blake3 hash of a content string.
 pub fn hash_content(content: &str) -> String {

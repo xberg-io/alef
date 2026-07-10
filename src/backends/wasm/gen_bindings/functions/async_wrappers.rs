@@ -23,7 +23,6 @@ pub(super) fn gen_async_free_function(
     return_annotation: &str,
     core_fn_path: &str,
 ) -> String {
-    // For async functions with named params, use JsValue parameters to avoid _assertClass errors
     let has_named = crate::codegen::generators::has_named_params(&func.params, opaque_types);
 
     let async_params: Vec<String> = if has_named {
@@ -49,7 +48,6 @@ pub(super) fn gen_async_free_function(
         params.to_vec()
     };
 
-    // Generate serde deserialization let-bindings for named non-opaque params
     let mut serde_bindings = String::new();
     if has_named {
         for p in &func.params {
@@ -111,8 +109,6 @@ pub(super) fn gen_async_free_function(
         generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
     };
     let core_call = format!("{core_fn_path}({call_args})");
-    // Build the return expression: handle Vec<Named> with collect pattern (turbofish),
-    // plain Named with From::from, and everything else as passthrough.
     let return_expr = match &func.return_type {
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {

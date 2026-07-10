@@ -140,8 +140,6 @@ fn test_bool_callback_param_uses_int_boundary_type() {
 
 #[test]
 fn test_registry_no_super_trait_requires_explicit_name_param() {
-    // Without super_trait, the interface has no Name property, so Register must
-    // accept an explicit string name from the caller.
     let trait_def = make_trait_def("TextBackend");
     let bridge_cfg = make_bridge_cfg("TextBackend", None);
     let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
@@ -150,15 +148,12 @@ fn test_registry_no_super_trait_requires_explicit_name_param() {
 
     assert!(content.contains("public static class TextBackendRegistry"));
     assert!(content.contains("public static IntPtr Register(ITextBackend impl, string name)"));
-    // unregister_fn is None — Unregister must not be emitted
     assert!(!content.contains("public static void Unregister(string name)"));
-    // No impl.Name reference when interface lacks it
     assert!(!content.contains("impl.Name"));
 }
 
 #[test]
 fn test_registry_with_super_trait_reads_name_from_impl() {
-    // With super_trait, interface declares Name property; Register reads it from impl.
     let trait_def = make_trait_def("TextBackend");
     let bridge_cfg = make_bridge_cfg("TextBackend", Some("Plugin"));
     let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
@@ -186,7 +181,6 @@ fn test_exclude_languages_skips_csharp() {
 
 #[test]
 fn test_native_methods_declarations_without_unregister() {
-    // unregister_fn is None — only the register P/Invoke should be emitted.
     let trait_def = make_trait_def("TextBackend");
     let bridge_cfg = make_bridge_cfg("TextBackend", None);
     let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
@@ -202,9 +196,6 @@ fn test_native_methods_declarations_without_unregister() {
 
 #[test]
 fn test_native_methods_declarations_with_configured_unregister() {
-    // When unregister_fn is set, both register and unregister P/Invokes are emitted.
-    // The EntryPoints are derived from `{prefix}_{register,unregister}_{trait_snake}`,
-    // not from the alias values.
     let trait_def = make_trait_def("TextBackend");
     let mut bridge_cfg = make_bridge_cfg("TextBackend", None);
     bridge_cfg.register_fn = Some("sample_crate_register_text_backend".to_string());
@@ -222,10 +213,6 @@ fn test_native_methods_declarations_with_configured_unregister() {
 
 #[test]
 fn test_native_methods_register_unregister_use_derived_ffi_symbol_not_alias() {
-    // The alef.toml `register_fn` / `unregister_fn` aliases name the host-language
-    // wrappers and are typically unprefixed (e.g. `register_renderer`). The P/Invoke
-    // EntryPoint must match the actual FFI symbol `{prefix}_register_{trait_snake}`,
-    // never the bare alias.
     let trait_def = make_trait_def("Renderer");
     let mut bridge_cfg = make_bridge_cfg("Renderer", None);
     bridge_cfg.register_fn = Some("register_renderer".to_string());
@@ -246,10 +233,6 @@ fn test_native_methods_register_unregister_use_derived_ffi_symbol_not_alias() {
 
 #[test]
 fn test_native_methods_clear_uses_derived_ffi_symbol_not_alias() {
-    // The FFI layer exports the clear function as `{prefix}_clear_{trait_snake}`,
-    // ignoring the alef.toml `clear_fn` alias (which may be plural, e.g.
-    // `clear_text_backends`). The P/Invoke EntryPoint must match the actual FFI
-    // symbol `sample_core_clear_text_backend`, not the alias.
     let trait_def = make_trait_def("TextBackend");
     let mut bridge_cfg = make_bridge_cfg("TextBackend", None);
     bridge_cfg.clear_fn = Some("clear_text_backends".to_string());
@@ -277,7 +260,6 @@ fn test_native_methods_omits_clear_when_not_configured() {
 
 #[test]
 fn test_registry_emits_clear_when_configured() {
-    // When clear_fn is set, the registry class should contain a Clear method.
     let trait_def = make_trait_def("TextBackend");
     let mut bridge_cfg = make_bridge_cfg("TextBackend", None);
     bridge_cfg.clear_fn = Some("clear_text_backends".to_string());
@@ -291,7 +273,6 @@ fn test_registry_emits_clear_when_configured() {
 
 #[test]
 fn test_registry_omits_clear_when_not_configured() {
-    // When clear_fn is None, the registry class must not emit a Clear method.
     let trait_def = make_trait_def("TextBackend");
     let bridge_cfg = make_bridge_cfg("TextBackend", None);
     let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
@@ -303,7 +284,6 @@ fn test_registry_omits_clear_when_not_configured() {
 
 #[test]
 fn test_registry_emits_unregister_when_configured() {
-    // When unregister_fn is set, the registry class should contain an Unregister method.
     let trait_def = make_trait_def("TextBackend");
     let mut bridge_cfg = make_bridge_cfg("TextBackend", None);
     bridge_cfg.unregister_fn = Some("sample_crate_unregister_text_backend".to_string());
@@ -318,7 +298,6 @@ fn test_registry_emits_unregister_when_configured() {
 
 #[test]
 fn test_registry_omits_unregister_when_not_configured() {
-    // When unregister_fn is None, the registry class must not emit an Unregister method.
     let trait_def = make_trait_def("TextBackend");
     let bridge_cfg = make_bridge_cfg("TextBackend", None);
     let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
@@ -377,17 +356,14 @@ fn test_bridge_delegate_bytes_param_includes_len_companion() {
     let visible_types: HashSet<&str> = vec!["Processor"].into_iter().collect();
     let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-    // Delegate type must carry the length companion parameter.
     assert!(
         content.contains("UIntPtr payloadLen"),
         "delegate signature must include `UIntPtr payloadLen` for Bytes param;\nactual:\n{content}"
     );
-    // Callback body must use Marshal.Copy for bounded binary copy, not string deserialization.
     assert!(
         content.contains("Marshal.Copy(payload"),
         "callback must use Marshal.Copy for Bytes param;\nactual:\n{content}"
     );
-    // Must not revert to the old JSON/base64 string path.
     assert!(
         !content.contains("MarshalBytesFromIntPtr"),
         "callback must not use MarshalBytesFromIntPtr;\nactual:\n{content}"
@@ -396,7 +372,6 @@ fn test_bridge_delegate_bytes_param_includes_len_companion() {
 
 #[test]
 fn test_bridge_class_has_register_static_method_with_super_trait() {
-    // Bridge class should have a static Register method that takes the impl and optionally name
     let trait_def = make_trait_def("TextBackend");
     let bridge_cfg = make_bridge_cfg("TextBackend", Some("Plugin"));
     let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
@@ -405,13 +380,11 @@ fn test_bridge_class_has_register_static_method_with_super_trait() {
 
     assert!(content.contains("public sealed class TextBackendBridge : IDisposable"));
     assert!(content.contains("public static IntPtr Register(ITextBackend impl)"));
-    // Verify it's reading impl.Name
     assert!(content.contains("var name = impl.Name;"));
 }
 
 #[test]
 fn test_bridge_class_has_register_static_method_without_super_trait() {
-    // Bridge class should have a static Register method that takes impl and explicit name param
     let trait_def = make_trait_def("TextBackend");
     let bridge_cfg = make_bridge_cfg("TextBackend", None);
     let bridges = vec![("TextBackend".to_string(), &bridge_cfg, &trait_def)];
@@ -449,12 +422,9 @@ fn test_trait_method_enum_return_uses_toffijson_serialization() {
     });
     let bridge_cfg = make_bridge_cfg("PostProcessor", Some("Plugin"));
     let bridges = vec![("PostProcessor".to_string(), &bridge_cfg, &trait_def)];
-    // ProcessingStage IS in visible_types (enums are now visible)
     let visible_types: HashSet<&str> = vec!["PostProcessor", "ProcessingStage"].into_iter().collect();
     let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-    // The interface property returns ProcessingStage (not string), and the callback
-    // receives the actual enum value. It must serialize using .ToFfiJson().
     assert!(content.contains("ProcessingStage ProcessingStage { get; }"));
     assert!(content.contains("methodResult.ToFfiJson()"));
     assert!(!content.contains("ToJsonString(methodResult)"));
@@ -462,8 +432,6 @@ fn test_trait_method_enum_return_uses_toffijson_serialization() {
 
 #[test]
 fn bridge_adapter_implements_hand_authored_interface_for_text_processor() {
-    // Regression: `_TextProcessorBridgeAdapter` must declare conformance to `ITextProcessor`
-    // so consumer code can pass the adapter where the hand-authored interface is expected.
     let trait_def = make_trait_def("TextProcessor");
     let bridge_cfg = make_bridge_cfg("TextProcessor", Some("Plugin"));
     let bridges = vec![("TextProcessor".to_string(), &bridge_cfg, &trait_def)];
@@ -480,7 +448,6 @@ fn bridge_adapter_implements_hand_authored_interface_for_text_processor() {
 
 #[test]
 fn bridge_adapter_delegates_to_inner_impl_for_asset_loader() {
-    // AssetLoader adapter must implement IAssetLoader and delegate calls.
     let trait_def = make_trait_def("AssetLoader");
     let bridge_cfg = make_bridge_cfg("AssetLoader", Some("Plugin"));
     let bridges = vec![("AssetLoader".to_string(), &bridge_cfg, &trait_def)];

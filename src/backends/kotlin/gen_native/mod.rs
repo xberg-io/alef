@@ -63,10 +63,6 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     ])
 }
 
-// ---------------------------------------------------------------------------
-// Kotlin/Native source file
-// ---------------------------------------------------------------------------
-
 fn emit_kotlin_source(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let package = config.kotlin_package();
     let module_name = to_pascal_case(&config.name);
@@ -179,17 +175,14 @@ fn emit_native_function(f: &FunctionDef, prefix: &str, out: &mut String) {
     ));
     out.push_str("        return memScoped {\n");
 
-    // Emit C-string conversions for string/path parameters inside the memScoped block.
     for p in &f.params {
         emit_native_param_conversion(p, out);
     }
 
-    // Build the C call argument list.
     let c_args: Vec<String> = f.params.iter().map(native_c_arg).collect();
     let call = format!("{c_fn}({})", c_args.join(", "));
 
     if f.error_type.is_some() {
-        // Fallible: capture result, check error code, throw if non-zero.
         out.push_str(&crate::backends::kotlin::template_env::render(
             "native_result_assign.jinja",
             minijinja::context! {
@@ -284,7 +277,6 @@ fn emit_native_param_conversion(p: &ParamDef, out: &mut String) {
             ));
         }
         TypeRef::Bytes => {
-            // Bytes: pin the ByteArray and pass pointer + length.
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "native_param_bytes_conversion.jinja",
                 minijinja::context! {
@@ -319,8 +311,6 @@ fn native_unwrap_return(raw: &str, ty: &TypeRef, free_sym: &str) -> String {
             format!("run {{ val _s = {raw}!!.toKString(); {free_sym}({raw}); _s }}")
         }
         TypeRef::Bytes => {
-            // Bytes: reconstruct a ByteArray from the returned pointer + length is not standard
-            // in the simple C ABI; fall back to treating as a string for now.
             format!("run {{ val _s = {raw}!!.toKString().encodeToByteArray(); {free_sym}({raw}); _s }}")
         }
         _ => raw.to_string(),
@@ -354,9 +344,7 @@ pub(crate) fn native_type_str(ty: &TypeRef, optional: bool) -> String {
             PrimitiveType::F64 => "Double".to_string(),
         },
         TypeRef::String | TypeRef::Json => "String".to_string(),
-        // Path is just String in Native mode — no java.nio.file.Path.
         TypeRef::Path => "String".to_string(),
-        // Char: single Unicode codepoint, represented as a Kotlin Char.
         TypeRef::Char => "Char".to_string(),
         TypeRef::Bytes => "ByteArray".to_string(),
         TypeRef::Unit => "Unit".to_string(),

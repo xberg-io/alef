@@ -17,24 +17,14 @@ fn emit_function_shim(
     opaque_type_names: &std::collections::HashSet<&str>,
     core_crate_prefix: &str,
 ) {
-    // The rust_path from the IR already includes the crate prefix (e.g., "{name}::extract_bytes").
-    // Replace the core crate name with "core_crate::" since the generated code imports the crate as core_crate.
-    // Both sides are normalised dash→underscore: rust_path uses underscores (Rust path syntax),
-    // while core_crate_prefix is the cargo crate name which may contain dashes (for example
-    // "sample-parser-core"). Without normalisation, starts_with would miss and the
-    // emitter would prepend "core_crate::" on top of the already-qualified path, producing
-    // double-qualified call sites that fail E0433 ("cannot find X in core_crate").
     let path = rust_path.replace('-', "_");
     let from_prefix = format!("{}::", core_crate_prefix.replace('-', "_"));
     let core_fn = if path.starts_with(&from_prefix) {
         path.replacen(&from_prefix, "core_crate::", 1)
     } else {
-        // Path doesn't start with the crate name, prepend core_crate for bare function names
         format!("core_crate::{path}")
     };
 
-    // Determine whether the return type is an opaque handle up-front so we can
-    // use the correct null/zero sentinel in unmarshal error paths.
     let is_opaque_return = matches!(return_type, TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
     let ret_decl = if is_opaque_return {
         " -> jlong".to_string()
@@ -47,14 +37,12 @@ fn emit_function_shim(
         method_return_null(return_type)
     };
 
-    // Collect param signatures and unmarshal logic.
     let mut param_sigs = String::new();
     let mut unmarshal = String::new();
     let mut call_args = String::new();
 
     for p in params {
         let rust_name = p.name.replace('-', "_");
-        // The base type (unwrap Optional to its inner type for JNI marshaling decisions).
         let base_ty = match &p.ty {
             TypeRef::Optional(inner) => inner.as_ref(),
             other => other,
@@ -63,16 +51,7 @@ fn emit_function_shim(
             TypeRef::String => {
                 param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
                 unmarshal.push_str(&render_string_unmarshal(&rust_name, err_null));
-                // Build call-site expression.  Optional Strings: the Kotlin
-                // facade passes "" (empty string) as the null-sentinel for
-                // String? params via `value ?: ""`, because JNI primitive
-                // signatures cannot express nullability.  Treat empty as
-                // None so the Rust callee receives the correct Option<_>.
                 if p.optional {
-                    // Optional `&str` callers (`Option<&str>` in the core) need a borrowed
-                    // payload; `Some(mime_type)` would supply an owned String and fail with
-                    // E0308.  Emit `Some(&mime_type)` when the core wants a reference,
-                    // and `Some(mime_type)` only for owned `Option<String>` slots.
                     let some_payload = if p.is_ref {
                         format!("&{rust_name}")
                     } else {
@@ -100,12 +79,6 @@ fn emit_function_shim(
                     format!("{rust_name} as {cast}")
                 };
                 if p.optional {
-                    // Optional numeric primitives: the Kotlin facade passes
-                    // 0 / 0L / 0.0 / false as the null-sentinel for nullable
-                    // primitives via `value ?: 0`, because JNI primitive
-                    // signatures cannot express nullability.  Treat the
-                    // default value as None so the Rust callee receives the
-                    // correct Option<_>.
                     let zero_lit = primitive_zero_literal(prim);
                     if let Some(zero) = zero_lit {
                         call_args.push_str("if ");
@@ -135,14 +108,8 @@ fn emit_function_shim(
                 call_args.push_str(&bytes_call_arg(&rust_name, p.optional, p.is_ref));
             }
             TypeRef::Path => {
-                // Path params: receive a JString, unmarshal directly to PathBuf without
-                // a JSON parse step.  Without this arm, the fallback `_` branch wraps
-                // the raw string as a `serde_json::Value`, which doesn't impl
-                // `AsRef<Path>` and fails with E0277 at the call site.
                 param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
                 unmarshal.push_str(&render_string_unmarshal(&rust_name, err_null));
-                // Convert the unmarshalled String into a PathBuf so the call site
-                // receives a real path value rather than a generic JSON Value.
                 unmarshal.push_str(&format!(
                     "    let {rust_name} = std::path::PathBuf::from({rust_name});\n"
                 ));
@@ -160,9 +127,7 @@ fn emit_function_shim(
                 }
             }
             TypeRef::Named(type_name) if opaque_type_names.contains(type_name.as_str()) => {
-                // Opaque handle param: receive as jlong, dereference via raw pointer.
                 // SAFETY: the Kotlin caller holds a Long obtained from the matching
-                // constructor shim and guarantees the handle is live for this call.
                 param_sigs.push_str(&render_param_decl(&rust_name, "jlong"));
                 let type_path = format!("core_crate::{type_name}");
                 unmarshal.push_str(&template_env::render(
@@ -172,48 +137,23 @@ fn emit_function_shim(
                         type_path => type_path,
                     },
                 ));
-                // Pass as reference (already &T via deref).
                 call_args.push_str(&rust_name);
             }
             _ => {
-                // Complex types passed as JSON string from Kotlin side.
                 param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
                 let type_path = type_ref_to_core_path_with_btree(base_ty, "core_crate", p.map_is_btree);
-                // Optional complex params: the Kotlin/Java caller passes an empty
-                // string (`""`) when the host-language value is null, the legacy
-                // sentinel for "no payload" that pairs with `?.let { ... } ?: ""`.
-                // Accept that sentinel as `None` instead of attempting to parse
-                // it as JSON (which fails with `EOF while parsing a value`).
                 if p.optional {
                     unmarshal.push_str(&render_complex_unmarshal(&rust_name, &type_path, err_null, true));
                     call_args.push_str(&rust_name);
                 } else {
                     unmarshal.push_str(&render_complex_unmarshal(&rust_name, &type_path, err_null, false));
-                    // `&mut <name>` requires the binding to be mutable. The shared
-                    // complex-unmarshal template emits an immutable `let <name>: T`
-                    // so re-bind here when the call site needs exclusive access.
                     if p.is_ref && p.is_mut {
                         unmarshal.push_str(&format!("    let mut {rust_name} = {rust_name};\n"));
                     }
-                    // `&Vec<String>` coerces to `&[String]` so plain `&<name>` covers
-                    // every Vec<String> call site we currently emit. The previous
-                    // special-case that converted to `Vec<&str>` would have produced
-                    // `&[&str]` which is incompatible with core fns that take `&[String]`
-                    // (e.g. `LlmBackend::detect_with_custom`).
-                    //
-                    // Exception: when the core fn explicitly takes `&[&str]` (captured in
-                    // the IR as `vec_inner_is_ref = true` on a `Vec<String>` param), emit
-                    // a materialised `Vec<&str>` and borrow it. Without this branch the
-                    // call fails E0308 expected `&[&str]`, found `&Vec<String>`.
                     if needs_vec_string_refs(p, base_ty) {
                         unmarshal.push_str(&render_vec_string_refs_binding(&rust_name));
                         call_args.push_str(&vec_string_refs_arg(&rust_name));
                     } else if p.is_ref {
-                        // Match the borrow mode declared by the core function: `&mut T`
-                        // params receive an exclusive borrow, plain `&T` an immutable one.
-                        // Without this distinction the JNI shim emits `&result` for a
-                        // `result: &mut ExtractionResult` slot and the call fails with
-                        // E0308 "found reference `&T`, expected `&mut T`".
                         if p.is_mut {
                             call_args.push_str("&mut ");
                         } else {
@@ -228,18 +168,10 @@ fn emit_function_shim(
         }
         call_args.push_str(", ");
     }
-    // Remove trailing ", "
     if call_args.ends_with(", ") {
         call_args.truncate(call_args.len() - 2);
     }
 
-    // Open the extern shim and upgrade EnvUnowned -> &mut Env<'_> via an
-    // AttachGuard so the body can call get_string / new_string / throw_new etc.
-    // We don't use `EnvUnowned::with_env` because it requires the closure to
-    // return `Result<T, E>` and to call `.resolve::<P>()` on the outcome — a
-    // significant refactor that would lose the existing early-return + sentinel
-    // pattern. AttachGuard upgrades inline; panics inside the body are still
-    // caught by `run_or_throw` (the existing per-call wrapper).
     out.push_str(&template_env::render(
         "function_shim_open.rs.jinja",
         context! {
@@ -251,7 +183,6 @@ fn emit_function_shim(
 
     out.push_str(&unmarshal);
 
-    // Build the raw call expression (without async wrapping yet).
     let raw_call = if call_args.is_empty() {
         format!("{core_fn}()")
     } else {

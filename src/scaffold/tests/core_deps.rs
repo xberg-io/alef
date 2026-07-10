@@ -2,14 +2,8 @@ use super::*;
 
 // ---------------------------------------------------------------------------
 // Dual-form core-facade dependency (`{ version = "X.Y.Z", path = "..." }`).
-//
-// The scaffolded binding-crate Cargo.toml must emit its workspace-member
-// core-facade dependency in dual form so in-repo dev path builds keep working
-// AND cargo-package flows (maturin sdist, `cargo package`) can strip the path
 // to a registry version-dependency. The version equals the workspace version
 // (here `api.version` == "0.1.0"), the path is preserved unchanged, features
-// are preserved, and external (non-member) deps are emitted untouched.
-// ---------------------------------------------------------------------------
 
 /// Locate the binding-crate `Cargo.toml` generated for `lang` and return its
 /// content. Filters out the Ruby `[lib]` Cargo (which lives under `native/`)
@@ -44,8 +38,6 @@ fn render_core_dep_preserves_features_suffix() {
 
 #[test]
 fn render_core_dep_falls_back_to_path_only_when_version_empty() {
-    // Some unit fixtures (e.g. JNI with `ApiSurface::default()`) have no
-    // resolvable workspace version; emit path-only rather than `version = ""`.
     let line = render_core_dep("my-lib", "../my-lib", "", "");
     assert_eq!(line, r#"my-lib = { path = "../my-lib" }"#);
 }
@@ -57,7 +49,6 @@ fn test_scaffold_python_core_dep_is_dual_form() {
         content.contains(r#"my-lib = { version = "0.1.0", path = "../my-lib", features = ["full", "ocr"] }"#),
         "python core dep must be dual form with version + path + features; content:\n{content}"
     );
-    // External deps unchanged.
     assert!(
         content.contains(r#"serde_json = "1""#),
         "external serde_json unchanged; content:\n{content}"
@@ -137,20 +128,13 @@ fn test_scaffold_r_core_dep_is_dual_form() {
 
 #[test]
 fn test_scaffold_swift_core_dep_is_dual_form() {
-    // Swift's binding-crate Cargo.toml is emitted by the swift backend's
-    // `gen_rust_crate::emit` (not the generic scaffold step), so assert the
-    // dual form there. The path must be preserved for dev builds and the
-    // workspace version injected for cargo-package flows.
     let config = test_config();
-    let api = test_api(); // version "0.1.0", crate "my-lib"
+    let api = test_api();
     let files = crate::backends::swift::gen_rust_crate::emit(&api, &config).unwrap();
     let cargo = files
         .iter()
         .find(|f| f.path.ends_with("Cargo.toml"))
         .expect("swift Cargo.toml must be emitted");
-    // core_dep_key is the Rust-ident form (`my_lib`); since it differs from the
-    // cargo package name (`my-lib`) a `package = "..."` rename is appended after
-    // the version + path. `core_path` is `../../..` for the same-as-workspace case.
     assert!(
         cargo
             .content
@@ -158,7 +142,6 @@ fn test_scaffold_swift_core_dep_is_dual_form() {
         "swift core dep must be dual form (version + path) with package rename; content:\n{}",
         cargo.content
     );
-    // External deps unchanged.
     assert!(
         cargo.content.contains(r#"serde_json = "1""#),
         "external serde_json unchanged; content:\n{}",
@@ -168,9 +151,6 @@ fn test_scaffold_swift_core_dep_is_dual_form() {
 
 #[test]
 fn test_scaffold_dev_path_build_form_preserved() {
-    // The whole point of dual form: the `path` is still present (so in-repo dev
-    // builds resolve the local member crate) AND a `version` is added (so
-    // cargo-package can strip the path to a registry dep).
     for lang in [
         Language::Python,
         Language::Node,
@@ -195,13 +175,8 @@ fn test_scaffold_dev_path_build_form_preserved() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// target_dep_overrides for the scripting backends (python/node/ruby/php/elixir).
-//
-// Mirrors the FFI/Dart backends: when overrides are configured, the core
 // dependency moves out of `[dependencies]` into a `cfg(not(...))` default block
 // plus one `[target.'cfg(<cfg>)'.dependencies]` block per override.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn render_core_dep_with_overrides_no_overrides_matches_plain() {

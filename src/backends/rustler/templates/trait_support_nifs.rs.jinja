@@ -13,6 +13,35 @@
 // `complete_trait_call/2` takes the JSON-encoded success result; `fail_trait_call/2`
 // takes a string error reason. Both consume the sender; calling either a
 // second time with the same `reply_id` is a no-op (the channel is gone).
+//
+// If the target GenServer has already exited (e.g. it was `start_link`'d by a
+// test process that has since terminated), sending it a message is a silent
+// no-op in the BEAM — no reply ever arrives. Every bridge call site arms a
+// watchdog thread (`arm_trait_call_timeout`) that fails the call after
+// `TRAIT_CALL_TIMEOUT` if nobody has completed it yet, so a dead peer times
+// out instead of leaking a dirty-CPU scheduler thread forever.
+
+/// Bound on how long a trait-bridge call waits for the Elixir-side GenServer
+/// to reply before the call fails. Prevents an unbounded block (and a leaked
+/// dirty-CPU scheduler thread) when the target process has already exited.
+const TRAIT_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Spawn a watchdog that fails `reply_id` with a timeout error if it is still
+/// pending after `TRAIT_CALL_TIMEOUT`. A no-op if the call already completed
+/// (`complete_trait_call` / `fail_trait_call` remove the entry first).
+fn arm_trait_call_timeout(reply_id: u64) {
+    std::thread::spawn(move || {
+        std::thread::sleep(TRAIT_CALL_TIMEOUT);
+        if let Ok(mut channels) = TRAIT_REPLY_CHANNELS.lock()
+            && let Some(tx) = channels.remove(&reply_id)
+        {
+            let _ = tx.send(Err(format!(
+                "trait call timed out after {:?} (host process may have exited without replying)",
+                TRAIT_CALL_TIMEOUT
+            )));
+        }
+    });
+}
 
 #[rustler::nif]
 pub fn complete_trait_call(reply_id: u64, result_json: String) -> rustler::types::atom::Atom {

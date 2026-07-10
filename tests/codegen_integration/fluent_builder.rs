@@ -1,10 +1,6 @@
 use super::*;
 
 // ==============================================================================
-// Tests for fluent-builder methods that consume self and return Self.
-// Verifies that `(self, T) -> Self` shapes — including those with Json params —
-// are auto-delegated by codegen instead of falling through to the unimplemented
-// stub. Companion: shared::is_delegatable_param / is_simple_non_opaque_param.
 // ==============================================================================
 
 fn builder_method(name: &str, receiver: ReceiverKind, return_type: TypeRef, params: Vec<ParamDef>) -> MethodDef {
@@ -51,8 +47,6 @@ fn simple_param(name: &str, ty: TypeRef) -> ParamDef {
 
 #[test]
 fn test_fluent_builder_owned_self_returning_self_delegates() {
-    // `pub fn with_count(self, count: u32) -> Self` on a non-opaque Clone type
-    // must auto-delegate via the "builder for non-opaque types" branch.
     let typ = simple_type_def();
     let method = builder_method(
         "with_count",
@@ -89,10 +83,6 @@ fn test_fluent_builder_owned_self_returning_self_delegates() {
 
 #[test]
 fn test_fluent_builder_owned_self_returning_named_type_delegates() {
-    // Same body as the Self-return case but the return type is the parent's
-    // concrete name (e.g. `pub fn with_count(self, count: u32) -> MyConfig`).
-    // Extractor's resolve_self_refs turns `Self` into the parent name, so both
-    // forms reach codegen identically — this guards that path.
     let typ = simple_type_def();
     let method = builder_method(
         "with_count",
@@ -124,8 +114,6 @@ fn test_fluent_builder_owned_self_returning_named_type_delegates() {
 
 #[test]
 fn test_fluent_builder_owned_self_with_json_param_delegates() {
-    // The motivating case: `pub fn with_extension(self, key: String, value: Value) -> Self`.
-    // Previously rejected because TypeRef::Json was not in is_simple_non_opaque_param.
     let typ = simple_type_def();
     let method = builder_method(
         "with_extension",
@@ -153,10 +141,6 @@ fn test_fluent_builder_owned_self_with_json_param_delegates() {
         !result.contains("unimplemented!()"),
         "Json param must no longer block builder delegation: {result}"
     );
-    // RustMapper (a passthrough mapper used by these tests) maps Json to
-    // `serde_json::Value`; real backends override it to `String`. Either way the
-    // call site routes the value through `serde_json::from_str(&value)`, which
-    // confirms the Json param participates in the auto-delegation pipeline.
     assert!(
         result.contains("serde_json::from_str(&value)"),
         "Json param should be parsed back into serde_json::Value at the call site: {result}"
@@ -169,10 +153,6 @@ fn test_fluent_builder_owned_self_with_json_param_delegates() {
 
 #[test]
 fn test_fluent_builder_ref_mut_self_returning_ref_mut_self_delegates() {
-    // `pub fn set_count(&mut self, count: u32) -> &mut Self` — in-place builder.
-    // After type resolution this becomes RefMut receiver returning Named(parent_type).
-    // Goes through the functional clone-mutate-return pattern (frozen PyO3 / immutable
-    // WASM compatibility).
     let typ = simple_type_def();
     let method = builder_method(
         "set_count",
@@ -205,11 +185,6 @@ fn test_fluent_builder_ref_mut_self_returning_ref_mut_self_delegates() {
 
 #[test]
 fn test_fluent_builder_owned_self_returning_different_type_is_not_a_builder() {
-    // Negative: `pub fn into_thing(self) -> Thing` is NOT a Self-returning builder —
-    // codegen should NOT misclassify it. The non-opaque builder branch is gated on
-    // `return_type == Named(parent_type_name)`, so the body must fall back to the
-    // generic delegation path (which here lands on `gen_unimplemented_body` because
-    // `Thing` is an unknown Named type with no From impl available).
     let typ = simple_type_def();
     let method = builder_method(
         "into_thing",
@@ -229,8 +204,6 @@ fn test_fluent_builder_owned_self_returning_different_type_is_not_a_builder() {
         &AdapterBodies::default(),
     );
 
-    // The body must not contain `Self {` (the Self-construction marker of the opaque
-    // builder branch) — the method returns a different type.
     assert!(
         !result.contains("Self {"),
         "method returning a different Named type must not be classified as a self-builder: {result}"
@@ -239,10 +212,6 @@ fn test_fluent_builder_owned_self_returning_different_type_is_not_a_builder() {
 
 #[test]
 fn test_adapter_body_overrides_delegatable_json_static_method() {
-    // Regression guard for the new "adapter-first" precedence: when a user provides
-    // an explicit adapter override, it must win even if the codegen could otherwise
-    // delegate the method. Previously the adapter check was inside `!can_delegate`,
-    // so making Json delegatable would have silently dropped the override.
     let typ = simple_type_def();
     let method = MethodDef {
         name: "create_with_json".to_string(),

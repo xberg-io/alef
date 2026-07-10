@@ -34,14 +34,10 @@ pub(crate) fn collect_reexport_map(items: &[syn::Item]) -> AHashMap<String, Reex
 fn collect_reexport_from_tree(tree: &syn::UseTree, map: &mut AHashMap<String, ReexportKind>) {
     if let syn::UseTree::Path(use_path) = tree {
         let root_ident = use_path.ident.to_string();
-        // For `self::submod::...`, skip `self` and recurse into the subtree
-        // to find the actual module name. This handles `pub use self::core::{A, B};`
-        // as a re-export from module `core`.
         if root_ident == "self" {
             collect_reexport_from_tree(&use_path.tree, map);
             return;
         }
-        // Skip super/crate — those reference parent/root modules, not local submodules
         if root_ident == "super" || root_ident == "crate" {
             return;
         }
@@ -62,7 +58,7 @@ fn collect_reexport_leaves(module: &str, tree: &syn::UseTree, map: &mut AHashMap
         syn::UseTree::Name(use_name) => {
             let name = use_name.ident.to_string();
             match map.get_mut(module) {
-                Some(ReexportKind::Glob) => {} // glob already covers everything
+                Some(ReexportKind::Glob) => {}
                 Some(ReexportKind::Names(names)) => {
                     names.insert(name);
                 }
@@ -88,7 +84,6 @@ fn collect_reexport_leaves(module: &str, tree: &syn::UseTree, map: &mut AHashMap
             }
         }
         syn::UseTree::Path(use_path) => {
-            // Deeper path like `pub use module::submod::Thing` — treat as coming from `module`
             collect_reexport_leaves(module, &use_path.tree, map);
         }
         syn::UseTree::Group(group) => {

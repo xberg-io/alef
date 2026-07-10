@@ -18,11 +18,9 @@ pub(crate) fn syn_type_is_boxed(ty: &syn::Type) -> bool {
         if let Some(segment) = type_path.path.segments.last() {
             let ident = segment.ident.to_string();
             if ident == "Box" {
-                // Direct Box<T> — but not Box<dyn Trait> (those are opaque)
                 if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
                     for arg in &args.args {
                         if let syn::GenericArgument::Type(inner) = arg {
-                            // Box<dyn Trait> is not a "boxed field" in our sense
                             if matches!(inner, syn::Type::TraitObject(_)) {
                                 return false;
                             }
@@ -31,7 +29,6 @@ pub(crate) fn syn_type_is_boxed(ty: &syn::Type) -> bool {
                     }
                 }
             } else if ident == "Option" {
-                // Option<Box<T>>
                 if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
                     for arg in &args.args {
                         if let syn::GenericArgument::Type(inner) = arg {
@@ -54,7 +51,6 @@ pub(crate) fn syn_type_is_boxed(ty: &syn::Type) -> bool {
 /// (e.g., `crate::types::OutputFormat` → `sample_core::types::OutputFormat`).
 /// `super::` paths are still skipped since they require full module context.
 pub(crate) fn extract_field_type_rust_path(ty: &syn::Type, crate_name: Option<&str>) -> Option<String> {
-    // Unwrap Option<T> to look at inner type
     let inner_ty = if let syn::Type::Path(type_path) = ty {
         if let Some(segment) = type_path.path.segments.last() {
             if segment.ident == "Option" {
@@ -81,7 +77,6 @@ pub(crate) fn extract_field_type_rust_path(ty: &syn::Type, crate_name: Option<&s
 
     let check_ty = inner_ty.unwrap_or(ty);
 
-    // Unwrap Box<T> to look at inner type
     let check_ty = if let syn::Type::Path(type_path) = check_ty {
         if let Some(segment) = type_path.path.segments.last() {
             if segment.ident == "Box" {
@@ -109,18 +104,12 @@ pub(crate) fn extract_field_type_rust_path(ty: &syn::Type, crate_name: Option<&s
         check_ty
     };
 
-    // Now check if the type has a multi-segment path
     if let syn::Type::Path(type_path) = check_ty {
         if type_path.path.segments.len() >= 2 {
             let first_segment = type_path.path.segments[0].ident.to_string();
-            // Skip `super::` paths — these require full module context and would produce
-            // invalid paths like `sample_core::super::super::pdf::PdfConfig` in codegen.
             if first_segment == "super" {
                 return None;
             }
-            // Resolve `crate::` paths using the crate name when available.
-            // This enables disambiguation of types with the same short name but different
-            // module paths (e.g., `crate::types::OutputFormat` vs `crate::core::config::OutputFormat`).
             if first_segment == "crate" {
                 if let Some(name) = crate_name {
                     let mut segments: Vec<String> =
@@ -143,7 +132,6 @@ fn outermost_ident(ty: &syn::Type) -> Option<String> {
         if let Some(seg) = p.path.segments.last() {
             let ident = seg.ident.to_string();
             if ident == "Option" {
-                // Recurse into Option<T>
                 if let Some(inner) = type_resolver::extract_single_generic_arg_syn(seg) {
                     return outermost_ident(&inner);
                 }
@@ -166,7 +154,6 @@ fn outermost_ident(ty: &syn::Type) -> Option<String> {
 pub(crate) fn detect_core_wrapper(ty: &syn::Type) -> crate::core::ir::CoreWrapper {
     use crate::core::ir::CoreWrapper;
 
-    // Peek through Option<...> so Option<Arc<Mutex<T>>> is treated like Arc<Mutex<T>>.
     let inner_ty: Option<Box<syn::Type>> = if let syn::Type::Path(p) = ty {
         p.path.segments.last().and_then(|seg| {
             if seg.ident == "Option" {
@@ -186,12 +173,6 @@ pub(crate) fn detect_core_wrapper(ty: &syn::Type) -> crate::core::ir::CoreWrappe
             match ident.as_str() {
                 "Cow" => return CoreWrapper::Cow,
                 "Bytes" => return CoreWrapper::Bytes,
-                // `Box<str>` is a common compact-string idiom in storage-heavy
-                // structs (e.g. SHA-256 hex digests, immutable filenames). The
-                // resolved IR ty is `String`, so binding emitters need to
-                // `.into()` to round-trip back to `Box<str>` on the core side.
-                // Box<dyn Trait> and Box<NamedType> are handled differently
-                // (opaque or normal), so only flag Box<str> / Box<Bytes>.
                 "Box" => {
                     if let Some(box_inner) = type_resolver::extract_single_generic_arg_syn(seg) {
                         if let syn::Type::Path(inner_path) = &*box_inner {
@@ -205,8 +186,6 @@ pub(crate) fn detect_core_wrapper(ty: &syn::Type) -> crate::core::ir::CoreWrappe
                     }
                 }
                 "Arc" => {
-                    // Inspect Arc's inner type. If it's Mutex<T> or RwLock<T>, return ArcMutex.
-                    // `Arc<dyn Trait>` stays as plain Arc — trait-object semantics differ.
                     if let Some(arc_inner) = type_resolver::extract_single_generic_arg_syn(seg) {
                         if let syn::Type::Path(inner_path) = &*arc_inner {
                             if let Some(inner_seg) = inner_path.path.segments.last() {
@@ -229,7 +208,6 @@ pub(crate) fn detect_core_wrapper(ty: &syn::Type) -> crate::core::ir::CoreWrappe
 /// Detect if a Vec's inner type is wrapped in Arc (e.g., `Vec<Arc<T>>`).
 pub(crate) fn detect_vec_inner_core_wrapper(ty: &syn::Type) -> crate::core::ir::CoreWrapper {
     use crate::core::ir::CoreWrapper;
-    // Unwrap Option<Vec<Arc<T>>> → check Vec inner
     let check_ty = if let syn::Type::Path(p) = ty {
         if let Some(seg) = p.path.segments.last() {
             if seg.ident == "Option" {

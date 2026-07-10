@@ -45,19 +45,12 @@ pub(crate) fn gen_instance_method(
 
     let params_str = if params.is_empty() { String::new() } else { params };
 
-    // Non-opaque Named params are received as `&T` (ext-php-rs doesn't support owned T via
-    // FromZvalMut), so gen_php_function_params uses &T and gen_php_call_args emits
-    // `.clone().into()`.  This means we CAN delegate opaque methods even with non-opaque Named
-    // params — the `&T` → clone → `.into()` chain handles the conversion correctly.
     let adapter_key = format!("{type_name}.{}", method.name);
     let body = if let Some(body) = adapter_bodies.get(&adapter_key) {
         body.clone()
     } else if can_delegate && is_opaque {
         let call_args = gen_php_call_args(&method.params, opaque_types);
         let is_owned_receiver = matches!(method.receiver.as_ref(), Some(crate::core::ir::ReceiverKind::Owned));
-        // For opaque types, self.inner is Arc<T> or Arc<Mutex<T>>.
-        // When the type is in mutex_types, we need .lock().unwrap() to access the inner value,
-        // regardless of whether the method is &self or &mut self. The Mutex protects the inner value.
         let needs_lock = mutex_types.contains(type_name);
         let core_call = if is_owned_receiver {
             format!("(*self.inner).clone().{}({})", method.name, call_args)
@@ -110,11 +103,8 @@ pub(crate) fn gen_instance_method(
             )
         }
     } else if is_opaque {
-        // Not auto-delegatable opaque instance method — use let-binding conversion
         let let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, enum_names, core_import);
         let call_args = gen_php_call_args_with_let_bindings(&method.params, opaque_types, mutex_types);
-        // When the type is in mutex_types, we need .lock().unwrap() to access the inner value,
-        // regardless of whether the method is &self or &mut self. The Mutex protects the inner value.
         let needs_lock = mutex_types.contains(type_name);
         let core_call = if needs_lock {
             format!("self.inner.lock().unwrap().{}({})", method.name, call_args)
@@ -170,24 +160,18 @@ pub(crate) fn gen_instance_method(
             )
         }
     } else {
-        // Method cannot be auto-delegated — skip it entirely rather than emitting a panic stub.
         return String::new();
     };
 
     let mut out = String::new();
     // The `#[php_impl]` facade is Rust source, so doc text must be emitted as Rust line
-    // doc-comments (`///`). PHPDoc `/** … */` blocks are unsafe here: Rust block comments
-    // nest, so doc text containing `/*` (e.g. `image/*`) opens a nested comment that the
-    // intended closing `*/` never balances → `error[E0758]: unterminated block doc-comment`.
     doc_emission::emit_rustdoc(&mut out, &method.doc, "    ");
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n"
     } else {
         ""
     };
-    // ext-php-rs's `ZendClassObject<T>` has an inherent `initialize(&mut self, T)` method
     // that collides with a user-written `pub fn initialize(&self)` during `#[php_impl]`
-    // expansion. Rename the Rust-side fn to `initialize_plugin` and preserve the PHP-facing
     // name via `#[php(name = "initialize")]`.
     let (rust_name, php_rename_attr) = match method.name.as_str() {
         "initialize" => (
@@ -241,8 +225,6 @@ pub(crate) fn gen_instance_method_non_opaque(
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    // RefMut methods can be delegated if the type is Mutex-wrapped (present in mutex_types).
-    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
     let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(crate::core::ir::ReceiverKind::RefMut));
     let has_mut_methods = mutex_types.contains(&typ.name);
 
@@ -267,7 +249,6 @@ pub(crate) fn gen_instance_method_non_opaque(
         );
         let core_call = format!("core_self.{}({})", method.name, call_args);
 
-        // Use php_wrap_return for proper type conversions
         let wrapped_call = php_wrap_return(
             &core_call,
             &method.return_type,
@@ -332,7 +313,6 @@ pub(crate) fn gen_instance_method_non_opaque(
             )
         }
     } else {
-        // Method cannot be auto-delegated — skip it entirely rather than emitting a panic stub.
         return String::new();
     };
 
@@ -341,9 +321,7 @@ pub(crate) fn gen_instance_method_non_opaque(
     } else {
         ""
     };
-    // ext-php-rs's `ZendClassObject` has an inherent `initialize(&mut self, T)` method;
     // emitting a user `pub fn initialize(&self)` collides during `#[php_impl]` expansion.
-    // Rename the Rust-side fn to avoid the collision while keeping the PHP method name.
     let (rust_name, php_rename_attr) = match method.name.as_str() {
         "initialize" => (
             "initialize_plugin".to_string(),
@@ -386,16 +364,11 @@ pub(crate) fn gen_static_method(
     let core_type_path = typ.rust_path.replace('-', "_");
     let call_args = gen_php_call_args(&method.params, opaque_types);
 
-    // Exclude methods with unsupported parameter types for PHP bindings.
-    // ext-php-rs has limited FromZval support:
-    // - Vec<T> where T is a struct: not supported
-    // - Map<K,V>: not directly supported
-    // - Non-opaque Named params: not supported (no owned FromZval)
     let has_unsupported_params = method.params.iter().any(|p| {
         match &p.ty {
-            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => true, // non-opaque struct
+            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => true, 
             TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())),
-            TypeRef::Map(_, _) => true, // Maps not directly supported
+            TypeRef::Map(_, _) => true, 
             TypeRef::Optional(inner) => {
                 matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str()))
                     || matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
@@ -448,13 +421,10 @@ pub(crate) fn gen_static_method(
             )
         }
     } else {
-        // Method cannot be auto-delegated — skip it entirely rather than emitting a panic stub.
         return String::new();
     };
 
     let mut out = String::new();
-    // Rust source: emit `///` line doc-comments, not PHPDoc `/** … */` (which would break
-    // compilation when doc text contains `/*`, e.g. `image/*`, because Rust block comments nest).
     doc_emission::emit_rustdoc(&mut out, &method.doc, "    ");
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n"
@@ -462,8 +432,6 @@ pub(crate) fn gen_static_method(
         ""
     };
     let ret_sig = return_type_sig(&return_annotation);
-    // The Rust fn ident stays snake_case; the PHP-facing name is camelCase so callers
-    // (userland facade, stubs) can invoke it via PSR-12 camelCase method names.
     let php_name = method.name.to_lower_camel_case();
     out.push_str("    ");
     out.push_str(trait_allow);
@@ -525,26 +493,18 @@ pub(crate) fn gen_function_as_static_method(
     let visible_params = promote_default_params(&visible_params, type_sets.default, type_sets.opaque);
     let params = gen_php_function_params(&visible_params, mapper, type_sets.opaque, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
-    // A fallible param conversion (e.g. a `Vec<Struct>` decoded element-by-element) emits
-    // `return Err(...)`, so the function must return `PhpResult<T>` even when the core fn is
-    // infallible. `gen_function_body` Ok-wraps the success path in the same condition.
     let has_fallible_param = func
         .params
         .iter()
         .any(|p| param_conversion_is_fallible(p, type_sets.opaque, type_sets.enums));
     let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some() || has_fallible_param);
-    // For Bytes returns, convert Vec<u8> to String in the type annotation
     if matches!(&func.return_type, TypeRef::Bytes) {
         return_annotation = override_bytes_return_type(&return_annotation);
     }
 
     let mut out = String::new();
-    // Rust source: emit `///` line doc-comments, not PHPDoc `/** … */` (which would break
-    // compilation when doc text contains `/*`, e.g. `image/*`, because Rust block comments nest).
     doc_emission::emit_rustdoc(&mut out, &func.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
-    // The Rust fn ident stays snake_case; the PHP-facing name is camelCase so callers
-    // (userland facade, stubs) can invoke it via PSR-12 camelCase method names.
     let php_name = func.name.to_lower_camel_case();
     if params.is_empty() {
         out.push_str(&crate::backends::php::template_env::render(
@@ -583,9 +543,6 @@ fn gen_function_body(
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, type_sets.opaque);
-    // When the core fn is infallible but a param conversion can `return Err(...)`, the binding
-    // signature is still `PhpResult<T>` (see `gen_function_as_static_method`), so the success
-    // path must be `Ok(...)`-wrapped.
     let force_ok = func.error_type.is_none()
         && func
             .params
@@ -678,13 +635,8 @@ fn gen_function_body(
         && !has_sanitized_recoverable(&func.params)
         && !(has_serde && func.error_type.is_some() && has_ref_named_params(&func.params, type_sets.opaque))
     {
-        // Sanitized functions cannot be auto-delegated AND we have no recoverable serde path —
-        // emit a safe stub: Err(...) when the signature is PhpResult<T>, default value otherwise.
         gen_stub_return(&func.return_type, func.error_type.is_some(), &func.name)
     } else {
-        // Not auto-delegatable: use serde round-trip for Named params with is_ref=true and for
-        // sanitized Vec<tuple> params (decoded as Vec<String>). The serde path requires the
-        // function to return Result (uses `?` operator).
         let promoted_params = promote_default_params(&func.params, type_sets.default, type_sets.opaque);
         let promoted_names = promoted_default_param_names(&func.params, type_sets.default, type_sets.opaque);
         let needs_serde = func.error_type.is_some()

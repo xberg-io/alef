@@ -23,10 +23,6 @@ fn emit_jni_client_method(
 
     let params_with_types: Vec<String> = m.params.iter().map(|p| format_param_with_imports(p, imports)).collect();
 
-    // Determine the public Kotlin return type for the wrapper signature.
-    // Vec<u8> maps to ByteArray at the JNI boundary (no base64 overhead); the
-    // generic Kotlin mapper would produce List<Byte> which is incompatible.
-    // All other types use the standard Kotlin type mapper.
     let wrapper_return_ty = if is_binary_return_type(&m.return_type) {
         "ByteArray".to_string()
     } else if is_optional_binary_return_type(&m.return_type) {
@@ -45,10 +41,8 @@ fn emit_jni_client_method(
         },
     ));
 
-    // Build the bridge call expression, with JSON marshalling where needed.
     let bridge_call = build_bridge_call(m, bridge_name, &native_name);
 
-    // Emit the method body with optional `withContext` wrapping.
     emit_method_body(m, out, &bridge_call, imports, opaque_type_names);
 
     out.push_str("    }\n\n");
@@ -71,12 +65,9 @@ fn build_bridge_call(m: &crate::core::ir::MethodDef, bridge_name: &str, native_n
         };
         return format!("{bridge_name}.{native_name}(handle, {arg})");
     }
-    // Build requestJson expression.
     let request_json_expr = if m.params.len() == 1 {
         let p = &m.params[0];
         let param_name = to_lower_camel(&p.name);
-        // For optional (nullable) complex params, use `?.let { ... } ?: ""` so the
-        // JNI shim receives the empty-string sentinel (not JSON `"null"`) for None.
         if p.optional {
             format!("{param_name}?.let {{ MAPPER.writeValueAsString(it) }} ?: \"\"")
         } else {
@@ -111,7 +102,6 @@ fn emit_method_body(
         None
     };
 
-    // Check if this is an opaque type return (including optional)
     let is_opaque_return = match &m.return_type {
         TypeRef::Named(n) => opaque_type_names.contains(n.as_str()),
         TypeRef::Optional(inner) => {
@@ -135,7 +125,6 @@ fn emit_method_body(
             ));
         }
         TypeRef::Optional(inner) if is_opaque_return => {
-            // Bridge returns a primitive Long handle (0L = None); wrap in opaque type constructor
             if let TypeRef::Named(_) = inner.as_ref() {
                 let wrapper = kotlin_type_with_string_imports(&m.return_type, false, imports);
                 let base_wrapper = wrapper.trim_end_matches('?');
@@ -150,7 +139,6 @@ fn emit_method_body(
             }
         }
         _ if is_opaque_return => {
-            // Bridge returns Long (raw handle); wrap in opaque type constructor
             let kotlin_ty = kotlin_type_with_string_imports(&m.return_type, false, imports);
             out.push_str(&template_env::render(
                 "jni_opaque_body.jinja",
@@ -162,14 +150,8 @@ fn emit_method_body(
             ));
         }
         _ if needs_deserialize => {
-            // Bridge returns JSON String; deserialise to the rich Kotlin type.
             let kotlin_ty = return_kotlin_type.unwrap();
-            // Strip trailing `?` from the class literal used in readValue.
             let base_ty = kotlin_ty.trim_end_matches('?');
-            // Kotlin disallows generic type arguments on `::class.java`. When
-            // `base_ty` carries any angle-bracketed generics (e.g.
-            // `List<String>`, `Map<String, Long>`, `List<MyDto>`), route the
-            // deserialisation through Jackson's `TypeReference<T>` instead.
             let use_type_reference = base_ty.contains('<');
             let deserialize_call = if use_type_reference {
                 imports.insert("import com.fasterxml.jackson.core.type.TypeReference".to_string());
@@ -187,7 +169,6 @@ fn emit_method_body(
             ));
         }
         _ => {
-            // Primitive, Boolean, ByteArray, String — pass through.
             out.push_str(&template_env::render(
                 "jni_passthrough_body.jinja",
                 minijinja::context! {
@@ -231,9 +212,6 @@ fn emit_jni_streaming_client_method(
         .map(|p| to_lower_camel(&p.name))
         .unwrap_or_else(|| "request".to_string());
 
-    // Suppress detekt TooGenericExceptionCaught: the callbackFlow catch intentionally
-    // catches Throwable to forward JNI RuntimeException, OOM Error, and any other
-    // throwable into the Flow as a terminal signal for proper collector error handling.
     out.push_str(&template_env::render(
         "jni_streaming_client_method.jinja",
         minijinja::context! {

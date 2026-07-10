@@ -102,12 +102,10 @@ pub fn wrap_return_with_mutex_mapped(
     returns_cow: bool,
     mapper: &dyn TypeMapper,
 ) -> String {
-    let self_arc = arc_wrap("", type_name, mutex_types); // used for pattern matching only
-    let _ = self_arc; // just to reference mutex_types in context
+    let self_arc = arc_wrap("", type_name, mutex_types);
+    let _ = self_arc;
     match return_type {
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
-            // If the expression already evaluates to `Arc<T>` (e.g. `self.inner.clone()`
-            // where `inner: Arc<T>`), don't wrap in another Arc — pass through.
             if expr_is_already_arc(expr) {
                 return format!("Self {{ inner: {expr} }}");
             }
@@ -122,7 +120,6 @@ pub fn wrap_return_with_mutex_mapped(
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             let mapped_n = mapper.named(n);
-            // Same already-Arc guard as the Self branch above.
             if expr_is_already_arc(expr) {
                 return format!("{mapped_n} {{ inner: {expr} }}");
             }
@@ -136,12 +133,7 @@ pub fn wrap_return_with_mutex_mapped(
             format!("{mapped_n} {{ inner: {} }}", arc_wrap(&inner, n, mutex_types))
         }
         TypeRef::Named(_) => {
-            // Non-opaque Named return type — use .into() for core→binding From conversion.
-            // When the core returns a Cow, call .into_owned() first to get an owned T.
-            // When the core returns a reference, clone first since From<&T> typically doesn't exist.
             // NOTE: If this type was sanitized to String in the binding, From won't exist.
-            // The calling backend should check method.sanitized before delegating.
-            // This code assumes non-sanitized Named types have From impls.
             if returns_cow {
                 format!("{expr}.into_owned().into()")
             } else if returns_ref {
@@ -150,7 +142,6 @@ pub fn wrap_return_with_mutex_mapped(
                 format!("{expr}.into()")
             }
         }
-        // String: only convert when the core returns a reference (&str→String).
         TypeRef::String => {
             if returns_ref {
                 format!("{expr}.into()")
@@ -158,16 +149,10 @@ pub fn wrap_return_with_mutex_mapped(
                 expr.to_string()
             }
         }
-        // Bytes: always use .to_vec() which works for both &Bytes and owned Bytes.
-        // &Bytes does not implement From<&Bytes> for Vec<u8>, so .into() fails.
         TypeRef::Bytes => format!("{expr}.to_vec()"),
-        // Path: PathBuf→String needs to_string_lossy, &Path→String too
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
-        // Duration: core returns std::time::Duration, binding uses u64 (millis)
         TypeRef::Duration => format!("{expr}.as_millis() as u64"),
-        // Json: serde_json::Value needs serialization to string
         TypeRef::Json => format!("{expr}.to_string()"),
-        // Optional: wrap inner conversion in .map(...)
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                 let mapped_n = mapper.named(n);
@@ -200,7 +185,6 @@ pub fn wrap_return_with_mutex_mapped(
             }
             TypeRef::Duration => format!("{expr}.map(|d| d.as_millis() as u64)"),
             TypeRef::Json => format!("{expr}.map(ToString::to_string)"),
-            // Optional<Vec<Named>>: convert each element in the inner Vec
             TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
                 TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                     let mapped_n = mapper.named(n);
@@ -223,7 +207,6 @@ pub fn wrap_return_with_mutex_mapped(
             },
             _ => expr.to_string(),
         },
-        // Vec: map each element through the appropriate conversion
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                 let mapped_n = mapper.named(n);
@@ -237,7 +220,6 @@ pub fn wrap_return_with_mutex_mapped(
             }
             TypeRef::Named(_) => {
                 if returns_ref {
-                    // `&[T]` → `Vec<U>`: use `.iter()` not `.into_iter()` to
                     // avoid clippy::into_iter_on_ref under -D warnings.
                     format!("{expr}.iter().map(|v| v.clone().into()).collect()")
                 } else {
@@ -249,9 +231,6 @@ pub fn wrap_return_with_mutex_mapped(
             }
             TypeRef::String => {
                 if returns_ref {
-                    // Core returns `&[&str]` / `&[String]`; `.iter()` yields `&&str` / `&String`.
-                    // `Into::into` on those fails (`From<&&str>` is not implemented). Force
-                    // an explicit ToString hop so the binding always sees owned `String`s.
                     format!("{expr}.iter().map(|s| s.to_string()).collect()")
                 } else {
                     expr.to_string()

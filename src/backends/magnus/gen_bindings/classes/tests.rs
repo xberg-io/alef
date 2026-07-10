@@ -150,7 +150,6 @@ fn make_data_enum(name: &str, serde_tag: Option<&str>) -> EnumDef {
 #[test]
 fn gen_enum_wraps_string_for_internally_tagged_enum() {
     // For an internally-tagged enum (`#[serde(tag = "...")]`), serde cannot deserialize a bare
-    // JSON string. TryConvert must add an `.or_else` that wraps it as `{"<tag>": value}`.
     let code = gen_enum(&make_data_enum("ImageOutputFormat", Some("type")));
     assert!(
         code.contains(r#".or_else(|_| serde_json::from_value(serde_json::json!({ "type": json_str })))"#),
@@ -237,9 +236,6 @@ fn shape_enum() -> EnumDef {
 
 #[test]
 fn variant_constructors_emit_singleton_per_struct_variant() {
-    // `Shape` with two struct variants → one singleton constructor each. The constructor builds the
-    // serde-shaped enum variant directly (`Self::Circle { radius }`); no `inner` wrapper exists for
-    // magnus data enums.
     let code = gen_data_enum_variant_constructors(&shape_enum());
 
     assert!(code.contains("impl Shape {"), "must emit an impl block: {code}");
@@ -257,9 +253,6 @@ fn variant_constructors_emit_singleton_per_struct_variant() {
 
 #[test]
 fn variant_constructors_use_serde_shaped_named_field_type() {
-    // A Named-DTO field carries the binding wrapper type directly in the serde-shaped enum, so the
-    // constructor parameter must be that same type (no `_core` conversion — the magnus data enum is
-    // already binding-shaped). A Map field collapses to a JSON `String` to match the enum field.
     let def = EnumDef {
         name: "Wrapper".to_string(),
         rust_path: "test_lib::Wrapper".to_string(),
@@ -330,7 +323,6 @@ fn variant_constructors_skip_unit_tuple_and_excluded() {
 
 #[test]
 fn variant_constructors_yield_to_hand_written_method() {
-    // A hand-written `impl` method named `circle` wins; no generated constructor for Circle.
     let def = EnumDef {
         methods: vec![MethodDef {
             name: "circle".to_string(),
@@ -354,7 +346,6 @@ fn variant_constructors_yield_to_hand_written_method() {
 
 #[test]
 fn variant_constructors_empty_for_unit_only_enum() {
-    // A data enum with no qualifying struct variants emits nothing (no empty impl block).
     let def = EnumDef {
         variants: vec![make_variant("A", vec![]), make_variant("B", vec![])],
         ..shape_enum()

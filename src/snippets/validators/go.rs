@@ -108,9 +108,6 @@ impl SnippetValidator for GoValidator {
                     .current_dir(dir.path());
                 command
             }
-            // `go vet` type-checks the package (the build step) and additionally runs the vet
-            // analyzers, so it is strictly stronger than a plain `go build` without needing the
-            // native library — exactly the strict static gate for type-checking generated Go.
             ValidationLevel::TypeCheck => {
                 std::fs::write(dir.path().join("go.mod"), "module snippet\n\ngo 1.21\n")?;
                 let mut command = std::process::Command::new("go");

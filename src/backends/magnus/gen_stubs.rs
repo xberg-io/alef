@@ -20,14 +20,12 @@ pub fn gen_stubs(
     lines.push("".to_string());
     lines.push("  VERSION: String".to_string());
     lines.push("".to_string());
-    // Type alias for JSON values: any JSON-compatible type
     lines.push(
         "  type json_value = Hash[String, untyped] | Array[untyped] | String | Integer | Float | bool | nil"
             .to_string(),
     );
     lines.push("".to_string());
 
-    // Generate type stubs
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.is_opaque {
             lines.push(gen_opaque_type_stub(typ, emit_docstrings, streaming_method_names));
@@ -38,26 +36,15 @@ pub fn gen_stubs(
         }
     }
 
-    // Generate enum stubs
     for enum_def in &api.enums {
         lines.push(gen_enum_stub(enum_def, emit_docstrings));
         lines.push("".to_string());
     }
 
-    // Generate function stubs (module methods)
     for func in &api.functions {
         lines.push(gen_function_stub(func, streaming_method_names));
         lines.push("".to_string());
     }
-    // Emit a host-implementable RBS `interface` for each plugin-pattern trait bridge (those with
-    // a `register_*` function) whose trait is resolvable in the API surface. This surfaces the
-    // typed protocol a host backend must implement to be registered, rather than leaving callers
-    // with an untyped `backend`. Interface method params that are known serde structs are typed as
-    // their native struct type and returns as the result type, matching the native Ruby values the
-    // runtime bridge now passes/expects.
-    //
-    // Track the trait names that received an interface so the `register_*` signature below can type
-    // its `backend` parameter against the interface instead of `untyped`.
     let mut interface_trait_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     for bridge in trait_bridges {
         if bridge.register_fn.is_none() {
@@ -69,17 +56,11 @@ pub fn gen_stubs(
             interface_trait_names.insert(bridge.trait_name.clone());
         }
     }
-    // Names already emitted as module methods above (from `api.functions`). A bridge's `clear_fn`
-    // is often also exposed as a regular registry function (`clear_embedding_backends`), so emitting
-    // it again here would be a duplicate definition (RBS `DuplicatedMethodDefinitionError`). Skip any
-    // bridge function whose name already has a declaration; register/unregister are bridge-only.
     let declared_function_names: std::collections::HashSet<&str> =
         api.functions.iter().map(|f| f.name.as_str()).collect();
     for bridge in trait_bridges {
         if let Some(register_fn) = bridge.register_fn.as_deref() {
             if !declared_function_names.contains(register_fn) {
-                // Type the `backend` param against the host-implementable interface when one was
-                // emitted for this bridge's trait; otherwise fall back to `untyped`.
                 let backend_type = if interface_trait_names.contains(&bridge.trait_name) {
                     plugin_interface_name(&bridge.trait_name)
                 } else {
@@ -105,7 +86,6 @@ pub fn gen_stubs(
         }
     }
 
-    // Generate error info class stubs for errors with introspection methods.
     for error in api.errors.iter().filter(|e| !e.methods.is_empty()) {
         let class_name = format!("{}Info", error.name);
         let mut class_lines = vec![format!("  class {class_name}")];
@@ -152,9 +132,6 @@ fn gen_plugin_interface_stub(bridge: &TraitBridgeConfig, api: &ApiSurface) -> Op
     }
     api.types.iter().find(|t| t.name == bridge.trait_name)?;
 
-    // Types excluded from the binding surface (e.g. `InternalDocument`) are not emitted as RBS
-    // declarations, so an interface method referencing one would be an undefined RBS type. Substitute
-    // them with their JSON marshaling form, matching the runtime bridge (and the go/pyo3/napi backends).
     let excluded: std::collections::HashSet<&str> = api
         .excluded_type_paths
         .keys()
@@ -165,11 +142,6 @@ fn gen_plugin_interface_stub(bridge: &TraitBridgeConfig, api: &ApiSurface) -> Op
     let interface_name = plugin_interface_name(&bridge.trait_name);
     let mut lines = vec![format!("  interface {interface_name}")];
 
-    // Only the trait's non-defaulted methods are required at runtime: the bridge
-    // forwards Rust-defaulted methods when the host defines them (falling back to
-    // the Rust default otherwise), and the Plugin lifecycle hooks are no-ops when
-    // absent. RBS interfaces cannot express optional members, so the interface
-    // lists the required contract and a comment documents the optional surface.
     let (required, optional): (Vec<&crate::core::ir::MethodDef>, Vec<&crate::core::ir::MethodDef>) =
         methods.iter().partition(|m| !m.has_default_impl);
     if !optional.is_empty() {
@@ -238,14 +210,12 @@ fn gen_opaque_type_stub(
         lines.push("".to_string());
     }
 
-    // Instance methods
     for method in &typ.methods {
         if !method.is_static {
             lines.push(gen_method_stub(method, false, emit_docstrings, streaming_method_names));
         }
     }
 
-    // Static methods
     for method in &typ.methods {
         if method.is_static {
             lines.push(gen_method_stub(method, true, emit_docstrings, streaming_method_names));
@@ -263,7 +233,6 @@ fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool, streaming_method_names: &
 
     lines.push(format!("  class {}", typ.name));
 
-    // Add docstring if present
     if emit_docstrings && !typ.doc.is_empty() {
         let doc_lines: Vec<String> = typ.doc.lines().map(ToString::to_string).collect();
         lines.push(crate::backends::magnus::template_env::render(
@@ -273,9 +242,6 @@ fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool, streaming_method_names: &
         lines.push("".to_string());
     }
 
-    // Add field attr declarations — use attr_accessor for config types (has_default),
-    // attr_reader for immutable result types.
-    // For config types, all fields are optional (builder pattern).
     let accessor = if typ.has_default {
         "attr_accessor"
     } else {
@@ -283,11 +249,9 @@ fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool, streaming_method_names: &
     };
     for f in binding_fields(&typ.fields) {
         let mut field_type = rbs_type(&f.ty);
-        // Builder types have optional fields (attr_accessor allows setting/getting nil)
         if typ.has_default && !field_type.ends_with('?') {
             field_type.push('?');
         }
-        // Field-level doc comment from the Rust source. Gated behind emit_docstrings.
         if emit_docstrings && !f.doc.is_empty() {
             for line in f.doc.lines() {
                 let line = line.trim();
@@ -305,9 +269,6 @@ fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool, streaming_method_names: &
         lines.push("".to_string());
     }
 
-    // Add initialize method
-    // For has_default types (config/builder), all fields are optional kwargs.
-    // For result types, required fields are required kwargs, optional fields are optional.
     let init_params: Vec<String> = typ
         .fields
         .iter()
@@ -315,13 +276,10 @@ fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool, streaming_method_names: &
         .map(|f| {
             let field_type = rbs_type(&f.ty);
             if typ.has_default {
-                // Config types: all fields are optional kwargs in Ruby (defaults applied in Rust)
                 format!("?{}: {}", f.name, field_type)
             } else if f.optional {
-                // Result types: optional fields are optional kwargs
                 format!("?{}: {}", f.name, field_type)
             } else {
-                // Result types: required fields are required kwargs
                 format!("{}: {}", f.name, field_type)
             }
         })
@@ -329,14 +287,12 @@ fn gen_type_stub(typ: &TypeDef, emit_docstrings: bool, streaming_method_names: &
 
     lines.push(format!("    def initialize: ({}) -> void", init_params.join(", ")));
 
-    // Add instance methods
     for method in &typ.methods {
         if !method.is_static {
             lines.push(gen_method_stub(method, false, emit_docstrings, streaming_method_names));
         }
     }
 
-    // Add static methods
     for method in &typ.methods {
         if method.is_static {
             lines.push(gen_method_stub(method, true, emit_docstrings, streaming_method_names));
@@ -370,8 +326,6 @@ fn gen_method_stub(
         .collect();
 
     let return_type = if streaming_method_names.contains(&method.name) {
-        // For streaming methods like crawl_stream, derive the iterator type name
-        // from the method name (e.g., crawl_stream → CrawlStreamIterator)
         let pascal_name = method
             .name
             .split('_')
@@ -396,8 +350,6 @@ fn gen_method_stub(
         format!("    def {}: {} -> {}", method.name, param_list, return_type)
     };
 
-    // Prefix with the method's Rust doc comment, line by line. RBS allows free-form
-    // comments preceding method declarations. Gated behind emit_docstrings.
     if !emit_docstrings || method.doc.is_empty() {
         return sig_line;
     }
@@ -419,10 +371,8 @@ fn gen_method_stub(
 fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
     let mut lines = vec![];
 
-    // Always emit class stub (even for unit enums, for Ruby introspection)
     lines.push(format!("  class {}", enum_def.name));
 
-    // Add docstring if present — gated behind emit_docstrings.
     if emit_docstrings && !enum_def.doc.is_empty() {
         let doc_lines: Vec<String> = enum_def.doc.lines().map(ToString::to_string).collect();
         lines.push(crate::backends::magnus::template_env::render(
@@ -431,11 +381,9 @@ fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
         ));
     }
 
-    // Check if enum has data (non-unit variants)
     let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
     if !has_data {
-        // Unit enum: also emit as type alias with symbol union inside the class
         let symbol_variants: Vec<String> = enum_def
             .variants
             .iter()
@@ -443,10 +391,6 @@ fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
             .collect();
         lines.push(format!("    type value = {}", symbol_variants.join(" | ")));
     } else if enum_def.serde_tag.is_none() {
-        // Data enum: declare a singleton constructor per data-carrying variant so RBS sees the
-        // `Shape.circle(...)` factories the runtime binding registers via define_singleton_method.
-        // Tagged data enums get no Rust-side factory class (it collides with their Ruby `module`
-        // representation), so they declare no singleton constructors here either.
         gen_data_enum_variant_constructor_stubs(&mut lines, enum_def);
     }
 
@@ -472,11 +416,6 @@ fn gen_data_enum_variant_constructor_stubs(lines: &mut Vec<String>, enum_def: &E
             .iter()
             .enumerate()
             .map(|(idx, p)| {
-                // A param is nilable in the emitted RBS signature when it is naturally optional OR was
-                // promoted because it follows an optional param — the same rule the runtime magnus
-                // binding applies (`is_promoted_optional`), which wraps such params in `Option<T>`.
-                // Mirroring it keeps the stub's required/optional split identical to the runtime
-                // constructor, and matches how `gen_function_stub` renders optional params (`?T name`).
                 let optional = p.optional || crate::codegen::shared::is_promoted_optional(&ctor.params, idx);
                 crate::backends::magnus::template_env::render(
                     "rbs_enum_variant_constructor_param.jinja",
@@ -517,7 +456,6 @@ fn gen_function_stub(func: &FunctionDef, streaming_method_names: &ahash::AHashSe
         .collect();
 
     let return_type = if streaming_method_names.contains(&func.name) {
-        // For streaming methods like batch_crawl_stream
         let pascal_name = func
             .name
             .split('_')

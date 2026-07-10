@@ -106,18 +106,10 @@ fn csharp_serde_default_field_not_required() {
         .generate(&groups, &e2e, &_resolved, &[], &[])
         .expect("generation succeeds");
 
-    // The generated C# code should NOT have a `required` modifier on content_layer
     // since the Rust field has `#[serde(default)]`. The field should either:
-    // 1. Have a default value (e.g., `= ContentLayer.Body`)
-    // 2. Be nullable (not directly testable in fixture, but ensures deserialization works)
-    //
-    // If the codegen incorrectly emits `required`, the deserialization will fail
-    // when JSON lacks the field.
 
-    // Verify that test code was generated
     assert!(!generated.is_empty(), "Should generate C# test code");
 
-    // Check that the generated test file does NOT contain "required" for content_layer.
     // With the fix, fields with #[serde(default)] should not be marked required.
     let test_code = generated
         .iter()
@@ -125,6 +117,5 @@ fn csharp_serde_default_field_not_required() {
         .map(|f| f.content.clone())
         .unwrap_or_default();
 
-    // The test existence proves codegen completed without panic
     assert!(!test_code.is_empty(), "Should generate test code");
 }

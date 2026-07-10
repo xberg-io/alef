@@ -412,9 +412,6 @@ fn api_surface_validation_errors_for_non_delegatable_function_returning_opaque_t
 
 #[test]
 fn api_surface_validation_allows_opaque_receiver_mut_method_returning_opaque_type() {
-    // Parser::parse(&mut self) -> Option<Tree> is the canonical pattern: an opaque type's
-    // &mut self method returns another opaque handle. All backends handle this via the
-    // direct inner-call path (e.g. `self.inner.parse()`), so no stub is required.
     let api = ApiSurface {
         crate_name: "sample-lib".to_string(),
         types: vec![
@@ -452,8 +449,6 @@ fn api_surface_validation_allows_opaque_receiver_mut_method_returning_opaque_typ
 
 #[test]
 fn api_surface_validation_errors_for_non_opaque_receiver_mut_method_returning_opaque_type() {
-    // A &mut self method on a *non-opaque* type returning an opaque handle cannot be
-    // delegated by the backend — there is no inner-call path — so this must still error.
     let api = ApiSurface {
         crate_name: "sample-lib".to_string(),
         types: vec![

@@ -207,7 +207,6 @@ fn test_generated_code_example() {
 
     let files = backend.generate_bindings(&api, &config).unwrap();
 
-    // NativeMethods.cs should contain P/Invoke declarations
     let native_methods = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
@@ -220,7 +219,6 @@ fn test_generated_code_example() {
     assert!(native_methods.content.contains("sample_crate_last_error_context"));
     assert!(native_methods.content.contains("sample_crate_free_string"));
 
-    // Exception class should be properly defined
     let exception = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("SampleCrateException.cs"))
@@ -234,7 +232,6 @@ fn test_generated_code_example() {
     assert!(exception.content.contains("public int Code { get; }"));
     assert!(exception.content.contains("namespace SampleCrate"));
 
-    // Wrapper class should have extraction methods
     let wrapper = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("SampleCrateConverter.cs"))
@@ -245,7 +242,6 @@ fn test_generated_code_example() {
     assert!(wrapper.content.contains("NativeMethods."));
     assert!(wrapper.content.contains("GetLastError()"));
 
-    // Type definition should use records
     let config_type = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("ExtractionConfig.cs"))
@@ -256,7 +252,6 @@ fn test_generated_code_example() {
     assert!(config_type.content.contains("ulong? Timeout"));
     assert!(config_type.content.contains("Configuration for text extraction"));
 
-    // Enum definition
     let enum_type = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("OcrBackend.cs"))
@@ -267,10 +262,6 @@ fn test_generated_code_example() {
     assert!(enum_type.content.contains("PaddleOcr,"));
     assert!(enum_type.content.contains("Available OCR backends"));
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// untagged_union_text_types — Text() accessor emission in C# untagged wrappers
-// ──────────────────────────────────────────────────────────────────────────────
 
 fn make_untagged_enum(name: &str) -> EnumDef {
     EnumDef {
@@ -435,22 +426,18 @@ fn csharp_untagged_wrapper_with_text_types_emits_text_method() {
 
     let src = &wrapper.content;
     assert!(src.contains("public string Text()"), "Text() must be emitted:\n{src}");
-    // Must handle JSON string
     assert!(
         src.contains("JsonValueKind.String"),
         "must handle JSON string variant:\n{src}"
     );
-    // Must handle JSON array
     assert!(
         src.contains("JsonValueKind.Array"),
         "must handle JSON array variant:\n{src}"
     );
-    // Must filter by type == "text"
     assert!(
         src.contains("GetString() == \"text\""),
         "must filter parts by type==\"text\":\n{src}"
     );
-    // Returns empty string as fallback
     assert!(
         src.contains("string.Empty"),
         "must return string.Empty as fallback:\n{src}"

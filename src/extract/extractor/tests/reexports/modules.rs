@@ -2,8 +2,6 @@ use super::*;
 
 #[test]
 fn test_extract_via_top_level_function_with_multiple_sources() {
-    // Test the public `extract()` entry point with two source files that would
-    // be visited. The second file should be skipped if already processed via mod.
     let tmp = std::env::temp_dir().join("alef_test_extract_multi");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src")).unwrap();
@@ -38,9 +36,6 @@ pub fn run(config: Config) -> bool {
 
 #[test]
 fn test_derive_module_path_via_extract_with_submodule_files() {
-    // Verify that extract() with multiple source files derives correct module paths.
-    // When cache/types.rs is given as an explicit source with src/ as root,
-    // the items should have rust_path `my_crate::cache::types::Item`.
     let tmp = std::env::temp_dir().join("alef_test_derive_module_path");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src/cache")).unwrap();
@@ -72,8 +67,6 @@ pub struct CacheEntry {
 
 #[test]
 fn test_apply_parent_reexport_shortening_via_extract() {
-    // When cache/types.rs defines CacheEntry and cache/mod.rs has `pub use types::CacheEntry;`,
-    // the extract() pass should shorten the rust_path to `my_crate::cache::CacheEntry`.
     let tmp = std::env::temp_dir().join("alef_test_parent_reexport");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src/cache")).unwrap();
@@ -115,8 +108,6 @@ pub struct CacheEntry {
 
 #[test]
 fn test_apply_parent_reexport_glob_shortening_via_extract() {
-    // When cache/mod.rs has `pub use types::*;`, all items from types.rs should
-    // be shortened to `my_crate::cache::ItemName`.
     let tmp = std::env::temp_dir().join("alef_test_parent_glob_reexport");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src/cache")).unwrap();
@@ -165,15 +156,8 @@ pub struct Store {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-// ---------------------------------------------------------------------------
-// reexports.rs coverage: collect_use_names rename, resolve_use_tree group/bare,
-// find_crate_source heuristic & dependencies table, extract_module file-based,
-// private module pruning with named re-exports
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_extract_module_external_file_based() {
-    // Test that an external `pub mod foo;` declaration is followed to foo.rs
     let tmp = std::env::temp_dir().join("alef_test_extract_mod_external");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src")).unwrap();
@@ -215,7 +199,6 @@ pub fn find_model(id: u32) -> ModelItem {
 
 #[test]
 fn test_extract_module_mod_rs_subdir() {
-    // `pub mod cache;` that resolves to `cache/mod.rs`
     let tmp = std::env::temp_dir().join("alef_test_extract_mod_subdir");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src/cache")).unwrap();
@@ -244,8 +227,6 @@ pub struct CacheClient {
 
 #[test]
 fn test_private_module_with_named_reexport_prunes_non_reexported() {
-    // A private module (`mod foo;`) with `pub use foo::Public` should expose
-    // only Public, not the private types.
     let source = r#"
         mod inner;
         pub use inner::Public;
@@ -257,14 +238,12 @@ fn test_private_module_with_named_reexport_prunes_non_reexported() {
     "#;
 
     let surface = extract_from_source(source);
-    // Only Public should survive, Hidden is pruned
     assert_eq!(surface.types.len(), 1, "Only re-exported items should survive");
     assert_eq!(surface.types[0].name, "Public");
 }
 
 #[test]
 fn test_private_module_glob_reexport_exposes_all() {
-    // `mod inner; pub use inner::*;` — all public items from inner should be exposed
     let source = r#"
         mod inner;
         pub use inner::*;
@@ -285,8 +264,6 @@ fn test_private_module_glob_reexport_exposes_all() {
 fn test_pub_use_clears_binding_excluded_on_skipped_source() {
     // `#[cfg(feature = "X")] pub use mod::fn` re-exports a concrete-signature
     // function from a sibling module. The source carries `#[cfg_attr(alef, alef(skip))]`
-    // because it is intended to be reached only through the crate-root re-export.
-    // The re-export must un-exclude the entry so it lands in the binding surface.
     let tmp = std::env::temp_dir().join("alef_test_pub_use_clears_skip");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src")).unwrap();
@@ -349,10 +326,6 @@ pub fn do_thing(input: String) -> Result<String, String> {
 #[test]
 fn test_pub_use_synthesises_paired_entry_for_generic_source() {
     // `#[cfg(feature = "X")] pub use mod::fn` re-exports a GENERIC function which
-    // extract_function drops (FFI cannot represent generics). A same-named
-    // concrete stub exists under the disjoint cfg `not(feature = "X")`. The
-    // re-export must synthesise a paired concrete entry under cfg "X" so the
-    // binding has a callable surface in every feature combination.
     let tmp = std::env::temp_dir().join("alef_test_pub_use_pairs_generic");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src")).unwrap();

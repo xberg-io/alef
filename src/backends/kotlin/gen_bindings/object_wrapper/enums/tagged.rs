@@ -25,9 +25,6 @@ pub(super) fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_
     out.push_str(">(");
     out.push_str(name);
     out.push_str("::class.java) {\n");
-    // Suppress detekt LongMethod: the number of branches scales with the number of
-    // variants; for enums with many variants the function body will exceed detekt's
-    // 60-line default threshold.  The generated code is correct and intentionally long.
     out.push_str("    @Suppress(\"LongMethod\")\n");
     out.push_str("    override fun serialize(\n");
     out.push_str("        value: ");
@@ -36,8 +33,6 @@ pub(super) fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_
     out.push_str("        gen: com.fasterxml.jackson.core.JsonGenerator,\n");
     out.push_str("        provider: com.fasterxml.jackson.databind.SerializerProvider,\n");
     out.push_str("    ) {\n");
-    // Use the codec as ObjectMapper so we can call valueToTree; fall back to a
-    // fresh ObjectMapper if the codec is not one (shouldn't happen in practice).
     out.push_str("        @Suppress(\"UNCHECKED_CAST\")\n");
     out.push_str("        val mapper = (gen.codec as? com.fasterxml.jackson.databind.ObjectMapper) ?: com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()\n");
     out.push_str("        val node: com.fasterxml.jackson.databind.node.ObjectNode = when (value) {\n");
@@ -55,7 +50,6 @@ pub(super) fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_
         out.push_str(" -> {\n");
 
         if variant.fields.is_empty() {
-            // Unit variant: emit just the tag.
             out.push_str("                val n = mapper.createObjectNode()\n");
             out.push_str("                n.put(\"");
             out.push_str(tag_field);
@@ -64,8 +58,6 @@ pub(super) fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_
             out.push_str("\")\n");
             out.push_str("                n\n");
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            // Newtype/tuple variant: serialize the inner value as a tree then
-            // inject the tag field so the output matches the tagged serde format.
             let field = &variant.fields[0];
             let field_name = kotlin_field_name_with_type(
                 &field.name,
@@ -92,12 +84,6 @@ pub(super) fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_
             out.push_str("\")\n");
             out.push_str("                n\n");
         } else {
-            // Named-field struct variant: the data class carries the payload
-            // fields directly.  Cast `value` to the concrete variant type before
-            // calling valueToTree so Jackson resolves the serializer against the
-            // variant class (which has @JsonSerialize reset to the default POJO
-            // serializer), not against the parent sealed class (which would
-            // re-trigger InputDocumentSerializer and cause infinite recursion).
             out.push_str("                @Suppress(\"UNCHECKED_CAST\")\n");
             out.push_str(
                 "                val n = mapper.valueToTree<com.fasterxml.jackson.databind.node.ObjectNode>(value as ",
@@ -136,9 +122,6 @@ pub(super) fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, ta
     out.push_str(">(");
     out.push_str(name);
     out.push_str("::class.java) {\n");
-    // Suppress detekt LongMethod: the number of when-branches scales with the number
-    // of variants; for enums with many variants the function body will exceed detekt's
-    // 60-line default threshold.  The generated code is correct and intentionally long.
     out.push_str("    @Suppress(\"LongMethod\")\n");
     out.push_str("    override fun deserialize(\n");
     out.push_str("        parser: com.fasterxml.jackson.core.JsonParser,\n");
@@ -147,14 +130,6 @@ pub(super) fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, ta
     out.push_str(name);
     out.push_str(" {\n");
     out.push_str("        val node = parser.codec.readTree<com.fasterxml.jackson.databind.node.ObjectNode>(parser)\n");
-    // Bug D fix: strip the tag field from the payload before passing it to
-    // readTreeAsValue.  Inner types (e.g. SystemMessage, ContentPart.Text) do
-    // not declare a `role`/`type` field, so Jackson rejects the extra key with
-    // UnrecognizedPropertyException unless it is removed first.
-    // Note: `deepCopy()` on `ObjectNode` is not generic in Kotlin's view of
-    // the Jackson API (the Java signature `<T extends JsonNode> T deepCopy()`
-    // is not callable with explicit type arguments in Kotlin 2.x), so we cast
-    // the result explicitly rather than using `deepCopy<ObjectNode>()`.
     out.push_str("        val tag = node.get(\"");
     out.push_str(tag_field);
     out.push_str("\")?.asText()\n");
@@ -182,9 +157,6 @@ pub(super) fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, ta
             out.push_str(&variant.name);
             out.push('\n');
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            // Newtype/tuple variant: the `_0` IR field holds an inner named type
-            // (e.g. `SystemMessage`).  Deserialize the tag-stripped payload as
-            // that inner type and wrap it in the variant constructor.
             let inner_class = super::kotlin_class_name_for_type(&variant.fields[0].ty);
             out.push_str(name);
             out.push('.');
@@ -195,11 +167,6 @@ pub(super) fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, ta
             out.push_str(&inner_class);
             out.push_str("::class.java))\n");
         } else {
-            // Named-field struct variant: the variant data class fields are the
-            // same as the JSON object fields (minus the tag).  `readTreeAsValue`
-            // constructs the correct variant subtype directly from the stripped
-            // payload — no constructor wrap needed.  Explicit Kotlin type
-            // parameter avoids `Any!` inference on the Java generic return type.
             out.push_str("ctx.readTreeAsValue<");
             out.push_str(name);
             out.push('.');

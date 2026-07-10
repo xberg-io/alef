@@ -91,9 +91,6 @@ fn gen_visitor_method_napi(
         format!("napi::bindgen_prelude::FnArgs<{inner_tuple_ty}>")
     };
 
-    // Visitor methods pass their context struct through the dedicated `context_type` branch in
-    // `build_napi_args`; no extra struct params get native-object marshalling here, so the
-    // allowlist is empty.
     let js_args_exprs = build_napi_args(method, bridge_cfg, &std::collections::HashSet::new(), "Js");
     let arg_exprs: Vec<String> = js_args_exprs
         .iter()
@@ -157,12 +154,6 @@ pub(super) fn build_napi_args(
                     .trim_end()
                     .to_string();
                 }
-                // Known serde struct (per the shared `native_marshalled_struct_params` allowlist):
-                // hand the host the binding's NATIVE JS object, built from the core value through
-                // the same `From<core::T>` conversion used for return values (`Js{Name}::from(..)`),
-                // then converted to a `napi` value via `ToNapiValue`. No `{:?}` debug string. The
-                // trait-impl signature passes the param by reference, so clone the pointee before
-                // converting.
                 if struct_param_types.contains(n.as_str()) {
                     let owned = if p.is_ref {
                         format!("(*{}).clone()", p.name)
@@ -178,7 +169,6 @@ pub(super) fn build_napi_args(
                     );
                 }
             }
-            // Option<&str>
             if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
                 return format!(
                     "match {name} {{ \
@@ -195,7 +185,6 @@ pub(super) fn build_napi_args(
                     name = p.name
                 );
             }
-            // &str
             if matches!(&p.ty, TypeRef::String) && p.is_ref {
                 return format!(
                     "match self.env().create_string({name}) {{ \
@@ -207,7 +196,6 @@ pub(super) fn build_napi_args(
                     name = p.name
                 );
             }
-            // String (owned)
             if matches!(&p.ty, TypeRef::String) {
                 return format!(
                     "match self.env().create_string({name}.as_str()) {{ \
@@ -219,7 +207,6 @@ pub(super) fn build_napi_args(
                     name = p.name
                 );
             }
-            // Bool
             if matches!(&p.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
                 return format!(
                     "unsafe {{ \
@@ -228,7 +215,6 @@ pub(super) fn build_napi_args(
                     name = p.name
                 );
             }
-            // u32 / usize: create_uint32 needs a u32; usize requires the cast but u32 does not.
             if matches!(&p.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::U32)) {
                 return format!(
                     "match self.env().create_uint32({name}) {{ Ok(n) => n.to_unknown(), Err(_) => unsafe {{ \
@@ -247,8 +233,6 @@ pub(super) fn build_napi_args(
                     name = p.name
                 );
             }
-            // Vec<String> or &[String] - serialize to JSON string as fallback
-            // Default: serialize as debug string
             format!(
                 "match self.env().create_string(&format!(\"{{:?}}\", {name})) {{ Ok(s) => s.to_unknown(), Err(_) => unsafe {{ \
                  let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \

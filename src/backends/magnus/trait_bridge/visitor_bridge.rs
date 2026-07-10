@@ -140,7 +140,6 @@ fn build_magnus_arg(p: &crate::core::ir::ParamDef, bridge_cfg: &TraitBridgeConfi
             p.name
         );
     }
-    // Vec/slice types: convert to Ruby array
     if matches!(&p.ty, TypeRef::Vec(_)) {
         let ruby = "unsafe { magnus::Ruby::get_unchecked() }";
         return format!(
@@ -148,6 +147,5 @@ fn build_magnus_arg(p: &crate::core::ir::ParamDef, bridge_cfg: &TraitBridgeConfi
             name = p.name,
         );
     }
-    // For primitive types, pass directly — Magnus funcall handles i32, i64, u32, bool natively.
     p.name.to_string()
 }

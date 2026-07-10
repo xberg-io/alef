@@ -30,10 +30,7 @@ fn needs_json_deserialize(ty: &TypeRef) -> bool {
         TypeRef::Named(_) => true,
         TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(_)),
         TypeRef::Map(_, _) => true,
-        TypeRef::Vec(inner) => {
-            // Vec<u8> → ByteArray (pass-through); other Vec → JSON String → needs deserialize.
-            !matches!(inner.as_ref(), TypeRef::Primitive(crate::core::ir::PrimitiveType::U8))
-        }
+        TypeRef::Vec(inner) => !matches!(inner.as_ref(), TypeRef::Primitive(crate::core::ir::PrimitiveType::U8)),
         _ => false,
     }
 }
@@ -44,13 +41,11 @@ fn needs_json_deserialize(ty: &TypeRef) -> bool {
 /// Opaque types that are known handles do NOT need JSON deserialization — they return Long.
 /// Data types (structs, enums, maps, etc.) return JSON String and need deserialization.
 fn needs_json_deserialize_for_method(ty: &TypeRef, opaque_type_names: &std::collections::HashSet<&str>) -> bool {
-    // If it's an opaque type name, it's a handle that returns Long (not JSON)
     if let TypeRef::Named(n) = ty {
         if opaque_type_names.contains(n.as_str()) {
             return false;
         }
     }
-    // For Optional<OpaqueType>, also exclude it
     if let TypeRef::Optional(inner) = ty {
         if let TypeRef::Named(n) = inner.as_ref() {
             if opaque_type_names.contains(n.as_str()) {
@@ -58,7 +53,6 @@ fn needs_json_deserialize_for_method(ty: &TypeRef, opaque_type_names: &std::coll
             }
         }
     }
-    // Otherwise use the standard logic (data types need deserialization)
     needs_json_deserialize(ty)
 }
 /// Map an IR `TypeRef` to a JNI-compatible Kotlin type string for `external fun` return types
@@ -90,12 +84,9 @@ fn jni_return_type(ty: &TypeRef) -> &'static str {
         }
         TypeRef::String => "String",
         TypeRef::Bytes => "ByteArray",
-        // Optional return → nullable String (JSON-encoded or null)
         TypeRef::Optional(inner) if is_binary_return_type(inner) => "ByteArray?",
         TypeRef::Optional(_) => "String?",
-        // Named types (structs, enums, errors) → JSON-encoded String
         TypeRef::Named(_) => "String",
-        // Vec<u8> (binary data) → ByteArray; other collections → JSON-encoded String
         TypeRef::Vec(inner) => {
             if matches!(inner.as_ref(), TypeRef::Primitive(crate::core::ir::PrimitiveType::U8)) {
                 "ByteArray"
@@ -104,7 +95,6 @@ fn jni_return_type(ty: &TypeRef) -> &'static str {
             }
         }
         TypeRef::Map(_, _) => "String",
-        // Opaque handle → Long
         _ => "Long",
     }
 }
@@ -124,19 +114,12 @@ fn jni_return_type_for_function(ty: &TypeRef, opaque_type_names: &std::collectio
 /// return types, where opaque named types become `Long` (raw handle) instead of `String`.
 #[allow(dead_code)]
 fn jni_return_type_for_method(ty: &TypeRef, opaque_type_names: &std::collections::HashSet<&str>) -> &'static str {
-    // Unwrap Optional to check the inner type
     let base = match ty {
         TypeRef::Optional(inner) => inner.as_ref(),
         other => other,
     };
     if let TypeRef::Named(n) = base {
         if opaque_type_names.contains(n.as_str()) {
-            // Opaque handle return: the JNI shim returns a primitive `jlong` (0 = None), so the
-            // external fun MUST be a non-null primitive `Long` — both for required and optional
-            // returns. Optionality is encoded via the `0L` sentinel and unwrapped in the client
-            // wrapper (`if (h == 0L) null else Wrapper(h)`). Declaring `Long?` here produces a
-            // boxed `java.lang.Long` JNI signature that mismatches the primitive `jlong` the Rust
-            // shim returns → object-vs-primitive UB → JVM access violation (tslp issue #146).
             return "Long";
         }
     }
@@ -167,7 +150,6 @@ fn jni_params_for_function(
 ///
 /// Opaque named types → `Long`; everything else falls through to `jni_param_type`.
 fn jni_param_type_for_function(ty: &TypeRef, opaque_type_names: &std::collections::HashSet<&str>) -> &'static str {
-    // Unwrap Optional to check the inner type.
     let base = match ty {
         TypeRef::Optional(inner) => inner.as_ref(),
         other => other,
@@ -182,9 +164,6 @@ fn jni_param_type_for_function(ty: &TypeRef, opaque_type_names: &std::collection
 
 fn jni_param_type(ty: &TypeRef) -> &'static str {
     if is_binary_param_type(ty) {
-        // Binary data (Vec<u8> / Bytes) is base64-encoded to String by the Kotlin
-        // wrapper before calling the JNI bridge, which then decodes it back to bytes.
-        // This matches the JNI implementation which receives a JString (not jbyteArray).
         return "String";
     }
     match ty {
@@ -206,7 +185,6 @@ fn jni_param_type(ty: &TypeRef) -> &'static str {
             }
         }
         TypeRef::String => "String",
-        // All complex types (named, optional, vec, map) are passed as JSON String.
         _ => "String",
     }
 }

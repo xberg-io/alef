@@ -22,7 +22,6 @@ pub(super) fn gen_registration_variant_nif(
     let bridge_wrapper = format!("Elixir{contract_name}Bridge");
     let owner_path = &service.rust_path;
 
-    // Build NIF signature
     let mut params = vec!["registrations: rustler::Term<'_>".to_owned()];
     for param in &variant.signature_params {
         let rust_ty = typeref_to_rust_type(&param.ty, core_import);
@@ -79,8 +78,6 @@ pub(super) fn gen_registration_variant_nif(
             .metadata_params
             .iter()
             .map(|p| {
-                // Opaque types use super:: to name the local lib-module wrapper that implements
-                // rustler::Resource. The wildcard import in service.rs would shadow a bare name.
                 if let TypeRef::Named(n) = &p.ty {
                     if api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque) {
                         return format!("rustler::ResourceArc<super::{}>", n);
@@ -101,8 +98,6 @@ pub(super) fn gen_registration_variant_nif(
             };
             if is_opaque {
                 if let TypeRef::Named(n) = &meta_param.ty {
-                    // ResourceArc<super::T> derefs to the local wrapper super::T; wrapper.inner
-                    // is Arc<CoreType>. Use as_ref() then clone() to obtain an owned CoreType.
                     opaque_bindings.push_str(&render(
                         "service_api_opaque_metadata_binding.rs.jinja",
                         context! {

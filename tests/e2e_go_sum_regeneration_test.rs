@@ -84,13 +84,11 @@ fn test_go_e2e_generation_includes_go_mod() {
         .generate(&groups, &e2e_config, &crate_config, &[], &[])
         .expect("generation succeeds");
 
-    // Verify that go.mod is generated.
     let go_mod_file = files
         .iter()
         .find(|f| f.path.ends_with("go.mod"))
         .expect("go.mod must be generated");
 
-    // Verify that the go.mod requires the e2e module correctly.
     assert!(
         go_mod_file.content.contains("module github.com/test/testlib/e2e"),
         "go.mod must define the e2e submodule"
@@ -112,8 +110,6 @@ fn test_go_e2e_generation_includes_go_mod() {
 #[test]
 fn test_go_e2e_generation_with_local_replace_directive() {
     let (mut e2e_config, crate_config) = build_config();
-    // In local mode, the generated go.mod should include a replace directive
-    // pointing to the local package directory.
     e2e_config.dep_mode = alef::e2e::config::DependencyMode::Local;
 
     let groups = vec![make_simple_fixture()];
@@ -128,7 +124,6 @@ fn test_go_e2e_generation_with_local_replace_directive() {
         .find(|f| f.path.ends_with("go.mod"))
         .expect("go.mod must be generated");
 
-    // In local mode with the default config, a replace directive should be present.
     assert!(
         go_mod_file.content.contains("replace github.com/test/testlib"),
         "go.mod must have a replace directive for local testing"

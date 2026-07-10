@@ -30,13 +30,8 @@ fn format_regenerated_files(config: &ResolvedCrateConfig, files: &[GeneratedFile
     if files.is_empty() || config.languages.is_empty() {
         return;
     }
-    // Group the full file list under every configured language. `format_generated`
-    // dedups by language and skips languages whose formatter is unavailable, so
-    // this is the minimal faithful mirror of the generate-path format pass.
     let grouped: Vec<(Language, Vec<GeneratedFile>)> =
         config.languages.iter().map(|lang| (*lang, files.to_vec())).collect();
-    // `only_languages = None`: format every configured language, exactly as the
-    // canonical scaffold/all path does (it never narrows the scaffold format pass).
     format_generated(&grouped, config, base_dir, None);
 }
 
@@ -62,11 +57,6 @@ pub(super) fn regenerate_test_apps_after_sync(
     use crate::core::config::NewAlefConfig;
     use crate::core::config::e2e::DependencyMode;
 
-    // Reload alef.toml from disk so the in-memory config reflects the
-    // registry package version that `sync_registry_package_versions` just wrote.
-    // The stale in-memory `config.e2e` would produce pyproject.toml / mix.exs /
-    // build.zig.zon with the old version pins — exactly the rc.13 bug this
-    // function is designed to prevent.
     let raw = std::fs::read_to_string(config_path)
         .with_context(|| format!("failed to read {} for test_apps regen", config_path.display()))?;
     let new_alef_cfg: NewAlefConfig = toml::from_str(&raw)
@@ -75,8 +65,6 @@ pub(super) fn regenerate_test_apps_after_sync(
         .resolve()
         .with_context(|| format!("failed to resolve {} for test_apps regen", config_path.display()))?;
 
-    // Find the matching crate by name. Fall back to the first crate with an
-    // [e2e] block when the name doesn't match (e.g. single-crate repos).
     let fresh_config = resolved_crates
         .iter()
         .position(|c| c.name == config.name && c.e2e.is_some())
@@ -89,17 +77,12 @@ pub(super) fn regenerate_test_apps_after_sync(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("reloaded crate has no [e2e] block"))?;
 
-    // Build a registry-mode clone so `generate_e2e` uses published-package
-    // coordinates rather than local path dependencies.
     let mut registry_config = e2e_config.clone();
     registry_config.dep_mode = DependencyMode::Registry;
     let e2e_ref = &registry_config;
 
-    // Extract IR (empty for repos with no sources configured — the scaffold
-    // files like pyproject.toml do not require IR content).
     let api = extract(&fresh_config, config_path, false)?;
 
-    // Generate test_apps/ scaffold files for all configured e2e languages.
     let generated = crate::e2e::generate_e2e(&fresh_config, e2e_ref, None, &api.types, &api.enums)?;
     if generated.is_empty() {
         return Ok(0);
@@ -112,11 +95,6 @@ pub(super) fn regenerate_test_apps_after_sync(
     }
     let count = super::generate::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
-    // Run the post-generation formatters BEFORE finalizing hashes, exactly as the
-    // `alef all` generate path does. Without this the regenerated e2e manifests
-    // would be left in raw-serializer form (different bytes than the committed,
-    // formatted files), breaking the downstream `alef verify` → `sync-versions`
-    // → `git diff --exit-code` freshness gate.
     format_regenerated_files(&fresh_config, &files, &base_dir);
 
     let sources_hash = super::super::cache::sources_hash(&fresh_config.source_hash_paths())?;
@@ -150,10 +128,6 @@ pub(super) fn regenerate_scaffold_after_sync(
 ) -> anyhow::Result<usize> {
     use crate::core::config::NewAlefConfig;
 
-    // Reload alef.toml so the in-memory config reflects the bumped version that
-    // `sync_versions` just wrote to Cargo.toml (version_from). The stale
-    // in-memory `api.version` would produce scaffold files with the old version
-    // string — identical to the rc.13 bug for test_apps but on the scaffold side.
     let raw = std::fs::read_to_string(config_path)
         .with_context(|| format!("failed to read {} for scaffold regen", config_path.display()))?;
     let new_alef_cfg: NewAlefConfig = toml::from_str(&raw)
@@ -162,7 +136,6 @@ pub(super) fn regenerate_scaffold_after_sync(
         .resolve()
         .with_context(|| format!("failed to resolve {} for scaffold regen", config_path.display()))?;
 
-    // Match by name; fall back to first crate (single-crate repos).
     let fresh_config = resolved_crates
         .iter()
         .position(|c| c.name == config.name)
@@ -176,9 +149,6 @@ pub(super) fn regenerate_scaffold_after_sync(
         })
         .ok_or_else(|| anyhow::anyhow!("no crate found in reloaded config for scaffold regen"))?;
 
-    // Extract IR — scaffold generators use api.version (from Cargo.toml) and
-    // api.types/enums. Sources may be empty for pure-scaffold repos; extract
-    // tolerates that.
     let api = extract(&fresh_config, config_path, false)?;
     let languages = fresh_config.languages.clone();
 
@@ -192,18 +162,8 @@ pub(super) fn regenerate_scaffold_after_sync(
     if scaffold_files.is_empty() {
         return Ok(0);
     }
-    // Always overwrite: scaffold seed files (gemspec, pubspec.yaml, Cargo.toml)
-    // must reflect the bumped version even when they already exist on disk.
     let count = super::generate::write_scaffold_files_with_overwrite(&scaffold_files, &base_dir, true)?;
 
-    // Run the post-generation formatters BEFORE finalizing hashes, exactly as the
-    // `alef all` generate path does. The scaffold serializer emits manifests in a
-    // raw shape (2-space JSON + scaffold key order for package.json/composer.json,
-    // a trailing comma on the single-element Swift dependency array in
-    // Package.swift); the formatter (oxfmt, php-cs-fixer, swift-format, …) is what
-    // produces the committed, canonical bytes. Skipping it here is what made
-    // `sync-versions` rewrite already-committed files into a divergent form and
-    // fail the downstream freshness gate.
     format_regenerated_files(&fresh_config, &scaffold_files, &base_dir);
 
     let sources_hash = super::super::cache::sources_hash(&fresh_config.source_hash_paths())?;

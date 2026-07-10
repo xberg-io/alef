@@ -153,8 +153,6 @@ fn render_with_config(config_toml: &str, fixture: Fixture, type_defs: Vec<TypeDe
         .clone()
 }
 
-// -- Bug A: function name `init` becomes `init_` (swift_ident escape) --------
-
 #[test]
 fn function_named_init_is_escaped_to_init_underscore() {
     let toml = r#"
@@ -206,8 +204,6 @@ type = "json_object"
     );
 }
 
-// -- Bug B: Vec<String> result emits direct .contains, no .asStr() ----------
-
 #[test]
 fn vec_string_result_uses_native_contains_without_as_str_coercion() {
     let toml = r#"
@@ -257,8 +253,6 @@ args = []
     );
 }
 
-// -- Bug C: result_is_simple + result_is_option coalesces before trimming ---
-
 #[test]
 fn simple_optional_result_coalesces_before_string_assertions() {
     let toml = r#"
@@ -305,15 +299,12 @@ type = "string"
         "Optional<String> bare result must be coalesced with `?? \"\"` \
          before string operations. Rendered:\n{rendered}"
     );
-    // Negative guard: the unwrapped form previously emitted is rejected by Swift.
     assert!(
         !rendered.contains("        XCTAssertEqual(result.trimmingCharacters"),
         "must not call `.trimmingCharacters` on the optional directly. \
          Rendered:\n{rendered}"
     );
 }
-
-// -- Bug D: opaque element accessor override (`structure → kind`) ----------
 
 #[test]
 fn contains_over_opaque_vec_uses_configured_element_accessor() {
@@ -373,8 +364,6 @@ type = "string"
     );
 }
 
-// -- Bug E: count_min on opaque scalar field wraps with .toString() --------
-
 #[test]
 fn count_min_on_opaque_method_call_wraps_with_tostring() {
     let toml = r#"
@@ -412,9 +401,6 @@ type = "string"
             return_type: None,
         },
     );
-    // The test result type is `TextResult` with a String field `text`.
-    // String is not a PrimitiveType, so we use Named("String").
-    // When emitted to Swift via opaque method call, it becomes RustString.
     let result_ir = vec![make_type(
         "TextResult",
         vec![make_field("text", TypeRef::Named("String".to_string()))],
@@ -431,8 +417,6 @@ type = "string"
         "must not call `.count` directly on RustString. Rendered:\n{rendered}"
     );
 }
-
-// -- Bug F: count_min on an OPTIONAL scalar field must not emit `.toString()?.count` ---
 
 /// Regression for the ci-e2e swift failure (`ContractTests.swift:129`): a scalar-string
 /// leaf reached with `has_optional = true` rendered `...elements().toString()?.count`,

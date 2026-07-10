@@ -1,7 +1,6 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
-// Tests for alef#44 fixes
 // ---------------------------------------------------------------------------
 
 /// Item 1 — `#[serde(skip)]` must be emitted for sanitized fields.
@@ -85,7 +84,6 @@ fn test_sanitized_field_gets_serde_skip() {
 fn test_sanitized_enum_like_field_gets_serde_skip() {
     let backend = Pyo3Backend;
 
-    // Simulate OutputFormat sanitized to String (extractor could not resolve the enum type)
     let mut format_field = make_field("result_format", TypeRef::String, false);
     format_field.sanitized = true;
 
@@ -268,7 +266,6 @@ fn test_api_py_uses_keyword_arguments() {
         .expect("generate_public_api failed");
     let api_py = files.iter().find(|f| f.path.ends_with("api.py")).unwrap();
 
-    // The call to _rust.extract_file must use keyword arguments.
     assert!(
         api_py.content.contains("path=path"),
         "api.py must forward path by keyword;\ncontent:\n{}",
@@ -279,7 +276,6 @@ fn test_api_py_uses_keyword_arguments() {
         "api.py must forward mime_type by keyword;\ncontent:\n{}",
         api_py.content
     );
-    // Must NOT use raw positional call like `_rust.extract_file(path, mime_type, config)`
     assert!(
         !api_py.content.contains("_rust.extract_file(path, "),
         "api.py must not use positional arguments for extract_file;\ncontent:\n{}",
@@ -385,7 +381,6 @@ fn test_async_function_emits_async_def_and_await() {
         "api.py async function must await the native call;\ncontent:\n{}",
         api_py.content
     );
-    // Must NOT be a plain sync def
     assert!(
         !api_py.content.contains("\ndef extract_bytes"),
         "api.py async function must NOT use plain 'def';\ncontent:\n{}",
@@ -477,7 +472,6 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     });
-    // Configure two trait bridges with register_fn
     config.trait_bridges = vec![
         TraitBridgeConfig {
             trait_name: "TextBackend".to_string(),
@@ -527,7 +521,6 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
     let api_py = files.iter().find(|f| f.path.ends_with("api.py")).unwrap();
     let init_py = files.iter().find(|f| f.path.ends_with("__init__.py")).unwrap();
 
-    // api.py must contain pass-through wrappers for both register_* functions
     assert!(
         api_py.content.contains("def register_text_backend"),
         "api.py must contain register_text_backend wrapper;\ncontent:\n{}",
@@ -539,7 +532,6 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         api_py.content
     );
 
-    // __init__.py must re-export them from .api
     assert!(
         init_py.content.contains("register_text_backend"),
         "__init__.py must import register_text_backend from .api;\ncontent:\n{}",
@@ -551,7 +543,6 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         init_py.content
     );
 
-    // Both must appear in __all__
     assert!(
         init_py.content.contains("\"register_text_backend\""),
         "__init__.py __all__ must include register_text_backend;\ncontent:\n{}",
@@ -638,9 +629,6 @@ fn test_options_py_imports_data_enums_as_native_classes() {
     let files = backend.generate_public_api(&api, &config).expect("generate public API");
     let options_py = files.iter().find(|f| f.path.ends_with("options.py")).unwrap();
 
-    // Data enums are imported from the native module as their class (the same class users
-    // construct), referenced by name in field annotations — not redefined as a flattened union
-    // alias that would shadow the public class and reject the documented usage in a type checker.
     assert!(
         options_py
             .content
@@ -653,8 +641,6 @@ fn test_options_py_imports_data_enums_as_native_classes() {
         "the flattened data-enum union alias must no longer be emitted;\ncontent:\n{}",
         options_py.content
     );
-    // `StructureKind` here has only a payload-carrying variant (no unit/tag-only variant), so the
-    // field is typed as the class alone — no `| str` widening.
     assert!(
         options_py.content.contains("kind: StructureKind | None"),
         "config field must be typed as the data-enum class;\ncontent:\n{}",

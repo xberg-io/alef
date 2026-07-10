@@ -62,9 +62,6 @@ impl Backend for GleamBackend {
         let mut imports: BTreeSet<&'static str> = BTreeSet::new();
         let mut body = String::new();
 
-        // Emit regular (data/DTO) types here. Types that will be emitted as
-        // opaque NIF resource handles below (non-trait types with methods) are
-        // skipped to avoid duplicate type definitions.
         for ty in api
             .types
             .iter()
@@ -96,7 +93,6 @@ impl Backend for GleamBackend {
             body.push('\n');
         }
 
-        // Emit from_json NIF externals for every non-opaque serde-capable struct type.
         for ty in api.types.iter().filter(|t| {
             !t.is_trait
                 && !t.is_opaque
@@ -108,8 +104,6 @@ impl Backend for GleamBackend {
             body.push('\n');
         }
 
-        // Emit opaque resource types and their instance methods (e.g. DefaultClient).
-        // Only non-trait types with at least one method that are not excluded get emitted.
         for ty in api
             .types
             .iter()
@@ -123,16 +117,12 @@ impl Backend for GleamBackend {
             }
         }
 
-        // Emit trait bridge shims for each configured bridge not excluded from Gleam.
         let active_bridges: Vec<&TraitBridgeConfig> = config
             .trait_bridges
             .iter()
             .filter(|b| !b.exclude_languages.iter().any(|l| l == "gleam"))
             .collect();
 
-        // Set of struct/enum type names that have a corresponding generated Gleam type.
-        // Trait method signatures referring to any other Named type (e.g. excluded
-        // internal types like `InternalDocument`) are substituted with `String`.
         let visible_type_names: std::collections::HashSet<&str> = api
             .types
             .iter()

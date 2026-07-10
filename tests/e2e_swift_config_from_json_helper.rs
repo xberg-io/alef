@@ -116,13 +116,11 @@ options_via = "from_json"
     let files = render_swift(&toml, "smoke_with_config");
     let rendered = smoke_test_content(&files);
 
-    // Should use ProcessConfig → processConfigFromJson
     assert!(
         rendered.contains("processConfigFromJson("),
         "must emit processConfigFromJson when options_type = ProcessConfig. Rendered:\n{rendered}"
     );
 
-    // Should NOT use a hardcoded fixture name.
     assert!(
         !rendered.contains("extractionConfigFromJson("),
         "must NOT hardcode extractionConfigFromJson when options_type is set. Rendered:\n{rendered}"

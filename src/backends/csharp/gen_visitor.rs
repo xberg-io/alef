@@ -14,10 +14,6 @@
 ///   struct, calls `htm_visitor_create`, `htm_convert_with_visitor`, deserialises JSON.
 use crate::core::hash::{self, CommentStyle};
 
-// ---------------------------------------------------------------------------
-// Callback specification table
-// ---------------------------------------------------------------------------
-
 pub struct CallbackSpec {
     /// Field name in the generated visitor callback C struct.
     pub c_field: String,
@@ -41,10 +37,6 @@ pub struct ExtraParam {
     /// C# expression to decode the raw P/Invoke args (vars named `raw<CsName>N`).
     pub decode: String,
 }
-
-// ---------------------------------------------------------------------------
-// IR-driven callback spec builder
-// ---------------------------------------------------------------------------
 
 /// Convert snake_case to lowerCamelCase for C# parameter names.
 /// E.g. "tag_name" → "tagName", "inputType" → "inputType" (passthrough).
@@ -93,12 +85,10 @@ pub(crate) fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef, co
 
         for p in &m.params {
             if matches!(&p.ty, TypeRef::Named(name) if name == context_type) {
-                // Configured context parameter — skip, handled separately.
                 continue;
             }
             let raw_name = p.name.trim_start_matches('_').to_string();
             let cs_name = snake_to_lower_camel(&raw_name);
-            // Capitalise for the raw var names (e.g. "text" → "Text", "inputType" → "InputType")
             let cs_name_pascal: String = {
                 let mut chars = cs_name.chars();
                 match chars.next() {
@@ -205,10 +195,6 @@ pub(crate) fn callback_specs_from_trait(trait_def: &crate::core::ir::TypeDef, co
     specs
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
 /// Returns `(filename, content)` pairs for required configured visitor files.
 ///
 /// IVisitor.cs and VisitorCallbacks.cs are superseded by IVisitor and VisitorCallbacks
@@ -289,10 +275,6 @@ pub fn gen_native_methods_visitor(
     use crate::backends::csharp::template_env::render;
     use minijinja::Value;
 
-    // Canonical visitor FFI functions (Path 1: callbacks struct approach used by Go/Java):
-    // - htm_visitor_create(HtmVisitorCallbacks* callbacks) -> HtmVisitor*
-    // - htm_visitor_free(HtmVisitor* visitor)
-    // - htm_options_set_visitor(HtmConversionOptions* opts, HtmVisitor* visitor)
     let fn_options_set = format!("{prefix}_options_set_{options_field}");
     let bridge_name = crate::codegen::naming::csharp_type_name(trait_name) + "Bridge";
     let options_name = crate::codegen::naming::csharp_type_name(options_type);
@@ -325,10 +307,6 @@ pub fn gen_convert_with_visitor_method(exception_name: &str, prefix: &str) -> St
     let _ = prefix;
     String::new()
 }
-
-// ---------------------------------------------------------------------------
-// Individual file generators
-// ---------------------------------------------------------------------------
 
 fn gen_node_context(namespace: &str, context_def: &crate::core::ir::TypeDef) -> String {
     use crate::backends::csharp::template_env::render;
@@ -449,10 +427,6 @@ fn named_type_name(ty: &crate::core::ir::TypeRef) -> Option<&str> {
         _ => None,
     }
 }
-
-// gen_ivisitor and gen_visitor_callbacks were removed: IVisitor and VisitorCallbacks
-// are now emitted by TraitBridges.cs. Generating them here produced dead code that
-// conflicted with those implementations.
 
 #[cfg(test)]
 mod tests {

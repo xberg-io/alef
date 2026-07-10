@@ -83,16 +83,12 @@ mod tests {
         features.insert("pdf");
         features.insert("html");
 
-        // Matching feature should be satisfied
         assert!(cfg_satisfied(Some("feature = \"pdf\""), &features));
 
-        // Non-matching feature should not be satisfied
         assert!(!cfg_satisfied(Some("feature = \"heuristics\""), &features));
 
-        // None should be satisfied
         assert!(cfg_satisfied(None, &features));
 
-        // Full feature should satisfy everything
         let mut full_features = HashSet::new();
         full_features.insert("full");
         assert!(cfg_satisfied(Some("feature = \"heuristics\""), &full_features));
@@ -103,13 +99,11 @@ mod tests {
         let mut features = HashSet::new();
         features.insert("ocr");
 
-        // any() with matching feature
         assert!(cfg_satisfied(
             Some("any(feature = \"ocr\", feature = \"paddle-ocr\")"),
             &features
         ));
 
-        // any() with no matching features
         assert!(!cfg_satisfied(
             Some("any(feature = \"heuristics\", feature = \"embeddings\")"),
             &features

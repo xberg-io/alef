@@ -21,7 +21,6 @@ pub(super) fn gen_registration_method(
     }
     params.push_str(", handler");
 
-    // Build metadata tuple
     let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
     let meta_tuple = if meta_names.is_empty() {
         "{}".to_owned()
@@ -38,7 +37,6 @@ pub(super) fn gen_registration_method(
         },
     ));
 
-    // Emit a simple HandlerWrapper GenServer if this is the route registration
     if method_name == "route" {
         let conn_module = prefixed_module(module_prefix, "Conn");
         out.push_str(&render(
@@ -49,7 +47,6 @@ pub(super) fn gen_registration_method(
         ));
     }
 
-    // Emit registration variants (decorator-style shortcuts)
     for variant in &reg.variants {
         gen_registration_variant_method(out, variant, reg, module_prefix);
     }
@@ -76,8 +73,6 @@ fn gen_registration_variant_method(
         RegistrationVariantStyle::Builder => {
             emit_builder_variant(out, variant, base_reg, module_prefix);
         }
-        // Decorator, Attribute, Dsl and Hybrid all fall through to the hybrid form.
-        // Per-backend specialization for the new styles is a Phase C concern.
         RegistrationVariantStyle::Hybrid
         | RegistrationVariantStyle::Decorator
         | RegistrationVariantStyle::Attribute
@@ -105,7 +100,6 @@ fn rust_enum_expr_to_elixir(value_expr: &str, module_prefix: &str) -> String {
             format!("{module_prefix}.{type_name}.{variant}()")
         }
     } else {
-        // Fallback: use verbatim (already a literal)
         value_expr.to_owned()
     }
 }
@@ -164,7 +158,6 @@ fn emit_verb_decorator_variant(
         push_elixir_doc(out, doc, "doc");
     }
 
-    // Emit signature: app, then signature_params, then handler
     let mut params = "app".to_owned();
     for param in &variant.signature_params {
         push_elixir_param(&mut params, &param.name, param.optional);
@@ -186,11 +179,9 @@ fn emit_verb_decorator_variant(
                 ),
             )
         } else {
-            // Direct pattern: build call args by substituting overrides into the base params.
             let mut call_args: Vec<String> = Vec::new();
             for base_param in &base_reg.metadata_params {
                 if let Some(override_) = variant.overrides.iter().find(|o| o.param_name == base_param.name) {
-                    // Fixed override: convert Rust expression to Elixir
                     call_args.push(rust_enum_expr_to_elixir(&override_.value_expr, module_prefix));
                 } else if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
                     call_args.push(sig_param.name.clone());
@@ -234,7 +225,6 @@ fn emit_builder_variant(
         push_elixir_doc(out, doc, "doc");
     }
 
-    // Emit signature: app, then signature_params (no handler)
     let mut params = "app".to_owned();
     for param in &variant.signature_params {
         push_elixir_param(&mut params, &param.name, param.optional);
@@ -253,5 +243,5 @@ fn emit_builder_variant(
             call_args => call_args,
         },
     ));
-    let _ = module_prefix; // consumed via emit_verb_decorator_variant delegation
+    let _ = module_prefix;
 }

@@ -14,8 +14,6 @@ pub(super) enum EmitContext {
     OptionsModule,
     /// Emitting type annotations inside a `_native.pyi` stub.
     /// `Named(DataEnum)` resolves to the native PyO3 class with the same name.
-    // Kept as an explicit variant so future callers can diverge behaviour (e.g. qualify
-    // the name with a module prefix when cross-referencing between generated files).
     #[allow(dead_code)]
     NativeStub,
 }
@@ -39,11 +37,11 @@ pub(super) enum Wrapping {
 /// their closest ASCII equivalents. Must be applied to every doc string before
 /// it is emitted into a Python source file or stub.
 pub(crate) fn sanitize_python_doc(s: &str) -> String {
-    s.replace('\u{2013}', "-")   // EN DASH → HYPHEN-MINUS
-        .replace('\u{2014}', "--") // EM DASH → double hyphen
-        .replace('\u{00D7}', "x")  // MULTIPLICATION SIGN → x
-        .replace(['\u{2019}', '\u{2018}'], "'")  // LEFT SINGLE QUOTATION MARK → apostrophe
-        .replace(['\u{201C}', '\u{201D}'], "\"") // RIGHT DOUBLE QUOTATION MARK → straight quote
+    s.replace('\u{2013}', "-")
+        .replace('\u{2014}', "--")
+        .replace('\u{00D7}', "x")
+        .replace(['\u{2019}', '\u{2018}'], "'")
+        .replace(['\u{201C}', '\u{201D}'], "\"")
 }
 
 /// Convert a CamelCase class name to a human-readable docstring sentence.

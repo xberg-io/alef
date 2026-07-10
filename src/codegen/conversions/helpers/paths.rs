@@ -19,10 +19,6 @@ pub fn core_type_path(typ: &TypeDef, core_import: &str) -> String {
 /// leading crate segment of `rust_path` matches `original_crate`, it is replaced
 /// with `override_crate`.
 pub fn core_type_path_remapped(typ: &TypeDef, core_import: &str, remaps: &[(&str, &str)]) -> String {
-    // Always use rust_path (post path-mapping) — this is the import name that
-    // binding crates can actually resolve. The original_rust_path preserves the
-    // pre-mapping crate name (e.g. "sample_markdown") which may not be importable
-    // when the dependency is renamed (e.g. "sample-markdown-rs" in Cargo.toml).
     let path = typ.rust_path.replace('-', "_");
     if path.contains("::") {
         apply_crate_remaps(&path, remaps)
@@ -59,10 +55,8 @@ pub fn core_enum_path(enum_def: &EnumDef, core_import: &str) -> String {
 pub fn core_enum_path_remapped(enum_def: &EnumDef, core_import: &str, remaps: &[(&str, &str)]) -> String {
     let path = enum_def.rust_path.replace('-', "_");
     if path.starts_with(core_import) || path.contains("::") {
-        // Path is already fully-qualified — apply remaps and return.
         apply_crate_remaps(&path, remaps)
     } else {
-        // Bare unqualified name: prefix with the facade crate.
         format!("{core_import}::{}", enum_def.name)
     }
 }

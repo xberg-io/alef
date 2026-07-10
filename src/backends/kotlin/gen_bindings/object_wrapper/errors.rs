@@ -49,9 +49,6 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
     for variant in &error.variants {
         if variant.is_unit {
             let raw_msg = variant.message_template.as_deref().unwrap_or(&variant.name);
-            // Unit variants have no fields so {N} tokens would be invalid in
-            // practice, but run through the interpolator for consistency and
-            // to avoid emitting literal placeholder tokens if they appear.
             let message = interpolate_error_message_template(raw_msg);
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "error_object_variant.jinja",
@@ -65,8 +62,6 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
             let raw_msg = variant.message_template.as_deref().unwrap_or(&variant.name);
             let message = interpolate_error_message_template(raw_msg);
 
-            // Pre-build field strings for the ktfmt single-line heuristic.
-            // Each entry includes the optional `override` modifier for `message` fields.
             let mut err_field_strings: Vec<String> = Vec::with_capacity(variant.fields.len());
             for (idx, f) in variant.fields.iter().enumerate() {
                 let ty_str = kotlin_type_with_string_imports(&f.ty, f.optional, imports);
@@ -112,13 +107,6 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
             }
         }
     }
-    // Emit `open val` property declarations with sensible defaults for each
-    // whitelisted introspection method (status_code, is_transient, error_type).
-    // The JNI bridge throws a flat `<App>BridgeException` rather than
-    // constructing sealed-class variants, so requiring every variant to
-    // override these abstract properties would break compilation. Each variant
-    // can still opt into a concrete override when domain code constructs the
-    // error directly, while the defaults keep the sealed class self-contained.
     for method in error.methods.iter().filter(|m| !m.sanitized) {
         let prop_name = to_lower_camel(&method.name);
         let ty_str = kotlin_type_with_string_imports(&method.return_type, false, imports);

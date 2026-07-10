@@ -20,7 +20,6 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             clean: Some(StringOrVec::Single("cargo clean".to_string())),
         },
         Language::Python => CleanConfig {
-            // Pure shell `rm` — no toolchain dependency.
             precondition: None,
             before: None,
             clean: Some(StringOrVec::Single(format!(
@@ -28,7 +27,6 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             ))),
         },
         Language::Node | Language::Wasm => CleanConfig {
-            // Pure shell `rm`.
             precondition: None,
             before: None,
             clean: Some(StringOrVec::Single("rm -rf node_modules dist .turbo".to_string())),
@@ -39,7 +37,6 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             clean: Some(StringOrVec::Single(format!("cd {output_dir} && go clean -cache"))),
         },
         Language::Ruby => CleanConfig {
-            // Pure shell `rm`.
             precondition: None,
             before: None,
             clean: Some(StringOrVec::Single(format!(
@@ -47,7 +44,6 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             ))),
         },
         Language::Php => CleanConfig {
-            // Pure shell `rm`.
             precondition: None,
             before: None,
             clean: Some(StringOrVec::Single(format!("cd {output_dir} && rm -rf vendor var"))),
@@ -72,7 +68,6 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             ))),
         },
         Language::R => CleanConfig {
-            // Pure shell `rm`.
             precondition: None,
             before: None,
             clean: Some(StringOrVec::Single(format!(
@@ -90,7 +85,6 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             clean: Some(StringOrVec::Single("gradle clean".to_string())),
         },
         Language::Swift => CleanConfig {
-            // Pure swift toolchain command.
             precondition: Some(require_tool("swift")),
             before: None,
             clean: Some(StringOrVec::Single("swift package clean".to_string())),
@@ -101,13 +95,11 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             clean: Some(StringOrVec::Single("dart clean".to_string())),
         },
         Language::Zig => CleanConfig {
-            // Pure shell `rm` — zig-out and cache dirs.
             precondition: None,
             before: None,
             clean: Some(StringOrVec::Single("rm -rf zig-out zig-cache .zig-cache".to_string())),
         },
         Language::Gleam => CleanConfig {
-            // Gleam has no `gleam clean`; it uses a `build/` directory.
             precondition: None,
             before: None,
             clean: Some(StringOrVec::Single("rm -rf build".to_string())),
@@ -177,7 +169,6 @@ mod tests {
 
     #[test]
     fn toolchain_clean_has_precondition() {
-        // Languages whose clean uses a toolchain (cargo/go/mvn/dotnet/mix) get a precondition.
         for lang in [
             Language::Rust,
             Language::Go,
@@ -195,7 +186,6 @@ mod tests {
 
     #[test]
     fn pure_shell_clean_omits_precondition() {
-        // Languages whose clean is just `rm -rf` don't need a precondition.
         for lang in [
             Language::Python,
             Language::Node,

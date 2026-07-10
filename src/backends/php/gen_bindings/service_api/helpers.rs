@@ -39,9 +39,6 @@ pub(super) fn build_ctor_call(service: &ServiceDef, owner_path: &str, _core_impo
     if service.constructor.params.is_empty() {
         format!("{owner_path}::{}()", service.constructor.name)
     } else {
-        // For a first-pass implementation where constructor params are not
-        // yet threaded through, fall back to Default if available; otherwise
-        // use new() with zero-value placeholders.
         format!("{owner_path}::{}()", service.constructor.name)
     }
 }
@@ -51,8 +48,6 @@ pub(super) fn build_ep_call(ep: &EntrypointDef, _service: &ServiceDef, _core_imp
     let ep_method = &ep.method;
     let ep_args: Vec<String> = ep.params.iter().map(|p| p.name.clone()).collect();
     let args_str = ep_args.join(", ");
-    // Bind non-Unit returns to `_` so the unwrapped value (after `?`-propagation) doesn't
-    // trigger `unused_must_use` for `Result`-returning entrypoints like `into_router`.
     let bind = if matches!(ep.return_type, TypeRef::Unit) {
         ""
     } else {
@@ -60,8 +55,6 @@ pub(super) fn build_ep_call(ep: &EntrypointDef, _service: &ServiceDef, _core_imp
     };
 
     if ep.is_async {
-        // Use tokio::runtime::Handle::current().block_on for async entrypoints.
-        // This assumes a Tokio runtime is already active (as in the PHP bridge invocations).
         if args_str.is_empty() {
             format!(
                 "    {bind}tokio::runtime::Handle::current()\n        \

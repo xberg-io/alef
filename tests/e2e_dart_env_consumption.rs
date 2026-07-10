@@ -124,7 +124,6 @@ ALLOW_PRIVATE_NETWORK = "true"
 
     let generated = render_dart_smoke(&toml);
 
-    // Should have the _setEnv helper function
     assert!(
         generated.contains("void _setEnv(String key, String value)"),
         "Helper function missing"
@@ -135,13 +134,11 @@ ALLOW_PRIVATE_NETWORK = "true"
     );
     assert!(generated.contains("calloc.free(keyPtr)"), "calloc.free() missing");
 
-    // Should call _setEnv in setUpAll
     assert!(
         generated.contains("_setEnv('ALLOW_PRIVATE_NETWORK', 'true');"),
         "setUpAll env injection missing"
     );
 
-    // Should have proper imports
     assert!(generated.contains("import 'dart:ffi';"), "dart:ffi import missing");
     assert!(
         generated.contains("import 'package:ffi/ffi.dart';"),
@@ -164,7 +161,6 @@ MIDDLE = "m"
 
     let generated = render_dart_smoke(&toml);
 
-    // Extract lines between setUpAll and the first RustLib.init() call
     let setup_section = generated
         .split("setUpAll(() async {")
         .nth(1)
@@ -173,7 +169,6 @@ MIDDLE = "m"
         .next()
         .expect("RustLib.init found");
 
-    // Check ordering: APPLE before MIDDLE before ZEBRA
     let apple_pos = setup_section.find("APPLE").expect("APPLE env var found");
     let middle_pos = setup_section.find("MIDDLE").expect("MIDDLE env var found");
     let zebra_pos = setup_section.find("ZEBRA").expect("ZEBRA env var found");
@@ -186,14 +181,11 @@ MIDDLE = "m"
 fn empty_env_omits_setenv_helper_and_imports() {
     let generated = render_dart_smoke(BASE_TOML);
 
-    // Should NOT have the _setEnv helper
     assert!(
         !generated.contains("void _setEnv(String key, String value)"),
         "Helper function should be omitted for empty env"
     );
 
-    // Should NOT have dart:ffi imports at top level
-    // (Check that we don't unconditionally import them)
     let lines: Vec<&str> = generated.lines().collect();
     let ffi_import_count = lines
         .iter()
@@ -217,7 +209,6 @@ STRING_WITH_QUOTE = "value with \"quotes\""
 
     let generated = render_dart_smoke(&toml);
 
-    // Check that escaping is applied in the setUpAll call
     assert!(
         generated.contains("_setEnv('PATH_WITH_BACKSLASH', 'C:\\\\Users\\\\test');"),
         "Backslashes not escaped in setUpAll"
@@ -247,7 +238,6 @@ SOME_VAR = "value"
 
 #[test]
 fn pubspec_includes_ffi_even_without_env_vars() {
-    // ffi is now always included for consistency
     let pubspec = render_pubspec(BASE_TOML);
 
     assert!(pubspec.contains("ffi:"), "ffi dependency should be included");
@@ -266,7 +256,6 @@ ALLOW_PRIVATE_NETWORK = "true"
 
     let generated = render_dart_smoke(&toml);
 
-    // Find both the setUpAll block and extract relative order
     let setup_start = generated.find("setUpAll(() async {").expect("setUpAll found");
     let setup_section = &generated[setup_start..];
 

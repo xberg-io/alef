@@ -417,7 +417,6 @@ pub(super) fn render_method(
     let param_docs = extract_param_docs(&method.doc);
 
     let doc = clean_doc(&method.doc, lang);
-    // Demote embedded headings under the generated method heading (######).
     let doc = demote_headings(&doc, 4);
     if !doc.is_empty() {
         out.push_str(&doc);
@@ -438,7 +437,6 @@ pub(super) fn render_method(
         "code_block.jinja",
         minijinja::context! { lang_code => lang_code, body => sig },
     ));
-    // MD031: blank line required after fenced code block.
     out.push('\n');
 
     out.push_str(&render_method_example_with_override(

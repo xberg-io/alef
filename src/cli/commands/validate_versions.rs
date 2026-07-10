@@ -101,16 +101,6 @@ pub fn run(config: &ResolvedCrateConfig, workspace_root: &Path, output_json: boo
 fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical: &str) -> Vec<VersionCheck> {
     let mut checks = Vec::new();
 
-    // Python: pyproject.toml `version = "..."`. Both the canonical version and
-    // the version found in the manifest are PEP 440 normalised before comparison
-    // so the canonical pre-release form ("0.15.6-rc.2") and the normalised form
-    // sync-versions writes ("0.15.6rc2") compare equal regardless of which form
-    // the manifest happens to hold. `to_pep440` is idempotent on already-normalised
-    // input, so a final release ("1.2.3") round-trips unchanged.
-    //
-    // Check both the central package pyproject and the legacy/source-template
-    // pyproject when `[crates.output].python` points at a PyO3 source directory.
-    // Joining via `Path::join` avoids doubled slashes from trailing separators.
     let py_dir = config.package_dir(crate::core::config::extras::Language::Python);
     let py_path = join_manifest(&py_dir, "pyproject.toml");
     push_normalized_check(
@@ -135,7 +125,6 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         }
     }
 
-    // Node: package.json `"version": "..."`
     let node_dir = config.package_dir(crate::core::config::extras::Language::Node);
     push_check_if_exists(
         &mut checks,
@@ -145,9 +134,6 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         read_package_json_version,
     );
 
-    // Ruby: version.rb files. Layout varies — look at the well-known locations
-    // alef's sync-versions writes to (lib-based, ext-based, and ext-native-based).
-    // RubyGems requires the prerelease form (`X.Y.Z.pre.rc.N`).
     for pattern in [
         "packages/ruby/lib/*/version.rb",
         "packages/ruby/ext/*/src/*/version.rb",
@@ -163,9 +149,6 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         );
     }
 
-    // PHP: composer.json. Composer relies on git tags for version, so the file
-    // typically has no `version` field. Only validate if a value is actually
-    // declared in the manifest.
     let php_dir = config.package_dir(crate::core::config::extras::Language::Php);
     let php_path = format!("{php_dir}/composer.json");
     if workspace_root.join(&php_path).exists() && read_package_json_version(&workspace_root.join(&php_path)).is_some() {
@@ -188,8 +171,6 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         read_mix_exs_version,
     );
 
-    // Go: doc.go is optional (binding comment-based versioning is convention,
-    // not requirement). Only check if the file exists.
     let go_dir = config.package_dir(crate::core::config::extras::Language::Go);
     push_check_if_exists(
         &mut checks,
@@ -199,7 +180,6 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         read_go_doc_version,
     );
 
-    // Java: pom.xml `<version>...</version>`
     let java_dir = config.package_dir(crate::core::config::extras::Language::Java);
     push_check_if_exists(
         &mut checks,
@@ -209,7 +189,6 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         read_pom_xml_version,
     );
 
-    // C#: .csproj `<Version>...</Version>`
     let csharp_dir = config.package_dir(crate::core::config::extras::Language::Csharp);
     let csharp_ns = config.csharp_namespace();
     push_check_if_exists(
@@ -220,7 +199,6 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         read_csproj_version,
     );
 
-    // R: DESCRIPTION — compare against CRAN-compatible version.
     let r_dir = config.package_dir(crate::core::config::extras::Language::R);
     push_check_with_transform(
         &mut checks,
@@ -231,7 +209,6 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         to_r_version,
     );
 
-    // WASM: package.json (same reader as Node).
     let wasm_dir = config.package_dir(crate::core::config::extras::Language::Wasm);
     push_check_if_exists(
         &mut checks,
@@ -241,7 +218,6 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         read_package_json_version,
     );
 
-    // Root package.json (some repos publish a top-level npm package alongside the binding).
     push_check_if_exists(
         &mut checks,
         canonical,
@@ -250,7 +226,6 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
         read_package_json_version,
     );
 
-    // crates/{name}-wasm/package.json and crates/{name}-node/package.json.
     let crate_name = &config.name;
     for sub in ["wasm", "node"] {
         let path = format!("crates/{crate_name}-{sub}/package.json");
@@ -292,9 +267,6 @@ fn push_check_with_transform(
         return;
     }
     let found = reader(&full_path);
-    // Skip files that exist but don't declare a version field (e.g. private
-    // pnpm workspace roots): the alternative is reporting `found: null` and
-    // failing every release, which is wrong.
     let Some(ref found_value) = found else {
         return;
     };
@@ -387,8 +359,6 @@ fn push_glob_checks_with_transform(
     }
 }
 
-// ---- per-format version readers ----
-
 fn read_pyproject_version(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     for line in content.lines() {
@@ -428,7 +398,6 @@ fn read_mix_exs_version(path: &Path) -> Option<String> {
             let val = val.split('"').next()?;
             return Some(val.to_string());
         }
-        // Keyword form inside `def project do ...`: `version: "X.Y.Z",`.
         if let Some(rest) = trimmed.strip_prefix("version:") {
             let val = rest.split_once('"')?.1;
             let val = val.split('"').next()?;
@@ -440,11 +409,9 @@ fn read_mix_exs_version(path: &Path) -> Option<String> {
 
 fn read_go_doc_version(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
-    // Look for patterns like `// targets <Project> X.Y.Z` or `// version X.Y.Z`.
     for line in content.lines() {
         let lower = line.to_lowercase();
         if lower.contains("version") || lower.contains("targets") {
-            // Extract last version-like token (X.Y.Z possibly with -rc.N suffix).
             for token in line.split_whitespace().rev() {
                 if token.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) && token.contains('.') {
                     return Some(token.trim_end_matches('.').to_string());
@@ -457,7 +424,6 @@ fn read_go_doc_version(path: &Path) -> Option<String> {
 
 fn read_pom_xml_version(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
-    // Scan for `<version>...</version>` anywhere in the file (handles single-line and multi-line XML).
     let text = content.as_str();
     let start = text.find("<version>")?;
     let inner_start = start + "<version>".len();
@@ -467,7 +433,6 @@ fn read_pom_xml_version(path: &Path) -> Option<String> {
 
 fn read_csproj_version(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
-    // Scan for `<Version>...</Version>` anywhere in the file.
     let text = content.as_str();
     let start = text.find("<Version>")?;
     let inner_start = start + "<Version>".len();
@@ -492,7 +457,6 @@ fn read_description_version(path: &Path) -> Option<String> {
 pub fn read_cargo_version(cargo_toml: &Path) -> Option<String> {
     let content = std::fs::read_to_string(cargo_toml).ok()?;
     let val: toml::Value = toml::from_str(&content).ok()?;
-    // workspace.package.version or package.version
     val.get("workspace")
         .and_then(|w| w.get("package"))
         .and_then(|p| p.get("version"))
@@ -511,14 +475,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
 
-        // Cargo.toml with workspace version
         fs::write(
             root.join("Cargo.toml"),
             format!("[workspace.package]\nversion = \"{canonical}\"\n\n[workspace]\nresolver = \"2\"\n"),
         )
         .unwrap();
 
-        // pyproject.toml at default path
         fs::create_dir_all(root.join("packages/python")).unwrap();
         fs::write(
             root.join("packages/python/pyproject.toml"),
@@ -526,8 +488,6 @@ mod tests {
         )
         .unwrap();
 
-        // package.json at the modern default node path (crates/{name}-node/).
-        // package_dir(Language::Node) returns "crates/{name}-node" for the new default.
         fs::create_dir_all(root.join("crates/mylib-node")).unwrap();
         fs::write(
             root.join("crates/mylib-node/package.json"),
@@ -539,10 +499,6 @@ mod tests {
     }
 
     fn minimal_config(root: &Path) -> ResolvedCrateConfig {
-        // Normalize to forward slashes so the path is a valid TOML basic string
-        // even when `root` is a Windows path containing backslashes (TOML treats
-        // `\` as the start of an escape sequence — e.g. `\U` triggers a unicode
-        // escape diagnostic).
         let root_str = root.display().to_string().replace('\\', "/");
         let content = format!(
             r#"
@@ -632,9 +588,6 @@ version_from = "{root_str}/Cargo.toml"
         let config = minimal_config(tmp.path());
         let checks = run(&config, tmp.path(), false).unwrap();
         let mismatches: Vec<_> = checks.iter().filter(|c| !c.matches).collect();
-        // Only checks for manifests that exist are run; only python and node are set up.
-        // Others will report missing but still "match" only if None == None, which is false.
-        // This test only asserts that py and node pass:
         let py = checks.iter().find(|c| c.label.contains("pyproject")).unwrap();
         assert!(py.matches, "pyproject.toml should match: {:?}", py);
         let node = checks
@@ -642,13 +595,12 @@ version_from = "{root_str}/Cargo.toml"
             .find(|c| c.label.contains("package.json") && c.label.contains("node"))
             .unwrap();
         assert!(node.matches, "package.json should match: {:?}", node);
-        let _ = mismatches; // other manifests may be absent, that's expected
+        let _ = mismatches;
     }
 
     #[test]
     fn mismatch_detected() {
         let tmp = make_workspace("1.0.0");
-        // Write wrong version to pyproject.toml
         std::fs::write(
             tmp.path().join("packages/python/pyproject.toml"),
             "[project]\nversion = \"9.9.9\"\n",
@@ -697,8 +649,6 @@ python = "{python_output}"
 
     #[test]
     fn pep440_canonical_and_normalized_prerelease_compare_equal() {
-        // The canonical Cargo version is the semver pre-release form; the manifest
-        // holds the PEP 440 normalised form sync-versions writes. They must match.
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         fs::write(
@@ -722,8 +672,6 @@ python = "{python_output}"
 
     #[test]
     fn pep440_manifest_in_canonical_prerelease_form_also_matches() {
-        // Reverse direction: a manifest still holding the canonical `-rc.N` form
-        // must also be considered consistent (round-trips both ways).
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         fs::write(
@@ -746,9 +694,6 @@ python = "{python_output}"
 
     #[test]
     fn source_template_pyproject_with_trailing_slash_output_has_no_doubled_slash() {
-        // [crates.output] python pointing at the source-template dir with a
-        // trailing slash must not produce `.../src//pyproject.toml`, and the
-        // normalized prerelease comparison must pass.
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         fs::write(

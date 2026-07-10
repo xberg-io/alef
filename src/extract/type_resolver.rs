@@ -33,7 +33,6 @@ pub fn resolve_type(ty: &syn::Type) -> TypeRef {
             }
         }
         syn::Type::Slice(slice) => resolve_slice_type(&slice.elem),
-        // dyn Trait → Named(TraitName), trait objects are opaque
         syn::Type::TraitObject(trait_obj) => {
             if let Some(syn::TypeParamBound::Trait(trait_bound)) = trait_obj.bounds.first() {
                 if let Some(seg) = trait_bound.path.segments.last() {
@@ -42,7 +41,6 @@ pub fn resolve_type(ty: &syn::Type) -> TypeRef {
             }
             TypeRef::Named("DynObject".to_string())
         }
-        // impl Trait → resolve generic if Into<T> or AsRef<T>, otherwise Named(TraitName)
         syn::Type::ImplTrait(impl_trait) => {
             if let Some(syn::TypeParamBound::Trait(trait_bound)) = impl_trait.bounds.first() {
                 if let Some(seg) = trait_bound.path.segments.last() {
@@ -80,11 +78,6 @@ pub fn type_to_string(ty: &syn::Type) -> String {
 /// - `& 'static [ & 'static str ]` → `&'static [&'static str]`
 /// - `Vec < String >`     → `Vec<String>`
 fn normalize_type_string(s: &str) -> String {
-    // ASCII byte scan — type strings emitted by `quote` are pure ASCII, so we
-    // can avoid the `Vec<char>` allocation that the previous implementation
-    // paid per call. A few thousand types per extraction makes this matter on
-    // the cold path. If a non-ASCII byte ever appears (it shouldn't), we
-    // append it as a UTF-8 chunk via `from_utf8` for safety.
     let bytes = s.as_bytes();
     let n = bytes.len();
     let mut out = String::with_capacity(n);
@@ -95,7 +88,6 @@ fn normalize_type_string(s: &str) -> String {
         let c = bytes[i];
         if c == b' ' {
             let prev_is_punct = out.as_bytes().last().copied().map(is_punct).unwrap_or(false);
-            // Find next non-space byte without allocating.
             let mut j = i + 1;
             while j < n && bytes[j] == b' ' {
                 j += 1;
@@ -103,15 +95,12 @@ fn normalize_type_string(s: &str) -> String {
             let next_is_punct = j < n && is_punct(bytes[j]);
             let prev_ends_lifetime = ends_with_lifetime(&out);
             if (prev_is_punct || next_is_punct) && !prev_ends_lifetime {
-                // Drop cosmetic space around punctuation.
             } else {
                 out.push(' ');
             }
         } else if c.is_ascii() {
             out.push(c as char);
         } else {
-            // Non-ASCII fallthrough — copy the UTF-8 byte sequence verbatim.
-            // Find the end of the current scalar.
             let mut j = i + 1;
             while j < n && (bytes[j] & 0b1100_0000) == 0b1000_0000 {
                 j += 1;
@@ -131,17 +120,14 @@ fn normalize_type_string(s: &str) -> String {
 fn ends_with_lifetime(s: &str) -> bool {
     let bytes = s.as_bytes();
     let mut i = bytes.len();
-    // Walk back over the identifier characters of the lifetime name.
     while i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_') {
         i -= 1;
     }
-    // The character before the identifier must be a tick.
     i > 0 && bytes[i - 1] == b'\''
 }
 
 /// Resolve a path-based type like `String`, `Vec<T>`, `Option<T>`, etc.
 fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
-    // Get the last segment (handles both `std::path::PathBuf` and just `PathBuf`)
     let segment = match type_path.path.segments.last() {
         Some(seg) => seg,
         None => return TypeRef::Named(String::new()),
@@ -149,7 +135,6 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
 
     let ident = segment.ident.to_string();
 
-    // Check for qualified paths like `serde_json::Value`
     if type_path.path.segments.len() >= 2 {
         let full_path: String = type_path
             .path
@@ -164,7 +149,6 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
     }
 
     match ident.as_str() {
-        // Primitives
         "bool" => TypeRef::Primitive(PrimitiveType::Bool),
         "u8" => TypeRef::Primitive(PrimitiveType::U8),
         "u16" => TypeRef::Primitive(PrimitiveType::U16),
@@ -179,36 +163,19 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
         "usize" => TypeRef::Primitive(PrimitiveType::Usize),
         "isize" => TypeRef::Primitive(PrimitiveType::Isize),
 
-        // String types. `str` (no leading `&`) shows up inside wrapper
-        // generics like `Box<str>` / `Cow<'_, str>` / `Arc<str>` — those resolve
-        // their inner via this `resolve_path_type` path (not the `&str`
-        // reference path), so without a `str` arm the inner ends up as
-        // `Named("str")` and gets caught by `sanitize_type_ref` later, which
-        // marks the surrounding field as `sanitized = true` and triggers
-        // every backend's "skip this field" branch — even though the
-        // resulting `TypeRef::String` is perfectly representable. Mapping
-        // `str` directly to `TypeRef::String` here yields the same IR shape
-        // without the spurious sanitized flag.
         "String" | "str" => TypeRef::String,
         "char" => TypeRef::Char,
 
-        // Path types
         "PathBuf" | "Path" => TypeRef::Path,
 
-        // Bytes
         "Bytes" => TypeRef::Bytes,
 
-        // JSON aliases are ambiguous unless the extractor can prove the full
-        // `serde_json::Value` path above. Keep bare names as Named so central
-        // validation can require explicit configuration or a resolved import.
         "JsonValue" | "Value" => TypeRef::Named(ident),
 
-        // Vec<T>
         "Vec" => {
             let inner = extract_single_generic_arg(segment);
             match inner {
                 Some(inner_ty) => {
-                    // Vec<u8> → Bytes
                     if matches!(inner_ty, TypeRef::Primitive(PrimitiveType::U8)) {
                         TypeRef::Bytes
                     } else {
@@ -219,51 +186,31 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
             }
         }
 
-        // Option<T>
         "Option" => {
             let inner = extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into()));
             TypeRef::Optional(Box::new(inner))
         }
 
-        // HashMap<K, V> / BTreeMap<K, V> / AHashMap<K, V> / IndexMap<K, V> / FxHashMap<K, V>
         "HashMap" | "BTreeMap" | "AHashMap" | "IndexMap" | "FxHashMap" => {
             let (k, v) = extract_two_generic_args(segment);
             TypeRef::Map(Box::new(k), Box::new(v))
         }
 
-        // HashSet<T> / BTreeSet<T> / AHashSet<T> / IndexSet<T> / FxHashSet<T> → Vec<T>.
-        // Sets serialize to JSON arrays on the wire, so the binding-level shape
-        // collapses to a Vec; uniqueness is the producer's invariant, not part
-        // of the cross-language surface.
         "HashSet" | "BTreeSet" | "AHashSet" | "IndexSet" | "FxHashSet" => {
             let inner = extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into()));
             TypeRef::Vec(Box::new(inner))
         }
 
-        // Result<T, E> → unwrap to T
         "Result" => extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into())),
 
-        // Box<T>, Arc<T>, Rc<T>, Mutex<T>, RwLock<T> → unwrap to T.
-        //
-        // Mutex/RwLock are last-segment matches (both `std::sync::Mutex` and
-        // `tokio::sync::Mutex` resolve the same way) so `Arc<Mutex<T>>` and
-        // `Arc<RwLock<T>>` collapse cleanly through the Arc unwrap to T. The
-        // `core_wrapper` field on the surrounding FieldDef still records
-        // `CoreWrapper::ArcMutex` for the binding emitters, so the lock
-        // semantics aren't lost from the IR.
         "Box" | "Arc" | "Rc" | "Mutex" | "RwLock" => {
             extract_single_generic_arg(segment).unwrap_or(TypeRef::Named("unknown".into()))
         }
 
-        // Well-known std/common types
         "Duration" => TypeRef::Duration,
         "SecretString" => TypeRef::String,
-        "Cow" => {
-            // Cow<str> → String, Cow<[u8]> → Bytes, etc.
-            extract_single_generic_arg(segment).unwrap_or(TypeRef::String)
-        }
+        "Cow" => extract_single_generic_arg(segment).unwrap_or(TypeRef::String),
 
-        // Any other named type
         other => TypeRef::Named(other.to_string()),
     }
 }
@@ -272,7 +219,6 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
 fn resolve_reference_type(type_ref: &syn::TypeReference) -> TypeRef {
     let inner = &*type_ref.elem;
     match inner {
-        // &str → String
         syn::Type::Path(p) => {
             if let Some(seg) = p.path.segments.last() {
                 match seg.ident.to_string().as_str() {
@@ -284,7 +230,6 @@ fn resolve_reference_type(type_ref: &syn::TypeReference) -> TypeRef {
                 resolve_type(inner)
             }
         }
-        // &[u8] → Bytes, &[T] → Vec<T>
         syn::Type::Slice(slice) => resolve_slice_type(&slice.elem),
         _ => resolve_type(inner),
     }
@@ -355,7 +300,6 @@ pub fn is_option_type(ty: &syn::Type) -> Option<TypeRef> {
 /// Returns the string representation of the error type E.
 pub fn extract_result_error_type_from_alias(ty: &syn::Type) -> Option<String> {
     if let syn::Type::Path(type_path) = ty {
-        // For `std::result::Result<T, E>` or just `Result<T, E>`
         if let Some(segment) = type_path.path.segments.last() {
             if segment.ident == "Result" {
                 if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
@@ -370,7 +314,6 @@ pub fn extract_result_error_type_from_alias(ty: &syn::Type) -> Option<String> {
                             }
                         })
                         .collect();
-                    // For a non-generic type alias, we expect exactly 2 args: T and E
                     if type_args.len() == 2 {
                         return Some(type_to_string(type_args[1]));
                     }
@@ -401,12 +344,10 @@ pub fn extract_result_error_type(ty: &syn::Type) -> Option<String> {
                     if type_args.len() >= 2 {
                         return Some(type_to_string(type_args[1]));
                     }
-                    // Result<T> with a single type arg (type alias) — look up the error type hint.
                     if !type_args.is_empty() {
                         if let Some(hint) = get_result_error_hint("Result") {
                             return Some(hint);
                         }
-                        // Fallback to anyhow::Error if no hint is available
                         return Some("anyhow::Error".to_string());
                     }
                 }
@@ -487,9 +428,6 @@ mod tests {
 
     #[test]
     fn test_nested_option_preserved() {
-        // Option<Option<u64>> remains nested in IR — per-backend chooses how to render it.
-        // Dart/FRB flatten via `frb_rust_type` because FRB rejects nested optionals; other
-        // backends emit the nested type directly and rely on plain `val.field` passthrough.
         assert_eq!(
             resolve_type(&parse_type("Option<Option<u64>>")),
             TypeRef::Optional(Box::new(TypeRef::Optional(Box::new(TypeRef::Primitive(
@@ -668,7 +606,6 @@ mod tests {
 
     #[test]
     fn test_extract_result_error_from_alias_definition() {
-        // Test extracting error type from `pub type Result<T> = std::result::Result<T, E>`
         let ty = parse_type("std::result::Result<T, SampleCrateError>");
         assert_eq!(
             extract_result_error_type_from_alias(&ty),
@@ -678,7 +615,6 @@ mod tests {
 
     #[test]
     fn test_extract_result_error_with_hint() {
-        // Test that when a Result<T> type alias has a registered error hint, it's used
         let hints = {
             let mut m = ahash::AHashMap::new();
             m.insert("Result".to_string(), "SampleCrateError".to_string());
@@ -692,27 +628,19 @@ mod tests {
 
     #[test]
     fn test_extract_result_error_fallback_without_hint() {
-        // Test that without a hint, it falls back to anyhow::Error
         set_result_error_hints(ahash::AHashMap::new());
 
         let ty = parse_type("Result<ExtractionResult>");
         assert_eq!(extract_result_error_type(&ty), Some("anyhow::Error".into()));
     }
 
-    // Regression tests for whitespace between lifetime tokens and following type/bracket.
-    // Previously, `type_to_string` called `.replace(' ', "")` which collapsed
-    // `&'static str` into `&'staticstr` and `&'static [&'static str]` into
-    // `&'static[&'staticstr]`.
-
     #[test]
     fn test_normalize_type_string_static_str() {
-        // quote produces "& 'static str"; must become "&'static str"
         assert_eq!(normalize_type_string("& 'static str"), "&'static str");
     }
 
     #[test]
     fn test_normalize_type_string_static_slice_of_static_str() {
-        // quote produces "& 'static [& 'static str]"; must become "&'static [&'static str]"
         assert_eq!(
             normalize_type_string("& 'static [& 'static str]"),
             "&'static [&'static str]"
@@ -721,7 +649,6 @@ mod tests {
 
     #[test]
     fn test_normalize_type_string_generic_no_spaces() {
-        // Cosmetic spaces around angle brackets must be stripped.
         assert_eq!(normalize_type_string("Vec < String >"), "Vec<String>");
     }
 
@@ -737,27 +664,18 @@ mod tests {
         assert_eq!(type_to_string(&ty), "&'static [&'static str]");
     }
 
-    // --- Mutex / RwLock unwrap (Arc-wrapped synchronization primitives) ---
-
     #[test]
     fn test_arc_mutex_inner_resolved_through_unwrap() {
-        // Arc<Mutex<String>> unwraps Arc → unwraps Mutex → String. The CoreWrapper
-        // on the surrounding FieldDef (set by detect_core_wrapper) preserves the
-        // ArcMutex shape for binding emitters.
         assert_eq!(resolve_type(&parse_type("Arc<Mutex<String>>")), TypeRef::String);
     }
 
     #[test]
     fn test_arc_rwlock_inner_resolved_through_unwrap() {
-        // Arc<RwLock<Vec<u8>>> unwraps Arc → unwraps RwLock → Vec<u8> → Bytes.
         assert_eq!(resolve_type(&parse_type("Arc<RwLock<Vec<u8>>>")), TypeRef::Bytes);
     }
 
     #[test]
     fn test_arc_hashmap_string_string_inner_resolved() {
-        // Arc<HashMap<String, String>> — synthetic shape representative of structs
-        // that share a hashmap via Arc for zero-copy FFI. The Arc must unwrap to
-        // a Map(String, String) so backend emitters can render a proper map type.
         assert_eq!(
             resolve_type(&parse_type("Arc<HashMap<String, String>>")),
             TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String))

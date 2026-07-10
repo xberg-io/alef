@@ -11,23 +11,18 @@ pub(super) fn replace_intradoc_links(s: &str, _target: DocTarget) -> String {
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        // Look for [`
         if i + 1 < bytes.len() && bytes[i] == b'[' && bytes[i + 1] == b'`' {
-            // Find closing `]
             let search_start = i + 2;
             let mut found = false;
             let mut j = search_start;
             while j + 1 < bytes.len() {
                 if bytes[j] == b'`' && bytes[j + 1] == b']' {
                     let inner = &s[search_start..j];
-                    // Convert :: to . in the inner part.
                     let converted = inner.replace("::", ".");
                     out.push('`');
                     out.push_str(&converted);
                     out.push('`');
                     i = j + 2;
-                    // Strip an optional explicit-link target `(url)` so
-                    // `[`X`](crate::X)` collapses to `` `X` ``.
                     if i < bytes.len() && bytes[i] == b'(' {
                         let mut depth = 1usize;
                         let mut k = i + 1;
@@ -76,9 +71,7 @@ pub(crate) fn wrap_bare_bracket_references(s: &str) -> String {
 
     while i < bytes.len() {
         if bytes[i] == b'[' {
-            // Already-backticked intra-doc link form: [`...`]
             if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
-                // Find closing `]
                 let inner_start = i + 2;
                 let mut j = inner_start;
                 let mut found = false;
@@ -98,25 +91,20 @@ pub(crate) fn wrap_bare_bracket_references(s: &str) -> String {
                     i = advance_char(s, &mut out, i);
                 }
             } else {
-                // Look for closing bracket to determine what's inside.
                 let search_start = i + 1;
                 if let Some(close_pos) = bytes[search_start..].iter().position(|&b| b == b']') {
                     let bracket_end = search_start + close_pos;
                     let inner = &s[search_start..bracket_end].trim();
 
-                    // Only wrap if inner contains identifier-like characters (alphanumeric, underscore, ::, ::, ()).
                     if is_identifier_like(inner) {
                         out.push('`');
-                        // Convert :: to . for foreign-language compatibility.
                         out.push_str(&inner.replace("::", "."));
                         out.push('`');
                         i = bracket_end + 1;
                     } else {
-                        // Not an identifier reference — emit literally.
                         i = advance_char(s, &mut out, i);
                     }
                 } else {
-                    // No closing bracket — emit literally.
                     i = advance_char(s, &mut out, i);
                 }
             }
@@ -162,9 +150,6 @@ pub(crate) fn unlink_intradoc_references(s: &str) -> String {
 
     while i < bytes.len() {
         if bytes[i] == b'`' {
-            // Preserve existing inline code spans verbatim so a backtick pair
-            // containing a `[` (e.g. `` `arr[0]` ``) is never misread as a link.
-            // Slice the &str (not byte-by-byte) so multibyte UTF-8 is preserved.
             let inner_start = i + 1;
             let mut j = inner_start;
             while j < bytes.len() && bytes[j] != b'`' {
@@ -186,7 +171,6 @@ pub(crate) fn unlink_intradoc_references(s: &str) -> String {
             continue;
         }
 
-        // Backticked intra-doc link form: [`...`]
         if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
             let inner_start = i + 2;
             if let Some(close) = find_backtick_bracket_close(bytes, inner_start) {
@@ -202,13 +186,10 @@ pub(crate) fn unlink_intradoc_references(s: &str) -> String {
             continue;
         }
 
-        // Bare-bracket form: [identifier] / [Type::method] / [method()]
         let search_start = i + 1;
         if let Some(close_pos) = bytes[search_start..].iter().position(|&b| b == b']') {
             let bracket_end = search_start + close_pos;
             let inner = s[search_start..bracket_end].trim();
-            // Only de-link when the bracket holds an identifier-like reference
-            // and there is no URL target — otherwise leave Markdown alone.
             let target_is_url = bytes.get(bracket_end + 1) == Some(&b'(') && link_target_is_url(bytes, bracket_end + 1);
             if is_identifier_like(inner) && !target_is_url {
                 out.push('`');
@@ -290,13 +271,11 @@ fn is_identifier_like(s: &str) -> bool {
         return false;
     }
 
-    // Check if it starts with an identifier character (letter, underscore, or 'Self').
     let first_char = trimmed.chars().next().unwrap();
     if !first_char.is_alphabetic() && first_char != '_' {
         return false;
     }
 
-    // Allow letters, digits, underscores, ::, (), and dots (for method chains).
     trimmed
         .chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == ':' || c == '(' || c == ')' || c == '.')

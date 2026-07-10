@@ -12,8 +12,6 @@ use alef::core::backend::Backend;
 use alef::core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
 use alef::core::ir::{ApiSurface, CoreWrapper, DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
-// ── helpers (duplicated from gen_bindings_test.rs to keep tests independent) ──
-
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
         name: name.to_string(),
@@ -94,8 +92,6 @@ fn api_with_type(ty: TypeDef) -> ApiSurface {
     }
 }
 
-// ── tests ────────────────────────────────────────────────────────────────────
-
 #[test]
 fn struct_with_serde_default_bool_field_emits_custom_decoder_with_false_fallback() {
     let mut field = make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false);
@@ -117,8 +113,6 @@ fn struct_with_serde_default_bool_field_emits_custom_decoder_with_false_fallback
         content.contains("try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false"),
         "expected `?? false` fallback for BoolLiteral(false) typed default:\n{content}"
     );
-    // CodingKeys must be emitted even though `enabled` already matches its wire key —
-    // the custom decoder references `CodingKeys.enabled`.
     assert!(
         content.contains("private enum CodingKeys: String, CodingKey"),
         "expected CodingKeys enum to be emitted alongside custom decoder:\n{content}"
@@ -173,8 +167,6 @@ fn struct_with_vec_field_and_default_impl_defaults_to_empty_array() {
 
 #[test]
 fn struct_without_default_impl_does_not_emit_custom_decoder() {
-    // `has_default = false` → the auto-synthesised Codable init is sufficient
-    // (consumers must supply every field) — no custom decoder should be emitted.
     let mut ty = make_type(
         "Strict",
         vec![make_field("value", TypeRef::Primitive(PrimitiveType::I32), false)],
@@ -214,7 +206,6 @@ fn struct_with_optional_field_decodes_to_nil_fallback() {
         content.contains("public init(from decoder: any Decoder) throws"),
         "expected custom Codable decoder for has_default struct with optional field:\n{content}"
     );
-    // Optional fields use `decodeIfPresent` with the inner type and a `?? nil` fallback.
     assert!(
         content.contains("try container.decodeIfPresent(UInt.self, forKey: .chunkMaxSize) ?? nil"),
         "expected `?? nil` fallback for optional field:\n{content}"

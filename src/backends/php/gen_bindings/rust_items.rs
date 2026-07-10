@@ -16,14 +16,12 @@ pub(super) fn gen_streaming_adapter_facade_method(
         )
     });
 
-    // Build Rust function signature
     let mut params: Vec<String> = vec![format!("engine: &{owner_type}")];
 
-    // Add request type parameter(s)
     for p in &adapter.params {
         let param_type = p.ty.rsplit("::").next().unwrap_or(&p.ty);
         let ref_indicator = if matches!(param_type, "String" | "Vec<String>") {
-            "" // Already reference via .into()
+            ""
         } else {
             "&"
         };
@@ -37,8 +35,6 @@ pub(super) fn gen_streaming_adapter_facade_method(
 
     let return_type = "std::result::Result<Vec<String>, ext_php_rs::exception::PhpException>";
 
-    // Body: call the instance method on the engine handle
-    // Note: adapter.name is already snake_case, so use it directly for the Rust method call
     let rust_method_name = &adapter.name;
     let call_args = adapter
         .params
@@ -105,8 +101,6 @@ pub(super) fn php_variant_wrapper_constructor(
 /// and directs the build to use cargo. This allows PIE to fall back from pre-packaged binaries
 /// to source compilation without errors.
 pub(super) fn generate_config_m4(extension_name: &str, package_name: &str) -> String {
-    // Convert extension_name (with underscores) back to cargo crate name (with hyphens)
-    // e.g., "my_ext" → "my-ext" for directory lookup
     let cargo_crate_name = package_name;
     let lib_name = extension_name.replace('_', "-");
 
@@ -169,5 +163,3 @@ fi
         extension_name,
     )
 }
-
-// ───────────────────────────────────────────────────────────────────── tests ──

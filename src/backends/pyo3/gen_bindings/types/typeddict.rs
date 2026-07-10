@@ -59,8 +59,6 @@ pub(super) fn gen_typeddict(
             str_coercible_data_enums,
             EmitContext::OptionsModule,
         );
-        // Ensure Optional-like fields always include `| None`. Guard on the absence of `None`
-        // rather than any `|`, so a str-coercible data enum (`<Class> | str`) still gains `| None`.
         let type_hint_with_none = if field.optional && !type_hint.contains("None") {
             if matches!(&field.ty, crate::core::ir::TypeRef::Named(_)) {
                 format!("{} | None", type_hint)
@@ -81,9 +79,6 @@ pub(super) fn gen_typeddict(
             ));
             out.push('\n');
             let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
-            // A triple-quoted docstring that ends with `"` would produce `""""` (4 quotes),
-            // which Python parses as an empty string followed by a stray `"`.
-            // Add a trailing space to prevent the collision.
             let safe_doc = if doc_line.ends_with('"') {
                 format!("{doc_line} ")
             } else {

@@ -36,12 +36,7 @@ pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> Fie
     let has_serde_default_attr = has_serde_default(&field.attrs);
 
     // If the field has #[serde(default)], mark it as having a default value.
-    // This prevents C# backends from emitting `required` modifier, since the field
-    // can be omitted from JSON and will use the type's Default implementation.
-    // When the attribute carries an explicit function path
     // (`#[serde(default = "path")]`), preserve it verbatim so bindings can emit an
-    // equivalent field-level default (e.g. `SsrfPolicy::from_env`) rather than
-    // silently falling back to the type's `Default`.
     let default = match extract_serde_default_path(&field.attrs) {
         Some(path) => Some(format!("serde(default = \"{path}\")")),
         None if has_serde_default_attr => Some("/* serde(default) */".to_string()),

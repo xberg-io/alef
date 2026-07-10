@@ -99,15 +99,11 @@ fn single_optional_config_emits_positional() {
 
     let body = &test_file.content;
 
-    // The config arg should be positional (no colon), not as keyword form.
-    // With only one trailing optional param, we use positional form.
-    // Look for the pattern: extract("path", "{...json...}")
     let extract_call = body
         .lines()
         .find(|line| line.contains("MyLib.extract"))
         .expect("extract call found");
 
-    // Verify it's positional: should have the JSON string as a second positional arg
     assert!(
         extract_call.contains("extract(\"../../test_documents/test.txt\", \"{") && extract_call.contains("}\")"),
         "single optional config should emit as positional JSON string, got:\n{extract_call}"
@@ -141,14 +137,11 @@ fn two_optional_params_emit_keyword() {
 
     let body = &test_file.content;
 
-    // Both optional params should use keyword form: mime_type: "..." and config: "...".
-    // This ensures no positional args come after keyword args.
     assert!(
         body.contains("mime_type:") && body.contains("config:"),
         "two optional params should emit as keywords, got:\n{body}"
     );
 
-    // Verify the order: extract(path, mime_type: ..., config: ...)
     let mime_pos = body.find("mime_type:").expect("mime_type keyword found");
     let config_pos = body.find("config:").expect("config keyword found");
     assert!(

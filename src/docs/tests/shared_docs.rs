@@ -134,7 +134,6 @@ fn test_render_enum_for_shared_doc_emits_wire_value_column_when_rename_all_set()
 #[test]
 fn test_render_enum_for_shared_doc_demotes_internal_headings() {
     use crate::core::ir::EnumVariant;
-    // MD025/MD001: enum doc-comment contains a heading that must be demoted
     let en = EnumDef {
         name: "OutputFormat".into(),
         rust_path: "test::OutputFormat".into(),
@@ -152,7 +151,6 @@ fn test_render_enum_for_shared_doc_demotes_internal_headings() {
             cfg: None,
             version: Default::default(),
         }],
-        // Doc-comment contains an internal heading that should be demoted
         methods: vec![],
         doc: "Output format specification.\n\n## Variants\n\nDetailed variant info.".into(),
         cfg: None,
@@ -168,9 +166,6 @@ fn test_render_enum_for_shared_doc_demotes_internal_headings() {
         version: Default::default(),
     };
     let out = render_enum_for_shared_doc(&en, Language::Rust);
-    // The internal heading ## should become #### (demoted by 2 levels).
-    // `contains("## Variants")` would false-match against `#### Variants`, so check
-    // for the exact heading line at start-of-line instead.
     assert!(
         out.contains("#### Variants"),
         "internal heading must be demoted to #### (was ##): {out}"

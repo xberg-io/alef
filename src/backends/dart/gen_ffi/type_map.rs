@@ -93,13 +93,11 @@ pub(super) fn dart_public_return(ty: &TypeRef) -> String {
 pub(super) fn unwrap_return_expr(raw: &str, ty: &TypeRef, _free_symbol: &str, _error_code_symbol: &str) -> String {
     match ty {
         TypeRef::String | TypeRef::Path | TypeRef::Json => {
-            // Marshal the null-terminated C string to Dart, then free the FFI allocation.
             format!(
                 "() {{ final s = {raw}.cast<Utf8>().toDartString(); _freeString({raw}.cast<Char>()); return s; }}()"
             )
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            // Vec/Map are serialised as JSON strings across the C boundary.
             format!(
                 "() {{ final s = {raw}.cast<Utf8>().toDartString(); _freeString({raw}.cast<Char>()); return s; }}()"
             )

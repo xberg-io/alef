@@ -13,14 +13,12 @@ pub fn gen_trait_bridge(
     error_constructor: &str,
     api: &ApiSurface,
 ) -> anyhow::Result<String> {
-    // Skip if explicitly excluded for Ruby
     if bridge_cfg.exclude_languages.contains(&"ruby".to_string()) {
         return Ok(String::new());
     }
 
     let trait_path = trait_type.rust_path.replace('-', "_");
 
-    // Build type name → rust_path lookup
     let type_paths: HashMap<String, String> = api
         .types
         .iter()
@@ -30,8 +28,6 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods referencing them (for example, `&HiddenDoc`)
-        // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
                 .iter()
@@ -39,14 +35,12 @@ pub fn gen_trait_bridge(
         )
         .collect();
 
-    // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
     let is_visitor_bridge = bridge_cfg.type_alias.is_some()
         && bridge_cfg.register_fn.is_none()
         && bridge_cfg.super_trait.is_none()
         && trait_type.methods.iter().all(|m| m.has_default_impl);
 
     if is_visitor_bridge {
-        // Visitor pattern: use the old visitor bridge code
         let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Rb", bridge_cfg);
         let mut out = String::with_capacity(8192);
         gen_visitor_bridge(
@@ -61,30 +55,15 @@ pub fn gen_trait_bridge(
         )?;
         Ok(out)
     } else {
-        // Plugin pattern: use the shared TraitBridgeGenerator infrastructure.
-        // Use the host crate's canonical error type (e.g. SampleCrateError) so the
-        // generated `impl Plugin for ...` matches the trait's actual signature.
-        // Classify which callback params get native-object marshalling using the SHARED rule
-        // (`native_marshalled_struct_params`) so the allowlist is identical to what other
-        // backends consult. For such params the bridge hands the host the binding's native Ruby
         // value (the `#[magnus::wrap]` struct, built via the same `From<core::T>` conversion used
-        // for return values / fields) instead of a JSON string.
         let struct_param_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
-        // Return-side counterpart: a host may return the binding's native Ruby object. The binding
-        // struct's `TryConvert` accepts the native wrapped object (and a Hash/JSON via `to_json`),
-        // and `From<Binding> for core` converts it. Gate on the binding→core conversion actually
-        // being generated for the type (`convertible_types`) — unlike pyo3's always-emitted
-        // `From<Binding>`, magnus generates it conditionally; for a type that does not qualify, keep
-        // the proven `serde_json::from_str`-into-core path so the bridge always compiles.
         let binding_to_core = crate::codegen::conversions::convertible_types(api);
         let struct_return_types: std::collections::HashSet<String> =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api)
                 .into_iter()
                 .filter(|name| binding_to_core.contains(name.as_str()))
                 .collect();
-        // Rust-defaulted methods the bridge can forward to the host (host-defined
-        // implementations win; the Rust default runs otherwise).
         let forwardable_defaulted =
             crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = MagnusBridgeGenerator {
@@ -113,16 +92,12 @@ pub fn gen_trait_bridge(
             error_constructor: error_constructor.to_string(),
         };
         let output = gen_bridge_all(&spec, &generator);
-        // Emit trait-bridge specific imports as `use ... as _;` at the top of the
-        // bridge block so multiple bridges can share trait imports without name
-        // collisions on the same module-level identifier.
         let mut prefixed = String::with_capacity(output.imports.len() * 64 + output.code.len());
         let imports_to_emit: Vec<_> = output
             .imports
             .iter()
             .filter(|imp| *imp != "magnus::prelude::*")
             .collect();
-        // Emit allow attribute before each import group to suppress unused_imports warnings
         for imp in &imports_to_emit {
             prefixed.push_str("#[allow(unused_imports)]\n");
             prefixed.push_str("use ");
@@ -190,23 +165,16 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
     }
 
     fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
-        // The flag is captured at construction (see `gen_constructor`) because the
-        // Ruby object cannot be probed off the GVL in async bridge bodies.
         self.forwardable_defaulted
             .contains(&method.name)
             .then(|| format!("self.has_{}", method.name))
     }
 
     fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
-        // Same construction-time flag as trait methods. Note `respond_to(..., false)`
-        // excludes private methods, and Ruby constructors (`def initialize`) are
-        // private — so a host's constructor never counts as the plugin lifecycle
-        // hook and is never re-invoked at registration.
         Some(format!("self.has_{}", method.name))
     }
 
     fn extra_bridge_fields(&self, spec: &TraitBridgeSpec) -> Vec<(String, String)> {
-        // Iterate the trait's method order (not the set) so field order is deterministic.
         let mut fields: Vec<(String, String)> = spec
             .trait_def
             .methods
@@ -222,9 +190,6 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        // Keep this list small. `Arc` is already imported globally at file scope by
-        // the magnus gen_bindings pipeline. Trait-only imports are emitted as `use ... as _`
-        // by `gen_trait_bridge` so multiple bridges can co-exist without name collisions.
         vec![
             "magnus::value::InnerValue".to_string(),
             "magnus::TryConvert".to_string(),
@@ -236,7 +201,6 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let has_error = method.error_type.is_some();
         let is_unit = matches!(method.return_type, TypeRef::Unit);
 
-        // Build funcall args
         let args: Vec<String> = method.params.iter().map(|p| self.ruby_arg_expr(p)).collect();
 
         let call = if args.is_empty() {
@@ -280,12 +244,6 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let has_error = method.error_type.is_some();
         let is_unit = matches!(method.return_type, TypeRef::Unit);
 
-        // async_trait wraps the body in `Pin<Box<dyn Future + Send>>`, so anything
-        // captured into the future must be Send. magnus::Value is !Send, so we
-        // capture only the Send wrappers (Opaque<Value>, owned param copies),
-        // then dereference inside spawn_blocking which holds GVL on the worker thread.
-
-        // Clone params into Send-safe owned copies for the blocking task.
         let conversions: Vec<String> = method
             .params
             .iter()
@@ -371,8 +329,6 @@ let cached_name_for_blocking = cached_name.clone();\n\
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
         let required_methods: Vec<_> = spec.required_methods().iter().map(|m| m.name.as_str()).collect();
-        // Presence flags for forwarded defaulted methods, captured once under the GVL.
-        // Trait method order keeps the emission deterministic.
         let mut optional_methods: Vec<_> = spec
             .trait_def
             .methods
@@ -380,8 +336,6 @@ let cached_name_for_blocking = cached_name.clone();\n\
             .filter(|m| self.forwardable_defaulted.contains(&m.name))
             .map(|m| m.name.as_str())
             .collect();
-        // Lifecycle hooks are optional too; a missing (or private — Ruby
-        // constructors are private) method makes the hook a no-op.
         if spec.bridge_config.super_trait.is_some() {
             optional_methods.push("initialize");
             optional_methods.push("shutdown");
@@ -603,34 +557,22 @@ impl MagnusBridgeGenerator {
     /// regardless of whether `var` is owned (`String`, `Vec<u8>`, ...) or borrowed.
     fn ruby_arg_expr_custom(&self, ty: &TypeRef, var: &str) -> String {
         match ty {
-            // str_new takes Into<&str>; AsRef<str> covers both String and &str.
             TypeRef::String => format!(
                 "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(AsRef::<str>::as_ref(&{var})).as_value() }}"
             ),
-            // String::from_utf8_lossy needs &[u8]; AsRef<[u8]> covers both Vec<u8> and &[u8].
             TypeRef::Bytes => format!(
                 "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(String::from_utf8_lossy(AsRef::<[u8]>::as_ref(&{var})).as_ref()).as_value() }}"
             ),
-            // Known serde struct: hand the host the binding's native Ruby value, built from the
-            // core value through the same Rust→Ruby conversion used for return values / struct
             // fields (`{Binding}::from(core_value)`). The `#[magnus::wrap]` struct implements
-            // `IntoValue`, so `into_value_with` produces the same `magnus::Value` the funcall tuple
-            // expects — no JSON round-trip. `{var}.clone()` yields an owned `core::T` whether `var`
-            // is a `&core::T` (sync path) or an owned `core::T` (async `_owned` path).
             TypeRef::Named(n) if self.is_native_struct_param(n) => format!(
                 "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; use magnus::IntoValue; {n}::from({var}.clone()).into_value_with(&ruby) }}"
             ),
-            // serde_json::to_string takes &T; the macro `&{var}` is fine for both owned and ref.
-            // Other Named params (enums, opaque/handle, excluded/unknown) keep the prior
-            // JSON-string representation.
             TypeRef::Named(_) | TypeRef::Json => format!(
                 "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value()) }}"
             ),
             TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Optional(_) => format!(
                 "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value()) }}"
             ),
-            // Both PathBuf (owned) and &Path (borrowed) coerce via AsRef<Path>; pin
-            // the AsRef target type explicitly so type inference doesn't fail.
             TypeRef::Path => format!(
                 "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(<_ as AsRef<std::path::Path>>::as_ref(&{var}).to_string_lossy().as_ref()).as_value() }}"
             ),

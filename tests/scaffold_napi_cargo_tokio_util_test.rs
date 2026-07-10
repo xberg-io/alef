@@ -50,7 +50,6 @@ fn scaffold_napi_cargo_includes_tokio_util_with_rt_feature_when_trait_bridges_pr
         name: "demo".to_string(),
         languages: vec![Language::Node],
         workspace_root: Some(std::path::PathBuf::from("/workspace")),
-        // Add a trait bridge to enable tokio-util dependency generation.
         trait_bridges: vec![TraitBridgeConfig {
             register_fn: Some("register_my_trait".to_string()),
             trait_name: "MyTrait".to_string(),
@@ -67,7 +66,6 @@ fn scaffold_napi_cargo_includes_tokio_util_with_rt_feature_when_trait_bridges_pr
 
     let content = &cargo_file.content;
 
-    // Verify tokio-util with rt feature is present in dependencies
     assert!(
         content.contains("tokio-util"),
         "Cargo.toml must include tokio-util when trait bridges are present"
@@ -78,13 +76,11 @@ fn scaffold_napi_cargo_includes_tokio_util_with_rt_feature_when_trait_bridges_pr
         "tokio-util must include the 'rt' feature"
     );
 
-    // Verify tokio-util is in the cargo-machete ignored list
     assert!(
         content.contains("tokio-util") && content.contains("[package.metadata.cargo-machete]"),
         "tokio-util should be in the cargo-machete ignored list"
     );
 
-    // Verify async-trait is also present (existing behavior)
     assert!(
         content.contains("async-trait = \"0.1\""),
         "async-trait must still be present for trait bridges"
@@ -123,7 +119,6 @@ fn scaffold_napi_cargo_excludes_tokio_util_when_no_trait_bridges() {
 
     let content = &cargo_file.content;
 
-    // tokio-util should not be present when there are no trait bridges
     assert!(
         !content.contains("tokio-util"),
         "tokio-util should not be included when there are no trait bridges"

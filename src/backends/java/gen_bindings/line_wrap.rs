@@ -23,17 +23,12 @@ const RECORD_FIELD_WRAP_THRESHOLD: usize = 136;
 pub(crate) fn wrap_long_java_lines(src: &str) -> String {
     let mut out = String::with_capacity(src.len() + 256);
     for line in src.split_inclusive('\n') {
-        // `split_inclusive` keeps the terminator on each piece. Only the final
-        // chunk may lack a trailing newline when the source ends without one.
         let (content, terminator) = match line.strip_suffix('\n') {
             Some(rest) => (rest, "\n"),
             None => (line, ""),
         };
 
         let len = visible_len(content);
-        // Record-component annotation lines are gated by a tighter threshold —
-        // Eclipse spotless reflows them with 4 more spaces of indent so a line
-        // at exactly 140 turns into 144 downstream.
         let is_record_field_annotation =
             content.trim_start().starts_with('@') && (content.ends_with(',') || content.contains(") {"));
         let threshold = if is_record_field_annotation {
@@ -124,8 +119,6 @@ fn wrap_javadoc_line(line: &str, indent: &str) -> Option<String> {
     if !trimmed.starts_with("* ") && trimmed != "*" {
         return None;
     }
-    // Hard-break tokens (e.g. URLs, code references) shouldn't be split mid-word;
-    // we always break at a space.
     let prefix = format!("{indent}* ");
     let rest = &trimmed[2..];
     let budget = MAX_LINE_LEN.saturating_sub(prefix.len());
@@ -141,15 +134,11 @@ fn wrap_javadoc_line(line: &str, indent: &str) -> Option<String> {
             wrapped.push_str(remaining);
             break;
         }
-        // Find the last space in `remaining[..=budget]` so we don't exceed
-        // the line budget after the split.
         let slice = &remaining[..budget.min(remaining.len())];
         let break_at = slice.rfind(' ');
         let (head, tail) = match break_at {
             Some(idx) if idx > 0 => (&remaining[..idx], remaining[idx + 1..].trim_start()),
             _ => {
-                // No space found in budget — fall back to the next space after
-                // budget. Better one long line than infinite loop.
                 let after_budget_space = remaining[budget..].find(' ');
                 match after_budget_space {
                     Some(off) => {
@@ -183,8 +172,6 @@ fn wrap_record_field_annotations(line: &str, indent: &str) -> Option<String> {
     if !trimmed.starts_with('@') {
         return None;
     }
-    // Split the annotation/declaration portion off any trailing comma so we
-    // can re-attach it to the final emitted line.
     let (body, trailing) = match trimmed.strip_suffix(',') {
         Some(rest) => (rest, ","),
         None => (trimmed, ""),
@@ -197,7 +184,6 @@ fn wrap_record_field_annotations(line: &str, indent: &str) -> Option<String> {
     let declaration = annotations.last()?.clone();
     let annotation_lines = &annotations[..annotations.len() - 1];
     if !declaration.contains(' ') {
-        // Without a `Type name` shape this isn't a record-field decl.
         return None;
     }
 
@@ -224,7 +210,6 @@ fn split_annotations(body: &str) -> Option<Vec<String>> {
     let mut tokens: Vec<String> = Vec::new();
     let mut idx = 0;
     while idx < bytes.len() {
-        // Skip leading spaces between tokens.
         while idx < bytes.len() && bytes[idx] == b' ' {
             idx += 1;
         }
@@ -232,14 +217,11 @@ fn split_annotations(body: &str) -> Option<Vec<String>> {
             break;
         }
         if bytes[idx] != b'@' {
-            // Remainder is the type+name declaration.
             tokens.push(body[idx..].trim().to_string());
             break;
         }
-        // Walk to the end of this annotation: identifier optionally followed
-        // by a balanced (...) group.
         let start = idx;
-        idx += 1; // consume '@'
+        idx += 1;
         while idx < bytes.len() && (bytes[idx].is_ascii_alphanumeric() || bytes[idx] == b'_' || bytes[idx] == b'.') {
             idx += 1;
         }
@@ -605,7 +587,6 @@ mod tests {
         for line in out.lines() {
             assert!(line.len() <= MAX_LINE_LEN, "line too long ({}): {line}", line.len());
         }
-        // Continuation lines retain the ` * ` prefix at the same indent.
         for line in out.lines() {
             assert!(
                 line.trim_start().starts_with("* "),

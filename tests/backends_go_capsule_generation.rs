@@ -52,7 +52,6 @@ fn capsule_function() -> FunctionDef {
             map_is_btree: false,
             core_wrapper: alef::core::ir::CoreWrapper::None,
         }],
-        // Fallible capsule (Rust `Result`), matching tslp's `get_language`.
         return_type: TypeRef::Named("Language".to_string()),
         error_type: Some("Error".to_string()),
         is_async: false,
@@ -125,9 +124,6 @@ fn go_capsule_wrapper_emits_host_package_import() {
         content.contains("\"github.com/tree-sitter/go-tree-sitter\""),
         "capsule host package import must be present in the import block. Content:\n{content}"
     );
-    // The import must carry an explicit alias matching the body qualifier (`tree_sitter`).
-    // Without it, `goimports` strips the import in cgo files (path tail `go-tree-sitter`
-    // does not match package name `tree_sitter`), breaking the generated build.
     assert!(
         content.contains("tree_sitter \"github.com/tree-sitter/go-tree-sitter\""),
         "capsule host package import must be aliased with the body qualifier. Content:\n{content}"

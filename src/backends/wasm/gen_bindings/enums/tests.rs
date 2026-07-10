@@ -42,9 +42,6 @@ fn make_enum(name: &str, variants: &[&str]) -> EnumDef {
 fn gen_enum_produces_wasm_bindgen_attribute() {
     let e = make_enum("Color", &["Red", "Green", "Blue"]);
     let result = gen_enum(&e, "Wasm");
-    // Unit enums are exported with their prefixed Rust name as the JS
-    // class name (no js_name override) — keeps the JS API in sync with the
-    // alef-e2e codegen's imports, which always reference the prefixed name.
     assert!(result.contains("#[wasm_bindgen]"));
     assert!(result.contains("pub enum WasmColor"));
     assert!(!result.contains("js_name = \"Color\""));
@@ -58,7 +55,6 @@ fn gen_enum_empty_variants_no_panic() {
     let e = make_enum("Empty", &[]);
     let result = gen_enum(&e, "");
     assert!(result.contains("pub enum Empty"));
-    // No to_api_str() for empty enums
     assert!(!result.contains("to_api_str"));
 }
 
@@ -78,7 +74,6 @@ fn gen_enum_to_api_str_snake_case() {
 fn gen_enum_to_api_str_explicit_rename_overrides_rename_all() {
     let mut e = make_enum("Role", &["User", "Assistant"]);
     e.serde_rename_all = Some("snake_case".to_string());
-    // Give "User" an explicit rename
     e.variants[0].serde_rename = Some("human".to_string());
     let result = gen_enum(&e, "Wasm");
     assert!(result.contains("Self::User => \"human\""));
@@ -162,7 +157,6 @@ fn gen_tagged_enum_core_to_binding_uses_tuple_pattern_for_tuple_variants() {
     let e = make_tagged_tuple_enum();
     let result = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
 
-    // Must NOT use struct-pattern destructure for tuple variants.
     assert!(
         !result.contains("Message::System { _0 }"),
         "must not emit struct destructure for tuple variant;\nactual:\n{result}"
@@ -172,7 +166,6 @@ fn gen_tagged_enum_core_to_binding_uses_tuple_pattern_for_tuple_variants() {
         "must not emit struct destructure for tuple variant;\nactual:\n{result}"
     );
 
-    // Must use tuple-pattern destructure.
     assert!(
         result.contains("Message::System(field0)"),
         "must emit tuple destructure for tuple variant;\nactual:\n{result}"
@@ -182,9 +175,6 @@ fn gen_tagged_enum_core_to_binding_uses_tuple_pattern_for_tuple_variants() {
         "must emit tuple destructure for tuple variant;\nactual:\n{result}"
     );
 
-    // The positional value must be converted and stored in the `_0` binding struct field.
-    // Since the variants have different Named types, the struct stores JsValue and the
-    // conversion uses serde_wasm_bindgen.
     assert!(
         result.contains("_0: serde_wasm_bindgen::to_value(&field0).ok()"),
         "positional value must be serialized via serde_wasm_bindgen into _0 field;\nactual:\n{result}"
@@ -199,7 +189,6 @@ fn gen_tagged_enum_binding_to_core_uses_tuple_construction_for_tuple_variants() 
     let e = make_tagged_tuple_enum();
     let result = gen_tagged_enum_binding_to_core(&e, "test_lib", "Wasm");
 
-    // Must NOT use struct-construction syntax for tuple variants.
     assert!(
         !result.contains("Self::System { _0:"),
         "must not emit struct construction for tuple variant;\nactual:\n{result}"
@@ -209,7 +198,6 @@ fn gen_tagged_enum_binding_to_core_uses_tuple_construction_for_tuple_variants() 
         "must not emit struct construction for tuple variant;\nactual:\n{result}"
     );
 
-    // Must use tuple construction.
     assert!(
         result.contains("Self::System("),
         "must emit tuple construction for tuple variant;\nactual:\n{result}"
@@ -219,8 +207,6 @@ fn gen_tagged_enum_binding_to_core_uses_tuple_construction_for_tuple_variants() 
         "must emit tuple construction for tuple variant;\nactual:\n{result}"
     );
 
-    // Mixed-type Named fields must use serde_wasm_bindgen::from_value to deserialize
-    // the JsValue binding struct field to the variant-specific core type.
     assert!(
         result.contains("serde_wasm_bindgen::from_value::<test_lib::SystemMessage>"),
         "binding→core must deserialize mixed-type field via serde_wasm_bindgen;\nactual:\n{result}"
@@ -283,14 +269,12 @@ fn gen_tagged_enum_core_to_binding_unit_variants_unchanged() {
     };
 
     let core_to_binding = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
-    // Unit variants must still emit simple `CorePath::Variant => Self { ... }` arms.
     assert!(
         core_to_binding.contains("test_lib::Status::Active => Self {"),
         "unit variant arm must use simple path;\nactual:\n{core_to_binding}"
     );
 
     let binding_to_core = gen_tagged_enum_binding_to_core(&e, "test_lib", "Wasm");
-    // Unit variants in binding→core direction: `"active" => Self::Active`
     assert!(
         binding_to_core.contains("\"active\" => Self::Active"),
         "unit variant arm must match tag string;\nactual:\n{binding_to_core}"
@@ -327,7 +311,7 @@ fn gen_tagged_enum_core_to_binding_struct_variants_unchanged() {
                 binding_exclusion_reason: None,
                 original_type: None,
             }],
-            is_tuple: false, // struct variant
+            is_tuple: false,
             doc: String::new(),
             is_default: false,
             serde_rename: Some("basic".to_string()),
@@ -353,7 +337,6 @@ fn gen_tagged_enum_core_to_binding_struct_variants_unchanged() {
     };
 
     let result = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
-    // Struct variant must still use `{ username }` destructure.
     assert!(
         result.contains("Auth::Basic { username }"),
         "struct variant must keep struct destructure;\nactual:\n{result}"
@@ -454,34 +437,26 @@ fn gen_tagged_enum_as_struct_positional_field_setter_snake_case() {
     let e = make_tagged_tuple_enum();
     let result = gen_tagged_enum_as_struct(&e, "Wasm");
 
-    // The problematic setter must not appear.
     assert!(
         !result.contains("fn set__0("),
         "must not emit `set__0` — double-underscore violates non_snake_case lint;\nactual:\n{result}"
     );
 
-    // The getter must not be named `_0` (also non-snake-case under strict lint).
-    // After the fix it is `field_0`.
     assert!(
         result.contains("fn field_0("),
         "getter for positional `_0` field must be named `field_0`;\nactual:\n{result}"
     );
 
-    // The setter must be `set_field_0`.
     assert!(
         result.contains("fn set_field_0("),
         "setter for positional `_0` field must be named `set_field_0`;\nactual:\n{result}"
     );
 
-    // The JS-visible name attribute must still expose the camelCase-converted field name so the
-    // WASM/JS API is unaffected.  `to_node_name("_0")` strips the leading underscore → `"0"`.
     assert!(
         result.contains("js_name = \"0\""),
         "js_name attribute must use the to_node_name result for `_0` field;\nactual:\n{result}"
     );
 
-    // The struct field access inside the getter/setter body must still reference
-    // `self._0` (the actual struct field identifier).
     assert!(
         result.contains("self._0"),
         "getter/setter body must access `self._0` (the struct field);\nactual:\n{result}"
@@ -495,7 +470,6 @@ fn gen_tagged_enum_unit_variant_emits_tagged_union() {
     use super::gen_tagged_enum_as_struct;
 
     let mut e = make_tagged_tuple_enum();
-    // Modify to have a unit variant and a tuple variant
     e.variants[0].fields.clear();
     e.variants[0].is_tuple = false;
 
@@ -507,8 +481,6 @@ fn gen_tagged_enum_unit_variant_emits_tagged_union() {
         "WASM tagged enum must emit wasm_bindgen struct, not numeric enum;\nactual:\n{result}"
     );
 
-    // Must have a discriminator field named "kind" (not "role" or "annotation_type").
-    // The tag field in WASM should also use "kind" for consistency with NAPI.
     assert!(
         result.contains("pub(crate)") && (result.contains("kind") || result.contains("getter")),
         "WASM tagged enum struct must have a discriminator field for the tag;\nactual:\n{result}"
@@ -524,9 +496,6 @@ fn gen_tagged_enum_binding_to_core_matches_camel_case_tags() {
     let e = make_tagged_tuple_enum();
     let result = gen_tagged_enum_binding_to_core(&e, "test_lib", "Wasm");
 
-    // The variant tag match arms must use camelCase or the explicit serde_rename.
-    // In make_tagged_tuple_enum, System has serde_rename = Some("system"), User = Some("user").
-    // These are already lowercase, but the regex pattern should respect explicit renames.
     assert!(
         result.contains("match val.") && result.contains("as_str()"),
         "binding→core must dispatch on tag field string value;\nactual:\n{result}"

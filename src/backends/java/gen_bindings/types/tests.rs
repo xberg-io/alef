@@ -161,8 +161,6 @@ fn single_word_builder_field_gets_json_property() {
         &AHashSet::default(),
         &HashSet::default(),
     );
-    // `model` is single-word: Jackson still requires @JsonProperty on the builder setter
-    // to map JSON fields to setters correctly.
     assert!(
         out.contains("@JsonProperty(\"model\")"),
         "single-word builder field must get @JsonProperty; got:\n{out}"
@@ -196,7 +194,6 @@ fn multiword_snake_case_field_gets_json_property_annotation() {
         out.contains("@JsonProperty(\"top_p\")"),
         "multi-word field top_p must have @JsonProperty(\"top_p\") annotation; got:\n{out}"
     );
-    // The import must also be present.
     assert!(
         out.contains("import com.fasterxml.jackson.annotation.JsonProperty;"),
         "JsonProperty import must be present when @JsonProperty annotations are emitted"
@@ -316,7 +313,6 @@ fn flatten_json_field_forces_builder_emission_below_auto_threshold() {
         &AHashSet::default(),
         &HashSet::default(),
     );
-    // Builder must be emitted so @JsonAnySetter can absorb unknown sibling fields.
     assert!(
         out.contains("@JsonDeserialize(builder = ResponseTool.Builder.class)"),
         "flatten+Json type must emit Builder even with < 5 fields"
@@ -325,7 +321,6 @@ fn flatten_json_field_forces_builder_emission_below_auto_threshold() {
         out.contains("@com.fasterxml.jackson.annotation.JsonAnySetter"),
         "Builder must have @JsonAnySetter to absorb unknown sibling fields"
     );
-    // The record field itself should still use @JsonAnyGetter for serialization.
     assert!(
         out.contains("@com.fasterxml.jackson.annotation.JsonAnyGetter"),
         "record field must still carry @JsonAnyGetter for serialization"

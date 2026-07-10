@@ -70,19 +70,16 @@ fn test_java_pom_native_lib_fallback_logic() {
 
     let pom_content = &pom_file.content;
 
-    // Verify the pom contains the ffi/lib/ path for pre-built distribution
     assert!(
         pom_content.contains("ffi/lib/"),
         "pom.xml should reference ffi/lib/ for pre-built FFI distribution"
     );
 
-    // Verify the pom contains the fallback to target/release
     assert!(
         pom_content.contains("target/release"),
         "pom.xml should reference target/release as fallback for local builds"
     );
 
-    // Verify the pom uses an Ant condition to select between the two paths
     assert!(
         pom_content.contains("ffi.lib.path"),
         "pom.xml should use ffi.lib.path property to detect pre-built FFI"
@@ -93,8 +90,6 @@ fn test_java_pom_native_lib_fallback_logic() {
         "pom.xml should use native.source.dir property to conditionally select the lib directory"
     );
 
-    // Verify the copy step does not fail if the library is missing
-    // (failonerror="false" allows the build to continue if no FFI is found)
     assert!(
         pom_content.contains("failonerror=\"false\""),
         "pom.xml copy task should use failonerror=\"false\" to allow graceful handling of missing FFI libraries"

@@ -36,8 +36,6 @@ impl TypeMapper for JavaMapper {
     }
 
     fn json(&self) -> Cow<'static, str> {
-        // Polymorphic JSON fields (serde_json::Value) map to Object.
-        // Schema JSON (excluded types) will marshal explicitly in codegen.
         Cow::Borrowed("Object")
     }
 
@@ -55,9 +53,6 @@ impl TypeMapper for JavaMapper {
     }
 
     fn vec(&self, inner: &str) -> String {
-        // Vec uses boxed type names for generics — re-box by calling JavaBoxedMapper
-        // The inner string is already the mapped type from this mapper (primitive names).
-        // We need to re-box the inner for List<T> context; use JavaBoxedMapper for the inner.
         format!("List<{inner}>")
     }
 
@@ -126,8 +121,6 @@ impl TypeMapper for JavaBoxedMapper {
     }
 
     fn json(&self) -> Cow<'static, str> {
-        // Polymorphic JSON fields (serde_json::Value) map to Object.
-        // Schema JSON (excluded types) will marshal explicitly in codegen.
         Cow::Borrowed("Object")
     }
 
@@ -192,13 +185,9 @@ pub fn java_return_type(ty: &TypeRef) -> Cow<'static, str> {
 /// call site via `asType()`, which is allowed for numeric primitive narrowing.
 pub fn java_ffi_type(prim: &PrimitiveType) -> &'static str {
     match prim {
-        // Bool is i32 in FFI; promote to JAVA_LONG for JBR Win64 Panama compat.
         PrimitiveType::Bool => "ValueLayout.JAVA_LONG",
-        // 8-bit values promoted to JAVA_LONG for JBR Win64 Panama compat.
         PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_LONG",
-        // 16-bit values promoted to JAVA_LONG for JBR Win64 Panama compat.
         PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_LONG",
-        // 32-bit integers promoted to JAVA_LONG for JBR Win64 Panama compat.
         PrimitiveType::U32 | PrimitiveType::I32 => "ValueLayout.JAVA_LONG",
         PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
             "ValueLayout.JAVA_LONG"
@@ -274,7 +263,6 @@ mod tests {
 
     #[test]
     fn java_type_vec_uses_boxed_inner() {
-        // Vec<i32> → List<Integer> (not List<int>)
         assert_eq!(
             java_type(&TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::I32)))),
             "List<Integer>"
@@ -333,13 +321,11 @@ mod tests {
 
     #[test]
     fn java_ffi_type_promotes_bool_to_java_long() {
-        // Bool is i32 in FFI; must use JAVA_LONG for JBR Win64 Panama compat.
         assert_eq!(java_ffi_type(&PrimitiveType::Bool), "ValueLayout.JAVA_LONG");
     }
 
     #[test]
     fn java_ffi_type_promotes_all_integers_to_java_long() {
-        // All integer types promoted to JAVA_LONG to avoid OfIntImpl→OfLong ClassCastException on JBR.
         assert_eq!(java_ffi_type(&PrimitiveType::U8), "ValueLayout.JAVA_LONG");
         assert_eq!(java_ffi_type(&PrimitiveType::I8), "ValueLayout.JAVA_LONG");
         assert_eq!(java_ffi_type(&PrimitiveType::U16), "ValueLayout.JAVA_LONG");

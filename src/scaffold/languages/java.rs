@@ -34,9 +34,6 @@ fn java_capsule_dependencies(config: &ResolvedCrateConfig) -> String {
 
 pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
-    // `name` here is the Maven artifactId. Prefer the explicit `[java] artifact_id`
-    // override so the published artifactId can differ from the source crate name
-    // (e.g. crate `demo-markup-rs` publishes as artifactId `demo-markup`).
     let name = config.java_artifact_id();
     let name = name.as_str();
     let version = &api.version;
@@ -60,15 +57,8 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let scm = scm_urls(repo_url);
 
     let group_id = config.java_group_id();
-    // The alef Java backend emits sources under a directory tree mirroring the
-    // package (e.g. group `com.example.foo` -> `com/example/foo/Foo.java`). The
-    // maven-source-plugin include must target the first path segment so it picks
-    // up the generated sources without pulling in `target/`. Deriving it from the
-    // group keeps the source jar correct across namespaces; a hardcoded
-    // single-segment include breaks whenever the top-level group changes.
     let source_root = group_id.split('.').next().unwrap_or("dev");
 
-    // Build developers XML from authors
     let developers_xml = if meta.authors.is_empty() {
         String::new()
     } else {
@@ -91,7 +81,6 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         format!("\n    <developers>\n{}\n    </developers>\n", devs.join("\n"))
     };
 
-    // License URL mapping
     let license_url = match license {
         "Elastic-2.0" => "https://www.elastic.co/licensing/elastic-license",
         "MIT" => "https://opensource.org/licenses/MIT",
@@ -534,8 +523,6 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         capsule_deps = java_capsule_dependencies(config),
     );
 
-    // Generated Java code preserves Rust snake_case identifiers for FFI fidelity.
-    // Naming conventions are relaxed accordingly. Coding checks remain strict.
     let checkstyle_xml = r#"<?xml version="1.0"?>
 <!DOCTYPE module PUBLIC
     "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
@@ -595,9 +582,6 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 </module>
 "#;
 
-    // Empty (0 bytes): end-of-file-fixer leaves a 0-byte file alone, but strips a file whose
-    // sole content is a trailing newline back to empty — emitting "\n" causes churn every regen.
-    // An empty checkstyle properties file is valid (no property overrides).
     let checkstyle_properties = "";
 
     let checkstyle_suppressions_xml = r#"<?xml version="1.0"?>

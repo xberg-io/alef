@@ -28,7 +28,6 @@ fn fixture_without_config(id: &str) -> Fixture {
         env: None,
         setup: Vec::new(),
         call: None,
-        // input.config is absent, so create_engine(None) needs no config type reference in the body.
         input: serde_json::json!({ "url": "https://example.com" }),
         mock_response: None,
         visitor: None,
@@ -102,7 +101,6 @@ fn omits_crawl_config_import_when_body_has_no_reference() {
         !content.contains("use demo_engine::EngineConfig"),
         "config import emitted for a body that never references it (would trip -D unused_imports):\n{content}"
     );
-    // The constructor import must still be emitted, because the body does call create_engine.
     assert!(
         content.contains("use demo_engine::create_engine"),
         "create_engine import missing from a body that uses it:\n{content}"

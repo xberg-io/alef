@@ -172,11 +172,6 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         "elixir_enum_field_rest.jinja",
         ",\n            {{ name }}: {{ default }}",
     ),
-    // mix-format aligns the first arm with the `|`-prefixed continuation arms at column 10
-    // (i.e. 10-space indent for the bare arm so its `:atom` lines up with each `| :atom`).
-    // Emitting the first arm at column 0 breaks `mix format --check-formatted` and forces
-    // the consumer's pre-commit `mix-format` hook to rewrite the file, invalidating alef's
-    // embedded `alef:hash:` line.
     ("elixir_enum_type_arm_first.jinja", "          {{ arm }}\n"),
     ("elixir_enum_type_arm_rest.jinja", "          | {{ arm }}\n"),
     (
@@ -208,9 +203,6 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
     ),
     (
         "elixir_spec_multiline.jinja",
-        // alef's minijinja env has trim_blocks=true (first newline after every
-        // {% ... %} tag is stripped). Use an explicit {{ "\n" }} expression at
-        // the start of each loop iteration so the per-arg newline survives.
         "  @spec {{ func_name }}({% for type_str in param_types %}{{ \"\\n          \" }}{{ type_str }}{% if not loop.last %},{% endif %}{% endfor %}{{ \"\\n        \" }}) :: {{ return_spec }}\n",
     ),
     (

@@ -111,7 +111,6 @@ fn capsule_function_returns_raw_language_pointer() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The exported C function returns the host grammar pointer, not an opaque box.
     assert!(
         lib.content.contains("-> *const tree_sitter::ffi::TSLanguage"),
         "capsule fn must return *const tree_sitter::ffi::TSLanguage. Got:\n{}",
@@ -136,7 +135,6 @@ fn capsule_function_calls_into_raw_not_box() {
         "capsule fn must convert via into_raw() cast. Got:\n{}",
         lib.content
     );
-    // The whole point: no opaque box for the capsule return.
     assert!(
         !lib.content.contains("Box::into_raw(Box::new(result))"),
         "capsule fn must NOT box the value into an opaque handle"

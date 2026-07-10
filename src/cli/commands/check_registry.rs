@@ -80,9 +80,6 @@ pub fn check(registry: Registry, package: &str, version: &str, extra: &ExtraPara
             &extra.required_assets,
         )?,
         Registry::Pub => check_pub(package, version)?,
-        // Zig and Swift have no central registry — both consume packages
-        // directly from GitHub release tags. The "version exists" check is
-        // therefore "does the GH release tag exist on the configured repo".
         Registry::Zig | Registry::Swift => check_github_release(package, version, extra.repo.as_deref(), None, &[])?,
     };
 
@@ -116,8 +113,6 @@ pub struct ExtraParams {
     /// Required asset names (github-release): all must be present.
     pub required_assets: Vec<String>,
 }
-
-// ---- HTTP helper ----
 
 /// Build a configured ureq agent with a 30-second global timeout.
 fn build_agent() -> ureq::Agent {
@@ -174,8 +169,6 @@ fn http_get_json(url: &str) -> Result<Option<serde_json::Value>> {
     }
 }
 
-// ---- per-registry checks ----
-
 fn check_pypi(package: &str, version: &str) -> Result<bool> {
     let url = format!("https://pypi.org/pypi/{package}/{version}/json");
     http_get_ok(&url)
@@ -189,11 +182,7 @@ fn check_npm(package: &str, version: &str) -> Result<bool> {
 fn check_cratesio(package: &str, version: &str) -> Result<bool> {
     let url = format!("https://crates.io/api/v1/crates/{package}/{version}");
     let agent = build_agent();
-    let response = agent
-        .get(&url)
-        // crates.io requires a descriptive User-Agent.
-        .header("User-Agent", "alef-publish/1.0")
-        .call();
+    let response = agent.get(&url).header("User-Agent", "alef-publish/1.0").call();
     match classify(response).with_context(|| format!("HTTP GET {url}"))? {
         HttpOutcome::Ok(_) => Ok(true),
         HttpOutcome::NotFound => Ok(false),
@@ -223,13 +212,11 @@ fn check_hex(package: &str, version: &str) -> Result<bool> {
 }
 
 fn check_pub(package: &str, version: &str) -> Result<bool> {
-    // pub.dev returns 200 with a version object, or 404 if the version is missing.
     let url = format!("https://pub.dev/api/packages/{package}/versions/{version}");
     http_get_ok(&url)
 }
 
 fn check_maven(package: &str, version: &str) -> Result<bool> {
-    // package format: groupId:artifactId
     let (group_id, artifact_id) = if let Some(colon) = package.find(':') {
         (&package[..colon], &package[colon + 1..])
     } else {
@@ -267,7 +254,6 @@ fn check_packagist(package: &str, version: &str) -> Result<bool> {
 fn check_homebrew(package: &str, version: &str, tap_repo: Option<&str>) -> Result<bool> {
     let repo = tap_repo.unwrap_or("Homebrew/homebrew-core");
     if repo == "Homebrew/homebrew-core" {
-        // Homebrew core API exposes the resolved version in the JSON body.
         let url = format!("https://formulae.brew.sh/api/formula/{package}.json");
         let Some(json) = http_get_json(&url)? else {
             return Ok(false);
@@ -278,9 +264,6 @@ fn check_homebrew(package: &str, version: &str, tap_repo: Option<&str>) -> Resul
             .and_then(|v| v.as_str());
         return Ok(formula_version == Some(version));
     }
-    // For third-party taps: fetch the formula source and look for the version.
-    // We accept either a `version "<v>"` line or a `url ".../v<v>.tar.gz"` reference,
-    // since formulae use one form or the other depending on download style.
     let url = format!("https://raw.githubusercontent.com/{repo}/HEAD/Formula/{package}.rb");
     let agent = build_agent();
     let response = agent.get(&url).header("User-Agent", "alef-publish/1.0").call();
@@ -293,16 +276,9 @@ fn check_homebrew(package: &str, version: &str, tap_repo: Option<&str>) -> Resul
         .read_to_string()
         .with_context(|| format!("reading body from {url}"))?;
 
-    // Match `version "X"` or `version 'X'` (explicit version stanza).
     if body.contains(&format!("version \"{version}\"")) || body.contains(&format!("version '{version}'")) {
         return Ok(true);
     }
-    // Otherwise scan for a top-level (non-bottle) `url` line that names this
-    // version. We must NOT match `root_url` inside a `bottle do` block — a
-    // freshly bumped formula often updates root_url to the new release while
-    // leaving the source `url` pointing at an older tag, and treating that as
-    // "version exists" causes false positives that skip subsequent bottle
-    // builds.
     for line in body.lines() {
         let trimmed = line.trim_start();
         if !trimmed.starts_with("url ") && !trimmed.starts_with("url(") {
@@ -391,7 +367,6 @@ mod tests {
 
     #[test]
     fn zig_swift_require_repo() {
-        // Zig and Swift delegate to check_github_release, which requires --repo.
         let extra = ExtraParams::default();
         for registry in [Registry::Zig, Registry::Swift] {
             let result = check(registry, "alef", "1.0.0", &extra, false);
@@ -404,11 +379,8 @@ mod tests {
 
     #[test]
     fn maven_package_parse_colon() {
-        // Just verify the URL construction doesn't panic.
         let result = check_maven("com.example:my-lib", "1.0.0");
-        // Network unavailable in CI — we just check it doesn't crash with wrong format.
-        // It will fail with a network error, not a parse error.
-        let _ = result; // ignore network errors in unit tests
+        let _ = result;
     }
 
     #[test]

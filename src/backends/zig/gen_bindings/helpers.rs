@@ -117,9 +117,6 @@ mod tests {
             &mut out,
         );
 
-        // The dispatch helper must reference both per-error matchers so the
-        // generated Zig file correctly maps FFI messages to typed variants on
-        // a per-error-set basis.
         assert!(
             out.contains("if (E == Error) return _from_ffi_msg_Error(msg_opt);"),
             "missing dispatch to _from_ffi_msg_Error:\n{out}"
@@ -128,14 +125,10 @@ mod tests {
             out.contains("if (E == DownloadError) return _from_ffi_msg_DownloadError(msg_opt);"),
             "missing dispatch to _from_ffi_msg_DownloadError:\n{out}"
         );
-        // The FFI error message must still be printed before dispatch so the
-        // diagnostic line preserves backwards-compatible debug output.
         assert!(
             out.contains("std.debug.print(\"FFI error: {s}\\n\", .{msg});"),
             "missing FFI error print:\n{out}"
         );
-        // And the fallback to `_first_error(E)` must remain so unknown error
-        // types still receive a typed value.
         assert!(
             out.contains("return _first_error(E);"),
             "missing _first_error fallback:\n{out}"
@@ -146,8 +139,6 @@ mod tests {
     fn error_with_message_falls_back_to_first_error_when_no_errors_declared() {
         let mut out = String::new();
         emit_helpers("crate", &[], &mut out);
-        // With no declared error sets, the helper degrades to the previous
-        // first-variant behaviour rather than emitting an empty dispatch.
         assert!(
             out.contains("inline fn _error_with_message(comptime E: type) E {"),
             "missing _error_with_message decl:\n{out}"

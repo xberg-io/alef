@@ -124,11 +124,6 @@ options_via = "from_json"
         rendered.contains("DefaultClient(apiKey:"),
         "must instantiate DefaultClient with apiKey. Rendered:\n{rendered}"
     );
-    // The mock server URL is exposed via `AlefE2EMockServer.baseURL` — a
-    // process-lifetime accessor that lazily spawns the alef mock-server binary
-    // and falls back to `MOCK_SERVER_URL` when it is preset by CI. Prior versions
-    // read `ProcessInfo.processInfo.environment["MOCK_SERVER_URL"]!` directly,
-    // which only worked when the env var was already exported.
     assert!(
         rendered.contains("AlefE2EMockServer.baseURL"),
         "must reference AlefE2EMockServer.baseURL for the mock base url. Rendered:\n{rendered}"
@@ -176,7 +171,6 @@ options_via = "from_json"
 /// dep's deployment target (SwiftPM hides products otherwise).
 #[test]
 fn package_swift_always_includes_ios_platform() {
-    // Without client_factory (but with options_via so the test body isn't a skip stub)
     let toml_no_cf = format!(
         r#"{BASE_TOML}
 [crates.e2e.call.overrides.swift]
@@ -194,7 +188,6 @@ options_via = "from_json"
         "Package.swift must include .iOS platform. Content:\n{pkg_no_cf}"
     );
 
-    // With client_factory
     let toml_cf = format!(
         r#"{BASE_TOML}
 [crates.e2e.call.overrides.swift]
@@ -229,8 +222,6 @@ options_via = "from_json"
         .iter()
         .find(|f| f.path.ends_with("Package.swift"))
         .expect("Package.swift is emitted");
-    // E2e package is emitted under `swift_e2e/`, not `swift/`, to avoid
-    // SwiftPM identity collision with `packages/swift/`.
     assert!(
         pkg_file
             .path
@@ -241,14 +232,10 @@ options_via = "from_json"
         pkg_file.path
     );
     let pkg = &pkg_file.content;
-    // Must NOT use the deprecated `.package(name:path:)` form, which SwiftPM 6.0
-    // silently ignores — the resolver always uses the path basename.
     assert!(
         !pkg.contains(".package(name:"),
         "Package.swift must not use deprecated .package(name:path:) form. Content:\n{pkg}"
     );
-    // The dep must be referenced by path basename in `.product(package:)`.
-    // The default BASE_TOML uses path `../../packages/swift`, basename `swift`.
     assert!(
         pkg.contains(r#".product(name: "DemoClient", package: "swift")"#),
         "Package.swift must reference the dep by path basename `swift`. Content:\n{pkg}"

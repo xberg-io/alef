@@ -10,16 +10,10 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
 
-    // The wasm crate's Cargo.toml is managed by alef-backend-wasm's generate_bindings
-    // (emitted alongside lib.rs so it is always regenerated). The scaffold only owns
-    // the package.json.
-
     let mut files = vec![];
 
     let wasm_pkg_name = config.wasm_package_name();
 
-    // wasm-pack converts hyphens to underscores in the generated filenames
-    // (Rust convention), so `demo-markup` becomes `demo_markup`.
     let core_crate_file = core_crate_dir.replace('-', "_");
     let repository_block = meta
         .configured_repository

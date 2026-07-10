@@ -38,7 +38,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
     }
     out.push('\n');
 
-    // Emit @typedoc and @type t typespec before defstruct.
     let default_types: AHashSet<String> = enum_defaults.keys().cloned().collect();
     if !typ.doc.is_empty() {
         let first_para = doc_first_paragraph_joined(&typ.doc);
@@ -63,8 +62,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
                     field_type
                 };
 
-            // mix format aligns struct fields to the column of the opening `{` in
-            // `@type t :: %__MODULE__{`, which is at column 24 (10-space indent).
             out.push_str(&template_env::render(
                 "elixir_struct_type_field.ex.jinja",
                 minijinja::context! {
@@ -75,11 +72,8 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
             ));
         }
     }
-    // Closing brace aligned to the column of the field indent (8 spaces) —
-    // mix format hoists the `}` to this column when it wraps the typespec.
     out.push_str("        }\n\n");
 
-    // defstruct with defaults - use bare keyword list style (mix format compliant)
     if fields.is_empty() {
         out.push_str(&template_env::render("struct_empty.jinja", minijinja::context! {}));
     } else {
@@ -108,9 +102,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
         out.push('\n');
     }
 
-    // Add Jason.Encoder implementation for option structs (has_default = true).
-    // This allows Elixir code to pass structs to NIF functions that expect JSON-encoded options.
-    // Filter out nil values to avoid serde deserialization issues with nested structs.
     if typ.has_default {
         out.push('\n');
         out.push_str("  defimpl Jason.Encoder do\n");
@@ -125,7 +116,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
         out.push_str("  end\n");
     }
 
-    // Add valid?/1 instance method for HeaderMetadata-like types with is_valid in Rust.
     if typ.name == "HeaderMetadata" {
         out.push('\n');
         out.push_str("  @doc \"Validate that the header level is within valid range (1-6).\"\n");
@@ -135,8 +125,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_struct_module(
         out.push_str("  end\n");
     }
 
-    // `mix format` rejects a blank between the last block's `end` and the
-    // module's closing `end`; trim trailing blanks before emitting the footer.
     while out.ends_with("\n\n") {
         out.pop();
     }
@@ -180,13 +168,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module(
     }
     out.push('\n');
 
-    // Native alias and reference-only struct. Only emit the alias when the
-    // body actually references Native.foo — otherwise mix compile
-    // --warnings-as-errors flags an unused-alias warning. The body uses
-    // Native for the default-constructor body, for any method wrapper, or for
-    // the variant-wrapper static `new` constructor (emitted by the general
-    // method loop below — no special-case is needed because the IR already
-    // places the static `new` in `typ.methods`).
     let needs_native_alias = typ.has_default || !typ.methods.is_empty() || typ.is_variant_wrapper;
     if needs_native_alias {
         out.push_str(&template_env::render(
@@ -205,8 +186,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module(
 
     let type_lower = typ.name.to_lowercase();
 
-    // Streaming-adapter method names owned by this type. Sync calls would fail
-    // (the NIFs are `{name}_start`/`{name}_next`); emit a Stream wrapper instead.
     let streaming_method_names: AHashSet<String> = config
         .adapters
         .iter()
@@ -215,7 +194,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module(
         .map(|a| a.name.clone())
         .collect();
 
-    // Constructor for types with a default — wraps the native default reference.
     if typ.has_default {
         out.push_str(&template_env::render(
             "elixir_opaque_new.ex.jinja",
@@ -225,28 +203,17 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module(
         ));
     }
 
-    // Wrapper for each method. Methods with a receiver take the struct as the
-    // first argument and pass `obj.ref` to the NIF. Static methods (no receiver)
-    // are emitted as module-level functions.
     for method in &typ.methods {
         let method_name = method.name.to_snake_case();
 
-        // Skip emitting `new/0` wrapper if type has a default, since we already
-        // emitted `def new/0` above (lines 765–771). If the Rust type has both
-        // `impl Default` and `pub fn new()`, we only want one Elixir `def new/0`.
         if typ.has_default && method.name == "new" && method.receiver.is_none() {
-            // Instead of skipping silently, emit the `default/0` function if the
-            // method is the `default()` constructor (uncommon, but defensively handle it).
             continue;
         }
 
-        // Similarly, skip emitting `default/0` wrapper from Rust methods if we already
-        // have a `has_default` block above. We'll emit it as a separate function below.
         if typ.has_default && method.name == "default" && method.receiver.is_none() {
             continue;
         }
 
-        // Streaming methods: emit a Stream.unfold wrapper driving _start/_next NIFs.
         if streaming_method_names.contains(&method.name) {
             let start_fn = format!("{type_lower}_{}_start", method.name);
             let next_fn = format!("{type_lower}_{}_next", method.name);
@@ -275,13 +242,10 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module(
                     next_fn => &next_fn,
                 },
             ));
-            // Template ends with newline; add blank line for mix format compatibility
             out.push('\n');
             continue;
         }
 
-        // Async methods delegate to the `_async` NIF unless the Rust name already
-        // ends in `_async` (preserved per functions.rs convention).
         let nif_fn = if method.is_async {
             if method.name.ends_with("_async") {
                 format!("{type_lower}_{}", method.name)
@@ -306,12 +270,9 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module(
 
         let doc_first = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
 
-        // For static methods (no receiver) on opaque types, wrap the return value
-        // in the struct if the return type matches the module's type.
         let is_static = method.receiver.is_none();
         let returns_self = matches!(&method.return_type, TypeRef::Named(n) if n == &typ.name);
 
-        // Ensure blank line before @doc (mix format requirement between defs)
         if !doc_first.is_empty() && !out.is_empty() && !out.ends_with("\n\n") {
             out.push('\n');
         }
@@ -327,12 +288,9 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module(
                 call_args => &call_args.join(", "),
             },
         ));
-        // Template ends with newline; add blank line for mix format compatibility
         out.push('\n');
     }
 
-    // Emit a separate `default/0` function if the type has a default.
-    // This wraps the `{type_lower}_default()` NIF and is distinct from `new/0`.
     if typ.has_default {
         out.push_str(&template_env::render(
             "elixir_opaque_default.ex.jinja",
@@ -342,8 +300,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_opaque_module(
         ));
     }
 
-    // Methods leave a trailing blank line after `end`; `mix format` rejects a
-    // blank between the last def's `end` and the module's closing `end`.
     while out.ends_with("\n\n") {
         out.pop();
     }
@@ -393,10 +349,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
     let is_simple = enum_def.variants.iter().all(|v| v.fields.is_empty());
 
     if is_simple {
-        // @type t :: :variant_one | :variant_two | ...
-        // Rustler NifUnitEnum encodes variants as atoms using the variant name as-is,
-        // but Elixir convention for atoms uses snake_case.
-        // Guard against Elixir reserved words (end, fn, do, etc.).
         let atom_arms: Vec<String> = enum_def
             .variants
             .iter()
@@ -415,7 +367,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             let first_para = doc_first_paragraph_joined(&enum_def.doc);
             emit_elixir_doc_attr(&mut out, "typedoc", &first_para, "  ");
         }
-        // Emit multi-line @type when the single-line form exceeds 120 chars
         let single_line = format!("  @type t :: {}", atom_arms.join(" | "));
         if single_line.len() <= 120 {
             out.push_str(&template_env::render(
@@ -446,14 +397,10 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
         }
         out.push('\n');
 
-        // Module attributes for each variant value — convenient aliases
         for variant in &enum_def.variants {
-            // Use original variant name (snake_cased) as the identifier, not serde_rename.
-            // Guard against Elixir reserved words (end, fn, do, etc.) and module attributes.
             let snake_name = crate::codegen::naming::pascal_to_snake(&variant.name);
             let safe_name = elixir_safe_param_name(&snake_name);
             let attr_name = elixir_safe_attr_name(&safe_name);
-            // But the atom value should use serde_rename if available, properly quoted if needed.
             let atom_value = variant
                 .serde_rename
                 .clone()
@@ -468,10 +415,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             ));
         }
         out.push('\n');
-        // Export the values so callers can reference MyEnum.variant_name/0
         for variant in &enum_def.variants {
-            // Use original variant name (snake_cased) as the function identifier.
-            // Guard against Elixir reserved words (end, fn, do, etc.) and module attributes.
             let snake_name = crate::codegen::naming::pascal_to_snake(&variant.name);
             let safe_name = elixir_safe_param_name(&snake_name);
             let attr_name = elixir_safe_attr_name(&safe_name);
@@ -488,7 +432,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             ));
         }
     } else {
-        // Data enum: provide a @type t :: term() and per-variant type aliases
         if !enum_def.doc.is_empty() {
             let first_para = doc_first_paragraph_joined(&enum_def.doc);
             emit_elixir_doc_attr(&mut out, "typedoc", &first_para, "  ");
@@ -497,11 +440,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
         out.push('\n');
         for variant in &enum_def.variants {
             let snake_name = crate::codegen::naming::pascal_to_snake(&variant.name);
-            // The atom VALUE in `%{type: :atom}` must match the runtime atom the NifTaggedEnum
-            // decoder and the generated constructor use — both derive it from `snake_name` via
-            // `elixir_safe_atom` (e.g. `End` → `:end`, a valid atom). The `@type` LHS name, by
-            // contrast, is an identifier in type position where reserved words are illegal
-            // (`@type end ::` won't compile), so it keeps the reserved-word-guarded form.
             let variant_atom = format!(":{}", elixir_safe_atom(&snake_name));
             let type_name = elixir_safe_type_name(&elixir_safe_param_name(&snake_name));
             if !variant.doc.is_empty() {
@@ -509,7 +447,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
                 emit_elixir_doc_attr(&mut out, "typedoc", &first_para, "  ");
             }
             if variant.fields.is_empty() {
-                // Unit variant: just an atom
                 out.push_str(&template_env::render(
                     "elixir_data_enum_unit_type.jinja",
                     minijinja::context! {
@@ -518,13 +455,11 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
                     },
                 ));
             } else {
-                // Struct variant: a map with a type tag and payload-derived field names
                 let field_types: Vec<String> = variant
                     .fields
                     .iter()
                     .enumerate()
                     .map(|(idx, f)| {
-                        // Determine the type name for type inference
                         let type_name = match &f.ty {
                             TypeRef::Named(n) => Some(n.as_str()),
                             TypeRef::String => Some("String"),
@@ -550,12 +485,9 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
                             _ => None,
                         };
 
-                        // Derive field name using payload-informed naming
                         let field_name =
                             elixir_field_name_with_type(&f.name, idx, type_name, &variant.name, variant.fields.len());
 
-                        // Emit concrete type using elixir_typespec
-                        // If the field type is a known API type, resolve to Module.t()
                         let field_type = if let TypeRef::Named(n) = &f.ty {
                             if known_types.contains(n) {
                                 format!("{app_module}.{}.t()", n)
@@ -584,21 +516,12 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
             }
         }
 
-        // Per-variant constructors: `def <snake>(<params>), do: {:<atom>, %{<field>: <param>, ...}}`.
-        // Each builds the `{:variant, %{field: value}}` tagged-tuple form that the NifTaggedEnum
-        // decoder consumes — the plain-direct model (no NIF, no core conversion; the binding enum is
-        // already binding-shaped). Variant selection (skip unit/tuple/`binding_excluded`, yield to a
-        // hand-written `impl` method of the same name) is shared with the pyo3/magnus/php/extendr
-        // paths via `collect_variant_constructors`.
         let constructors = crate::codegen::generators::collect_variant_constructors(enum_def);
         if !constructors.is_empty() {
             out.push('\n');
             for ctor in &constructors {
                 let atom = elixir_safe_atom(&ctor.snake_name);
                 let fn_name = elixir_safe_param_name(&ctor.snake_name);
-                // Pair each Elixir param name with the map entry `field: param`. The map key is the
-                // Rust field name (an atom); the encoder reduces over it (renaming where needed) so
-                // the wire shape matches what serde expects.
                 let params: Vec<String> = ctor.params.iter().map(|p| elixir_safe_param_name(&p.name)).collect();
                 let map_entries: Vec<String> = ctor
                     .params

@@ -138,7 +138,6 @@ sources = ["src/lib.rs"]
     fn default_output_dir_uses_provided_default() {
         let config = make_config();
         let dir = default_output_dir(&config, "packages/go/");
-        // The result should include "packages/go/" as the default.
         assert!(dir.to_string_lossy().contains("go"));
     }
 }

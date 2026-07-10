@@ -23,9 +23,6 @@ use crate::scaffold::{parse_author, scaffold_meta, xml_escape};
 pub fn emit(config: &ResolvedCrateConfig) -> String {
     let kotlin_version = maven::KOTLIN_JVM_PLUGIN;
     let android_gradle_plugin = maven::ANDROID_GRADLE_PLUGIN;
-    // AGP 9.0+ ships built-in Kotlin support and rejects re-application of the
-    // `org.jetbrains.kotlin.android` plugin; AGP 8.x requires the explicit line.
-    // Emit it only for AGP < 9 (derived from the pin's major version).
     let agp_major: u32 = android_gradle_plugin
         .split('.')
         .next()
@@ -58,9 +55,6 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let jni_crate_path = config.jni_crate_path();
     let jni_lib_name = config.jni_lib_name();
 
-    // Host-native capsule (Language) passthrough: depend on ktreesitter so the generated
-    // facade can construct its `Language` from the native pointer. `package` is a Gradle
-    // `group:artifact` coordinate (e.g. `io.github.tree-sitter:ktreesitter`).
     let capsule_deps: String = {
         let mut deps: Vec<(String, String)> = config
             .kotlin_android
@@ -75,22 +69,13 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
             .unwrap_or_default();
         deps.sort();
         deps.dedup();
-        // Expose each capsule dependency via `api`, not `implementation`: the generated
-        // facade returns the host-native `Language` (e.g. ktreesitter), so the type is part
-        // of this library's PUBLIC API. `api` puts it on the compile classpath of the
-        // library's own test sources AND of downstream consumers (and emits it as a
-        // compile-scope POM dependency on the published AAR). With `implementation` it is
-        // hidden from consumers, so any caller of `getLanguage()` — including the e2e
-        // test_app — fails to compile with "Cannot access class 'Language'".
         deps.iter()
             .map(|(coord, ver)| format!("\n    api(\"{coord}:{ver}\")"))
             .collect()
     };
 
-    // Build pom metadata from config.scaffold
     let meta = scaffold_meta(config);
 
-    // Derive SCM URLs from repository URL
     let repo_url = meta.repository.as_deref().unwrap_or_else(|| {
         panic!("Kotlin Android scaffold requires package metadata repository; set package_metadata.repository or scaffold.repository")
     });
@@ -99,7 +84,6 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
         .or_else(|| repo_url.strip_prefix("http://github.com/"))
         .unwrap_or(repo_url.trim_start_matches("https://"));
 
-    // License URL mapping
     let license = meta.license.as_deref().unwrap_or_else(|| {
         panic!("Kotlin Android scaffold requires package metadata license; set package_metadata.license or scaffold.license")
     });
@@ -110,7 +94,6 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
         _ => "",
     };
 
-    // Build licenses block
     let licenses_block = if license_url.is_empty() {
         format!(
             "licenses {{\n            license {{\n                name.set(\"{}\")\n            }}\n        }}",
@@ -124,9 +107,8 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
         )
     };
 
-    // Build developers block from authors (if any)
     let developers_block = if meta.authors.is_empty() {
-        "\n".to_string() // Just newline if no developers
+        "\n".to_string()
     } else {
         let devs: Vec<String> = meta
             .authors
@@ -338,11 +320,11 @@ mavenPublishing {{
     }}
 }}
 "#,
-        xml_escape(&meta.description), // description.set({})
-        xml_escape(repo_url),          // url.set({})
-        xml_escape(repo_url),          // url.set({}) in scm block
-        repo_path,                     // connection.set("scm:git:git://github.com/{}.git")
-        repo_path,                     // developerConnection.set("scm:git:ssh://git@github.com:{}.git")
+        xml_escape(&meta.description),
+        xml_escape(repo_url),
+        xml_escape(repo_url),
+        repo_path,
+        repo_path,
     )
 }
 
@@ -352,7 +334,6 @@ mod tests {
 
     #[test]
     fn build_gradle_includes_host_jni_tasks() {
-        // Create a minimal ResolvedCrateConfig for testing.
         use crate::core::config::new_config::NewAlefConfig;
 
         let toml_str = r#"
@@ -380,31 +361,26 @@ description = "Test library"
 
         let gradle = emit(config);
 
-        // Verify the emitted Gradle script contains the host JNI build task.
         assert!(
             gradle.contains(r#"tasks.register("buildHostJni", Exec::class)"#),
             "Gradle should contain buildHostJni task registration"
         );
 
-        // Verify the copyHostJni task is present.
         assert!(
             gradle.contains(r#"tasks.register("copyHostJni", Copy::class)"#),
             "Gradle should contain copyHostJni task registration"
         );
 
-        // Verify the Test task configuration is present.
         assert!(
             gradle.contains("tasks.withType<Test>"),
             "Gradle should configure tasks.withType<Test>"
         );
 
-        // Verify the java.library.path property is set for tests.
         assert!(
             gradle.contains("java.library.path"),
             "Gradle should set java.library.path system property"
         );
 
-        // Verify the opt-out property is documented.
         assert!(
             gradle.contains("alef.skipHostJni"),
             "Gradle should mention alef.skipHostJni opt-out"

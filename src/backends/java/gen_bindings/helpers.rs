@@ -80,7 +80,6 @@ pub(crate) const JAVA_LANG_AUTO_IMPORTED: &[&str] = &[
 /// - `::` (namespace separator) → `.` (Java package separator)
 /// - `.unwrap()` / `.expect()` → removed (Rust idioms with no Java equivalent)
 pub(crate) fn escape_javadoc_line(s: &str) -> String {
-    // First pass: sanitize Rust-specific syntax outside backticks
     let sanitized = sanitize_rust_syntax(s);
 
     let mut result = String::with_capacity(sanitized.len());
@@ -101,9 +100,6 @@ pub(crate) fn escape_javadoc_line(s: &str) -> String {
                     '<' => result.push_str("&lt;"),
                     '>' => result.push_str("&gt;"),
                     '&' => result.push_str("&amp;"),
-                    // Literal `*/` inside {@code …} would prematurely close the
-                    // surrounding /** … */ javadoc. Escape the slash to keep the
-                    // span intact (parser still renders the original glyph).
                     '*' if code_iter.peek() == Some(&'/') => {
                         code_iter.next();
                         result.push_str("*&#47;");
@@ -263,10 +259,6 @@ pub(crate) fn gen_exception_class(package: &str, class_name: &str) -> String {
     )
 }
 
-// ---------------------------------------------------------------------------
-// High-level facade class (public API)
-// ---------------------------------------------------------------------------
-
 /// Transform Rust intra-doc rustdoc into JavaDoc-compatible prose with
 /// JavaDoc tags (`@param`, `@return`, `@throws`).
 ///
@@ -282,8 +274,6 @@ fn transform_rustdoc_for_java(doc: &str, throws_class: &str) -> String {
     let sections = crate::codegen::doc_emission::parse_rustdoc_sections(doc);
     let rendered = crate::codegen::doc_emission::render_javadoc_sections(&sections, throws_class);
     if rendered.trim().is_empty() {
-        // Fallback: when no recognised sections present, sanitize Rust idioms and remove intra-doc links
-        // to preserve backward compatibility for prose that has no Markdown headings.
         let sanitized = sanitize_rust_syntax(doc);
         return sanitized.replace("[`", "").replace("`]", "").trim().to_string();
     }
@@ -334,28 +324,23 @@ pub(crate) fn java_apply_rename_all(name: &str, rename_all: Option<&str>) -> Str
         Some("lowercase") => name.to_lowercase(),
         Some("UPPERCASE") => name.to_uppercase(),
         // Serde's default for enums (no #[serde(rename_all)]) is the variant name
-        // unchanged (title-case/PascalCase). Match that behavior.
         _ => name.to_string(),
     }
 }
 
 pub(crate) fn format_optional_value(ty: &TypeRef, default: &str) -> String {
-    // Check if the default is already wrapped (e.g., "Optional.of(...)" or "Optional.empty()")
     if default.contains("Optional.") {
         return default.to_string();
     }
 
-    // Unwrap Optional types to get the inner type
     let inner_ty = match ty {
         TypeRef::Optional(inner) => inner.as_ref(),
         other => other,
     };
 
-    // Determine the proper literal suffix based on type
     let formatted_value = match inner_ty {
         TypeRef::Primitive(p) => match p {
             PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Isize | PrimitiveType::Usize => {
-                // Add 'L' suffix for long values if not already present
                 if default.ends_with('L') || default.ends_with('l') {
                     default.to_string()
                 } else if default.parse::<i64>().is_ok() {
@@ -365,7 +350,6 @@ pub(crate) fn format_optional_value(ty: &TypeRef, default: &str) -> String {
                 }
             }
             PrimitiveType::F32 => {
-                // Add 'f' suffix for float values if not already present
                 if default.ends_with('f') || default.ends_with('F') {
                     default.to_string()
                 } else if default.parse::<f32>().is_ok() {
@@ -374,10 +358,7 @@ pub(crate) fn format_optional_value(ty: &TypeRef, default: &str) -> String {
                     default.to_string()
                 }
             }
-            PrimitiveType::F64 => {
-                // Double defaults can have optional 'd' suffix, but 0.0 is fine
-                default.to_string()
-            }
+            PrimitiveType::F64 => default.to_string(),
             _ => default.to_string(),
         },
         _ => default.to_string(),

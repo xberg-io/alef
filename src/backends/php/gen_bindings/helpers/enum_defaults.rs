@@ -16,7 +16,6 @@ pub(crate) fn gen_convertible_enum_tainted(
     enum_names: &AHashSet<String>,
     enums: &[EnumDef],
 ) -> AHashSet<String> {
-    // First, find which enum-tainted types directly reference data-variant enums
     let mut unconvertible: AHashSet<String> = AHashSet::new();
     for typ in types {
         if !enum_tainted.contains(&typ.name) {
@@ -32,7 +31,6 @@ pub(crate) fn gen_convertible_enum_tainted(
             }
         }
     }
-    // Transitively exclude types that reference unconvertible types
     let mut changed = true;
     while changed {
         changed = false;
@@ -46,7 +44,6 @@ pub(crate) fn gen_convertible_enum_tainted(
             }
         }
     }
-    // Return the set of enum-tainted types that CAN be converted
     enum_tainted
         .iter()
         .filter(|name| !unconvertible.contains(name.as_str()))
@@ -69,10 +66,6 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
 ) -> String {
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
 
-    // Types with lifetime parameters (e.g. NodeContext<'a>) have private fields that
-    // forbid struct-literal construction AND require `<'_>` in the impl header.
-    // Delegate to gen_from_lifetime_type_constructor which locates the correct static
-    // constructor (with_owned_*, etc.) and emits a well-formed From impl.
     if typ.has_lifetime_params {
         if let Some(code) =
             crate::codegen::conversions::gen_from_lifetime_type_constructor(typ, &core_path, &typ.name, config)
@@ -81,38 +74,15 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
         }
     }
 
-    // Collect `(core_field, rhs_expr)` pairs, then emit either a struct literal or — for core
-    // types whose private (`pub(crate)`) fields forbid struct-literal construction — a
-    // `Default`-seeded builder via the shared construction strategy (the same one the
-    // pyo3/napi/wasm/dart generators use).
     let mut fields: Vec<(&str, String)> = Vec::new();
     for field in &typ.fields {
         if field.binding_excluded {
             if !typ.has_default {
-                // The core type does not derive Default, so the trailing
-                // `..Default::default()` spread would fail with E0277. Emit
-                // `<field>: Default::default()` explicitly for each binding-excluded
-                // field. This loses any custom core-level Default behaviour for
-                // these fields, but is the only way to construct the struct literal
-                // when the core type lacks a Default impl.
                 fields.push((field.name.as_str(), "Default::default()".to_string()));
                 continue;
             }
-            // Skip binding_excluded fields entirely; the trailing `..Default::default()`
-            // spread fills them with the core type's Default impl. Emitting
-            // `<field>: Default::default()` would shadow custom defaults.
             continue;
         }
-        // cfg-gated fields: only skip when the binding crate strips them from the binding
-        // struct (e.g. extendr/wasm, `strip_cfg_fields_from_binding_struct = true`). When the
-        // backend keeps cfg-gated fields in the binding struct (PHP keeps them unconditionally),
-        // the field carries a real value and MUST be mapped here — otherwise the value is
-        // silently dropped and `..Default::default()` overwrites it with the core default
-        // (e.g. `keywords` on `ExtractionConfig`, `crawl` on `UrlExtractionConfig`).
-        // This mirrors the standard `gen_from_binding_to_core_cfg` (render.rs) skip condition.
-        // Exception: fields in `never_skip_cfg_field_names` (trait-bridge options-field
-        // attachments like `visitor`) are emitted unconditionally on the binding side,
-        // so they must appear in the From impl too — otherwise the handle is silently dropped.
         if field.cfg.is_some()
             && !config.never_skip_cfg_field_names.contains(&field.name)
             && config.strip_cfg_fields_from_binding_struct
@@ -120,10 +90,6 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             continue;
         }
         let name = &field.name;
-        // Bridge type alias fields (e.g. VisitorHandle) are NOT sanitized but are in
-        // from_binding_skip_types, so field_conversion_to_core_cfg would emit Default::default().
-        // Handle them here first: the PHP struct wraps opaque Named types in Option<T> even
-        // when field.optional=false, so always use the map(|v| (*v.inner).clone()) form.
         let is_bridge_named = match &field.ty {
             crate::core::ir::TypeRef::Named(n) => bridge_type_aliases.contains(n.as_str()),
             crate::core::ir::TypeRef::Optional(inner) => {
@@ -132,21 +98,14 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             _ => false,
         };
         if is_bridge_named {
-            // PHP opaque structs wrap the core handle in Arc<VisitorHandle>; extract via deref.
-            // The PHP binding struct stores the field as Option<T> (opaque naming convention),
-            // so map over the option rather than direct deref.
             fields.push((name.as_str(), format!("val.{name}.map(|v| (*v.inner).clone())")));
         } else if field.sanitized {
-            // Sanitized fields (e.g. Duration→u64, Vec<T>→Vec<String>) use Default::default()
-            // since they can't be round-tripped from the PHP binding representation.
             fields.push((name.as_str(), "Default::default()".to_string()));
         } else if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
-            // Direct enum-Named field: generate string->enum match
             let conversion =
                 gen_string_to_enum_expr(&format!("val.{name}"), &enum_name, field.optional, enums, core_import);
             fields.push((name.as_str(), conversion));
         } else if let Some(enum_name) = get_vec_enum_named(&field.ty, enum_names) {
-            // Vec<Enum-Named> field: element-wise string->enum parsing
             let elem_conversion = gen_string_to_enum_expr("s", &enum_name, false, enums, core_import);
             let conversion = if field.optional {
                 format!("val.{name}.map(|v| v.into_iter().map(|s| {elem_conversion}).collect())")
@@ -159,10 +118,6 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             && config.option_duration_on_defaults
             && typ.has_default
         {
-            // Non-optional Duration stored as Option<i64> (option_duration_on_defaults).
-            // field_conversion_to_core_cfg doesn't know about this optionalization and would
-            // generate `val.{name} as u64` which fails to compile on Option<i64>.
-            // Use the core type's default when None to preserve intended defaults (e.g. 30s timeout).
             let cast = if config.cast_large_ints_to_i64 { " as u64" } else { "" };
             let conversion = crate::backends::php::template_env::render(
                 "php_duration_default_expr.jinja",
@@ -177,7 +132,6 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
         } else if matches!(field.ty, TypeRef::Bytes)
             || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes))
         {
-            // PHP binding Bytes fields are Vec<u8>. Convert via .into() to core Bytes type.
             let conversion = if field.optional {
                 format!("val.{name}.map(|v| v.into())")
             } else {
@@ -185,19 +139,13 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             };
             fields.push((name.as_str(), conversion));
         } else {
-            // Non-enum field (may reference other tainted types, which have their own From)
             let conversion =
                 crate::codegen::conversions::field_conversion_to_core_cfg(name, &field.ty, field.optional, config);
-            // Newtype wrapping: when field was resolved from a newtype (e.g. NodeIndex → String),
-            // wrap the binding value back into the newtype for the core struct.
             let conversion = if let Some(newtype_path) = &field.newtype_wrapper {
                 if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                     match &field.ty {
                         TypeRef::Optional(_) => format!("{name}: ({expr}).map({newtype_path})"),
                         TypeRef::Vec(_) => {
-                            // When the inner expr already ends with .collect() (e.g. primitive Vec),
-                            // the compiler cannot infer the intermediate Vec type without an explicit
-                            // type annotation. Use collect::<Vec<_>>() to make it unambiguous.
                             let inner_expr = if let Some(prefix) = expr.strip_suffix(".collect()") {
                                 format!("{prefix}.collect::<Vec<_>>()")
                             } else {
@@ -214,7 +162,6 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             } else {
                 conversion
             };
-            // Box<T> fields: wrap the converted value in Box::new().
             let conversion = if field.is_boxed && matches!(&field.ty, TypeRef::Named(_)) {
                 if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                     if field.optional {
@@ -228,7 +175,6 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             } else {
                 conversion
             };
-            // Apply core wrapper handling (Cow/Arc/Bytes; vec_inner_core_wrapper for Vec<Arc<T>>)
             let conversion = crate::codegen::conversions::apply_core_wrapper_to_core(
                 &conversion,
                 name,
@@ -236,18 +182,10 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
                 &field.vec_inner_core_wrapper,
                 field.optional,
             );
-            // field_conversion_to_core_cfg returns "name: expr" (with the field name prefix).
-            // php_struct_field_assignment.jinja already adds "{{ field_name }}: " so we strip
-            // the prefix here to avoid "name: name: expr" duplication.
             let field_expr = conversion.strip_prefix(&format!("{name}: ")).unwrap_or(&conversion);
             fields.push((name.as_str(), field_expr.to_string()));
         }
     }
-    // Core types with private (`pub(crate)`) fields cannot be built with struct-literal
-    // syntax from a foreign crate. Delegate to the shared construction strategy: a
-    // `Default`-seeded builder (assigning only public fields), or a guiding `compile_error!`
-    // when the core type has no `Default`. Pure-`Default::default()` assignments are dropped —
-    // the seeded base already holds them.
     if typ.has_private_fields {
         let assignments: Vec<_> = fields
             .into_iter()
@@ -271,14 +209,6 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
         );
     }
 
-    // Struct-literal path for types whose fields are all public.
-    //
-    // Emit the ..Default::default() trailer (and its needless_update allow) for
-    // every has_default core type: it fills cfg-stripped and binding-excluded
-    // fields with the core's Default, and it keeps the literal compiling (E0063)
-    // when an additive field lands on the core struct after generation. Without
-    // Default the spread fails E0277; for binding-excluded fields the loop above
-    // already pushed explicit `field: Default::default()` assignments then.
     let emit_default_spread = typ.has_default;
     let mut out = crate::backends::php::template_env::render(
         "php_impl_from_begin.jinja",
@@ -399,20 +329,12 @@ pub(super) fn gen_string_to_enum_expr(
     let mut match_arms = String::new();
     for variant in &enum_def.variants {
         let expr = variant_expr(&core_enum_path, variant);
-        // The wire value the PHP user supplies (in JSON or via the binding's String
-        // mirror of a Rust enum) follows the core enum's serde rename strategy. Match
         // against `#[serde(rename)]` first, then `#[serde(rename_all = "...")]`, then
-        // the variant's raw Rust name as a fallback.
         let wire_name = crate::codegen::naming::wire_variant_value(
             &variant.name,
             variant.serde_rename.as_deref(),
             enum_def.serde_rename_all.as_deref(),
         );
-        // Accept both the serde-renamed wire form (e.g. "Angle") and its lowercase
-        // variant (e.g. "angle"). Some core enums implement Serialize/Deserialize
-        // manually via a token normaliser (see UrlEscapeStyle), so the wire form on
-        // the JSON boundary may be lowercase even when alef's IR sees the raw
-        // PascalCase variant name. Matching both keeps the binding robust against
         // either convention without forcing the core to add `#[serde(rename_all)]`.
         let variant_lower = wire_name.to_lowercase();
         match_arms.push_str(&crate::backends::php::template_env::render(
@@ -535,9 +457,6 @@ mod tests {
 
     #[test]
     fn enum_tainted_fully_mirrored_with_default_still_emits_spread() {
-        // Forward-compatibility: a has_default core type with every field mirrored
-        // must still get the spread trailer, so an additive core field falls back
-        // to its default instead of failing E0063 until the bindings are regenerated.
         let typ = typ(
             "PlainEnumTainted",
             true,

@@ -50,7 +50,6 @@ pub(super) fn gen_bridge_wrapper(
     let trait_pascal = trait_name.to_pascal_case();
     let bridge_name = format!("{}Bridge", trait_pascal);
 
-    // Emit Bridge struct definition with impl field
     out.push_str(&format!(
         "// {}Bridge wraps a {} implementation and exposes it to the C plugin system.\n",
         trait_pascal, trait_name
@@ -59,7 +58,6 @@ pub(super) fn gen_bridge_wrapper(
     out.push_str(&format!("\timpl {}\n", trait_name));
     out.push_str("}\n\n");
 
-    // Emit constructor
     out.push_str(&format!(
         "// New{} creates a new Bridge wrapping the given implementation.\n",
         bridge_name
@@ -71,13 +69,11 @@ pub(super) fn gen_bridge_wrapper(
     out.push_str(&format!("\treturn &{}{{impl: impl}}\n", bridge_name));
     out.push_str("}\n\n");
 
-    // Emit delegating methods for plugin lifecycle
     gen_bridge_lifecycle_method(out, &bridge_name, "Name", "string");
     gen_bridge_lifecycle_method(out, &bridge_name, "Version", "string");
     gen_bridge_lifecycle_method(out, &bridge_name, "Initialize", "error");
     gen_bridge_lifecycle_method(out, &bridge_name, "Shutdown", "error");
 
-    // Emit delegating methods for trait-specific methods
     for method in &trait_def.methods {
         if ffi_skip_methods.contains(&method.name) {
             continue;

@@ -72,7 +72,6 @@ pub fn emit_streaming_jni_external_funs(out: &mut String, config: &ResolvedCrate
             Some("String?".to_string()),
             Some(exception_class),
         );
-        // Free is infallible: it only drops the Rust Box, never throws.
         push_jni_external_fun(out, &jni_free, "streamHandle: Long", None, None);
     }
 }
@@ -105,7 +104,6 @@ fn emit_method_jni_external_funs(
         return;
     }
 
-    // Opaque type names: Named params of this shape are handles (Long), not JSON (String).
     let opaque_type_names: std::collections::HashSet<&str> = api
         .types
         .iter()
@@ -122,8 +120,6 @@ fn emit_method_jni_external_funs(
             }
             let native_name = format!("native{owner_pascal}{}", to_pascal_case(&method.name));
             let return_ty = jni_return_type_for_method(&method.return_type, &opaque_type_names);
-            // Methods with at least one param pass them all as a single JSON string.
-            // Methods with no params are called with only the handle.
             let params = if method.params.is_empty() {
                 "handle: Long".to_string()
             } else if method.params.len() == 1 && is_binary_param_type(&method.params[0].ty) {
@@ -139,8 +135,6 @@ fn emit_method_jni_external_funs(
                 Some(exception_class),
             );
         }
-        // Emit destructor external fun so Bridge.kt declares the symbol that
-        // DefaultClient.close() delegates to.  Destructors are infallible — no @Throws.
         let free_name = format!("nativeFree{owner_pascal}");
         push_jni_external_fun(out, &free_name, "handle: Long", None, None);
         emitted_destructor_names.insert(free_name);
@@ -158,7 +152,3 @@ pub(in crate::backends::kotlin::gen_bindings::jni_emitter) fn is_capsule_functio
         false
     }
 }
-
-// ---------------------------------------------------------------------------
-// JNI DefaultClient emitter
-// ---------------------------------------------------------------------------

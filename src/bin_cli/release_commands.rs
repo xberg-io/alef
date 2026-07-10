@@ -48,16 +48,12 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             force_republish,
             json: _,
         } => {
-            // Sniff event from env when not provided.
             let effective_event = if event.is_empty() {
                 std::env::var("GITHUB_EVENT_NAME").unwrap_or_default()
             } else {
                 event.clone()
             };
             let resolved_opt = load_config(config_path).ok().map(|(_ws, r)| r);
-            // For release metadata, use the first crate matching the filter (or first crate overall).
-            // This command emits a single JSON object per invocation; multi-crate is an
-            // unusual case. If the user needs per-crate metadata they can filter with --crate.
             let resolved_cfg_opt: Option<&crate::core::config::ResolvedCrateConfig> =
                 resolved_opt.as_ref().and_then(|r| {
                     dispatch::select_crates(r, &context.crate_filter)

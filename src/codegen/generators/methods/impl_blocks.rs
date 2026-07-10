@@ -28,9 +28,6 @@ pub fn gen_impl_block_with_renames(
     field_renames: Option<&std::collections::HashMap<String, String>>,
 ) -> String {
     let (instance, statics) = partition_methods(&typ.methods);
-    // Compute effective (non-sanitized or adapter-overridden) method counts for the early-return
-    // check. Sanitized methods without adapters are skipped in the loops below, so they do not
-    // contribute real content to the impl block.
     let has_emittable_instance = instance
         .iter()
         .any(|m| !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name)));
@@ -44,9 +41,6 @@ pub fn gen_impl_block_with_renames(
     let prefixed_name = format!("{}{}", cfg.type_name_prefix, typ.name);
     let mut out = String::with_capacity(2048);
 
-    // Constructor — suppressed when the backend handles construction via a separate free
-    // function (e.g. extendr kwargs constructor), when there are no fields, or when the
-    // type already provides an explicit static `new()` method (which will be emitted as
     // `#[staticmethod] pub fn new(...)` and would conflict with a `#[new]` constructor).
     let has_explicit_static_new = typ.methods.iter().any(|m| m.is_static && m.name == "new");
     if !typ.fields.is_empty() && !cfg.skip_impl_constructor && !has_explicit_static_new {
@@ -54,12 +48,8 @@ pub fn gen_impl_block_with_renames(
         out.push_str("\n\n");
     }
 
-    // Instance methods
     let empty_mutex_types: AHashSet<String> = AHashSet::new();
     for m in &instance {
-        // Skip sanitized methods that have no adapter override — they cannot be delegated
-        // and emitting an unimplemented stub pollutes the public API with dead placeholders.
-        // Adapter bodies are explicit overrides and always take precedence.
         let adapter_key = format!("{}.{}", typ.name, m.name);
         if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;
@@ -83,9 +73,7 @@ pub fn gen_impl_block_with_renames(
         out.push_str("\n\n");
     }
 
-    // Static methods
     for m in &statics {
-        // Skip sanitized static methods that have no adapter override.
         let adapter_key = format!("{}.{}", typ.name, m.name);
         if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
             continue;
@@ -108,7 +96,6 @@ pub fn gen_impl_block_with_renames(
         out.push_str("\n\n");
     }
 
-    // Trim trailing newlines inside impl block
     let trimmed = out.trim_end();
     let content = trimmed.to_string();
 

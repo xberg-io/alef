@@ -17,9 +17,6 @@ pub(crate) fn emit_type(ty: &TypeDef, out: &mut String) {
         },
     ));
     for field in binding_fields(&ty.fields) {
-        // Struct fields inherit `///` doc comments inside the struct body — the
-        // four-space indent matches the field declaration emitted by
-        // `type_field.jinja`.
         emit_cleaned_zig_doc(out, &field.doc, "    ");
         let ty_str = zig_field_type(&field.ty, field.optional);
         out.push_str(&crate::backends::zig::template_env::render(
@@ -44,8 +41,6 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             },
         ));
         for variant in &en.variants {
-            // Variant docstrings render as `///` comments immediately above the
-            // tag declaration. Empty docs no-op via `emit_cleaned_zig_doc`.
             emit_cleaned_zig_doc(out, &variant.doc, "    ");
             let tag_value = wire_variant_value(
                 &variant.name,
@@ -68,7 +63,6 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             },
         ));
         for variant in &en.variants {
-            // Tagged-union variants carry their rustdoc as `///` above the tag.
             emit_cleaned_zig_doc(out, &variant.doc, "    ");
             let tag_value = wire_variant_value(
                 &variant.name,
@@ -124,9 +118,6 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
 pub(crate) fn zig_field_type(ty: &TypeRef, optional: bool) -> String {
     let mapper = ZigMapper;
     let inner = mapper.map_type(ty);
-    // Flatten double-optional: if the mapped type is already `?T` (from a
-    // TypeRef::Optional inner), do not prepend another `?` — Zig does not
-    // support `??T` syntax.
     if optional && !inner.starts_with('?') {
         format!("?{inner}")
     } else {

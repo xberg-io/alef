@@ -255,7 +255,6 @@ fn test_gen_rust_extern_blocks_excludes_callback_registration() {
     let service = &api.services[0];
     let output = gen_service_rust_extern_blocks(service, &api);
 
-    // Callback registration should NOT be in the bridge module
     assert!(
         !output.contains("extern \"C\" fn(*mut std::ffi::c_void, *const u8, usize) -> *mut u8"),
         "expected raw pointer callback signature to be EXCLUDED from bridge module:\n{output}"
@@ -272,7 +271,6 @@ fn test_generate_rust_callback_c_functions_contains_callback_signature() {
     let service = &api.services[0];
     let output = gen_rust_callback_c_functions_for_service(&api, service);
 
-    // Callback registration SHOULD be in the C function output
     assert!(
         output.contains("extern \"C\" fn"),
         "expected extern \"C\" fn in callback C function:\n{output}"
@@ -297,8 +295,6 @@ fn test_gen_rust_extern_blocks_contains_result_return() {
     let service = &api.services[0];
     let output = gen_service_rust_extern_blocks(service, &api);
 
-    // Fallible entrypoints return a JSON envelope string (swift-bridge 0.1.59
-    // cannot parse Result<T, E> in extern blocks).
     assert!(
         output.contains("-> String") || output.contains("-> Result<(), String>"),
         "expected entrypoint return type (JSON envelope or unit):\n{output}"
@@ -375,7 +371,6 @@ fn test_rust_extern_blocks_no_raw_symbol_hardcode() {
     let service = &api.services[0];
     let output = gen_service_rust_extern_blocks(service, &api);
 
-    // No hardcoded HTTP/framework names — everything from IR
     assert!(
         !output.contains("\"http\""),
         "expected no hardcoded HTTP references:\n{output}"
@@ -393,7 +388,6 @@ fn test_registration_no_empty_leading_comma() {
     let config = make_test_config();
     let output = gen_service_swift(&api, service, &config);
 
-    // Should not have double comma like "(_ handler: ..., , builder: ...)"
     assert!(
         !output.contains(", , "),
         "expected no double comma in registration signature:\n{output}"
@@ -407,7 +401,6 @@ fn test_switch_case_on_own_lines() {
     let config = make_test_config();
     let output = gen_service_swift(&api, service, &config);
 
-    // switch/case should not collapse onto the same line as preceding code
     assert!(
         !output.contains(")        switch"),
         "expected switch on its own line, not collapsed:\n{output}"
@@ -425,7 +418,6 @@ fn test_swift_uses_silgen_not_bridge_method() {
     let config = make_test_config();
     let output = gen_service_swift(&api, service, &config);
 
-    // Should use @_silgen_name'd C function, NOT inner.addHandlerViaCallback()
     assert!(
         !output.contains("inner.addHandlerViaCallback("),
         "expected callback to use @_silgen_name C function, NOT swift-bridge method:\n{output}"
@@ -443,7 +435,6 @@ fn test_swift_contains_silgen_declaration() {
     let config = make_test_config();
     let output = gen_service_swift(&api, service, &config);
 
-    // Should have @_silgen_name declaration at module scope
     assert!(
         output.contains("@_silgen_name(\"test_service_add_handler_via_callback\")"),
         "expected @_silgen_name declaration for callback C function:\n{output}"
@@ -457,15 +448,12 @@ fn test_swift_contains_silgen_declaration() {
 #[test]
 fn test_named_metadata_types_preserved() {
     let mut api = make_fixture_surface();
-    // Change the metadata param type from String to a Named type
     api.services[0].registrations[0].metadata_params[0].ty = TypeRef::Named("RouteBuilder".to_owned());
 
     let service = &api.services[0];
     let config = make_test_config();
     let output = gen_service_swift(&api, service, &config);
 
-    // Should use the swift-bridge wrapper `RustBridge.RouteBuilder` as the type
-    // (Named metadata params are owned by the bridge module and must be qualified).
     assert!(
         output.contains("path: RustBridge.RouteBuilder"),
         "expected Named metadata param typed as RustBridge.RouteBuilder, not String:\n{output}"
@@ -475,7 +463,6 @@ fn test_named_metadata_types_preserved() {
 #[test]
 fn test_skip_non_representable_finalize() {
     let mut api = make_fixture_surface();
-    // Add a finalize entrypoint with a non-representable return type (Vec<String>)
     api.services[0].entrypoints.push(crate::core::ir::EntrypointDef {
         method: "into_router".to_owned(),
         kind: crate::core::ir::EntrypointKind::Finalize,
@@ -490,7 +477,6 @@ fn test_skip_non_representable_finalize() {
     let config = make_test_config();
     let output = gen_service_swift(&api, service, &config);
 
-    // Should not contain intoRouter method
     assert!(
         !output.contains("func intoRouter"),
         "expected finalize with non-representable return to be skipped:\n{output}"

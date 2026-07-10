@@ -9,7 +9,6 @@ use crate::core::ir::*;
 /// through the service-API registration path instead.
 #[test]
 fn test_skips_method_with_generic_type_parameter() {
-    // Create an API with a type that has a method with a generic parameter
     let api = ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
@@ -40,7 +39,6 @@ fn test_skips_method_with_generic_type_parameter() {
                     },
                     ParamDef {
                         name: "handler".to_string(),
-                        // This is a generic type parameter H that won't be in path_map
                         ty: TypeRef::Named("H".to_string()),
                         optional: false,
                         default: None,
@@ -107,7 +105,6 @@ fn test_skips_method_with_generic_type_parameter() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The method with generic parameter H should NOT be wrapped as a C function
     assert!(
         !lib.content.contains("my_lib_app_route"),
         "method with generic type parameter H should NOT be wrapped as C function"
@@ -120,7 +117,6 @@ fn test_skips_method_with_generic_type_parameter() {
 /// service-API registration path instead.
 #[test]
 fn test_skips_method_with_receiver_reference_return() {
-    // Create an API with a type that has a builder-style method
     let api = ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
@@ -148,7 +144,6 @@ fn test_skips_method_with_receiver_reference_return() {
                     map_is_btree: false,
                     core_wrapper: crate::core::ir::CoreWrapper::None,
                 }],
-                // This method returns &mut Self (a reference to the receiver)
                 return_type: TypeRef::Named("Builder".to_string()),
                 is_async: false,
                 is_static: false,
@@ -157,7 +152,7 @@ fn test_skips_method_with_receiver_reference_return() {
                 receiver: Some(ReceiverKind::RefMut),
                 sanitized: false,
                 trait_source: None,
-                returns_ref: true, // Marks that it returns a reference
+                returns_ref: true,
                 returns_cow: false,
                 return_newtype_wrapper: None,
                 has_default_impl: false,
@@ -199,7 +194,6 @@ fn test_skips_method_with_receiver_reference_return() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The builder-style method returning &mut Self should NOT be wrapped as a C function
     assert!(
         !lib.content.contains("my_lib_builder_with_option"),
         "builder-style method returning &mut Self should NOT be wrapped as C function"

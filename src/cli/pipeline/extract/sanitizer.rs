@@ -19,11 +19,6 @@ pub(super) fn sanitize_unknown_types(api: &mut ApiSurface) {
                     field.original_type = Some(orig);
                 }
             }
-            // Second pass: check type_rust_path for name-collision disambiguation.
-            // If a field has a type_rust_path that doesn't match the known type/enum
-            // rust_path for the same short name, it references a different type that
-            // happens to share the short name (e.g., external_core::CrawlConfig vs
-            // facade::CrawlConfig). Same-crate public re-export paths are accepted.
             if !field.sanitized {
                 if let Some(path) = field.type_rust_path.as_deref() {
                     if let Some(name) = named_type_name(&field.ty) {
@@ -47,11 +42,6 @@ pub(super) fn sanitize_unknown_types(api: &mut ApiSurface) {
         let type_name = typ.name.clone();
         let is_trait = typ.is_trait;
         for method in &mut typ.methods {
-            // Trait method params and return types must match the original Rust trait
-            // signature exactly — bridge codegen emits `impl Trait for Wrapper { fn ... }`
-            // and the impl must satisfy the trait. Sanitizing these would cause
-            // E0053 (incompatible type) trait coherence errors. Internal-only param
-            // types are handled by per-backend JSON serialization in the bridge body.
             if is_trait {
                 continue;
             }
@@ -62,9 +52,6 @@ pub(super) fn sanitize_unknown_types(api: &mut ApiSurface) {
                     method_sanitized = true;
                 }
             }
-            // Skip sanitizing return type if it's Named(parent_type) — builder/factory pattern.
-            // Methods that return their own type (e.g. with_foo(&self) -> Self) should keep
-            // the Named return so codegen can delegate them correctly.
             let is_self_return = matches!(&method.return_type, TypeRef::Named(n) if n == &type_name);
             if !is_self_return && sanitize_type_ref(&mut method.return_type, &known_types, &known_enums).is_lossy() {
                 method_sanitized = true;
@@ -90,9 +77,6 @@ pub(super) fn sanitize_unknown_types(api: &mut ApiSurface) {
             func.sanitized = true;
         }
     }
-    // Sanitize enum variant fields — tuples and other unknown types in data enum
-    // variants must be replaced with String, otherwise backends emit invalid code
-    // (e.g., Go emitting `[](String, String)` for Vec<(String, String)>).
     for enum_def in &mut api.enums {
         for variant in &mut enum_def.variants {
             for field in &mut variant.fields {
@@ -106,7 +90,6 @@ pub(super) fn sanitize_unknown_types(api: &mut ApiSurface) {
             }
         }
     }
-    // Sanitize error variant fields as well.
     for error_def in &mut api.errors {
         for variant in &mut error_def.variants {
             for field in &mut variant.fields {
@@ -174,10 +157,6 @@ fn paths_compatible(a: &str, b: &str, api_crate_name: &str) -> bool {
 }
 
 pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
-    // --- Item-level exclusions: types, enums, errors, functions ---
-
-    // Capture rust_paths of excluded types/enums/errors before removal so that
-    // trait-bridge codegen can still reference them by qualified path.
     for typ in &api.types {
         if typ.binding_excluded {
             let reason = typ
@@ -187,9 +166,6 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
             info!("Stripping excluded type: {} ({})", typ.name, reason);
             api.excluded_type_paths
                 .insert(typ.name.clone(), typ.rust_path.replace('-', "_"));
-            // Preserve trait-ness across the strip so trait-bridge codegen can tell
-            // an excluded trait (`&dyn Trait` → non-bridgeable, skip the method) from
-            // an excluded struct/enum (`&HiddenDocument` → reference by qualified path).
             if typ.is_trait {
                 api.excluded_trait_names.insert(typ.name.clone());
             }
@@ -233,7 +209,6 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
     }
     api.functions.retain(|f| !f.binding_excluded);
 
-    // --- Method-level exclusions on retained types ---
     for typ in &mut api.types {
         let excluded_methods: Vec<String> = typ
             .methods
@@ -253,9 +228,6 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
         typ.methods.retain(|m| !m.binding_excluded);
     }
 
-    // --- Field-level exclusions ---
-    // Keep excluded fields in IR so conversion generators can still initialize the
-    // core field (usually with Default::default()) while public binding DTOs hide it.
     for typ in &api.types {
         let excluded: Vec<_> = typ
             .fields
@@ -274,11 +246,6 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
         }
     }
 
-    // Enum variant binding_excluded fields are RETAINED in the IR (like struct fields) so
-    // that "to core" conversion codegen can initialize them with Default::default().
-    // The `originally_had_data_fields` flag is set when all fields are binding_excluded so
-    // that codegen can emit wildcard patterns on the core-type side. Mirror emitters skip
-    // binding_excluded fields when building the public binding surface.
     for enum_def in &mut api.enums {
         let excluded: Vec<String> = enum_def
             .variants
@@ -297,21 +264,15 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
             info!("Hiding binding-excluded enum variant fields: {}", excluded.join(", "));
         }
         for variant in &mut enum_def.variants {
-            // Set flag when ALL fields are binding_excluded so codegen knows the core type
-            // still has data fields even though the mirror shows a unit variant.
             if !variant.fields.is_empty() && variant.fields.iter().all(|f| f.binding_excluded) {
                 variant.originally_had_data_fields = true;
             }
-            // Do NOT strip — retain fields so to-core conversion codegen can use them.
         }
     }
 
-    // Error variants: same retention policy for binding_excluded fields.
     for error_def in &mut api.errors {
         for variant in &mut error_def.variants {
-            // Fields are retained; the is_tuple flag (set during extraction) lets codegen
-            // distinguish tuple vs struct variants for wildcard/default-init patterns.
-            let _ = variant; // retention is implicit — no retain() call
+            let _ = variant;
         }
     }
 
@@ -352,7 +313,6 @@ fn extract_tuple_vec_original_type(ty: &TypeRef) -> Option<String> {
     match ty {
         TypeRef::Vec(_) => inner_tuple_name(ty),
         TypeRef::Optional(inner) => inner_tuple_name(inner),
-        // Fixed-size tuple arrays arrive as Named("[(T, U); N]") from the extractor.
         TypeRef::Named(name) => fixed_tuple_array_name(name),
         _ => None,
     }
@@ -387,20 +347,12 @@ pub(super) fn sanitize_type_ref(
 ) -> TypeSanitization {
     match ty {
         TypeRef::Named(name) if !known_types.contains(name.as_str()) && !known_enums.contains(name.as_str()) => {
-            // `Value` and `JsonValue` are bare names for serde_json::Value that the extractor
-            // preserves as Named types. They are not unknown types to be collapsed to String,
-            // but rather pseudo-types that should be preserved through Option/Vec/Map wrappers
-            // so that type mappers can handle them appropriately. Do not sanitize.
             if name == "Value" || name == "JsonValue" {
                 return TypeSanitization::Unchanged;
             }
-            // Detect homogeneous numeric tuple types such as `(u32, u32)` that serde serializes
-            // as JSON arrays.  Map them to Vec<ElemType> so backends emit array types (e.g.
-            // `[]uint32` in Go) rather than falling back to `string`.  This preserves round-trip
-            // JSON compatibility: `null | [800, 600]` unmarshals correctly into `*[]uint32`.
             if let Some(elem_ty) = parse_homogeneous_tuple(name) {
                 *ty = TypeRef::Vec(Box::new(elem_ty));
-                return TypeSanitization::Lossy; // Sanitized — the core type is a tuple, not a Vec
+                return TypeSanitization::Lossy;
             }
             *ty = TypeRef::String;
             TypeSanitization::Lossy
@@ -410,8 +362,6 @@ pub(super) fn sanitize_type_ref(
             if contains_ambiguous_bare_value(k) || contains_ambiguous_bare_value(v) {
                 return TypeSanitization::Lossy;
             }
-            // Sanitize inner key and value types (e.g. Named("str") → String) so
-            // backends receive clean Map(String, Json) rather than Map(Named("str"), Json).
             let key_status = sanitize_map_inner_type(k, known_types, known_enums);
             let value_status = sanitize_map_inner_type(v, known_types, known_enums);
             key_status.combine(value_status)
@@ -461,8 +411,6 @@ fn parse_homogeneous_tuple(name: &str) -> Option<TypeRef> {
     if !parts.iter().all(|p| *p == first) {
         return None;
     }
-    // Homogeneous String tuples (e.g. `(String, String)`) serialize as JSON arrays of strings,
-    // so map them to Vec<String> like numeric homogeneous tuples.
     if first == "String" {
         return Some(TypeRef::String);
     }

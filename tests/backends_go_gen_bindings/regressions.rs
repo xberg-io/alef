@@ -54,7 +54,6 @@ fn test_opaque_type() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify opaque type wraps unsafe.Pointer
     assert!(
         content.contains("type OpaqueHandle struct"),
         "Should define OpaqueHandle struct"
@@ -68,7 +67,6 @@ fn test_opaque_type() {
         "Should import unsafe package for opaque types"
     );
 
-    // Verify Free method
     assert!(
         content.contains("func (h *OpaqueHandle) Free()"),
         "Should define Free method for opaque type"
@@ -113,7 +111,7 @@ fn test_default_config() {
             is_clone: true,
             is_copy: false,
             is_trait: false,
-            has_default: true, // Enable functional options
+            has_default: true,
             has_stripped_cfg_fields: false,
             is_return_type: false,
             serde_rename_all: None,
@@ -146,10 +144,6 @@ fn test_default_config() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // As of STY-9 the Go backend defaults to plain struct literals + a single
-    // `Ptr[T]` helper, and only emits `With<Field>` / `New<Struct>` for struct
-    // names listed in `[crates.go] functional_options`. With no allowlist the
-    // functional-options shape must be absent.
     assert!(
         !content.contains("type ConfigOption"),
         "Should NOT emit functional-options type alias by default; got:\n{content}"
@@ -163,8 +157,6 @@ fn test_default_config() {
         "Should NOT emit a New<Struct> functional-options constructor by default; got:\n{content}"
     );
 
-    // The plain struct shape and the shared `Ptr[T]` helper must be present so
-    // callers can construct `Config{Timeout: Ptr[uint32](30)}` directly.
     assert!(
         content.contains("type Config struct"),
         "Should emit the plain struct definition; got:\n{content}"
@@ -177,10 +169,6 @@ fn test_default_config() {
 
 #[test]
 fn test_optional_primitive_uses_cgo_types() {
-    // Regression test: optional primitive params must be declared using CGo types
-    // (C.uint64_t, C.uint32_t, etc.) rather than Go native types, because CGo
-    // does not implicitly convert between Go numeric types and C typedef types
-    // when calling C functions.
     let backend = GoBackend;
 
     let make_param = |name: &str, prim: PrimitiveType| ParamDef {
@@ -240,9 +228,6 @@ fn test_optional_primitive_uses_cgo_types() {
     let result = backend.generate_bindings(&api, &config).unwrap();
     let content = &result[0].content;
 
-    // The temporary variables must be declared as CGo types, not Go native types.
-    // Wrong (old): var cTimeoutSecs uint64 = ^uint64(0)
-    // Right (new): var cTimeoutSecs C.uint64_t = C.uint64_t(^uint64(0))
     assert!(
         content.contains("C.uint64_t(^uint64(0))"),
         "U64 optional sentinel should be cast to C.uint64_t, got:\n{}",
@@ -264,10 +249,6 @@ fn test_optional_primitive_uses_cgo_types() {
 
 #[test]
 fn test_optional_return_type_no_double_pointer() {
-    // Regression test: a function returning Option<String> (TypeRef::Optional(String))
-    // must produce a *string return type, not **string.
-    // go_type(Optional(String)) already emits "*string"; adding an extra "*" prefix
-    // in the return type calculation produced "**string" which is invalid Go.
     let backend = GoBackend;
 
     let api = ApiSurface {
@@ -322,13 +303,11 @@ fn test_optional_return_type_no_double_pointer() {
     let result = backend.generate_bindings(&api, &config).unwrap();
     let content = &result[0].content;
 
-    // Must NOT contain a double-pointer return type
     assert!(
         !content.contains("**string"),
         "Optional<String> return must not produce **string, got:\n{}",
         content
     );
-    // Must contain the correct single-pointer return type
     assert!(
         content.contains("*string"),
         "Optional<String> return should produce *string, got:\n{}",
@@ -425,9 +404,6 @@ fn test_opaque_error_type_uses_value_semantics() {
     let files = backend.generate_bindings(&api, &config).expect("generation succeeds");
     let content = &files[0].content;
 
-    // The error struct emitted by `gen_go_error_struct` provides the Go-side
-    // type. It carries Code/Message string fields and an Error() method —
-    // not a ptr field.
     assert!(
         content.contains("type GraphQLError struct"),
         "value-type error struct must be emitted"
@@ -442,8 +418,6 @@ fn test_opaque_error_type_uses_value_semantics() {
         "value-type error must implement the error interface"
     );
 
-    // Methods on the opaque variant must NOT be emitted — they would
-    // reference `h.ptr` which does not exist on the value-type struct.
     assert!(
         !content.contains("func (h *GraphQLError) StatusCode"),
         "opaque-style method must not be generated for value-type error, got:\n{}",
@@ -497,8 +471,6 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
             rust_path: "test_lib::UploadFile".to_string(),
             original_rust_path: String::new(),
             fields: vec![make_field("filename", TypeRef::String, false)],
-            // Two bytes-returning methods on the same type — the helper must
-            // still be emitted exactly once.
             methods: vec![make_bytes_method("as_bytes"), make_bytes_method("raw_content")],
             is_opaque: false,
             is_clone: true,
@@ -533,8 +505,6 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
     let files = backend.generate_bindings(&api, &config).expect("generation succeeds");
     let content = &files[0].content;
 
-    // The helper is emitted exactly once, regardless of how many bytes-returning
-    // methods reference it.
     let helper_decls = content.matches("func unmarshalBytes(").count();
     assert_eq!(
         helper_decls, 1,
@@ -547,9 +517,6 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
         content
     );
 
-    // `*C.uint8_t` (the FFI return type for raw byte buffers) must not be
-    // passed to `_free_string`, which expects `*C.char` and would fail to
-    // compile under cgo's strict type checking.
     let bytes_method_block = content
         .split("AsBytes")
         .nth(1)
@@ -558,8 +525,6 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
         !bytes_method_block.starts_with_str_after_first("defer C.test_free_string(ptr)"),
         "bytes return must not be freed via _free_string"
     );
-    // More directly: ensure no emission of `_free_string(ptr)` after a Bytes
-    // method's `ptr := C.test_upload_file_as_bytes(...)` call site.
     let as_bytes_call_idx = content
         .find("C.test_upload_file_as_bytes")
         .expect("AsBytes FFI call must be present");
@@ -571,7 +536,6 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
     );
 }
 
-// Tiny helper trait for the regression test above.
 trait StartsWithStrAfterFirst {
     fn starts_with_str_after_first(&self, needle: &str) -> bool;
 }
@@ -580,10 +544,6 @@ impl StartsWithStrAfterFirst for str {
         self.lines().any(|l| l.trim_start().starts_with(needle))
     }
 }
-
-// ---------------------------------------------------------------------------
-// CFLAGS bundled include dir (regression: downstream go get compatibility)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_cflags_uses_bundled_include_dir() {
@@ -630,14 +590,8 @@ module = "github.com/example/mylib"
     );
 }
 
-// ---------------------------------------------------------------------------
-// Regression: no duplicate "var raw struct" in UnmarshalJSON wrappers
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_no_duplicate_var_raw_struct_in_unmarshal_json() {
-    // Regression: the struct_unmarshal_json_header template outputs "var raw struct {"
-    // and the gen_bindings code was also manually emitting it, causing duplicates.
     let config = make_config();
 
     let api = ApiSurface {
@@ -685,7 +639,6 @@ fn test_no_duplicate_var_raw_struct_in_unmarshal_json() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let binding_go = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
 
-    // Count consecutive "var raw struct {" lines — should be exactly 0 duplicates
     let mut found_consecutive = false;
     let lines: Vec<&str> = binding_go.content.lines().collect();
     for i in 0..lines.len().saturating_sub(1) {

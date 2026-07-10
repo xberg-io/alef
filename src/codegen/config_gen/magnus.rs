@@ -10,10 +10,6 @@ const MAGNUS_MAX_ARITY: usize = 15;
 /// For types with >15 fields (exceeding Magnus arity limit), generates a hash-based constructor
 /// using `RHash` that extracts fields by name, applying defaults for missing keys.
 pub fn gen_magnus_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    // Always use the hash-based constructor so Ruby callers can pass keyword args
-    // (`Type.new(field1: ..., field2: ...)`) regardless of field count. Magnus
-    // function! macro caps arity at 15, but the hash form uses variadic arity (-1)
-    // and works for any number of fields.
     let _ = MAGNUS_MAX_ARITY;
     gen_magnus_hash_constructor(typ, type_mapper)
 }
@@ -38,9 +34,6 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
     let fields: Vec<_> = constructor_fields(typ)
         .map(|field| {
             let is_optional = field_is_optional_in_rust(field);
-            // Use inner type for try_convert, since the hash value is T, not Option<T>.
-            // When field.ty is already Optional(T) and field.optional is true, strip one layer so we
-            // call <T>::try_convert, not <Option<T>>::try_convert (which would yield Option<Option<T>>).
             let effective_inner_ty = match &field.ty {
                 TypeRef::Optional(inner) if is_optional => inner.as_ref(),
                 ty => ty,
@@ -49,7 +42,6 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
             let type_prefix = as_type_path_prefix(&inner_type);
 
             let assignment = if is_optional {
-                // Field is Option<T>: extract from hash, wrap in Some, default to None
                 format!(
                     "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()),",
                     field.name, type_prefix
@@ -62,23 +54,12 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
             } else if matches!(effective_inner_ty, TypeRef::Named(_))
                 && !matches!(&field.typed_default, Some(DefaultValue::EnumVariant(_)))
             {
-                // Named types in the Magnus binding default to required because
                 // Magnus-wrapped structs (`#[magnus::wrap]`) never implement
-                // `Default`. The exception is Named *enum* fields whose typed
-                // default we resolved to a specific variant (e.g.
-                // `output_format: OutputFormat::Plain` from the parent's
-                // `impl Default`): those have a concrete fallback expression
-                // and fall through to the explicit-default branch below so
-                // missing kwargs still construct successfully.
                 format!(
                     "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()).ok_or_else(|| magnus::Error::new(unsafe {{ magnus::Ruby::get_unchecked() }}.exception_arg_error(), \"missing required field: {}\"))?,",
                     field.name, type_prefix, field.name
                 )
             } else {
-                // When the binding maps the field type to String (e.g. an excluded enum), but the
-                // original default is an EnumVariant, `default_value_for_field` would emit
-                // `TypeName::Variant` which is invalid for a `String` field. Fall back to the
-                // string-literal form in that case.
                 let default_str = if inner_type == "String" {
                     if let Some(DefaultValue::EnumVariant(variant)) = &field.typed_default {
                         use heck::ToSnakeCase;

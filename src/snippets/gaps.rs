@@ -334,21 +334,17 @@ mod tests {
         let snippets = docs.join("snippets");
         std::fs::create_dir_all(&docs).unwrap();
         std::fs::create_dir_all(&snippets).unwrap();
-        // CHANGELOG.md lives at project root, not inside docs/
         std::fs::write(root.join("CHANGELOG.md"), "# Changelog\n").unwrap();
-        // A docs page includes it via --8<-- "CHANGELOG.md"
         std::fs::write(docs.join("changelog.md"), r#"--8<-- "CHANGELOG.md""#).unwrap();
 
         let report = detect_gaps(&GapConfig {
             docs_dirs: vec![docs],
             snippet_dirs: vec![snippets],
             required_languages: vec![],
-            // "." resolves relative to the project root (tmpdir), so CHANGELOG.md is found
             include_base_paths: vec![root.to_path_buf()],
         })
         .unwrap();
 
-        // With the correct base path, the reference should resolve and NOT be flagged as missing
         assert!(
             report.missing_references.is_empty(),
             "expected no missing references, got: {:?}",

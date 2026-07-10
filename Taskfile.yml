@@ -87,7 +87,6 @@ tasks:
     requires:
       vars: [CLI_ARGS]
     cmds:
-      # Use `sed -i.bak ... && rm -f` for portability between BSD sed (macOS) and GNU sed (Linux CI).
       - |
         version="{{.CLI_ARGS}}"
         version="${version#v}"

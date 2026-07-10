@@ -18,22 +18,14 @@ pub(crate) fn has_derive(attrs: &[syn::Attribute], derive_name: &str) -> bool {
                 attr.parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::token::Comma>::parse_terminated)
             {
                 for path in &nested {
-                    // Accept both `Serialize` (single-segment) and
-                    // `serde::Serialize` (two-segment). The cfg_attr branch
-                    // below already does this — we mirror that here.
                     if path.is_ident(derive_name) || path.segments.last().is_some_and(|seg| seg.ident == derive_name) {
                         return true;
                     }
                 }
             }
         } else if attr.path().is_ident("cfg_attr") {
-            // Check cfg_attr for conditional derives, e.g.:
             // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
             // #[cfg_attr(any(feature = "x", test), derive(thiserror::Error))]
-            //
-            // Walk with parse_nested_meta: the first element is the condition (skipped),
-            // subsequent elements are the attributes to apply. We look for `derive(...)` and
-            // check each path inside it via path.is_ident(derive_name) (last segment).
             if cfg_attr_has_derive_name(attr, derive_name) {
                 return true;
             }
@@ -87,13 +79,10 @@ fn cfg_attr_walk_derives(attr: &syn::Attribute, mut predicate: impl FnMut(&syn::
 
     let mut found = false;
     let parse_fn = |input: ParseStream<'_>| -> syn::Result<()> {
-        // Skip the cfg condition — parse it as a Meta so nested parens (any/all/not) are consumed.
         let _condition: syn::Meta = input.parse()?;
 
-        // Consume the comma separating condition from the attribute list.
         let _: Token![,] = input.parse()?;
 
-        // Iterate the remaining attribute metas.
         while !input.is_empty() {
             let attr_meta: syn::Meta = input.parse()?;
             if let syn::Meta::List(list) = &attr_meta {
@@ -107,7 +96,6 @@ fn cfg_attr_walk_derives(attr: &syn::Attribute, mut predicate: impl FnMut(&syn::
                     }
                 }
             }
-            // Consume trailing comma between multiple conditional attributes (rare but valid).
             if input.peek(Token![,]) {
                 let _: Token![,] = input.parse()?;
             }
@@ -169,8 +157,6 @@ fn cfg_meta_gates_on_test(meta: &syn::Meta) -> bool {
         syn::Meta::Path(path) => path.is_ident("test"),
         syn::Meta::List(list) => {
             if list.path.is_ident("not") {
-                // A `not(test)` predicate is active in non-test builds, so it does
-                // not make the item test-only.
                 return false;
             }
             if list.path.is_ident("all") || list.path.is_ident("any") {
@@ -206,9 +192,6 @@ pub(crate) fn extract_serde_rename_all(attrs: &[syn::Attribute]) -> Option<Strin
                     }
                 }
             } else if let Ok(value) = meta.value() {
-                // Consume the value so parse_nested_meta can advance to the next key.
-                // Without this, sibling keys (e.g. `tag = "..."` before `rename_all`) leave
-                // the cursor mid-value and the outer parse aborts before reaching `rename_all`.
                 let _: syn::Expr = value.parse()?;
             }
             Ok(())
@@ -222,8 +205,6 @@ pub(crate) fn extract_serde_rename_all(attrs: &[syn::Attribute]) -> Option<Strin
                 return Some(v);
             }
         } else if attr.path().is_ident("cfg_attr") {
-            // `cfg_attr(feature = "X", serde(rename_all = "..."))` — the
-            // serde inner attribute is the second argument. Walk and inspect.
             let mut inner: Option<String> = None;
             let _ = attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("serde") {
@@ -286,7 +267,6 @@ pub(crate) fn extract_field_binding_exclusion_reason(attrs: &[syn::Attribute], t
 fn has_doc_hidden(attrs: &[syn::Attribute]) -> bool {
     // Match `#[doc(hidden)]` specifically — a list-form `doc` attribute whose only
     // argument is the bare ident `hidden`. Doc-comment attributes (`#[doc = "..."]`)
-    // must NOT trigger this, even if the comment text contains the word "hidden".
     attrs.iter().any(|attr| {
         if !attr.path().is_ident("doc") {
             return false;
@@ -320,8 +300,6 @@ pub(crate) fn extract_serde_flatten(attrs: &[syn::Attribute]) -> bool {
         if !attr_str.contains("serde") {
             return false;
         }
-        // The `flatten` token must appear as a standalone serde directive, not as
-        // part of another identifier. Look for the boundary patterns serde emits.
         attr_str.contains("flatten ,")
             || attr_str.contains("flatten,")
             || attr_str.contains("flatten )")
@@ -338,12 +316,9 @@ pub(crate) fn extract_serde_rename(attrs: &[syn::Attribute]) -> Option<String> {
         if !attr_str.contains("serde") || !attr_str.contains("rename") {
             return None;
         }
-        // `rename_all` also contains `rename`; ensure we anchor on `rename =` (or `rename=`)
-        // and not on `rename_all`.
         let needles = ["rename =", "rename="];
         for needle in &needles {
             if let Some(pos) = attr_str.find(needle) {
-                // Reject `rename_all`: the pos check fails when preceded by `_all`.
                 let before = &attr_str[..pos];
                 if before.ends_with("rename_all_") || before.ends_with("rename_all") {
                     continue;
@@ -374,8 +349,6 @@ pub(crate) fn extract_serde_default_path(attrs: &[syn::Attribute]) -> Option<Str
         let needles = ["default =", "default="];
         for needle in &needles {
             if let Some(pos) = attr_str.find(needle) {
-                // Anchor on the serde `default` key, not a longer identifier
-                // such as `some_default = ...`.
                 let before = &attr_str[..pos];
                 if before.chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_') {
                     continue;
@@ -402,7 +375,6 @@ pub(crate) fn has_serde_default(attrs: &[syn::Attribute]) -> bool {
         }
         // Look for `default` keyword: both bare `#[serde(default)]` and
         // `#[serde(default = "...")]` variants. Match `default` as a boundary word,
-        // not part of `default_` or `use_default`.
         attr_str.contains("default =")
             || attr_str.contains("default ,")
             || attr_str.contains("default,")
@@ -434,11 +406,8 @@ pub(crate) fn has_derive_path(attrs: &[syn::Attribute], segments: &[&str]) -> bo
                 }
             }
         } else if attr.path().is_ident("cfg_attr") {
-            // Check cfg_attr for conditional derives, e.g.:
             // #[cfg_attr(feature = "serde", derive(thiserror::Error))]
             // #[cfg_attr(any(feature = "x", test), derive(thiserror::Error))]
-            //
-            // Structured walk — no to_token_stream().to_string() allocation.
             if cfg_attr_has_derive_path(attr, segments) {
                 return true;
             }
@@ -537,12 +506,8 @@ pub(crate) fn extract_alef_since(attrs: &[syn::Attribute]) -> Option<String> {
                         Ok(())
                     });
                 } else if let Ok(v) = meta.value() {
-                    // Simple `key = value` condition (e.g., `feature = "x"`).
                     let _: syn::Expr = v.parse()?;
                 } else {
-                    // Compound cfg predicate (e.g., `all(...)`, `any(...)`, `not(...)`):
-                    // consume the parenthesized inner tokens so parse_nested_meta can
-                    // continue to the next comma-separated item.
                     let _ = meta.parse_nested_meta(|_| Ok(()));
                 }
                 Ok(())
@@ -551,7 +516,6 @@ pub(crate) fn extract_alef_since(attrs: &[syn::Attribute]) -> Option<String> {
         }
         None
     })?;
-    // Normalize: strip a leading 'v' so the docs template always emits "v{semver}"
     // without double-v when the author writes #[alef(since = "v1.2.0")].
     Some(raw.strip_prefix('v').map(str::to_owned).unwrap_or(raw))
 }

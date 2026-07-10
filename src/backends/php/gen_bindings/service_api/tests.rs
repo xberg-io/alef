@@ -420,13 +420,11 @@ fn php_output_verb_decorator_style_direct_method_only() {
 
     let output = gen_service_php(&api, "my_crate");
 
-    // Should contain direct method
     assert!(
         output.contains("public function get(string $path, callable $handler): self"),
         "expected direct method form for VerbDecorator:\n{output}"
     );
 
-    // Should NOT contain factory method
     assert!(
         !output.contains("public function getDecorator("),
         "VerbDecorator should not emit factory method:\n{output}"
@@ -524,13 +522,11 @@ fn php_output_builder_style_factory_only() {
 
     let output = gen_service_php(&api, "my_crate");
 
-    // Should contain factory method only
     assert!(
         output.contains("public function getDecorator(string $path): Closure"),
         "expected factory method for Builder style:\n{output}"
     );
 
-    // Should NOT contain direct method
     assert!(
         !output.contains("public function get(string $path, callable $handler): self"),
         "Builder style should not emit direct method:\n{output}"
@@ -628,7 +624,6 @@ fn php_output_hybrid_style_both_forms() {
 
     let output = gen_service_php(&api, "my_crate");
 
-    // Should contain both direct method and factory method
     assert!(
         output.contains("public function get(string $path, callable $handler): self"),
         "expected direct method form for Hybrid:\n{output}"
@@ -777,14 +772,14 @@ fn php_output_required_params_not_nullable() {
             params: vec![
                 ParamDef {
                     name: "path".to_owned(),
-                    ty: TypeRef::String, // required &str/String
+                    ty: TypeRef::String,
                     optional: false,
                     default: None,
                     ..ParamDef::default()
                 },
                 ParamDef {
                     name: "mime_type".to_owned(),
-                    ty: TypeRef::Optional(Box::new(TypeRef::String)), // Option<&str>
+                    ty: TypeRef::Optional(Box::new(TypeRef::String)),
                     optional: true,
                     default: None,
                     ..ParamDef::default()
@@ -808,19 +803,16 @@ fn php_output_required_params_not_nullable() {
 
     let output = gen_service_php(&api, "my_crate");
 
-    // Required string param must NOT be nullable (no ? prefix, no = null)
     assert!(
         output.contains("string $path,"),
         "required path param must be non-nullable: {output}"
     );
 
-    // Option<T> param must be nullable with = null default
     assert!(
         output.contains("?string $mime_type = null"),
         "Option<T> mime_type param must be nullable with = null: {output}"
     );
 
-    // Ensure the bad pattern does NOT appear
     assert!(
         !output.contains("?string $path"),
         "required path must not be nullable: {output}"
@@ -929,26 +921,21 @@ fn php_output_wrapper_call_delegates_to_base_method() {
 
     let output = gen_service_php(&api, "my_crate");
 
-    // Wrapper construction statement must appear
     assert!(
         output.contains("$builder = RouteBuilder::new(Method::Get, $path);"),
         "expected wrapper construction statement:\n{output}"
     );
 
-    // Delegation to base method must appear
     assert!(
         output.contains("return $this->route($builder, $handler);"),
         "expected delegation to base route() method:\n{output}"
     );
 
-    // Must NOT push directly to registrations[] (that would be the old broken path)
     assert!(
         !output.contains("$this->registrations[] = ['route', [], $handler]"),
         "must not push empty metadata to registrations[]:\n{output}"
     );
 }
-
-// ── helpers ──────────────────────────────────────────────────────────────
 
 fn make_test_config() -> ResolvedCrateConfig {
     use crate::core::config::resolved::ResolvedCrateConfig;

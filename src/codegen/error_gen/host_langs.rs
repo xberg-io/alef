@@ -65,21 +65,12 @@ pub fn gen_go_sentinel_errors(errors: &[ErrorDef]) -> String {
 pub fn gen_go_error_struct(error: &ErrorDef, pkg_name: &str) -> String {
     let go_type_name = strip_package_prefix(&error.name, pkg_name);
 
-    // Build per-method info for the template.
-    // Each entry: { field_name, go_type, method_name, doc }
-    // field_name: PascalCase exported field (e.g. StatusCode)
-    // go_type:    Go type string (uint16 / bool / string)
-    // method_name: exported Go method name (e.g. StatusCode)
     let methods: Vec<serde_json::Value> = error
         .methods
         .iter()
         .map(|m| {
             let go_type = typeref_to_go_type(&m.return_type);
             let method_name = to_pascal_case(&m.name);
-            // Collapse multi-line rustdoc to a single-line summary so the template's
-            // `// {{ method_name }} returns {{ doc }}.` does not emit unprefixed
-            // continuation lines (markdown body, fenced code, `# Examples`) which
-            // Go rejects as syntax errors.
             let doc_summary = if m.doc.is_empty() {
                 String::new()
             } else {
@@ -156,16 +147,11 @@ fn strip_package_prefix(type_name: &str, pkg_name: &str) -> String {
     let type_lower = type_name.to_lowercase();
     let pkg_lower = pkg_name.to_lowercase();
     if type_lower.starts_with(&pkg_lower) && type_lower.len() > pkg_lower.len() {
-        // Retain the original casing for the suffix part.
         type_name[pkg_lower.len()..].to_string()
     } else {
         type_name.to_string()
     }
 }
-
-// ---------------------------------------------------------------------------
-// Java error type generation
-// ---------------------------------------------------------------------------
 
 /// Generate Java exception sub-classes for each error variant.
 ///
@@ -179,12 +165,9 @@ fn strip_package_prefix(type_name: &str, pkg_name: &str) -> String {
 pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, String)> {
     let mut files = Vec::with_capacity(error.variants.len() + 1);
 
-    // Base exception class
     let base_name = format!("{}Exception", error.name);
     let doc_lines: Vec<&str> = error.doc.lines().collect();
 
-    // Build per-method info for the template.
-    // Each entry: { field_name, java_type, getter_name, doc }
     let method_infos: Vec<serde_json::Value> = error
         .methods
         .iter()
@@ -217,7 +200,6 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
     );
     files.push((base_name.clone(), base));
 
-    // Per-variant exception classes
     for variant in &error.variants {
         let class_name = format!("{}Exception", variant.name);
         let doc_lines: Vec<&str> = variant.doc.lines().collect();
@@ -264,11 +246,9 @@ fn typeref_to_java_type(ty: &crate::core::ir::TypeRef) -> &'static str {
 /// E.g. `status_code` → `getStatusCode`, `is_transient` → `isTransient`.
 fn java_getter_name(snake: &str) -> String {
     if let Some(rest) = snake.strip_prefix("is_") {
-        // is_transient → isTransient
         let pascal = to_pascal_case(rest);
         format!("is{pascal}")
     } else {
-        // status_code → getStatusCode, error_type → getErrorType
         let pascal = to_pascal_case(snake);
         format!("get{pascal}")
     }
@@ -294,8 +274,6 @@ fn java_field_name(snake: &str) -> String {
         }
     }
 
-    // PMD rule AvoidFieldNameMatchingMethodName: rename fields that match Serializable interface methods
-    // isTransient, readObject, writeObject are methods in Serializable/ObjectInputStream/ObjectOutputStream
     if out == "isTransient" {
         out.push_str("Flag");
     }
@@ -312,10 +290,6 @@ fn java_default_value(ty: &crate::core::ir::TypeRef) -> &'static str {
         _ => "0",
     }
 }
-
-// ---------------------------------------------------------------------------
-// C# error type generation
-// ---------------------------------------------------------------------------
 
 /// Generate C# exception sub-classes for each error variant.
 ///
@@ -338,13 +312,7 @@ pub fn gen_csharp_error_types(
     let mut files = Vec::with_capacity(error.variants.len() + 1);
 
     let base_name = format!("{}Exception", error.name);
-    // Inherit from the generic library exception when provided so that
-    // `Assert.ThrowsAny<LibException>()` catches typed errors too.
     let base_parent = fallback_class.unwrap_or("Exception");
-    // Sanitise rustdoc-style markup so the resulting C# XML doc parses cleanly.
-    // The base error doc routinely contains `# Examples`, ```ignore code fences,
-    // `Self::error_code`, `Result<T, E>` and other Rust idioms that Roslyn rejects
-    // when leaked verbatim into `<summary>`.
     let sanitized_error_doc = crate::codegen::doc_emission::sanitize_rust_idioms(
         &error.doc,
         crate::codegen::doc_emission::DocTarget::CSharpDoc,
@@ -352,18 +320,14 @@ pub fn gen_csharp_error_types(
     let error_doc_lines: Vec<&str> = sanitized_error_doc.lines().collect();
     let error_has_doc = !sanitized_error_doc.trim().is_empty();
 
-    // Build per-method info for the template.
-    // Each entry: { prop_name, cs_type, param_name, doc }
     let method_infos: Vec<serde_json::Value> = error
         .methods
         .iter()
         .map(|m| {
             let cs_type = typeref_to_csharp_type(&m.return_type);
             let prop_name = to_pascal_case(&m.name);
-            let param_name = java_field_name(&m.name); // camelCase ctor parameter
+            let param_name = java_field_name(&m.name);
             let default_value = csharp_default_value(&m.return_type);
-            // Per-method docs are emitted inline as a single-line `<summary>`,
-            // so collapse multi-line sanitised output to its first paragraph.
             let sanitized_method_doc = crate::codegen::doc_emission::sanitize_rust_idioms(
                 &m.doc,
                 crate::codegen::doc_emission::DocTarget::CSharpDoc,
@@ -385,7 +349,6 @@ pub fn gen_csharp_error_types(
         .collect();
     let has_methods = !method_infos.is_empty();
 
-    // Base exception class
     {
         let out = crate::codegen::template_env::render(
             "error_gen/csharp_error_base.jinja",
@@ -402,7 +365,6 @@ pub fn gen_csharp_error_types(
         files.push((base_name.clone(), out));
     }
 
-    // Per-variant exception classes
     for variant in &error.variants {
         let class_name = format!("{}Exception", variant.name);
         let sanitized_variant_doc = crate::codegen::doc_emission::sanitize_rust_idioms(
@@ -458,7 +420,3 @@ fn csharp_default_value(ty: &crate::core::ir::TypeRef) -> &'static str {
         _ => "0",
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------

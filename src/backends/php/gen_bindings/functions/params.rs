@@ -53,7 +53,6 @@ pub(super) fn apply_bridge_none_substitutions(
     if bridge_names.is_empty() || call_args.is_empty() {
         return call_args.to_string();
     }
-    // Split on ", " then zip with params to identify which slot to replace.
     let terms: Vec<&str> = call_args.split(", ").collect();
     let result: Vec<String> = terms
         .into_iter()
@@ -128,13 +127,9 @@ pub(super) fn apply_default_param_substitutions(
         .zip(params.iter())
         .map(|(term, param)| {
             if promoted_names.contains(param.name.as_str()) {
-                // PHP parameter names are camelCase — use to_php_name so the generated
-                // variable references match the let bindings and function signature.
                 let php_name = crate::codegen::naming::to_php_name(&param.name);
                 if param.is_ref {
                     if param.is_mut {
-                        // Mutable ref: the serde path generated an `_unwrapped` binding.
-                        // Use that binding instead of re-deriving from the Option.
                         format!("&mut {php_name}_unwrapped")
                     } else {
                         format!("&{php_name}_core.unwrap_or_default()")
@@ -181,13 +176,10 @@ pub(super) fn gen_php_serde_let_bindings(
 ) -> String {
     let mut out = String::new();
     for p in params {
-        // PHP parameter names are camelCase. Use to_php_name so let bindings reference
-        // the same camelCase variable that appears in the function signature.
         let php_param_name = crate::codegen::naming::to_php_name(&p.name);
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.is_ref {
-                    // Serde round-trip: binding type -> JSON -> core type.
                     if p.optional {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_serde_ref_named_optional_let_binding.jinja",
@@ -197,8 +189,6 @@ pub(super) fn gen_php_serde_let_bindings(
                                 name => name,
                             },
                         ));
-                        // For optional+is_mut params: unwrap into a mutable binding so
-                        // &mut {name}_unwrapped can be passed to functions taking &mut T.
                         if p.is_mut {
                             out.push_str(&crate::backends::php::template_env::render(
                                 "php_optional_mut_unwrap_binding.jinja",
@@ -216,7 +206,6 @@ pub(super) fn gen_php_serde_let_bindings(
                         ));
                     }
                 } else {
-                    // Non-ref Named: use the standard .clone().into() path.
                     if p.optional {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_let_binding_named_optional.jinja",
@@ -241,9 +230,7 @@ pub(super) fn gen_php_serde_let_bindings(
             TypeRef::Vec(inner) => {
                 if let TypeRef::Named(name) = inner.as_ref() {
                     if !opaque_types.contains(name.as_str()) {
-                        // php_param_name already defined above as to_php_name(&p.name)
                         if enum_names.contains(name.as_str()) {
-                            // Vec<EnumType>: PHP param is Vec<String>; convert via From<String>.
                             out.push_str(&crate::backends::php::template_env::render(
                                 "php_let_binding_vec_named.jinja",
                                 context! {
@@ -253,7 +240,6 @@ pub(super) fn gen_php_serde_let_bindings(
                                 },
                             ));
                         } else {
-                            // Vec<StructType>: PHP param is &ZendHashTable; convert via FromZval.
                             out.push_str(&crate::backends::php::template_env::render(
                                 "php_vec_named_struct_let_binding.jinja",
                                 context! {
@@ -266,9 +252,6 @@ pub(super) fn gen_php_serde_let_bindings(
                         }
                     }
                 } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
-                    // Sanitized Vec<tuple>: binding accepts Vec<String> (each item JSON-encoded
-                    // tuple). Deserialize each element into the original tuple type so the core
-                    // function can be called with its native signature.
                     if p.optional {
                         out.push_str(&crate::backends::php::template_env::render(
                             "php_let_binding_sanitized_vec_string_optional.jinja",
@@ -294,7 +277,6 @@ pub(super) fn gen_php_serde_let_bindings(
                 }
             }
             TypeRef::Json => {
-                // JSON param is received as String from PHP; parse it via serde_json
                 let bound_name = format!("{php_param_name}_json");
                 if p.optional {
                     out.push_str(&crate::backends::php::template_env::render(

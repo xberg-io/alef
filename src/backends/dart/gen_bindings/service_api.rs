@@ -16,8 +16,6 @@ use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, ServiceDef
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-// ───────────────────────────────────────────────────────────────── helpers ──
-
 /// Format a multi-line Rust doc as a Rust `///` block at the given column
 /// indent. Every non-blank line is prefixed with `/// `; blank lines stay as
 /// bare `///` so paragraph breaks survive. Includes the trailing newline.
@@ -56,7 +54,6 @@ fn entrypoint_return_representable(
     service: &ServiceDef,
     api: &ApiSurface,
 ) -> bool {
-    // Check if the source method is sanitized; if so, the entrypoint is not representable.
     if let Some(svc_type) = api.types.iter().find(|t| t.name == service.name) {
         if let Some(method) = svc_type.methods.iter().find(|m| m.name == ep.method) {
             if method.sanitized {
@@ -65,7 +62,6 @@ fn entrypoint_return_representable(
         }
     }
 
-    // Check if the return type itself is representable.
     match &ep.return_type {
         TypeRef::Unit | TypeRef::String | TypeRef::Char | TypeRef::Primitive(_) | TypeRef::Bytes => true,
         TypeRef::Named(n) => api.types.iter().any(|t| t.name == *n),
@@ -77,8 +73,6 @@ fn entrypoint_return_representable(
 fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a HandlerContractDef> {
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
 }
-
-// ──────────────────────────────────────────────────────── Rust service codegen ──
 
 /// Generate the Rust source for FRB-bridged service owners and handlers.
 ///
@@ -96,7 +90,6 @@ pub fn gen_service_rust(api: &ApiSurface, config: &ResolvedCrateConfig) -> Strin
     ));
     out.push_str("\n\n");
 
-    // Emit handler bridges for all unique contracts referenced by registrations
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let names: BTreeSet<&str> = api
             .services
@@ -112,7 +105,6 @@ pub fn gen_service_rust(api: &ApiSurface, config: &ResolvedCrateConfig) -> Strin
         out.push('\n');
     }
 
-    // Emit one service owner per service definition
     for service in &api.services {
         gen_service_owner(&mut out, service, api, &core_import);
         out.push('\n');
@@ -157,11 +149,9 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     ));
     out.push_str("\n\n");
 
-    // Determine wire types — derive from the contract definition
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
-    // Build the request and response type paths
     let req_path = if req_type.contains("::") {
         req_type.to_string()
     } else {
@@ -173,7 +163,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         format!("{core_import}::{resp_type}")
     };
 
-    // Leading dispatch parameters (e.g. from dispatch_extra_params)
     let extra_params: String = contract
         .dispatch_extra_params
         .iter()
@@ -183,7 +172,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let wire_param_name = contract.wire_param_name.as_deref().unwrap_or("request");
     let dispatch_name = &contract.dispatch.name;
 
-    // The future's Output type
     let box_err = "Box<dyn std::error::Error + Send + Sync>";
     let wire_output = format!("Result<{resp_path}, {box_err}>");
     let output_type = contract
@@ -191,7 +179,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .clone()
         .unwrap_or_else(|| wire_output.clone());
 
-    // Tail: apply response_adapter if configured
     let tail = match &contract.response_adapter {
         Some(adapter) => format!("{adapter}(outcome)"),
         None => "outcome".to_string(),
@@ -227,7 +214,6 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
     let service_name = &service.name;
     let owner_path = &service.rust_path;
 
-    // Emit doc comment
     if !service.doc.is_empty() {
         let doc_lines = format_dart_comment(&service.doc, 0);
         out.push_str(&crate::backends::dart::template_env::render(
@@ -247,7 +233,6 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
         ));
     }
 
-    // Emit service owner struct
     out.push('\n');
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/service_owner_struct.rs.jinja",
@@ -258,7 +243,6 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
     ));
     out.push_str("\n\n");
 
-    // Emit constructor and impl open
     let ctor_params = format_ctor_params(service);
     let ctor_call = format_ctor_call(service);
 
@@ -273,16 +257,12 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
     ));
     out.push('\n');
 
-    // Emit configurator methods
     for config in &service.configurators {
         let method_params = format_method_params(config);
         let configurator_params: Vec<_> = config
             .params
             .iter()
             .map(|p| {
-                // Named params resolving to opaque mirrors use `.inner`; other Named
-                // params (non-opaque mirrors with derived `From<MirrorT> for SourceT`)
-                // use `.into()`; primitives / strings pass through.
                 let (is_opaque, is_named) = match &p.ty {
                     TypeRef::Named(n) => {
                         let opaque = api.types.iter().any(|t| t.name == *n && t.is_opaque);
@@ -313,17 +293,11 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
         out.push('\n');
     }
 
-    // Emit registration methods
     for reg in &service.registrations {
         let metadata_params: Vec<_> = reg
             .metadata_params
             .iter()
             .map(|p| {
-                // Named params resolving to an opaque local mirror need `.inner`
-                // to extract the wrapped core value before being passed to the
-                // inner service method — FRB-opaque wrappers carry the core value
-                // in a field named `inner`. Primitives / strings / non-opaque
-                // mirrors pass through unchanged via `From<MirrorT> for SourceT`.
                 let is_opaque = matches!(&p.ty, TypeRef::Named(n)
                     if api.types.iter().any(|t| t.name == *n && t.is_opaque));
                 minijinja::context! {
@@ -335,9 +309,6 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
             .collect();
 
         let bridge_name = format!("DartHandler{}", reg.callback_contract);
-        // Resolve the trait's full Rust path for the `Arc<dyn Trait>` cast in the
-        // registration body. Falls back to the bare trait name when the contract
-        // is missing a rust_path (defensive — the extractor populates it).
         let trait_path = find_contract(api, &reg.callback_contract)
             .map(|c| {
                 if c.rust_path.is_empty() {
@@ -360,7 +331,6 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
         ));
         out.push('\n');
 
-        // Emit registration variants
         for variant in &reg.variants {
             let signature_params: Vec<_> = variant
                 .signature_params
@@ -422,13 +392,11 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
         }
     }
 
-    // Emit entrypoint methods
     for ep in &service.entrypoints {
         gen_entrypoint_method(out, service, ep, api);
         out.push('\n');
     }
 
-    // Close the impl block
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/service_owner_impl_close.rs.jinja",
         minijinja::context! {},
@@ -447,7 +415,6 @@ fn gen_entrypoint_method(
     ep: &crate::core::ir::EntrypointDef,
     api: &ApiSurface,
 ) {
-    // Skip non-representable finalizers
     if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, service, api) {
         return;
     }
@@ -488,8 +455,6 @@ fn gen_entrypoint_method(
         },
     ));
 }
-
-// ──────────────────────────────────────────────────────────── helpers ──
 
 /// Format constructor parameters into a Rust param list.
 fn format_ctor_params(service: &ServiceDef) -> String {
@@ -576,8 +541,6 @@ fn typeref_to_rust_type(ty: &TypeRef) -> String {
     }
 }
 
-// ──────────────────────────────────────────────────────── public entry point ──
-
 /// Generate all service-API files for the Dart backend.
 ///
 /// Returns one `GeneratedFile` when services are present:
@@ -595,8 +558,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         generated_header: true,
     }])
 }
-
-// ─────────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests;

@@ -174,7 +174,6 @@ mod tests {
 
     #[test]
     fn empty_rust_dev_tools_is_respected() {
-        // Users may explicitly opt out of installing any cargo tools.
         let cfg = ToolsConfig {
             rust_dev_tools: Some(vec![]),
             ..Default::default()

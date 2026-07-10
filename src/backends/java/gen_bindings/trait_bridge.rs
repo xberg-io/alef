@@ -32,7 +32,6 @@ use crate::backends::java::type_map::{java_ffi_type, java_type};
 fn java_type_visible(ty: &TypeRef, visible_type_names: &HashSet<&str>, excluded_types: &HashSet<String>) -> String {
     match ty {
         TypeRef::Named(name) => {
-            // Substitute with String if: (1) not in visible set, OR (2) explicitly excluded
             if !visible_type_names.contains(name.as_str()) || excluded_types.contains(name) {
                 "String".to_string()
             } else {
@@ -62,7 +61,6 @@ fn java_type_visible_boxed(
 ) -> String {
     match ty {
         TypeRef::Named(name) => {
-            // Substitute with String if: (1) not in visible set, OR (2) explicitly excluded
             if !visible_type_names.contains(name.as_str()) || excluded_types.contains(name) {
                 "String".to_string()
             } else {
@@ -156,7 +154,6 @@ pub fn gen_trait_adapter_bridge_file(
     let bridge_class = format!("{trait_pascal}Adapter");
     let interface_name = format!("I{trait_pascal}");
 
-    // Collect non-skipped methods
     let skipped: HashSet<&str> = ffi_skip_methods.iter().map(|s| s.as_str()).collect();
     let bridge_methods: Vec<&MethodDef> = trait_def
         .methods
@@ -164,11 +161,8 @@ pub fn gen_trait_adapter_bridge_file(
         .filter(|m| m.trait_source.is_none() && !skipped.contains(m.name.as_str()))
         .collect();
 
-    // Build delegating method bodies
     let mut methods_code = String::new();
 
-    // Trait bridge interfaces always have lifecycle methods (name, version, initialize, shutdown)
-    // These are defined as requirements of the sealed interface.
     methods_code.push_str("    @Override\n");
     methods_code.push_str("    public String name() {\n");
     methods_code.push_str("        return impl.name();\n");
@@ -189,9 +183,7 @@ pub fn gen_trait_adapter_bridge_file(
     methods_code.push_str("        impl.shutdown();\n");
     methods_code.push_str("    }\n\n");
 
-    // Add trait-specific methods
     for method in &bridge_methods {
-        // Use the method name as-is from the interface (snake_case), not camelCase
         let method_name = &method.name;
         let return_type_str = java_type_visible(&method.return_type, visible_type_names, excluded_types);
 
@@ -226,8 +218,6 @@ pub fn gen_trait_adapter_bridge_file(
         methods_code.push_str("    }\n\n");
     }
 
-    // Collect which imports are actually needed based on method return types and parameters.
-    // The Adapter signature must match the interface, so we need imports for List/Map when used.
     let mut needs_list = false;
     let mut needs_map = false;
 
@@ -318,8 +308,6 @@ pub fn gen_clear_fn(
     if clear_fn.is_none() {
         return String::new();
     }
-    // Convert clear_fn from snake_case (e.g., "clear_renderers") to method name
-    // (e.g., "clearRenderers") by removing "clear_" prefix and PascalCasing the rest.
     let method_name = if let Some(fn_name) = clear_fn {
         let without_prefix = fn_name.strip_prefix("clear_").unwrap_or(fn_name);
         let words: Vec<&str> = without_prefix.split('_').collect();
@@ -362,14 +350,8 @@ fn gen_interface_file(
 ) -> String {
     let trait_pascal = trait_def.name.to_pascal_case();
 
-    // Methods listed in `ffi_skip_methods` cannot cross the C FFI vtable (e.g.
-    // `as_sync_extractor` returns `Option<&dyn SyncExtractor>` which has no FFI
-    // representation). They are skipped in the bridge AND in the interface so
-    // generated test stubs do not have to implement them.
     let skipped: HashSet<&str> = ffi_skip_methods.iter().map(|s| s.as_str()).collect();
 
-    // Build method list for template. Each method's `signature` is the rendered Java
-    // signature (return type + params), which is what the imports scan inspects.
     let methods: Vec<Value> = trait_def
         .methods
         .iter()
@@ -395,12 +377,6 @@ fn gen_interface_file(
         })
         .collect();
 
-    // Render the method signatures (interface body) first, then scan for the
-    // generic-container types that drive conditional imports. This mirrors the
-    // render-body-then-scan-imports pattern in `ffi_class.rs::gen_ffi_class`.
-    // Scanning the rendered signature strings prevents false positives the old
-    // `format!("{ret}({params})")` synthesis produced (it allowed `List<...>` to
-    // appear in concatenated bytes when no method actually used it).
     let methods_body: String = methods
         .iter()
         .filter_map(|m| m.get_attr("signature").ok())
@@ -443,13 +419,6 @@ fn gen_bridge_file(
     let registry_field = format!("{}_BRIDGES", trait_snake.to_uppercase());
     let bridge_class = format!("{trait_pascal}Bridge");
 
-    // Sync infallible methods with simple returns use the C vtable's
-    // direct-value convention (see `ffi::trait_bridge::c_return_convention`):
-    // the slot is `fn(user_data, params...) -> <primitive>` with NO
-    // out_result/out_error pointers. The upcall stub and handler must match
-    // that ABI exactly — appending the JSON-convention pointer params here
-    // makes the stub read garbage registers as addresses (wild write) and
-    // Rust read the int status code as the return value.
     let direct_return = |method: &MethodDef| -> Option<DirectReturn> {
         if method.error_type.is_some() {
             return None;
@@ -457,9 +426,6 @@ fn gen_bridge_file(
         direct_return_for(&method.return_type)
     };
 
-    // Methods listed in `ffi_skip_methods` cannot be expressed on the C ABI
-    // (e.g., trait-object references), so they are absent from the interface
-    // and the bridge must not emit upcall stubs or handlers for them.
     let skipped: HashSet<&str> = ffi_skip_methods.iter().map(|s| s.as_str()).collect();
     let bridge_methods: Vec<&MethodDef> = trait_def
         .methods
@@ -467,7 +433,6 @@ fn gen_bridge_file(
         .filter(|m| m.trait_source.is_none() && !skipped.contains(m.name.as_str()))
         .collect();
 
-    // Build lifecycle methods
     let lifecycle_methods: Vec<Value> = if has_super_trait {
         vec![
             minijinja::context! {
@@ -503,11 +468,8 @@ fn gen_bridge_file(
         vec![]
     };
 
-    // Build stub allocations for lifecycle methods
     let mut stubs: Vec<Value> = vec![];
     if has_super_trait {
-        // Lifecycle stubs return i32 status codes, so the FunctionDescriptor return layout
-        // must be JAVA_INT (matching the `int` upcall return); JAVA_LONG sizes the value wrongly.
         let lifecycle_stubs = vec![
             (
                 "Name",
@@ -552,7 +514,6 @@ fn gen_bridge_file(
         }
     }
 
-    // Build stub allocations for trait methods
     for method in &bridge_methods {
         let method_pascal = method.name.to_pascal_case();
         let handle_name = format!("handle{method_pascal}");
@@ -566,7 +527,6 @@ fn gen_bridge_file(
                 _ => "MemorySegment.class".to_string(),
             };
             method_type_params.push(class_literal);
-            // Bytes params carry a companion long length (mirrors vtable.rs pattern).
             if matches!(param.ty, TypeRef::Bytes) {
                 method_type_params.push("long.class".to_string());
             }
@@ -574,16 +534,6 @@ fn gen_bridge_file(
         let direct = direct_return(method);
         let has_error = method.error_type.is_some();
 
-        // Out-pointer params mirror the C vtable slot
-        // (`ffi::trait_bridge::c_return_convention`) for infallible methods:
-        // direct-value slots carry neither pointer, Char/Path outResult only,
-        // Optional<non-primitive>/Bytes neither (no value channel exists for
-        // them on the C ABI). Fallible methods keep java's long-standing JSON
-        // convention (outResult for non-Unit + outError) unchanged; note the
-        // pre-existing caveat that a fallible primitive, Bytes,
-        // Optional<non-primitive>, or Duration return would declare an
-        // outResult the C slot doesn't carry — deliberately not touched
-        // here (no such bridged method exists).
         let (has_out_result, has_out_error) = if has_error {
             (!matches!(method.return_type, TypeRef::Unit), true)
         } else if direct.is_some() {
@@ -609,7 +559,6 @@ fn gen_bridge_file(
                 _ => "ValueLayout.ADDRESS".to_string(),
             };
             func_desc_params.push(ffi_layout);
-            // Bytes params carry a companion ValueLayout.JAVA_LONG length (mirrors vtable.rs).
             if matches!(param.ty, TypeRef::Bytes) {
                 func_desc_params.push("ValueLayout.JAVA_LONG".to_string());
             }
@@ -626,8 +575,6 @@ fn gen_bridge_file(
                 var_name => &stub_name,
                 pascal_name => &method_pascal,
                 handle_name => &handle_name,
-                // Direct-value slot: the stub returns the primitive itself
-                // (or void), matching the vtable's `-> <primitive>` signature.
                 return_type => d.method_type_class,
                 method_type_params => method_type_params.join(", "),
                 descriptor_return => d.descriptor,
@@ -640,9 +587,6 @@ fn gen_bridge_file(
                 handle_name => &handle_name,
                 return_type => "int.class",
                 method_type_params => method_type_params.join(", "),
-                // JSON-convention stubs return i32 status codes, so the FunctionDescriptor
-                // return layout must be JAVA_INT (matching the `int` upcall return). The
-                // companion bytes-length param above stays JAVA_LONG.
                 descriptor_return => "ValueLayout.JAVA_INT",
                 descriptor_params => func_desc_params.join(", "),
                 returns_void => false,
@@ -650,7 +594,6 @@ fn gen_bridge_file(
         }
     }
 
-    // Build trait method handlers
     let methods: Vec<Value> = bridge_methods
         .iter()
         .map(|method| {
@@ -669,15 +612,12 @@ fn gen_bridge_file(
                         sig_params.push(format!("MemorySegment {local}_in"));
                     }
                 }
-                // Bytes params carry a companion long length so the handler can
-                // bound the MemorySegment read (fixes issue #114).
                 if matches!(param.ty, TypeRef::Bytes) {
                     sig_params.push(format!("long {local}Len"));
                 }
             }
             let direct = direct_return(method);
             let has_error = method.error_type.is_some();
-            // Mirror the C slot's out-pointer params exactly (see the stub loop).
             let (has_out_result, has_out_error) = if has_error {
                 (!matches!(method.return_type, TypeRef::Unit), true)
             } else if direct.is_some() {
@@ -695,7 +635,6 @@ fn gen_bridge_file(
                 sig_params.push("MemorySegment outError".to_string());
             }
 
-            // Build unmarshal params
             let mut unmarshal_params: Vec<String> = vec![];
             for param in &method.params {
                 let local = java_param_name(&param.name);
@@ -703,18 +642,12 @@ fn gen_bridge_file(
                     unmarshal_params.push(format!("boolean {local} = {local}_raw != 0;"));
                 } else if !matches!(param.ty, TypeRef::Primitive(_)) {
                     let segment = format!("{local}_in");
-                    // Named types not in visible_type_names (e.g. InternalDocument) OR in excluded_types
-                    // are JSON-bridged as opaque Strings — no companion Java class is generated
-                    // for them, so unmarshal as a plain String rather than deserialising
-                    // into a missing class.
                     if let TypeRef::Named(name) = &param.ty {
                         if !visible_type_names.contains(name.as_str()) || excluded_types.contains(name) {
-                            // Unmarshal as String (TypeRef::String), not as the excluded Named type
                             unmarshal_params.push(format_unmarshal_param(&local, &segment, &TypeRef::String, None));
                             continue;
                         }
                     }
-                    // Pass the len variable name for Bytes so the unmarshal can use it.
                     let bytes_len = if matches!(param.ty, TypeRef::Bytes) {
                         Some(format!("{local}Len"))
                     } else {
@@ -774,10 +707,6 @@ fn gen_bridge_file(
                 direct_sig_return => direct_sig_return,
                 direct_return_stmt => direct_return_stmt,
                 direct_default_stmt => direct_default_stmt,
-                // JSON-convention slots without a value/error channel
-                // (infallible Char/Path lack outError; infallible
-                // Optional<non-primitive>/Bytes lack both): the handler's
-                // marshal/catch must not touch pointers the slot doesn't carry.
                 marshal_result => has_out_result,
                 has_out_error => has_out_error,
             }
@@ -829,12 +758,6 @@ fn gen_bridge_file(
         clear_fn,
     );
 
-    // Render-body-then-scan-imports: the conditional imports (`List`, `Map`) are
-    // driven by what actually appears in the trait-method handler bodies — the
-    // return-type declaration (`{return_type} result = impl.method(...)`) and the
-    // unmarshal expressions (`List<...> {local} = JSON.readValue(...)`). Synthesising
-    // a separate signature string was lossy and produced false positives, so we
-    // scan the already-rendered fragments instead. This mirrors `ffi_class.rs`.
     let methods_body: String = methods
         .iter()
         .flat_map(|m| {
@@ -994,7 +917,6 @@ fn direct_return_for(ty: &TypeRef) -> Option<DirectReturn> {
                 },
                 returns_void: false,
             },
-            // All integer widths (widening to long is implicit in Java).
             _ => DirectReturn {
                 descriptor: "ValueLayout.JAVA_LONG",
                 method_type_class: "long.class",
@@ -1020,8 +942,6 @@ fn direct_return_for(ty: &TypeRef) -> Option<DirectReturn> {
             returns_void: true,
         }),
         TypeRef::Primitive(p) => Some(for_prim(p, false)),
-        // Duration crosses the C ABI as u64 millis; the Java type is boxed Long,
-        // which unboxes implicitly on return.
         TypeRef::Duration => Some(DirectReturn {
             descriptor: "ValueLayout.JAVA_LONG",
             method_type_class: "long.class",
@@ -1045,13 +965,7 @@ fn direct_return_for(ty: &TypeRef) -> Option<DirectReturn> {
 /// it contains embedded NUL bytes (fixes issue #114).
 fn format_unmarshal_param(local: &str, segment: &str, ty: &TypeRef, bytes_len: Option<&str>) -> String {
     match ty {
-        TypeRef::Primitive(_) => {
-            // Primitives are declared directly in the handler signature with their Java primitive
-            // type (e.g. `byte _level`). No extraction from a MemorySegment is needed.
-            // This branch is intentionally unreachable — callers skip unmarshal_param for
-            // primitive params — but is kept to keep the match exhaustive.
-            String::new()
-        }
+        TypeRef::Primitive(_) => String::new(),
         TypeRef::Bytes => {
             let len = bytes_len.unwrap_or("Long.MAX_VALUE");
             format!("byte[] {local} = {segment}.reinterpret({len}).toArray(ValueLayout.JAVA_BYTE);")

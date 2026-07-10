@@ -50,15 +50,7 @@ pub fn gen_trait_bridges_file(
 ) -> String {
     let mut out = String::with_capacity(16_384);
 
-    // Collect names of types that are present in the IR but explicitly excluded from the
     // public binding surface (typically via `#[cfg_attr(alef, alef(skip))]` or
-    // type-level config exclusions). Trait-bridge interface signatures referencing any
-    // such type must fall back to `json.RawMessage`: the corresponding Go type was never
-    // emitted into binding.go and would otherwise produce `undefined: <Name>` build
-    // errors. The IR exposes these names in `excluded_type_paths` — that includes both
-    // types stripped from `api.types` entirely and types still present with
-    // `binding_excluded = true`. We also union in any `binding_excluded` type names from
-    // `api.types` defensively.
     let excluded_named_types: HashSet<&str> = api
         .excluded_type_paths
         .keys()
@@ -68,7 +60,6 @@ pub fn gen_trait_bridges_file(
 
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     // NOTE: package_and_cgo.jinja already emits "package {name}\n\n/*\n#cgo..."
-    // so we render it directly — do NOT push a separate "/*\n" before this call.
     out.push_str(&crate::backends::go::template_env::render(
         "package_and_cgo.jinja",
         minijinja::context! {
@@ -80,9 +71,6 @@ pub fn gen_trait_bridges_file(
     ));
     out.push('\n');
 
-    // Forward-declare all exported Go trampolines in the CGO preamble so that
-    // C code can reference them. These are Go functions with //export directives
-    // that will be linked when the Go code is compiled.
     for bridge_cfg in &config.trait_bridges {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
             let pascal = bridge_cfg.trait_name.to_pascal_case();
@@ -104,7 +92,6 @@ pub fn gen_trait_bridges_file(
                     },
                 ));
             }
-            // Plugin lifecycle trampolines
             out.push_str(&crate::backends::go::template_env::render(
                 "plugin_trampoline_decl.jinja",
                 minijinja::context! {
@@ -142,8 +129,6 @@ pub fn gen_trait_bridges_file(
         }
     }
 
-    // Emit C helper functions for vtable construction.
-    // Each helper allocates and initializes a vtable in C, correctly populating function pointer slots.
     for bridge_cfg in &config.trait_bridges {
         if !bridge_cfg.exclude_languages.iter().any(|lang| lang == "go")
             && api.types.iter().any(|t| t.name == bridge_cfg.trait_name)
@@ -169,8 +154,6 @@ pub fn gen_trait_bridges_file(
                     .iter()
                     .map(|method| method.name.to_pascal_case())
                     .collect();
-
-                // No need for method_casts anymore - the inline function uses generic void(*)(void) casts
 
                 out.push_str(&crate::backends::go::template_env::render(
                     "vtable_constructor_helper.jinja",
@@ -200,8 +183,6 @@ pub fn gen_trait_bridges_file(
     out.push_str(")\n");
     out.push('\n');
 
-    // Generate handle registry type and instances for all trait bridges.
-    // Each trait needs a registry to track cgo.Handles by name for cleanup on unregister.
     let has_trait_bridges = config.trait_bridges.iter().any(|cfg| {
         !cfg.exclude_languages.iter().any(|lang| lang == "go") && api.types.iter().any(|t| t.name == cfg.trait_name)
     });
@@ -233,7 +214,6 @@ pub fn gen_trait_bridges_file(
         out.push_str(")\n");
         out.push('\n');
 
-        // Generate handle registry methods.
         out.push_str("// store adds a handle to the registry, keyed by name.\n");
         out.push_str("func (reg *handleRegistry) store(name string, handle cgo.Handle) {\n");
         out.push_str("\treg.mu.Lock()\n");
@@ -268,9 +248,7 @@ pub fn gen_trait_bridges_file(
         out.push('\n');
     }
 
-    // Generate interfaces, trampolines, and registration functions for each bridge
     for bridge_cfg in &config.trait_bridges {
-        // Skip trait bridges excluded for this language
         if bridge_cfg.exclude_languages.iter().any(|lang| lang == "go") {
             continue;
         }
@@ -306,19 +284,12 @@ pub(super) fn gen_trait_bridge(
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
     let trait_pascal = trait_name.to_pascal_case();
 
-    // Derive C VTable struct name: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
-    // E.g., for crate="sample_core", trait="TextBackend": SAMPLE_CRATESampleCrateTextBackendVTable
-    // Hyphens in crate names are not valid in C identifiers;
-    // normalize the same way ffi_prefix does (`-` → `_`) before uppercasing.
     let crate_normalized = crate_name.replace('-', "_");
     let crate_upper = crate_normalized.to_uppercase();
     let crate_pascal = crate_normalized.to_pascal_case();
     #[allow(unused_variables)]
     let c_vtable_struct = format!("{}{}{}{}", crate_upper, crate_pascal, trait_pascal, "VTable");
 
-    // =========================================================================
-    // Go interface
-    // =========================================================================
     out.push_str(&crate::backends::go::template_env::render(
         "trait_interface_header.jinja",
         minijinja::context! {
@@ -326,7 +297,6 @@ pub(super) fn gen_trait_bridge(
         },
     ));
 
-    // Plugin methods (name, version, initialize, shutdown)
     out.push_str(&crate::backends::go::template_env::render(
         "plugin_method_signature.jinja",
         minijinja::context! {
@@ -363,7 +333,6 @@ pub(super) fn gen_trait_bridge(
         },
     ));
 
-    // Trait methods (skip FFI-incompatible ones — they have no C VTable slot).
     for method in trait_def
         .methods
         .iter()
@@ -376,9 +345,6 @@ pub(super) fn gen_trait_bridge(
     out.push_str("}\n");
     out.push('\n');
 
-    // =========================================================================
-    // Path A Bridge wrapper struct and delegating methods
-    // =========================================================================
     gen_bridge_wrapper(
         out,
         trait_def,
@@ -387,9 +353,6 @@ pub(super) fn gen_trait_bridge(
         excluded_named_types,
     );
 
-    // =========================================================================
-    // Exported trampolines
-    // =========================================================================
     for method in trait_def
         .methods
         .iter()
@@ -406,12 +369,8 @@ pub(super) fn gen_trait_bridge(
         gen_trampoline(out, trait_name, &trait_pascal, &method_substituted);
     }
 
-    // Plugin method trampolines
     gen_plugin_trampolines(out, trait_name, &trait_pascal);
 
-    // =========================================================================
-    // Registration function
-    // =========================================================================
     out.push_str(&crate::backends::go::template_env::render(
         "register_function_header.jinja",
         minijinja::context! {
@@ -419,7 +378,6 @@ pub(super) fn gen_trait_bridge(
         },
     ));
 
-    // Collect export names for method trampolines
     let export_names: Vec<String> = trait_def
         .methods
         .iter()
@@ -427,9 +385,6 @@ pub(super) fn gen_trait_bridge(
         .map(|m| format!("go{}{}", &trait_pascal, m.name.to_pascal_case()))
         .collect();
 
-    // Build the C vtable by calling the C helper function.
-    // This ensures function pointers are correctly populated in C, fixing ARM64 macOS issues
-    // where unsafe.Pointer casts don't work correctly for function addresses.
     let vtable_constructor = format!("{}_{}_vtable_new", ffi_prefix, trait_snake);
     out.push_str(&crate::backends::go::template_env::render(
         "vtable_allocation_via_c_helper.jinja",
@@ -451,9 +406,6 @@ pub(super) fn gen_trait_bridge(
     out.push_str("}\n");
     out.push('\n');
 
-    // =========================================================================
-    // Unregistration function
-    // =========================================================================
     out.push_str(&crate::backends::go::template_env::render(
         "unregister_function_header.jinja",
         minijinja::context! {
@@ -472,9 +424,6 @@ pub(super) fn gen_trait_bridge(
     ));
     out.push_str("}\n");
 
-    // =========================================================================
-    // Config-driven unregistration / clear functions (opt-in via bridge_cfg)
-    // =========================================================================
     let unregister_block = gen_unregistration_fn(bridge_cfg, ffi_prefix, trait_name);
     if !unregister_block.is_empty() {
         out.push('\n');

@@ -299,8 +299,6 @@ pub(crate) fn verify_walk_multi(
             let Some(disk_hash) = crate::core::hash::extract_hash(&content) else {
                 continue;
             };
-            // A file is valid if its embedded hash matches ANY crate's inputs hash.
-            // The comparison is a simple string equality — no file content is rehashed.
             let valid = inputs_hashes.iter().any(|ih| ih == &disk_hash);
             if !valid {
                 stale.push(StaleMismatch {
@@ -352,9 +350,6 @@ pub(crate) fn verify_walk(base_dir: &std::path::Path, inputs_hash: &str) -> anyh
         ".vscode",
     ];
 
-    // Only scan files alef plausibly emits. The check is cheap (extension
-    // match + read-first-10-lines), but constraining the set keeps the walk
-    // O(generated files) instead of O(every file in the repo).
     const SCAN_EXTENSIONS: &[&str] = &[
         "rs", "py", "pyi", "ts", "tsx", "js", "mjs", "cjs", "rb", "rbs", "php", "phpstub", "go", "java", "cs", "ex",
         "exs", "R", "r", "toml", "json", "md", "h", "c", "yaml", "yml",
@@ -400,8 +395,6 @@ pub(crate) fn verify_walk(base_dir: &std::path::Path, inputs_hash: &str) -> anyh
             let Some(disk_hash) = crate::core::hash::extract_hash(&content) else {
                 continue;
             };
-            // Direct string comparison: the embedded hash is an inputs fingerprint,
-            // not derived from file content. No rehashing needed.
             if disk_hash != inputs_hash {
                 stale.push(StaleMismatch {
                     path: path.display().to_string(),
@@ -482,8 +475,6 @@ e2e = "cargo test"
     #[test]
     fn generated_files_match_disk_ignores_embedded_hash_line() {
         let dir = tempfile::tempdir().unwrap();
-        // The on-disk file carries the post-generation `alef:hash:` line; the in-memory
-        // generated content does not. Stripping it on both sides must still match.
         std::fs::write(
             dir.path().join("binding.go"),
             "// alef:hash:deadbeef\npackage x\n\nvar a = 1\n",
@@ -496,7 +487,6 @@ e2e = "cargo test"
     #[test]
     fn generated_files_match_disk_false_when_body_differs() {
         let dir = tempfile::tempdir().unwrap();
-        // Simulate an out-of-band revert: disk lacks a line the generator now emits.
         std::fs::write(dir.path().join("binding.go"), "package x\n\nvar a = 1\n").unwrap();
         let files = vec![gen_file("binding.go", "package x\n\nimport \"fmt\"\n\nvar a = 1\n")];
         assert!(!generated_files_match_disk(&files, dir.path()));

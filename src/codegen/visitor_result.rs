@@ -127,12 +127,6 @@ pub(crate) fn unknown_string_result_expr(
     metadata: &VisitorResultMetadata,
     value_expr: &str,
 ) -> String {
-    // When the host returns a bare string that doesn't match any unit variant,
-    // treat it as a custom-output payload. With multiple string-payload
-    // variants (e.g. `Custom(String)` and `Error(String)`) prefer the one
-    // canonically named "Custom" — that's the documented "use this string as
-    // the rendered output" channel; "Error" requires the explicit dict form
-    // because it changes control flow.
     match metadata.string_payload_variants.as_slice() {
         [] => default_result_expr(return_type, metadata),
         [variant] => format!("{return_type}::{}({value_expr})", variant.name),

@@ -18,16 +18,12 @@ pub(super) fn emit_trait_interfaces(
     package: &str,
     files: &mut Vec<GeneratedFile>,
 ) {
-    // Check if the bridge function parameter is excluded from kotlin_android.
     let kotlin_android_excluded_function_names: std::collections::HashSet<&str> = config
         .kotlin_android
         .as_ref()
         .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
         .unwrap_or_default();
 
-    // Compute the set of types explicitly excluded from the kotlin_android binding.
-    // This mirrors the computation in the main generate() function to give emit_trait_methods
-    // the information it needs to substitute excluded/internal types with String.
     let mut effective_excluded_types: std::collections::HashSet<String> = config
         .kotlin_android
         .as_ref()
@@ -47,7 +43,6 @@ pub(super) fn emit_trait_interfaces(
             }
         }
     }
-    // Also exclude types referenced in excluded_type_paths (types excluded at the IR level).
     for name in api.excluded_type_paths.keys() {
         effective_excluded_types.insert(name.clone());
     }
@@ -61,8 +56,6 @@ pub(super) fn emit_trait_interfaces(
             continue;
         }
 
-        // Skip if the bridge function parameter is excluded from kotlin_android
-        // (e.g., visitor function excluded because JNI trait-handle bridge is unimplemented)
         if let Some(param_name) = &bridge.param_name {
             if kotlin_android_excluded_function_names.contains(param_name.as_str()) {
                 continue;
@@ -111,7 +104,6 @@ pub(super) fn emit_trait_interfaces(
             generated_header: false,
         });
 
-        // Emit the bridge object and adapter (registration/unregistration wrapper + adapter)
         let bridge_class = bridge_class_name(&config.name);
         for (filename, bridge_content) in trait_bridge::gen_trait_bridge_files(
             package,
@@ -148,38 +140,29 @@ pub(super) fn emit_trait_interfaces(
 /// Short signatures remain single-line. Empty parameter lists are always
 /// single-line even if return type is long.
 pub fn format_method_signature(suspend_keyword: &str, method_name: &str, params: &str, return_type: &str) -> String {
-    // Base signature without leading indent: "suspend fun name(...):"
     let base_sig = format!("{suspend_keyword}fun {method_name}(");
-    // Leading indent (4 spaces for trait method declarations)
     let indent = "    ";
-    // Total with indent, method name, and return type
     let full_sig_no_newline = format!(
         "{indent}{base_sig}{params}{}{}",
         if return_type == "Unit" { "" } else { "): " },
         return_type
     );
 
-    // Threshold: 110 chars (soft cap to avoid AGP parser cascade)
-    // Include trailing newline in length calculation
     const THRESHOLD: usize = 110;
 
     if params.is_empty() || full_sig_no_newline.len() < THRESHOLD {
-        // Short or no params: single-line
         if return_type == "Unit" {
             format!("{indent}{base_sig}{params})\n")
         } else {
             format!("{indent}{base_sig}{params}): {return_type}\n")
         }
     } else {
-        // Long signature: multi-line with trailing comma on params
         let mut result = format!("{indent}{base_sig}\n");
-        // Parameters indented 8 spaces (2 levels), each on its own line
         for param in params.split(", ") {
             result.push_str("        ");
             result.push_str(param);
             result.push_str(",\n");
         }
-        // Return type line (or closing paren for Unit)
         if return_type == "Unit" {
             result.push_str("    )\n");
         } else {
@@ -202,9 +185,6 @@ fn emit_trait_methods(
     imports: &mut BTreeSet<String>,
     body: &mut String,
 ) {
-    // Build the set of type names visible in this binding (non-excluded, non-trait TypeDefs
-    // plus enum names). Named types not in this set are substituted with String to avoid
-    // referencing types that are not present in the generated Kotlin package.
     let visible_type_names: std::collections::HashSet<&str> = api
         .types
         .iter()

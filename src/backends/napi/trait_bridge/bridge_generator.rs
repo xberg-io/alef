@@ -37,15 +37,12 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
     }
 
     fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
-        // The flag is captured at construction (see `gen_constructor`) because the
-        // JS object cannot be probed off the event-loop thread in async bodies.
         self.forwardable_defaulted
             .contains(&method.name)
             .then(|| format!("self.has_{}", method.name))
     }
 
     fn extra_bridge_fields(&self, spec: &TraitBridgeSpec) -> Vec<(String, String)> {
-        // Iterate the trait's method order (not the set) so field order is deterministic.
         spec.trait_def
             .methods
             .iter()
@@ -69,7 +66,6 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let snake_method_name = name.clone();
         let has_error = method.error_type.is_some();
 
-        // Get the JS function from the object
         let js_args_exprs = build_napi_args(method, spec.bridge_config, &self.struct_param_types, &self.type_prefix);
         let inner_tuple_ty = unknown_tuple_type(js_args_exprs.len());
         let args_tuple_ty = if js_args_exprs.is_empty() {
@@ -145,7 +141,6 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let js_method_name = to_camel_case(name);
         let snake_method_name = name.clone();
 
-        // Build the JS function call
         let js_args_exprs = build_napi_args(method, spec.bridge_config, &self.struct_param_types, &self.type_prefix);
         let inner_tuple_ty = unknown_tuple_type(js_args_exprs.len());
         let args_tuple_ty = if js_args_exprs.is_empty() {
@@ -223,9 +218,6 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             })
             .collect::<Vec<_>>();
 
-        // Presence flags for forwarded defaulted methods, captured once on the JS
-        // thread. Trait method order keeps the emission deterministic. Both the
-        // camelCase and snake_case property names count, matching method dispatch.
         let optional_methods = spec
             .trait_def
             .methods

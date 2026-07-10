@@ -9,8 +9,6 @@ pub(crate) fn scaffold_go(api: &ApiSurface, config: &ResolvedCrateConfig) -> any
     let _ = version; // go.mod doesn't embed the package version
     let package_dir = config.package_dir(Language::Go);
 
-    // Host-native capsule (Language) passthrough requires the ecosystem tree-sitter Go
-    // module as a runtime dependency. Inject a `require` block for each configured package.
     let mut require_lines: Vec<String> = config
         .go
         .as_ref()
@@ -176,9 +174,6 @@ formatters:
         },
     ];
 
-    // Create .lib/.gitkeep to ensure the .lib directory exists in the module.
-    // This directory will be referenced by go:embed directives in embed_ffi.go.
-    // Pre-built FFI libraries for different platforms should be placed here.
     files.push(GeneratedFile {
         path: PathBuf::from(format!("{package_dir}/.lib/.gitkeep")),
         content: String::new(),

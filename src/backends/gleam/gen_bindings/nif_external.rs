@@ -30,7 +30,6 @@ pub(crate) fn emit_from_json_fn(ty: &TypeDef, nif_module: &str, out: &mut String
 pub(crate) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<&'static str>) {
     emit_cleaned_gleam_doc(out, &ty.doc, "");
     if ty.fields.is_empty() {
-        // Opaque or unit-like — emit a phantom external type
         out.push_str(&crate::backends::gleam::template_env::render(
             "type_opaque.jinja",
             minijinja::context! {
@@ -72,7 +71,6 @@ pub(crate) fn emit_variant_fields(fields: &[FieldDef], out: &mut String, imports
         let ty_str = gleam_type(&field.ty, field.optional, imports);
         let comma = if idx + 1 == fields.len() { "" } else { "," };
         if is_positional_field(&field.name) || field.name.is_empty() {
-            // Tuple/positional field: emit as unlabeled argument (e.g. `String`)
             out.push_str(&crate::backends::gleam::template_env::render(
                 "field_positional.jinja",
                 minijinja::context! {

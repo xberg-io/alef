@@ -1,12 +1,10 @@
 use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
-    // Dart class headers
     ("class_header.jinja", include_str!("templates/class_header.jinja")),
     ("class_empty.jinja", include_str!("templates/class_empty.jinja")),
     ("class_open.jinja", include_str!("templates/class_open.jinja")),
     ("class_close.jinja", include_str!("templates/class_close.jinja")),
-    // Freezed class headers
     (
         "freezed_class_open.jinja",
         include_str!("templates/freezed_class_open.jinja"),
@@ -23,7 +21,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "freezed_required_param.jinja",
         include_str!("templates/freezed_required_param.jinja"),
     ),
-    // Enum declarations
     ("enum_header.jinja", include_str!("templates/enum_header.jinja")),
     ("enum_close.jinja", include_str!("templates/enum_close.jinja")),
     (
@@ -42,7 +39,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "final_class_extends.jinja",
         include_str!("templates/final_class_extends.jinja"),
     ),
-    // Field and property declarations
     (
         "final_field_decl.jinja",
         include_str!("templates/final_field_decl.jinja"),
@@ -51,7 +47,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "override_message_getter.jinja",
         include_str!("templates/override_message_getter.jinja"),
     ),
-    // Constructors
     (
         "single_param_constructor.jinja",
         include_str!("templates/single_param_constructor.jinja"),
@@ -72,7 +67,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "constructor_close.jinja",
         include_str!("templates/constructor_close.jinja"),
     ),
-    // Error classes
     (
         "error_sealed_class.jinja",
         include_str!("templates/error_sealed_class.jinja"),
@@ -81,7 +75,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "error_message_property.jinja",
         include_str!("templates/error_message_property.jinja"),
     ),
-    // FFI functions
     (
         "ffi_typedef_native.jinja",
         include_str!("templates/ffi_typedef_native.jinja"),
@@ -125,7 +118,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "ffi_lib_path_linux.jinja",
         include_str!("templates/ffi_lib_path_linux.jinja"),
     ),
-    // FFI error helpers
     (
         "ffi_free_string_lookup.jinja",
         include_str!("templates/ffi_free_string_lookup.jinja"),
@@ -138,7 +130,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "ffi_last_error_context_lookup.jinja",
         include_str!("templates/ffi_last_error_context_lookup.jinja"),
     ),
-    // Bridge and trait functions
     (
         "function_signature_async.jinja",
         include_str!("templates/function_signature_async.jinja"),
@@ -159,7 +150,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "function_sync_return.jinja",
         include_str!("templates/function_sync_return.jinja"),
     ),
-    // Trait bridges (Rust side)
     (
         "trait_struct_open.jinja",
         include_str!("templates/trait_struct_open.jinja"),
@@ -205,7 +195,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "plugin_shutdown_method.jinja",
         include_str!("templates/plugin_shutdown_method.jinja"),
     ),
-    // Trait abstracts and documentation
     (
         "abstract_class_header.jinja",
         include_str!("templates/abstract_class_header.jinja"),
@@ -235,7 +224,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "abstract_method_declaration.jinja",
         include_str!("templates/abstract_method_declaration.jinja"),
     ),
-    // Rust bridge declarations
     (
         "frb_pub_async_fn.jinja",
         include_str!("templates/frb_pub_async_fn.jinja"),
@@ -270,7 +258,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "frb_result_block_on.jinja",
         include_str!("templates/frb_result_block_on.jinja"),
     ),
-    // Trait impl items
     (
         "trait_factory_fn_open.jinja",
         include_str!("templates/trait_factory_fn_open.jinja"),
@@ -295,7 +282,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "mirror_pub_field.jinja",
         include_str!("templates/mirror_pub_field.jinja"),
     ),
-    // Rust bridge and mirror declarations
     (
         "rust_bridge_fn_open.jinja",
         include_str!("templates/rust_bridge_fn_open.jinja"),
@@ -470,7 +456,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "rust_enum_stripped_struct_to_core_arm.jinja",
         include_str!("templates/rust_enum_stripped_struct_to_core_arm.jinja"),
     ),
-    // Rust trait factory and methods
     (
         "rust_trait_factory_doc.jinja",
         include_str!("templates/rust_trait_factory_doc.jinja"),
@@ -623,7 +608,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "rust_from_impl_close.jinja",
         include_str!("templates/rust_from_impl_close.jinja"),
     ),
-    // Error class, bridge class, and extra templates
     (
         "error_class_header.jinja",
         include_str!("templates/error_class_header.jinja"),
@@ -837,7 +821,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "dart_streaming_method.jinja",
         include_str!("templates/dart_streaming_method.jinja"),
     ),
-    // Service API templates (Rust FRB-opaque service owners and handler bridges)
     (
         "service_api/file_header.rs.jinja",
         include_str!("templates/service_api/file_header.rs.jinja"),

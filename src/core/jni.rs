@@ -30,8 +30,6 @@ pub fn jni_package(config: &ResolvedCrateConfig) -> String {
         .or_else(|| config.kotlin.as_ref().and_then(|k| k.package.clone()))
         .or_else(|| config.try_kotlin_package().ok())
         .unwrap_or_else(|| {
-            // Derive a valid Java package from the crate name so generated JNI symbols
-            // are always syntactically valid even when no repository or package is set.
             let clean = config.name.replace(['-', '_'], "").to_lowercase();
             format!("com.example.{clean}")
         })
@@ -174,15 +172,12 @@ mod tests {
 
     #[test]
     fn jni_symbol_basic() {
-        // JNI spec §5.11.3: underscore in any identifier component (here in the
-        // package name `sample_crate`) is encoded as `_1`.
         let sym = jni_symbol("dev.sample_crate.demo", "DemoBridge", "nativeFoo");
         assert_eq!(sym, "Java_dev_sample_1crate_demo_DemoBridge_nativeFoo");
     }
 
     #[test]
     fn jni_symbol_underscore_in_class_encoded() {
-        // JNI spec: underscore in identifier → _1
         let sym = jni_symbol("dev.demo", "Demo_Bridge", "nativeBar");
         assert_eq!(sym, "Java_dev_demo_Demo_1Bridge_nativeBar");
     }
@@ -200,11 +195,6 @@ mod tests {
             ..ResolvedCrateConfig::default()
         };
 
-        // No kotlin_android or kotlin → uses config.kotlin_package()
         assert_eq!(jni_package(&config), "com.example.testlib");
-
-        // With kotlin_android package (test the resolver logic directly)
-        // For detailed behavior, rely on integration tests in alef backends
-        // that exercise the full config parsing and resolution.
     }
 }

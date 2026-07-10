@@ -41,18 +41,6 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     let package = kotlin_package(config);
     let mut files = Vec::new();
 
-    // Collect type aliases that should be treated as excluded.
-    //
-    // Two sources contribute:
-    //   1. `kotlin_android.exclude_types` (explicit user override).
-    //   2. Trait-bridge `type_alias` values whose `param_name` is listed in
-    //      `kotlin_android.exclude_functions`. When the user opts out of the
-    //      bridge function (e.g. because the JNI bridge has no trait-handle
-    //      implementation yet), the bridge's type alias is still unresolvable
-    //      in Kotlin code — its corresponding `options_field` on the bridge's
-    //      `options_type` would emit a dangling reference like
-    //      `val visitor: VisitorHandle?`. Treat the alias as excluded so the
-    //      field is dropped along with the function.
     let kotlin_android_excluded_function_names: std::collections::HashSet<&str> = config
         .kotlin_android
         .as_ref()
@@ -77,33 +65,13 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
             }
         }
     }
-    // Mirror the FFI backend's `contains('<')` filter for workspace-declared opaque types
-    // with generic-parameter rust_paths — the FFI backend skips `_new`/`_free` symbols for
-    // them, so Kotlin Android JNI external-fun declarations against those symbols would
-    // throw `UnsatisfiedLinkError` at runtime.
     for (name, path) in &config.opaque_types {
         if path.contains('<') {
             effective_excluded_types.insert(name.clone());
         }
     }
 
-    // Build an `enum_name → default_variant` map so the data-class emitter
-    // can synthesise constructor defaults for Named enum fields (e.g.
-    // `headingStyle: HeadingStyle = HeadingStyle.ATX`). The Jackson Kotlin
-    // module rejects deserialization of partial JSON when a
-    // non-nullable field has no default — every non-optional Named enum
-    // field needs one to round-trip.
-    //
-    // Only true Kotlin enums are included here. Tagged/untagged enums (with
-    // `serde_tag` or `serde_untagged` set) are emitted as sealed classes in
-    // Kotlin and are handled differently (variant names are PascalCase, not
-    // SCREAMING_SNAKE_CASE).
-    //
     // Enums without a declared `#[default]` variant map to an empty string;
-    // the emitter treats this as "no synthesisable default" and falls
-    // through to the type-based path (null for optional fields, no default
-    // for required ones). The mere presence of the entry distinguishes
-    // true enums from data-class struct types and sealed classes.
     let enum_defaults: std::collections::HashMap<String, String> = api
         .enums
         .iter()
@@ -119,13 +87,8 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         })
         .collect();
 
-    // Build the set of Kotlin sealed-class names — Rust enums emitted as
     // sealed classes because they are tagged (`#[serde(tag = "...")]`) or
     // untagged (`#[serde(untagged)]`).  Data-class fields whose declared
-    // type references one of these names need a `@field:JsonSerialize(\`as\` = ...)`
-    // (or `contentAs` for collections) annotation so Jackson routes through
-    // the sealed class's custom serializer (which emits the discriminator)
-    // instead of the runtime variant's default POJO serializer.
     let sealed_class_names: std::collections::HashSet<String> = api
         .enums
         .iter()
@@ -133,13 +96,6 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         .map(|en| en.name.clone())
         .collect();
 
-    // Non-enum, non-trait, non-opaque data class types whose Rust source has a
-    // `Default` impl (has_default = true). For fields whose declared type
-    // references one of these names, the emitter can safely synthesize
-    // `= Name()` as the constructor default — preventing Jackson's Kotlin
-    // module from raising `MissingKotlinParameterException` when the wire
-    // JSON omits the nested struct (the common shape of partial-update
-    // payloads in test fixtures).
     let default_constructible_types: std::collections::HashSet<String> = api
         .types
         .iter()
@@ -147,15 +103,10 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         .map(|t| t.name.clone())
         .collect();
 
-    // Bridge object: external fun declarations + System.loadLibrary init block.
     let mut bridge_file = emit_jni_bridge_object(api, config);
     bridge_file.path = kotlin_source_dir.join(bridge_file.path.file_name().expect("bridge file must have a filename"));
     files.push(bridge_file);
 
-    // BridgeException: a RuntimeException subclass thrown by the JNI shim when
-    // a native call fails.  The Rust ERROR_CLASS constant references this class
-    // as `<package>/<BridgeName>Exception`.  Without this file the JVM raises
-    // NoClassDefFoundError on the first JNI call that needs to propagate an error.
     let bridge = bridge_class_name(&config.name);
     let exception_class = format!("{bridge}Exception");
     let exception_content = format!(
@@ -172,30 +123,20 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         generated_header: false,
     });
 
-    // DefaultClient.kt — only emitted when the API has methodful opaque types.
     if let Some(mut client_file) = emit_jni_client_class(api, config, Some(&package)) {
         client_file.path = kotlin_source_dir.join("DefaultClient.kt");
         files.push(client_file);
     }
 
-    // Data classes, enums, and error types as pure Kotlin.
     for ty in &api.types {
         if ty.is_opaque || ty.is_trait || ty.binding_excluded {
             continue;
         }
-        // Skip whole types whose name is in the effective exclude set
-        // (e.g. trait-bridge `VisitorHandle` when the bridge function is
-        // excluded — the alias has no Kotlin representation).
         if effective_excluded_types.contains(&ty.name) {
             continue;
         }
         let mut imports: BTreeSet<String> = BTreeSet::new();
         let mut body = String::new();
-        // Drop fields whose type references an excluded alias so the data
-        // class definition does not emit a dangling reference. The bridge
-        // function is already filtered out of the module facade, so its
-        // companion field cannot be set by callers — defaulting it to
-        // `Default::default()` Rust-side preserves runtime correctness.
         let needs_field_filter = ty
             .fields
             .iter()
@@ -269,7 +210,6 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
 
     trait_interfaces::emit_trait_interfaces(api, config, kotlin_source_dir, &package, &mut files);
 
-    // Emit the free-function facade object (Module.kt) when visible functions exist.
     module_facade::emit_module_kt(api, config, kotlin_source_dir, &package, &mut files);
 
     files
@@ -277,10 +217,6 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
 
 /// Assemble a complete `.kt` file from package, imports, and body.
 pub(super) fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) -> String {
-    // File-level suppression annotations silence ktlint / detekt rules that are
-    // inherently violated by generated code (trailing commas, annotation spacing,
-    // when-entry bracing, etc.) and cannot be trivially fixed without a full
-    // reformatter post-processing step.
     let suppressions = vec![
         "ktlint:standard:trailing-comma-on-call-site",
         "ktlint:standard:trailing-comma-on-declaration-site",
@@ -301,19 +237,8 @@ pub(super) fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, bod
         "CyclomaticComplexMethod",
         "LongMethod",
         "MagicNumber",
-        // Jackson deserializer for heterogeneous-default sealed enums nests
-        // when-blocks past detekt's NestedBlockDepth threshold (introduced in
-        // the deserializer added by 2bdbb0db8). Generated code; restructuring
-        // would obscure the readNode → match → readNode flow.
         "NestedBlockDepth",
-        // Untagged-enum (serde) deserializers emit one `if (node.isFoo) return ...`
-        // per variant. detekt's `ReturnCount` default limit (2) flags 3+ variants.
-        // Generated code; collapsing to a single return would require a different
-        // dispatch shape than the consistent one-branch-per-variant emission.
         "ReturnCount",
-        // Instance method stubs for bridged methods throw UnsupportedOperationException
-        // without using their parameters, triggering detekt's UnusedParameter rule.
-        // Suppressed here since these stubs are generated graceful error messages.
         "UnusedParameter",
     ];
     let imports = imports.iter().cloned().collect::<Vec<_>>();

@@ -20,9 +20,7 @@ fn emit_method_shim(
     let rust_method = method_name.replace('-', "_");
     let has_params = !params.is_empty();
 
-    // Direct opaque return: `-> NamedType` where the type is opaque.
     let is_opaque_return = matches!(return_type, TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
-    // Optional opaque return: `-> Option<NamedType>` where the inner type is opaque.
     let is_optional_opaque_return = matches!(
         return_type,
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if opaque_type_names.contains(n.as_str()))
@@ -39,9 +37,6 @@ fn emit_method_shim(
         method_return_null(return_type)
     };
 
-    // For single-param methods with Vec<u8>/Bytes params: use jbyteArray as the
-    // JNI parameter type (param name matches the rust param name, not request_json).
-    // All other single-param and all multi-param methods use request_json: JString.
     let request_param = if !has_params {
         String::new()
     } else if params.len() == 1 {
@@ -62,8 +57,6 @@ fn emit_method_shim(
         "    request_json: JString,\n".to_string()
     };
 
-    // See emit_function_shim for why we use AttachGuard::from_unowned instead
-    // of EnvUnowned::with_env.
     out.push_str(&template_env::render(
         "method_shim_open.rs.jinja",
         context! {
@@ -73,7 +66,6 @@ fn emit_method_shim(
         },
     ));
 
-    // Dereference handle.
     out.push_str(&template_env::render(
         "method_client_handle.rs.jinja",
         context! {
@@ -83,20 +75,15 @@ fn emit_method_shim(
         },
     ));
 
-    // Unmarshal params and build call_args with is_ref/optional adjustments.
     let call_args: String = if !has_params {
         String::new()
     } else if params.len() == 1 {
         let p = &params[0];
         let rust_name = p.name.replace('-', "_");
-        // Unwrap Optional wrapper for the JNI unmarshal type.
         let base_ty = match &p.ty {
             TypeRef::Optional(inner) => inner.as_ref(),
             other => other,
         };
-        // Branches that understand the target's optional sentinel produce an
-        // `Option<T>` binding directly. Other special cases bind the unwrapped
-        // `T` and need `Some(name)` wrapping at the call site.
         let unmarshal_produces_option = p.optional
             && (matches!(base_ty, TypeRef::Bytes)
                 || matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)))
@@ -109,15 +96,7 @@ fn emit_method_shim(
             unmarshal_produces_option,
             p.map_is_btree,
         );
-        // `&Vec<String>` coerces to `&[String]` so plain `&<name>` covers every
-        // Vec<String> method call we currently emit. The previous special-case
-        // that converted to `Vec<&str>` produced `&[&str]` which is incompatible
-        // with core methods that take `&[String]` (e.g. `LlmBackend::detect_with_custom`).
-        // Exception: core methods declared as `&[&str]` (IR `vec_inner_is_ref = true`
-        // on a `Vec<String>` slot) need a materialised `Vec<&str>` borrow.
         if unmarshal_produces_option {
-            // Binding is already `Option<T>`. For an optional byte slice the core
-            // wants `Option<&[u8]>`; `Option<Vec<u8>>` does not coerce, so deref it.
             if p.is_ref && is_byte_slice(base_ty) {
                 format!("{rust_name}.as_deref()")
             } else {
@@ -134,7 +113,6 @@ fn emit_method_shim(
             rust_name
         }
     } else {
-        // Multi-param: decode JSON map.
         out.push_str(&template_env::render(
             "request_map_unmarshal.rs.jinja",
             context! {
@@ -144,23 +122,14 @@ fn emit_method_shim(
         let mut args = Vec::new();
         for p in params {
             let rust_name = p.name.replace('-', "_");
-            // Unwrap Optional for the deserialization type.
             let base_ty = match &p.ty {
                 TypeRef::Optional(inner) => inner.as_ref(),
                 other => other,
             };
-            // Byte-slice and Path params are not JSON-native at the call site, so the
-            // generic `type_ref_to_core_path_*` (which maps both to its `serde_json::Value`
-            // catch-all) produces a binding that fails E0308: `&Value` is neither `&[u8]`
-            // nor `&Path`. Bind the concrete owned type that derefs to the borrowed core
-            // type instead (`Vec<u8>` → `&[u8]`, `PathBuf` → `&Path`). This mirrors the
-            // single-param path's special `Bytes`/`Path` arms in `emit_single_param_unmarshal`.
             let is_path = matches!(base_ty, TypeRef::Path);
             let type_path = if is_byte_slice(base_ty) {
                 "Vec<u8>".to_string()
             } else if is_path {
-                // The wire value is a JSON-encoded path string; deserialize as `String`
-                // and convert below so the call site sees a real `PathBuf`.
                 "String".to_string()
             } else {
                 type_ref_to_core_path_with_btree(base_ty, "core_crate", p.map_is_btree)
@@ -174,21 +143,11 @@ fn emit_method_shim(
                 },
             ));
             if is_path {
-                // Re-bind the `String` extracted from the request map as a `PathBuf`.
-                // (The `path_unmarshal` template targets the single-param path, where the
-                // raw string lives in `req_str`; here the value is already bound to `name`.)
                 out.push_str(&format!(
                     "    let {rust_name} = std::path::PathBuf::from({rust_name});\n"
                 ));
             }
-            // `&Vec<String>` coerces to `&[String]`; the previous Vec<&str>
-            // special-case produced `&[&str]` incompatible with `&[String]` core
-            // method signatures. See the matching branch above.
-            // Exception: when the core method declares `&[&str]` (IR
-            // `vec_inner_is_ref = true`), materialise a `Vec<&str>` and borrow.
             let call_arg = if p.optional {
-                // `request_map_param_unmarshal` binds the unwrapped `T`; an optional
-                // byte slice (`Option<&[u8]>`) needs a borrow inside the `Some`.
                 if p.is_ref && is_byte_slice(base_ty) {
                     format!("Some(&{rust_name})")
                 } else {
@@ -207,7 +166,6 @@ fn emit_method_shim(
         args.join(", ")
     };
 
-    // Build the call.
     let call_expr = if call_args.is_empty() {
         format!("client.{rust_method}()")
     } else {

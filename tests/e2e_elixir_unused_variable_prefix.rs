@@ -56,7 +56,7 @@ fn fixture_with_no_assertions() -> FixtureGroup {
             visitor: None,
             args: Vec::new(),
             assertion_recipes: Vec::new(),
-            assertions: vec![], // Empty: no assertions
+            assertions: vec![],
             source: "smoke/smoke_no_assertions.json".to_string(),
             http: None,
         }],
@@ -140,7 +140,6 @@ fn with_assertions_fixture_does_not_prefix_result_var() {
 
     let body = &test_file.content;
 
-    // The variable should be used in an assertion, so it shouldn't be prefixed with _
     assert!(
         body.contains("assert") && body.contains("result"),
         "fixture with assertions must use result variable in assertion, got:\n{body}"

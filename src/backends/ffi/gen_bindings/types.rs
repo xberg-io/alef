@@ -23,9 +23,6 @@ fn is_primitive_c_type_override(c_type: &str) -> bool {
             | "f64"
             | "int"
             | "bool"
-            // C <stdint.h> / scalar spellings — a field override may name the C
-            // type directly (e.g. `uint64_t`); these are still primitives and
-            // must not be mistaken for opaque handle types.
             | "int8_t"
             | "int16_t"
             | "int32_t"
@@ -49,16 +46,10 @@ fn c_symbol_component(name: &str) -> String {
     pascal_to_snake(name)
 }
 
-// ---------------------------------------------------------------------------
-// Type: from_json + free
-// ---------------------------------------------------------------------------
-
 pub(super) fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
-    // Types with lifetime parameters need an explicit `'static` in the return position because
-    // `from_json` heap-allocates fully-owned values: `Box::into_raw(Box::new(val))`.
     let return_qualified = if typ.has_lifetime_params {
         format!("{qualified}<'static>")
     } else {
@@ -81,8 +72,6 @@ pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
-    // Pointer parameters for lifetime-parameterized types also need `'static` because all FFI
-    // handles are heap-allocated with fully-owned (static-lifetime) data.
     let ptr_qualified = if typ.has_lifetime_params {
         format!("{qualified}<'static>")
     } else {
@@ -105,7 +94,6 @@ pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> S
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
-    // `free` takes `*mut T` — for lifetime-parameterized types the heap value is `'static`.
     let ptr_qualified = if typ.has_lifetime_params {
         format!("{qualified}<'static>")
     } else {
@@ -124,10 +112,6 @@ pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> S
     )
 }
 
-// ---------------------------------------------------------------------------
-// Field accessors
-// ---------------------------------------------------------------------------
-
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_field_accessor(
     typ: &TypeDef,
@@ -142,8 +126,6 @@ pub(super) fn gen_field_accessor(
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified_base = core_type_path(typ, core_import);
-    // Pointer parameters for lifetime-parameterized types need `<'static>` because all FFI
-    // handles are heap-allocated with fully-owned (static-lifetime) data.
     let qualified = if typ.has_lifetime_params {
         format!("{qualified_base}<'static>")
     } else {
@@ -157,23 +139,10 @@ pub(super) fn gen_field_accessor(
         field.ty.clone()
     };
 
-    // When the field has a specific type_rust_path, use it for Named types to avoid
-    // ambiguity when multiple types share the same short name.
     let field_core_import = if let Some(ref rust_path) = field.type_rust_path {
-        // type_rust_path may be relative to the crate, already fully qualified with
-        // the crate prefix, or point at a sibling workspace crate when the API uses
-        // multi-crate workspaces where the umbrella crate re-exports types).
-        // We need the module path prefix without the type name itself.
-        // Normalize dashes to underscores since IR paths use Cargo package names (dashes)
-        // but Rust source code requires crate names (underscores).
         let rust_path_norm = rust_path.replace('-', "_");
         if let Some(pos) = rust_path_norm.rfind("::") {
             let module_prefix = &rust_path_norm[..pos];
-            // Avoid double-prefixing: detect when module_prefix is already crate-qualified
-            // — either with core_import directly, or with a sibling workspace crate whose
-            // name starts with the same prefix (e.g. core_import "mylib" → "mylib_http",
-            // "mylib_core", "mylib_extra"). The trailing `::` and `_` checks ensure
-            // we only match crate-name segments, not unrelated identifiers.
             if module_prefix == core_import
                 || module_prefix.starts_with(&format!("{core_import}::"))
                 || module_prefix.starts_with(&format!("{core_import}_"))
@@ -190,10 +159,6 @@ pub(super) fn gen_field_accessor(
     };
 
     let lookup_key = format!("{}.{}", type_snake, field.name);
-    // The e2e `fields_c_types` map carries a `"skip"` sentinel meaning "omit this
-    // field from generated C e2e assertions". It is not a C type spelling — the
-    // binding accessor is still generated normally from the IR field type, so the
-    // sentinel must be ignored here rather than treated as an opaque handle name.
     let c_type_override = fields_c_types.get(&lookup_key).filter(|t| t.as_str() != "skip");
     let (mut ret_type, override_is_opaque_handle, override_type_name) = if let Some(override_type) = c_type_override {
         if !is_primitive_c_type_override(override_type) && override_type != "char*" {
@@ -210,34 +175,24 @@ pub(super) fn gen_field_accessor(
             )
         }
     } else {
-        // Use path_map for Named types — it knows where the type actually lives
-        // (e.g. mylib_http::ContactInfo) even when field.type_rust_path is None.
-        // For non-Named types path_map is irrelevant and the call falls through to
-        // the standard c_return_type behaviour.
         (
             c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned(),
             false,
             None,
         )
     };
-    // Replace "Self" with the actual qualified type name in FFI signatures
     if ret_type.contains("Self") {
         ret_type = ret_type.replace("Self", &qualified);
     }
 
     let null_ret = if override_is_opaque_handle {
-        // Opaque-handle overrides return `*mut T`; the null sentinel is a null pointer.
         "std::ptr::null_mut()".to_string()
     } else {
         null_return_value(&effective_ty).to_string()
     };
 
-    // Determine if we need an extra out-param for byte-length.
-    // Optional Bytes fields (Option<Vec<u8>> / Option<Bytes>) must also use the
-    // (ptr, out_len) form per the FFI bytes contract (issue #118).
     let needs_len_out = matches!(field.ty, TypeRef::Bytes);
 
-    // Generate the accessor body based on field type and any override
     let body = gen_field_access_body(
         field,
         needs_len_out,
@@ -286,14 +241,6 @@ fn gen_field_access_body(
     let field_name = &field.name;
     let mut out = String::with_capacity(2048);
 
-    // An opaque-handle override is a *fallback* for the genuinely impossible case:
-    // a primitive field whose C type is overridden to a struct handle. There is no
-    // value to box in that shape, so return null.
-    //
-    // But when the field's own type is *already* the Named override type (e.g. a
-    // `status: BatchStatus` field overridden to `BatchStatus`), the override is
-    // redundant for codegen: the accessor can box-and-return the real field value.
-    // Fall through to normal codegen in that case rather than emitting a null stub.
     if override_is_opaque_handle && override_type_name.is_some() {
         let field_is_override_type = underlying_named_type(&field.ty)
             .zip(override_type_name)
@@ -305,10 +252,6 @@ fn gen_field_access_body(
     }
 
     if field.optional {
-        // Special case for optional Bytes fields (the #118 shape): we must still
-        // declare out_len (now that predicate is fixed) and write the length.
-        // Some path: real len; None path: write 0 then null. This preserves the
-        // established FFI bytes+len contract for C consumers.
         if needs_len_out {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "match_field_start.jinja",
@@ -330,15 +273,6 @@ fn gen_field_access_body(
             out.push_str("        }\n");
             out.push_str("    }\n");
         } else if let TypeRef::Optional(inner) = &field.ty {
-            // Wrap in match on Option — val is a reference from &Option<T> destructure
-            // When is_boxed: val is &Box<T>, so deref twice (**val) to get &T
-            // When newtype_wrapper: the core field is Option<NewtypeT> but IR ty is Primitive;
-            //   val is &NewtypeT so we must access val.0 to get the inner primitive.
-            //
-            // Special case: field.ty = Optional(Primitive) means the Rust field is
-            // Option<Option<Primitive>> (outer=field.optional, inner=field.ty). Both the
-            // outer None and the inner None collapse to the primitive's zero/false sentinel.
-            // Option<Option<T>>: outer Some gives val: &Option<inner>, inner Some gives the value.
             let inner_null = null_return_value(&TypeRef::Optional(Box::new(*inner.clone())));
             let inner_val_expr = match inner.as_ref() {
                 TypeRef::Primitive(_) => "*inner_val",
@@ -373,11 +307,11 @@ fn gen_field_access_body(
             out.push_str("    }\n");
         } else {
             let val_expr = if field.newtype_wrapper.is_some() && matches!(field.ty, TypeRef::Primitive(_)) {
-                "val.0" // unwrap newtype inner value
+                "val.0"
             } else if matches!(field.ty, TypeRef::Primitive(_)) {
-                "*val" // dereference for Copy types
+                "*val"
             } else if field.is_boxed {
-                "(**val)" // deref &Box<T> -> &T
+                "(**val)"
             } else {
                 "val"
             };
@@ -403,7 +337,6 @@ fn gen_field_access_body(
             out.push_str("    }\n");
         }
     } else if needs_len_out {
-        // Bytes with length out-param
         out.push_str(&crate::backends::ffi::template_env::render(
             "bytes_field_access.jinja",
             context! { field_name => field_name },
@@ -414,13 +347,10 @@ fn gen_field_access_body(
         out.push_str("    }\n");
         out.push_str("    data.as_ptr() as *mut u8\n");
     } else {
-        // When is_boxed: obj.field_name is Box<T>, deref to get T before cloning.
-        // When core_wrapper=Arc: obj.field_name is Arc<T>, deref to get &T before cloning.
-        // When newtype_wrapper: obj.field_name is NewtypeT; access .0 to get the inner primitive.
         let access_expr = if field.newtype_wrapper.is_some() && matches!(field.ty, TypeRef::Primitive(_)) {
-            format!("obj.{field_name}.0") // unwrap newtype inner value
+            format!("obj.{field_name}.0")
         } else if field.core_wrapper == CoreWrapper::Arc || field.is_boxed {
-            format!("(*obj.{field_name})") // deref Arc<T>/Box<T> to get &T
+            format!("(*obj.{field_name})")
         } else {
             format!("obj.{field_name}")
         };
@@ -434,10 +364,6 @@ fn gen_field_access_body(
 
     out
 }
-
-// ---------------------------------------------------------------------------
-// Enum conversions
-// ---------------------------------------------------------------------------
 
 pub(super) fn gen_enum_from_i32(enum_def: &EnumDef, prefix: &str, _core_import: &str) -> String {
     let enum_snake = c_symbol_component(&enum_def.name);
@@ -643,24 +569,17 @@ pub(super) fn gen_opaque_static_constructor(
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
-    // Types with lifetime parameters (e.g. `NodeContext<'a>`) require an explicit lifetime
-    // in `*mut T` return positions. Use `'static` because the FFI constructor produces
-    // heap-allocated, fully-owned values with no borrowed data.
     let return_qualified = if typ.has_lifetime_params {
         format!("{qualified}<'static>")
     } else {
         qualified.clone()
     };
-    // Derive the C symbol suffix from the method name, not from a hardcoded "_new".
-    // `Schema::compile`      → `{prefix}_schema_compile`
-    // `RouteBuilder::new`    → `{prefix}_route_builder_new`
     let method_snake = c_symbol_component(&method.name);
     let ffi_fn_name = format!("{prefix}_{type_snake}_{method_snake}");
     let will_be_unimplemented = method.sanitized;
 
     let mut out = String::with_capacity(4096);
 
-    // Build FFI parameter list
     let mut ffi_params = Vec::new();
     for p in &method.params {
         let param_name = if will_be_unimplemented {
@@ -687,7 +606,6 @@ pub(super) fn gen_opaque_static_constructor(
         }
     }
 
-    // Function signature
     let allow_clippy = if ffi_params.len() > 7 {
         "#[allow(clippy::too_many_arguments)]\n"
     } else {
@@ -704,12 +622,10 @@ pub(super) fn gen_opaque_static_constructor(
         },
     ));
 
-    // Clear error state if this is a fallible constructor
     if method.error_type.is_some() {
         out.push_str("    clear_last_error();\n");
     }
 
-    // Unsupported stub if sanitized.
     if will_be_unimplemented {
         let unsupported_return = TypeRef::Named(type_name.to_string());
         out.push_str(&gen_ffi_unimplemented_body(
@@ -722,7 +638,6 @@ pub(super) fn gen_opaque_static_constructor(
         return out;
     }
 
-    // Marshal parameters (inline simple conversion logic for each param type)
     for p in &method.params {
         match &p.ty {
             TypeRef::String => {
@@ -732,12 +647,6 @@ pub(super) fn gen_opaque_static_constructor(
                 ));
             }
             TypeRef::Named(n) if enum_names.contains(n.as_str()) => {
-                // Use the private Rust helper (generated alongside the public C export) so that
-                // we don't call the non-existent `{core_import}::{enum_snake}_from_i32` Rust fn.
-                // Use a `match` instead of `?` because the function returns `*mut T`, not Result/Option.
-                //
-                // IMPORTANT: local variable is `{param_name}_rs`, input arg is `{param_name}`.
-                // `enum_snake` (from type name) is only used to name the conversion helper.
                 let enum_snake = c_symbol_component(n);
                 let param_name = &p.name;
                 let rs_name = format!("{param_name}_rs");
@@ -753,11 +662,7 @@ pub(super) fn gen_opaque_static_constructor(
                 ));
             }
             TypeRef::Named(_) => {
-                // Non-enum Named param: the FFI param is a raw *const T pointer.
-                // Dereference and clone to obtain an owned T value for the constructor call.
                 // SAFETY: the pointer is generated by the caller from a valid T allocation;
-                // the null check above (if method.error_type.is_some()) guards against null.
-                // For infallible constructors the caller is responsible for passing a valid ptr.
                 let param_name = &p.name;
                 let rs_name = format!("{param_name}_rs");
                 let clone_suffix = if p.is_ref { "" } else { ".clone()" };
@@ -777,7 +682,6 @@ pub(super) fn gen_opaque_static_constructor(
                 ));
             }
             _ => {
-                // Pass through or use basic bindings for other types
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_opaque_constructor_passthrough_param.jinja",
                     context! { name => p.name.clone() },
@@ -786,7 +690,6 @@ pub(super) fn gen_opaque_static_constructor(
         }
     }
 
-    // Build call arguments
     let call_args = method
         .params
         .iter()
@@ -800,12 +703,7 @@ pub(super) fn gen_opaque_static_constructor(
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Call the core constructor and return a heap-allocated pointer to the inner type.
-    // We deliberately return `*mut {qualified}` (not a wrapped `{type_name}Opaque`) so the
-    // pointer matches the signature of the legacy `_free()` emitter, which takes
-    // `*mut {qualified}`. cbindgen sees `{qualified}` as a forward-declared C type, so the
-    // host sees `struct <PREFIX><Type> *` — a true opaque handle.
-    let _ = type_name; // {type_name} is retained for doc/clarity in the doc comment above.
+    let _ = type_name;
     out.push_str(&crate::backends::ffi::template_env::render(
         "ffi_opaque_constructor_call.jinja",
         context! {
@@ -815,9 +713,7 @@ pub(super) fn gen_opaque_static_constructor(
         },
     ));
 
-    // Handle fallible constructors: if error_type is present, the constructor returns Result<T, E>
     if method.error_type.is_some() {
-        // Fallible constructor — match on Result and handle error via set_last_error
         out.push_str("    match result {\n");
         out.push_str("        Ok(value) => Box::into_raw(Box::new(value)),\n");
         out.push_str("        Err(e) => {\n");
@@ -826,7 +722,6 @@ pub(super) fn gen_opaque_static_constructor(
         out.push_str("        }\n");
         out.push_str("    }\n");
     } else {
-        // Infallible constructor — directly box the result
         out.push_str("    Box::into_raw(Box::new(result))\n");
     }
     out.push_str("}\n");
@@ -857,19 +752,12 @@ pub(super) fn is_static_constructor(method: &crate::core::ir::MethodDef, type_na
     if !method.is_static {
         return false;
     }
-    // Exclude lifecycle helpers and methods that would create symbol conflicts.
     if matches!(method.name.as_str(), "default" | "to_json" | "from_json" | "clone") {
         return false;
     }
-    // Exclude reference-returning statics (e.g. `Registry::global() -> &Registry`): these are
-    // singleton/accessor methods, not constructors. The constructor emitter boxes the returned
-    // value into an owned `*mut T` handle, which is invalid for a borrowed `&T`.
     if method.returns_ref {
         return false;
     }
-    // The return type in the IR is always the bare `Named(type_name)` for both infallible
-    // (`-> Self`) and fallible (`-> Result<Self, E>`) constructors; the error variant is
-    // captured in `method.error_type`, not in `return_type`.
     match &method.return_type {
         crate::core::ir::TypeRef::Named(n) => n == type_name,
         _ => false,

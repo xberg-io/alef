@@ -90,7 +90,6 @@ fn wasm_package_json_dep_points_at_pkg_nodejs() {
         .content
         .clone();
 
-    // Local-mode file: dep must end in `/pkg/nodejs`, never bare `/pkg`.
     assert!(
         package_json.contains("/pkg/nodejs\""),
         "package.json local dep must end in /pkg/nodejs (wasm-pack --target nodejs --out-dir pkg/nodejs):\n{package_json}"

@@ -81,9 +81,6 @@ fn per_field_rename_is_carried_to_wire_name() {
 
 #[test]
 fn struct_level_rename_all_is_applied_to_wire_names() {
-    // `rename_all = "camelCase"` is sourced from the centralized naming transform, not an ad-hoc
-    // casing path — `model_id` -> `modelId`. A field already matching its wire name (`region`) gets
-    // no entry.
     let cfg = config_type(
         "RunConfig",
         Some("camelCase"),
@@ -98,14 +95,11 @@ fn struct_level_rename_all_is_applied_to_wire_names() {
         generated.contains(r#"__AlefAlias { rust: "model_id", wire: "modelId", kind: __AlefKind::Leaf, nested: &[] }"#),
         "{generated}"
     );
-    // `region` == its camelCase wire name, so it is omitted (no redundant entry).
     assert!(!generated.contains(r#"rust: "region""#), "{generated}");
 }
 
 #[test]
 fn nested_dto_recurses_with_its_own_schema_const() {
-    // Outer holds a nested coercible DTO (`InnerConfig`) which itself has a renamed field. The outer
-    // schema references the inner schema const; both consts are emitted.
     let inner = config_type("InnerConfig", None, vec![string_field("api_key", Some("apiKey"))]);
     let outer = config_type("OuterConfig", None, vec![named_field("inner", "InnerConfig")]);
     let api = surface(vec![outer, inner], vec![enum_with_payload("OuterConfig")]);
@@ -158,8 +152,6 @@ fn vec_and_optional_of_dto_use_seq_kind() {
 
 #[test]
 fn cyclic_type_graph_breaks_back_edge() {
-    // A self-referential config (`Node { child: Option<Node> }`) must not emit a const that
-    // references itself (which would be a const-eval cycle). The back-edge is broken to `&[]`.
     let node = config_type(
         "NodeConfig",
         None,
@@ -177,8 +169,6 @@ fn cyclic_type_graph_breaks_back_edge() {
 
     let generated = gen_wire_schema_consts(&api, &coercible);
 
-    // Exactly one const, and the self-referential `child` edge is broken (nested: &[]), never
-    // referencing __ALEF_WIRE_NODE_CONFIG from within itself.
     assert_eq!(
         generated.matches("const __ALEF_WIRE_NODE_CONFIG:").count(),
         1,

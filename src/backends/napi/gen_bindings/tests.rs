@@ -19,15 +19,11 @@ fn napi_backend_language_is_node() {
 /// Test that cfg-gated fields in never_skip_cfg_field_names pass the options-field-bridge filter.
 #[test]
 fn cfg_gated_field_accepted_when_in_never_skip_list() {
-    // Test the predicate logic: a cfg-gated field "visitor" should be accepted
-    // when it appears in never_skip_cfg_field_names.
     let never_skip_cfg_field_names = ["visitor".to_string()];
     let field_is_target = "visitor";
 
-    // Simulate a field with cfg = Some(...)
     let field_has_cfg = Some("feature = \"visitor\"");
 
-    // Predicate: f.cfg.is_none() || never_skip_cfg_field_names.iter().any(|n| n == field_name)
     let accepted = field_has_cfg.is_none() || never_skip_cfg_field_names.iter().any(|n| n == field_is_target);
 
     assert!(
@@ -48,7 +44,6 @@ fn plain_data_enum_in_input_type_struct_gets_binding_to_core_impl() {
     };
     use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
 
-    // Mock: Create an enum with data variants (not tagged, not untagged)
     let auth_format_enum = EnumDef {
         name: "AuthHeaderFormat".to_string(),
         rust_path: "fixture_core::AuthHeaderFormat".to_string(),
@@ -73,16 +68,14 @@ fn plain_data_enum_in_input_type_struct_gets_binding_to_core_impl() {
                 ..Default::default()
             },
         ],
-        serde_tag: None,       // NOT tagged
-        serde_untagged: false, // NOT untagged
+        serde_tag: None,
+        serde_untagged: false,
         ..Default::default()
     };
 
-    // Verify the enum has data variants
     let has_data_variants = auth_format_enum.variants.iter().any(|v| !v.fields.is_empty());
     assert!(has_data_variants, "AuthHeaderFormat should have data variants");
 
-    // Verify it's not tagged/untagged
     let is_tagged = auth_format_enum.serde_tag.is_some();
     let is_untagged = auth_format_enum.serde_untagged;
     assert!(
@@ -132,7 +125,6 @@ fn napi_opaque_type_with_default_and_static_new_emits_constructor() {
     use crate::backends::napi::type_map::NapiMapper;
     use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 
-    // Mock: Create an opaque type with has_default=true and a static new() method
     let app_type = TypeDef {
         name: "App".to_string(),
         rust_path: "sample_crate::App".to_string(),
@@ -140,7 +132,7 @@ fn napi_opaque_type_with_default_and_static_new_emits_constructor() {
         has_default: true,
         methods: vec![MethodDef {
             name: "new".to_string(),
-            receiver: None, // static method
+            receiver: None,
             params: vec![],
             return_type: TypeRef::Named("App".to_string()),
             is_async: false,

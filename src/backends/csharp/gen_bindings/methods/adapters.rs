@@ -87,7 +87,6 @@ pub(super) fn gen_adapter_wrapper(
     let cs_item_type = csharp_type_name(item_type);
     let owner_cs_name = csharp_type_name(owner_type);
 
-    // Build visible parameters: engine + request params
     let mut param_parts = vec!["IntPtr engine".to_string()];
     for param in &adapter.params {
         let param_name = param.name.to_lower_camel_case();
@@ -101,7 +100,6 @@ pub(super) fn gen_adapter_wrapper(
     }
     let params_decl = param_parts.join(", ");
 
-    // Build setup code to serialize params to JSON and get native handles
     let mut setup_lines = Vec::new();
     for param in &adapter.params {
         let param_name = param.name.to_lower_camel_case();
@@ -119,7 +117,6 @@ pub(super) fn gen_adapter_wrapper(
         format!("{}\n", setup_lines.join("\n"))
     };
 
-    // Build native call args list (engine + request handles)
     let mut native_args = vec!["engine".to_string()];
     for param in &adapter.params {
         let param_name = param.name.to_lower_camel_case();
@@ -127,7 +124,6 @@ pub(super) fn gen_adapter_wrapper(
     }
     let native_args_str = native_args.join(", ");
 
-    // Build cleanup code for try-finally
     let mut cleanup_lines = Vec::new();
     for param in &adapter.params {
         let param_name = param.name.to_lower_camel_case();
@@ -138,7 +134,6 @@ pub(super) fn gen_adapter_wrapper(
     }
     let cleanup_code = cleanup_lines.join("\n");
 
-    // Build the iterator handle FFI protocol: {OwnerType}{AdapterName}Start/Next/Free
     let adapter_cs_name = to_csharp_name(adapter_name);
     let start_method = format!("{owner_cs_name}{adapter_cs_name}Start");
     let next_method = format!("{owner_cs_name}{adapter_cs_name}Next");

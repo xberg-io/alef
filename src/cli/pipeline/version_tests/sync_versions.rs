@@ -13,8 +13,6 @@ fn sync_versions_writes_root_and_node_crate_package_json() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let root = tmp.path();
 
-    // Minimal workspace: Cargo.toml at canonical "1.0.0", root package.json
-    // and crates/mylib-node/package.json both stale at "0.9.0".
     std::fs::write(
         root.join("Cargo.toml"),
         "[workspace.package]\nversion = \"1.0.0\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
@@ -32,8 +30,6 @@ fn sync_versions_writes_root_and_node_crate_package_json() {
     )
     .expect("write crates/mylib-node/package.json");
 
-    // Drop a minimal alef.toml so we can resolve a config.
-    // Normalize backslashes to / so the path is a valid TOML basic string on Windows.
     let alef_toml = format!(
         "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
         root.join("Cargo.toml").display().to_string().replace('\\', "/")
@@ -45,12 +41,8 @@ fn sync_versions_writes_root_and_node_crate_package_json() {
     let mut resolved = cfg.resolve().expect("resolve config");
     let resolved_cfg = resolved.remove(0);
 
-    // Switch into the tempdir for the duration of the call — sync_versions
-    // resolves relative paths against CWD.
     std::env::set_current_dir(root).expect("set_current_dir");
     let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
-    // Always restore the CWD before unwrapping, so a panic doesn't leave
-    // the test runner in a broken directory.
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -95,7 +87,6 @@ fn sync_versions_bumps_napi_platform_pins_and_manifests() {
     )
     .expect("write Cargo.toml");
 
-    // crate-level manifest with optionalDependencies at the OLD version
     std::fs::create_dir_all(root.join("crates/mylib-node")).expect("mkdir crates/mylib-node");
     std::fs::write(
             root.join("crates/mylib-node/package.json"),
@@ -103,7 +94,6 @@ fn sync_versions_bumps_napi_platform_pins_and_manifests() {
         )
         .expect("write crates/mylib-node/package.json");
 
-    // Pre-staged platform manifests at the OLD version
     for platform in &["linux-x64-gnu", "darwin-arm64", "win32-x64-msvc"] {
         let dir = root.join(format!("crates/mylib-node/npm/{platform}"));
         std::fs::create_dir_all(&dir).expect("mkdir platform dir");
@@ -184,7 +174,6 @@ fn sync_versions_bumps_both_python_pyprojects_to_pep440_prerelease() {
     )
     .expect("write Cargo.toml");
 
-    // Consumer publish manifest, stale.
     std::fs::create_dir_all(root.join("packages/python")).expect("mkdir packages/python");
     std::fs::write(
         root.join("packages/python/pyproject.toml"),
@@ -192,7 +181,6 @@ fn sync_versions_bumps_both_python_pyprojects_to_pep440_prerelease() {
     )
     .expect("write packages/python/pyproject.toml");
 
-    // Source-template manifest alongside the PyO3 crate, stale.
     std::fs::create_dir_all(root.join("crates/mylib-py/src")).expect("mkdir crates/mylib-py/src");
     std::fs::write(
         root.join("crates/mylib-py/src/pyproject.toml"),
@@ -267,9 +255,6 @@ fn sync_versions_scaffold_regen_is_byte_identical_to_generate_path() {
     )
     .expect("write Cargo.toml");
 
-    // Both the generate path and the sync-versions regen path run the same
-    // best-effort `format_generated` (poly) pass, so their output is byte-identical
-    // regardless of whether poly is installed in the test environment.
     let alef_toml = format!(
         "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{ver}\"\n[crates.node]\npackage_name = \"@scope/mylib\"\n",
         ver = root.join("Cargo.toml").display().to_string().replace('\\', "/"),
@@ -283,14 +268,12 @@ fn sync_versions_scaffold_regen_is_byte_identical_to_generate_path() {
 
     std::env::set_current_dir(root).expect("set_current_dir");
 
-    // 1. Canonical generate path: scaffold write + format_generated (custom cmd).
     let generate_result = (|| -> anyhow::Result<String> {
         let api = crate::cli::pipeline::extract(&resolved_cfg, &alef_toml_path, false)?;
         let languages = resolved_cfg.languages.clone();
         let scaffold_files = crate::cli::pipeline::scaffold(&api, &resolved_cfg, &languages, &alef_toml_path)?;
         let base_dir = std::path::PathBuf::from(".");
         crate::cli::pipeline::write_scaffold_files_with_overwrite(&scaffold_files, &base_dir, true)?;
-        // Mirror the generate path: format, then read the canonical bytes.
         let grouped: Vec<(crate::core::config::Language, Vec<crate::core::backend::GeneratedFile>)> =
             languages.iter().map(|l| (*l, scaffold_files.clone())).collect();
         crate::cli::pipeline::format_generated(&grouped, &resolved_cfg, &base_dir, None);
@@ -304,8 +287,6 @@ fn sync_versions_scaffold_regen_is_byte_identical_to_generate_path() {
         }
     };
 
-    // 2. sync-versions with regen enabled (no_regen = false) must reproduce the
-    //    exact same formatted bytes.
     let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true, None);
     let after_sync = std::fs::read_to_string(root.join("crates/mylib-node/package.json"));
     let _ = std::env::set_current_dir(&original_cwd);
@@ -319,10 +300,6 @@ fn sync_versions_scaffold_regen_is_byte_identical_to_generate_path() {
          GENERATE PATH:\n{generate_bytes}\n\nSYNC-VERSIONS:\n{sync_bytes}"
     );
 }
-
-// -----------------------------------------------------------------------
-// patch_workspace_dep_versions unit tests
-// -----------------------------------------------------------------------
 
 /// patch_workspace_dep_versions updates [dependencies], [dev-dependencies],
 /// [build-dependencies], [target.*.dependencies], and [workspace.dependencies]
@@ -368,9 +345,6 @@ tokio = { version = "1.0", features = ["full"] }
 
     let result = std::fs::read_to_string(&path).expect("read");
 
-    // [package] version is NOT touched by patch_workspace_dep_versions — only dep tables.
-    // All workspace member dep-table pins must be bumped to rc.2.
-    // crate-b appears in [dependencies], [build-dependencies], and [target.*.dependencies].
     let crate_b_lines: Vec<&str> = result
         .lines()
         .filter(|l| l.contains("crate-b") && l.contains("version"))
@@ -385,7 +359,6 @@ tokio = { version = "1.0", features = ["full"] }
             "crate-b pin not bumped:\n  {line}\nfull:\n{result}"
         );
     }
-    // crate-c appears in [dev-dependencies] and [workspace.dependencies].
     let crate_c_lines: Vec<&str> = result
         .lines()
         .filter(|l| l.contains("crate-c") && l.contains("version"))
@@ -401,7 +374,6 @@ tokio = { version = "1.0", features = ["full"] }
         );
     }
 
-    // External crates must be untouched.
     assert!(
         result.contains(r#"serde = "1.0""#),
         "serde must not be touched:\n{result}"
@@ -472,8 +444,6 @@ fn patch_workspace_dep_versions_updates_package_alias_dep() {
 
     let dir = tempfile::tempdir().expect("tempdir");
 
-    // Mirrors generated binding crates: the dep key uses underscores but
-    // `package = "mylib-core"` points at the real crate name.
     let cargo_toml = r#"[package]
 name = "mylib-swift"
 version = "1.7.0"
@@ -486,7 +456,6 @@ serde = "1"
     let path = dir.path().join("Cargo.toml");
     std::fs::write(&path, cargo_toml).expect("write");
 
-    // workspace_members holds the real crate name (hyphen form), not the alias.
     let members: HashSet<String> = std::iter::once("mylib-core".to_string()).collect();
 
     let changed = patch_workspace_dep_versions(path.to_str().unwrap(), "1.7.1", &members).expect("patch ok");
@@ -494,12 +463,10 @@ serde = "1"
 
     let result = std::fs::read_to_string(&path).expect("read");
 
-    // The version inside the aliased dep must be bumped.
     assert!(
         result.contains(r#"mylib_core = { version = "1.7.1""#),
         "aliased dep version must be bumped to 1.7.1:\n{result}"
     );
-    // The `package` renaming key and other fields must be preserved.
     assert!(
         result.contains(r#"package = "mylib-core""#),
         "package rename key must be preserved:\n{result}"
@@ -508,12 +475,10 @@ serde = "1"
         result.contains(r#"features = ["full"]"#),
         "features must be preserved:\n{result}"
     );
-    // External crate must be untouched.
     assert!(
         result.contains(r#"serde = "1""#),
         "serde must not be touched:\n{result}"
     );
-    // [package] version must not be touched by patch_workspace_dep_versions.
     assert!(
         result.contains("version = \"1.7.0\""),
         "[package] version must remain at 1.7.0:\n{result}"
@@ -551,10 +516,6 @@ openssl_sys = { version = "0.9", package = "openssl-sys" }
     );
 }
 
-// -----------------------------------------------------------------------
-// write_version_to_cargo_toml unit tests
-// -----------------------------------------------------------------------
-
 /// Regression test for the rc.18 hf-hub corruption: `write_version_to_cargo_toml`
 /// must NOT rewrite a `version = "..."` line that belongs to a TABLE-form external
 /// dependency. A crate that inherits its package version via
@@ -568,7 +529,6 @@ fn write_version_to_cargo_toml_leaves_table_form_external_dep_intact() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("Cargo.toml");
 
-    // Inherited package version (no literal), external hf-hub pin in table form.
     let cargo_toml = r#"[package]
 name = "mylib"
 version.workspace = true
@@ -582,8 +542,6 @@ default-features = false
 "#;
     std::fs::write(&path, cargo_toml).expect("write");
 
-    // No package-level version literal to update -> the writer reports failure and
-    // must not have mutated the file.
     let result = write_version_to_cargo_toml(path.to_str().unwrap(), "1.0.0-rc.18");
     assert!(
         result.is_err(),
@@ -631,7 +589,6 @@ version = "0.2"
         after.contains(r#"hf-hub = { version = "0.5", default-features = false }"#),
         "inline external dep pin must be untouched:\n{after}"
     );
-    // The table-form libc pin (version = "0.2") must survive.
     assert!(
         after.contains(r#"version = "0.2""#),
         "table-form external dep libc must remain at 0.2:\n{after}"
@@ -705,16 +662,11 @@ edition = "2021"
         !after.contains("package = {}"),
         "empty [workspace] must not gain a spurious `package = {{}}`:\n{after}"
     );
-    // The [workspace] section must remain exactly as authored (empty).
     assert!(
         after.contains("[workspace]\n\n[package]"),
         "[workspace] section must stay empty:\n{after}"
     );
 }
-
-// -----------------------------------------------------------------------
-// sync_versions dep-table end-to-end test
-// -----------------------------------------------------------------------
 
 /// Full workspace e2e: after sync_versions the version bump propagates from
 /// [workspace.package] into [workspace.dependencies] and all dep-table shapes
@@ -737,23 +689,12 @@ fn sync_versions_patches_dep_tables_on_version_change() {
         std::fs::write(path, content).expect("write");
     }
 
-    // Root Cargo.toml: canonical version already at rc.2 (simulates task version:set).
     write_file(
         root,
         "Cargo.toml",
         "[workspace.package]\nversion = \"5.0.0-rc.2\"\n\n[workspace]\nresolver = \"2\"\nmembers = [\"crates/alpha\", \"crates/beta\"]\n\n[workspace.dependencies]\nalpha = { path = \"crates/alpha\", version = \"5.0.0-rc.1\", default-features = false }\nserde = \"1.0\"\n",
     );
 
-    // crates/alpha: upstream crate, no intra-workspace deps.
-    // A minimal src/lib.rs is required: `cargo update --workspace --offline` loads
-    // every workspace member manifest and validates that declared targets have
-    // discoverable source files.  Without src/lib.rs (or an explicit [lib].path)
-    // cargo prints "can't find library `alpha`" to stderr even though run_optional
-    // suppresses the exit code.  The empty stub silences that noise.
-    // `alpha` must declare the `unix` feature that `beta`'s target-cfg dep enables
-    // below: recent cargo turns "feature `unix` does not exist" into a hard
-    // resolution error (exit 101) during `cargo metadata`/`update`, which is not
-    // suppressed by run_optional and fails CI (older cargo only warned).
     write_file(
         root,
         "crates/alpha/Cargo.toml",
@@ -761,8 +702,6 @@ fn sync_versions_patches_dep_tables_on_version_change() {
     );
     write_file(root, "crates/alpha/src/lib.rs", "");
 
-    // crates/beta: all four dep-table shapes referencing alpha.
-    // Same stub rationale as crates/alpha.
     write_file(
         root,
         "crates/beta/Cargo.toml",
@@ -770,7 +709,6 @@ fn sync_versions_patches_dep_tables_on_version_change() {
     );
     write_file(root, "crates/beta/src/lib.rs", "");
 
-    // Normalize backslashes to / so the path is a valid TOML basic string on Windows.
     let alef_toml_content = format!(
         "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"alpha\"\nsources = []\nversion_from = \"{}\"\n",
         root.join("Cargo.toml").display().to_string().replace('\\', "/")
@@ -787,7 +725,6 @@ fn sync_versions_patches_dep_tables_on_version_change() {
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
-    // Root [workspace.dependencies] alpha pin must be bumped to rc.2.
     let root_cargo = std::fs::read_to_string(root.join("Cargo.toml")).expect("read root");
     assert!(
         root_cargo.contains(r#"alpha = { path = "crates/alpha", version = "5.0.0-rc.2""#),
@@ -798,14 +735,12 @@ fn sync_versions_patches_dep_tables_on_version_change() {
         "root serde must be untouched:\n{root_cargo}"
     );
 
-    // crates/alpha [package] version must be rc.2.
     let alpha_cargo = std::fs::read_to_string(root.join("crates/alpha/Cargo.toml")).expect("read alpha");
     assert!(
         alpha_cargo.contains("version = \"5.0.0-rc.2\""),
         "alpha [package] must be bumped:\n{alpha_cargo}"
     );
 
-    // crates/beta: all four dep-table shapes must reference rc.2.
     let beta_cargo = std::fs::read_to_string(root.join("crates/beta/Cargo.toml")).expect("read beta");
     let alpha_version_lines: Vec<&str> = beta_cargo
         .lines()
@@ -826,7 +761,6 @@ fn sync_versions_patches_dep_tables_on_version_change() {
         "old rc.1 must be gone from beta:\n{beta_cargo}"
     );
 
-    // External deps in beta must be untouched.
     assert!(
         beta_cargo.contains(r#"serde = "1.0""#),
         "serde must not be touched:\n{beta_cargo}"
@@ -840,11 +774,6 @@ fn sync_versions_patches_dep_tables_on_version_change() {
         "libc must not be touched:\n{beta_cargo}"
     );
 }
-
-// -----------------------------------------------------------------------
-// sync-versions coverage gaps: swift binary URL, csproj InformationalVersion,
-// ruby native core dep pin
-// -----------------------------------------------------------------------
 
 /// `sync_versions` must rewrite the concrete `releases/download/vX.Y.Z/` segment
 /// of a root `Package.swift` binary-target URL on every bump — not just when the
@@ -868,8 +797,6 @@ fn sync_versions_bumps_concrete_swift_binary_release_url() {
     )
     .expect("write Cargo.toml");
 
-    // Committed Package.swift already carries a CONCRETE (stale) version tag —
-    // the placeholder was substituted by a prior release.
     let pkg_swift = concat!(
         "// swift-tools-version: 6.0\n",
         "import PackageDescription\n",
@@ -1041,7 +968,6 @@ fn sync_versions_bumps_ruby_native_core_dep_pin() {
         out.contains(r#"features = ["full"]"#),
         "features must be preserved, got:\n{out}"
     );
-    // The external `magnus` pin must remain untouched.
     assert!(
         out.contains(r#"magnus = "0.7""#),
         "external magnus dep must not be touched, got:\n{out}"
@@ -1050,21 +976,13 @@ fn sync_versions_bumps_ruby_native_core_dep_pin() {
 
 #[test]
 fn run_optional_logs_but_does_not_fail_on_missing_binary() {
-    // Verify that run_optional gracefully handles a binary that doesn't exist.
-    // This test just invokes the function and verifies it doesn't panic.
-    // The actual command execution would fail, but run_optional logs and returns.
     crate::cli::pipeline::helpers::run_optional("nonexistent_binary_12345", &["arg1", "arg2"]);
-    // If we reach here without panicking, the test passes.
 }
 
 #[test]
 fn run_optional_succeeds_for_simple_command() {
-    // Verify that run_optional can run a simple builtin command (echo) successfully.
     crate::cli::pipeline::helpers::run_optional("echo", &["test"]);
-    // If we reach here without panicking, the test passes.
 }
-
-// --- Kotlin Gradle project version ------------------------------------
 
 /// `sync_versions` must stamp the `--release-date` override into the
 /// `date-released:` line of CITATION.cff verbatim, taking precedence over
@@ -1088,8 +1006,6 @@ fn sync_versions_release_date_override_wins_over_configured_date() {
     )
     .expect("write Cargo.toml");
 
-    // alef.toml with a [workspace.citation] block AND an explicit
-    // date-released. Without the override we'd expect "2020-01-01" stamped.
     let alef_toml = format!(
         "[workspace]\nlanguages = [\"node\"]\n\n[workspace.citation]\ntitle = \"Tiny\"\nabstract = \"x.\"\nrepository-code = \"https://example.com/tiny\"\ndate-released = \"2020-01-01\"\n[[workspace.citation.authors]]\nname = \"Acme, Inc.\"\n\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
         root.join("Cargo.toml").display().to_string().replace('\\', "/")
@@ -1159,10 +1075,6 @@ fn sync_versions_without_release_date_override_preserves_configured_date() {
     );
 }
 
-// -----------------------------------------------------------------------
-// [patch.crates-io] version sync tests
-// -----------------------------------------------------------------------
-
 /// `sync_versions` must update the `version =` pin inside a `[patch.crates-io]`
 /// entry when the entry's key matches the configured crate name.
 ///
@@ -1177,7 +1089,6 @@ fn sync_versions_patches_crates_io_patch_block_version() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let root = tmp.path();
 
-    // Workspace Cargo.toml at the new version with a stale [patch.crates-io] pin.
     std::fs::write(
         root.join("Cargo.toml"),
         "[workspace.package]\nversion = \"3.6.3\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n\n[patch.crates-io]\nmy-lib-rs = { path = \"crates/my-lib\", version = \"3.6.0-rc.14\" }\n",
@@ -1242,7 +1153,6 @@ fn sync_versions_skips_path_only_crates_io_patch_entries() {
     sync_result.expect("sync_versions ok");
 
     let cargo_toml = std::fs::read_to_string(root.join("Cargo.toml")).expect("read Cargo.toml");
-    // Entry must survive intact — no version key inserted.
     assert!(
         cargo_toml.contains(r#"path-only-lib = { path = "crates/path-only" }"#),
         "path-only patch entry must be untouched, got:\n{cargo_toml}"
@@ -1291,7 +1201,6 @@ fn patch_cargo_crates_io_version_noop_when_crate_absent() {
     let changed = patch_cargo_crates_io_version(path.to_str().unwrap(), "my-lib", "1.0.0").expect("no error");
     assert!(!changed, "must return false when crate is absent from patch block");
 
-    // other-crate must be untouched.
     let content = std::fs::read_to_string(&path).expect("read");
     assert!(
         content.contains(r#"other-crate = { path = "crates/other", version = "0.9.0" }"#),

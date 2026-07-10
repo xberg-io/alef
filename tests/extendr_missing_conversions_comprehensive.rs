@@ -135,13 +135,6 @@ fn make_function(name: &str, return_type: TypeRef) -> FunctionDef {
 
 #[test]
 fn extendr_all_surface_types_get_conversions_comprehensive() {
-    // Comprehensive scenario: a data enum with struct variants containing nested struct types,
-    // returned from a function. All nested types must get From<core::T> impls to allow
-    // conversion at every level.
-    //
-    // Simulates: enum VlmFallbackPolicy { Always, OnLowQuality { threshold: f64 }, ... }
-    //     plus: enum Result { Ok(Metadata), Err { message: String, details: ErrorDetails } }
-
     let error_details = make_type(
         "ErrorDetails",
         vec![make_field("code", TypeRef::Primitive(PrimitiveType::U32))],
@@ -149,14 +142,13 @@ fn extendr_all_surface_types_get_conversions_comprehensive() {
 
     let metadata = make_type("Metadata", vec![make_field("format", TypeRef::String)]);
 
-    // Enum with struct-variant enum that contains Named types
     let result_enum = make_enum(
         "Result",
         vec![
             make_variant(
                 "Ok",
                 vec![make_field("_0", TypeRef::Named("Metadata".to_string()))],
-                true, // tuple variant
+                true,
             ),
             make_variant(
                 "Err",
@@ -164,12 +156,11 @@ fn extendr_all_surface_types_get_conversions_comprehensive() {
                     make_field("message", TypeRef::String),
                     make_field("details", TypeRef::Named("ErrorDetails".to_string())),
                 ],
-                false, // struct variant
+                false,
             ),
         ],
     );
 
-    // The containing struct uses Vec of the enum which contains nested types
     let report = make_type(
         "Report",
         vec![
@@ -197,23 +188,18 @@ fn extendr_all_surface_types_get_conversions_comprehensive() {
         .expect("generation succeeds");
     let content = &files[0].content;
 
-    // All types should have From<core::T> impls:
-    // 1. Report (direct return type)
     assert!(
         content.contains("impl From<test_lib::Report> for Report"),
         "Report should have From<core::Report> impl"
     );
-    // 2. Metadata (used in Result enum variant and Report field)
     assert!(
         content.contains("impl From<test_lib::Metadata> for Metadata"),
         "Metadata should have From<core::Metadata> impl (in enum variant and struct field)"
     );
-    // 3. ErrorDetails (used in Result struct variant)
     assert!(
         content.contains("impl From<test_lib::ErrorDetails> for ErrorDetails"),
         "ErrorDetails should have From<core::ErrorDetails> impl (in enum struct variant)"
     );
-    // 4. Result enum should have conversion (lossy, data discarded)
     assert!(
         content.contains("impl From<test_lib::Result> for Result")
             || content.contains("impl From<Result> for test_lib::Result"),

@@ -139,7 +139,6 @@ fn java_does_not_bind_missing_ref_returning_static_symbol() {
             file.path.display()
         );
     }
-    // The owned constructor must still be bound.
     assert!(
         files
             .iter()

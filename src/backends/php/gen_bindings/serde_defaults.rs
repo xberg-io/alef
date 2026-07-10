@@ -21,16 +21,6 @@ fn function_path_default_fn(field: &FieldDef, api: &ApiSurface) -> Option<(Strin
         return None;
     };
     let (_, function_name) = path.rsplit_once("::")?;
-    // The `serde_defaults` module has no imports, so the type must be absolutely
-    // qualified. `type_rust_path` is the core type's absolute path (e.g.
-    // `core_crate::Policy`); when absent the type is itself a binding DTO at the
-    // crate root, whose default fn is an associated function we call directly.
-    //
-    // When the core type is *also* mirrored into a crate-root binding DTO, the
-    // field is rendered as the mirror (`crate::Policy`), not the core type — so the
-    // helper must return the mirror and convert the core value via `.into()` (the
-    // mirror derives `From<core>`). Returning the core type there mismatches the
-    // field type and fails to compile.
     match field.type_rust_path.as_deref() {
         Some(core_path) if api.types.iter().any(|typ| &typ.name == type_name) => Some((
             format!("crate::{type_name}"),
@@ -49,9 +39,6 @@ fn typed_default_fn(default: &DefaultValue, ty: &TypeRef) -> Option<(&'static st
         (DefaultValue::BoolLiteral(value), TypeRef::Primitive(PrimitiveType::Bool)) => {
             Some(("bool", value.to_string()))
         }
-        // Only emit String-returning fn for actual String fields. Named (enum-backed struct
-        // wrapper) fields would mismatch the wrapped Named return type at compile time, so
-        // skip emission and let serde fall back to Default for the wrapped type.
         (DefaultValue::StringLiteral(value) | DefaultValue::EnumVariant(value), TypeRef::String) => {
             Some(("String", format!("{value:?}.to_string()")))
         }
@@ -144,10 +131,6 @@ mod tests {
         }
     }
 
-    // A core type that is also mirrored into a crate-root DTO: the field renders as
-    // the mirror, so the helper must return the mirror and `.into()`-convert the core
-    // value. Regression: a mirrored core type must not emit the core path as the return
-    // type (would cause a type mismatch compile error).
     #[test]
     fn mirrored_core_type_default_returns_mirror_and_converts() {
         let config = config_with_field(foreign_default_field(
@@ -172,8 +155,6 @@ mod tests {
         );
     }
 
-    // The same core type used directly (no mirror DTO): return the core type as-is,
-    // no conversion.
     #[test]
     fn unmirrored_core_type_default_returns_core_type() {
         let config = config_with_field(foreign_default_field(

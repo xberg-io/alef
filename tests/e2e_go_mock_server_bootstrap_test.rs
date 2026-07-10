@@ -88,7 +88,6 @@ fn test_go_main_test_with_mock_server_fixture() {
         .generate(&groups, &e2e_config, &resolved_config, &[], &[])
         .expect("generation succeeds");
 
-    // Find main_test.go
     let main_test_file = files
         .iter()
         .find(|f| f.path.ends_with("main_test.go"))
@@ -96,7 +95,6 @@ fn test_go_main_test_with_mock_server_fixture() {
 
     let content = &main_test_file.content;
 
-    // Verify mock-server bootstrap logic is present
     assert!(
         content.contains("os.Getenv(\"MOCK_SERVER_URL\")"),
         "TestMain should check MOCK_SERVER_URL"
@@ -119,13 +117,11 @@ fn test_go_main_test_with_mock_server_fixture() {
         "TestMain should import strings for prefix matching"
     );
 
-    // Verify the logic path for standalone mode
     assert!(
         content.contains("cargo"),
         "TestMain should use cargo to build mock-server if missing"
     );
 
-    // TestMain parses optional per-fixture mock-server URLs and exports them.
     assert!(
         content.contains("encoding/json"),
         "TestMain should import JSON parsing helpers for MOCK_SERVERS"
@@ -140,8 +136,6 @@ fn test_go_main_test_with_mock_server_fixture() {
 fn test_go_main_test_fixture_has_http_fixtures_not_mock_server() {
     let (e2e_config, resolved_config) = build_config();
 
-    // HTTP fixture (no mock_server_fixtures), so TestMain should use harness
-    // instead of mock-server bootstrap
     let groups = vec![FixtureGroup {
         category: "http_tests".to_string(),
         fixtures: vec![Fixture {
@@ -200,7 +194,6 @@ fn test_go_main_test_fixture_has_http_fixtures_not_mock_server() {
 
     let content = &main_test_file.content;
 
-    // HTTP harness logic should be present, not mock-server
     assert!(
         content.contains("SUT_URL"),
         "TestMain for HTTP fixtures should use SUT_URL"
@@ -209,7 +202,6 @@ fn test_go_main_test_fixture_has_http_fixtures_not_mock_server() {
         content.contains("harness"),
         "TestMain for HTTP fixtures should reference harness"
     );
-    // Should NOT have the mock-server-only bootstrap block
     assert!(
         !content.contains("Spawn mock-server binary if MOCK_SERVER_URL"),
         "TestMain for HTTP-only fixtures should not have mock-server bootstrap logic"

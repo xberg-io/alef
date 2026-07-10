@@ -35,21 +35,10 @@ impl TypeMapper for KotlinMapper {
     }
 
     fn path(&self) -> Cow<'static, str> {
-        // Use String instead of java.nio.file.Path for Android JNI compatibility.
-        // Jackson can deserialize String fields directly from JSON. Path values
-        // are effectively serialized as strings in JSON anyway (file paths).
-        // This avoids needing a custom Jackson deserializer and keeps the
-        // binding portable across JNI/FFI contexts.
         Cow::Borrowed("String")
     }
 
     fn json(&self) -> Cow<'static, str> {
-        // serde_json::Value can be any JSON shape (object, array, string,
-        // number, bool, null) — map to `Any` (Kotlin equivalent of Java's
-        // `Object`) so Jackson can deserialize whatever shape the wire format
-        // produces.  Treating it as `String` was wrong: an OpenAPI tool's
-        // `parameters` is a JSON object, but `String` typing forced Jackson
-        // into START_OBJECT/String mismatches at deserialize time.
         Cow::Borrowed("Any")
     }
 
@@ -90,7 +79,6 @@ mod tests {
 
     #[test]
     fn test_primitive_unsigned_maps_to_signed() {
-        // Mirrors the Java backend — JVM has no native unsigned types.
         assert_eq!(KotlinMapper.primitive(&PrimitiveType::U8), "Byte");
         assert_eq!(KotlinMapper.primitive(&PrimitiveType::U32), "Int");
         assert_eq!(KotlinMapper.primitive(&PrimitiveType::U64), "Long");

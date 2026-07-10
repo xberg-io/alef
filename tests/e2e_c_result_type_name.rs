@@ -90,8 +90,6 @@ fn build_simple_fixture() -> FixtureGroup {
 
 #[test]
 fn c_result_type_does_not_double_prefix() {
-    // With function = "htm_convert" and prefix = "htm", the result type must NOT be
-    // HTMHtmConvert (doubled prefix).  It should be HTMConvert (base name in PascalCase).
     let cfg = build_c_config_with_prefix_override();
     let (resolved, e2e) = resolve_one(&cfg);
     let groups = vec![build_simple_fixture()];
@@ -115,8 +113,6 @@ fn c_result_type_does_not_double_prefix() {
 
 #[test]
 fn c_result_type_explicit_override_wins() {
-    // When result_type is set explicitly, that value is used verbatim (no prefix added
-    // by the generator — the prefix is only prepended in the type annotation, not here).
     let toml_src = r#"
 [workspace]
 languages = ["ffi"]

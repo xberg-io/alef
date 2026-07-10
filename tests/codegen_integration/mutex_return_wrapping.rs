@@ -1,7 +1,6 @@
 use super::*;
 
 // ==============================================================================
-// Additional tests for binding_helpers.rs — wrap_return_with_mutex
 // ==============================================================================
 
 #[test]
@@ -94,7 +93,7 @@ fn test_wrap_return_with_mutex_string_returns_ref_uses_into() {
         &opaque_types,
         &mutex_types,
         false,
-        true, // returns_ref
+        true,
         false,
     );
 
@@ -133,7 +132,7 @@ fn test_wrap_return_with_mutex_returns_cow_owned_named() {
         &mutex_types,
         false,
         false,
-        true, // returns_cow
+        true,
     );
 
     assert_eq!(result, "result.into_owned().into()");
@@ -200,9 +199,6 @@ fn test_wrap_return_with_mutex_vec_opaque() {
         "result.into_iter().map(|v| Item { inner: Arc::new(v) }).collect()"
     );
 }
-// ==============================================================================
-// Additional tests for binding_helpers.rs coverage
-// ==============================================================================
 
 #[test]
 fn test_apply_return_newtype_unwrap_none() {
@@ -227,7 +223,6 @@ fn test_apply_return_newtype_unwrap_complex_expr() {
 
 #[test]
 fn test_wrap_return_with_mutex_opaque_self_with_mutex() {
-    // Self-returning opaque method with mutex type wraps in Arc::new(Mutex::new(...))
     let mut opaque_types = AHashSet::new();
     opaque_types.insert("MyType".to_string());
     let mut mutex_types = AHashSet::new();
@@ -252,7 +247,6 @@ fn test_wrap_return_with_mutex_opaque_self_with_mutex() {
 
 #[test]
 fn test_wrap_return_with_mutex_other_opaque_with_mutex() {
-    // Cross-type opaque return with mutex wraps in the other type's pattern
     let mut opaque_types = AHashSet::new();
     opaque_types.insert("OtherType".to_string());
     let mut mutex_types = AHashSet::new();
@@ -277,7 +271,6 @@ fn test_wrap_return_with_mutex_other_opaque_with_mutex() {
 
 #[test]
 fn test_wrap_return_with_mutex_returns_ref_owned() {
-    // returns_ref=true on an opaque self-return should clone before wrapping
     let mut opaque_types = AHashSet::new();
     opaque_types.insert("MyType".to_string());
     let mutex_types = AHashSet::new();
@@ -289,7 +282,7 @@ fn test_wrap_return_with_mutex_returns_ref_owned() {
         &opaque_types,
         &mutex_types,
         true,
-        true, // returns_ref
+        true,
         false,
     );
 
@@ -302,7 +295,6 @@ fn test_wrap_return_with_mutex_returns_ref_owned() {
 
 #[test]
 fn test_wrap_return_with_mutex_returns_cow_opaque_self() {
-    // returns_cow=true on an opaque self-return should call .into_owned() first
     let mut opaque_types = AHashSet::new();
     opaque_types.insert("MyType".to_string());
     let mutex_types = AHashSet::new();
@@ -315,7 +307,7 @@ fn test_wrap_return_with_mutex_returns_cow_opaque_self() {
         &mutex_types,
         true,
         false,
-        true, // returns_cow
+        true,
     );
 
     assert!(
@@ -379,7 +371,7 @@ fn test_wrap_return_with_mutex_optional_opaque_returns_ref() {
         &opaque_types,
         &mutex_types,
         false,
-        true, // returns_ref
+        true,
         false,
     );
 
@@ -405,7 +397,7 @@ fn test_wrap_return_with_mutex_optional_string_returns_ref() {
         &opaque_types,
         &mutex_types,
         false,
-        true, // returns_ref
+        true,
         false,
     );
 
@@ -512,7 +504,7 @@ fn test_wrap_return_with_mutex_vec_non_opaque_named_ref() {
         &opaque_types,
         &mutex_types,
         false,
-        true, // returns_ref
+        true,
         false,
     );
 
@@ -534,7 +526,7 @@ fn test_wrap_return_with_mutex_vec_string_returns_ref() {
         &opaque_types,
         &mutex_types,
         false,
-        true, // returns_ref
+        true,
         false,
     );
 
@@ -598,7 +590,7 @@ fn test_wrap_return_with_mutex_optional_vec_opaque_returns_ref() {
         &opaque_types,
         &mutex_types,
         false,
-        true, // returns_ref
+        true,
         false,
     );
 

@@ -50,11 +50,11 @@ impl TypeMapper for FfiParamMapper<'_> {
     }
 
     fn vec(&self, _inner: &str) -> String {
-        "*const std::ffi::c_char".to_string() // JSON array string
+        "*const std::ffi::c_char".to_string()
     }
 
     fn map(&self, _key: &str, _value: &str) -> String {
-        "*const std::ffi::c_char".to_string() // JSON object string
+        "*const std::ffi::c_char".to_string()
     }
 
     /// Override map_type to handle Optional's complex C FFI sentinel/pointer semantics.
@@ -100,7 +100,7 @@ impl TypeMapper for FfiReturnMapper<'_> {
     }
 
     fn bytes(&self) -> Cow<'static, str> {
-        Cow::Borrowed("*mut u8") // paired with out-param length
+        Cow::Borrowed("*mut u8")
     }
 
     fn path(&self) -> Cow<'static, str> {
@@ -124,11 +124,11 @@ impl TypeMapper for FfiReturnMapper<'_> {
     }
 
     fn vec(&self, _inner: &str) -> String {
-        "*mut std::ffi::c_char".to_string() // JSON array string
+        "*mut std::ffi::c_char".to_string()
     }
 
     fn map(&self, _key: &str, _value: &str) -> String {
-        "*mut std::ffi::c_char".to_string() // JSON object string
+        "*mut std::ffi::c_char".to_string()
     }
 
     /// Override map_type to handle Optional's complex C FFI nullable-pointer semantics.
@@ -189,18 +189,15 @@ fn c_primitive(prim: &PrimitiveType) -> Cow<'static, str> {
 /// C FFI Optional parameter type — sentinel/nullable-pointer logic.
 fn c_param_optional(inner: &TypeRef, core_import: &str) -> String {
     match inner {
-        TypeRef::Primitive(PrimitiveType::Bool) => "i32".to_string(), // -1 = None, 0 = false, 1 = true
-        TypeRef::Primitive(_) => c_param_type(inner, core_import).into_owned(), // caller uses sentinel
+        TypeRef::Primitive(PrimitiveType::Bool) => "i32".to_string(),
+        TypeRef::Primitive(_) => c_param_type(inner, core_import).into_owned(),
         TypeRef::Optional(inner2) => match inner2.as_ref() {
             TypeRef::Primitive(PrimitiveType::Bool) => "i32".to_string(),
             TypeRef::Primitive(_) => c_param_type(inner2, core_import).into_owned(),
             _ => "*const std::ffi::c_char".to_string(),
         },
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
-            "*const std::ffi::c_char".to_string() // null = None
-        }
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "*const std::ffi::c_char".to_string(),
         TypeRef::Named(_) => format!("*const {}", c_param_type(inner, core_import)),
-        // Vec, Map, Bytes, Unit, Duration — JSON string or sentinel
         TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes | TypeRef::Unit | TypeRef::Duration => {
             "*const std::ffi::c_char".to_string()
         }
@@ -210,7 +207,7 @@ fn c_param_optional(inner: &TypeRef, core_import: &str) -> String {
 /// C FFI Optional return type — nullable-pointer logic.
 fn c_return_optional(inner: &TypeRef, core_import: &str) -> String {
     match inner {
-        TypeRef::Primitive(PrimitiveType::Bool) => "i32".to_string(), // -1 = None
+        TypeRef::Primitive(PrimitiveType::Bool) => "i32".to_string(),
         TypeRef::Primitive(_) => c_return_type(inner, core_import).into_owned(),
         TypeRef::Optional(inner2) => match inner2.as_ref() {
             TypeRef::Primitive(PrimitiveType::Bool) => "i32".to_string(),
@@ -219,8 +216,8 @@ fn c_return_optional(inner: &TypeRef, core_import: &str) -> String {
         },
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "*mut std::ffi::c_char".to_string(),
         TypeRef::Named(name) => format!("*mut {core_import}::{name}"),
-        TypeRef::Duration => "u64".to_string(),  // 0 = None sentinel
-        TypeRef::Bytes => "*mut u8".to_string(), // null = None
+        TypeRef::Duration => "u64".to_string(),
+        TypeRef::Bytes => "*mut u8".to_string(),
         TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Unit => "*mut std::ffi::c_char".to_string(),
     }
 }
@@ -255,7 +252,6 @@ pub fn c_param_type_with_paths_and_enums(
 ) -> Cow<'static, str> {
     match ty {
         TypeRef::Named(name) => {
-            // If this is an enum, emit as i32 (discriminant type)
             if enum_names.contains(name.as_str()) {
                 Cow::Borrowed("i32")
             } else {
@@ -263,14 +259,12 @@ pub fn c_param_type_with_paths_and_enums(
                     .get(name.as_str())
                     .cloned()
                     .unwrap_or_else(|| format!("{core_import}::{name}"));
-                // Use *mut when the core param is &mut T — caller must pass a mutable pointer.
                 let ptr_kind = if is_mut { "*mut" } else { "*const" };
                 Cow::Owned(format!("{ptr_kind} {full_path}"))
             }
         }
         TypeRef::Optional(inner) => {
             if let TypeRef::Named(name) = inner.as_ref() {
-                // Optional enum: still emit as i32 (sentinel value -1 for None)
                 if enum_names.contains(name.as_str()) {
                     Cow::Borrowed("i32")
                 } else {
@@ -278,7 +272,6 @@ pub fn c_param_type_with_paths_and_enums(
                         .get(name.as_str())
                         .cloned()
                         .unwrap_or_else(|| format!("{core_import}::{name}"));
-                    // Optional Named is always *const — null signals None.
                     Cow::Owned(format!("*const {inner_type}"))
                 }
             } else {
@@ -516,9 +509,6 @@ mod tests {
 
     #[test]
     fn test_param_named_type_is_mut_emits_mut_pointer() {
-        // Regression: when the core param is &mut T, the FFI declaration must be *mut T,
-        // not *const T — otherwise the unsafe { &mut *ptr } dereference in the body is
-        // E0596 (cannot borrow `*ptr` as mutable, as it is behind a `*const` pointer).
         let enum_names = ahash::AHashSet::new();
         let path_map = ahash::AHashMap::new();
         assert_eq!(
@@ -535,8 +525,6 @@ mod tests {
 
     #[test]
     fn test_param_optional_named_is_mut_stays_const_pointer() {
-        // Optional Named is always *const regardless of is_mut — null signals None and
-        // the caller cannot meaningfully pass a mutable optional pointer.
         let enum_names = ahash::AHashSet::new();
         let path_map = ahash::AHashMap::new();
         assert_eq!(

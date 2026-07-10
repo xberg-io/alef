@@ -48,16 +48,11 @@ pub fn extract(
 
     let mut visited = Vec::<PathBuf>::new();
 
-    // Determine the crate source root directory from the first source (typically lib.rs).
-    // This enables deriving correct module_path for other source files in the hierarchy.
     let crate_src_dir = sources.first().and_then(|s| s.parent()).map(|p| p.to_path_buf());
 
     for source in sources {
         let canonical = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
 
-        // Skip source files already visited via `pub mod` traversal from an earlier
-        // source (typically lib.rs). Re-processing them with module_path="" would
-        // produce incorrect rust_paths for nested modules.
         if visited.contains(&canonical) {
             continue;
         }
@@ -68,10 +63,6 @@ pub fn extract(
         let file =
             syn::parse_file(&content).with_context(|| format!("Failed to parse source file: {}", source.display()))?;
 
-        // Derive module_path from the source file's location relative to the crate
-        // source root. For example, `src/cache/core.rs` relative to `src/` gives
-        // module_path `cache::core`. This ensures types get correct rust_paths even
-        // when they're listed as explicit sources rather than discovered via `pub mod`.
         let module_path = derive_module_path(source, crate_src_dir.as_deref());
 
         let types_before = surface.types.len();
@@ -90,11 +81,6 @@ pub fn extract(
             &mut result_wrapping_aliases,
         )?;
 
-        // For non-root source files, apply re-export shortening from the parent module.
-        // When `cache/core.rs` is processed with module_path="cache::core", items get
-        // than naming sample_core in extractor documentation.
-        // paths like `sample_core::cache::core::GenericCache`. If the parent `cache/mod.rs`
-        // has `pub use core::{GenericCache, ...}`, we shorten to `sample_core::cache::GenericCache`.
         if !module_path.is_empty() {
             apply_parent_reexport_shortening(
                 source,
@@ -108,9 +94,7 @@ pub fn extract(
         }
     }
 
-    // Post-processing: apply cfg attributes from pub use re-exports.
     // For intra-crate re-exports like `#[cfg(feature = "api")] pub use core::ServerConfig`,
-    // we need to mark the extracted ServerConfig type with the cfg from the re-export statement.
     if let Some(first_source) = sources.first() {
         if let Ok(content) = std::fs::read_to_string(first_source) {
             if let Ok(file) = syn::parse_file(&content) {
@@ -122,43 +106,13 @@ pub fn extract(
     // NOTE: Same-named function entries with disjoint cfg gates (e.g. a `pub use real::fn` under
     // `#[cfg(feature = "X")]` plus a stub `pub fn fn(...) -> Err(...)` under
     // `#[cfg(all(feature = "X-presets", not(feature = "X")))]`) are intentionally NOT collapsed
-    // here. Collapsing in the shared surface would (a) drop one of the two `rust_path` values
-    // (the crate-root stub path and the real-module re-export path are both required by
-    // downstream codegen and e2e call validation), and (b) inherit the `alef(skip)` annotation
-    // from whichever entry was picked as canonical, stripping the merged entry entirely.
-    //
-    // The FFI backend has its own same-name dedup pass (see
-    // `backends::ffi::gen_bindings::functions::cfg_dedup`) that operates locally on the FFI
-    // function list at emit time. All other backends and the e2e validator see the original
-    // multi-entry surface untouched.
 
-    // Post-processing: resolve unresolved trait sources.
-    // When a file containing `impl Trait for Type` is processed before the file defining
-    // the Trait, the `trait_source` on methods will be `None`. Now that all files are
-    // processed we can retroactively resolve them against the complete trait type list.
     resolve_trait_sources(&mut surface);
 
-    // Post-processing: resolve newtype wrappers.
-    // Single-field tuple structs like `pub struct Foo(String)` are detected by having
-    // exactly one field named `_0`. We replace all `TypeRef::Named("Foo")` references
-    // with the inner type, then remove the newtype TypeDefs from the surface.
     resolve_newtypes(&mut surface);
 
-    // Post-processing: disambiguate types with the same identifier from different
-    // source modules. The second+ collisions are renamed by prepending the
-    // PascalCase parent module segment (e.g. `testing::SseEvent` → `TestingSseEvent`),
-    // letting both definitions survive into binding codegen instead of one silently
-    // overwriting the other. The first-seen variant (sorted by full rust_path) keeps
-    // its original name.
     disambiguation::disambiguate_type_names(&mut surface);
 
-    // After newtype resolution, any remaining types with `_0` fields are tuple structs
-    // that weren't resolved (because they have methods or complex inner types).
-    // Keep them as newtypes (with the _0 field) so codegen can generate proper
-    // From impls using tuple constructors. They're not opaque — they have a known inner type.
-
-    // Mark types that appear as function return types.
-    // These may use a different DTO style (e.g., TypedDict in Python).
     let return_type_names: ahash::AHashSet<String> = surface
         .functions
         .iter()
@@ -212,33 +166,20 @@ fn extract_items(
     visited: &mut Vec<PathBuf>,
     result_wrapping_aliases: &mut ahash::AHashSet<String>,
 ) -> Result<()> {
-    // Collect pub use re-exports at this level (for path flattening).
-    // When a `pub use submod::*` or `pub use submod::TypeName` is found,
-    // items defined in that submodule should get a shorter path (this level's path).
     let reexport_map = collect_reexport_map(items);
 
-    // Pre-scan: detect type aliases that are important for IR extraction.
-    // 1. Generic Result type aliases (e.g., `pub type Result<T> = std::result::Result<T, MyError>`)
-    //    will be stored in type_resolver for error type resolution.
-    // 2. Generic type aliases whose definition wraps Result<T>
-    //    (e.g., `pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>`)
-    //    When such an alias is used as `BoxFuture<'_, SomeType>`, the extractor should
-    //    mark the return as is_result=true even though `SomeType` isn't `Result<...>`.
     let mut result_error_hints = ahash::AHashMap::new();
     for item in items {
         if let syn::Item::Type(item_type) = item {
             if is_pub(&item_type.vis) {
                 let name = item_type.ident.to_string();
-                // For non-generic type aliases, check if this is `pub type Result<T> = std::result::Result<T, E>`
                 if item_type.generics.params.is_empty() {
                     if name == "Result" {
-                        // Extract the error type from the RHS: std::result::Result<T, E>
                         if let Some(error_type) = type_resolver::extract_result_error_type_from_alias(&item_type.ty) {
                             result_error_hints.insert(name.clone(), error_type);
                         }
                     }
                 } else {
-                    // Generic type alias — check if it wraps Result<T>.
                     let rhs = quote::quote!(#item_type).to_string();
                     if rhs.contains("Result <") || rhs.contains("Result<") {
                         result_wrapping_aliases.insert(name);
@@ -249,10 +190,8 @@ fn extract_items(
     }
     type_resolver::set_result_error_hints(result_error_hints);
 
-    // First pass: collect all structs/enums (no impl blocks yet)
     for item in items {
         // `#[cfg(test)]` items do not exist in normal builds; skip them so the
-        // binding surface never references test-only types/functions.
         if item_attrs(item).is_some_and(is_test_gated) {
             continue;
         }
@@ -260,9 +199,6 @@ fn extract_items(
             syn::Item::Struct(item_struct) if is_pub(&item_struct.vis) => {
                 if has_non_lifetime_generics(&item_struct.generics) {
                     // Generic items annotated with `#[alef::skip]` (or `#[doc(hidden)]`) are
-                    // intentionally not part of the binding surface — skip silently instead
-                    // of producing a fatal `unsupported_generic_item` diagnostic. The same
-                    // applies to enums/functions/type-aliases below.
                     if extract_binding_exclusion_reason(&item_struct.attrs).is_none() {
                         surface.unsupported_public_items.push(unsupported_public_item(
                             "struct",
@@ -300,9 +236,6 @@ fn extract_items(
                 }
             }
             syn::Item::Fn(item_fn) if is_pub(&item_fn.vis) && !item_fn.sig.ident.to_string().starts_with('_') => {
-                // Underscore-prefixed `pub fn`s are the Rust convention for
-                // "public but not part of the supported API surface"; never
-                // emit bindings or docs for them.
                 if has_non_lifetime_generics(&item_fn.sig.generics) {
                     if extract_binding_exclusion_reason(&item_fn.attrs).is_none() {
                         surface.unsupported_public_items.push(unsupported_public_item(
@@ -320,12 +253,6 @@ fn extract_items(
                 }
             }
             syn::Item::Type(item_type) if is_pub(&item_type.vis) && has_non_lifetime_generics(&item_type.generics) => {
-                // `pub type Result<T> = std::result::Result<T, MyError>` is a near-universal
-                // Rust idiom for crate-local error types. It is never part of the binding
-                // surface — backends use the wrapped concrete `Result<T, _>` at call sites.
-                // The pre-scan above stores these aliases in `result_wrapping_aliases` (and
-                // separately in `result_error_hints` for the conventional `Result` name).
-                // Skip the diagnostic silently for them.
                 let alias_name = item_type.ident.to_string();
                 let is_result_wrapping = alias_name == "Result" || result_wrapping_aliases.contains(&alias_name);
                 if !is_result_wrapping && extract_binding_exclusion_reason(&item_type.attrs).is_none() {
@@ -339,8 +266,6 @@ fn extract_items(
                 }
             }
             syn::Item::Type(item_type) if is_pub(&item_type.vis) && item_type.generics.params.is_empty() => {
-                // Type alias: pub type Foo = Bar;
-                // Extract as a TypeDef with the aliased type
                 let name = item_type.ident.to_string();
                 let _ty = type_resolver::resolve_type(&item_type.ty);
                 let rust_path = build_rust_path(crate_name, module_path, &name);
@@ -353,7 +278,7 @@ fn extract_items(
                     original_rust_path: String::new(),
                     fields: vec![],
                     methods: vec![],
-                    is_opaque: true, // type aliases are opaque (no fields)
+                    is_opaque: true,
                     is_clone: false,
                     is_copy: false,
                     is_trait: false,
@@ -393,7 +318,6 @@ fn extract_items(
                 let trait_binding_exclusion_reason = extract_binding_exclusion_reason(&item_trait.attrs);
                 let trait_binding_excluded = trait_binding_exclusion_reason.is_some();
 
-                // Extract trait methods
                 let methods: Vec<MethodDef> = item_trait
                     .items
                     .iter()
@@ -407,21 +331,18 @@ fn extract_items(
                             let (mut return_type, mut error_type, returns_ref) =
                                 resolve_return_type(&method.sig.output);
 
-                            // Check for BoxFuture async pattern
                             if !is_async {
                                 if let Some((inner, future_error_type)) =
                                     functions::unwrap_future_return(&method.sig.output, result_wrapping_aliases)
                                 {
                                     is_async = true;
                                     return_type = inner;
-                                    // If the future's output is Result<T, E>, propagate the error type.
                                     if future_error_type.is_some() {
                                         error_type = future_error_type;
                                     }
                                 }
                             }
 
-                            // Skip generic methods
                             if !method.sig.generics.params.is_empty() {
                                 if method_binding_exclusion_reason.is_none() {
                                     surface.unsupported_public_items.push(UnsupportedPublicItem {
@@ -462,7 +383,6 @@ fn extract_items(
                     })
                     .collect();
 
-                // Extract super-traits (e.g., Plugin from `trait WorkerBackend: Plugin`)
                 let super_traits: Vec<String> = item_trait
                     .supertraits
                     .iter()
@@ -470,7 +390,6 @@ fn extract_items(
                         if let syn::TypeParamBound::Trait(trait_bound) = bound {
                             let path = &trait_bound.path;
                             let name = path.segments.last()?.ident.to_string();
-                            // Skip marker traits
                             if name == "Send" || name == "Sync" || name == "Sized" {
                                 None
                             } else {
@@ -509,11 +428,6 @@ fn extract_items(
                 });
             }
             syn::Item::Mod(item_mod) => {
-                // Follow pub modules unconditionally.
-                // Also follow non-pub modules whose items are re-exported via `pub use`
-                // at this level (e.g., `mod worker; pub use worker::{WorkerBackend, ...}`).
-                // Without this, traits defined in private submodules wouldn't be extracted,
-                // causing unresolved trait_source on methods in downstream types.
                 let mod_name = item_mod.ident.to_string();
                 let is_reexported = reexport_map.contains_key(&mod_name);
                 if is_pub(&item_mod.vis) || is_reexported {
@@ -543,7 +457,6 @@ fn extract_items(
         }
     }
 
-    // Build type name to index map for O(1) lookup
     let type_index: AHashMap<String, usize> = surface
         .types
         .iter()
@@ -551,11 +464,9 @@ fn extract_items(
         .map(|(idx, typ)| (typ.name.clone(), idx))
         .collect();
 
-    // Second pass: process impl blocks using the index
     for item in items {
         if let syn::Item::Impl(item_impl) = item {
             // A whole `#[cfg(test)]` impl block (e.g. test-only constructors) is
-            // absent from normal builds; skip it entirely.
             if is_test_gated(&item_impl.attrs) {
                 continue;
             }
@@ -570,11 +481,7 @@ fn extract_items(
         }
     }
 
-    // Third pass: detect manual serde impls and update has_serde on matching types.
     // The struct/enum extractor only sets has_serde=true when #[derive(Serialize, Deserialize)]
-    // is present. Types that implement serde manually (e.g. NodeContext<'_>, which uses
-    // asymmetric impls for lifetime reasons) are missed. Scan for impl serde::Serialize and
-    // impl serde::Deserialize blocks and back-patch has_serde on any type that has both.
     let manual_serde_names = collect_manual_serde_type_names(items);
     if !manual_serde_names.is_empty() {
         for typ in &mut surface.types {
@@ -649,10 +556,7 @@ fn collect_reexport_names_with_cfg(tree: &syn::UseTree, surface: &mut ApiSurface
                 collect_reexport_names_with_cfg(item, surface, cfg);
             }
         }
-        syn::UseTree::Glob(_) => {
-            // For `pub use module::*`, we'd need to know which items are in module
-            // This is complex so we skip glob re-exports for now
-        }
+        syn::UseTree::Glob(_) => {}
     }
 }
 

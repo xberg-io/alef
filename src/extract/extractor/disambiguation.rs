@@ -25,8 +25,6 @@ pub(crate) fn disambiguate_type_names(surface: &mut ApiSurface) {
 
 /// Build a map of `old_name -> new_name` for every collision.
 fn compute_renames(surface: &ApiSurface) -> AHashMap<String, String> {
-    // Collect (name, rust_path, kind, binding_excluded) for every nominal definition.
-    // Three kinds share the binding-side namespace: types, enums, errors.
     let mut entries: Vec<(String, String, Kind, bool)> = Vec::new();
     for t in &surface.types {
         entries.push((t.name.clone(), t.rust_path.clone(), Kind::Type, t.binding_excluded));
@@ -38,18 +36,15 @@ fn compute_renames(surface: &ApiSurface) -> AHashMap<String, String> {
         entries.push((e.name.clone(), e.rust_path.clone(), Kind::Error, e.binding_excluded));
     }
 
-    // Group by name. Tuple is (rust_path, kind, binding_excluded).
     let mut by_name: AHashMap<String, Vec<(String, Kind, bool)>> = AHashMap::new();
     for (name, path, kind, bx) in entries {
         by_name.entry(name).or_default().push((path, kind, bx));
     }
 
-    // Compute the set of all currently used names so we never produce a fresh collision.
     let mut taken: AHashSet<String> = by_name.keys().cloned().collect();
 
     let mut renames: AHashMap<String, String> = AHashMap::new();
 
-    // Deterministic iteration: sort group keys.
     let mut group_names: Vec<String> = by_name.keys().cloned().collect();
     group_names.sort();
 
@@ -58,18 +53,8 @@ fn compute_renames(surface: &ApiSurface) -> AHashMap<String, String> {
         if paths.len() < 2 {
             continue;
         }
-        // Sort by (binding_excluded ASC, rust_path ASC) so non-excluded entries come
-        // first: a legitimate (bx=false) type always keeps the original name even when
-        // an alef(skip)-annotated duplicate (bx=true) would sort earlier alphabetically.
         paths.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.0.cmp(&b.0)));
 
-        // Deduplicate by rust_path: if a bx=true and bx=false entry share the same
-        // rust_path (e.g. a cfg-gated stub alongside a feature-guarded real definition),
-        // the bx=true entry is a shadow/stub of the real one. Remove such shadows from
-        // the group before computing renames so they do not count as collisions.
-        //
-        // After sorting, bx=false entries precede bx=true for the same path, so we
-        // can deduplicate by taking the first occurrence of each rust_path.
         let mut seen_paths: AHashSet<String> = AHashSet::new();
         paths.retain(|(path, _kind, _bx)| seen_paths.insert(path.clone()));
 
@@ -77,11 +62,8 @@ fn compute_renames(surface: &ApiSurface) -> AHashMap<String, String> {
             continue;
         }
 
-        // The first variant keeps its original name. All others get renamed.
         for (path, _kind, _bx) in paths.into_iter().skip(1) {
             let new_name = pick_unique_name(&name, &path, &taken);
-            // Key the rename map by `path` so multiple collisions sharing the same
-            // original short name don't overwrite each other.
             renames.insert(path, new_name.clone());
             taken.insert(new_name);
         }
@@ -100,17 +82,13 @@ enum Kind {
 /// Find a unique name for `original` by walking up the module path of `rust_path`
 /// and prepending PascalCase segments until the result is not in `taken`.
 fn pick_unique_name(original: &str, rust_path: &str, taken: &AHashSet<String>) -> String {
-    // rust_path like `my_crate::a::b::Original`. Segments excluding the final type
-    // name and the leading crate name describe the module containment.
     let segments: Vec<&str> = rust_path.split("::").collect();
     if segments.len() <= 2 {
-        // No module path to draw from; fall back to a numeric suffix.
         return numeric_suffix(original, taken);
     }
 
     let module_segments = &segments[1..segments.len() - 1];
 
-    // Try increasingly long prefixes: parent only, then grandparent+parent, etc.
     for take in 1..=module_segments.len() {
         let start = module_segments.len() - take;
         let prefix: String = module_segments[start..]
@@ -124,7 +102,6 @@ fn pick_unique_name(original: &str, rust_path: &str, taken: &AHashSet<String>) -
         }
     }
 
-    // Exhausted module segments — fall back to numeric suffix.
     numeric_suffix(original, taken)
 }
 
@@ -141,17 +118,6 @@ fn numeric_suffix(original: &str, taken: &AHashSet<String>) -> String {
 
 /// Apply `renames` (keyed by rust_path) to every name/reference in the surface.
 fn apply_renames(surface: &mut ApiSurface, renames: &AHashMap<String, String>) {
-    // Build a flat short-name -> new-name map for TypeRef::Named rewrites. This is
-    // safe because the first-seen variant is unchanged, so any unqualified short-name
-    // reference points to it. Renamed types are only referenced from their own
-    // module's code paths; downstream IR currently has no path info to distinguish
-    // sibling references, so all `Named("Foo")` resolve to the kept variant.
-    //
-    // We still rewrite the rename target's own self-references (field of type Self,
-    // recursive methods) by tracking the path-keyed map: when we walk a type whose
-    // rust_path matches a rename key, we apply the rename to its name only — its
-    // internal Named references already point at the kept variant's short name and
-    // continue to do so, which is the correct semantics for the unambiguous reference.
     for ty in &mut surface.types {
         if let Some(new_name) = renames.get(&ty.rust_path) {
             ty.name = new_name.clone();
@@ -168,8 +134,6 @@ fn apply_renames(surface: &mut ApiSurface, renames: &AHashMap<String, String>) {
         }
     }
 
-    // excluded_type_paths is keyed by short name. If a kept-but-renamed entry exists
-    // under the old key, rekey it. The values (rust_paths) are unaffected.
     let excluded: Vec<(String, String)> = surface.excluded_type_paths.drain().collect();
     for (name, path) in excluded {
         if let Some(new_name) = renames.get(&path) {
@@ -178,11 +142,6 @@ fn apply_renames(surface: &mut ApiSurface, renames: &AHashMap<String, String>) {
             surface.excluded_type_paths.insert(name, path);
         }
     }
-
-    // excluded_trait_names is keyed by short name. Without path info on the set
-    // entry we cannot disambiguate which excluded variant a name referred to;
-    // leave it alone. Trait collisions of this shape are not currently observed
-    // in the wild and would require richer excluded-set tracking to handle.
 }
 
 #[cfg(test)]
@@ -280,7 +239,6 @@ mod tests {
         s.types.push(make_type("Foo", "my_crate::baz::Foo"));
         disambiguate_type_names(&mut s);
         let names: Vec<_> = s.types.iter().map(|t| t.name.clone()).collect();
-        // Deterministic sort by rust_path: a < bar < baz, so `a` keeps original.
         assert_eq!(names, vec!["Foo", "BarFoo", "BazFoo"]);
     }
 
@@ -315,9 +273,6 @@ mod tests {
     #[test]
     fn cascading_collision_walks_further_up() {
         let mut s = empty_surface();
-        // Three Foos: my_crate::Foo, my_crate::ext::Foo, my_crate::other::ext::Foo
-        // The second becomes ExtFoo; the third would also be ExtFoo (collision) so it
-        // walks up one more segment and becomes OtherExtFoo.
         s.types.push(make_type("Foo", "my_crate::Foo"));
         s.types.push(make_type("Foo", "my_crate::ext::Foo"));
         s.types.push(make_type("Foo", "my_crate::other::ext::Foo"));
@@ -338,17 +293,12 @@ mod tests {
 
     #[test]
     fn bx_true_entry_yields_original_name_to_bx_false_entry() {
-        // The bx=true path sorts before the bx=false path alphabetically ("my_crate::A..."
-        // < "my_crate::B..."), but must not steal the original name. The bx=false entry
-        // must always keep the original name; the bx=true entry gets renamed.
         let mut s = empty_surface();
-        // bx=true entry — sorts first alphabetically by rust_path ("my_crate::AModule::Preset")
         s.types.push(make_type_with_bx(
             "EmbeddingPreset",
             "my_crate::AModule::EmbeddingPreset",
             true,
         ));
-        // bx=false entry — legitimate type, sorts second alphabetically
         s.types.push(make_type_with_bx(
             "EmbeddingPreset",
             "my_crate::BModule::EmbeddingPreset",
@@ -368,20 +318,12 @@ mod tests {
 
     #[test]
     fn bx_true_shadow_with_same_path_not_counted_as_collision() {
-        // A cfg-gated stub (bx=true) sharing the same rust_path as the real type (bx=false)
-        // must NOT trigger a rename. The bx=true entry is a shadow of the real one;
-        // deduplication by rust_path removes it from the collision group so the legitimate
-        // type keeps its original name unchanged.
         let mut s = empty_surface();
-        // Real type (bx=false) — feature-guarded in the real codebase
         s.types
             .push(make_type_with_bx("EmbeddingPreset", "my_crate::EmbeddingPreset", false));
-        // Stub (bx=true) — same rust_path as the real type, injected by a cfg-gated block
         s.types
             .push(make_type_with_bx("EmbeddingPreset", "my_crate::EmbeddingPreset", true));
         disambiguate_type_names(&mut s);
-        // Both entries survive in the surface with the same name (the bx=true will be
-        // filtered downstream); crucially, neither should be renamed to EmbeddingPreset2.
         let names: Vec<_> = s.types.iter().map(|t| t.name.clone()).collect();
         assert!(
             names.iter().all(|n| n == "EmbeddingPreset"),

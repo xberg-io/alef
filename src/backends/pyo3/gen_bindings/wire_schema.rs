@@ -80,7 +80,6 @@ pub(super) fn gen_wire_schema_consts(api: &ApiSurface, coercible_dto_names: &AHa
     }
     let types: AHashMap<&str, &TypeDef> = api.types.iter().map(|t| (t.name.as_str(), t)).collect();
 
-    // Seed from every coercible Named/Optional(Named) payload field of a generated variant ctor.
     let mut seeds: Vec<String> = Vec::new();
     for e in &api.enums {
         if !enum_has_data_variants(e) {
@@ -88,7 +87,6 @@ pub(super) fn gen_wire_schema_consts(api: &ApiSurface, coercible_dto_names: &AHa
         }
         for ctor in collect_variant_constructors(e) {
             for p in &ctor.params {
-                // Any coercible payload shape (a DTO, or a list/map of DTOs) needs its schema const.
                 if let Some((dto, _)) = coercible_payload(&p.ty, coercible_dto_names) {
                     if !seeds.iter().any(|s| s == dto) {
                         seeds.push(dto.to_string());
@@ -101,7 +99,6 @@ pub(super) fn gen_wire_schema_consts(api: &ApiSurface, coercible_dto_names: &AHa
         return String::new();
     }
 
-    // DFS building one const per reachable type, breaking cycles at back-edges.
     let mut built: Vec<(String, Vec<AliasEntry>)> = Vec::new();
     let mut done: AHashSet<String> = AHashSet::new();
     for seed in &seeds {
@@ -115,7 +112,6 @@ pub(super) fn gen_wire_schema_consts(api: &ApiSurface, coercible_dto_names: &AHa
         );
     }
 
-    // Deterministic output order.
     built.sort_by(|a, b| a.0.cmp(&b.0));
     let mut out = String::new();
     for (const_name, entries) in &built {
@@ -157,8 +153,6 @@ fn build_type(
         return;
     }
     let Some(typ) = types.get(type_name) else {
-        // No TypeDef (e.g. an opaque or externally-defined type): emit an empty schema so the
-        // referencing const still resolves.
         done.insert(type_name.to_string());
         built.push((pyo3_wire_schema_const_name(type_name), Vec::new()));
         return;
@@ -172,7 +166,6 @@ fn build_type(
         let wire = wire_field_name(&field.name, field.serde_rename.as_deref(), rename_all);
         match coercible_payload(&field.ty, coercible) {
             Some((dto_name, shape)) => {
-                // Break cycles: a back-edge to a type currently on the DFS path references `&[]`.
                 let nested = if path.iter().any(|p| p == dto_name) {
                     "&[]".to_string()
                 } else {
@@ -187,7 +180,6 @@ fn build_type(
                 });
             }
             None => {
-                // Leaf field: only needs an entry when its wire name differs from the Rust name.
                 if wire != field.name {
                     entries.push(AliasEntry {
                         rust: field.name.clone(),

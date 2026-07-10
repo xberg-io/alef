@@ -9,9 +9,6 @@ pub(super) struct CallbackArgField {
     c_type: String,
 }
 
-// Data-driven callback specifications
-// ---------------------------------------------------------------------------
-
 /// The kind of a single callback parameter (beyond the common ctx/user_data/out
 /// prefix that every callback shares).
 pub(super) enum ParamKind {
@@ -77,7 +74,6 @@ pub(crate) fn callback_specs_from_trait(
         }
         let mut params = Vec::new();
         for p in &m.params {
-            // Skip the context parameter — it is threaded via FFI's separate channel.
             if matches!(&p.ty, TypeRef::Named(name) if name == &protocol.context_type) {
                 continue;
             }
@@ -138,10 +134,6 @@ pub(crate) fn callback_specs_from_trait(
     specs
 }
 
-// ---------------------------------------------------------------------------
-// Code-generation helpers — each produces one section of the output
-// ---------------------------------------------------------------------------
-
 /// Build the C `extern "C" fn(...)` signature parameters for one callback.
 pub(super) fn callback_arg_fields(spec: &CallbackSpec, pascal_prefix: &str) -> Vec<CallbackArgField> {
     let mut fields = vec![
@@ -200,11 +192,7 @@ pub(super) fn callback_arg_fields(spec: &CallbackSpec, pascal_prefix: &str) -> V
 /// Build sanitized doc lines for a callback field template.
 fn callback_doc_lines(doc: &str) -> Vec<String> {
     doc.lines()
-        .map(|line| {
-            // Strip any leading `///` the caller may have pre-pended so embedded
-            // continuation lines do not get double-prefixed by the template.
-            line.trim_start_matches("///").trim_start().to_string()
-        })
+        .map(|line| line.trim_start_matches("///").trim_start().to_string())
         .collect()
 }
 

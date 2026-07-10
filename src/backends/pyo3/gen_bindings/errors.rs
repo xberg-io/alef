@@ -27,9 +27,6 @@ pub(super) fn is_dataclass_backed_config(
     if !typ.has_default || typ.fields.is_empty() {
         return false;
     }
-    // A `has_default` type that is also a return type is handed back to callers as an
-    // attribute-access pyclass and re-exported from the native module (unless the structural
-    // TypedDict style applies and it is not in `reexported_types`).
     let is_native_return = typ.is_return_type
         && (output_style != PythonDtoStyle::TypedDict || reexported_names.contains(typ.name.as_str()));
     !is_native_return
@@ -93,8 +90,6 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface, module_name: &str) -> String {
     out.push_str(&hash::header(CommentStyle::Hash));
     out.push_str("\"\"\"Exception hierarchy (re-exported from the native module).\"\"\"\n\n");
 
-    // Collect base + variant exception names, de-duplicated, in a stable sorted order
-    // (matches isort / ruff RUF022 so the generated file is format-stable).
     let mut exc_names: Vec<String> = Vec::new();
     for error in &api.errors {
         if seen_classes.insert(error.name.clone()) {
@@ -113,8 +108,6 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface, module_name: &str) -> String {
     }
     exc_names.sort();
 
-    // Re-export `from .<native module> import (...)`, wrapping to multi-line when the
-    // single-line form would exceed ruff's line length (the established pattern in gen_init_py).
     let import_statement = render_relative_import(module_name, &exc_names);
     if is_long_import(&import_statement) {
         out.push_str(&crate::backends::pyo3::template_env::render(
@@ -139,10 +132,6 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface, module_name: &str) -> String {
     }
     out.push_str("]\n");
 
-    // Re-point each re-exported exception's `__module__` at the public package. The objects are
-    // the native ones (`create_exception!` sets their module to the compiled extension), so
-    // tracebacks and `repr()` otherwise read `_native.DownloadError` instead of the public name.
-    // This is cosmetic and also makes them picklable under their public path (GitHub issue #147).
     out.push_str(concat!(
         "\n",
         "# Re-point each exception's __module__ at the public package so tracebacks show the\n",
@@ -180,10 +169,8 @@ pub(super) fn gen_init_py(
         "init_header.jinja",
         minijinja::context! { module_name => module_name, version => version },
     ));
-    // ruff format: blank line required after module docstring before first import.
     out.push('\n');
 
-    // Collect enum names referenced by config types (user-facing enums only)
     let enum_names: AHashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
     let data_enum_names: AHashSet<&str> = api
         .enums
@@ -195,13 +182,6 @@ pub(super) fn gen_init_py(
     let mut needed_enums: Vec<String> = Vec::new();
     let mut needed_data_enums: Vec<String> = Vec::new();
     let mut config_types: Vec<String> = Vec::new();
-    // Return types with is_return_type=true are defined authoritatively in the native Rust
-    // module and are returned to callers as attribute-access pyclasses. They must be re-exported
-    // from the native module — not from .options — so the type seen by static analysis matches
-    // the runtime object. Under the structural (TypedDict) style every other type is emitted in
-    // options.py, so only the curated `reexported_types` results stay native; a config type that
-    // is also `is_return_type` (e.g. `ExtractionConfig`, returned by a resolver yet built by the
-    // caller) is not listed there and remains a structural type.
     let reexported_names: AHashSet<&str> = reexported_types.iter().map(String::as_str).collect();
     let mut native_return_types: Vec<String> = Vec::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait && !typ.binding_excluded) {
@@ -214,8 +194,6 @@ pub(super) fn gen_init_py(
             } else {
                 native_return_types.push(typ.name.clone());
             }
-            // Collect enum references regardless of whether the type is a return type or config
-            // type — some enums are shared across both categories.
             for field in binding_fields(&typ.fields) {
                 let inner_name = match &field.ty {
                     TypeRef::Named(n) => Some(n.as_str()),
@@ -241,13 +219,10 @@ pub(super) fn gen_init_py(
         }
     }
 
-    // Collect ALL non-trait types from the native module that aren't config types.
     // Every type in api.types (except traits) is registered as a #[pyclass] in the native
-    // module — ensure they are all re-exported from __init__.py so users can access them.
     let mut imports_from_native: Vec<String> = Vec::new();
     let options_type_set: AHashSet<&str> = config_types.iter().map(|s| s.as_str()).collect();
     let error_type_set: AHashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
-    // Update and Builder types are internal; skip them.
     for typ in api.types.iter().filter(|t| !t.is_trait && !t.binding_excluded) {
         if typ.name.ends_with("Update") || typ.name.ends_with("Builder") {
             continue;
@@ -255,25 +230,19 @@ pub(super) fn gen_init_py(
         if error_type_set.contains(typ.name.as_str()) {
             continue;
         }
-        // Config types (has_default, non-return) go via options.py; already in config_types.
         if options_type_set.contains(typ.name.as_str()) {
             continue;
         }
-        // Return types already collected in native_return_types; skip to avoid duplicates.
         if native_return_types.iter().any(|n| n == &typ.name) {
             continue;
         }
-        // Everything else (opaque types, non-default structs, etc.) lives in the native module.
         if !needed_data_enums.iter().any(|n| n == &typ.name) {
             imports_from_native.push(typ.name.clone());
         }
     }
-    // Collect ALL enums from the native module.
     // Unit enums (needed_enums) are registered as #[pyclass] and exported from the native module.
-    // Data enums are also in the native module. All other enums live in native too.
     for enum_def in &api.enums {
         if needed_data_enums.iter().any(|n| n == &enum_def.name) {
-            // Data enums already in native list.
             continue;
         }
         if !imports_from_native.iter().any(|n| n == &enum_def.name) {
@@ -281,17 +250,10 @@ pub(super) fn gen_init_py(
         }
     }
 
-    // Collect remaining imports and sort them
     let mut imports_from_api = Vec::new();
     let mut imports_from_options = Vec::new();
     let mut imports_from_exceptions = Vec::new();
 
-    // Import functions from api (regular functions + trait-bridge registration helpers + adapters).
-    // Trait-bridge register_* functions are emitted as pass-through wrappers in api.py but
-    // do not appear in api.functions — add them here so __init__.py re-exports them and they
-    // appear in __all__.
-    // Similarly, adapter-based streaming methods are emitted as module-level wrappers in api.py
-    // but are not in api.functions — add them too.
     {
         let mut names: Vec<_> = api
             .functions
@@ -314,43 +276,28 @@ pub(super) fn gen_init_py(
         imports_from_api.extend(names);
     }
 
-    // Data enums and return types are backed by native Rust structs — import from the native module.
     needed_data_enums.sort();
     imports_from_native.extend(needed_data_enums.iter().cloned());
     native_return_types.sort();
     imports_from_native.extend(native_return_types.iter().cloned());
-    // Capsule types are not registered in the native module; users get the target Python type
-    // (e.g. tree_sitter.Language) instead, so the symbol does not exist in `._native` and must
-    // be excluded from the import list.
     imports_from_native.retain(|n| !capsule_types.contains_key(n));
-    // Declared opaque types from `[workspace.opaque_types]` that have a capsule_types override
     // are external references not registered as #[pyclass] in the native module, so they must
-    // be excluded from __init__.py public imports to avoid ImportError.
     // Opaque types WITHOUT a capsule override DO get a binding-side #[pyclass] wrapper struct
-    // and must remain in imports_from_native so they are re-exported from the public package.
     let python_capsule_type_names: ahash::AHashSet<&str> = capsule_types.keys().map(|k| k.as_str()).collect();
     imports_from_native.retain(|n| {
         if opaque_types.contains_key(n) {
-            // Keep if no capsule override (has a wrapper struct), filter if capsule override exists
             !python_capsule_type_names.contains(n.as_str())
         } else {
             true
         }
     });
-    // Case-insensitive sort matches isort's ordering (e.g. VisitorHandle < WalkDecision).
     imports_from_native.sort_by_key(|a| a.to_lowercase());
     imports_from_native.dedup();
 
-    // Import config types from options.
-    // Unit enums (needed_enums) are now imported from the native module (see above) — they must
-    // NOT appear in imports_from_options, otherwise __init__.py would import the str,Enum shadow
-    // class from options.py instead of the authoritative native pyclass.
     let mut opt_imports: Vec<String> = config_types.to_vec();
     opt_imports.sort();
     imports_from_options.extend(opt_imports);
 
-    // Import exceptions (append "Error" suffix to variant names if not present,
-    // prefix if shadowing Python builtins — A004 compliance)
     let mut exc_names = Vec::new();
     for error in &api.errors {
         exc_names.push(error.name.clone());
@@ -360,24 +307,13 @@ pub(super) fn gen_init_py(
         }
     }
     exc_names.sort();
-    // De-duplicate: distinct error enums can contribute variants that map to the same Python
-    // exception name (e.g. two enums each with a `Validation` variant → `ValidationError`).
-    // Emitting the symbol twice in `from .exceptions import (...)` trips ruff F811/I001, which
-    // rewrites the file and breaks `alef verify`.
     exc_names.dedup();
     imports_from_exceptions.extend(exc_names.clone());
-
-    // Output imports in isort order: underscore-prefixed modules before regular names.
-    // Correct order: ._native (underscore) → .api → .exceptions → .options
-    // Use multi-line format if the import line would be too long (>88 chars for ruff)
 
     // Data enums are Rust-backed structs; re-export from the native module first (isort: _ < a).
     if !imports_from_native.is_empty() {
         let import_statement = render_relative_import(module_name, &imports_from_native);
         if is_long_import(&import_statement) {
-            // Use push_str directly to avoid the double-newline produced by routing through
-            // single_line.jinja when the text already ends with `\n` (the template itself
-            // appends another newline, yielding `(\n\n` which ruff then flags as E303).
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "import_from_relative_module_header.jinja",
                 minijinja::context! { module_name => module_name },
@@ -439,8 +375,6 @@ pub(super) fn gen_init_py(
         }
     }
 
-    // Service owners (e.g. `App`) are generated by `generate_service_api` into the `service`
-    // module, not the native extension, so re-export them from `.service`.
     let mut service_owners: Vec<String> = api.services.iter().map(|s| s.name.clone()).collect();
     service_owners.sort();
     service_owners.dedup();
@@ -460,8 +394,6 @@ pub(super) fn gen_init_py(
         }
     }
 
-    // User-configured extra imports (e.g. hand-written sibling modules generated by the project's
-    // own build script). Emitted last so they cannot shadow alef-generated symbols.
     let mut extra_all_items: Vec<String> = Vec::new();
     for (module, symbols) in extra_init_imports {
         if symbols.is_empty() {
@@ -486,13 +418,10 @@ pub(super) fn gen_init_py(
         extra_all_items.extend(symbols.iter().cloned());
     }
 
-    // __all__
     let mut all_items = Vec::new();
     for f in &api.functions {
         all_items.push(f.name.clone());
     }
-    // Include trait-bridge registration helpers in __all__ — they are exported via api.py
-    // and must be discoverable from the package root.
     all_items.extend(crate::backends::pyo3::trait_bridge::collect_bridge_register_fns(
         trait_bridges,
     ));
@@ -502,8 +431,6 @@ pub(super) fn gen_init_py(
     all_items.extend(crate::backends::pyo3::trait_bridge::collect_bridge_clear_fns(
         trait_bridges,
     ));
-    // Include adapter-based streaming methods in __all__ — they are exported via api.py
-    // and must be discoverable from the package root.
     all_items.extend(adapters.iter().map(|a| a.name.clone()));
     all_items.extend(needed_enums);
     all_items.extend(imports_from_native.iter().cloned());
@@ -513,10 +440,7 @@ pub(super) fn gen_init_py(
     all_items.extend(extra_all_items);
     all_items.sort();
     all_items.dedup();
-    // Filter out declared opaque types that have a capsule override from __all__ — they are
     // not registered as #[pyclass] in the native module.
-    // Opaque types WITHOUT a capsule override DO have a wrapper struct and SHOULD appear in
-    // __all__ so they are importable from the public package root.
     all_items.retain(|n| {
         if opaque_types.contains_key(n) {
             !python_capsule_type_names.contains(n.as_str())
@@ -594,7 +518,6 @@ mod tests {
         api.errors.push(error);
         let result = gen_exceptions_py(&api, "_native");
 
-        // Re-export from the native module, not class definitions.
         assert!(
             result.contains("from ._native import"),
             "exceptions.py must re-export from the native module, got:\n{result}",
@@ -603,13 +526,9 @@ mod tests {
             !result.contains("class "),
             "exceptions.py must not define duplicate classes, got:\n{result}",
         );
-        // Both base and the Error-suffixed variant must be re-exported.
         assert!(result.contains("LibError"), "missing base LibError in:\n{result}");
         assert!(result.contains("IoError"), "missing variant IoError in:\n{result}");
-        // __all__ lists the re-exported names.
         assert!(result.contains("__all__"), "missing __all__ in:\n{result}");
-        // Each re-exported exception's __module__ is re-pointed at the public package so
-        // tracebacks read the public name, not `_native.*` (GitHub issue #147).
         assert!(
             result.contains("__module__ = _public_module"),
             "exceptions.py must re-point __module__ at the public package, got:\n{result}",
@@ -687,7 +606,6 @@ mod tests {
         };
 
         let mut api = empty_api();
-        // Two distinct error enums whose variants collide on Python exception names.
         api.errors.push(make_error(
             "ParseError",
             vec!["Validation", "ComplexityLimitExceeded", "DepthLimitExceeded"],
@@ -721,13 +639,11 @@ mod tests {
             "ComplexityLimitExceededError",
             "DepthLimitExceededError",
         ] {
-            // Inside the exceptions import block, each symbol must appear exactly once.
             let import_occurrences = result.matches(&format!("    {symbol},\n")).count();
             assert_eq!(
                 import_occurrences, 1,
                 "{symbol} must be imported once, got {import_occurrences} in:\n{result}",
             );
-            // In __all__ each symbol must appear exactly once.
             let all_occurrences = result.matches(&format!("\"{symbol}\"")).count();
             assert_eq!(
                 all_occurrences, 1,

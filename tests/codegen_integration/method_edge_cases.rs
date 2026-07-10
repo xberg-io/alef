@@ -1,7 +1,6 @@
 use super::*;
 
 // ==============================================================================
-// Additional tests for methods.rs coverage
 // ==============================================================================
 
 #[test]
@@ -87,7 +86,6 @@ fn test_gen_method_trait_method_name_suppresses_clippy_lint() {
 
 #[test]
 fn test_gen_method_error_type_with_opaque_unit_return() {
-    // Opaque method returning () with error type should generate Ok(()) body
     let mut typ = simple_type_def();
     typ.is_opaque = true;
     let method = MethodDef {
@@ -137,7 +135,6 @@ fn test_gen_method_error_type_with_opaque_unit_return() {
 
 #[test]
 fn test_gen_method_opaque_delegation_string_return() {
-    // Opaque type with simple String return — should delegate via self.inner
     let mut typ = simple_type_def();
     typ.is_opaque = true;
     let method = MethodDef {
@@ -183,7 +180,6 @@ fn test_gen_method_opaque_delegation_string_return() {
 
 #[test]
 fn test_gen_method_opaque_delegation_returns_opaque_self() {
-    // Opaque method returning Self should wrap result in Self { inner: Arc::new(...) }
     let mut typ = simple_type_def();
     typ.is_opaque = true;
     let method = MethodDef {
@@ -247,7 +243,6 @@ fn test_gen_method_opaque_delegation_returns_opaque_self() {
 
 #[test]
 fn test_gen_method_with_mutex_opaque_type() {
-    // Mutex-wrapped opaque type should use .lock().unwrap() for method calls
     let mut typ = simple_type_def();
     typ.is_opaque = true;
     let method = MethodDef {
@@ -297,7 +292,6 @@ fn test_gen_method_with_mutex_opaque_type() {
 
 #[test]
 fn test_gen_method_trait_source_not_delegated() {
-    // Trait methods on opaque types cannot be delegated (Arc deref doesn't expose trait methods)
     let mut typ = simple_type_def();
     typ.is_opaque = true;
     let method = MethodDef {
@@ -336,9 +330,7 @@ fn test_gen_method_trait_source_not_delegated() {
         &adapter_bodies,
     );
 
-    // Trait methods on opaque types should fall back to unimplemented body
     assert!(result.contains("pub fn process"), "should have method name");
-    // Should NOT directly delegate to self.inner (trait methods can't be called via deref)
     assert!(
         !result.contains("self.inner.process"),
         "trait methods are not delegated via self.inner"
@@ -492,7 +484,6 @@ fn test_gen_opaque_impl_block_generates_delegation() {
 
 #[test]
 fn test_gen_opaque_impl_block_empty_when_all_sanitized() {
-    // When all methods are sanitized and have no adapter, the impl block is empty
     let mut typ = simple_type_def();
     typ.is_opaque = true;
     typ.methods = vec![MethodDef {

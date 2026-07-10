@@ -130,7 +130,6 @@ client_factory = "create_client"
 fn without_client_factory_emits_static_bridge_call() {
     let rendered = render_dart_smoke(BASE_TOML, "smoke_basic");
 
-    // The bridge class name is derived from pubspec_name → PascalCase → "SampleLlm"
     assert!(
         rendered.contains(".chat("),
         "must emit a .chat( call. Rendered:\n{rendered}"

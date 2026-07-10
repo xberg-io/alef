@@ -4,12 +4,6 @@ use crate::codegen::doc_emission::{
 };
 
 // --- emit_rustdoc intra-doc de-linking tests ---
-//
-// The generated Rust binding crates (ts-pack-core-php/-py/-node) are documented
-// with `rustdoc -D rustdoc::broken-intra-doc-links`. Core-crate item references
-// like `[`Error::LanguageNotFound`]` do not resolve there, so `emit_rustdoc`
-// must de-link them to plain code spans (drop the link, keep the backticked
-// text verbatim, including `::`).
 
 /// Run `emit_rustdoc` and return the rendered doc block.
 fn rustdoc(doc: &str) -> String {
@@ -27,7 +21,6 @@ fn emit_rustdoc_delinks_error_variant_references() {
             !out.contains(&format!("[`{variant}`]")),
             "intra-doc link removed: {out}"
         );
-        // `::` must survive — this is Rust, not a foreign-language target.
         assert!(out.contains("::"), "Rust path separator preserved: {out}");
     }
 }
@@ -95,19 +88,15 @@ fn emit_rustdoc_preserves_http_and_anchor_links() {
 
 #[test]
 fn emit_rustdoc_does_not_mangle_existing_code_spans_with_brackets() {
-    // A backtick span containing `[` must not be misread as a link target.
     let out = rustdoc("Index with `slice[0]` to read the first element.");
     assert!(out.contains("`slice[0]`"), "inline code span preserved verbatim: {out}");
 }
 
 #[test]
 fn emit_rustdoc_leaves_non_identifier_brackets_alone() {
-    // A bracketed phrase that is not an identifier reference is plain prose.
     let out = rustdoc("Optional [see below] for the rationale.");
     assert!(out.contains("[see below]"), "non-identifier bracket left alone: {out}");
 }
-
-// --- sanitize_rust_idioms tests ---
 
 #[test]
 fn sanitize_intradoc_link_with_path_separator_java() {
@@ -151,7 +140,6 @@ fn sanitize_some_x_to_the_value_x() {
 
 #[test]
 fn sanitize_bare_some_followed_by_lowercase_noun_is_dropped() {
-    // Regression test for Rust option wording leaking into generated JavaDoc.
     let input = "Only specified fields (Some values) will override existing options; None values leave the previous";
     let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
     assert!(
@@ -167,7 +155,6 @@ fn sanitize_bare_some_followed_by_lowercase_noun_is_dropped() {
 
 #[test]
 fn sanitize_bare_some_does_not_touch_identifiers_or_uppercase_followers() {
-    // SomeType, Some.method(), Some(x), and "Some Title" (proper noun) all preserved.
     let cases = [
         "SomeType lives on.",
         "Some.method() returns Self.",
@@ -176,8 +163,6 @@ fn sanitize_bare_some_does_not_touch_identifiers_or_uppercase_followers() {
     ];
     for case in cases {
         let out = sanitize_rust_idioms(case, DocTarget::JavaDoc);
-        // For the Some(x) case, replace_some_calls (run earlier) converts to "the value (x)"
-        // so "Some" itself is gone — that's expected; everything else preserves "Some".
         if case.starts_with("Some(") {
             assert!(out.contains("the value (x)"), "got: {out}");
         } else {
@@ -294,7 +279,6 @@ fn sanitize_unwrap_expect_stripped() {
 
 #[test]
 fn sanitize_no_mutation_inside_backticks() {
-    // None inside backtick span must not be replaced.
     let input = "Use `None` as the argument.";
     let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
     assert!(out.contains("`None`"), "backtick span must be preserved, got: {out}");
@@ -316,7 +300,6 @@ fn sanitize_rust_fence_dropped_for_tsdoc() {
 fn sanitize_rust_fence_dropped_for_java() {
     let input = "Intro.\n\n```rust\nlet x = 1;\n```\n\nTrailer.";
     let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
-    // Rust fences are now dropped entirely for Java (Rust code is not portable).
     assert!(
         !out.contains("let x = 1;"),
         "fence content must be dropped for Java, got: {out}"
@@ -336,10 +319,8 @@ fn sanitize_non_rust_fence_passed_through() {
 
 #[test]
 fn sanitize_backtick_code_span_not_mutated_option() {
-    // Option<T> inside backtick span must not be replaced.
     let input = "The type is `Option<String>`.";
     let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
-    // The backtick-protected span should be preserved verbatim.
     assert!(
         out.contains("`Option<String>`"),
         "code span must be preserved, got: {out}"
@@ -348,7 +329,6 @@ fn sanitize_backtick_code_span_not_mutated_option() {
 
 #[test]
 fn sanitize_idempotent() {
-    // Running twice should produce the same result as running once.
     let input = "Returns None when Vec<String> is empty.";
     let once = sanitize_rust_idioms(input, DocTarget::JavaDoc);
     let twice = sanitize_rust_idioms(&once, DocTarget::JavaDoc);
@@ -371,8 +351,6 @@ fn sanitize_attribute_line_dropped() {
     let input = "#[derive(Debug, Clone)]\nSome documentation.";
     let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
     assert!(!out.contains("#[derive("), "attribute line must be dropped, got: {out}");
-    // Prose survives, though bare "Some " before a lowercase noun is stripped
-    // by `replace_some_keyword_in_prose`, so accept either form.
     assert!(out.contains("documentation."), "prose must survive, got: {out}");
 }
 
@@ -385,19 +363,13 @@ fn sanitize_path_separator_in_prose() {
 
 #[test]
 fn sanitize_none_not_replaced_inside_identifier() {
-    // "NoneType" must not be replaced.
     let input = "Unlike NoneType in Python.";
     let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
     assert!(out.contains("NoneType"), "NoneType must not be replaced, got: {out}");
 }
 
-// --- CSharpDoc target tests ---
-
 #[test]
 fn sanitize_csharp_drops_rust_section_headings_and_example_body() {
-    // The GraphQLErrorException case: `# Examples` heading followed by a
-    // ```ignore code fence containing `Self::error_code`, `Result<T, E>`,
-    // intra-doc links — all of which previously leaked into `<summary>`.
     let input = "Convert error to HTTP status code\n\n\
             Maps GraphQL error types to status codes.\n\n\
             # Examples\n\n\
@@ -443,7 +415,6 @@ fn sanitize_csharp_result_type_keeps_success_drops_error() {
 fn sanitize_csharp_option_becomes_nullable() {
     let input = "Returns Option<String>.";
     let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
-    // After XML-escaping, the `?` survives but any surviving `<`/`>` get escaped.
     assert!(out.contains("String?"), "Option<T> -> T?: {out}");
     assert!(!out.contains("Option<"), "Option dropped: {out}");
 }
@@ -452,7 +423,6 @@ fn sanitize_csharp_option_becomes_nullable() {
 fn sanitize_csharp_vec_u8_becomes_byte_array() {
     let input = "Accepts Vec<u8>.";
     let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
-    // `byte[]` survives — the `[` is not XML-significant.
     assert!(out.contains("byte[]"), "Vec<u8> -> byte[]: {out}");
 }
 
@@ -460,7 +430,6 @@ fn sanitize_csharp_vec_u8_becomes_byte_array() {
 fn sanitize_csharp_hashmap_becomes_dictionary() {
     let input = "Holds HashMap<String, u32>.";
     let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
-    // The `<` / `>` produced by Dictionary<K, V> must be XML-escaped.
     assert!(
         out.contains("Dictionary&lt;String, u32&gt;"),
         "HashMap -> Dictionary with XML-escaped brackets: {out}"
@@ -477,12 +446,8 @@ fn sanitize_csharp_none_to_null() {
 
 #[test]
 fn sanitize_csharp_escapes_raw_angle_brackets_and_amp() {
-    // Unrecognised `<...>` constructs (e.g. trait objects, generic params on
-    // unknown names) must still be XML-escaped so the result is valid inside
-    // `<summary>`.
     let input = "Accepts Box<dyn Trait> and combines a & b.";
     let out = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
-    // Box<T> wrapper is stripped to inner type, leaving `dyn Trait`.
     assert!(out.contains("dyn Trait"), "Box<T> stripped: {out}");
     assert!(out.contains("&amp;"), "ampersand escaped: {out}");
 }
@@ -499,8 +464,6 @@ fn sanitize_csharp_drops_rust_code_fence_entirely() {
 
 #[test]
 fn sanitize_csharp_keep_sections_does_not_drop_headings() {
-    // The sections-preserving variant leaves heading lines alone so callers
-    // that have already extracted sections can sanitise each body fragment.
     let input = "Summary.\n\n# Arguments\n\n* `name` - the value.";
     let out = sanitize_rust_idioms_keep_sections(input, DocTarget::CSharpDoc);
     assert!(out.contains("# Arguments"), "heading preserved: {out}");
@@ -517,8 +480,6 @@ fn sanitize_csharp_idempotent() {
 
 #[test]
 fn sanitize_phpdoc_drops_unmarked_rust_code_fences() {
-    // Regression test: unmarked code fences (```\n...\n```) in Rust docstrings
-    // are treated as Rust code and should be dropped for PHP target.
     let input = "Detect language name from a file extension.\n\nReturns `None` for unrecognized extensions.\n\n```\nuse sample_language_pack::detect_language_from_extension;\nassert_eq!(detect_language_from_extension(\"py\"), Some(\"python\"));\nassert_eq!(detect_language_from_extension(\"RS\"), Some(\"rust\"));\nassert_eq!(detect_language_from_extension(\"xyz\"), None);\n```";
     let out = sanitize_rust_idioms(input, DocTarget::PhpDoc);
     assert!(
@@ -533,8 +494,6 @@ fn sanitize_phpdoc_drops_unmarked_rust_code_fences() {
 
 #[test]
 fn sanitize_javadoc_drops_unmarked_rust_code_fences() {
-    // Regression test: unmarked code fences in Rust docstrings should be dropped
-    // for Java target as well.
     let input = "Process a file.\n\n```\nlet result = process(\"def hello(): pass\", &config).unwrap();\n```";
     let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
     assert!(!out.contains("unwrap"), "Rust unwrap dropped: {out}");
@@ -544,7 +503,6 @@ fn sanitize_javadoc_drops_unmarked_rust_code_fences() {
 
 #[test]
 fn sanitize_phpdoc_drops_explicit_rust_fences() {
-    // Explicit ```rust fences should also be dropped for PHP.
     let input = "Summary.\n\n```rust\nuse std::path::PathBuf;\nlet p = PathBuf::from(\"/tmp\");\n```";
     let out = sanitize_rust_idioms(input, DocTarget::PhpDoc);
     assert!(!out.contains("use std::"), "Rust code dropped: {out}");
@@ -552,8 +510,6 @@ fn sanitize_phpdoc_drops_explicit_rust_fences() {
     assert!(!out.contains("```"), "fence markers dropped: {out}");
     assert!(out.contains("Summary"), "prose kept: {out}");
 }
-
-// --- rustdoc test-attribute fence tests ---
 
 #[test]
 fn sanitize_no_run_fence_dropped_for_tsdoc() {
@@ -603,7 +559,6 @@ fn sanitize_edition_fence_dropped_for_tsdoc() {
 
 #[test]
 fn sanitize_python_fence_preserved_for_tsdoc() {
-    // Python fences are not Rust — they must pass through unchanged.
     let input = "Example:\n\n```python\nimport foo\nfoo.bar()\n```";
     let out = sanitize_rust_idioms(input, DocTarget::TsDoc);
     assert!(out.contains("```python"), "python fence preserved: {out}");
@@ -681,11 +636,9 @@ fn emit_csharp_doc_multi_paragraph_with_intra_doc_link() {
     let mut out = String::new();
     emit_csharp_doc(&mut out, input, "    ", "TestException");
 
-    // Check that the output has all expected parts
     assert!(out.contains("<summary>"), "summary tag present: {out}");
     assert!(out.contains("</summary>"), "closing summary tag present: {out}");
 
-    // Check that both paragraphs are present
     assert!(
         out.contains("Stream a single-URL crawl"),
         "first paragraph present: {out}"
@@ -695,7 +648,6 @@ fn emit_csharp_doc_multi_paragraph_with_intra_doc_link() {
         "second paragraph present: {out}"
     );
 
-    // Check that the intra-doc link is converted (backticks preserved, square brackets gone)
     assert!(
         out.contains("`CrawlEvent`"),
         "intra-doc link converted to code span: {out}"
@@ -705,7 +657,6 @@ fn emit_csharp_doc_multi_paragraph_with_intra_doc_link() {
         "square brackets removed from intra-doc link: {out}"
     );
 
-    // Check that all lines have the /// prefix (including the blank line separating paragraphs)
     let lines: Vec<&str> = out.lines().collect();
     for line in lines {
         if !line.trim().is_empty() {
@@ -718,8 +669,6 @@ fn emit_csharp_doc_multi_paragraph_with_intra_doc_link() {
 fn sanitize_rust_idioms_escapes_jsdoc_block_close() {
     let input = "A block or multi-line comment (e.g., `/* ... */`).";
     let result = sanitize_rust_idioms(input, DocTarget::TsDoc);
-    // The `*/` inside backticks must be escaped to `* /` so it doesn't
-    // prematurely close a JSDoc /** ... */ block.
     assert!(
         result.contains("* /"),
         "JSDoc block-close sequences must be escaped: {result}"
@@ -734,7 +683,6 @@ fn sanitize_rust_idioms_escapes_jsdoc_block_close() {
 fn sanitize_rust_idioms_jsdoc_escape_preserves_content() {
     let input = "Handle `/* ... */` and `/* comment */` patterns.";
     let result = sanitize_rust_idioms(input, DocTarget::TsDoc);
-    // Both patterns should be escaped and content otherwise preserved
     assert!(result.contains("Handle"), "Handle keyword preserved");
     assert!(result.contains("and"), "and keyword preserved");
     assert!(result.contains("patterns"), "patterns keyword preserved");
@@ -760,8 +708,4 @@ fn sanitize_rust_idioms_no_jsdoc_escape_for_other_targets() {
     let input = "Code example: `/* comment */`";
     let _result_phpdoc = sanitize_rust_idioms(input, DocTarget::PhpDoc);
     let _result_csharp = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
-    // PhpDoc uses different escape (already tested via emit_phpdoc),
-    // and C# uses XML escaping, not JSDoc escaping.
-    // Just verify the escape_jsdoc_block_close function isn't called for these targets.
-    // (The actual escaping for these targets happens elsewhere, as tested separately.)
 }

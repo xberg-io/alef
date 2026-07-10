@@ -99,34 +99,26 @@ fn typescript_emitted_code_is_oxfmt_canonical() {
 
     let body = &test_file.content;
 
-    // Check: imports use double quotes (not single)
     assert!(
         body.contains("import { describe, expect, it } from \"vitest\";"),
         "import vitest should use double quotes, got:\n{body}"
     );
 
-    // Check: describe block uses double quotes
     assert!(
         body.contains("describe(\"smoke\""),
         "describe block should use double quotes, got:\n{body}"
     );
 
-    // Check: test case uses double quotes
     assert!(
         body.contains("it(\"convert_simple_html"),
         "it block should use double quotes, got:\n{body}"
     );
 
-    // Check: no single-quoted imports
     assert!(
         !body.contains("from 'vitest'"),
         "imports should not use single quotes, got:\n{body}"
     );
 
-    // Check: no space-indented code blocks (oxfmt uses tabs)
-    // This is a heuristic: if there's a tab-indented block, it's likely oxfmt-canonical.
-    // If all indentation is spaces, it's probably pre-oxfmt. We check for the presence
-    // of expect calls indented with tabs (the test body).
     let has_tab_indentation = body
         .split('\n')
         .any(|line| line.starts_with('\t') && (line.contains("expect") || line.contains("const")));
@@ -135,7 +127,6 @@ fn typescript_emitted_code_is_oxfmt_canonical() {
         "test body should use tab indentation, got:\n{body}"
     );
 
-    // vitest.config.ts check
     let config_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("vitest.config.ts"))
@@ -143,7 +134,6 @@ fn typescript_emitted_code_is_oxfmt_canonical() {
 
     let config_body = &config_file.content;
 
-    // Config should use double quotes and tabs
     assert!(
         config_body.contains("import { defineConfig } from \"vitest/config\";"),
         "config import should use double quotes, got:\n{config_body}"
@@ -154,7 +144,6 @@ fn typescript_emitted_code_is_oxfmt_canonical() {
         "config should use tab indentation, got:\n{config_body}"
     );
 
-    // Config should not have single-quoted module name
     assert!(
         !config_body.contains("from 'vitest/config'"),
         "config import should not use single quotes, got:\n{config_body}"

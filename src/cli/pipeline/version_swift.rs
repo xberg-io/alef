@@ -55,7 +55,6 @@ pub(super) fn sync_swift_package_versions(
 pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow::Result<Option<String>> {
     use super::helpers::run_command_captured;
 
-    // Guard: Package.swift must exist and still contain the placeholder.
     let pkg_swift_path = std::path::Path::new("Package.swift");
     let pkg_content = match std::fs::read_to_string(pkg_swift_path) {
         Ok(c) => c,
@@ -69,15 +68,11 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
         return Ok(None);
     }
 
-    // Guard: swift must be in the configured languages.
     if !config.languages.contains(&Language::Swift) {
         debug!("Swift not configured — skipping swift checksum precompute");
         return Ok(None);
     }
 
-    // Guard: the swift binding crate must exist. Some consumers put it under
-    // `crates/{name}-swift/` (alef default), others under `packages/swift/rust/`.
-    // Probe both before giving up.
     let swift_crate = format!("{}-swift", config.name);
     let candidate_manifests = [
         format!("crates/{swift_crate}/Cargo.toml"),
@@ -97,8 +92,6 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
     };
     debug!("Using swift manifest: {swift_manifest}");
 
-    // Look for a pre-built artifactbundle zip under dist/swift-artifactbundle/.
-    // The build action outputs `{ArtifactName}.artifactbundle.zip` there.
     let bundle_dir = std::path::Path::new("dist/swift-artifactbundle");
     let existing_zip = if bundle_dir.exists() {
         std::fs::read_dir(bundle_dir).ok().and_then(|entries| {
@@ -117,7 +110,6 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
             p
         }
         None => {
-            // No pre-built zip found — attempt to build.
             info!("Building swift artifactbundle for `{swift_crate}`…");
             let build_cmd = format!("cargo build -p {swift_crate} --release --target aarch64-apple-darwin");
             match run_command_captured(&build_cmd) {
@@ -130,7 +122,6 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
                     return Ok(None);
                 }
             }
-            // After cargo build, look again.
             std::fs::create_dir_all(bundle_dir).ok();
             match std::fs::read_dir(bundle_dir).ok().and_then(|entries| {
                 entries
@@ -150,13 +141,10 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
         }
     };
 
-    // Compute checksum: prefer `swift package compute-checksum` (canonical tool),
-    // fall back to an in-process SHA-256.
     let checksum_cmd = format!("swift package compute-checksum {}", zip_path.display());
     let checksum = match run_command_captured(&checksum_cmd) {
         Ok((stdout, _)) => stdout.trim().to_string(),
         Err(_) => {
-            // Fallback: compute SHA-256 in-process.
             info!("`swift` not found — computing SHA-256 in-process");
             let bytes = std::fs::read(&zip_path).with_context(|| format!("failed to read {}", zip_path.display()))?;
             compute_sha256_hex(&bytes)
@@ -168,12 +156,10 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
         return Ok(None);
     }
 
-    // Substitute in Package.swift.
     let new_content = pkg_content.replace("__ALEF_SWIFT_CHECKSUM__", &checksum);
     std::fs::write(pkg_swift_path, &new_content).context("writing Package.swift with checksum")?;
     info!("Substituted __ALEF_SWIFT_CHECKSUM__ → {checksum} in Package.swift");
 
-    // Write sidecar so publish.yaml can reuse the hash without rebuilding.
     std::fs::create_dir_all("target").ok();
     std::fs::write("target/alef-swift-checksum.txt", &checksum).context("writing target/alef-swift-checksum.txt")?;
 
@@ -184,11 +170,8 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
 ///
 /// Used as a fallback when `swift package compute-checksum` is not available.
 pub(super) fn compute_sha256_hex(bytes: &[u8]) -> String {
-    // sha2 is pulled in transitively (ring → sha2 in some configurations).
-    // Use a manual implementation to avoid adding a direct dependency.
     use std::num::Wrapping;
 
-    // SHA-256 round constants K.
     const K: [u32; 64] = [
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98,
         0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
@@ -200,7 +183,6 @@ pub(super) fn compute_sha256_hex(bytes: &[u8]) -> String {
         0xc67178f2,
     ];
 
-    // Initial hash values H.
     let mut h: [Wrapping<u32>; 8] = [
         Wrapping(0x6a09e667),
         Wrapping(0xbb67ae85),
@@ -212,7 +194,6 @@ pub(super) fn compute_sha256_hex(bytes: &[u8]) -> String {
         Wrapping(0x5be0cd19),
     ];
 
-    // Pre-processing: add padding.
     let bit_len = (bytes.len() as u64).wrapping_mul(8);
     let mut msg = bytes.to_vec();
     msg.push(0x80);
@@ -221,7 +202,6 @@ pub(super) fn compute_sha256_hex(bytes: &[u8]) -> String {
     }
     msg.extend_from_slice(&bit_len.to_be_bytes());
 
-    // Process each 512-bit (64-byte) chunk.
     for chunk in msg.chunks_exact(64) {
         let mut w = [Wrapping(0u32); 64];
         for i in 0..16 {

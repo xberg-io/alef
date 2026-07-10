@@ -100,7 +100,6 @@ sources = ["src/lib.rs"]
         let a = make_config("alpha");
         let b = make_config("beta");
         let resolved = vec![a, b];
-        // "alpha" is valid, "missing" is not — error must fire on "missing"
         let filter = vec!["alpha".to_string(), "missing".to_string()];
         let err = select_crates(&resolved, &filter).unwrap_err();
         let msg = err.to_string();

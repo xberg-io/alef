@@ -68,12 +68,8 @@ impl TypeMapper for PhpMapper {
     /// - Struct (class) types pass through unchanged.
     fn named<'a>(&self, name: &'a str) -> Cow<'a, str> {
         if self.data_enum_names.contains(name) {
-            // Data enum: maps to the flat PHP class with the same name.
             Cow::Borrowed(name)
         } else if self.untagged_data_enum_names.contains(name) {
-            // Untagged data enum (e.g. `Single(String) | Multiple(Vec<String>)`):
-            // wire shape varies, so accept any JSON via serde_json::Value and
-            // convert in the binding→core From impl.
             Cow::Borrowed("serde_json::Value")
         } else if self.enum_names.contains(name) {
             Cow::Borrowed("String")

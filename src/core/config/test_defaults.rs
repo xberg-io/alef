@@ -11,8 +11,6 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
     match lang {
         Language::Python => {
             let pm = ctx.tools.python_pm();
-            // pytest is invoked via the package manager when one is present;
-            // for `pip` we just call pytest directly.
             let (cmd, cov, pre_tool) = match pm {
                 "pip" => (
                     wrap(format!("cd {output_dir} && pytest"), ctx.run_wrapper),
@@ -223,10 +221,6 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
         }
         Language::Dart => {
             let cmd = wrap(format!("cd {output_dir} && dart test"), ctx.run_wrapper);
-            // The e2e suite is a pure-Dart project generated under e2e/dart/ — it has no
-            // Flutter dependency, only package:test. Using `flutter pub get && flutter test`
-            // (which triggers Flutter's engine and impellerc) fails in headless environments.
-            // Always drive the e2e suite with the Dart SDK toolchain.
             let e2e_cmd = wrap(
                 "cd e2e/dart && dart pub get && dart test --concurrency=1".to_string(),
                 ctx.run_wrapper,

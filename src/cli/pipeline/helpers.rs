@@ -89,12 +89,6 @@ pub(crate) fn run_command_streamed_with_env(
     let mut command = std::process::Command::new("sh");
     command.args(["-c", &cmd_with_env]);
 
-    // Also apply via Command::env for non-DYLD vars (covers shells that don't strip).
-    // Skip PATH: on Windows std::process::Command treats env keys case-insensitively,
-    // so command.env("PATH", lib_dir) REPLACES the parent's `Path` (clobbering pnpm/uv/
-    // node etc. installed by GitHub Actions). The shell-level `export PATH='lib_dir'
-    // "${PATH:+:$PATH}"` from `inline_env_in_shell_cmd` already prepends correctly
-    // while preserving inherited PATH.
     for (key, value) in env_vars {
         if *key == "PATH" {
             continue;
@@ -198,8 +192,6 @@ fn run_command_streamed_full(
         command.current_dir(dir);
     }
 
-    // Also apply via Command::env for non-DYLD vars (covers shells that don't strip).
-    // See PATH-skip note in `run_command_streamed_with_env` above.
     for (key, value) in env_vars {
         if *key == "PATH" {
             continue;
@@ -383,16 +375,12 @@ pub(crate) fn run_before(lang: Language, before: Option<&StringOrVec>) -> anyhow
 
 /// Initialize a new alef.toml config file.
 pub fn init(config_path: &std::path::Path, languages: Option<Vec<String>>) -> anyhow::Result<()> {
-    // Read crate name, version, and repository from Cargo.toml
     let metadata = read_crate_metadata()?;
 
-    // Use provided languages or default to ["python", "node", "ffi"]
     let langs = languages.unwrap_or_else(|| vec!["python".to_string(), "node".to_string(), "ffi".to_string()]);
 
-    // Generate config content
     let config_content = generate_init_config(&metadata, &langs);
 
-    // Write to alef.toml
     std::fs::write(config_path, config_content)
         .with_context(|| format!("failed to write config to {}", config_path.display()))?;
     info!("Created {}", config_path.display());
@@ -440,10 +428,8 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
     let crate_name = metadata.name.as_str();
     let source_path = format!("crates/{}/src/lib.rs", crate_name);
 
-    // New multi-crate schema: [workspace] + [[crates]]
     let mut config = String::new();
 
-    // Workspace section — shared defaults
     config.push_str("[workspace]\n");
     config.push_str("languages = [");
     for (i, lang) in languages.iter().enumerate() {
@@ -457,8 +443,6 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
     config.push_str("]\n");
     config.push_str(&format!("alef_version = \"{}\"\n", env!("CARGO_PKG_VERSION")));
 
-    // Global tooling preferences. All fields are optional; the defaults shown
-    // match alef's built-in behavior — uncomment to override.
     config.push_str(
         "\n[workspace.tools]\n\
          # python_package_manager = \"uv\"   # uv | pip | poetry\n\
@@ -466,19 +450,15 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
          # rust_dev_tools = [\"cargo-edit\", \"cargo-sort\", \"cargo-machete\", \"cargo-deny\", \"cargo-llvm-cov\"]\n",
     );
 
-    // Crate entry
     config.push_str(&format!(
         "\n[[crates]]\nname = \"{}\"\nsources = [\"{}\"]\nversion_from = \"Cargo.toml\"\n",
         crate_name, source_path
     ));
 
-    // Optionally seed [crates.scaffold].repository from Cargo.toml's package.repository
-    // — alef's [java]/[kotlin]/[go] accessors derive their defaults from this URL.
     if let Some(repo) = metadata.repository.as_deref() {
         config.push_str(&format!("\n[crates.scaffold]\nrepository = \"{repo}\"\n"));
     }
 
-    // Add language-specific configs
     if languages.contains(&"python".to_string()) {
         config.push_str(&format!(
             "\n[crates.python]\nmodule_name = \"_{}\"\n",
@@ -606,7 +586,6 @@ mod tests {
 
     #[test]
     fn run_before_aborts_on_first_failing_command() {
-        // Second command would succeed but first fails, so Err is returned.
         let cmd = StringOrVec::Multiple(vec!["false".to_string(), "true".to_string()]);
         let result = run_before(Language::Python, Some(&cmd));
         assert!(
@@ -699,7 +678,6 @@ mod tests {
 
     #[test]
     fn run_command_captured_with_timeout_succeeds_within_limit() {
-        // A command that completes quickly should succeed even with a timeout
         let result = run_command_captured_with_timeout("echo hello", Some(5));
         assert!(result.is_ok(), "Quick command should succeed with timeout");
         let (stdout, _) = result.unwrap();
@@ -708,7 +686,6 @@ mod tests {
 
     #[test]
     fn run_command_captured_with_timeout_kills_on_timeout() {
-        // A command that takes longer than the timeout should fail
         let result = run_command_captured_with_timeout("sleep 5", Some(1));
         assert!(result.is_err(), "Command that exceeds timeout should return error");
         let err_msg = format!("{:?}", result);
@@ -717,7 +694,6 @@ mod tests {
 
     #[test]
     fn run_command_captured_without_timeout() {
-        // Commands without a timeout should work as before
         let result = run_command_captured_with_timeout("echo test", None);
         assert!(result.is_ok(), "Command without timeout should succeed");
         let (stdout, _) = result.unwrap();
@@ -732,9 +708,6 @@ mod tests {
 
     #[test]
     fn inline_env_in_shell_cmd_prepends_to_existing_var_value() {
-        // The value must be prepended to the existing variable, not replace it.
-        // On Windows the library search path is PATH itself, so replacing it
-        // would wipe out uv, python, and every other tool on the path.
         let env = vec![("PATH", "/abs/target/release".to_string())];
         let result = inline_env_in_shell_cmd("uv run pytest", &env);
         assert_eq!(
@@ -768,18 +741,9 @@ mod tests {
         );
     }
 
-    // POSIX-only: spawns `sh -c` and asserts `:` PATH separator semantics.
-    // Windows has no `sh` on PATH by default and uses `;` plus `\` paths, so
-    // the test's hardcoded expected string never matches there. The shell-
-    // command generator itself is exercised on Windows via the other
-    // `inline_env_in_shell_cmd_*` tests which don't invoke a real shell.
     #[cfg(unix)]
     #[test]
     fn inline_env_in_shell_cmd_prepend_guard_evaluates_correctly_in_shell() {
-        // Verify the generated string behaves correctly when executed by sh:
-        // the new dir is first and the original PATH is preserved after a `:`.
-        // PATH must keep the inherited directories so the OS can still locate
-        // `sh` itself — the whole point of the prepend fix.
         let original_path = std::env::var("PATH").expect("PATH should be set in the test environment");
         let env = vec![("PATH", "/new/dir".to_string())];
         let cmd = inline_env_in_shell_cmd("printf '%s' \"$PATH\"", &env);
@@ -798,8 +762,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn inline_env_in_shell_cmd_prepend_guard_has_no_stray_colon_when_var_empty() {
-        // When the variable is unset/empty, the ${VAR:+:$VAR} guard expands to
-        // nothing, so there is no leading or trailing `:`.
         let env = vec![("LD_LIBRARY_PATH", "/lib/dir".to_string())];
         let cmd = inline_env_in_shell_cmd("printf '%s' \"$LD_LIBRARY_PATH\"", &env);
         let output = std::process::Command::new("sh")

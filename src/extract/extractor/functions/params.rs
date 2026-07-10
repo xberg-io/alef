@@ -35,7 +35,6 @@ pub(crate) fn detect_receiver(
 ///
 /// All flags default to `false` for non-map types.
 fn detect_map_metadata(ty: &syn::Type) -> (bool, bool, bool) {
-    // Peel Option<...> and &... wrappers to get to the map segment.
     let map_seg = find_map_segment(ty);
     let Some(seg) = map_seg else {
         return (false, false, false);
@@ -44,7 +43,6 @@ fn detect_map_metadata(ty: &syn::Type) -> (bool, bool, bool) {
     let map_is_ahash = ident == "AHashMap";
     let map_is_btree = ident == "BTreeMap";
 
-    // Check whether the key generic arg is `Cow<...>`.
     let map_key_is_cow = if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
         args.args
             .iter()
@@ -68,14 +66,12 @@ fn detect_map_metadata(ty: &syn::Type) -> (bool, bool, bool) {
 /// Used to set `ParamDef::core_wrapper = CoreWrapper::Cow` so call-site codegen can insert
 /// `.into()` / `.map(std::borrow::Cow::Owned)` when passing `String` to a `Cow<str>` parameter.
 fn param_is_cow_str(ty: &syn::Type) -> bool {
-    // Peel Option<...> and &... wrappers.
     let inner = peel_option_and_ref(ty);
     if let syn::Type::Path(tp) = inner {
         if let Some(seg) = tp.path.segments.last() {
             if seg.ident != "Cow" {
                 return false;
             }
-            // Check that the type arg (after the lifetime) is `str`.
             if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
                 return args.args.iter().any(|a| {
                     if let syn::GenericArgument::Type(syn::Type::Path(p)) = a {
@@ -123,7 +119,6 @@ fn find_map_segment(ty: &syn::Type) -> Option<&syn::PathSegment> {
             match name.as_str() {
                 "HashMap" | "BTreeMap" | "AHashMap" | "IndexMap" | "FxHashMap" => Some(seg),
                 "Option" | "Box" | "Arc" | "Rc" => {
-                    // Peel the single generic arg and recurse.
                     if let syn::PathArguments::AngleBracketed(ab) = &seg.arguments {
                         for arg in &ab.args {
                             if let syn::GenericArgument::Type(inner) = arg {
@@ -191,14 +186,12 @@ fn is_tuple_type(ty: &TypeRef) -> bool {
 /// FFI codegen uses this to emit a `Vec<&T>` intermediate when calling the core function
 /// (since `&Vec<T>` coerces to `&[T]`, not `&[&T]`).
 fn vec_inner_is_ref(ty: &syn::Type) -> bool {
-    // Strip outer reference: `&X` -> `X`
     let deref_ty = if let syn::Type::Reference(r) = ty {
         r.elem.as_ref()
     } else {
         ty
     };
 
-    // Strip outer Option: `Option<X>` -> `X`, and check element type
     let to_check = if let syn::Type::Path(type_path) = deref_ty {
         if let Some(seg) = type_path.path.segments.last() {
             if seg.ident == "Option" {
@@ -208,7 +201,6 @@ fn vec_inner_is_ref(ty: &syn::Type) -> bool {
                     return false;
                 }
             } else {
-                // Not an Option, check the path itself
                 Box::new(deref_ty.clone())
             }
         } else {
@@ -218,9 +210,6 @@ fn vec_inner_is_ref(ty: &syn::Type) -> bool {
         Box::new(deref_ty.clone())
     };
 
-    // Now check if to_check is either:
-    // 1. A Slice `[T]` where T is a Reference
-    // 2. A Path ending with `Vec<T>` where T is a Reference
     match to_check.as_ref() {
         syn::Type::Slice(slice) => matches!(*slice.elem, syn::Type::Reference(_)),
         syn::Type::Path(type_path) => {
@@ -252,28 +241,20 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                     syn::Pat::Ident(ident) => ident.ident.to_string(),
                     _ => "_".to_string(),
                 };
-                // `is_ref` is true for `&T` params AND for `Option<&T>` params.
-                // The latter is needed to distinguish `Option<&str>` (core takes &str slice)
-                // from `Option<String>` (core takes owned String).
                 let is_ref = matches!(&*pat_type.ty, syn::Type::Reference(_)) || option_inner_is_ref(&pat_type.ty);
                 let is_mut = is_mut_ref(&pat_type.ty);
                 let resolved = type_resolver::resolve_type(&pat_type.ty);
 
-                // Detect AHashMap/BTreeMap container and Cow key before type erasure.
                 let (map_is_ahash, map_key_is_cow, map_is_btree) = detect_map_metadata(&pat_type.ty);
 
-                // Detect Cow<str> parameters — the extractor resolves them to TypeRef::String
-                // but call-site codegen must insert `.into()` / `.map(Cow::Owned)`.
                 let core_wrapper = if param_is_cow_str(&pat_type.ty) {
                     crate::core::ir::CoreWrapper::Cow
                 } else {
                     crate::core::ir::CoreWrapper::None
                 };
 
-                // Check if the resolved type (before unwrapping optional) is a tuple type
                 let sanitized = is_tuple_type(&resolved);
 
-                // Capture original type before sanitization for codegen deserialization
                 let original_type = if sanitized {
                     Some(format!("{:?}", resolved))
                 } else {
@@ -299,7 +280,7 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                     core_wrapper,
                 })
             } else {
-                None // Skip self receiver
+                None
             }
         })
         .collect()

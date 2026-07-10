@@ -35,14 +35,11 @@ impl JniBridgeGenerator {
     /// serde_json expression for one dispatched argument.
     fn arg_expr(param: &crate::core::ir::ParamDef) -> String {
         match (&param.ty, param.is_ref) {
-            // Bytes cross as base64 strings; Jackson decodes base64 into ByteArray natively.
             (TypeRef::Bytes, _) => format!(
                 "base64::Engine::encode(&base64::engine::general_purpose::STANDARD, {})",
                 param.name
             ),
             (TypeRef::Path, _) => format!("{}.to_string_lossy()", param.name),
-            // Everything else (strings, primitives, serde structs, enums, options,
-            // collections) serializes directly — `json!` accepts references.
             _ => param.name.clone(),
         }
     }
@@ -72,8 +69,6 @@ impl JniBridgeGenerator {
         let host_error_expr = spec.make_error(&format!(
             "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)"
         ));
-        // The serde error names the offending field so a host returning a
-        // mismatched shape can fix it.
         let deser_error_expr = spec.make_error(&format!(
             "format!(\"Plugin '{{}}' method '{name}' returned a value that does not match the expected return type: {{}}\", self.cached_name, e)"
         ));
@@ -106,7 +101,6 @@ impl TraitBridgeGenerator for JniBridgeGenerator {
     }
 
     fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
-        // The dispatcher reports the host's implemented methods at registration.
         self.forwardable_defaulted
             .contains(&method.name)
             .then(|| format!("self.implemented_methods.contains(\"{}\")", method.name))
@@ -131,8 +125,6 @@ impl TraitBridgeGenerator for JniBridgeGenerator {
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        // The dispatch call is blocking (JVM attach + synchronous Java call), the
-        // same execution model the generated service handler bridges use.
         self.method_body(method, spec)
     }
 
@@ -192,8 +184,6 @@ pub fn gen_plugin_trait_bridge(
         )
         .collect();
 
-    // Rust-defaulted methods the bridge can forward to the host (host-implemented
-    // methods win; the Rust default runs otherwise).
     let forwardable_defaulted =
         crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_def, api);
 

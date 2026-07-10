@@ -27,7 +27,6 @@ pub fn format_generated(
     base_dir: &Path,
     only_languages: Option<&HashSet<Language>>,
 ) {
-    // Deduplicated languages present in this batch, in first-seen order.
     let mut seen = HashSet::new();
     let poly_langs: Vec<Language> = files
         .iter()
@@ -81,15 +80,10 @@ pub fn poly_lint(base_dir: &Path) -> anyhow::Result<()> {
 /// Dart and swift have no cargo residuals (poly covers them).
 fn cargo_sort_residuals(config: &ResolvedCrateConfig, base_dir: &Path) -> Vec<ResidualStep> {
     let mut steps = Vec::new();
-    // Workspace-wide sort — normalises every in-workspace binding crate.
     steps.extend(language_residuals(config, Language::Ffi, base_dir));
-    // Wasm binding crate — often workspace-excluded.
     steps.extend(language_residuals(config, Language::Wasm, base_dir));
-    // Ruby native crate lives outside the consumer workspace.
     steps.extend(language_residuals(config, Language::Ruby, base_dir));
-    // Elixir NIF crate is workspace-excluded.
     steps.extend(language_residuals(config, Language::Elixir, base_dir));
-    // R extendr crate is workspace-excluded.
     steps.extend(language_residuals(config, Language::R, base_dir));
     steps
 }
@@ -182,40 +176,29 @@ pub(crate) fn install_poly_hooks(base_dir: &Path) {
 /// (no `mix format` / `dotnet format` system-toolchain dependency).
 fn language_residuals(config: &ResolvedCrateConfig, lang: Language, base_dir: &Path) -> Vec<ResidualStep> {
     match lang {
-        // The wasm binding crate is often excluded from the root workspace, so
-        // `cargo sort -w` never reaches it. Sort its Cargo.toml directly so it is
-        // already canonical when its hash is finalised.
         Language::Wasm => {
             let crate_dir = config
                 .output_for("wasm")
                 .map(resolve_crate_dir)
                 .unwrap_or_else(|| Path::new("crates").join(format!("{}-wasm", config.name)));
-            // Cargo accepts `/` on every platform; emit POSIX paths for cross-OS parity.
             let crate_dir_str = crate_dir.to_string_lossy().into_owned().replace('\\', "/");
             vec![cargo_sort(vec![crate_dir_str], base_dir.to_path_buf())]
         }
-        // Workspace-wide cargo sort normalises every in-workspace binding crate's
-        // Cargo.toml (FFI, PyO3, NAPI-RS, Magnus, ext-php-rs, Rustler, wasm-bindgen).
         Language::Ffi => vec![cargo_sort(vec!["-w".to_owned()], base_dir.to_path_buf())],
-        // Ruby's native crate lives outside the consumer workspace.
         Language::Ruby => {
             let gem_name = config.ruby_gem_name();
             let native_subdir = format!("ext/{gem_name}/native");
             vec![cargo_sort(vec![native_subdir], base_dir.join("packages/ruby"))]
         }
-        // Elixir: cargo sort for the workspace-excluded NIF crate. The `.ex`/
-        // `.exs` sources are formatted by poly's tier-2 tier (no `mix format`).
         Language::Elixir => {
             let app_name = config.elixir_app_name();
             let native_subdir = format!("native/{app_name}_nif");
             vec![cargo_sort(vec![native_subdir], base_dir.join("packages/elixir"))]
         }
-        // The extendr R crate is workspace-excluded.
         Language::R => vec![cargo_sort(
             vec!["packages/r/src/rust".to_owned()],
             base_dir.to_path_buf(),
         )],
-        // C# is formatted by poly's tier-2 tier — no `dotnet format` residual.
         _ => vec![],
     }
 }

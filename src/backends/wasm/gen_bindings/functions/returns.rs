@@ -68,7 +68,6 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_wrap_return(
     mutex_types: &AHashSet<String>,
 ) -> String {
     match return_type {
-        // Self-returning opaque method
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
             if wasm_expr_is_already_arc(expr) {
                 format!("Self {{ inner: {expr} }}")
@@ -89,12 +88,10 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_wrap_return(
                 format!("Self {{ inner: Arc::new({expr}) }}")
             }
         }
-        // Other opaque Named return: needs prefix
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if wasm_expr_is_already_arc(expr) {
                 format!("{prefix}{n} {{ inner: {expr} }}")
             } else if mutex_types.contains(n.as_str()) {
-                // wrap_return_with_mutex uses IdentityMapper, returns "{n} { inner: ... }"
                 let wrapped = generators::wrap_return_with_mutex(
                     expr,
                     return_type,
@@ -105,7 +102,6 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_wrap_return(
                     returns_ref,
                     returns_cow,
                 );
-                // wrapped is "{n} { inner: ... }", add prefix: "{prefix}{n} { inner: ... }"
                 if wrapped.starts_with(&format!("{n} {{")) {
                     format!("{prefix}{}{}", n, &wrapped[n.len()..])
                 } else {
@@ -117,7 +113,6 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_wrap_return(
                 format!("{prefix}{n} {{ inner: Arc::new({expr}) }}")
             }
         }
-        // Optional<opaque>: wrap with prefix
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if mutex_types.contains(name.as_str()) {
@@ -148,7 +143,6 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_wrap_return(
                 returns_cow,
             ),
         },
-        // Vec<opaque>: wrap with prefix
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if mutex_types.contains(name.as_str()) {
@@ -179,9 +173,6 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_wrap_return(
                 returns_cow,
             ),
         },
-        // Map: WASM can't pass BTreeMap/HashMap across the JS boundary; use JsValue via
-        // serde_wasm_bindgen::to_value. When the core method returns `&BTreeMap`
-        // (returns_ref=true), wrap as `serde_wasm_bindgen::to_value(expr)`.
         TypeRef::Map(_, _) => {
             if returns_ref {
                 format!("serde_wasm_bindgen::to_value({expr}).unwrap_or(JsValue::NULL)")
@@ -224,8 +215,6 @@ pub(super) fn wasm_wrap_return_fn(
             if wasm_expr_is_already_arc(expr) {
                 format!("{prefix}{n} {{ inner: {expr} }}")
             } else if mutex_types.contains(n.as_str()) {
-                // wrap_return_with_mutex with empty type_name uses IdentityMapper,
-                // so it returns "{n} { inner: ... }" without prefix — add it manually
                 let wrapped = generators::wrap_return_with_mutex(
                     expr,
                     return_type,
@@ -236,7 +225,6 @@ pub(super) fn wasm_wrap_return_fn(
                     returns_ref,
                     returns_cow,
                 );
-                // wrapped is "{n} { inner: ... }", replace "{n}" with "{prefix}{n}"
                 if wrapped.starts_with(&format!("{n} {{")) {
                     format!("{prefix}{}{}", n, &wrapped[n.len()..])
                 } else {
@@ -259,7 +247,6 @@ pub(super) fn wasm_wrap_return_fn(
         }
         TypeRef::String | TypeRef::Char | TypeRef::Bytes => {
             if returns_cow && matches!(return_type, TypeRef::Bytes) {
-                // Cow<[u8]> needs .into_owned() to become Vec<u8>
                 format!("{expr}.into_owned()")
             } else if returns_ref {
                 format!("{expr}.into()")
@@ -330,7 +317,6 @@ pub(super) fn wasm_wrap_return_fn(
             }
             TypeRef::Named(_) => {
                 if returns_ref {
-                    // `&[T]` → `Vec<U>`: use `.iter()` not `.into_iter()` to
                     // avoid clippy::into_iter_on_ref under -D warnings.
                     format!("{expr}.iter().map(|v| v.clone().into()).collect()")
                 } else {
@@ -342,8 +328,6 @@ pub(super) fn wasm_wrap_return_fn(
             }
             TypeRef::String | TypeRef::Char => {
                 if returns_ref {
-                    // `&[&str]` → `Vec<String>`. `Into::into` would need
-                    // `impl From<&&str> for String`, which doesn't exist.
                     format!("{expr}.iter().map(|s| s.to_string()).collect()")
                 } else {
                     expr.to_string()

@@ -6,8 +6,6 @@ use alef::core::ir::{
     PrimitiveType, TypeDef, TypeRef,
 };
 
-// ── helpers ─────────────────────────────────────────────────────────────────
-
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
         name: name.to_string(),
@@ -93,8 +91,6 @@ sources = ["src/lib.rs"]
     cfg.resolve().expect("test config must resolve").remove(0)
 }
 
-// ── struct tests ─────────────────────────────────────────────────────────────
-
 #[test]
 fn struct_with_primitive_fields_emits_public_struct() {
     let ty = make_type(
@@ -104,7 +100,6 @@ fn struct_with_primitive_fields_emits_public_struct() {
             make_field("y_coord", TypeRef::Primitive(PrimitiveType::I32), false),
         ],
     );
-    // Non-Codable structs become typealiases to RustBridge.X
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -120,10 +115,6 @@ fn struct_with_primitive_fields_emits_public_struct() {
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
-    // generate_bindings returns the main Swift file, the Rust bridge crate files,
-    // a RustBridgeC header when swift-bridge build output is absent,
-    // and `ZSwiftPluginHelpers.swift` (unconditional shared helpers for
-    // FunctionParam bridges — see commit 12362ba09).
     assert_eq!(files.len(), 6);
     let rust_bridge_c_header = std::path::Path::new("Sources")
         .join("RustBridgeC")
@@ -282,7 +273,6 @@ fn swift_codegen_includes_cfg_default_features_in_field_filtering() {
 
 #[test]
 fn struct_with_optional_array_and_dict_fields() {
-    // Non-Codable structs become typealiases to RustBridge.X
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -322,7 +312,6 @@ fn struct_with_optional_array_and_dict_fields() {
 
 #[test]
 fn struct_with_serde_derives_codable() {
-    // All non-trait structs become typealiases to RustBridge.X
     let mut ty = make_type(
         "Config",
         vec![make_field("value", TypeRef::Primitive(PrimitiveType::I32), false)],
@@ -347,7 +336,6 @@ fn struct_with_serde_derives_codable() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Config now emits as a first-class Codable struct (has_serde: true, has fields)
     assert!(
         content.contains("public struct Config: Codable, Sendable, Hashable"),
         "expected first-class Codable struct: {content}"
@@ -356,7 +344,6 @@ fn struct_with_serde_derives_codable() {
         content.contains("public let value: Int32"),
         "expected stored property: {content}"
     );
-    // RustBridge typealias must NOT appear for first-class structs
     assert!(
         !content.contains("public typealias Config = RustBridge.Config"),
         "must not emit typealias for first-class struct: {content}"
@@ -365,12 +352,6 @@ fn struct_with_serde_derives_codable() {
 
 #[test]
 fn primitive_only_serde_struct_without_default_emits_direct_bulk_constructor() {
-    // Primitive-only serde DTOs (e.g. Point { row: u32, column: u32 },
-    // ByteRange { start: usize, end: usize }) are positionally constructable via
-    // swift-bridge even without a `Default` impl, so the Swift binding must emit a
-    // first-class struct with a direct `RustBridge.{Type}(...)` `intoRust()` body —
-    // NOT a typealias and NOT a `*FromJson` JSON-roundtrip path (the matching Rust
-    // `*_from_json` shim would not link without the shared json-fallback predicate).
     let mut ty = make_type(
         "Config",
         vec![make_field("value", TypeRef::Primitive(PrimitiveType::I32), false)],
@@ -407,10 +388,6 @@ fn primitive_only_serde_struct_without_default_emits_direct_bulk_constructor() {
         content.contains("return RustBridge.Config(self.value)"),
         "intoRust must call the direct bulk constructor, not a JSON shim: {content}"
     );
-    // A top-level `configFromJson` forwarder is intentionally still emitted (every
-    // from_json-eligible type gets one — see `emit_from_json_forwarders`), but it
-    // routes through JSONDecoder, not `RustBridge.configFromJson`. The intoRust
-    // path must remain the direct bulk constructor.
     assert!(
         !content.contains("return try RustBridge.configFromJson("),
         "intoRust must NOT route through *_from_json for primitive-only DTOs: {content}"
@@ -419,7 +396,6 @@ fn primitive_only_serde_struct_without_default_emits_direct_bulk_constructor() {
 
 #[test]
 fn empty_struct_emits_single_line() {
-    // Non-Codable structs become typealiases to RustBridge.X
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -443,11 +419,8 @@ fn empty_struct_emits_single_line() {
     );
 }
 
-// ── enum tests ────────────────────────────────────────────────────────────────
-
 #[test]
 fn unit_only_enum_emits_lower_camel_cases() {
-    // Non-Codable enums become typealiases to RustBridge.X
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -519,7 +492,6 @@ fn unit_only_enum_emits_lower_camel_cases() {
 
 #[test]
 fn data_bearing_enum_emits_associated_values() {
-    // Non-Codable enums become typealiases to RustBridge.X
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -591,10 +563,6 @@ fn data_bearing_enum_emits_associated_values() {
 
 #[test]
 fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
-    // Reproduces the HtmlTheme regression in the sample_crate Swift binding:
-    // the `Default` variant must emit as `case `default`` (backtick-escaped),
-    // not `case default_` (trailing-underscore). Non-keyword variants are
-    // unaffected — `GitHub` stays as `case gitHub`.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -653,8 +621,6 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
             serde_rename_all: None,
 
             is_copy: false,
-            // has_serde: true triggers the native-Swift enum codepath in
-            // emit_enum() (instead of the typealias fallback).
             has_serde: true,
             has_default: false,
             binding_excluded: false,
@@ -810,8 +776,6 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
                     version: Default::default(),
                 },
                 EnumVariant {
-                    // `OpaqueHandle` is not declared anywhere, so it is not in
-                    // `known_dto_names`; `all_variants_codable_safe` returns false.
                     name: "Handle".into(),
                     fields: vec![make_field("handle", TypeRef::Named("OpaqueHandle".into()), false)],
                     doc: String::new(),
@@ -850,13 +814,10 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // The enum itself falls back to a typealias.
     assert!(
         content.contains("public typealias TaggedPayload = RustBridge.TaggedPayload"),
         "data-variant enum with non-Codable-safe fields must fall back to typealias:\n{content}"
     );
-    // The `*FromJson` forwarder must NOT JSONDecoder-decode an opaque bridge
-    // class — it must forward to the Rust-side shim.
     assert!(
         content.contains("public func taggedPayloadFromJson(_ json: String) throws -> TaggedPayload"),
         "fromJson forwarder must still be emitted for typealiased serde enums:\n{content}"
@@ -901,8 +862,6 @@ fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
             has_stripped_cfg_fields: false,
             is_return_type: true,
             serde_rename_all: None,
-            // has_serde + non-empty primitive fields → first-class Codable
-            // struct emission, which seeds `known_dto_names`.
             has_serde: true,
             super_traits: vec![],
             binding_excluded: false,
@@ -961,8 +920,6 @@ fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
     );
 }
 
-// ── function tests ────────────────────────────────────────────────────────────
-
 #[test]
 fn sync_function_emits_public_static_func() {
     let api = ApiSurface {
@@ -1000,7 +957,6 @@ fn sync_function_emits_public_static_func() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Function wrappers are disabled (Phase 2D). No module enum wrapper or static func emitted.
     assert!(
         !content.contains("public enum DemoCrate {"),
         "function wrappers should be disabled, no module enum wrapper: {content}"
@@ -1048,7 +1004,6 @@ fn async_function_emits_async_keyword() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Function wrappers are disabled (Phase 2D). Async qualifiers not emitted.
     assert!(
         !content.contains("public static func fetchData() async"),
         "function wrappers disabled, no async static func: {content}"
@@ -1092,7 +1047,6 @@ fn error_throwing_function_emits_throws() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Function wrappers are disabled (Phase 2D). Throws qualifiers not emitted.
     assert!(
         !content.contains("public static func parseInput(raw: String) throws"),
         "function wrappers disabled, no throws static func: {content}"
@@ -1136,14 +1090,11 @@ fn async_throws_function_emits_both_qualifiers() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Function wrappers are disabled (Phase 2D). Async throws qualifiers not emitted.
     assert!(
         !content.contains("public static func load() async throws"),
         "function wrappers disabled, no async throws static func: {content}"
     );
 }
-
-// ── error tests ───────────────────────────────────────────────────────────────
 
 #[test]
 fn error_enum_conforms_to_error_protocol() {
@@ -1205,11 +1156,6 @@ fn error_enum_conforms_to_error_protocol() {
 
 #[test]
 fn error_enum_named_error_is_renamed_to_module_error() {
-    // When the Rust error type is literally named `Error`, Swift parses
-    // `public enum Error: Error` as a circular raw-type binding rather than
-    // protocol conformance, causing compile errors. The codegen must rename it
-    // to `{ModuleName}Error` (here `DemoCrateError`) and qualify the protocol
-    // as `Swift.Error`.
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
@@ -1246,12 +1192,10 @@ fn error_enum_named_error_is_renamed_to_module_error() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Must NOT emit `public enum Error: Error` — that is a Swift compile error.
     assert!(
         !content.contains("public enum Error: Error"),
         "bare `Error: Error` must not be emitted: {content}"
     );
-    // Must rename to `{ModuleName}Error` and qualify with `Swift.Error`.
     assert!(
         content.contains("public enum DemoCrateError: Swift.Error {"),
         "renamed enum must be emitted as `DemoCrateError: Swift.Error`: {content}"
@@ -1369,31 +1313,24 @@ fn error_enum_with_methods_emits_extension_properties() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Extension block must be emitted after the enum.
     assert!(
         content.contains("extension ApiError {"),
         "missing extension block: {content}"
     );
-    // statusCode property as UInt16.
     assert!(
         content.contains("public var statusCode: UInt16 {"),
         "missing statusCode property: {content}"
     );
-    // isTransient property as Bool.
     assert!(
         content.contains("public var isTransient: Bool {"),
         "missing isTransient property: {content}"
     );
-    // errorType property as String.
     assert!(
         content.contains("public var errorType: String {"),
         "missing errorType property: {content}"
     );
-    // switch self must be emitted inside each property.
     assert!(content.contains("switch self {"), "missing switch self: {content}");
 }
-
-// ── convenience wrapper tests ─────────────────────────────────────────────────
 
 /// Helper: build a FunctionDef with no error type and not async.
 fn make_sync_fn(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> FunctionDef {
@@ -1441,14 +1378,6 @@ fn make_optional_param(name: &str, ty: TypeRef) -> ParamDef {
 
 #[test]
 fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
-    // IR: analyze_bytes(content: Bytes, config: AnalyzeConfig) -> AnalyzeResult
-    // The convenience wrapper name (`analyzeBytes`) collides with the bridge
-    // function name (`analyzeBytes`) because there is no `_sync` suffix to
-    // strip. Swift overload resolution would resolve the unlabeled inner
-    // positional call to the wrapper itself (recursive shadow), and module-
-    // prefix qualification of free functions is rejected by the compiler. We
-    // therefore skip emitting the convenience overload entirely; users call
-    // the bridge function directly with `makeByteVec(...)`.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1473,8 +1402,6 @@ fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // No convenience overload for `analyzeBytes` — the only function in the
-    // surface would shadow itself.
     assert!(
         !content.contains("public func analyzeBytes(\n    content: String"),
         "shadowing String overload must be skipped: {content}"
@@ -1484,8 +1411,6 @@ fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
         "shadowing [UInt8] overload must be skipped: {content}"
     );
 
-    // Since this is the only candidate, no convenience-wrapper section header
-    // should be emitted at all.
     assert!(
         !content.contains("// MARK: - Convenience Wrapper Functions"),
         "wrapper section must not appear when all candidates shadow: {content}"
@@ -1498,15 +1423,6 @@ fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
 
 #[test]
 fn bytes_overload_with_string_return_appends_to_string_for_throws() {
-    // IR: detect_mime_type_from_bytes_sync(content: Bytes) -> Result<String, E>
-    //
-    // swift-bridge maps `Result<String, _>` to `throws -> RustString` (NOT
-    // Swift-native String — the error path forces the union through the
-    // RustString ABI). The forwarder must call `.toString()` on the bridge
-    // result to coerce to the native Swift `String` declared on the public
-    // signature. Without this the Swift compiler rejects the body with
-    // `cannot convert return expression of type 'RustString' to return
-    // type 'String'`.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1528,13 +1444,11 @@ fn bytes_overload_with_string_return_appends_to_string_for_throws() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Wrapper exists (no shadow: `detectMime` ≠ `detectMimeSync`).
     assert!(
         content.contains("public func detectMime(\n    content: String"),
         "missing detectMime String overload: {content}"
     );
 
-    // Bridge result must have `.toString()` appended to coerce RustString → String.
     assert!(
         content.contains("return try RustBridge.detectMimeSync(_rb_content).toString()"),
         "must append .toString() to coerce RustString to Swift String: {content}"
@@ -1543,8 +1457,6 @@ fn bytes_overload_with_string_return_appends_to_string_for_throws() {
 
 #[test]
 fn bytes_sync_suffix_stripped_in_wrapper_name() {
-    // IR: process_bytes_sync(content: Bytes, config: ProcessConfig) -> ProcessResult
-    // Wrapper name should be `processBytes` (strip "Sync"), inner call `processBytesSync`.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1569,7 +1481,6 @@ fn bytes_sync_suffix_stripped_in_wrapper_name() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Public wrapper is named `processBytes` (Sync stripped)
     assert!(
         content.contains("public func processBytes(\n    content: String"),
         "missing String overload with Sync stripped: {content}"
@@ -1578,7 +1489,6 @@ fn bytes_sync_suffix_stripped_in_wrapper_name() {
         content.contains("public func processBytes(\n    content: [UInt8]"),
         "missing [UInt8] overload with Sync stripped: {content}"
     );
-    // Inner call delegates to `processBytesSync`
     assert!(
         content.contains("return try processBytesSync(makeByteVec("),
         "inner call should use processBytesSync: {content}"
@@ -1587,8 +1497,6 @@ fn bytes_sync_suffix_stripped_in_wrapper_name() {
 
 #[test]
 fn path_first_param_emits_string_path_overload() {
-    // IR: load_file_sync(path: Path, mime_type: String (optional), cfg: LoadConfig) -> LoadResult
-    // Should emit a `loadFile` wrapper accepting `path: String`.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1614,17 +1522,14 @@ fn path_first_param_emits_string_path_overload() {
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Public wrapper is `loadFile` (Sync stripped)
     assert!(
         content.contains("public func loadFile(\n    path: String"),
         "missing String path overload for loadFile: {content}"
     );
-    // Inner call delegates to `loadFileSync`
     assert!(
         content.contains("return try loadFileSync(path"),
         "inner call should use loadFileSync: {content}"
     );
-    // Optional mime_type gets `= nil` default
     assert!(
         content.contains("mimeType: String? = nil"),
         "optional mime_type should have nil default: {content}"
@@ -1633,7 +1538,6 @@ fn path_first_param_emits_string_path_overload() {
 
 #[test]
 fn no_bytes_or_path_functions_emits_no_wrapper_section() {
-    // IR with only a String-param function — no convenience wrappers should be emitted.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1667,7 +1571,6 @@ fn no_bytes_or_path_functions_emits_no_wrapper_section() {
 
 #[test]
 fn async_bytes_function_emits_async_forwarder() {
-    // Async bytes functions are forwarded through a detached task with byte-vector conversion.
     let async_fn = FunctionDef {
         name: "fetch_bytes".to_string(),
         rust_path: "demo::fetch_bytes".to_string(),
@@ -1722,8 +1625,6 @@ fn async_bytes_function_emits_async_forwarder() {
     );
 }
 
-// ── output path tests ─────────────────────────────────────────────────────────
-
 #[test]
 fn output_path_uses_pascal_case_module_name() {
     let api = ApiSurface {
@@ -1741,14 +1642,8 @@ fn output_path_uses_pascal_case_module_name() {
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
-    // Six files: main Swift wrapper, Rust bridge crate files, RustBridgeC
-    // header, and the unconditional `ZSwiftPluginHelpers.swift`
-    // (commit 12362ba09 — FunctionParam Box generation helpers).
     assert_eq!(files.len(), 6);
 
-    // The Swift wrapper must be a .swift file with PascalCase module name.
-    // When using ResolvedCrateConfig, output_paths["swift"] is set from the template
-    // to packages/swift/, so the file lands at packages/swift/DemoCrate.swift.
     let swift_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with(".swift"))
@@ -1756,8 +1651,6 @@ fn output_path_uses_pascal_case_module_name() {
     let path = swift_file.path.to_string_lossy();
     assert!(path.contains("DemoCrate.swift"), "unexpected output path: {path}");
 }
-
-// ── streaming-method emission tests ──────────────────────────────────────────
 
 /// Helper: build a `ResolvedCrateConfig` with one streaming adapter on
 /// `DefaultClient` plus a `client_constructor_body` override (required to make
@@ -1875,26 +1768,21 @@ fn streaming_adapter_emits_async_throwing_stream_wrapper() {
         "streaming wrapper must call defaultClientChatStreamStart with the owner handle; got:\n{}",
         swift.content
     );
-    // Must drain via handle.next() in a detached task.
     assert!(
         swift.content.contains("handle.next().toString()"),
         "streaming wrapper must drain via handle.next(); got:\n{}",
         swift.content
     );
-    // Must terminate cleanly on the empty-string EOF sentinel.
     assert!(
         swift.content.contains("if json.isEmpty { break }"),
         "streaming wrapper must break on empty-string EOF sentinel; got:\n{}",
         swift.content
     );
-    // Must deserialise each chunk via the Rust-side from_json bridge function so the
-    // yielded value is the opaque swift-bridge type (with full method API available).
     assert!(
         swift.content.contains("RustBridge.chatCompletionChunkFromJson(json)"),
         "streaming wrapper must call RustBridge.chatCompletionChunkFromJson to deserialise each chunk; got:\n{}",
         swift.content
     );
-    // Must cancel the drain task on stream termination so the Rust handle's deinit runs.
     assert!(
         swift
             .content
@@ -1915,8 +1803,6 @@ fn swift_backend_reports_supports_streaming_true() {
         "SwiftBackend must report supports_streaming = true now that AsyncThrowingStream is implemented"
     );
 }
-
-// ── Defect 1: StreamHandle @unchecked Sendable ───────────────────────────────
 
 /// Each streaming adapter's `{Owner}{Adapter}StreamHandle` must have an
 /// `extension RustBridge.XStreamHandle: @unchecked Sendable {}` emitted in the
@@ -1946,8 +1832,6 @@ fn streaming_handle_emits_unchecked_sendable_extension() {
     );
 }
 
-// ── Defect 2: streaming chunk type emits as Codable struct ───────────────────
-
 /// When the streaming adapter's `item_type` appears in `api.types` with
 /// `has_serde: true` and populated fields, the Swift backend must emit a native
 /// `public struct X: Codable { … }` instead of an opaque typealias.
@@ -1959,9 +1843,6 @@ fn streaming_handle_emits_unchecked_sendable_extension() {
 fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
     use alef::core::ir::{MethodDef, ReceiverKind};
 
-    // Build an API surface with:
-    // - DefaultClient (opaque, has_serde: false) — the streaming owner
-    // - ChatCompletionChunk (non-opaque, has_serde/default, with fields) — the item type
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
@@ -2026,7 +1907,6 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 has_stripped_cfg_fields: false,
                 is_return_type: true,
                 serde_rename_all: None,
-                // has_serde: true — the type derives Serialize + Deserialize
                 has_serde: true,
                 super_traits: vec![],
                 doc: String::new(),
@@ -2080,8 +1960,6 @@ client_constructor_body.DefaultClient = "Self { inner: ::demo_crate::DefaultClie
         .find(|f| f.path.to_string_lossy().ends_with(".swift"))
         .unwrap();
 
-    // Streaming item types with has_serde + fields now emit as first-class Codable structs.
-    // The streaming wrapper uses JSONDecoder directly, not the RustBridge shim.
     assert!(
         swift
             .content
@@ -2089,7 +1967,6 @@ client_constructor_body.DefaultClient = "Self { inner: ::demo_crate::DefaultClie
         "streaming item type must be emitted as a first-class Codable struct; got:\n{}",
         swift.content
     );
-    // Must NOT emit an opaque typealias — first-class structs replace typealiases.
     assert!(
         !swift
             .content
@@ -2097,7 +1974,6 @@ client_constructor_body.DefaultClient = "Self { inner: ::demo_crate::DefaultClie
         "must not emit typealias for first-class Codable struct; got:\n{}",
         swift.content
     );
-    // The streaming wrapper must use JSONDecoder for first-class struct chunks.
     assert!(
         swift
             .content
@@ -2208,8 +2084,6 @@ client_constructor_body.Client = "Self { inner: ::demo::Client::new(api_key, bas
     );
 }
 
-// ── first-class DTO call-site conversion tests ───────────────────────────────
-
 /// When a method on an opaque client class takes a first-class Swift DTO as a
 /// parameter, the generated call site must apply `.intoRust()` to convert the
 /// Swift wrapper into the `RustBridge.T` raw type that the bridge function
@@ -2223,7 +2097,6 @@ client_constructor_body.Client = "Self { inner: ::demo::Client::new(api_key, bas
 fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
     use alef::core::ir::{MethodDef, ReceiverKind};
 
-    // CreateImageRequest: first-class DTO with has_serde + has_default + string fields.
     let mut request_type = make_type(
         "CreateImageRequest",
         vec![
@@ -2234,7 +2107,6 @@ fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
     request_type.has_serde = true;
     request_type.has_default = true;
 
-    // ImageClient: opaque type with `generateImage(_ request: CreateImageRequest)`.
     let client_type = TypeDef {
         name: "ImageClient".to_string(),
         rust_path: "demo::ImageClient".to_string(),
@@ -2312,14 +2184,11 @@ client_constructor_body.ImageClient = "Self { inner: ::demo::ImageClient::new(ap
         .find(|f| f.path.to_string_lossy().ends_with(".swift"))
         .unwrap();
 
-    // The call site must apply `.intoRust()` to convert the Swift DTO wrapper
-    // into the RustBridge raw type.
     assert!(
         swift.content.contains("try request.intoRust()"),
         "call site must apply try request.intoRust() for first-class DTO params; got:\n{}",
         swift.content
     );
-    // The method signature must carry `throws` (both from error_type and intoRust).
     assert!(
         swift
             .content
@@ -2327,7 +2196,6 @@ client_constructor_body.ImageClient = "Self { inner: ::demo::ImageClient::new(ap
         "method signature must include throws when param is a first-class DTO; got:\n{}",
         swift.content
     );
-    // Must NOT pass the raw Swift wrapper directly to the bridge.
     assert!(
         !swift.content.contains(", request)"),
         "must not forward the Swift wrapper directly to the bridge without .intoRust(); got:\n{}",
@@ -2356,7 +2224,7 @@ fn method_with_dto_param_only_adds_throws_even_without_error_type() {
             return_type: TypeRef::Bytes,
             is_async: false,
             is_static: false,
-            error_type: None, // no error_type — throws must still come from intoRust()
+            error_type: None,
             doc: String::new(),
             sanitized: false,
             returns_ref: false,
@@ -2484,7 +2352,6 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
     message_type.has_serde = true;
     message_type.has_default = true;
 
-    // Request: DTO with a Vec<Message> field.  has_default is NOT set — intoRust() uses JSON.
     let mut request_type = make_type(
         "ChatRequest",
         vec![
@@ -2521,7 +2388,6 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
         .unwrap();
     let content = &swift.content;
 
-    // Both types must be emitted as public structs.
     assert!(
         content.contains("public struct Message:"),
         "Message must be first-class; got:\n{content}"
@@ -2531,14 +2397,11 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
         "ChatRequest must be first-class; got:\n{content}"
     );
 
-    // Vec<Message> → [Message] stored property.
     assert!(
         content.contains("public let messages: [Message]"),
         "Vec<Message> field must emit [Message]; got:\n{content}"
     );
 
-    // init(_ rb:) must decode each Vec<Named-serde> element via JSONDecoder: the Rust getter
-    // returns Vec<String> (per-element JSON), marshaled as RustVec<RustString>.
     assert!(
         content.contains(
             "try rb.messages().map { (s: RustStringRef) -> Message in \
@@ -2548,7 +2411,6 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
         "init must JSON-decode each RustVec<Message> element; got:\n{content}"
     );
 
-    // intoRust() must fall back to JSON (no direct constructor for complex type).
     assert!(
         content.contains("JSONEncoder().encode(self)"),
         "intoRust() must use JSON fallback; got:\n{content}"
@@ -2577,7 +2439,6 @@ fn complex_dto_with_named_struct_field_emits_first_class_struct() {
         "ChatResponse",
         vec![
             make_field("model", TypeRef::String, false),
-            // Optional nested struct via field.optional=true, TypeRef::Named
             make_field("usage", TypeRef::Named("Usage".into()), true),
         ],
     );
@@ -2610,13 +2471,11 @@ fn complex_dto_with_named_struct_field_emits_first_class_struct() {
         "ChatResponse must be first-class; got:\n{content}"
     );
 
-    // Optional Named field emits `Usage?`.
     assert!(
         content.contains("public let usage: Usage?"),
         "Optional Named field must be Usage?; got:\n{content}"
     );
 
-    // init must convert optional Named field via .map.
     assert!(
         content.contains("try rb.usage().map { try Usage($0) }"),
         "init must convert optional Named field via .map; got:\n{content}"
@@ -2672,14 +2531,11 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
         "ToolRequest must be first-class; got:\n{content}"
     );
 
-    // Optional<Vec<Tool>> → [Tool]?
     assert!(
         content.contains("public let tools: [Tool]?"),
         "Optional<Vec<Tool>> must emit [Tool]?; got:\n{content}"
     );
 
-    // init must whole-array JSON-decode Optional<Vec<Named-serde>>: the Rust getter returns a
-    // single String (one JSON-encoded array, or "null" for None), not RustVec<RustString>.
     assert!(
         content.contains(
             "try JSONDecoder().decode([Tool]?.self, from: \
@@ -2688,8 +2544,6 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
         "init must whole-array JSON-decode Optional<Vec<Tool>>; got:\n{content}"
     );
 }
-
-// ── forwarder regression tests for v0.17.9+ swift codegen bug ─────────────────
 
 /// Repro of the sample_language_pack `detectLanguageFromExtension` bug fixed in v0.17.11.
 ///
@@ -2881,8 +2735,6 @@ fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
             params: vec![make_optional_param("opts", TypeRef::Named("Options".into()))],
             return_type: TypeRef::Unit,
             is_async: false,
-            // Non-throwing bridge call to verify the throws clause widens
-            // purely from the param-conversion path.
             error_type: None,
             doc: String::new(),
             cfg: None,
@@ -2923,7 +2775,6 @@ fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
 
 #[test]
 fn async_function_with_result_and_opaque_param_emits_forwarder() {
-    // Simulate sample_crawler's scrape(engine: CrawlEngineHandle, url: String) -> Result<ScrapeResult>
     let api = ApiSurface {
         crate_name: "sample_crawler".into(),
         version: "0.1.0".into(),
@@ -2985,8 +2836,6 @@ fn make_serde_type(name: &str) -> TypeDef {
 
 #[test]
 fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
-    // These names used to trigger hardcoded Swift e2e convenience wrappers. They
-    // should now flow through the generic from-json forwarder path only.
     let mut embed_fn = make_sync_fn(
         "embed_texts_async",
         vec![
@@ -2997,7 +2846,6 @@ fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
     );
     embed_fn.is_async = true;
 
-    // A bytes-first function so the convenience-wrapper section is reached.
     let bytes_fn = make_sync_fn(
         "analyze_bytes_sync",
         vec![make_param("content", TypeRef::Bytes)],
@@ -3047,8 +2895,6 @@ fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
 
 #[test]
 fn swift_string_param_not_wrapped() {
-    // Plain String parameter in async function should NOT be wrapped in RustString()
-    // because swift-bridge auto-handles the conversion at the FFI boundary.
     let api = ApiSurface {
         crate_name: "syn".into(),
         version: "0.1.0".into(),
@@ -3209,11 +3055,6 @@ fn first_class_struct_emits_instance_methods() {
 
 #[test]
 fn opaque_type_returned_from_free_function_emits_forwarder() {
-    // Regression test for 0.25.38: opaque types should not be excluded
-    // from free-function forwarder emission. A function returning an opaque
-    // type (e.g., `get_language(name: String) -> Language`) must still emit
-    // the public wrapper `public func getLanguage(name: String) throws -> Language`
-    // even though Language is in config.opaque_types.
     use alef::core::ir::ErrorVariant;
 
     fn make_function(name: &str, return_type: TypeRef) -> FunctionDef {
@@ -3265,8 +3106,6 @@ fn opaque_type_returned_from_free_function_emits_forwarder() {
     };
 
     let mut cfg = make_config();
-    // Declare Language as an external opaque type. It should not appear
-    // in generated DTOs but should still be accessible via free-function forwarders.
     cfg.opaque_types
         .insert("Language".to_string(), "external_runtime::Language".to_string());
 
@@ -3312,8 +3151,6 @@ fn opaque_type_returned_from_free_function_emits_forwarder() {
         .expect("must have swift file");
     let content = &bindings_file.content;
 
-    // The forwarder function must be emitted despite Language being in opaque_types.
-    // It should be named `getLanguage` (camel-cased from Rust's `get_language`).
     assert!(
         content.contains("public func getLanguage(name: String) throws -> Language"),
         "getLanguage forwarder must be emitted for opaque return type. Content:\n{}",

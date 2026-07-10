@@ -227,8 +227,6 @@ fn every_test_artifact_runs_via_addrunartifact_directly() {
     ];
     let content = render_build_zig(groups);
 
-    // Zig 0.16+ no longer installs test binaries to `zig-out/bin/`, so the
-    // emitted build.zig must NOT use `addInstallArtifact` for test artifacts.
     assert!(
         !content.contains("addInstallArtifact"),
         "build.zig must not call addInstallArtifact for test artifacts \
@@ -239,19 +237,12 @@ fn every_test_artifact_runs_via_addrunartifact_directly() {
         "build.zig must not register test artifacts under getInstallStep:\n{content}"
     );
 
-    // For mock-server-only consumers (no file_path / bytes args), setCwd must
-    // NOT be emitted. The consumer has no `test_documents/` directory; zig's
-    // RunStep would call chdir(2) into a non-existent path and the OS would
-    // return ENOENT, surfacing as FileNotFound at spawn time even though the
-    // binary compiled successfully.
     assert!(
         !content.contains("setCwd"),
         "build.zig must NOT emit setCwd for mock-server-only consumers \
          that have no test_documents/ directory:\n{content}"
     );
 
-    // Each test must still be wired up: addTest -> addRunArtifact ->
-    // test_step.dependOn(<run>.step).
     assert!(
         content.contains("const redirect_run = b.addRunArtifact(redirect_tests);"),
         "redirect run step must be created via addRunArtifact:\n{content}"
@@ -261,7 +252,6 @@ fn every_test_artifact_runs_via_addrunartifact_directly() {
         "redirect run step must be wired into the test_step:\n{content}"
     );
 
-    // Order: addTest -> addRunArtifact -> test_step.dependOn(run).
     let add_test_pos = content
         .find("const redirect_tests = b.addTest(")
         .expect("redirect addTest present");
@@ -279,7 +269,6 @@ fn every_test_artifact_runs_via_addrunartifact_directly() {
 
 #[test]
 fn set_cwd_emitted_only_for_file_fixture_consumers() {
-    // Consumer with file_path args: setCwd must be present.
     let groups_file = vec![FixtureGroup {
         category: "smoke".to_string(),
         fixtures: vec![fixture_for_file("smoke", "pdf_basic")],
@@ -291,7 +280,6 @@ fn set_cwd_emitted_only_for_file_fixture_consumers() {
          test_documents/:\n{content_file}"
     );
 
-    // Consumer without file_path args (demo_crawler-style): setCwd must be absent.
     let groups_mock = vec![FixtureGroup {
         category: "scrape".to_string(),
         fixtures: vec![fixture_for("scrape", "basic_html")],

@@ -44,7 +44,6 @@ def collect_module_names(mod_dir: Path) -> set[str]:
 TOP_CODEGEN = collect_module_names(SRC / "codegen")
 E2E_CODEGEN = collect_module_names(SRC / "e2e" / "codegen")
 
-# Only-in-e2e ones — these are unambiguously the internal ref.
 E2E_ONLY = E2E_CODEGEN - TOP_CODEGEN
 
 print(f"top codegen children: {sorted(TOP_CODEGEN)}")

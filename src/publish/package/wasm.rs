@@ -35,7 +35,6 @@ pub fn package_wasm(
 
     crate::publish::run_shell_command_in("npm run build:all", &crate_dir)?;
 
-    // The pkg/ directory is produced inside the wasm crate directory.
     let pkg_dir = crate_dir.join("pkg");
     if !pkg_dir.exists() {
         anyhow::bail!(
@@ -44,10 +43,8 @@ pub fn package_wasm(
         );
     }
 
-    // Run npm pack from the crate root so npm uses Alef's scaffolded package.json.
     crate::publish::run_shell_command_in("npm pack", &crate_dir)?;
 
-    // Find the produced .tgz file.
     let tgz_path = find_tgz(&crate_dir).context("npm pack: no .tgz found in WASM crate root")?;
     let file_name = tgz_path
         .file_name()
@@ -92,8 +89,6 @@ mod tests {
     fn find_tgz_returns_latest() {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join("a.tgz"), b"a").unwrap();
-        // Sleep briefly to get different mtimes on some platforms, otherwise
-        // order is filesystem-dependent; we just verify no panic + Some result.
         fs::write(tmp.path().join("b.tgz"), b"b").unwrap();
 
         let result = find_tgz(tmp.path()).unwrap();

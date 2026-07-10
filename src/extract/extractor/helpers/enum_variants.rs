@@ -49,7 +49,6 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
         if !attr_str.contains("rename") {
             return None;
         }
-        // Find rename = "value" pattern in the attribute string
         let pos = attr_str.find("rename")?;
         let rest = &attr_str[pos..];
         let eq_pos = rest.find('=')?;
@@ -73,7 +72,6 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
         is_tuple,
         binding_excluded,
         binding_exclusion_reason,
-        // Set by strip_binding_excluded pipeline step if all fields are binding_excluded.
         originally_had_data_fields: false,
         cfg,
         version: extract_version_annotation(&v.attrs),

@@ -151,9 +151,6 @@ fn struct_emits_data_class() {
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     assert_eq!(files.len(), 1);
     let content = &files[0].content;
-    // Kotlin emits a `typealias` aliased to the Java facade type so values
-    // pass straight through to the JNA bridge without conversion. The actual
-    // record fields (xCoord/yCoord) come from the Java side.
     assert!(
         content.contains("package dev.sample_crate"),
         "missing package: {content}"
@@ -302,7 +299,6 @@ fn optional_field_uses_kotlin_nullable() {
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    // Optional fields are owned by the Java record; Kotlin only emits a typealias.
     assert!(
         content.contains("typealias Maybe = dev.sample_crate.Maybe"),
         "missing typealias for Maybe: {content}"
@@ -405,8 +401,6 @@ fn unit_error_variant_emits_sealed_class() {
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    // Errors alias the Java exception type with the `Exception` suffix to avoid
-    // collision with same-named non-error structs in `api.types`.
     assert!(
         content.contains("typealias ApiErrorException = dev.sample_crate.ApiErrorException"),
         "missing error typealias: {content}"
@@ -551,7 +545,6 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
         unsupported_public_items: Vec::new(),
     };
 
-    // emit_error_type_pub is the public re-export of emit_error_type_with_imports.
     let mut out = String::new();
     let mut imports = std::collections::BTreeSet::new();
     emit_error_type_pub(api.errors.first().unwrap(), &mut out, &mut imports);
@@ -620,7 +613,6 @@ fn function_imports_native_facade() {
 /// emitted on the Java facade class.
 #[test]
 fn streaming_adapter_emits_flow_method_on_client_class() {
-    // Config with a streaming adapter owned by DefaultClient.
     let config = resolved_one(
         r#"
 [workspace]
@@ -653,8 +645,6 @@ type = "ChatCompletionRequest"
 "#,
     );
 
-    // Minimal API surface: one opaque client type with a non-sanitized async method
-    // so `emit_jvm_client_class` creates a DefaultClient wrapper class.
     let chat_method = MethodDef {
         name: "chat".into(),
         params: vec![],
@@ -714,17 +704,14 @@ type = "ChatCompletionRequest"
     };
 
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
-    // DefaultClient.kt is a second generated file alongside SampleLlm.kt.
     let client_file = files
         .iter()
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DefaultClient.kt"));
     let content = client_file.map(|f| f.content.as_str()).unwrap_or("");
-    // Streaming method emits a callbackFlow wrapper.
     assert!(
         content.contains("fun chatStream("),
         "expected chatStream method on DefaultClient: {content}"
     );
-    // Return type is Flow<T>, not Iterator<T>.
     assert!(
         content.contains("Flow<ChatCompletionChunk>"),
         "expected Flow<ChatCompletionChunk> return type: {content}"
@@ -733,12 +720,10 @@ type = "ChatCompletionRequest"
         !content.contains("Iterator<ChatCompletionChunk>"),
         "must not emit Iterator<ChatCompletionChunk> any more: {content}"
     );
-    // callbackFlow is the wrapper mechanism.
     assert!(
         content.contains("callbackFlow"),
         "expected callbackFlow in chatStream: {content}"
     );
-    // JNI start/next/free are called via Bridge.
     assert!(
         content.contains("Bridge.nativeDefaultClientChatStreamStart("),
         "expected nativeDefaultClientChatStreamStart call: {content}"
@@ -751,17 +736,14 @@ type = "ChatCompletionRequest"
         content.contains("Bridge.nativeDefaultClientChatStreamFree("),
         "expected nativeDefaultClientChatStreamFree call in awaitClose: {content}"
     );
-    // awaitClose is used for resource cleanup.
     assert!(
         content.contains("awaitClose"),
         "expected awaitClose in chatStream: {content}"
     );
-    // Streaming methods must NOT be suspend — they return Flow.
     assert!(
         !content.contains("suspend fun chatStream"),
         "chatStream must not be suspend: {content}"
     );
-    // Flow imports are present.
     assert!(
         content.contains("import kotlinx.coroutines.flow.Flow"),
         "expected Flow import: {content}"
@@ -1130,8 +1112,6 @@ target = "jvm"
          duplication when the client-type set changes between alef versions. Got: {names:?}"
     );
 
-    // Each generated wrapper file must contain exactly one `class X : AutoCloseable` declaration
-    // matching the file name — never the wrong class.
     let router_file = files
         .iter()
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Router.kt"))
@@ -1274,10 +1254,6 @@ target = "jvm"
     );
 }
 
-// ---------------------------------------------------------------------------
-// ktfmt single-line vs multi-line data-class emission
-// ---------------------------------------------------------------------------
-
 /// A data class with a single short field fits within 100 chars → ktfmt
 /// collapses it to a single line. The emitter must produce the same output
 /// without a post-processing step.
@@ -1290,7 +1266,6 @@ fn short_data_class_emits_single_line() {
     let mut out = String::new();
     let mut imports = std::collections::BTreeSet::new();
     emit_type_pub(&ty, &mut out, &mut imports);
-    // Single-line: `data class Point(val x: Int)\n`
     assert_eq!(
         out, "data class Point(val x: Int)\n",
         "short data class must be single-line: {out:?}"
@@ -1301,7 +1276,6 @@ fn short_data_class_emits_single_line() {
 /// multi-line so ktfmt leaves it unchanged.
 #[test]
 fn long_data_class_emits_multi_line() {
-    // 6 fields with long names and types → single-line would exceed 100 chars.
     let fields = vec![
         make_field("total_request_count", TypeRef::Primitive(PrimitiveType::I64), false),
         make_field("completed_request_count", TypeRef::Primitive(PrimitiveType::I64), false),
@@ -1314,7 +1288,6 @@ fn long_data_class_emits_multi_line() {
     let mut out = String::new();
     let mut imports = std::collections::BTreeSet::new();
     emit_type_pub(&ty, &mut out, &mut imports);
-    // Must start with multi-line header and not be a single line.
     assert!(
         out.starts_with("data class BatchRequestCounts(\n"),
         "long data class must be multi-line: {out:?}"
@@ -1323,7 +1296,6 @@ fn long_data_class_emits_multi_line() {
         out.contains("    val totalRequestCount: Long,"),
         "multi-line field must have trailing comma: {out:?}"
     );
-    // Last field must also have a trailing comma (ktfmt idempotency).
     assert!(
         out.contains("    val expiredRequestCount: Long,\n)"),
         "last multi-line field must have trailing comma: {out:?}"
@@ -1387,7 +1359,6 @@ fn short_sealed_class_variant_emits_single_line() {
     };
     let mut out = String::new();
     emit_enum_pub(&en, &mut out, "dev.sample_crate", &[]);
-    // Variant with 1 Int field: `    data class Value(val value: Int) : MyEnum()\n`
     assert!(
         out.contains("    data class Value(val value: Int) : MyEnum()"),
         "short sealed-class variant must be single-line: {out:?}"
@@ -1439,7 +1410,6 @@ fn long_sealed_class_variant_emits_multi_line() {
         out.contains("        val providerName: String,"),
         "multi-line variant fields must have trailing comma: {out:?}"
     );
-    // Last field (requestId) must also have a trailing comma.
     assert!(
         out.contains("        val requestId: String?,\n    ) : SampleLlmError()"),
         "last multi-line variant field must have trailing comma: {out:?}"
@@ -1508,7 +1478,6 @@ fn long_error_variant_emits_multi_line() {
         out.contains("        val providerName: String,"),
         "multi-line error variant fields must have trailing comma: {out:?}"
     );
-    // Last field (requestId) must also have a trailing comma.
     assert!(
         out.contains("        val requestId: String?,\n    ) : SampleLlmException("),
         "last multi-line error variant field must have trailing comma: {out:?}"
@@ -1589,13 +1558,11 @@ fn dto_with_instance_methods_emits_member_functions() {
         .unwrap();
     let content = &files[0].content;
 
-    // Verify data class is emitted for Kotlin native
     assert!(
         content.contains("data class AssistantMessage"),
         "DTO should be a data class for Kotlin native target"
     );
 
-    // Verify instance methods are emitted
     assert!(
         content.contains("fun text(): String?"),
         "instance method text() should be emitted with return type"
@@ -1605,7 +1572,6 @@ fn dto_with_instance_methods_emits_member_functions() {
         "instance method outputImages() should be emitted"
     );
 
-    // Verify methods call external functions via nativeInterop
     assert!(
         content.contains("nativeInterop.AssistantMessage_text(this)"),
         "method should call corresponding external function"

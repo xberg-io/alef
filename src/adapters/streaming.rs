@@ -103,10 +103,6 @@ fn iterator_name(adapter: &AdapterConfig) -> String {
     to_pascal_case(&adapter.name) + "Iterator"
 }
 
-// ---------------------------------------------------------------------------
-// Python (PyO3)
-// ---------------------------------------------------------------------------
-
 fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
@@ -125,13 +121,6 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
         "Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))".to_string()
     };
 
-    // The iterator forwards stream items through an mpsc channel populated by a
-    // background tokio task. Driving the stream from a task (rather than calling
-    // `block_on` inside `chat_stream`) is critical: `block_on` on the calling
-    // thread deadlocks when the sync binding method is invoked from inside an
-    // asyncio event loop. End-of-stream is signalled via PyStopAsyncIteration
-    // because `future_into_py` resolving to `None` does not terminate an
-    // `async for` loop on its own.
     let struct_def = format!(
         "#[pyclass]\n\
          pub struct {iter_name} {{\n    \
@@ -190,10 +179,6 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
     (method_body, Some(struct_def))
 }
 
-// ---------------------------------------------------------------------------
-// Node (NAPI)
-// ---------------------------------------------------------------------------
-
 fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let prefix = config.node_type_prefix();
@@ -216,12 +201,6 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
-    // The iterator forwards stream items through an mpsc channel populated by a
-    // background tokio task. We implement NAPI-RS's AsyncGenerator trait so that
-    // NAPI-RS automatically sets Symbol.asyncIterator on every instance, making the
-    // iterator directly usable with `for await (const chunk of client.chatStream(req))`.
-    // The AsyncGenerator::next() method drives the mpsc receiver; returning Ok(None)
-    // signals end-of-stream and sets done:true in the JS iterator result object.
     let struct_def = format!(
         "#[napi(async_iterator)]\n\
          pub struct {iter_name} {{\n    \
@@ -284,10 +263,6 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
     (method_body, Some(struct_def))
 }
 
-// ---------------------------------------------------------------------------
-// Ruby (Magnus)
-// ---------------------------------------------------------------------------
-
 fn gen_ruby_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
@@ -325,10 +300,6 @@ fn gen_ruby_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
     (body, None)
 }
 
-// ---------------------------------------------------------------------------
-// PHP (ext-php-rs)
-// ---------------------------------------------------------------------------
-
 /// Streaming adapter for PHP (ext-php-rs).
 ///
 /// Emits a pair of standalone `#[php_function]` functions plus a per-adapter
@@ -345,7 +316,6 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
     let args = call_args(adapter);
     let call_str = args.join(", ");
 
-    // PHP passes struct params by reference — clone before converting.
     let let_bindings = core_let_bindings_cloned(adapter, &core_import);
     let bindings_block = if let_bindings.is_empty() {
         String::new()
@@ -353,9 +323,6 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
-    // For PHP, streaming methods are generated as regular instance methods on the opaque type.
-    // The method body directly calls the core streaming function and returns a JSON array of chunks.
-    // The PHP-side wrapper (generated in gen_php_opaque_class_file) converts this to a Generator.
     let body = format!(
         "use futures_util::StreamExt;\n    \
          let rt = tokio::runtime::Runtime::new()\n        \
@@ -374,13 +341,8 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
          }})"
     );
 
-    // No separate struct definition for PHP.
     (body, None)
 }
-
-// ---------------------------------------------------------------------------
-// Elixir (Rustler)
-// ---------------------------------------------------------------------------
 
 /// Streaming adapter for Rustler/Elixir.
 ///
@@ -423,8 +385,6 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
-    // Stub method body — never used because the rustler backend skips streaming
-    // methods. We keep something compilable in case the suppression is bypassed.
     let body = format!(
         "Err::<String, String>(\"streaming method emitted as standalone NIFs ({start_fn}/{next_fn})\".to_string())"
     );
@@ -500,10 +460,6 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
     (body, Some(struct_def))
 }
 
-// ---------------------------------------------------------------------------
-// WASM (wasm-bindgen)
-// ---------------------------------------------------------------------------
-
 fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let prefix = config.wasm_type_prefix();
@@ -525,12 +481,6 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
     } else {
         format!("{}\n    ", let_bindings.join("\n    "))
     };
-
-    // The iterator forwards stream items through a futures mpsc channel populated by a
-    // background task spawned via wasm_bindgen_futures::spawn_local(). This avoids
-    // materializing the entire stream into a JS Array upfront, enabling truly lazy
-    // consumption: JavaScript code calls await iter.next() for each chunk.
-    // We use futures::mpsc instead of tokio::mpsc because WASM has no thread pool.
 
     let struct_def = format!(
         "#[wasm_bindgen]\n\
@@ -590,10 +540,6 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
 
     (method_body, Some(struct_def))
 }
-
-// ---------------------------------------------------------------------------
-// FFI (C ABI) -- Callback-based streaming
-// ---------------------------------------------------------------------------
 
 fn gen_ffi_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> anyhow::Result<(String, Option<String>)> {
     let core_path = &adapter.core_path;
@@ -678,36 +624,20 @@ fn gen_ffi_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> anyhow
     Ok((body, None))
 }
 
-// ---------------------------------------------------------------------------
-// Go -- Streaming not supported via FFI
-// ---------------------------------------------------------------------------
-
 fn gen_go_body(adapter: &AdapterConfig) -> (String, Option<String>) {
     let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
     (body, None)
 }
-
-// ---------------------------------------------------------------------------
-// Java -- Streaming not supported via FFI
-// ---------------------------------------------------------------------------
 
 fn gen_java_body(adapter: &AdapterConfig) -> (String, Option<String>) {
     let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
     (body, None)
 }
 
-// ---------------------------------------------------------------------------
-// C# -- Streaming not supported via FFI
-// ---------------------------------------------------------------------------
-
 fn gen_csharp_body(adapter: &AdapterConfig) -> (String, Option<String>) {
     let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
     (body, None)
 }
-
-// ---------------------------------------------------------------------------
-// R (extendr) -- collect stream into Vec
-// ---------------------------------------------------------------------------
 
 fn gen_r_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
@@ -746,10 +676,6 @@ fn gen_r_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String,
     (body, None)
 }
 
-// ---------------------------------------------------------------------------
-// Dart (flutter_rust_bridge v2)
-// ---------------------------------------------------------------------------
-
 fn gen_dart_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
@@ -762,16 +688,6 @@ fn gen_dart_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
     } else {
         format!("{}\n        ", let_bindings.join("\n        "))
     };
-    // FRB v2 StreamSink<T> pattern: the sink is passed as a parameter and the
-    // function drives the core BoxStream into it from a spawned task.
-    //
-    // `flutter_rust_bridge::spawn` schedules the future on FRB's worker pool,
-    // which is NOT a tokio runtime — the core stream uses `reqwest` / `hyper`
-    // internally, which panic with `there is no reactor running, must be
-    // called from the context of a Tokio 1.x runtime` unless we install one.
-    // We lazy-init a shared multi-thread tokio runtime (via OnceLock) and
-    // drive each stream by calling `rt.spawn(...)` directly; the runtime
-    // outlives every stream and is reused across calls.
     let body = format!(
         "use futures_util::StreamExt;\n        \
          use std::sync::OnceLock;\n        \
@@ -800,10 +716,6 @@ fn gen_dart_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
     );
     (body, None)
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 fn to_pascal_case(s: &str) -> String {
     s.split('_')

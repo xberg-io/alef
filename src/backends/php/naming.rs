@@ -9,14 +9,12 @@ use crate::core::config::ResolvedCrateConfig;
 pub fn php_autoload_namespace(config: &ResolvedCrateConfig) -> String {
     use heck::ToPascalCase;
 
-    // Respect explicit namespace configuration
     if let Some(php_cfg) = &config.php {
         if let Some(ns) = &php_cfg.namespace {
             return ns.clone();
         }
     }
 
-    // Fall back to derived namespace from extension name
     let ext = config.php_extension_name();
     if ext.contains('_') {
         ext.split('_')
@@ -54,7 +52,6 @@ sources = ["src/lib.rs"]
     #[test]
     fn php_autoload_namespace_converts_snake_to_pascal_parts() {
         let r = minimal();
-        // "test-lib" → php_extension_name → "test_lib" → "Test\\Lib"
         assert_eq!(php_autoload_namespace(&r), "Test\\Lib");
     }
 
@@ -70,7 +67,6 @@ name = "mylib"
 sources = ["src/lib.rs"]
 "#,
         );
-        // "mylib" → php_extension_name → "mylib" → "Mylib"
         assert_eq!(php_autoload_namespace(&r), "Mylib");
     }
 
@@ -89,8 +85,6 @@ sources = ["src/lib.rs"]
 extension_name = "sample_markdown_rs"
 "#,
         );
-        // `sample_crate` -> split on `_` -> ["sample","crate"] ->
-        // PascalCase each → `Sample\Markdown\Rs`.
         assert_eq!(php_autoload_namespace(&r), "Sample\\Markdown\\Rs");
     }
 

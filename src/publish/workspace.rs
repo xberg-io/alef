@@ -35,7 +35,6 @@ pub fn workspace_member_crates(workspace_root: &Path) -> Result<WorkspaceMembers
         .parse()
         .with_context(|| format!("parsing {}", root_manifest.display()))?;
 
-    // Resolve the workspace-wide package version (for `version.workspace = true`).
     let workspace_version = root_doc
         .get("workspace")
         .and_then(|w| w.get("package"))
@@ -52,9 +51,7 @@ pub fn workspace_member_crates(workspace_root: &Path) -> Result<WorkspaceMembers
             Ok(paths) => paths,
             Err(_) => continue,
         };
-        // `.flatten()` tolerates individual glob errors, matching prior behavior.
         for entry in paths.flatten() {
-            // Tolerate missing/unparseable member manifests by skipping.
             let Ok(content) = std::fs::read_to_string(&entry) else {
                 continue;
             };
@@ -96,12 +93,10 @@ fn member_patterns(root_doc: &DocumentMut) -> Vec<String> {
 fn resolve_package_version(package: &toml_edit::Item, workspace_version: Option<&str>) -> Option<String> {
     let version = package.get("version")?;
 
-    // Plain string: `version = "1.2.3"`.
     if let Some(s) = version.as_str() {
         return Some(s.to_string());
     }
 
-    // Inherited: `version.workspace = true` (dotted key or table form).
     if let Some(tbl) = version.as_table_like() {
         let inherited = tbl
             .get("workspace")
@@ -140,7 +135,6 @@ edition = "2024"
         )
         .unwrap();
 
-        // Member 1: inherits the workspace version.
         let lib_src = root.join("crates/my-lib/src");
         fs::create_dir_all(&lib_src).unwrap();
         fs::write(lib_src.join("lib.rs"), "pub fn hello() {}").unwrap();
@@ -155,7 +149,6 @@ edition.workspace = true
         )
         .unwrap();
 
-        // Member 2: pins its own version.
         let py_src = root.join("crates/my-lib-py/src");
         fs::create_dir_all(&py_src).unwrap();
         fs::write(py_src.join("lib.rs"), "pub fn hello() {}").unwrap();
@@ -170,7 +163,6 @@ edition = "2024"
         )
         .unwrap();
 
-        // Exclude-listed crate: must NOT be discovered (exclude != member).
         let tool_src = root.join("crates/excluded-tool/src");
         fs::create_dir_all(&tool_src).unwrap();
         fs::write(tool_src.join("main.rs"), "fn main() {}").unwrap();
@@ -197,12 +189,8 @@ edition = "2024"
         let expected_names: BTreeSet<String> = ["my-lib", "my-lib-py"].iter().map(|s| s.to_string()).collect();
         assert_eq!(members.names, expected_names);
 
-        // my-lib inherits the workspace version 1.2.3.
         assert_eq!(members.versions.get("my-lib").map(String::as_str), Some("1.2.3"));
-        // my-lib-py pins its own version.
         assert_eq!(members.versions.get("my-lib-py").map(String::as_str), Some("0.9.0"));
-        // exclude-listed crates are NOT workspace members (not published), so
-        // they must not be discovered or treated as rewrite targets.
         assert!(!members.names.contains("excluded-tool"));
         assert!(!members.versions.contains_key("excluded-tool"));
     }
@@ -231,7 +219,6 @@ version = "1.0.0"
         )
         .unwrap();
 
-        // Broken manifest: unparseable TOML — should be skipped, not error.
         fs::create_dir_all(root.join("crates/broken/src")).unwrap();
         fs::write(root.join("crates/broken/Cargo.toml"), "this is not = = valid toml [[[").unwrap();
 

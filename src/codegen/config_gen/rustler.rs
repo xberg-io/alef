@@ -9,7 +9,6 @@ pub fn gen_rustler_kwargs_constructor_with_exclude(
     _type_mapper: &dyn Fn(&TypeRef) -> String,
     exclude_fields: &HashSet<String>,
 ) -> String {
-    // Pre-compute field assignments (same logic as gen_rustler_kwargs_constructor but with exclusion)
     let fields: Vec<_> = constructor_fields(typ)
         .filter(|f| !exclude_fields.contains(&f.name))
         .map(|field| {
@@ -57,7 +56,6 @@ pub fn gen_rustler_kwargs_constructor_with_exclude(
 /// Generate a Rustler (Elixir) kwargs constructor for a type with `has_default`.
 /// Accepts keyword list or map, applies defaults for missing fields.
 pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
-    // Pre-compute field assignments
     let fields: Vec<_> = constructor_fields(typ)
         .map(|field| {
             let assignment = if field.optional {

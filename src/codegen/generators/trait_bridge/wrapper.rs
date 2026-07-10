@@ -52,19 +52,14 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     let wrapper = spec.wrapper_name();
     let core_import = spec.core_import;
 
-    // Derive the fully-qualified super-trait path
     let super_trait_path = if super_trait_name.contains("::") {
         super_trait_name.to_string()
     } else {
         format!("{core_import}::{super_trait_name}")
     };
 
-    // Build synthetic MethodDefs for the Plugin methods and delegate to the generator
-    // for the actual call bodies. The Plugin trait interface is well-known: name(),
-    // version(), initialize(), shutdown().
     let error_path = spec.error_path();
 
-    // version() -> String — delegate to foreign object
     let version_method = MethodDef {
         name: "version".to_string(),
         params: vec![],
@@ -86,7 +81,6 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     };
     let version_body = generator.gen_sync_method_body(&version_method, spec);
 
-    // initialize() -> Result<(), ErrorType>
     let init_method = MethodDef {
         name: "initialize".to_string(),
         params: vec![],
@@ -107,13 +101,10 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         version: Default::default(),
     };
     let mut init_body = generator.gen_sync_method_body(&init_method, spec);
-    // A host that doesn't define initialize() opted out of the lifecycle hook —
-    // treat it as a no-op instead of failing registration.
     if let Some(presence) = generator.gen_lifecycle_presence_check(&init_method, spec) {
         init_body = format!("if !({presence}) {{\n    return Ok(());\n}}\n{init_body}");
     }
 
-    // shutdown() -> Result<(), ErrorType>
     let shutdown_method = MethodDef {
         name: "shutdown".to_string(),
         params: vec![],
@@ -134,12 +125,10 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         version: Default::default(),
     };
     let mut shutdown_body = generator.gen_sync_method_body(&shutdown_method, spec);
-    // Same no-op tolerance for shutdown() at unregistration.
     if let Some(presence) = generator.gen_lifecycle_presence_check(&shutdown_method, spec) {
         shutdown_body = format!("if !({presence}) {{\n    return Ok(());\n}}\n{shutdown_body}");
     }
 
-    // Split method bodies into lines for template iteration
     let version_lines: Vec<&str> = version_body.lines().collect();
     let init_lines: Vec<&str> = init_body.lines().collect();
     let shutdown_lines: Vec<&str> = shutdown_body.lines().collect();

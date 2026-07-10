@@ -6,7 +6,6 @@ use alef::extract::default_value_for_enum::enum_default_variants_map;
 
 #[test]
 fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
-    // Create an enum with the first variant NOT being the default
     let enum_def = EnumDef {
         name: "MyEnumType".to_string(),
         rust_path: "test::MyEnumType".to_string(),
@@ -54,7 +53,6 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         version: Default::default(),
     };
 
-    // Create an API surface with the enum
     let api = ApiSurface {
         crate_name: "test_crate".to_string(),
         version: "0.1.0".to_string(),
@@ -69,7 +67,6 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         unsupported_public_items: Vec::new(),
     };
 
-    // Build the enum defaults map - this should map "MyEnumType" -> "ActualDefault"
     let enum_defaults = enum_default_variants_map(&api);
     assert_eq!(
         enum_defaults.get("MyEnumType"),
@@ -123,14 +120,12 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         version: Default::default(),
     };
 
-    // The enum_defaults map should map MyEnumType to ActualDefault
     assert_eq!(
         enum_defaults.get("MyEnumType"),
         Some(&"ActualDefault".to_string()),
         "enum_defaults should map MyEnumType to ActualDefault (the #[default]-marked variant)"
     );
 
-    // Verify that it does NOT map to the first variant
     assert_ne!(
         enum_defaults.get("MyEnumType"),
         Some(&"FirstVariant".to_string()),
@@ -140,7 +135,6 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
 
 #[test]
 fn enum_default_variants_map_extracts_default_variants() {
-    // Create multiple enums with different default variants
     let enums = vec![
         EnumDef {
             name: "BrowserMode".to_string(),

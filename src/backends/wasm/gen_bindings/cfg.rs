@@ -56,8 +56,6 @@ pub(super) fn cfg_condition_enabled(cfg_str: &str, enabled_features: &[String]) 
     if let Some(inner) = cfg_str.strip_prefix("not(").and_then(|s| s.strip_suffix(')')) {
         return !cfg_condition_enabled(inner.trim(), enabled_features);
     }
-    // Unknown pattern → treat as enabled (no exclusion). Preserves prior behaviour
-    // for cfgs the WASM backend has never inspected (target_arch, target_os, ...).
     true
 }
 

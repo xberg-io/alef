@@ -47,10 +47,6 @@ module_name = "_test_lib"
     cfg.resolve().unwrap().remove(0)
 }
 
-// ---------------------------------------------------------------------------
-// Trait bridge helpers
-// ---------------------------------------------------------------------------
-
 fn make_trait_def(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
     TypeDef {
         name: name.to_string(),

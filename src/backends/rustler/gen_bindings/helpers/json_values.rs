@@ -122,7 +122,6 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_safe_param_name(name: &
 /// Atoms containing colons, dashes, or other special chars are wrapped as `"atom:value"`.
 /// This is used for enum variant atom values that may contain `#[serde(rename)]` strings.
 pub(in crate::backends::rustler::gen_bindings) fn elixir_safe_atom(atom_value: &str) -> String {
-    // Check if atom is a valid Elixir identifier: [a-zA-Z_][a-zA-Z0-9_]*[?!]?
     fn is_valid_identifier(s: &str) -> bool {
         if s.is_empty() {
             return false;
@@ -139,7 +138,6 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_safe_atom(atom_value: &
                     if !c.is_ascii_alphanumeric() && c != '_' && c != '?' && c != '!' {
                         return false;
                     }
-                    // ? and ! must be at the end
                     if (c == '?' || c == '!') && chars.as_str() != "" {
                         return false;
                     }
@@ -166,36 +164,29 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_field_name_with_type(
 ) -> String {
     let stripped = field_name.trim_start_matches('_');
 
-    // If field name is non-positional (not `_N`), use it directly (struct variant).
     if !stripped.is_empty() && !stripped.chars().all(|c| c.is_ascii_digit()) {
         return stripped.to_snake_case();
     }
 
-    // For positional fields, derive from type if available and single field.
     if total_fields == 1 {
         if let Some(type_name) = field_type_name {
-            // Try to strip variant name as prefix. E.g., `Pdf` variant with `PdfMetadata` type.
             if let Some(remainder) = type_name.strip_prefix(variant_name) {
-                // Convert `Metadata` to `metadata`
                 let derived = remainder.to_snake_case();
                 if !derived.is_empty() {
                     return derived;
                 }
             }
 
-            // For primitive types (String, bool, etc.), use generic `value`.
             if is_primitive_type(type_name) {
                 return "value".to_string();
             }
         }
     }
 
-    // For multiple fields or when inference fails, use generic names.
     if total_fields > 1 {
         return format!("value{}", field_idx);
     }
 
-    // Fallback: use `value` for single non-inferred field.
     "value".to_string()
 }
 
@@ -251,12 +242,8 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_field_default(
 ) -> String {
     use crate::core::ir::DefaultValue;
 
-    // G7: Check if the field is nilable — if so, always default to nil.
-    // A field is nilable if: field.optional=true OR ty=TypeRef::Optional(...)
     let is_nilable = field.optional || matches!(ty, TypeRef::Optional(_));
     if is_nilable {
-        // Always default to nil for nilable fields, regardless of any typed_default.
-        // This ensures the defstruct default aligns with the @type spec (T | nil).
         return "nil".to_string();
     }
 
@@ -272,7 +259,6 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_field_default(
         };
     }
 
-    // No typed_default: use type-appropriate zero
     elixir_zero_value(ty, enum_defaults)
 }
 
@@ -342,7 +328,6 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_typespec(
             if opaque_types.contains(name) {
                 "reference()".to_string()
             } else if default_types.contains(name) {
-                // Passed as an optional JSON string; nil means use defaults.
                 "String.t() | nil".to_string()
             } else {
                 "map()".to_string()
@@ -350,7 +335,6 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_typespec(
         }
         TypeRef::Optional(inner) => {
             let inner_spec = elixir_typespec(inner, opaque_types, default_types);
-            // Guard against double "| nil" when inner is already nilable (e.g., default_types with "String.t() | nil")
             if inner_spec.ends_with("| nil") {
                 inner_spec
             } else {
@@ -403,13 +387,11 @@ mod tests {
 
     #[test]
     fn test_elixir_typespec_optional_default_type_no_double_nil() {
-        // Simulate default_types containing "SomeType"
         let mut default_types = AHashSet::new();
         default_types.insert("SomeType".to_string());
 
         let opaque_types = AHashSet::new();
 
-        // Test: Optional(Named("SomeType")) should produce "String.t() | nil", not "String.t() | nil | nil"
         let ty = TypeRef::Optional(Box::new(TypeRef::Named("SomeType".to_string())));
         let result = elixir_typespec(&ty, &opaque_types, &default_types);
 
@@ -422,13 +404,11 @@ mod tests {
 
     #[test]
     fn test_elixir_typespec_named_default_type() {
-        // Simulate default_types containing "Options"
         let mut default_types = AHashSet::new();
         default_types.insert("Options".to_string());
 
         let opaque_types = AHashSet::new();
 
-        // Test: Named("Options") (not Optional) should produce "String.t() | nil"
         let ty = TypeRef::Named("Options".to_string());
         let result = elixir_typespec(&ty, &opaque_types, &default_types);
 
@@ -437,11 +417,9 @@ mod tests {
 
     #[test]
     fn test_elixir_typespec_optional_non_default_type() {
-        // Simulate default_types NOT containing "RegularType"
         let default_types = AHashSet::new();
         let opaque_types = AHashSet::new();
 
-        // Test: Optional(Named("RegularType")) should produce "map() | nil"
         let ty = TypeRef::Optional(Box::new(TypeRef::Named("RegularType".to_string())));
         let result = elixir_typespec(&ty, &opaque_types, &default_types);
 
@@ -453,7 +431,6 @@ mod tests {
         let default_types = AHashSet::new();
         let opaque_types = AHashSet::new();
 
-        // Test: Optional(String) should produce "String.t() | nil"
         let ty = TypeRef::Optional(Box::new(TypeRef::String));
         let result = elixir_typespec(&ty, &opaque_types, &default_types);
 

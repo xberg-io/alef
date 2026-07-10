@@ -76,7 +76,6 @@ fn fixture_with_input(input: serde_json::Value) -> FixtureGroup {
 
 /// Build synthetic enums for testing.
 fn build_test_enums() -> Vec<EnumDef> {
-    // ScrollDirection unit-only enum with snake_case rename_all
     let scroll_direction = EnumDef {
         name: "ScrollDirection".to_string(),
         rust_path: "my_crate::ScrollDirection".to_string(),
@@ -124,13 +123,11 @@ fn build_test_enums() -> Vec<EnumDef> {
         version: Default::default(),
     };
 
-    // MyAction tagged enum with camelCase rename_all
     let my_action = EnumDef {
         name: "MyAction".to_string(),
         rust_path: "my_crate::MyAction".to_string(),
         original_rust_path: String::new(),
         variants: vec![
-            // Click { selector: String }
             EnumVariant {
                 name: "Click".to_string(),
                 fields: vec![FieldDef {
@@ -163,7 +160,6 @@ fn build_test_enums() -> Vec<EnumDef> {
                 cfg: None,
                 version: Default::default(),
             },
-            // Scroll { direction: ScrollDirection }
             EnumVariant {
                 name: "Scroll".to_string(),
                 fields: vec![FieldDef {
@@ -196,7 +192,6 @@ fn build_test_enums() -> Vec<EnumDef> {
                 cfg: None,
                 version: Default::default(),
             },
-            // Scrape (unit variant)
             EnumVariant {
                 name: "Scrape".to_string(),
                 fields: Vec::new(),
@@ -263,33 +258,26 @@ fn tagged_enum_array_emits_rustler_tuples() {
 
     let body = &test_file.content;
 
-    // Verify that the action list contains Rustler tuples, not raw maps.
-    // Verify the interact call exists and contains the actions arg.
     let _interact_call = body
         .lines()
         .find(|line| line.contains("MyLib.interact"))
         .expect("interact call found");
 
-    // Unit variant: :scrape
     assert!(
         body.contains(":scrape"),
         "unit variant should emit as atom :scrape, got:\n{body}"
     );
 
-    // Click variant with field: {:click, %{selector: "..."}}
     assert!(
         body.contains(":click") && body.contains("selector:"),
         "click variant should emit tuple with selector field, got:\n{body}"
     );
 
-    // Scroll variant with nested unit enum field: {:scroll, %{direction: :down}}
     assert!(
         body.contains(":scroll") && body.contains("direction: :down"),
         "scroll variant should emit tuple with direction as atom, got:\n{body}"
     );
 
-    // Verify the overall shape: the actions are in a list [...].
-    // A simple heuristic: count occurrences of leading colons in the actions context.
     let action_count =
         body.matches(":click").count() + body.matches(":scroll").count() + body.matches(":scrape").count();
     assert!(

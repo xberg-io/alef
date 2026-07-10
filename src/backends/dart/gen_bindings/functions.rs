@@ -58,7 +58,6 @@ pub(super) fn emit_function(
 
     let fn_name = dart_safe_ident(&f.name.to_lower_camel_case());
 
-    // Find the optional config param if present, and determine its type.
     let config_param = f.params.iter().find(|p| is_optional_config_param(p, type_defs, enums));
     let config_default = config_param.and_then(|p| match &p.ty {
         TypeRef::Named(n) => {
@@ -67,13 +66,6 @@ pub(super) fn emit_function(
         _ => None,
     });
 
-    // Build the dart wrapper parameter list. If the function has a config param
-    // with a synthesizable default, include it as an optional named parameter.
-    //
-    // For all other functions, emit required (non-optional) params as positional and
-    // optional params inside a `{...}` named-parameter block. This matches the natural
-    // Dart calling convention `createClient('key', baseUrl: ...)` and mirrors the
-    // underlying FRB binding which is itself named-only.
     let params_str = if let Some((cfg_type, _)) = &config_default {
         let required_params: Vec<String> = f
             .params
@@ -108,8 +100,6 @@ pub(super) fn emit_function(
         }
     };
 
-    // FRB bridge functions use Dart named parameters (required keyword).
-    // Call them with `name: value` named-argument syntax.
     let call_args_str = if let Some((_, default_expr)) = &config_default {
         let non_config: Vec<String> = f
             .params
@@ -137,8 +127,6 @@ pub(super) fn emit_function(
             .join(", ")
     };
 
-    // FRB v2 wraps ALL Rust functions as `Future<T>` in Dart, including sync ones.
-    // Therefore all wrapper methods must be `async` and `await` the bridge call.
     {
         let return_ty = if matches!(f.return_type, TypeRef::Unit) {
             "Future<void>".to_string()
@@ -269,12 +257,6 @@ fn render_enum_variant_default(ty: &TypeRef, variant: &str, enums: &[EnumDef]) -
     let variant_name = dart_safe_ident(&variant.to_lower_camel_case());
     let enum_def = enums.iter().find(|e| e.name == *name)?;
     let enum_variant = enum_def.variants.iter().find(|v| v.name == variant)?;
-    // Flat Dart enums (all variants are unit variants) are emitted as `enum Foo { a, b }`.
-    // Their variants are accessed as `Foo.a` with no call parens.
-    // Tagged enums (any variant has fields) become `@freezed sealed class Foo` in Dart,
-    // where every variant — including unit ones — is a `const factory` constructor and
-    // requires `()` to invoke it.  Without the parens the expression is a function
-    // tear-off (`OutputFormat Function()`), not an `OutputFormat` value.
     let is_flat_enum = enum_def.variants.iter().all(|v| v.fields.is_empty());
     if is_flat_enum && enum_variant.fields.is_empty() {
         Some(format!("{name}.{variant_name}"))
@@ -302,9 +284,6 @@ mod tests {
 
     #[test]
     fn empty_vec_of_integer_primitive_uses_int64list_ctor() {
-        // Alef widens every Rust integer to i64 in the FRB-facing mirror
-        // (see backends/dart/gen_rust_crate/mirror.rs), and FRB then maps
-        // Vec<i64> → Int64List. Bytes (Vec<u8>) is the lone special case.
         let widened_to_int64 = [
             PrimitiveType::U16,
             PrimitiveType::U32,
@@ -327,7 +306,6 @@ mod tests {
 
     #[test]
     fn empty_vec_of_float_primitive_uses_float64list_ctor() {
-        // Alef widens f32 → f64 in the mirror; FRB maps Vec<f64> → Float64List.
         assert_eq!(
             empty_vec_literal(&TypeRef::Primitive(PrimitiveType::F32)),
             "Float64List(0)"

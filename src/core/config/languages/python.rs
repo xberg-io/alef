@@ -80,7 +80,6 @@ pub struct PythonConfig {
     #[serde(default)]
     pub capsule_types: HashMap<String, CapsuleTypeConfig>,
     /// When true, wrap blocking function bodies in py.allow_threads() to release the GIL.
-    // Deferred: wire into gen_bindings.rs to emit py.allow_threads(|| { ... }) for non-async functions.
     #[serde(default)]
     pub release_gil: bool,
     /// Functions to exclude from Python binding generation.

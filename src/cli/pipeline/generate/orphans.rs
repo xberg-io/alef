@@ -45,7 +45,6 @@ pub fn sweep_orphans(
                 };
                 if file_type.is_dir() {
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    // Skip dependency / build directories
                     if matches!(
                         name,
                         ".git"
@@ -86,7 +85,6 @@ pub fn sweep_orphans(
             }
         }
     }
-    // Best-effort empty-dir cleanup: remove deepest-first so nested empties collapse.
     let mut dirs: Vec<_> = touched_dirs.into_iter().collect();
     dirs.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
     for dir in dirs {

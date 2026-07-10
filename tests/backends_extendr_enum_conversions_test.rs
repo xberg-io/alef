@@ -240,12 +240,6 @@ fn extendr_enum_with_excluded_variants_emits_conversion_fallback() {
 
 #[test]
 fn extendr_flat_data_enum_with_struct_variant_generates_from_core_impl() {
-    // VlmFallbackPolicy: unit variants (Disabled, Always) + struct variant (OnLowQuality { quality_threshold: f64 })
-    // is_flat_data_enum=true (has data, all data variants have 1 field)
-    // can_flat_data_enum_round_trip=false (struct variant, not tuple)
-    // has serde_tag="mode"
-    // Previously: skipped all conversion generation (bug)
-    // Fixed: still generates From<core> impl (struct variant data lost in binding, which is acceptable)
     let mut enum_def = make_enum(
         "FallbackPolicy",
         vec![
@@ -253,7 +247,7 @@ fn extendr_flat_data_enum_with_struct_variant_generates_from_core_impl() {
             make_variant(
                 "OnLowQuality",
                 vec![make_field("quality_threshold", TypeRef::Primitive(PrimitiveType::F64))],
-                false, // struct variant, not tuple
+                false,
             ),
             make_variant("Always", vec![], false),
         ],
@@ -267,12 +261,10 @@ fn extendr_flat_data_enum_with_struct_variant_generates_from_core_impl() {
         .expect("generation succeeds");
     let content = &files[0].content;
 
-    // Should generate From<test_lib::FallbackPolicy> impl even though it's not round-trip safe
     assert!(
         content.contains("impl From<test_lib::FallbackPolicy> for FallbackPolicy"),
         "flat data enum with struct variant must generate From<core> impl:\n{content}"
     );
-    // Unit variants should be converted directly with discriminator field
     assert!(
         content.contains("test_lib::FallbackPolicy::Disabled => Self { mode: \"Disabled\".to_string()"),
         "{content}"
@@ -281,7 +273,6 @@ fn extendr_flat_data_enum_with_struct_variant_generates_from_core_impl() {
         content.contains("test_lib::FallbackPolicy::Always => Self { mode: \"Always\".to_string()"),
         "{content}"
     );
-    // Struct variant data is lost, converted with .. pattern matching to discard fields
     assert!(
         content.contains("test_lib::FallbackPolicy::OnLowQuality { .. } => Self { mode: \"OnLowQuality\".to_string()"),
         "{content}"
@@ -290,10 +281,7 @@ fn extendr_flat_data_enum_with_struct_variant_generates_from_core_impl() {
 
 #[test]
 fn extendr_flat_data_enum_with_reserved_keyword_serde_tag_escapes_field_name() {
-    // Reproduces the kreuzberg `ImageOutputFormat` compile error:
     //   `#[serde(tag = "type")]` on a flat data enum caused alef to emit
-    //   `pub type: String,` in the binding struct, which is a Rust reserved keyword.
-    // Expected fix: the discriminator field uses raw-identifier syntax (`r#type`)
     // and a `#[serde(rename = "type")]` attribute so JSON wire format is preserved.
     let mut enum_def = make_enum(
         "ImageOutputFormat",
@@ -303,7 +291,7 @@ fn extendr_flat_data_enum_with_reserved_keyword_serde_tag_escapes_field_name() {
             make_variant(
                 "Jpeg",
                 vec![make_field("quality", TypeRef::Primitive(PrimitiveType::U8))],
-                false, // struct variant
+                false,
             ),
         ],
     );
@@ -316,22 +304,18 @@ fn extendr_flat_data_enum_with_reserved_keyword_serde_tag_escapes_field_name() {
         .expect("generation succeeds");
     let content = &files[0].content;
 
-    // Must not emit the bare `type` keyword as a field name — that is a compile error.
     assert!(
         !content.contains("pub type: String"),
         "bare `pub type:` is a reserved keyword and must not appear:\n{content}"
     );
-    // Must use raw-identifier syntax for the field declaration.
     assert!(
         content.contains("pub r#type: String"),
         "discriminator field must be emitted as `pub r#type: String`:\n{content}"
     );
-    // Must add serde(rename) so JSON round-trips still use the original wire name.
     assert!(
         content.contains("#[serde(rename = \"type\")]"),
         "escaped discriminator field must have `#[serde(rename = \"type\")]`:\n{content}"
     );
-    // From<core> impl must reference the escaped field name in struct literals.
     assert!(
         content.contains("r#type: \""),
         "From<core> arm struct literals must use `r#type:` not `type:`:\n{content}"

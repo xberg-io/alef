@@ -27,7 +27,6 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn needs_variadic_arity
     params: &[crate::core::ir::ParamDef],
 ) -> bool {
     params.iter().any(|p| p.optional) || {
-        // Promoted: any required param that follows an optional one
         let mut seen_optional = false;
         params.iter().any(|p| {
             if p.optional {
@@ -81,7 +80,6 @@ fn param_scan_args_type_extended(
             mapper.map_type(&p.ty)
         }
     } else if matches!(p.ty, TypeRef::String) && (p.optional || promoted || treat_as_optional) {
-        // For optional String, use Option<magnus::Value> and handle nil manually
         "magnus::Value".to_string()
     } else {
         mapper.map_type(&p.ty)
@@ -133,7 +131,6 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn gen_scan_args_prolog
         }
     }
 
-    // Build the scan_args! call
     let req_type_str = req_types.join(", ");
     let opt_type_str = opt_types.join(", ");
     let _type_params = match (req_types.is_empty(), opt_types.is_empty()) {
@@ -143,8 +140,6 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn gen_scan_args_prolog
         (false, false) => format!("(({req_type_str},), ({opt_type_str},))"),
     };
 
-    // scan_args requires all 6 generic parameters: Req, Opt, Splat, Trail, Kw, Block
-    // The req_type_str and opt_type_str already have proper formatting
     let scan_args_line = crate::backends::magnus::template_env::render(
         "function_scan_args_call.rs.jinja",
         minijinja::context! {
@@ -157,10 +152,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn gen_scan_args_prolog
 
     let mut lines = vec![scan_args_line];
 
-    // Destructure required
     if !req_names.is_empty() {
-        // If there's only one param, destructure the tuple directly (e.g., (html,) = ...)
-        // If there are multiple, use the tuple pattern as-is
         let pat = if req_names.len() == 1 {
             format!("({},)", req_names[0])
         } else {
@@ -178,10 +170,7 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn gen_scan_args_prolog
         ));
     }
 
-    // Destructure optional
     if !opt_names.is_empty() {
-        // If there's only one param, destructure the tuple directly (e.g., (options,) = ...)
-        // If there are multiple, use the tuple pattern as-is
         let pat = if opt_names.len() == 1 {
             format!("({},)", opt_names[0])
         } else {
@@ -199,7 +188,6 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn gen_scan_args_prolog
         ));
     }
 
-    // After destructuring, convert Option<magnus::Value> back to Option<String> for optional strings
     for (idx, p) in params.iter().enumerate() {
         let promoted = crate::codegen::shared::is_promoted_optional(params, idx);
         let is_last = idx == params.len() - 1;

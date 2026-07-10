@@ -43,7 +43,6 @@ pub(super) fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, 
     let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("kind");
 
-    // --- Marker module ---
     let mut doc_comment = String::new();
     if !enum_def.doc.is_empty() {
         emit_yard_doc(&mut doc_comment, &enum_def.doc, "  ");
@@ -55,8 +54,6 @@ pub(super) fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, 
             },
         ));
     }
-    // `interface!` already declares the module abstract; calling `abstract!` again
-    // raises `T::Private::Abstract::Declare: already declared as abstract`.
     let mut dispatch_arms = String::new();
     for variant in &enum_def.variants {
         let wire_name = crate::codegen::naming::wire_variant_value(
@@ -84,7 +81,6 @@ pub(super) fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, 
         },
     ));
 
-    // --- Per-variant Data.define classes ---
     for variant in &enum_def.variants {
         let variant_class = format!("{}{}", class_name, &variant.name);
         let field_names: Vec<&str> = variant.fields.iter().map(|f| f.name.as_str()).collect();
@@ -102,7 +98,6 @@ pub(super) fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, 
             ));
         }
 
-        // Data.define(...) declaration — Ruby requires symbol arguments
         let symbol_args = if field_names.is_empty() {
             String::new()
         } else {
@@ -117,7 +112,6 @@ pub(super) fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, 
                 .join(", ")
         };
 
-        // Sorbet sigs for the Data attributes — wrap auto-generated accessors via super
         let mut field_accessors = String::new();
         for field in &variant.fields {
             let attr_name = if field.name == "_0" {
@@ -130,9 +124,7 @@ pub(super) fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, 
             if !field.doc.is_empty() {
                 emit_yard_doc(&mut doc_comment, &field.doc, "    ");
             }
-            // Wrap the Data-auto-generated accessor so the sig has a method to attach to.
             // `# rubocop:disable Lint/UselessMethodDefinition` keeps `rubocop -a` from
-            // stripping the def (which would leave the sig orphaned and break Sorbet).
             field_accessors.push_str(&crate::backends::magnus::template_env::render(
                 "tagged_enum_field_accessor.rb.jinja",
                 minijinja::context! {
@@ -143,7 +135,6 @@ pub(super) fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, 
             ));
         }
 
-        // Variant predicate methods (return true for this variant, false for others)
         let mut predicate_methods = String::new();
         for variant_name in &variant_names {
             let v_snake = crate::codegen::naming::pascal_to_snake(variant_name);
@@ -157,7 +148,6 @@ pub(super) fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, 
             ));
         }
 
-        // Class-level `from_hash` factory — per-variant
         let field_args: Vec<String> = variant
             .fields
             .iter()
@@ -183,9 +173,6 @@ pub(super) fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, 
             format!("new({})", field_args.join(", "))
         };
 
-        // YARD documents constants only when the preceding comment uses `##`.
-        // emit_yard_doc / tagged_enum_variant_doc.rb.jinja both emit single-`#`
-        // form; promote to double for the constant-assignment site.
         let doc_comment = doc_comment.replace("  # ", "  ## ");
 
         out.push_str(&crate::backends::magnus::template_env::render(
@@ -202,8 +189,6 @@ pub(super) fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, 
         ));
     }
 
-    // The variant loop leaves a trailing blank line; drop it so the enclosing
-    // module body doesn't end with an empty line (Layout/EmptyLinesAroundModuleBody).
     if out.ends_with("\n\n") {
         out.pop();
     }
@@ -231,12 +216,6 @@ pub(super) fn magnus_variant_wrapper_constructor(
     let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
     let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
     let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
-    // Wrap binding-side newtype arguments (TypeRef::Named) with `.into()` so
-    // they coerce to the core type before being passed to `<core>::new`.
-    // Skip `String` and primitive types where `.into()` would produce
-    // ambiguous type inference against multi-impl targets like
-    // `impl Into<String>`. Binding-side scalars are already core-shaped, so
-    // a bare pass-through is correct for them.
     let needs_into = |t: &crate::core::ir::TypeRef| -> bool {
         matches!(
             t,

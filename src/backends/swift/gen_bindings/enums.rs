@@ -9,11 +9,6 @@ use heck::{AsSnakeCase, ToLowerCamelCase};
 pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
     let tag_key = en.serde_tag.as_deref().unwrap_or("type");
 
-    // Collect all unique field names across all variants. Use swift_associated_label
-    // so positional tuple-variant fields (named "0", "1", … or "_0", "_1", …) become
-    // `field0`, `field1`, … — bare digits are invalid Swift identifiers, and the
-    // init(from:)/encode(to:) bodies below already use the label-synthesized form
-    // via swift_associated_label, so the CodingKeys cases must match.
     let mut field_keys = std::collections::BTreeSet::new();
     for variant in &en.variants {
         for (idx, field) in variant.fields.iter().enumerate() {
@@ -61,7 +56,6 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
                 let is_optional = field.optional || already_optional;
                 let ty = mapper.map_type(&field.ty);
 
-                // For Optional types, use decodeIfPresent with the type as-is.
                 let decode_method = if is_optional { "decodeIfPresent" } else { "decode" };
                 field_decoders.push(format!(
                     "{label}: try container.{decode_method}({ty}.self, forKey: .{label})"
@@ -230,19 +224,13 @@ pub(super) fn emit_enum(
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
 
     if all_unit {
-        // All-unit serde enums receive `: String, Codable, Sendable, Hashable` conformance
-        // so that structs with enum-typed fields can derive `Codable` automatically.
-        // Raw values are the serde-serialized variant names (respecting serde_rename_all
-        // and per-variant serde_rename overrides) so JSONDecoder/JSONEncoder round-trip
-        // correctly against the Rust wire format.
-        let _ = mapper; // mapper unused for case bodies — suppress unused warning
+        let _ = mapper;
         let mut cases = String::new();
         for variant in &en.variants {
             super::client::emit_doc_comment(&variant.doc, "    ", &mut cases);
             let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
             let raw_value = unit_enum_wire_value(variant, en.serde_rename_all.as_deref());
             if raw_value == case_name.trim_matches('`') {
-                // Raw value matches the Swift case name — no explicit annotation needed.
                 cases.push_str(&crate::backends::swift::template_env::render(
                     "enum_case_unit.jinja",
                     minijinja::context! {
@@ -250,7 +238,6 @@ pub(super) fn emit_enum(
                     },
                 ));
             } else {
-                // Explicit raw-value annotation required (e.g. `case toolCalls = "tool_calls"`).
                 cases.push_str(&crate::backends::swift::template_env::render(
                     "enum_case_raw_value.swift.jinja",
                     minijinja::context! {
@@ -270,16 +257,6 @@ pub(super) fn emit_enum(
         emit_enum_into_rust_extension(&en.name, out);
         return;
     }
-    // Data-variant enum (has_serde + not all_unit): emit as native Swift enum with associated values.
-    //
-    // If the enum has serde_tag (internally-tagged), emit custom Codable conformance
-    // to handle the {"type": "variant", ...} wire format instead of Swift's default
-    // {"variant": {...}} externally-tagged form.
-    //
-    // Otherwise, rely on Swift's auto-synthesized Codable when all associated value
-    // types are Codable-safe (primitives, String, or known first-class structs).
-    // When any associated value is not Codable-safe, fall back to a typealias to
-    // RustBridge.X — users lose Swift-side pattern matching but everything else works.
     if !all_variants_codable_safe(en, known_dto_names) {
         out.push_str(&crate::backends::swift::template_env::render(
             "typealias.jinja",
@@ -290,7 +267,6 @@ pub(super) fn emit_enum(
         return;
     }
 
-    // Check if this enum uses serde tagging (internally-tagged) or untagged.
     let has_serde_tag = en.serde_tag.is_some() && !en.serde_untagged;
     let is_serde_untagged = en.serde_untagged
         && en.variants.iter().any(|v| !v.fields.is_empty())
@@ -301,7 +277,6 @@ pub(super) fn emit_enum(
             .all(|v| v.fields.len() == 1);
 
     if has_serde_tag {
-        // Emit as enum with custom Codable for internally-tagged format
         let mut variants = String::new();
         for variant in &en.variants {
             emit_variant_with_data(variant, &mut variants, mapper);
@@ -317,8 +292,6 @@ pub(super) fn emit_enum(
             },
         ));
     } else if is_serde_untagged {
-        // Emit as enum with custom Codable that matches serde's untagged
-        // wire format (bare value, no `{"variant": ...}` wrapper).
         let mut variants = String::new();
         for variant in &en.variants {
             emit_variant_with_data(variant, &mut variants, mapper);
@@ -334,7 +307,6 @@ pub(super) fn emit_enum(
             },
         ));
     } else {
-        // Emit as enum with auto-synthesized Codable (externally-tagged)
         let mut variants = String::new();
         for variant in &en.variants {
             emit_variant_with_data(variant, &mut variants, mapper);
@@ -349,10 +321,6 @@ pub(super) fn emit_enum(
         ));
     }
 
-    // Emit a `text()` accessor for untagged unions configured as display-as-text
-    // content types (e.g. `AssistantContent`). Mirrors the Kotlin backend: a String
-    // variant returns its payload verbatim; a Vec variant concatenates the `text`
-    // field of every element whose serialized form is a `{"type":"text", ...}` part.
     if is_serde_untagged && text_types.iter().any(|t| t == &en.name) {
         emit_swift_text_accessor(en, out);
     }
@@ -425,8 +393,6 @@ pub(super) fn emit_swift_text_accessor(en: &EnumDef, out: &mut String) {
         } else if variant.fields.is_empty() {
             emit_swift_text_empty_case(out, &case_name);
         } else {
-            // Struct or multi-field variant — match without binding associated values
-            // and return empty.
             out.push_str("        case .");
             out.push_str(&case_name);
             out.push_str(":\n            return \"\"\n");
@@ -503,7 +469,6 @@ pub(super) fn emit_enum_without_into_rust(
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
 
     if all_unit {
-        // Emit all-unit enum without intoRust() extension (unlike emit_enum).
         let _ = mapper;
         let mut cases = String::new();
         for variant in &en.variants {
@@ -534,13 +499,10 @@ pub(super) fn emit_enum_without_into_rust(
                 cases => cases,
             },
         ));
-        // Do NOT call emit_enum_into_rust_extension — that's the key difference.
         return;
     }
 
-    // For data-variant enums, check if all variants are Codable-safe.
     if all_variants_codable_safe(en, known_dto_names) {
-        // Emit as a native Swift enum with associated values, without intoRust().
         let mut variants = String::new();
         for variant in &en.variants {
             emit_variant_with_data(variant, &mut variants, mapper);
@@ -553,9 +515,7 @@ pub(super) fn emit_enum_without_into_rust(
                 codable_body => "",
             },
         ));
-        // Do NOT call emit_enum_into_rust_extension — that's the key difference.
     } else {
-        // Fall back to typealias (same as emit_enum) if not all variants are Codable-safe.
         out.push_str(&crate::backends::swift::template_env::render(
             "typealias.jinja",
             minijinja::context! {
@@ -620,8 +580,6 @@ pub(super) fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, ma
             .iter()
             .enumerate()
             .map(|(idx, f)| {
-                // Honor field.optional (extractor-unwrapped form) in addition to
-                // TypeRef::Optional(inner) — both encode "nullable" in the IR.
                 let already_optional = matches!(&f.ty, TypeRef::Optional(_));
                 let ty_str = mapper.map_type(&f.ty);
                 let ty_with_opt = if f.optional && !already_optional {

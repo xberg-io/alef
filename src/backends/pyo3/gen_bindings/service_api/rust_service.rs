@@ -8,14 +8,11 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let core_import = config.core_import_name();
     let mut out = String::new();
 
-    // File-level allow attributes and imports for generated service glue.
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_rs_header.rs.jinja",
         context! {},
     ));
 
-    // Emit one handler bridge per unique handler contract referenced by any registration.
-    // Skip non-object-safe traits (WebSocketHandler, SseEventProducer) which use RPITIT.
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
             .services
@@ -28,11 +25,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         names
             .iter()
             .filter_map(|n| find_contract(api, n))
-            .filter(|c| {
-                // PyO3 pyo3 backend cannot generate bridges for non-object-safe traits.
-                // WebSocketHandler and SseEventProducer use RPITIT (impl Trait return type).
-                c.trait_name != "WebSocketHandler" && c.trait_name != "SseEventProducer"
-            })
+            .filter(|c| c.trait_name != "WebSocketHandler" && c.trait_name != "SseEventProducer")
             .collect()
     };
 
@@ -40,7 +33,6 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         gen_handler_bridge(&mut out, contract, &core_import);
     }
 
-    // Emit one pyfunction per service × entrypoint
     for service in &api.services {
         for ep in &service.entrypoints {
             gen_run_pyfunction(&mut out, service, ep, api, &core_import);
@@ -61,11 +53,9 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let bridge_name = format!("Py{}Bridge", trait_name.to_upper_camel_case());
     let dispatch_name = &contract.dispatch.name;
 
-    // Determine wire types — use plain serde_json::Value, not re-exported from core
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
-    // Special handling: if the wire type includes the core import prefix, strip it
     let req_type = if req_type.contains("::") {
         req_type.split("::").last().unwrap_or(req_type)
     } else {
@@ -77,10 +67,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         resp_type
     };
 
-    // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
-    // contract's dispatch method receives but the wire bridge does not consume). Their concrete
-    // types cannot be reconstructed from the sanitized surface, so the library supplies them
-    // verbatim via `dispatch_extra_params`. Each is emitted as a `, {decl}` prefix argument.
     let extra_param: String = contract
         .dispatch_extra_params
         .iter()
@@ -93,8 +79,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         context! { trait_name => trait_name, bridge_name => bridge_name.as_str() },
     ));
 
-    // Trait impl — returns a boxed future directly without async_trait
-    // Use proper module paths for serde_json::Value since it's not re-exported from core_import
     let req_path = if req_type == "Value" {
         "serde_json::Value".to_string()
     } else {
@@ -106,11 +90,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         format!("{core_import}::{resp_type}")
     };
 
-    // The future's `Output` is the contract dispatch's real return type when the library
-    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
-    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
-    // fallible computation produces the wire `Result` and the adapter converts it into the
-    // dispatch return type — keeping the generator ignorant of the library's response model.
     let box_err = "Box<dyn std::error::Error + Send + Sync>";
     let wire_output = format!("Result<{resp_path}, {box_err}>");
     let output_type = contract
@@ -163,7 +142,6 @@ fn gen_run_pyfunction(
     let owner_path = &service.rust_path;
     let ep_method = &ep.method;
 
-    // Build the function signature: registrations + entrypoint params
     let mut rust_params = vec![
         "_py: Python<'_>".to_owned(),
         "registrations: &Bound<'_, PyList>".to_owned(),
@@ -184,7 +162,6 @@ fn gen_run_pyfunction(
         },
     ));
 
-    // Build the owner instance via its constructor
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_rs_owner_ctor.rs.jinja",
@@ -192,13 +169,11 @@ fn gen_run_pyfunction(
     ));
     out.push('\n');
 
-    // Iterate registrations and dispatch
     out.push_str("    for entry in registrations.iter() {\n");
     out.push_str("        let tuple: &Bound<'_, PyTuple> = entry.cast()?;\n");
     out.push_str("        let method_name: String = tuple.get_item(0)?.extract()?;\n");
     out.push_str("        let callable = tuple.get_item(2)?;\n\n");
 
-    // Dispatch on method name
     out.push_str("        match method_name.as_str() {\n");
     for reg in &service.registrations {
         let reg_method = &reg.method;
@@ -206,7 +181,6 @@ fn gen_run_pyfunction(
 
         if let Some(contract) = find_contract(api, contract_name) {
             let bridge_name = format!("Py{}Bridge", contract.trait_name.to_upper_camel_case());
-            // Extract metadata params from the tuple (index 1 is the metadata sub-tuple)
             let meta_count = reg.metadata_params.len();
 
             out.push_str(&crate::backends::pyo3::template_env::render(
@@ -220,16 +194,10 @@ fn gen_run_pyfunction(
             ));
 
             if meta_count > 0 {
-                // Bind the metadata item to a local first — `tuple.get_item(1)?` is a temporary
-                // and `.cast()` borrows from it, so chaining would drop it while borrowed.
                 out.push_str("                let meta_item = tuple.get_item(1)?;\n");
                 out.push_str("                let meta: &Bound<'_, PyTuple> = meta_item.cast()?;\n");
                 for (i, meta_param) in reg.metadata_params.iter().enumerate() {
-                    // A metadata param whose type is a generated opaque binding type is a
                     // `#[pyclass]` wrapping `inner: Arc<core>`. pyo3 can only extract the BINDING
-                    // pyclass, not the core type the owner method expects — so extract the binding
-                    // type and unwrap `.inner` to core. (`service` is a descendant of the crate
-                    // root where the pyclass is defined, so the private `inner` field is in scope.)
                     let opaque_named = match &meta_param.ty {
                         TypeRef::Named(n) => api
                             .types
@@ -283,7 +251,6 @@ fn gen_run_pyfunction(
                 ));
             }
 
-            // Handle error if the registration is fallible
             if reg.error_type.is_some() {
                 out.push_str(
                     "                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n",
@@ -301,7 +268,6 @@ fn gen_run_pyfunction(
     out.push_str("        }\n");
     out.push_str("    }\n\n");
 
-    // Call the entrypoint
     let ep_call = build_ep_call(ep, service, core_import);
     out.push_str(&ep_call);
 
@@ -316,11 +282,6 @@ fn build_ctor_call(service: &ServiceDef, owner_path: &str, _core_import: &str) -
     if service.constructor.params.is_empty() {
         format!("{owner_path}::{}()", service.constructor.name)
     } else {
-        // For a first-pass implementation where constructor params are not
-        // yet threaded through, fall back to Default if available; otherwise
-        // use new() with zero-value placeholders.
-        // Callers can always extend by adding constructor params to the pyfunction
-        // signature in a follow-up pass.
         format!("{owner_path}::{}()", service.constructor.name)
     }
 }
@@ -330,8 +291,6 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
     let ep_method = &ep.method;
     let ep_args: Vec<String> = ep.params.iter().map(|p| p.name.clone()).collect();
     let args_str = ep_args.join(", ");
-    // Bind non-Unit returns to `_` so the unwrapped value (after `?`-propagation) doesn't
-    // trigger `unused_must_use` for `Result`-returning entrypoints like `into_router`.
     let bind = if matches!(ep.return_type, TypeRef::Unit) {
         ""
     } else {
@@ -339,10 +298,6 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
     };
 
     if ep.is_async {
-        // Drive the async entrypoint on the Tokio runtime that pyo3_async_runtimes
-        // already configured. The GIL is released for the duration of the (potentially
-        // long-running, blocking) entrypoint so host callbacks invoked from within it can
-        // re-acquire the GIL — holding it here would deadlock any callback that needs it.
         format!(
             "    {bind}_py.detach(|| {{\n        \
              pyo3_async_runtimes::tokio::get_runtime().block_on(owner.{ep_method}({args_str}))\n    \
@@ -350,16 +305,11 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
              .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n"
         )
     } else if ep.error_type.is_some() {
-        // Sync entrypoint: release the GIL across the blocking core call. A trait callback
-        // re-entering Python from a `spawn_blocking` worker thread would otherwise deadlock
-        // trying to acquire the GIL this thread holds. `detach` releases it only for the
-        // closure, which touches no Python objects (Rust args in, Rust value out).
         format!(
             "    {bind}_py.detach(|| owner.{ep_method}({args_str}))\n        \
              .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n"
         )
     } else {
-        // Sync entrypoint: release the GIL across the blocking core call (see above).
         format!("    {bind}_py.detach(|| owner.{ep_method}({args_str}));\n")
     }
 }

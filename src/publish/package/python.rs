@@ -52,11 +52,9 @@ fn package_wheel(
     output_dir: &Path,
     _version: &str,
 ) -> Result<PackageArtifact> {
-    // maturin places wheels in target/wheels/ by default.
     let wheels_dir = workspace_root.join("target/wheels");
     let platform = target.platform_for(crate::core::config::extras::Language::Python);
 
-    // Find a wheel that matches the current target platform fragment.
     let wheel_path = find_wheel(&wheels_dir, &platform)?;
     let file_name = wheel_path
         .file_name()
@@ -79,7 +77,6 @@ fn package_sdist(config: &ResolvedCrateConfig, workspace_root: &Path, output_dir
     let py_crate = crate::publish::crate_name_from_output(config, crate::core::config::extras::Language::Python)
         .unwrap_or_else(|| format!("{}-py", config.name));
 
-    // Run `maturin sdist --manifest-path crates/{py_crate}/Cargo.toml -o {output_dir}`
     let manifest = workspace_root.join("crates").join(&py_crate).join("Cargo.toml");
     let cmd = format!(
         "maturin sdist --manifest-path {} -o {}",
@@ -88,7 +85,6 @@ fn package_sdist(config: &ResolvedCrateConfig, workspace_root: &Path, output_dir
     );
     crate::publish::run_shell_command_in(&cmd, workspace_root)?;
 
-    // Find the produced sdist tarball.
     let sdist_path =
         find_latest_file(output_dir, ".tar.gz").context("maturin sdist: no .tar.gz found in output dir")?;
     let name = sdist_path
@@ -108,8 +104,6 @@ fn find_wheel(wheels_dir: &Path, platform_fragment: &str) -> Result<PathBuf> {
     if !wheels_dir.exists() {
         anyhow::bail!("wheels directory does not exist: {}", wheels_dir.display());
     }
-    // Maturin encodes the platform in the wheel filename with underscores
-    // replacing hyphens (e.g. linux_x86_64).
     let fragment_underscore = platform_fragment.replace('-', "_");
 
     let mut candidates: Vec<PathBuf> = fs::read_dir(wheels_dir)?
@@ -122,7 +116,6 @@ fn find_wheel(wheels_dir: &Path, platform_fragment: &str) -> Result<PathBuf> {
         })
         .collect();
 
-    // Sort by modification time descending to pick the newest.
     candidates.sort_by_key(|p| {
         fs::metadata(p)
             .and_then(|m| m.modified())
@@ -198,7 +191,6 @@ sources = ["src/lib.rs"]
         let tmp = TempDir::new().unwrap();
         let wheels_dir = tmp.path().join("target/wheels");
         fs::create_dir_all(&wheels_dir).unwrap();
-        // Write a wheel that doesn't match.
         fs::write(wheels_dir.join("my_lib-0.1.0-cp310-cp310-linux_aarch64.whl"), b"fake").unwrap();
 
         let result = find_wheel(&wheels_dir, "linux-x86_64");
@@ -209,7 +201,6 @@ sources = ["src/lib.rs"]
     fn publish_lang_config_defaults_wheel_sdist_to_none() {
         let config = minimal_config();
         let cfg = publish_lang_config(&config);
-        // Defaults: None means "use default = true" at call site.
         assert!(cfg.wheel.is_none());
         assert!(cfg.sdist.is_none());
     }

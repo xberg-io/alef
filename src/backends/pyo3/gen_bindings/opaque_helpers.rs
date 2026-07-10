@@ -21,9 +21,6 @@ pub(super) fn variant_wrapper_constructor_body(typ: &crate::core::ir::TypeDef, m
         .map(|p| p.name.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    // The binding wrapper's static `new` already does the
-    // `binding-side type → core-side type` conversion for each argument and
-    // produces a `Self`; we just delegate.
     let body = if call_args.is_empty() {
         "Self::new()".to_string()
     } else {
@@ -55,7 +52,6 @@ pub(super) fn should_emit_default_impl(
     impl_block: &str,
     default_required: &ahash::AHashSet<&str>,
 ) -> bool {
-    // Skip when a Default impl already exists in the block.
     if impl_block.contains("impl Default") {
         return false;
     }

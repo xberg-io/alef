@@ -93,17 +93,12 @@ fn string_array_arg_with_element_type_does_not_wrap_in_constructor() {
         .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
 
-    // Skip SutServerSetup.kt (server-pattern boilerplate emitted for any fixture with
-    // mock_response set) — we want the fixture-generated Test.kt that carries the
-    // actual `listOf(...)` arg emission under audit.
     let test_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("Test.kt"))
         .expect("test file should be emitted");
     let content = &test_file.content;
 
-    // Bug repro: broken codegen emitted `String(Files.readAllBytes(...), "...")`.
-    // This fails because String(bytes, charset) constructor expects Charset type, not String.
     assert!(
         !content.contains("Files.readAllBytes"),
         "must NOT try to read string array elements as file paths. Rendered:\n{content}"
@@ -114,7 +109,6 @@ fn string_array_arg_with_element_type_does_not_wrap_in_constructor() {
         "must NOT wrap strings in file-reading constructors. Rendered:\n{content}"
     );
 
-    // Sanity: the argument should be a simple listOf(...) with the string literals.
     assert!(
         content.contains("listOf(\"First\", \"Second\")"),
         "must emit string literals as a simple listOf. Rendered:\n{content}"

@@ -27,14 +27,12 @@ pub(super) fn find_r_options_type_from_api(api: &ApiSurface) -> Option<&TypeDef>
 /// settings; unset parameters remain `NULL` and are omitted from the resulting list so that the
 /// Rust side applies its own defaults.
 pub(super) fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
-    // Build parameter list
     let params: Vec<String> = opts_type
         .fields
         .iter()
         .map(|f| format!("{} = NULL", f.name.trim_start_matches('_')))
         .collect();
 
-    // Build field info for template
     let fields: Vec<minijinja::Value> = opts_type
         .fields
         .iter()
@@ -99,7 +97,6 @@ pub(super) fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import
     let type_defs: HashMap<_, _> = api.types.iter().map(|t| (t.name.as_str(), t)).collect();
     let enum_defs: HashMap<_, _> = api.enums.iter().map(|e| (e.name.as_str(), e)).collect();
 
-    // Generate enum and nested struct decoders by inspecting field types.
     let mut enum_decoders = BTreeSet::new();
     let mut struct_decoders = BTreeSet::new();
     for field in &opts_type.fields {
@@ -113,13 +110,11 @@ pub(super) fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import
         );
     }
 
-    // Helper function for list access
     code.push_str("/// Helper: extract and convert a value from an R list by name.\n");
     code.push_str("fn list_get(list: &List, key: &str) -> Option<Robj> {\n");
     code.push_str("    list.iter().find(|(n, _)| *n == key).map(|(_, v)| v)\n");
     code.push_str("}\n\n");
 
-    // Generate enum-specific decoders
     for enum_name in enum_decoders {
         if let Some(enum_def) = enum_defs.get(enum_name.as_str()) {
             gen_enum_decoder(&mut code, enum_def);
@@ -132,7 +127,6 @@ pub(super) fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import
         }
     }
 
-    // Main decode_options function
     code.push_str("/// Decode an R ExternalPtr, NULL, or named list into ");
     code.push_str(&opts_type.name);
     code.push_str(".\n");
@@ -169,7 +163,6 @@ pub(super) fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import
     code.push_str(&opts_type.name);
     code.push_str("::default();\n\n");
 
-    // Generate field decoders
     for field in &opts_type.fields {
         gen_field_decoder(&mut code, field, &enum_defs, &type_defs);
     }
@@ -314,14 +307,8 @@ pub(super) fn map_type_to_binding(ty: &TypeRef) -> TypeRef {
     match ty {
         TypeRef::Primitive(
             _prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
-        ) => {
-            // These are mapped to f64 in the binding layer
-            TypeRef::Primitive(PrimitiveType::F64)
-        }
-        TypeRef::Optional(inner) => {
-            // Recursively map the inner type and re-wrap in Optional
-            TypeRef::Optional(Box::new(map_type_to_binding(inner)))
-        }
+        ) => TypeRef::Primitive(PrimitiveType::F64),
+        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(map_type_to_binding(inner))),
         other => other.clone(),
     }
 }
@@ -333,12 +320,10 @@ pub(super) fn gen_field_decoder(
     enum_defs: &HashMap<&str, &EnumDef>,
     type_defs: &HashMap<&str, &TypeDef>,
 ) {
-    // Skip visitor field — R has no visitor concept; it remains at default None
     if field.name == "visitor" {
         return;
     }
 
-    // Map the core field type to the binding type before generating decoder logic
     let binding_ty = map_type_to_binding(&field.ty);
 
     let field_name = &field.name;
@@ -368,7 +353,6 @@ pub(super) fn gen_field_decoder(
             code.push_str("    }\n");
         }
         TypeRef::Char => {
-            // In the binding layer, char is mapped to String, so just assign the string directly
             code.push_str("    if let Some(v) = list_get(&list, \"");
             code.push_str(field_name_trim);
             code.push_str("\") {\n");
@@ -411,12 +395,6 @@ pub(super) fn gen_field_decoder(
         TypeRef::Primitive(
             prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
         ) => {
-            // R maps these types to f64 in the binding layer because R has no native u64/usize.
-            // The core field, however, still uses the original integer type, so the f64 value
-            // read from R must be cast back to the core type when assigning to `opts.{field}`.
-            //
-            // `field.optional == true` means the core field is `Option<T>` even though
-            // `field.ty` was stripped of its `Option` wrapper by the IR extractor.
             let core_ty = match prim {
                 PrimitiveType::U64 => "u64",
                 PrimitiveType::I64 => "i64",
@@ -512,78 +490,73 @@ pub(super) fn gen_field_decoder(
             code.push_str("(v)?;\n");
             code.push_str("    }\n");
         }
-        TypeRef::Optional(inner) => {
-            match inner.as_ref() {
-                TypeRef::Named(name) if enum_defs.contains_key(name.as_str()) => {
-                    let fn_name = format!("decode_{}", r_function_component(name));
-                    code.push_str("    if let Some(v) = list_get(&list, \"");
-                    code.push_str(field_name_trim);
-                    code.push_str("\") {\n");
-                    code.push_str("        opts.");
-                    code.push_str(field_name);
-                    code.push_str(" = Some(");
-                    code.push_str(&fn_name);
-                    code.push_str("(v)?);\n");
-                    code.push_str("    }\n");
-                }
-                TypeRef::Named(name) if type_defs.contains_key(name.as_str()) => {
-                    let fn_name = format!("decode_{}", r_function_component(name));
-                    code.push_str("    if let Some(v) = list_get(&list, \"");
-                    code.push_str(field_name_trim);
-                    code.push_str("\") {\n");
-                    code.push_str("        opts.");
-                    code.push_str(field_name);
-                    code.push_str(" = Some(");
-                    code.push_str(&fn_name);
-                    code.push_str("(v)?);\n");
-                    code.push_str("    }\n");
-                }
-                TypeRef::Primitive(
-                    prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
-                ) => {
-                    // R maps these types to Option<f64> in the binding layer, but the core
-                    // field uses the original integer type, so cast f64 back to the core type.
-                    let core_ty = match prim {
-                        PrimitiveType::U64 => "u64",
-                        PrimitiveType::I64 => "i64",
-                        PrimitiveType::Usize => "usize",
-                        PrimitiveType::Isize => "isize",
-                        _ => unreachable!(),
-                    };
-                    code.push_str("    if let Some(v) = list_get(&list, \"");
-                    code.push_str(field_name_trim);
-                    code.push_str("\") {\n");
-                    code.push_str("        if !v.is_null() {\n");
-                    code.push_str("            let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
-                    code.push_str(field_name_trim);
-                    code.push_str(": {e}\"))?;\n");
-                    code.push_str("            opts.");
-                    code.push_str(field_name);
-                    code.push_str(" = Some(f64_val as ");
-                    code.push_str(core_ty);
-                    code.push_str(");\n");
-                    code.push_str("        }\n");
-                    code.push_str("    }\n");
-                }
-                TypeRef::Primitive(PrimitiveType::F64) => {
-                    // Option<f64> is used as-is in the binding layer
-                    code.push_str("    if let Some(v) = list_get(&list, \"");
-                    code.push_str(field_name_trim);
-                    code.push_str("\") {\n");
-                    code.push_str("        if !v.is_null() {\n");
-                    code.push_str("            let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
-                    code.push_str(field_name_trim);
-                    code.push_str(": {e}\"))?;\n");
-                    code.push_str("            opts.");
-                    code.push_str(field_name);
-                    code.push_str(" = Some(f64_val);\n");
-                    code.push_str("        }\n");
-                    code.push_str("    }\n");
-                }
-                _ => {} // Skip other Option types
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if enum_defs.contains_key(name.as_str()) => {
+                let fn_name = format!("decode_{}", r_function_component(name));
+                code.push_str("    if let Some(v) = list_get(&list, \"");
+                code.push_str(field_name_trim);
+                code.push_str("\") {\n");
+                code.push_str("        opts.");
+                code.push_str(field_name);
+                code.push_str(" = Some(");
+                code.push_str(&fn_name);
+                code.push_str("(v)?);\n");
+                code.push_str("    }\n");
             }
-        }
-        _ => {} // Skip other types
+            TypeRef::Named(name) if type_defs.contains_key(name.as_str()) => {
+                let fn_name = format!("decode_{}", r_function_component(name));
+                code.push_str("    if let Some(v) = list_get(&list, \"");
+                code.push_str(field_name_trim);
+                code.push_str("\") {\n");
+                code.push_str("        opts.");
+                code.push_str(field_name);
+                code.push_str(" = Some(");
+                code.push_str(&fn_name);
+                code.push_str("(v)?);\n");
+                code.push_str("    }\n");
+            }
+            TypeRef::Primitive(
+                prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
+            ) => {
+                let core_ty = match prim {
+                    PrimitiveType::U64 => "u64",
+                    PrimitiveType::I64 => "i64",
+                    PrimitiveType::Usize => "usize",
+                    PrimitiveType::Isize => "isize",
+                    _ => unreachable!(),
+                };
+                code.push_str("    if let Some(v) = list_get(&list, \"");
+                code.push_str(field_name_trim);
+                code.push_str("\") {\n");
+                code.push_str("        if !v.is_null() {\n");
+                code.push_str("            let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
+                code.push_str(field_name_trim);
+                code.push_str(": {e}\"))?;\n");
+                code.push_str("            opts.");
+                code.push_str(field_name);
+                code.push_str(" = Some(f64_val as ");
+                code.push_str(core_ty);
+                code.push_str(");\n");
+                code.push_str("        }\n");
+                code.push_str("    }\n");
+            }
+            TypeRef::Primitive(PrimitiveType::F64) => {
+                code.push_str("    if let Some(v) = list_get(&list, \"");
+                code.push_str(field_name_trim);
+                code.push_str("\") {\n");
+                code.push_str("        if !v.is_null() {\n");
+                code.push_str("            let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
+                code.push_str(field_name_trim);
+                code.push_str(": {e}\"))?;\n");
+                code.push_str("            opts.");
+                code.push_str(field_name);
+                code.push_str(" = Some(f64_val);\n");
+                code.push_str("        }\n");
+                code.push_str("    }\n");
+            }
+            _ => {}
+        },
+        _ => {}
     }
 }
 

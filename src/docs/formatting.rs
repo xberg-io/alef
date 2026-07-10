@@ -26,8 +26,6 @@ pub(crate) fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSu
     }
     if let Some(raw) = &field.default {
         if !raw.is_empty() {
-            // Collapse multi-line and multi-space strings into a single line
-            // This prevents MD038 (spaces inside code spans) and MD056 (table cell count issues)
             let collapsed = crate::docs::doc_cleaning::collapse_whitespace(raw);
             return format!("`{collapsed}`");
         }
@@ -70,12 +68,10 @@ pub(crate) fn format_typed_default(
             _ => format!("`{b}`"),
         },
         DefaultValue::StringLiteral(s) => {
-            // Collapse newlines and normalize multiple spaces to prevent MD038/MD056 violations
             let normalized = crate::docs::doc_cleaning::collapse_whitespace(s);
             format!("`\"{normalized}\"`")
         }
         DefaultValue::IntLiteral(n) => {
-            // Duration fields store defaults as milliseconds; show with unit label
             if matches!(field_ty, TypeRef::Duration)
                 || matches!(field_ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Duration))
             {
@@ -85,14 +81,12 @@ pub(crate) fn format_typed_default(
         }
         DefaultValue::FloatLiteral(f) => format!("`{f}`"),
         DefaultValue::EnumVariant(v) => {
-            // v is something like "HeadingStyle::Atx" or just "Atx"
             let parts: Vec<&str> = v.splitn(2, "::").collect();
             if parts.len() == 2 {
                 let enum_type = type_name(parts[0], lang, ffi_prefix);
                 let variant = enum_variant_name(parts[1], lang, ffi_prefix);
                 format!("`{}`", format_enum_variant_ref(&enum_type, &variant, lang, ffi_prefix))
             } else {
-                // Bare variant name — resolve the enum type from the field type
                 let enum_type_name_str = match field_ty {
                     TypeRef::Named(n) => Some(n.as_str()),
                     TypeRef::Optional(inner) => {
@@ -114,8 +108,6 @@ pub(crate) fn format_typed_default(
             }
         }
         DefaultValue::Empty => {
-            // Duration fields with Empty default: the actual value could not be parsed.
-            // Show a language-neutral placeholder rather than None/null.
             let inner_for_dur = match field_ty {
                 TypeRef::Optional(inner) => Some(inner.as_ref()),
                 other => Some(other),
@@ -127,8 +119,6 @@ pub(crate) fn format_typed_default(
                 };
             }
 
-            // If the field type is a Named enum, resolve to its default (or first) variant.
-            // But only for non-optional fields — optional enum fields default to None/null.
             if !optional {
                 if let TypeRef::Named(type_name_str) = field_ty {
                     if let Some(enum_def) = api.enums.iter().find(|e| &e.name == type_name_str) {
@@ -145,8 +135,6 @@ pub(crate) fn format_typed_default(
                     }
                 }
             }
-            // Non-enum Empty: depends on field type
-            // Unwrap Optional wrapper to get inner type for collection/map detection
             let inner_ty = match field_ty {
                 TypeRef::Optional(inner) => inner.as_ref(),
                 other => other,
@@ -205,7 +193,6 @@ pub(crate) fn format_typed_default(
                     | Language::Zig => "`{}`".to_string(),
                 };
             }
-            // Non-collection Empty: only show null for optional fields
             if !optional {
                 return "—".to_string();
             }
@@ -337,7 +324,6 @@ pub(crate) fn format_error_phrase(error_type: &str, lang: Language) -> String {
 
 /// Like `doc_type` but wraps in the nullable form when `optional` is true.
 pub(crate) fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: bool, ffi_prefix: &str) -> String {
-    // If the type is already Optional<T>, don't double-wrap
     if optional && !matches!(ty, TypeRef::Optional(_)) {
         let inner = doc_type(ty, lang, ffi_prefix);
         return match lang {
@@ -767,11 +753,9 @@ mod tests {
         );
     }
 
-    // MD038: spaces inside code span elements — multi-line defaults must be collapsed
     #[test]
     fn test_format_default_multiline_raw_string_collapsed() {
         let api = empty_api();
-        // Create a field with a multiline raw default
         let mut field = make_field("config", TypeRef::String, false, None);
         field.default = Some("line1\nline2\nline3".to_string());
         let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
@@ -783,15 +767,12 @@ mod tests {
     fn test_format_default_raw_string_with_extra_spaces_collapsed() {
         let api = empty_api();
         let mut field = make_field("config", TypeRef::String, false, None);
-        // Simulate a string with internal double-spaces (e.g., from serde attributes)
         field.default = Some("value   with    spaces".to_string());
         let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
-        // collapse_whitespace uses split_whitespace which normalizes consecutive spaces
         assert!(result.contains("value"), "default should be wrapped");
         assert!(!result.contains("   "), "extra spaces should be normalized");
     }
 
-    // MD038/MD055/MD056: default values with newlines and pipes must be normalized
     #[test]
     fn test_format_default_string_literal_with_newlines_collapsed() {
         let api = empty_api();
@@ -802,7 +783,6 @@ mod tests {
             Some(DefaultValue::StringLiteral("line1\nline2\nline3".to_string())),
         );
         let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
-        // Should collapse to single line with spaces
         assert_eq!(result, "`\"line1 line2 line3\"`");
         assert!(!result.contains('\n'), "newlines must be removed");
     }
@@ -819,12 +799,8 @@ mod tests {
             )),
         );
         let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
-        // Should be single-line; escape_table_cell will handle any pipes
         assert!(!result.contains('\n'), "newlines must be collapsed");
-        // The result should have normalized spaces
         let without_backticks = result.trim_matches('`').trim_matches('"');
-        // collapse_whitespace intentionally preserves HTML comment delimiters since they
-        // appear verbatim in real defaults (e.g., page markers like "<!-- PAGE {n} -->").
         assert!(
             without_backticks.starts_with("<!-- PAGE"),
             "normalized: {}",
@@ -842,7 +818,6 @@ mod tests {
             Some(DefaultValue::StringLiteral("option1  option2   option3".to_string())),
         );
         let result = format_field_default(&field, Language::Python, &api, TEST_PREFIX);
-        // Multiple spaces should be normalized
         assert!(!result.contains("  "), "multiple spaces must be normalized: {}", result);
     }
 }

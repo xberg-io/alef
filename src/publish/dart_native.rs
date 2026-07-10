@@ -104,13 +104,12 @@ fn find_native_libraries(
     let platform_specific_dir = workspace_root.join("target").join(rust_target).join("release");
     let default_dir = workspace_root.join("target").join("release");
 
-    // Try platform-specific directory first, fall back to workspace default
     let target_dir = if platform_specific_dir.exists() {
         platform_specific_dir
     } else if default_dir.exists() {
         default_dir
     } else {
-        return Ok(Vec::new()); // Neither directory exists; OK to skip
+        return Ok(Vec::new());
     };
 
     let mut found = Vec::new();
@@ -150,18 +149,15 @@ pub fn stage_dart_native_libraries(workspace_root: &Path, package_root: &Path, s
             continue;
         }
 
-        // Create RID-specific directory
         let rid_dir = native_base.join(pattern.rid);
         fs::create_dir_all(&rid_dir).context(format!("creating native library directory: {}", rid_dir.display()))?;
 
-        // Copy each library
         for (lib_path, relative_path) in libs {
             let dest = rid_dir.join(relative_path);
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent)
                     .with_context(|| format!("creating native library parent directory: {}", parent.display()))?;
             }
-            // Handle directories (e.g., .framework) separately from files
             if lib_path.is_dir() {
                 copy_dir_recursive(&lib_path, &dest).with_context(|| {
                     format!(
@@ -178,8 +174,6 @@ pub fn stage_dart_native_libraries(workspace_root: &Path, package_root: &Path, s
         }
     }
 
-    // If no native libraries were found across all platforms, log a warning but don't fail.
-    // This is normal during development or when the Rust crate hasn't been built yet.
     if !staged_any {
         warn!(
             "no prebuilt native libraries found for Dart binding '{}'; packages will require local build",

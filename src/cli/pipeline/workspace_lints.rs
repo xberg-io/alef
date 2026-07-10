@@ -41,7 +41,6 @@ fn ensure_workspace_alef_meta_check_cfg_at(cargo_toml: &Path) -> anyhow::Result<
         Err(_) => return Ok(false),
     };
 
-    // Fast path: if "unexpected_cfgs" key is already anywhere in the file, skip parse.
     if content.contains("unexpected_cfgs") {
         return Ok(false);
     }
@@ -50,7 +49,6 @@ fn ensure_workspace_alef_meta_check_cfg_at(cargo_toml: &Path) -> anyhow::Result<
         .parse()
         .with_context(|| format!("failed to parse {}", cargo_toml.display()))?;
 
-    // Only workspace manifests need this patch.
     if !doc.contains_key("workspace") {
         return Ok(false);
     }
@@ -58,13 +56,11 @@ fn ensure_workspace_alef_meta_check_cfg_at(cargo_toml: &Path) -> anyhow::Result<
     let workspace_item = doc
         .get_mut("workspace")
         .context("[workspace] entry missing after containment check")?;
-    // If [workspace] is not a table (inline table syntax), skip gracefully.
     let workspace_table = match workspace_item.as_table_mut() {
         Some(t) => t,
         None => return Ok(false),
     };
 
-    // Create [workspace.lints] if absent; skip if it exists but is not a table (inline).
     let lints_item = workspace_table
         .entry("lints")
         .or_insert_with(|| Item::Table(Table::new()));
@@ -73,14 +69,12 @@ fn ensure_workspace_alef_meta_check_cfg_at(cargo_toml: &Path) -> anyhow::Result<
         None => return Ok(false),
     };
 
-    // Create [workspace.lints.rust] if absent; skip if it exists but is not a table (inline).
     let rust_item = lints_table.entry("rust").or_insert_with(|| Item::Table(Table::new()));
     let rust_table = match rust_item.as_table_mut() {
         Some(t) => t,
         None => return Ok(false),
     };
 
-    // Don't clobber an existing `unexpected_cfgs` entry — user may have customised it.
     if rust_table.contains_key("unexpected_cfgs") {
         return Ok(false);
     }
@@ -168,7 +162,6 @@ mod tests {
     #[test]
     fn skips_gracefully_when_lints_is_inline_table() {
         let dir = TempDir::new().unwrap();
-        // [workspace.lints] written as an inline table — as_table_mut() returns None.
         let content = "[workspace]\nmembers = []\nlints = { rust = { unsafe_code = \"forbid\" } }\n";
         let modified = run(&dir, content).unwrap();
         assert!(!modified, "must skip gracefully when lints is inline table");

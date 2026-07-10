@@ -33,9 +33,6 @@ impl SnippetValidator for SwiftValidator {
                 let out = dir.path().join("snippet");
                 command.args(["-o"]).arg(&out).arg(&file);
             }
-            // Strict type-check without code generation or linking: `-typecheck` runs the full type
-            // checker but emits no binary, so generated Swift is verified without the native library,
-            // and `-warnings-as-errors` makes any diagnostic fail the gate.
             ValidationLevel::TypeCheck => {
                 command.args(["-typecheck", "-warnings-as-errors"]).arg(&file);
             }
@@ -54,8 +51,6 @@ impl SnippetValidator for SwiftValidator {
     }
 
     fn max_level(&self) -> ValidationLevel {
-        // `-typecheck` is the deepest reliable level: a full `-o` compile links and a bare snippet
-        // generally cannot be executed, so type-checking is the static ceiling.
         ValidationLevel::TypeCheck
     }
 

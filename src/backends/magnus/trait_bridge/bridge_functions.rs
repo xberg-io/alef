@@ -22,7 +22,6 @@ pub fn gen_bridge_function(
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
-    // Build parameter list
     let mut sig_parts = Vec::new();
     for (idx, p) in func.params.iter().enumerate() {
         if idx == bridge_param_idx {
@@ -44,13 +43,11 @@ pub fn gen_bridge_function(
 
     let params_str = sig_parts.join(", ");
     let return_type = mapper.map_type(&func.return_type);
-    // Magnus functions with errors always return Result
     let has_error = func.error_type.is_some();
     let ret = mapper.wrap_return(&return_type, has_error);
 
     let err_conv = ".map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))";
 
-    // Bridge wrapping code
     let bridge_wrap = if is_optional {
         format!(
             "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
@@ -70,7 +67,6 @@ pub fn gen_bridge_function(
         )
     };
 
-    // Serde let bindings for non-bridge Named params
     let serde_bindings: String = func
         .params
         .iter()
@@ -104,7 +100,6 @@ pub fn gen_bridge_function(
             let core_path = format!("{core_import}::{named_type}");
             let is_dt = default_types.contains(named_type.as_str());
             if is_dt {
-                // Ruby passes the binding struct directly — convert via Into
                 if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
                     format!("let {name}_core: Option<{core_path}> = {name}.map(Into::into);\n    ")
                 } else {
@@ -122,7 +117,6 @@ pub fn gen_bridge_function(
         })
         .collect();
 
-    // Build call args
     let call_args: Vec<String> = func
         .params
         .iter()

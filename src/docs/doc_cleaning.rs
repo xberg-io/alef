@@ -65,10 +65,8 @@ pub(crate) fn demote_headings(doc: &str, levels: usize) -> String {
             out.push('\n');
             continue;
         }
-        // Count leading '#' characters
         let heading_level = line.chars().take_while(|&c| c == '#').count();
         if heading_level > 0 && heading_level <= 6 {
-            // Add demotion levels
             let new_level = std::cmp::min(heading_level + levels, 6);
             let demoted_hashes = "#".repeat(new_level);
             let rest = &line[heading_level..];
@@ -128,9 +126,7 @@ pub(crate) fn wrap_bare_urls(text: &str) -> String {
 
     for mat in url_re.find_iter(text) {
         let start = mat.start();
-        // Check character before the URL
         let preceding = if start > 0 { text.as_bytes()[start - 1] } else { b' ' };
-        // Skip if already inside parens (markdown link) or angle brackets
         if preceding == b'(' || preceding == b'<' {
             continue;
         }
@@ -158,46 +154,24 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
         return String::new();
     }
 
-    // Strip Rust-specific sections and their code blocks
     let doc = strip_rust_sections(doc);
 
-    // Convert Rust-style links
     let doc = rust_links_to_plain(&doc);
 
-    // Merge code spans left adjacent by link replacement. A bare intra-doc link
-    // wrapped in a larger code expression — e.g. `` `Vec<`[`StructuredOutput`]`>` `` —
-    // collapses to three abutting single-backtick spans `` `Vec<``StructuredOutput``>` ``.
-    // The doubled backticks at each joint desync CommonMark inline-code parsing
-    // (the run no longer matches a length-1 delimiter), which makes downstream
-    // strict link validators parse later `[...]` spans as shortcut reference
-    // links. Merging the abutting spans into a single span renders identically and
-    // removes the ambiguity.
     let doc = collapse_adjacent_code_spans(&doc);
 
-    // Convert `# Errors` / `# Returns` headings to bold inline text
-    // These are Rust doc conventions that render as H1 headings, which is wrong
     let doc = convert_doc_headings_to_bold(&doc);
 
-    // Convert Rust path syntax `Foo::bar()` → `Foo.bar()` (or `Foo::bar()` for PHP) in prose
     let doc = rust_paths_to_dot_notation(&doc, lang);
 
-    // Convert common Rust type spellings that appear in rustdoc prose to
-    // language-native terminology. Signatures and field tables already use the
-    // IR type mapper; this catches free-form prose copied from Rust docs.
     let doc = replace_rust_type_terms(&doc, lang);
 
-    // Normalize feature provenance labels copied from Rust doc comments. Page
-    // release badges are rendered separately and keep their full package version.
     let doc = normalize_feature_label_versions(&doc);
 
-    // Replace Rust-centric terminology
     let doc = replace_rust_terminology(&doc, lang);
 
-    // Normalize list markers from `*` to `-` for rumdl compliance
     let doc = normalize_list_markers(&doc);
 
-    // Insert blank lines before lists that follow prose. Rust doc strings often
-    // omit the blank line — CommonMark tolerates it, but rumdl's MD032 flags it.
     let doc = ensure_blank_before_lists(&doc);
 
     doc.trim().to_string()
@@ -230,11 +204,9 @@ fn is_list_item_start(line: &str) -> bool {
     let bytes = trimmed_left.as_bytes();
     match bytes.first() {
         Some(b'-') | Some(b'*') | Some(b'+') => {
-            // Must be followed by whitespace to be a list marker (not bold/italic).
             matches!(bytes.get(1), Some(b' ') | Some(b'\t'))
         }
         Some(c) if c.is_ascii_digit() => {
-            // Ordered list: digits then `.` or `)` then whitespace.
             let mut idx = 1;
             while bytes.get(idx).is_some_and(|c| c.is_ascii_digit()) {
                 idx += 1;
@@ -334,7 +306,6 @@ pub(crate) fn normalize_list_markers(doc: &str) -> String {
     let mut out = String::new();
     let mut in_code_block = false;
     for line in doc.lines() {
-        // Track code block boundaries
         if line.trim_start().starts_with("```") {
             in_code_block = !in_code_block;
             out.push_str(line);
@@ -342,7 +313,6 @@ pub(crate) fn normalize_list_markers(doc: &str) -> String {
             continue;
         }
 
-        // Skip normalization inside code blocks
         if in_code_block {
             out.push_str(line);
             out.push('\n');
@@ -352,7 +322,6 @@ pub(crate) fn normalize_list_markers(doc: &str) -> String {
         let trimmed_left = line.trim_start_matches(' ');
         let leading_spaces = line.len() - trimmed_left.len();
 
-        // Only normalize `*` at the start of a list item (after indentation, followed by space)
         if trimmed_left.starts_with("* ") && leading_spaces <= 3 {
             out.push_str(&" ".repeat(leading_spaces));
             out.push_str("- ");
@@ -383,17 +352,15 @@ pub(crate) fn replace_rust_terminology(doc: &str, lang: Language) -> String {
             "Internal error caught during conversion",
         );
 
-    // Replace OutputFormat.None references with language-neutral phrasing
     let doc = doc.replace(
         "None when `output_format` is set to `OutputFormat.None`",
         "null/nil when in extraction-only mode",
     );
 
-    // Replace `None` backtick references with the language-idiomatic null
     let none_replacement = match lang {
         Language::Go | Language::Ruby | Language::Elixir => "`nil`",
         Language::Java | Language::Node | Language::Wasm | Language::Csharp | Language::Php => "`null`",
-        Language::Python | Language::Rust => "`None`", // keep as-is for Python and Rust
+        Language::Python | Language::Rust => "`None`",
         Language::R | Language::Ffi | Language::C | Language::Jni => "`NULL`",
         Language::Kotlin
         | Language::KotlinAndroid
@@ -404,13 +371,11 @@ pub(crate) fn replace_rust_terminology(doc: &str, lang: Language) -> String {
     };
     let doc = doc.replace("`None`", none_replacement);
 
-    // For Python, normalise boolean literals in prose: `true` → `True`, `false` → `False`
     if lang == Language::Python {
         let doc = doc.replace("`true`", "`True`").replace("`false`", "`False`");
         return doc;
     }
 
-    // For non-Python languages, normalise Rust/Python boolean literals: `True` → `true`, `False` → `false`
     if lang != Language::Rust {
         let doc = doc.replace("`True`", "`true`").replace("`False`", "`false`");
         return doc;
@@ -672,8 +637,6 @@ pub(crate) fn rust_paths_to_dot_notation(doc: &str, lang: Language) -> String {
             out.push('\n');
             continue;
         }
-        // Replace `Foo::bar` patterns in prose
-        // Common Rust-isms: Default::default(), ParseOptions::default(), ParseOptions::builder()
         let line = line
             .replace("Default::default()", "the default constructor")
             .replace("::", sep);
@@ -695,7 +658,6 @@ pub(crate) fn clean_doc_inline(doc: &str, lang: Language) -> String {
         return String::new();
     }
     let cleaned = clean_doc(doc, lang);
-    // Collapse to single line for table cells
     cleaned
         .lines()
         .map(str::trim)
@@ -715,10 +677,8 @@ pub(crate) fn strip_rust_sections(doc: &str) -> String {
     let mut code_block_buf = String::new();
 
     for line in doc.lines() {
-        // Track code block boundaries
         if line.trim_start().starts_with("```") {
             if in_code_block {
-                // End of code block — decide whether to emit it
                 in_code_block = false;
                 if !skip_section && !is_rust_code_block(&code_block_buf) {
                     out.push_str(&code_block_buf);
@@ -745,35 +705,30 @@ pub(crate) fn strip_rust_sections(doc: &str) -> String {
             continue;
         }
 
-        // Outside code block: check for section headers
         if line.starts_with('#') {
             let header_text = line.trim_start_matches('#').trim().to_lowercase();
             if RUST_ONLY_SECTIONS.contains(&header_text.as_str()) {
                 skip_section = true;
                 continue;
             } else {
-                // Any other section header ends the skip
                 skip_section = false;
             }
         }
 
         if skip_section {
-            // Blank lines and list items are part of the section — keep skipping
             let trimmed = line.trim();
             let is_section_content = trimmed.is_empty()
                 || trimmed.starts_with('*')
                 || trimmed.starts_with('-')
                 || trimmed.starts_with('+')
-                || trimmed.starts_with("  ") // indented continuation
+                || trimmed.starts_with("  ")
                 || trimmed.starts_with('\t');
             if is_section_content {
                 continue;
             }
-            // Non-list, non-blank line ends the skip
             skip_section = false;
         }
 
-        // Skip lines that are clearly Rust-specific (unfenced imports/assertions)
         if is_rust_specific_line(line) {
             continue;
         }
@@ -787,11 +742,9 @@ pub(crate) fn strip_rust_sections(doc: &str) -> String {
 
 /// Returns true if a code block's content contains Rust-specific patterns.
 pub(crate) fn is_rust_code_block(content: &str) -> bool {
-    // Opening fence line may declare "rust" or "no_run" etc.
     let first_line = content.lines().next().unwrap_or("");
     let fence_lang = first_line.trim_start_matches('`').trim().to_lowercase();
     if matches!(fence_lang.as_str(), "rust" | "rust,no_run" | "rust,ignore" | "") {
-        // Check if content looks like Rust
         for line in content.lines().skip(1) {
             if line.starts_with("use ")
                 || line.contains("unwrap()")
@@ -846,17 +799,13 @@ pub(crate) fn extract_param_docs(doc: &str) -> std::collections::HashMap<String,
         }
 
         if in_args {
-            // Match "* `param_name` - description" or "* param_name - description"
-            // or "* param_name: description"
             let trimmed = line.trim_start_matches(['*', '-', ' ']);
-            // Try " - " separator first (3 chars), then ": " (2 chars)
             let parsed = trimmed
                 .find(" - ")
                 .map(|pos| (pos, 3))
                 .or_else(|| trimmed.find(": ").map(|pos| (pos, 2)));
             if let Some((sep_pos, sep_len)) = parsed {
                 let raw_name = trimmed[..sep_pos].trim();
-                // Strip surrounding backticks if present (e.g. `` `html` `` → `html`)
                 let param_name = raw_name.trim_matches('`');
                 let desc = trimmed[sep_pos + sep_len..].trim();
                 if !param_name.is_empty() && !desc.is_empty() {
@@ -871,25 +820,19 @@ pub(crate) fn extract_param_docs(doc: &str) -> std::collections::HashMap<String,
 
 /// Convert `` [`text`](path) `` and bare `` [`text`] `` patterns to `` `text` ``.
 pub(crate) fn rust_links_to_plain(doc: &str) -> String {
-    // Pattern 1: [`text`](anything) → `text`
-    // Pattern 2: [`text`] → `text`  (bare doc links)
     let mut result = String::with_capacity(doc.len());
     let chars: Vec<char> = doc.chars().collect();
     let mut i = 0;
     while i < chars.len() {
-        // Look for [`
         if i + 1 < chars.len() && chars[i] == '[' && chars[i + 1] == '`' {
-            // Find closing `]`
-            let start = i + 1; // position of opening `
+            let start = i + 1;
             let mut j = start;
             while j < chars.len() && chars[j] != ']' {
                 j += 1;
             }
             if j < chars.len() {
                 let text: String = chars[start..j].iter().collect();
-                // Check if followed by `(` (linked form) or not (bare form)
                 if j + 1 < chars.len() && chars[j + 1] == '(' {
-                    // Linked form: find closing `)`
                     let mut k = j + 2;
                     while k < chars.len() && chars[k] != ')' {
                         k += 1;
@@ -900,7 +843,6 @@ pub(crate) fn rust_links_to_plain(doc: &str) -> String {
                         continue;
                     }
                 } else {
-                    // Bare form: [`text`] — emit just the text
                     result.push_str(&text);
                     i = j + 1;
                     continue;
@@ -936,7 +878,6 @@ fn collapse_adjacent_code_spans(doc: &str) -> String {
     let mut in_code_block = false;
 
     while i < chars.len() {
-        // Track fenced code blocks (```), where backticks are literal content.
         if (i == 0 || chars[i - 1] == '\n')
             && chars[i] == '`'
             && chars.get(i + 1) == Some(&'`')
@@ -949,20 +890,15 @@ fn collapse_adjacent_code_spans(doc: &str) -> String {
         }
 
         if !in_code_block && chars[i] == '`' && chars.get(i + 1) != Some(&'`') {
-            // Opening of a single-backtick span. Walk content, merging across any
-            // abutting span boundaries (a doubled backtick run `` `` `` with no
-            // content after it), until the real terminating single backtick.
             let mut content = String::new();
             let mut j = i + 1;
             let mut closed = false;
             while j < chars.len() {
                 if chars[j] == '`' {
                     if chars.get(j + 1) == Some(&'`') && chars.get(j + 2) != Some(&'`') {
-                        // Abutting span boundary: drop both backticks, keep going.
                         j += 2;
                         continue;
                     }
-                    // Real closing backtick of the (merged) span.
                     closed = true;
                     break;
                 }
@@ -987,7 +923,3 @@ fn collapse_adjacent_code_spans(doc: &str) -> String {
 
 #[cfg(test)]
 mod tests;
-
-// ---------------------------------------------------------------------------
-// Ordering helpers
-// ---------------------------------------------------------------------------

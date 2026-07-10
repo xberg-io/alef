@@ -1,13 +1,10 @@
 use super::*;
 
 // ==============================================================================
-// Tests for functional RefMut pattern (non-opaque types, frozen PyO3/WASM)
 // ==============================================================================
 
 #[test]
 fn test_gen_method_functional_ref_mut_unit_return() {
-    // A RefMut method returning () on a non-opaque type should be generated as a
-    // functional clone-mutate-return pattern: &self -> Self, not &mut self -> ().
     let typ = simple_type_def();
     let method = MethodDef {
         name: "apply_update".to_string(),
@@ -60,12 +57,10 @@ fn test_gen_method_functional_ref_mut_unit_return() {
         &adapter_bodies,
     );
 
-    // Signature must use &self (not &mut self) and return Self
     assert!(result.contains("pub fn apply_update"), "should contain method name");
     assert!(result.contains("&self"), "should use &self receiver, not &mut self");
     assert!(!result.contains("&mut self"), "should not use &mut self");
     assert!(result.contains("-> Self"), "should return Self (functional pattern)");
-    // Body: construct mutable core, call the method, return converted result
     assert!(result.contains("let mut core_self"), "should declare mutable core_self");
     assert!(
         result.contains("core_self.apply_update("),
@@ -79,8 +74,6 @@ fn test_gen_method_functional_ref_mut_unit_return() {
 
 #[test]
 fn test_gen_method_functional_ref_mut_with_named_param() {
-    // A RefMut method taking a Named (non-opaque) param should also use the functional pattern.
-    // gen_call_args handles Named params via .into(), so this should work.
     let mut typ = simple_type_def();
     typ.name = "ConversionOptions".to_string();
     typ.rust_path = "my_crate::ConversionOptions".to_string();
@@ -141,7 +134,6 @@ fn test_gen_method_functional_ref_mut_with_named_param() {
     assert!(!result.contains("&mut self"), "should not use &mut self");
     assert!(result.contains("-> Self"), "should return Self");
     assert!(result.contains("let mut core_self"), "should declare mutable core_self");
-    // Named param should be converted via .into() in the call args
     assert!(
         result.contains("update.into()"),
         "should convert Named param via .into()"
@@ -154,7 +146,6 @@ fn test_gen_method_functional_ref_mut_with_named_param() {
 
 #[test]
 fn test_gen_method_functional_ref_mut_with_error_type() {
-    // A fallible RefMut method should return Result<Self, E> instead of ().
     let typ = simple_type_def();
     let method = MethodDef {
         name: "try_apply".to_string(),
@@ -210,11 +201,9 @@ fn test_gen_method_functional_ref_mut_with_error_type() {
     assert!(result.contains("pub fn try_apply"), "should contain method name");
     assert!(result.contains("&self"), "should use &self receiver");
     assert!(!result.contains("&mut self"), "should not use &mut self");
-    // Should return Result<Self, ...>
     assert!(result.contains("Result<Self"), "should return Result<Self>");
     assert!(result.contains("let mut core_self"), "should declare mutable core_self");
     assert!(result.contains("core_self.try_apply("), "should call core method");
-    // On success, return the mutated self converted back
     assert!(
         result.contains("Ok(core_self.into())"),
         "should return Ok(core_self.into()) on success"

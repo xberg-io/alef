@@ -11,30 +11,16 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
 
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
-    // Tagged union: enum has a serde tag AND data variants → generate abstract record hierarchy
     if enum_def.serde_tag.is_some() && has_data_variants {
         return gen_tagged_union(enum_def, namespace);
     }
 
-    // Untagged union with data variants (e.g. EmbeddingInput = String | Vec<String>):
-    // emit a transparent JsonElement-wrapper class with a paired JsonConverter.
-    // System.Text.Json cannot dispatch between alternatives by name (variant
-    // identifiers don't appear in the wire JSON), so we pass the JsonElement
-    // through and let the Rust core (serde) resolve the variant.
     if enum_def.serde_untagged && has_data_variants {
         let emit_text = text_types.iter().any(|t| t == &enum_def.name);
         return gen_untagged_wrapper(enum_def, namespace, emit_text);
     }
 
-    // If any variant has an explicit serde_rename whose value differs from what
-    // SnakeCaseLower would produce (e.g. "og:image" vs "og_image"), or if the
-    // enum-level rename_all is something other than snake_case (e.g. "kebab-case"
     // for `#[serde(rename_all = "kebab-case")] FilePurpose { FineTune }` →
-    // `"fine-tune"` on the wire), the global JsonStringEnumConverter(SnakeCaseLower)
-    // in JsonOptions would either ignore [JsonPropertyName] (the non-generic
-    // converter does not consult it on enum members) or apply the wrong policy.
-    // For these cases we generate a custom JsonConverter<T> that explicitly maps
-    // each variant name to the correct wire string.
     let rename_all_differs = matches!(
         enum_def.serde_rename_all.as_deref(),
         Some("kebab-case") | Some("SCREAMING-KEBAB-CASE") | Some("camelCase") | Some("PascalCase")
@@ -51,7 +37,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
 
     let enum_pascal = csharp_type_name(&enum_def.name);
 
-    // Collect variant data with doc lines for template rendering
     let variant_list: Vec<(String, String)> = enum_def
         .variants
         .iter()
@@ -101,10 +86,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
     );
     out.push('\n');
 
-    // Generate custom converter for all enums (not just those with non-standard names).
-    // Even when variant names match SnakeCaseLower policy, we emit a converter to ensure
-    // [JsonPropertyName] attributes are properly used during serialization and to maintain
-    // consistency with JsonSerializationOptions that specifies JsonStringEnumConverter(SnakeCaseLower).
     out.push_str(&render(
         "enum_custom_converter.jinja",
         Value::from_serialize(serde_json::json!({
@@ -131,8 +112,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
 
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let enum_pascal = csharp_type_name(&enum_def.name);
-    // Namespace prefix used to fully-qualify inner types when their short name is shadowed
-    // by a nested record of the same name (e.g. ContentPart.ImageUrl shadows ImageUrl).
     let ns = namespace;
 
     let mut out = csharp_file_header();
@@ -144,11 +123,9 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     out.push_str(&render("namespace_decl.jinja", minijinja::context! { namespace }));
     out.push('\n');
 
-    // Collect all variant pascal names to check for field-name-to-variant-name clashes
     let variant_names: std::collections::HashSet<String> =
         enum_def.variants.iter().map(|v| to_csharp_name(&v.name)).collect();
 
-    // Precompute discriminator values for each variant (used for [JsonDerivedType] when not using custom converter)
     let _discriminators: Vec<(String, String)> = enum_def
         .variants
         .iter()
@@ -162,7 +139,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         })
         .collect();
 
-    // Doc comment
     let enum_doc_lines = super::sanitize_doc_lines_for_csharp(&enum_def.doc);
     if !enum_doc_lines.is_empty() {
         out.push_str(&render(
@@ -175,9 +151,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         ));
     }
 
-    // Apply custom converter for sealed unions with flattened variant fields
-    // This allows System.Text.Json to properly deserialize discriminator + flattened fields
-    // The json_converter_attr.jinja template adds "JsonConverter" suffix, so pass just the base name
     out.push_str(&render(
         "json_converter_attr.jinja",
         minijinja::context! { base => enum_pascal },
@@ -188,8 +161,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     ));
     out.push_str("{\n");
 
-    // Nested sealed records for each variant (no [JsonDerivedType] here — it's on the base)
-    // Skip binding-excluded variants
     for variant in enum_def.variants.iter().filter(|v| !v.binding_excluded) {
         let pascal = to_csharp_name(&variant.name);
 
@@ -205,23 +176,16 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             ));
         }
 
-        // A single tuple field of type `()` carries no data — treat it as a unit
-        // variant so we don't emit an illegal `void Value` parameter.
         let is_unit_tuple = variant.fields.len() == 1
             && is_tuple_field(&variant.fields[0])
             && csharp_type(&variant.fields[0].ty).as_ref() == "void";
         if variant.fields.is_empty() || is_unit_tuple {
-            // Unit variant → sealed record with no fields
             out.push_str(&render(
                 "unit_variant_record.jinja",
                 minijinja::context! { pascal, enum_pascal },
             ));
             out.push('\n');
         } else {
-            // CS8910: when a single-field variant has a parameter whose TYPE equals the record name
-            // (e.g., record ImageUrl(ImageUrl Value)), the primary constructor conflicts with the
-            // synthesized copy constructor. Use a property-based record body instead.
-            // This applies to both tuple fields and named fields that get renamed to "Value".
             let is_copy_ctor_clash = variant.fields.len() == 1 && {
                 let field_cs_type = csharp_type(&variant.fields[0].ty);
                 field_cs_type.as_ref() == pascal
@@ -229,9 +193,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
 
             if is_copy_ctor_clash {
                 let cs_type = csharp_type(&variant.fields[0].ty);
-                // Fully qualify the inner type to avoid the nested record shadowing the
-                // standalone type of the same name (e.g. `ContentPart.ImageUrl` would shadow
-                // `SampleLlm.ImageUrl` within the `ContentPart` abstract record body).
                 let qualified_cs_type = format!("global::{ns}.{cs_type}");
                 out.push_str(&render(
                     "variant_record_body_header.jinja",
@@ -244,15 +205,11 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                 ));
                 out.push_str("    }\n\n");
             } else {
-                // Data variant → sealed record with fields as constructor params
                 out.push_str(&render(
                     "variant_record_params_header.jinja",
                     minijinja::context! { pascal },
                 ));
                 for (i, field) in variant.fields.iter().enumerate() {
-                    // If the field is sanitized (e.g., external type like ProcessResult
-                    // mapped to String), use `object` as the fallback C# type to allow
-                    // JSON deserialization of complex objects.
                     let cs_type = if field.sanitized && field.type_rust_path.is_some() {
                         "object".to_string()
                     } else {
@@ -263,8 +220,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                     } else {
                         cs_type
                     };
-                    // Qualify collection types that would be shadowed by a same-named variant
-                    // (e.g. NodeContent.List nested record shadows System.Collections.Generic.List<T>).
                     let cs_type = if variant_names.iter().any(|vn| cs_type.starts_with(&format!("{vn}<"))) {
                         cs_type
                             .replace("List<", "global::System.Collections.Generic.List<")
@@ -281,13 +236,8 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                     } else {
                         let json_name = field.name.trim_start_matches('_');
                         let cs_name = to_csharp_name(json_name);
-                        // Check if this field name clashes with:
-                        // 1. The variant pascal name (e.g., "Slide" variant with "slide" field → "Slide" param)
-                        // 2. The field type name (e.g., "ImageUrl" type with "url" field → "Url" param matching a nested record)
-                        // 3. Another variant pascal name (e.g., nested "Title" record with "title" field in "Slide" variant)
                         let clashes = cs_name == pascal || cs_name == cs_type || variant_names.contains(&cs_name);
                         if clashes {
-                            // Rename to Value with JSON property mapping to preserve the original field name
                             out.push_str(&render(
                                 "variant_field_json_value.jinja",
                                 minijinja::context! { json_name, cs_type, comma },
@@ -309,23 +259,17 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         }
     }
 
-    // Add accessor properties for data variants
     for variant in enum_def.variants.iter().filter(|v| !v.binding_excluded) {
-        // Only generate accessors for variants with exactly one tuple field
         if variant.fields.len() != 1 || !is_tuple_field(&variant.fields[0]) {
             continue;
         }
         let pascal = to_csharp_name(&variant.name);
         let field = &variant.fields[0];
-        // If the field is sanitized (e.g., external type like ProcessResult
-        // mapped to String), use `object` as the fallback C# type.
         let return_type = if field.sanitized && field.type_rust_path.is_some() {
             "object".to_string()
         } else {
             csharp_type(&field.ty).to_string()
         };
-        // Skip accessor for unit `()` payload — C# disallows `void?` and there's
-        // no value to return.
         if return_type == "void" {
             continue;
         }
@@ -343,7 +287,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
 
     out.push_str("}\n");
 
-    // Generate custom converter for sealed unions with flattened variant fields
     out.push('\n');
     gen_sealed_union_converter(&mut out, namespace, enum_def, tag_field);
 
@@ -372,10 +315,6 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
     use minijinja::Value;
 
     let class_name = csharp_type_name(&enum_def.name);
-    // Include all variants in the converter's switch statement.
-    // Non-binding-excluded variants deserialize normally.
-    // Binding-excluded variants (feature-gated or hidden from bindings) emit
-    // an error mentioning they are excluded, improving forward compatibility.
     let variants: Vec<Value> = enum_def
         .variants
         .iter()
@@ -385,9 +324,6 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
                 .serde_rename
                 .clone()
                 .unwrap_or_else(|| wire_variant_value(&v.name, None, enum_def.serde_rename_all.as_deref()));
-            // Single tuple field of type `()` carries no data — emit it as a
-            // unit variant in the converter switch so we don't reference a
-            // missing `.Value` property.
             let is_unit_tuple =
                 v.fields.len() == 1 && is_tuple_field(&v.fields[0]) && csharp_type(&v.fields[0].ty).as_ref() == "void";
             let is_unit = v.fields.is_empty() || is_unit_tuple;

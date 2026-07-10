@@ -38,9 +38,6 @@ package = "{package}"
 
 #[test]
 fn param_type_with_serde_emits_free_handle_in_native_lib() {
-    // Create a non-opaque type with serde that is NOT marked as a return type.
-    // This simulates RegionKind which is used as a parameter but never returned by functions,
-    // so the return-type path in native_lib.rs (lines 274-323) doesn't emit its _FREE handle.
     let param_type = TypeDef {
         name: "MyMode".to_string(),
         rust_path: "test_lib::MyMode".to_string(),
@@ -53,7 +50,7 @@ fn param_type_with_serde_emits_free_handle_in_native_lib() {
         is_trait: false,
         has_default: false,
         has_stripped_cfg_fields: false,
-        is_return_type: false, // KEY: not a return type, so the return-type path won't emit _FREE
+        is_return_type: false,
         serde_rename_all: None,
         has_serde: true,
         super_traits: vec![],
@@ -128,20 +125,16 @@ fn param_type_with_serde_emits_free_handle_in_native_lib() {
         .content
         .as_str();
 
-    // The emitted wrapper code will use NativeLib.TEST_MY_MODE_FROM_JSON to marshal the param
     assert!(
         native_lib.contains("TEST_MY_MODE_FROM_JSON"),
         "NativeLib must declare TEST_MY_MODE_FROM_JSON handle for serde type param"
     );
 
-    // The matching _FREE handle MUST be declared because the wrapper code invokes it
-    // to clean up the allocated pointer returned by _from_json
     assert!(
         native_lib.contains("TEST_MY_MODE_FREE"),
         "NativeLib must declare TEST_MY_MODE_FREE when TEST_MY_MODE_FROM_JSON is declared\n\n{native_lib}"
     );
 
-    // Verify the FFI wrapper actually uses both handles
     let wrapper = files
         .iter()
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("TestLibRs.java"))
@@ -179,7 +172,6 @@ fn serde_enum_return_emits_to_json_handle_in_native_lib() {
         ..Default::default()
     };
 
-    // Free function returning the serde enum by value (lowered to a `*mut MyMode` pointer in FFI).
     let function = FunctionDef {
         name: "classify".to_string(),
         rust_path: "test_lib::classify".to_string(),
@@ -232,13 +224,11 @@ fn serde_enum_return_emits_to_json_handle_in_native_lib() {
         .content
         .as_str();
 
-    // The wrapper calls the _TO_JSON handle to deserialize the returned enum pointer …
     assert!(
         wrapper.contains("NativeLib.TEST_MY_MODE_TO_JSON"),
         "Wrapper must use TEST_MY_MODE_TO_JSON for serde enum return\n\n{wrapper}"
     );
 
-    // … so the NativeLib MUST declare it, or the generated Java fails to compile.
     assert!(
         native_lib.contains("TEST_MY_MODE_TO_JSON"),
         "NativeLib must declare TEST_MY_MODE_TO_JSON handle for serde enum return\n\n{native_lib}"

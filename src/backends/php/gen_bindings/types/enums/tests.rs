@@ -55,9 +55,6 @@ mod variant_constructor_tests {
     /// Run the generator with the common (empty opaque/bridge/enum) sets and the `crate` core import.
     fn run(def: &EnumDef, mapper: &PhpMapper) -> String {
         let empty = AHashSet::new();
-        // Mirror real codegen: the `enum_names` set passed to the generator is the mapper's, so
-        // unit-variant-enum fields (mapped to `String`) are recognized and routed through the
-        // shared `From<String>` let-binding rather than the inline struct-conversion path.
         join(gen_flat_data_enum_variant_constructors(
             def,
             mapper,
@@ -72,8 +69,6 @@ mod variant_constructor_tests {
     fn emits_static_constructor_building_core_variant_then_into() {
         let code = run(&shape_enum(), &mapper());
 
-        // Exposed to PHP under the snake name; Rust fn is `_factory_<snake>` to avoid colliding with
-        // the `get_circle` accessor. Wrapper-convert: build the CORE variant then `.into()`.
         assert!(code.contains(r#"#[php(name = "circle")]"#), "{code}");
         assert!(code.contains("pub fn _factory_circle(radius: f64) -> Self"), "{code}");
         assert!(
@@ -93,9 +88,6 @@ mod variant_constructor_tests {
 
     #[test]
     fn converts_named_dto_field_inline_without_path_annotation() {
-        // A plain Named-DTO field converts inline with `.clone().into()` in the struct literal — no
-        // typed `let <field>_core: <core_import>::<Type>` binding — so the core type path is never
-        // named and non-re-exported core types resolve via inference.
         let def = EnumDef {
             name: "Wrapper".to_string(),
             rust_path: "test_lib::Wrapper".to_string(),
@@ -117,8 +109,6 @@ mod variant_constructor_tests {
 
     #[test]
     fn boxes_boxed_named_field_in_factory() {
-        // A variant field whose core type is `Box<T>` (Named T) must be boxed in the factory:
-        // `result.clone().into()` alone fails to compile (no `From<Binding> for Box<Core>`).
         let boxed = FieldDef {
             is_boxed: true,
             ..field("result", TypeRef::Named("CrawlPageResult".to_string()))
@@ -139,8 +129,6 @@ mod variant_constructor_tests {
 
     #[test]
     fn converts_bytes_field() {
-        // Bytes params arrive as `PhpBytes`; the shared call-arg machinery unwraps to `.0` (Vec<u8>)
-        // for the core field — a branch the old hand-rolled converter dropped silently.
         let def = EnumDef {
             name: "Blob".to_string(),
             rust_path: "test_lib::Blob".to_string(),
@@ -155,8 +143,6 @@ mod variant_constructor_tests {
 
     #[test]
     fn converts_json_field() {
-        // Json params arrive as a JSON `String`; the shared machinery parses via `serde_json::from_str`
-        // through the `<name>_json` let binding — another branch the old converter dropped.
         let def = EnumDef {
             name: "Payload".to_string(),
             rust_path: "test_lib::Payload".to_string(),
@@ -174,8 +160,6 @@ mod variant_constructor_tests {
 
     #[test]
     fn converts_vec_named_struct_field_fallibly() {
-        // A `Vec<NamedStruct>` field decodes element-by-element and can `return Err`, so the
-        // constructor must return `PhpResult<Self>` and wrap the build in `Ok(...)`.
         let def = EnumDef {
             name: "Batch".to_string(),
             rust_path: "test_lib::Batch".to_string(),
@@ -202,8 +186,6 @@ mod variant_constructor_tests {
 
     #[test]
     fn converts_enum_as_string_field() {
-        // A field whose type is a unit-variant enum maps to `String` in PHP and round-trips via
-        // `From<String>` for the core enum — handled by the shared call-arg path.
         let mut m = mapper();
         m.enum_names.insert("Color".to_string());
         let def = EnumDef {
@@ -217,8 +199,6 @@ mod variant_constructor_tests {
             ..Default::default()
         };
         let code = run(&def, &m);
-        // Enum params are owned `String`, not `&T`. The shared let-binding machinery emits a
-        // `<field>_core` binding that round-trips the string through `From<String>` for the core enum.
         assert!(code.contains("pub fn _factory_fill(color: String) -> Self"), "{code}");
         assert!(
             code.contains("let color_core"),
@@ -232,8 +212,6 @@ mod variant_constructor_tests {
 
     #[test]
     fn casts_wide_int_field() {
-        // A `u64` field arrives as PHP `i64`; the shared call-arg machinery casts it back to the core
-        // type at the call site.
         let def = EnumDef {
             name: "Sized_".to_string(),
             rust_path: "test_lib::Sized_".to_string(),
@@ -391,13 +369,11 @@ mod flat_data_enum_from_impls_tests {
         let generated = gen_flat_data_enum_from_impls(&enum_def, "crate");
 
         // When the enum has NO #[default] variant but HAS excluded variants,
-        // should emit a wildcard arm that calls unreachable!() instead of Default::default()
         assert!(
             generated.contains("_ => unreachable!(\"unrecognised tag for flat enum, not constructible from PHP\")"),
             "Should emit unreachable!() fallback for enum with excluded variants but no default; got:\n{generated}"
         );
 
-        // Must NOT try to call Default::default() since the core type doesn't have one
         assert!(
             !generated.contains("_ => module::Message::default()"),
             "Should NOT emit default() fallback when core type has no visible Default impl; got:\n{generated}"
@@ -409,15 +385,10 @@ mod flat_data_enum_from_impls_tests {
         let enum_def = make_enum("SimpleEnum", Some("type"), false, false);
         let generated = gen_flat_data_enum_from_impls(&enum_def, "crate");
 
-        // The binding→core conversion matches on the tag discriminator `&str`, which can never
-        // be matched exhaustively — a wildcard arm is ALWAYS required regardless of whether the
-        // enum has excluded variants. With no visible `Default`, that wildcard must be the
-        // non-`Default` `unreachable!` arm.
         assert!(
             generated.contains("_ => unreachable!(\"unrecognised tag for flat enum, not constructible from PHP\")"),
             "Should emit unreachable!() wildcard for &str match when core has no visible Default; got:\n{generated}"
         );
-        // Must NOT call a non-existent Default impl.
         assert!(
             !generated.contains("_ => module::SimpleEnum::default()"),
             "Should NOT emit default() fallback when core type has no visible Default impl; got:\n{generated}"

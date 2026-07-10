@@ -28,26 +28,6 @@ impl ResolvedCrateConfig {
     /// otherwise falls back to scaffold_output overrides and hardcoded defaults.
     /// For Node and Wasm, checks `crate_dir` override before the default formula.
     pub fn package_dir(&self, lang: Language) -> String {
-        // First priority: use resolved output_paths from [crates.output] config.
-        // Skip for languages whose [crates.output] entry points to a source
-        // sub-directory rather than the package root (where the publish
-        // manifest — pyproject.toml, package.json, Package.swift, build.zig,
-        // pubspec.yaml, build.gradle.kts, mix.exs, gemspec, pom.xml — lives):
-        //   - Python:        `crates/{name}-py/src/`
-        //   - Node/Wasm:     `crates/{name}-{lang}/src/`
-        //   - Elixir:        `packages/elixir/native/<nif>/src/`
-        //   - Ruby:          `packages/ruby/ext/<ext>/src/`
-        //   - Java:          `packages/java/src/main/java/`
-        //   - Swift:         `packages/swift/Sources/<Module>/`
-        //   - Zig:           `packages/zig/src/`
-        //   - Dart:          `packages/dart/lib/` (when overridden) or root
-        //   - Kotlin:        `packages/kotlin/src/main/kotlin/.../`
-        //   - KotlinAndroid: `packages/kotlin-android/src/main/kotlin/.../`
-        //   - R:             `packages/r/src/rust/src/` (extendr Rust source — DESCRIPTION lives at packages/r/)
-        //   - Go:            computed from module_major config (see hardcoded defaults below)
-        // These languages fall through to the hardcoded defaults below, which
-        // return the package root that `publish validate` and packager helpers
-        // expect.
         if !matches!(
             lang,
             Language::Python
@@ -68,7 +48,6 @@ impl ResolvedCrateConfig {
             return output_path.to_string_lossy().to_string();
         }
 
-        // Second priority: scaffold_output overrides
         let override_path = match lang {
             Language::Python => self.python.as_ref().and_then(|c| c.scaffold_output.as_ref()),
             Language::Node => self.node.as_ref().and_then(|c| c.scaffold_output.as_ref()),
@@ -81,19 +60,8 @@ impl ResolvedCrateConfig {
             return p.to_string_lossy().to_string();
         }
 
-        // Third priority: hardcoded defaults
         match lang {
             Language::Python => "packages/python".to_string(),
-            // NAPI-RS + wasm-bindgen emit their published npm package into the same
-            // directory as the Rust binding crate (`crates/{name}-node/`,
-            // `crates/{name}-wasm/`) — those manifests are the actual publish source,
-            // and the historical `packages/{node,wasm}/` scaffolds were dead weight
-            // that modern alef-scaffold no longer emits. Setup/test/clean defaults
-            // need to track the live crate dir, not the dead packages one.
-            //
-            // The default formula `crates/{name}-{lang}` assumes the crate name includes
-            // any `-rs` or similar suffix. When the consumer strips the suffix for
-            // publication matching, use the `crate_dir` override.
             Language::Node => self
                 .node
                 .as_ref()
@@ -258,23 +226,15 @@ impl ResolvedCrateConfig {
             extra_lint_paths: &[],
             project_file: None,
         };
-        // Most names map to a Language enum variant; string-only registry targets
-        // (e.g. `brew`) fall back to the name-based default.
         let parsed: Result<Language, _> = toml::Value::String(name.to_string()).try_into();
         match parsed {
             Ok(lang) => {
-                // Resolve the published package version the same way the e2e
-                // codegen does (registry override → base package → workspace
-                // version): a run command may need to forward it to a generated
-                // installer (e.g. PHP's `install.sh`). The package entry is keyed
-                // by the language slug.
                 let published_version = self
                     .e2e
                     .as_ref()
                     .and_then(|e2e| e2e.resolve_package(name))
                     .and_then(|pkg| pkg.version)
                     .or_else(|| self.resolved_version());
-                // For Go, pass the Go module path so cgo bindings can vendor + generate.
                 let go_module = if lang == Language::Go {
                     Some(self.go_module())
                 } else {
@@ -587,12 +547,9 @@ tokio = "1"
     fn package_dir_defaults_are_correct() {
         let r = minimal();
         assert_eq!(r.package_dir(Language::Python), "packages/python");
-        // Node/Wasm default to the live NAPI-RS/wasm-bindgen crate dirs, not the
-        // dead packages/{node,wasm}/ scaffolds.
         assert_eq!(r.package_dir(Language::Node), format!("crates/{}-node", r.name));
         assert_eq!(r.package_dir(Language::Wasm), format!("crates/{}-wasm", r.name));
         assert_eq!(r.package_dir(Language::Ruby), "packages/ruby");
-        // Go defaults to "packages/go" when module_major is None
         assert_eq!(r.package_dir(Language::Go), "packages/go");
         assert_eq!(r.package_dir(Language::Java), "packages/java");
         assert_eq!(r.package_dir(Language::Kotlin), "packages/kotlin");
@@ -601,9 +558,6 @@ tokio = "1"
 
     #[test]
     fn package_dir_go_with_module_major() {
-        // Test that Go respects module_major configuration:
-        // - None or 0/1: "packages/go"
-        // - 2+: "packages/go/v{N}"
         let r_none = resolved_one(
             r#"
 [workspace]
@@ -680,11 +634,6 @@ module_major = 5
 
     #[test]
     fn package_dir_r_ignores_source_output_override() {
-        // The extendr `[crates.output]` for R points at the Rust source path
-        // (`packages/r/src/rust/src/`), but the R package manifest (`DESCRIPTION`)
-        // lives at the package root. `package_dir` must return the root so
-        // `Rscript -e "remotes::install_deps()"` finds DESCRIPTION rather than
-        // failing with "cannot open the connection".
         let r = resolved_one(
             r#"
 [workspace]
@@ -703,9 +652,6 @@ r = "packages/r/src/rust/src/"
 
     #[test]
     fn package_dir_python_ignores_source_output_override() {
-        // The PyO3 `[crates.output]` points at the Rust source directory
-        // (`crates/demo-py/src/`), but the publish manifest (`pyproject.toml`)
-        // lives at the central Python package root.
         let r = resolved_one(
             r#"
 [workspace]
@@ -724,10 +670,6 @@ python = "crates/demo-py/src/"
 
     #[test]
     fn package_dir_kotlin_ignores_source_output_override() {
-        // The JVM Kotlin `[crates.output]` points at the deep source tree
-        // (`packages/kotlin/src/main/kotlin/.../`), but the publish manifest
-        // (`build.gradle.kts`) lives at the package root. package_dir must return
-        // the root so sync-versions and the kotlin packager find the manifest.
         let r = resolved_one(
             r#"
 [workspace]
@@ -832,8 +774,6 @@ sources = ["src/lib.rs"]
 
     #[test]
     fn package_dir_sample_markdown_scenario_with_both_overrides() {
-        // Reproduce the STY-4 scenario: sample-markdown strips `-rs` for Node and Wasm
-        // so the actual crate dirs don't follow the default formula.
         let r = resolved_one(
             r#"
 [workspace]
@@ -850,8 +790,6 @@ crate_dir = "crates/sample-markdown-node"
 crate_dir = "crates/sample-markdown-wasm"
 "#,
         );
-        // Without overrides, the formula would produce sample-markdown-rs-{node,wasm}
-        // (WRONG). With overrides, we get the correct stripped names.
         assert_eq!(
             r.package_dir(Language::Node),
             "crates/sample-markdown-node",

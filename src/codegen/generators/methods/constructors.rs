@@ -16,7 +16,6 @@ pub fn gen_constructor_with_renames(
 ) -> String {
     let map_fn = |ty: &crate::core::ir::TypeRef| mapper.map_type(ty);
 
-    // For types with has_default, generate optional kwargs-style constructor
     let (param_list, sig_defaults, assignments) = if typ.has_default {
         crate::codegen::shared::config_constructor_parts_with_renames_and_cfg_restore(
             &typ.fields,

@@ -22,7 +22,6 @@ pub(super) fn gen_method(
     mutex_types: &AHashSet<String>,
     streaming_item_types: &ahash::AHashMap<String, String>,
 ) -> String {
-    // Check if the type has any RefMut methods (which means inner is wrapped in Mutex).
     let has_mut_methods = typ
         .methods
         .iter()
@@ -30,11 +29,8 @@ pub(super) fn gen_method(
 
     let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(crate::core::ir::ReceiverKind::RefMut));
 
-    // For opaque types, allow delegation of RefMut methods if the type is Mutex-wrapped.
-    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
     let can_delegate_base = shared::can_auto_delegate(method, opaque_types);
     let can_delegate = if is_ref_mut_receiver && has_mut_methods {
-        // RefMut methods are delegatable if the type has Mutex wrapping
         !method.sanitized
             && method
                 .params
@@ -58,8 +54,6 @@ pub(super) fn gen_method(
     let adapter_key_for_stream = format!("{}.{}", type_name, method.name);
     let stream_item = streaming_item_types.get(&adapter_key_for_stream);
     let return_type = if stream_item.is_some() {
-        // For streaming methods, return the iterator struct (not the item type).
-        // The iterator struct name is {PascalCaseMethodName}Iterator.
         format!("{}Iterator", method.name.to_pascal_case())
     } else {
         mapper.map_type(&method.return_type)
@@ -74,7 +68,6 @@ pub(super) fn gen_method(
     };
 
     let mut attrs = emit_rustdoc(&method.doc);
-    // Per-item clippy suppression: too_many_arguments when >7 params (including &self for instance methods)
     let effective_param_count = if method.is_static {
         method.params.len()
     } else {
@@ -83,17 +76,14 @@ pub(super) fn gen_method(
     if effective_param_count > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
     }
-    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
     if method.error_type.is_some() {
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
-    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
     if generators::is_trait_method_name(&method.name) {
         attrs.push_str("#[allow(clippy::should_implement_trait)]\n");
     }
 
     if method.is_async {
-        // For async methods with named params, use JsValue parameters to avoid _assertClass errors
         let has_named = crate::codegen::generators::has_named_params(&method.params, opaque_types);
 
         let async_params: Vec<String> = if has_named {
@@ -120,7 +110,6 @@ pub(super) fn gen_method(
             params.clone()
         };
 
-        // Generate serde deserialization let-bindings for named non-opaque params
         let mut serde_bindings = String::new();
         if has_named {
             for p in &method.params {
@@ -139,9 +128,6 @@ pub(super) fn gen_method(
                             ));
                             serde_bindings.push_str("    ");
                         } else {
-                            // In methods context, we only have the current TypeDef, not the full API.
-                            // We assume types without Default will be caught at generation time by validation.
-                            // For now, conservatively pass false (require the param when undefined).
                             let has_default = false;
                             serde_bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "serde_named_required",
@@ -168,16 +154,11 @@ pub(super) fn gen_method(
         };
         let is_opaque_type = opaque_types.contains(type_name);
         let core_call = if is_opaque_type && has_mut_methods && !is_ref_mut_receiver {
-            // Opaque types whose inner is `Arc<Mutex<T>>` (the type has any `&mut self`
-            // method) must access through `.lock().unwrap()` even for immutable methods.
             format!(
                 "self.inner.lock().unwrap().{method_name}({call_args})",
                 method_name = method.name
             )
         } else {
-            // Transparent (named-field) structs go through `From<WasmT> for T`. The
-            // previous unconditional Mutex branch broke any non-opaque type whose
-            // type had a sibling `&mut self` method (e.g. `WasmDocumentStructure`).
             format!(
                 "{core_import}::{type_name}::from(self.clone()).{method_name}({call_args})",
                 method_name = method.name
@@ -211,15 +192,12 @@ pub(super) fn gen_method(
         )
     } else if method.is_static {
         let body = if can_delegate {
-            // WASM does not use optional promotion, so use gen_named_let_bindings_no_promote.
             let let_bindings = if crate::codegen::generators::has_named_params(&method.params, opaque_types) {
                 crate::codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
             } else {
                 String::new()
             };
 
-            // For lifetime-parameterized types, emit let bindings for String→Cow and
-            // JsValue→BTreeMap conversions, and rename borrowed→owned constructors.
             let is_borrowed_to_owned = method.name.contains("borrowed_attributes");
             let lifetime_bindings = if typ.has_lifetime_params {
                 let mut bindings = String::new();
@@ -240,7 +218,6 @@ pub(super) fn gen_method(
                             bindings.push_str("    ");
                         }
                         TypeRef::Map(_, _) => {
-                            // JsValue → BTreeMap: deserialize via serde_wasm_bindgen
                             bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "lifetime_map_required",
                                 minijinja::context! {
@@ -267,8 +244,6 @@ pub(super) fn gen_method(
             };
 
             let (call_args, actual_method_name) = if !lifetime_bindings.is_empty() {
-                // Adjust call args to use converted variables and drop & borrow for Map params
-                // when switching from borrowed→owned constructor.
                 let base_call_args = if let_bindings.is_empty() {
                     generators::gen_call_args(&method.params, opaque_types)
                 } else {
@@ -374,7 +349,6 @@ pub(super) fn gen_method(
         )
     } else {
         let body = if can_delegate {
-            // WASM does not use optional promotion, so use gen_named_let_bindings_no_promote.
             let let_bindings = if crate::codegen::generators::has_named_params(&method.params, opaque_types) {
                 crate::codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
             } else {
@@ -387,7 +361,6 @@ pub(super) fn gen_method(
             };
             let is_opaque_type = opaque_types.contains(type_name);
             let core_call = if is_opaque_type && has_mut_methods && !is_ref_mut_receiver {
-                // Opaque types whose inner is `Arc<Mutex<T>>` must lock for any method.
                 format!(
                     "self.inner.lock().unwrap().{method_name}({call_args})",
                     method_name = method.name

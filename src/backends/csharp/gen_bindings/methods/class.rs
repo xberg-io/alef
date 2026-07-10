@@ -34,12 +34,10 @@ fn get_capsule_config<'a>(
 fn should_skip_ffi_method(func: &FunctionDef) -> bool {
     let name = &func.name;
 
-    // Skip validation methods (is_valid suffix)
     if name.ends_with("_is_valid") || name == "is_valid" {
         return true;
     }
 
-    // Skip default factory methods (_default suffix from Default::default() impls)
     if name.ends_with("_default") || name == "default" {
         return true;
     }
@@ -81,10 +79,8 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
     );
     out.push('\n');
 
-    // Enum names: used to distinguish opaque struct handles from enum return types.
     let enum_names: HashSet<String> = api.enums.iter().map(|e| csharp_type_name(&e.name)).collect();
 
-    // Truly opaque types (is_opaque = true) — returned/passed as handles, no JSON serialization.
     let true_opaque_types: HashSet<String> = api
         .types
         .iter()
@@ -92,19 +88,13 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
         .map(|t| t.name.clone())
         .collect();
 
-    // Types returned as opaque handles (Named return type from any public function/method).
     let handle_returned_types = super::super::errors::compute_handle_returned_types(api);
 
-    // Generate wrapper methods for functions.
-    // Skip trait-bridge lifecycle functions: their binding-safe API is exposed via the
-    // generated helpers in TraitBridges.cs. Emitting wrappers here would duplicate or
-    // shadow those helpers.
     for func in api.functions.iter().filter(|f| {
         !exclude_functions.contains(&f.name)
             && !should_skip_ffi_method(f)
             && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, trait_bridges)
     }) {
-        // Check if this function has a bridge_field binding (e.g., visitor field on options)
         let bridge_field = find_bridge_field(func, &api.types, trait_bridges);
         if let Some(bm) = bridge_field {
             out.push_str(&gen_bridge_field_wrapper_function(
@@ -140,10 +130,7 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
         }
     }
 
-    // Generate wrapper methods for type methods (prefixed with type name to avoid collisions).
-    // Skip streaming adapter methods — their FFI signature uses callbacks that P/Invoke can't call.
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        // Skip opaque types — their methods belong on the opaque handle class, not the static wrapper
         if typ.is_opaque {
             continue;
         }
@@ -151,8 +138,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
             if streaming_methods.contains(&method.name) {
                 continue;
             }
-            // Skip Rust-ism methods: is_valid (move to instance method on type) and default
-            // (idiomatic C# uses parameterless constructor or field defaults).
             if method.name == "is_valid" || method.name == "default" {
                 continue;
             }
@@ -171,9 +156,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
         }
     }
 
-    // Emit static wrapper methods for streaming methods on opaque types.
-    // Opaque instance methods are emitted on the opaque handle class itself (in types.rs).
-    // But we also emit static facades in the main wrapper class for convenience.
     for typ in api.types.iter().filter(|typ| typ.is_opaque) {
         for method in &typ.methods {
             if !streaming_methods.contains(&method.name) {
@@ -190,20 +172,16 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
         }
     }
 
-    // Emit adapter wrapper methods for streaming adapters
     for adapter in adapters {
         if matches!(adapter.pattern, crate::core::config::AdapterPattern::Streaming) {
             out.push_str(&gen_adapter_wrapper(adapter, prefix, exception_name, api));
         }
     }
 
-    // Emit Register* and Unregister* facade methods for trait bridges.
-    // Bridge factory returns an IntPtr handle; the facade completes the registration.
     for bridge_cfg in trait_bridges {
         let trait_pascal = csharp_type_name(&bridge_cfg.trait_name);
         let has_super = bridge_cfg.super_trait.is_some();
 
-        // Register{TraitName} — takes IntPtr handle from bridge factory, completes registration
         let register_method_name = format!("Register{trait_pascal}");
         out.push_str(&render(
             "trait_register_facade.jinja",
@@ -215,7 +193,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
             },
         ));
 
-        // Unregister{TraitName} — only if unregister_fn is configured
         if bridge_cfg.unregister_fn.is_some() {
             let unregister_method_name = format!("Unregister{trait_pascal}");
             out.push_str(&render(
@@ -229,10 +206,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
         }
     }
 
-    // Emit Clear* facade methods for trait bridges with clear_fn configured.
-    // These static methods forward to the {Trait}Registry.Clear() methods.
-    // The method name is derived from clear_fn (e.g., "clear_text_backends" → "ClearTextBackends"),
-    // not from the trait name, to match the Rust FFI free-function naming convention.
     for bridge_cfg in trait_bridges {
         if let Some(clear_fn) = &bridge_cfg.clear_fn {
             let trait_pascal = csharp_type_name(&bridge_cfg.trait_name);
@@ -248,18 +221,11 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
         }
     }
 
-    // Add error handling helper — dispatches typed exceptions by error code
     let has_base_error = !api.errors.is_empty();
     let (base_exception_class, has_invalid_input_variant, variant_dispatch_lines) = if has_base_error {
         let base_error = &api.errors[0];
         let base_ex = format!("{}Exception", base_error.name);
         let has_invalid = base_error.variants.iter().any(|v| v.name == "InvalidInput");
-        // Build per-variant message-prefix dispatch. Each thiserror Display template starts
-        // with a literal prefix (e.g. `"not_found: {0}"`), giving the runtime message a stable
-        // prefix the binding can match on. Skip the InvalidInput variant — that one is dispatched
-        // via the explicit `code == 1` arm above. Order by descending prefix length so that
-        // overlapping prefixes (e.g. `"forbidden: waf/blocked: "` vs `"forbidden: "`) match the
-        // longer one first.
         let mut variants_with_prefix: Vec<(String, String)> = base_error
             .variants
             .iter()
@@ -274,7 +240,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
                 Some((format!("{}Exception", v.name), prefix))
             })
             .collect();
-        // Longest prefix first so e.g. "forbidden: waf/blocked: " wins over "forbidden: ".
         variants_with_prefix.sort_by_key(|item| std::cmp::Reverse(item.1.len()));
         let dispatch_lines: Vec<String> = variants_with_prefix
             .into_iter()

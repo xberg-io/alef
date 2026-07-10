@@ -71,21 +71,18 @@ pub(super) fn collect_trait_bridge_functions(config: &ResolvedCrateConfig) -> Ve
         if bridge_cfg.exclude_languages.iter().any(|l| l == "r" || l == "extendr") {
             continue;
         }
-        // register_fn(r_backend: Robj) — the R caller passes a named list of closures.
         if let Some(name) = bridge_cfg.register_fn.as_deref() {
             out.push(TraitBridgeFn {
                 name: name.to_string(),
                 params: vec!["r_backend".to_string()],
             });
         }
-        // unregister_fn(name: String) — the R caller passes the plugin name.
         if let Some(name) = bridge_cfg.unregister_fn.as_deref() {
             out.push(TraitBridgeFn {
                 name: name.to_string(),
                 params: vec!["name".to_string()],
             });
         }
-        // clear_fn() — no arguments; clears every registered backend of this type.
         if let Some(name) = bridge_cfg.clear_fn.as_deref() {
             out.push(TraitBridgeFn {
                 name: name.to_string(),
@@ -120,13 +117,13 @@ pub(super) fn collect_excluded_class_types(api: &ApiSurface, bridges: &[TraitBri
         match ty {
             TypeRef::Vec(inner) => match inner.as_ref() {
                 TypeRef::Named(n) if is_struct_like(n) => true,
-                TypeRef::Vec(_) => true, // Vec<Vec<_>> not supported
+                TypeRef::Vec(_) => true,
                 _ => false,
             },
             TypeRef::Optional(inner) => match inner.as_ref() {
                 TypeRef::Vec(inner2) => match inner2.as_ref() {
                     TypeRef::Named(n) if is_struct_like(n) => true,
-                    TypeRef::Vec(_) => true, // Option<Vec<Vec<_>>> not supported
+                    TypeRef::Vec(_) => true,
                     _ => false,
                 },
                 _ => false,
@@ -217,10 +214,6 @@ pub(super) fn method_is_excluded_from_impl(
     {
         return true;
     }
-    // Map return/param types: extendr cannot marshal HashMap/BTreeMap directly
-    // (`HashMap<K, V>: ToVectorValue` is not implemented). Exclude any method
-    // whose surface uses Map types; callers must access map fields via the struct
-    // serialisation path (R named list) instead of through a method getter.
     let references_map = |ty: &TypeRef| -> bool {
         match ty {
             TypeRef::Map(_, _) => true,
@@ -231,9 +224,6 @@ pub(super) fn method_is_excluded_from_impl(
     if references_map(&method.return_type) || method.params.iter().any(|p| references_map(&p.ty)) {
         return true;
     }
-    // Return types extendr cannot convert into Robj: Option<Named>, Vec<Named>, Option<Vec<_>>.
-    // Mirrors `method_return_unsupported` in `generate_bindings` so wrapper/NAMESPACE entries are
-    // not emitted for methods the Rust impl block omits.
     if method_return_unsupported(method) {
         return true;
     }

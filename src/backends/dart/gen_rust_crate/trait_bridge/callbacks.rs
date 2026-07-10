@@ -49,9 +49,6 @@ fn dart_fn_future_params_and_ret(
     source_crate_name: &str,
     excluded_type_paths: &std::collections::HashMap<String, String>,
 ) -> (String, String) {
-    // Closures take owned FRB mirror types — use frb_rust_type (no source prefix)
-    // for types with an in-scope mirror, and the qualified source-crate path for
-    // excluded internal types that have no mirror struct.
     let params: Vec<String> = method
         .params
         .iter()
@@ -63,16 +60,6 @@ fn dart_fn_future_params_and_ret(
 
     let ret = frb_rust_type_excluded_aware(&method.return_type, false, excluded_type_paths);
     let ret_substituted = substitute_excluded_carriers_in_rust_type(&ret, source_crate_name, excluded_type_paths);
-    // FRB v2's closure-parameter parser inspects the FIRST path segment of the
-    // return type. A fully-qualified `flutter_rust_bridge::DartFnFuture<...>`
-    // makes that first segment resolve to `flutter_rust_bridge`, causing the
-    // parser to bail with "DartFn does not support return types except
-    // `DartFnFuture<T>` yet" and silently drop the entire factory. The bare
-    // `DartFnFuture` ident is brought into scope via the
-    // `pub use flutter_rust_bridge::DartFnFuture` re-export emitted at the top
-    // of every generated lib.rs (see `gen_rust_crate::mod::generate_lib_rs`),
-    // so both struct-field types (`Box<dyn Fn>`) and factory-param types
-    // (`impl Fn`) can use the bare form safely.
     let dart_fn_ret = format!("DartFnFuture<{ret_substituted}>");
 
     (params.join(", "), dart_fn_ret)

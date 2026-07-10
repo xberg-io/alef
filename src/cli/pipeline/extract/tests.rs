@@ -13,14 +13,11 @@ use ahash::AHashSet;
 fn sanitize_map_with_cow_key_preserves_map_structure_and_returns_lossless() {
     let known_types = AHashSet::default();
     let known_enums = AHashSet::default();
-    // "str" is NOT in known_types — it represents the inner type of Cow<'static, str>.
-    // The key starts as Named("str") which the type_resolver emits for Cow<'static, str>.
 
     let mut ty = TypeRef::Map(Box::new(TypeRef::Named("str".into())), Box::new(TypeRef::Json));
 
     let status = sanitize_type_ref(&mut ty, &known_types, &known_enums);
 
-    // The Map must be preserved — NOT converted to String.
     assert!(
         matches!(&ty, TypeRef::Map(k, v)
                 if matches!(k.as_ref(), TypeRef::String)
@@ -30,8 +27,6 @@ fn sanitize_map_with_cow_key_preserves_map_structure_and_returns_lossless() {
 
     assert_eq!(status, TypeSanitization::Lossless);
 
-    // Verify the symmetric case: Map(String, Json) with already-resolved key
-    // should also return false (key is already String, no unknown Named types).
     let _ = known_types;
     let mut ty2 = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Json));
     let sanitized2 = sanitize_type_ref(&mut ty2, &AHashSet::default(), &AHashSet::default());
@@ -246,22 +241,16 @@ fn validate_extracted_api_does_not_suppress_critical_codes() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// is_type_excluded — fully-qualified path matching
-// ---------------------------------------------------------------------------
-
 /// Plain (no-`::`) entries match by short name only.
 #[test]
 fn is_type_excluded_plain_entry_matches_by_name() {
     let exclude = vec!["OutputFormat".to_string()];
 
-    // Short name hit
     assert!(
         is_type_excluded("OutputFormat", "sample_crate::types::OutputFormat", &exclude),
         "plain entry must match when name matches"
     );
 
-    // Different name — no match
     assert!(
         !is_type_excluded("SomethingElse", "sample_crate::types::SomethingElse", &exclude),
         "plain entry must not match when name differs"
@@ -277,7 +266,6 @@ fn is_type_excluded_plain_entry_matches_by_name() {
 fn is_type_excluded_qualified_entry_matches_rust_path_not_name() {
     let exclude = vec!["sample_crate::core::config::formats::OutputFormat".to_string()];
 
-    // The internal variant — must be excluded.
     assert!(
         is_type_excluded(
             "OutputFormat",
@@ -287,7 +275,6 @@ fn is_type_excluded_qualified_entry_matches_rust_path_not_name() {
         "qualified entry must match the exact rust_path"
     );
 
-    // The public variant that shares the same short name — must NOT be excluded.
     assert!(
         !is_type_excluded("OutputFormat", "sample_crate::types::OutputFormat", &exclude),
         "qualified entry must NOT match a different rust_path with the same short name"
@@ -300,16 +287,11 @@ fn is_type_excluded_qualified_entry_matches_rust_path_not_name() {
 fn is_type_excluded_normalises_hyphens_in_rust_path() {
     let exclude = vec!["my_crate::some_module::Foo".to_string()];
 
-    // rust_path with hyphen in crate name — normalised to underscore before compare.
     assert!(
         is_type_excluded("Foo", "my-crate::some_module::Foo", &exclude),
         "hyphens in rust_path should be normalised to underscores"
     );
 }
-
-// ---------------------------------------------------------------------------
-// expand_include_list — function-signature seeding
-// ---------------------------------------------------------------------------
 
 fn make_typedef(name: &str) -> crate::core::ir::TypeDef {
     crate::core::ir::TypeDef {
@@ -396,10 +378,6 @@ fn surface_with(types: Vec<crate::core::ir::TypeDef>, functions: Vec<crate::core
         unsupported_public_items: Vec::new(),
     }
 }
-
-// ---------------------------------------------------------------------------
-// external type roots
-// ---------------------------------------------------------------------------
 
 #[test]
 fn merge_external_type_roots_imports_only_transitive_dtos() {
@@ -772,10 +750,6 @@ fn normalize_field_type_paths_preserves_explicit_reexport_path() {
     assert_eq!(field.type_rust_path.as_deref(), Some("external_core::CrawlConfig"));
 }
 
-// ---------------------------------------------------------------------------
-// apply_filters — exclude.methods suppresses unsupported_public_items
-// ---------------------------------------------------------------------------
-
 fn make_unsupported_method(type_name: &str, method_name: &str) -> crate::core::ir::UnsupportedPublicItem {
     crate::core::ir::UnsupportedPublicItem {
         item_kind: "method".to_string(),
@@ -847,7 +821,6 @@ fn apply_filters_exclude_methods_does_not_affect_unsupported_function_items() {
         .unsupported_public_items
         .push(make_unsupported_function("generic_helper"));
 
-    // Deliberately add the function path tail to exclude.methods — must have no effect.
     let mut config = ResolvedCrateConfig::default();
     config.exclude.methods = vec!["generic_helper".to_string()];
 
@@ -912,10 +885,6 @@ fn apply_filters_retains_unsupported_method_when_parent_type_is_included() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Regression: configurator methods survive the exclude-methods post-service pass
-// ---------------------------------------------------------------------------
-
 /// A method declared in `[[crates.services]].configurators` must remain in
 /// `service.configurators` even when the same `OwnerType.method_name` key also
 /// appears in `[crates.exclude].methods`.
@@ -932,7 +901,6 @@ fn configurator_survives_exclude_methods_post_service_pass() {
     use crate::core::config::service::{EntrypointSpec, ServiceConfig};
     use crate::core::ir::{MethodDef, ReceiverKind, ServiceDef, TypeRef};
 
-    // Build a minimal service with one configurator (`setup`) already populated.
     let configurator_method = MethodDef {
         name: "setup".to_string(),
         params: vec![],
@@ -982,9 +950,6 @@ fn configurator_survives_exclude_methods_post_service_pass() {
         cfg: None,
     };
 
-    // Wire up a ResolvedCrateConfig that:
-    // - declares `setup` as a configurator via services[].configurators
-    // - also lists `Foo.setup` in exclude.methods (the scenario that previously cleared it)
     let mut config = ResolvedCrateConfig {
         name: "test_crate".to_string(),
         services: vec![ServiceConfig {
@@ -1003,14 +968,12 @@ fn configurator_survives_exclude_methods_post_service_pass() {
     };
     config.exclude.methods = vec!["Foo.setup".to_string()];
 
-    // Simulate the pipeline state just after extract_services has populated services.
     let mut api = ApiSurface {
         crate_name: "test_crate".to_string(),
         services: vec![service],
         ..ApiSurface::default()
     };
 
-    // Apply the post-extract_services exclude pass (the fix under test).
     if !config.exclude.methods.is_empty() {
         for typ in &mut api.types {
             typ.methods.retain(|m| {
@@ -1020,8 +983,6 @@ fn configurator_survives_exclude_methods_post_service_pass() {
         }
     }
 
-    // The configurator must still be present: the exclude list controls struct-level
-    // method emission, NOT the service IR configurator list.
     assert_eq!(api.services.len(), 1, "service must be present after the exclude pass");
     assert_eq!(
         api.services[0].configurators.len(),

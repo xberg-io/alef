@@ -37,7 +37,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         "".to_string(),
     ];
 
-    // Custom registrations (before generated ones)
     if let Some(reg) = config.custom_registrations.for_language(Language::Ruby) {
         for class in &reg.classes {
             lines.push(crate::backends::magnus::template_env::render(
@@ -65,15 +64,10 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         if exclude_types.contains(typ.name.as_str()) {
             continue;
         }
-        // Variant-wrapper opaque types expose a static `new` singleton method — include
-        // them in the `class` binding so `define_singleton_method` can be called on it.
         let has_variant_wrapper_ctor = typ.is_opaque
             && typ.is_variant_wrapper
             && !config.client_constructors.contains_key(&typ.name)
             && typ.methods.iter().any(|m| m.name == "new" && m.receiver.is_none());
-        // Opaque types must always be registered even with zero instance methods,
-        // so consumer code can reference the class and dynamically attach methods
-        // at runtime.
         let class_used = typ.is_opaque
             || !typ.fields.is_empty()
             || typ.methods.iter().any(|m| !m.is_static)
@@ -88,10 +82,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         ));
 
         if !typ.is_opaque && !typ.fields.is_empty() {
-            // Always register the constructor as variadic (-1) since the impl now uses a
-            // hash-based kwargs constructor regardless of field count. This keeps Ruby
-            // callers consistent: every `Type.new(field: ...)` works whether the type has
-            // 3 fields or 30.
             lines.push(crate::backends::magnus::template_env::render(
                 "module_class_singleton_method_register.rs.jinja",
                 minijinja::context! {
@@ -102,9 +92,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                 },
             ));
         } else if has_variant_wrapper_ctor {
-            // Register the static `new` emitted by magnus_variant_wrapper_constructor as
-            // a Ruby singleton method. Arity matches the number of params on the `new`
-            // MethodDef so Magnus can route positional arguments correctly.
             if let Some(ctor_method) = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none()) {
                 let arity = ctor_method.params.len() as i32;
                 lines.push(crate::backends::magnus::template_env::render(
@@ -121,7 +108,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
 
         if !typ.is_opaque {
             for field in binding_fields(&typ.fields) {
-                // Skip thread-unsafe fields (e.g., VisitorHandle) that cannot be used in Magnus methods
                 if is_thread_unsafe_field(field, &config.trait_bridges) {
                     continue;
                 }
@@ -135,7 +121,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                     },
                 ));
             }
-            // Register to_s for structs that have a `content: String` or `content: Option<String>` field.
             if classes::has_content_string_field(typ) {
                 lines.push(crate::backends::magnus::template_env::render(
                     "module_class_method_register.rs.jinja",
@@ -156,21 +141,14 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
 
         for method in &typ.methods {
             if !method.is_static {
-                // Skip apply_update methods: they mutate self without returning a value,
-                // which is incompatible with Magnus's method! macro which requires RubyMethod traits.
-                // Callers can use from_update instead.
                 if method.name == "apply_update" {
                     continue;
                 }
 
-                // Skip &mut self methods: Magnus's method! macro doesn't support mutable receivers.
-                // These methods mutate the wrapper in place, which isn't compatible with Ruby's
-                // object model. Callers should use builder patterns or from_* constructors instead.
                 if matches!(method.receiver, Some(ReceiverKind::RefMut)) {
                     continue;
                 }
 
-                // Streaming methods register via streaming_method_registrations below.
                 if streaming_owner_methods.contains(&method.name) {
                     continue;
                 }
@@ -193,8 +171,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
             }
         }
 
-        // Append streaming method registrations (e.g. chat_stream → DefaultClient::chat_stream)
-        // for this owner type. These are emitted by the streaming module.
         if let Some(regs) = streaming_method_registrations.get(typ.name.as_str()) {
             for reg in regs {
                 lines.push(reg.clone());
@@ -204,20 +180,12 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         lines.push("".to_string());
     }
 
-    // Register data-enum classes that expose per-variant singleton constructors
-    // (`Shape.circle(radius)`). Data enums without qualifying struct variants stay unregistered —
-    // they round-trip purely through serde IntoValue/TryConvert and need no Ruby class.
     for enum_def in &api.enums {
         if crate::backends::magnus::gen_bindings::is_reserved_enum(&enum_def.name)
             || exclude_types.contains(enum_def.name.as_str())
         {
             continue;
         }
-        // Tagged data enums are represented on the Ruby side as a `module <Name>` interface with
-        // per-variant `Data.define` classes (see `gen_tagged_enum_ruby_classes`). Defining a Rust
-        // `class <Name>` here collides with that module at load time (`TypeError: <Name> is not a
-        // module`), so tagged enums do not get Rust-side singleton factory constructors. Their Ruby
-        // `Data` classes (`<Name>Basic.new(...)`) and `from_hash` cover construction.
         if enum_def.serde_tag.is_some() {
             continue;
         }
@@ -246,7 +214,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         lines.push("".to_string());
     }
 
-    // Register iterator classes (e.g. ChatStreamIterator) at module scope.
     if !streaming_iterator_registrations.is_empty() {
         lines.extend(streaming_iterator_registrations.iter().cloned());
         lines.push("".to_string());
@@ -256,15 +223,9 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         if is_reserved_fn(&func.name) || exclude_functions.contains(func.name.as_str()) {
             continue;
         }
-        // Skip trait-bridge-managed names (clear_fn) — they get a dedicated
-        // registration in the trait_bridge loop below.
         if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
             continue;
         }
-        // Functions with a trait_bridge param use fixed-arity signatures, while
-        // options_field bindings use variadic arity. For bridge_param, register fixed arity
-        // since those functions don't use scan_args. For options_field, register variadic
-        // (-1) since the generated body uses scan_args to unpack arguments.
         let has_bridge_param =
             crate::backends::magnus::trait_bridge::find_bridge_param(func, &config.trait_bridges).is_some();
         let has_options_field_binding =
@@ -273,16 +234,12 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         let is_default_config_func = last_param_is_default_struct(func, api);
 
         let param_count: i32 = if has_options_field_binding {
-            // options_field binding functions use variadic arity with scan_args
             -1
         } else if has_bridge_param {
-            // bridge_param functions use fixed arity
             func.params.len() as i32
         } else if needs_variadic_arity(&func.params) || is_default_config_func {
-            // Functions with optional params OR default-config last param use variadic arity
             -1
         } else {
-            // Functions with only required params use fixed arity
             func.params.len() as i32
         };
         let ruby_name = crate::backends::magnus::ruby_public_function_name(func);
@@ -297,8 +254,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         ));
     }
 
-    // Register trait bridge entry points: pub fn register_xxx(rb_obj, name) -> Result<...>
-    // is emitted by the trait_bridge generator; surface it on the Ruby module here.
     for bridge_cfg in &config.trait_bridges {
         if bridge_cfg.exclude_languages.iter().any(|s| s == "ruby") {
             continue;
@@ -335,9 +290,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         }
     }
 
-    // Register module-level wrapper functions for streaming adapters.
-    // These allow calling `SampleCrawler.crawl_stream(engine, request)` at module level,
-    // mirroring the pattern of non-streaming functions like `crawl`.
     for adapter in streaming_adapters {
         lines.push(crate::backends::magnus::template_env::render(
             "module_function_register.rs.jinja",
@@ -349,9 +301,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         ));
     }
 
-    // Register error info classes for errors with introspection methods.
-    // Each class is defined as a Ruby class on the module and gets define_method
-    // calls for status_code, transient?, and error_type.
     for error in &api.errors {
         let regs = crate::codegen::error_gen::magnus_error_methods_registrations(error);
         for reg_line in regs {
@@ -359,9 +308,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         }
     }
 
-    // Register service-API entrypoint functions (generated in `service.rs`).
-    // Each entrypoint takes `registrations` (1 param) plus any entrypoint-specific
-    // params, so arity = 1 + ep.params.len().
     if !api.services.is_empty() {
         use heck::ToSnakeCase as _;
         lines.push("    // Service entrypoints".to_string());

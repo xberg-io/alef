@@ -3,8 +3,6 @@ use alef::core::backend::Backend;
 use alef::core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
 use alef::core::ir::{ApiSurface, CoreWrapper, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 
-// ── helpers ─────────────────────────────────────────────────────────────────
-
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
         name: name.to_string(),
@@ -111,19 +109,15 @@ sources = ["src/lib.rs"]
     cfg.resolve().expect("test config must resolve").remove(0)
 }
 
-// ── tests ───────────────────────────────────────────────────────────────────
-
 /// Verify that JSON-string overloads are emitted for functions with serde config params.
 #[test]
 fn json_string_overloads_emitted_for_serde_config() {
-    // Create a serde-enabled config struct.
     let config_type = make_type(
         "ProcessConfig",
         vec![make_field("timeout_ms", TypeRef::Primitive(PrimitiveType::U64), false)],
-        true, // has_serde
+        true,
     );
 
-    // Create a function that takes this config.
     let func = make_function(
         "process_data",
         vec![
@@ -150,12 +144,10 @@ fn json_string_overloads_emitted_for_serde_config() {
     let config = make_config();
     let swift = SwiftBackend;
 
-    // Generate bindings.
     let files = swift
         .generate_bindings(&api, &config)
         .expect("binding generation must succeed");
 
-    // Find the main Mylib.swift file.
     let content = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("Mylib.swift"))
@@ -163,19 +155,16 @@ fn json_string_overloads_emitted_for_serde_config() {
         .content
         .clone();
 
-    // Verify JSON-string overload is emitted.
     assert!(
         content.contains("public func processData(_ input: String, _ configJson: String)"),
         "must emit positional-arg JSON-string overload with configJson parameter. Content:\n{content}"
     );
 
-    // Verify config decoding call is present.
     assert!(
         content.contains("processConfigFromJson(configJson)"),
         "must decode JSON config via fromJson helper using configJson parameter. Content:\n{content}"
     );
 
-    // Verify the helper delegation is present.
     assert!(
         content.contains("return try processData(input: input, config: config)"),
         "must delegate to typed base function. Content:\n{content}"
@@ -228,19 +217,16 @@ fn load_bytes_from_path_or_utf8_helper_emitted() {
         .content
         .clone();
 
-    // Verify the helper is emitted.
     assert!(
         content.contains("private func _loadBytesFromPathOrUtf8"),
         "must emit _loadBytesFromPathOrUtf8 helper. Content:\n{content}"
     );
 
-    // Verify key logic: environment variable check.
     assert!(
         content.contains("ALEF_TEST_DOCUMENTS_DIR"),
         "must check ALEF_TEST_DOCUMENTS_DIR env var. Content:\n{content}"
     );
 
-    // Verify fallback to UTF-8.
     assert!(
         content.contains("pathOrContent.utf8"),
         "must fallback to UTF-8 if file not found. Content:\n{content}"
@@ -256,14 +242,12 @@ fn json_string_overloads_emitted_for_async_and_sync_functions() {
         true,
     );
 
-    // Create a sync function.
     let sync_func = make_function(
         "process_data",
         vec![make_param("config", TypeRef::Named("ProcessConfig".to_string()))],
         TypeRef::Named("ProcessResult".to_string()),
     );
 
-    // Create an async function with same name.
     let mut async_func = make_function(
         "process_data",
         vec![make_param("config", TypeRef::Named("ProcessConfig".to_string()))],
@@ -299,7 +283,6 @@ fn json_string_overloads_emitted_for_async_and_sync_functions() {
         .content
         .clone();
 
-    // Should emit JSON-string overload for both async and sync variants.
     assert!(
         content.contains("public func processData(_ configJson: String)"),
         "must emit JSON-string overload for both async and sync functions with configJson parameter. Content:\n{content}"

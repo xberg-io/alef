@@ -100,13 +100,6 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
         Language::Ruby => SetupConfig {
             precondition: Some(require_tool("bundle")),
             before: None,
-            // `bundle lock --add-checksums` populates the CHECKSUMS section with a sha256
-            // for every gem in the resolved set so cache-hit gems don't land in
-            // Gemfile.lock with empty checksums (bundler 4.x's frozen mode rejects those
-            // with exit 16). Run it as a separate, tolerant step so bundler versions
-            // that don't recognise `--add-checksums` don't fail the whole setup — older
-            // bundlers (<2.5.0) and 2.7+ rewrites print "Unknown switches" and exit
-            // non-zero when the flag is mixed into `bundle install` directly.
             install: Some(StringOrVec::Multiple(vec![
                 format!("cd {output_dir} && bundle install"),
                 format!("cd {output_dir} && bundle lock --add-checksums 2>/dev/null || true"),
@@ -131,16 +124,10 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             workdir: default_setup_workdir(lang),
         },
         Language::Csharp => SetupConfig {
-            // Both `dotnet` AND a discoverable .sln/.csproj must exist under output_dir, or
-            // `dotnet restore` walks the entire repo (including target/ and node_modules/)
-            // looking for a project file and times out. Skip cleanly when no project is present.
             precondition: Some(format!(
                 "command -v dotnet >/dev/null 2>&1 && [ -n \"$(find {output_dir} -maxdepth 3 \\( -name '*.sln' -o -name '*.csproj' \\) 2>/dev/null | head -1)\" ]"
             )),
             before: None,
-            // Resolve the first .sln/.csproj under output_dir (depth 3) — same approach as
-            // the C# upgrade default. Avoids the unbounded directory walk that caused the
-            // 600s timeout on CI.
             install: Some(StringOrVec::Single(format!(
                 "dotnet restore $(find {output_dir} -maxdepth 3 \\( -name '*.sln' -o -name '*.csproj' \\) 2>/dev/null | head -1)"
             ))),
@@ -164,8 +151,6 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             workdir: default_setup_workdir(lang),
         },
         Language::Ffi => SetupConfig {
-            // FFI shares cargo with the parent Rust crate; there is no
-            // separate install step and therefore nothing to precondition.
             precondition: None,
             before: None,
             install: None,
@@ -315,7 +300,6 @@ mod tests {
         let cmds = c.install.unwrap().commands().join(" || ");
         assert!(cmds.contains("cargo install cargo-edit --locked"));
         assert!(cmds.contains("cargo install cargo-foo --locked"));
-        // Default tools that aren't in the user override should be absent.
         assert!(!cmds.contains("cargo install cargo-deny"));
     }
 
@@ -383,7 +367,6 @@ mod tests {
 
     #[test]
     fn wasm_matches_node() {
-        // Same package manager invocation, only the output dir differs.
         let node = cfg(Language::Node, "packages/foo");
         let wasm = cfg(Language::Wasm, "packages/foo");
         assert_eq!(

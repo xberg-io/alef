@@ -13,7 +13,6 @@ pub fn find_options_field_binding<'a>(
         }
         if let Some(options_type) = &bridge.options_type {
             for (idx, param) in func.params.iter().enumerate() {
-                // Check if param type is Named(options_type) or Optional(Named(options_type))
                 let matches = match &param.ty {
                     crate::core::ir::TypeRef::Named(n) => n == options_type,
                     crate::core::ir::TypeRef::Optional(inner) => {
@@ -53,7 +52,6 @@ pub fn gen_options_field_bridge_function(
     let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Rb", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
 
-    // Find non-options parameters.
     let non_option_params: Vec<_> = func
         .params
         .iter()
@@ -61,7 +59,6 @@ pub fn gen_options_field_bridge_function(
         .filter(|(idx, _)| *idx != options_param_idx)
         .collect();
 
-    // Build parameter list: non-options params + optional bridge object.
     let mut sig_parts = Vec::new();
     for (_, p) in &non_option_params {
         let ty = mapper.map_type(&p.ty);
@@ -77,9 +74,6 @@ pub fn gen_options_field_bridge_function(
 
     let err_conv = ".map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))";
 
-    // Generate dispatch: if the bridge/options arg is a Hash, deserialize it as the
-    // configured options type; if it is the options Ruby class instance, clone and
-    // convert it to core; otherwise treat it as the bridge object and wire it into options.
     let options_name = &func.params[options_param_idx].name;
     let Some(options_field) = bridge_cfg.resolved_options_field() else {
         return String::new();
@@ -135,8 +129,6 @@ pub fn gen_options_field_bridge_function(
         bridge_param_name = bridge_param_name,
     );
 
-    // Build call args: non-options params + the _core options (wrapped in Some)
-    // The core function expects the options parameter, so always wrap the generated value in Some.
     let call_args: String = non_option_params
         .iter()
         .map(|(_, p)| match &p.ty {

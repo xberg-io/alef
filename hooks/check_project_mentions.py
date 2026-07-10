@@ -41,9 +41,6 @@ DEFAULT_SKIP_PATH_PARTS = {
     "tests",
 }
 
-# This hook is intentionally opinionated about production code: generic capabilities
-# such as package naming, hosted documentation, or repository metadata belong in
-# config-driven Alef infrastructure, while downstream/product-specific names do not.
 POLICY_FILES = {
     "hooks/check_project_mentions.py",
     "tests/project_mentions_hook.rs",
@@ -70,11 +67,6 @@ DOWNSTREAM_SAMPLE_NAMES = {
     "sample-crawler": ("sample", "crawler"),
 }
 
-# Alef's own brand/org infrastructure is allowed; downstream product names are not.
-# Masking the `xberg-io` org namespace and the `xberg.io` domain (and every
-# `docs.<repo>.xberg.io` subdomain) keeps Alef's own actions, repos, package owners,
-# and brand references clean while still catching the `xberg` product name itself —
-# e.g. `xberg-io/xberg` masks to `/xberg`, which remains a forbidden mention.
 ALEF_INFRASTRUCTURE_ALLOWLIST = (
     "xberg-io",
     "xberg.io",

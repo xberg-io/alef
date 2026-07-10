@@ -242,8 +242,6 @@ mod tests {
     fn noop_extension_parse_config_accepts_raw_value() {
         let ext = NoopExtension;
         let raw = toml::Value::String("some_value".to_string());
-        // Default impl ignores the raw value — this tests that it compiles and
-        // returns empty regardless of what value is passed.
         let cfg = ext.parse_config(Some(&raw)).expect("parse_config failed");
         assert!(cfg.inner.is_none());
     }

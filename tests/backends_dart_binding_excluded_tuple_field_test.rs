@@ -51,8 +51,6 @@ fn make_api_with_binding_excluded_error() -> ApiSurface {
                 ErrorVariant {
                     name: "TupleWithExcludedField".to_string(),
                     message_template: Some("tuple with excluded field".to_string()),
-                    // A tuple variant where the single field is binding-excluded.
-                    // The field type is a synthetic non-Default type like serde_json::Error.
                     fields: vec![make_binding_excluded_field(
                         "",
                         TypeRef::Named("serde_json::Error".to_string()),
@@ -66,7 +64,6 @@ fn make_api_with_binding_excluded_error() -> ApiSurface {
                 ErrorVariant {
                     name: "StructWithExcludedField".to_string(),
                     message_template: Some("struct with excluded field".to_string()),
-                    // A struct variant where all fields are binding-excluded.
                     fields: vec![make_binding_excluded_field(
                         "error",
                         TypeRef::Named("serde_json::Error".to_string()),
@@ -79,7 +76,6 @@ fn make_api_with_binding_excluded_error() -> ApiSurface {
                 },
             ],
             doc: "Error enum with binding-excluded fields.".to_string(),
-            // Add a method so the From impl gets emitted
             methods: vec![MethodDef {
                 name: "message".to_string(),
                 params: vec![],
@@ -131,7 +127,6 @@ fn snapshot_binding_excluded_tuple_field_generates_unreachable() {
     let config = make_basic_config();
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
 
-    // Find the Dart crate Rust file (should contain the mirror conversion impl)
     let rust_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
@@ -139,15 +134,12 @@ fn snapshot_binding_excluded_tuple_field_generates_unreachable() {
 
     let content = &rust_file.content;
 
-    // Verify that unreachable!() is emitted for the binding-excluded tuple variant,
-    // not Default::default()
     assert!(
         content.contains("unreachable!(\"variant with binding-excluded fields cannot be constructed on dart side\")"),
         "Expected unreachable!() for tuple variant with binding-excluded field, but got:\n{}",
         content
     );
 
-    // Verify that Default::default() is NOT emitted for the binding-excluded tuple variant
     let lines: Vec<&str> = content.lines().collect();
     let mut in_tuple_variant_arm = false;
     for (i, line) in lines.iter().enumerate() {
@@ -166,7 +158,6 @@ fn snapshot_binding_excluded_tuple_field_generates_unreachable() {
         }
     }
 
-    // Similarly check the struct variant with binding-excluded field
     in_tuple_variant_arm = false;
     for (i, line) in lines.iter().enumerate() {
         if line.contains("StructWithExcludedField") && line.contains("=>") {

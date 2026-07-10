@@ -36,8 +36,6 @@ impl ResolvedCrateConfig {
     /// `"sample-markdown"`. Used by the scaffold to generate correct `path = "../../crates/…"`
     /// references in binding-crate `Cargo.toml` files.
     pub fn core_crate_dir(&self) -> String {
-        // Try to derive from first source path: "crates/foo/src/types/config.rs" → "foo"
-        // Walk up from the file until we find the "src" directory, then take its parent.
         if let Some(first_source) = self.sources.first() {
             let path = std::path::Path::new(first_source);
             let mut current = path.parent();
@@ -122,7 +120,6 @@ impl ResolvedCrateConfig {
             }
         }
 
-        // Explicit path_mappings always win — insert last so they overwrite auto entries.
         for (from, to) in &self.path_mappings {
             mappings.insert(from.clone(), to.clone());
         }
@@ -310,9 +307,7 @@ auto_path_mappings = true
 "#,
         );
         let mappings = r.effective_path_mappings();
-        // my-dep differs from core import → auto-derived
         assert_eq!(mappings.get("my_dep").map(|s| s.as_str()), Some("my_lib"));
-        // my-lib matches core import → skipped
         assert!(!mappings.contains_key("my_lib"));
     }
 }

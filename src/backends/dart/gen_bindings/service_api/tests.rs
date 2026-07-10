@@ -125,19 +125,16 @@ fn test_emit_service_owner_with_frb_opaque() {
 
     let rust = gen_service_rust(&api, &config);
 
-    // Verify FRB opaque marker
     assert!(
         rust.contains("#[frb(opaque)]"),
         "expected `#[frb(opaque)]` marker in:\n{rust}"
     );
 
-    // Verify service owner struct
     assert!(
         rust.contains("pub struct TestService"),
         "expected service owner struct in:\n{rust}"
     );
 
-    // Verify no registrations field (handlers registered immediately)
     assert!(
         !rust.contains("registrations: tokio::sync::Mutex"),
         "should not have registrations field in:\n{rust}"
@@ -154,7 +151,6 @@ fn test_emit_registration_with_dartfnfuture() {
 
     let rust = gen_service_rust(&api, &config);
 
-    // Verify DartFnFuture parameter
     assert!(
         rust.contains("DartFnFuture<String>"),
         "expected `DartFnFuture<String>` in registration method:\n{rust}"
@@ -177,7 +173,6 @@ fn test_emit_handler_bridge_with_manual_pin_box() {
         "expected manual `Pin<Box<dyn Future>>` form in handler bridge:\n{rust}"
     );
 
-    // Verify NOT async_trait
     assert!(
         !rust.contains("#[async_trait]"),
         "should NOT emit #[async_trait] in:\n{rust}"
@@ -194,7 +189,6 @@ fn test_no_dart_ffi_symbols() {
 
     let rust = gen_service_rust(&api, &config);
 
-    // Verify NO dart:ffi symbols
     assert!(!rust.contains("dart:ffi"), "should not contain dart:ffi");
     assert!(!rust.contains("NativeCallable"), "should not contain NativeCallable");
     assert!(!rust.contains("lookupFunction"), "should not contain lookupFunction");
@@ -223,13 +217,12 @@ fn test_skip_unrepresentable_finalize() {
         version: Default::default(),
     };
 
-    // Finalize with unrepresentable Named return type
     let finalize_ep = EntrypointDef {
         method: "into_router".to_owned(),
         kind: EntrypointKind::Finalize,
         is_async: false,
         params: vec![],
-        return_type: TypeRef::Named("ExternalRouter".to_owned()), // NOT in types
+        return_type: TypeRef::Named("ExternalRouter".to_owned()),
         error_type: None,
         doc: String::new(),
     };
@@ -257,7 +250,6 @@ fn test_skip_unrepresentable_finalize() {
 
     let rust = gen_service_rust(&api, &config);
 
-    // Verify that the unrepresentable finalize method is NOT emitted
     assert!(
         !rust.contains("into_router"),
         "should not emit unrepresentable finalize method:\n{rust}"
@@ -286,17 +278,16 @@ fn test_skip_sanitized_finalize() {
         version: Default::default(),
     };
 
-    // Finalize method marked as sanitized (returns an unknown type mapped to String)
     let finalize_method = MethodDef {
         name: "into_router".to_owned(),
         params: vec![],
-        return_type: TypeRef::String, // sanitized from unknown Router type
+        return_type: TypeRef::String,
         is_async: false,
         is_static: false,
         error_type: None,
         doc: String::new(),
         receiver: Some(crate::core::ir::ReceiverKind::RefMut),
-        sanitized: true, // <-- KEY: method is marked as sanitized
+        sanitized: true,
         trait_source: None,
         returns_ref: false,
         returns_cow: false,
@@ -307,18 +298,16 @@ fn test_skip_sanitized_finalize() {
         version: Default::default(),
     };
 
-    // Finalize entrypoint that references the sanitized method
     let finalize_ep = EntrypointDef {
         method: "into_router".to_owned(),
         kind: EntrypointKind::Finalize,
         is_async: false,
         params: vec![],
-        return_type: TypeRef::String, // representable as String, but source is sanitized
+        return_type: TypeRef::String,
         error_type: None,
         doc: String::new(),
     };
 
-    // Service type that owns the sanitized method
     use crate::core::ir::TypeDef;
     let service_type = TypeDef {
         name: "TestService".to_owned(),
@@ -370,7 +359,6 @@ fn test_skip_sanitized_finalize() {
 
     let rust = gen_service_rust(&api, &config);
 
-    // Verify that the sanitized finalize method is NOT emitted
     assert!(
         !rust.contains("into_router"),
         "should not emit finalize method when source is sanitized:\n{rust}"
@@ -415,16 +403,11 @@ fn frb_user_callback_param_uses_non_shadowing_name() {
 
     let rust = gen_service_rust(&api, &config);
 
-    // Verify that user-callback parameters use `cb`, not `handler`, to avoid
-    // shadowing FRB's internal `BaseHandler` field in generated Dart code.
-    // The parameter name `handler` caused FRB to emit `handler.executeSync()`
-    // calls against the user callback (a plain Function) instead of the field.
     assert!(
         rust.contains("cb: impl Fn(String) -> DartFnFuture<String>"),
         "expected callback param named `cb` in:\n{rust}"
     );
 
-    // Ensure the old shadowing name is NOT present
     let service_method = rust
         .split("pub fn add_handler(")
         .nth(1)
@@ -435,7 +418,6 @@ fn frb_user_callback_param_uses_non_shadowing_name() {
         "callback param must not be named `handler` to avoid FRB shadowing in:\n{rust}"
     );
 
-    // Verify that the callback is forwarded using the new name
     assert!(
         rust.contains("::new(cb)"),
         "expected callback forwarding via `cb` in:\n{rust}"
@@ -452,14 +434,11 @@ fn test_registration_calls_inner_directly() {
 
     let rust = gen_service_rust(&api, &config);
 
-    // Verify that registration methods call inner.<method_name> directly
-    // (not deferred dispatch logic)
     assert!(
         rust.contains("inner.add_handler("),
         "expected immediate inner.add_handler() call in:\n{rust}"
     );
 
-    // Verify NO draining logic or match arms in registrations
     assert!(
         !rust.contains("for reg in registrations"),
         "should not have registration draining loop in:\n{rust}"
@@ -612,26 +591,21 @@ fn test_emit_registration_variants() {
 
     let rust = gen_service_rust(&api, &config);
 
-    // Verify variant method is emitted
     assert!(
         rust.contains("pub fn get("),
         "expected registration variant 'get' method in:\n{rust}"
     );
 
-    // Verify wrapper constructor is called
     assert!(
         rust.contains("my_crate::RouteBuilder::new("),
         "expected wrapper constructor call in:\n{rust}"
     );
 
-    // Verify fixed arg is substituted
     assert!(
         rust.contains("my_crate::Method::GET"),
         "expected fixed wrapper arg in:\n{rust}"
     );
 
-    // Verify calls back to base registration method, wrapping the constructed
-    // inner value in the local Dart wrapper newtype before forwarding.
     assert!(
         rust.contains("self.route(RouteBuilder { inner }"),
         "expected call to base route method with local newtype wrapper in:\n{rust}"

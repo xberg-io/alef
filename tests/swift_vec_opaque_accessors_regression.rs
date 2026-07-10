@@ -29,9 +29,6 @@ sources = ["src/lib.rs"]
 
 #[test]
 fn test_swift_vec_accessors_phantom_emitted() {
-    // Test that the phantom __register_vec_accessors function is emitted
-    // to force swift-bridge-build to generate Vec accessor C symbols.
-
     let api = ApiSurface::default();
     let config = make_config();
 
@@ -40,7 +37,6 @@ fn test_swift_vec_accessors_phantom_emitted() {
         .generate_bindings(&api, &config)
         .expect("Swift generation should succeed");
 
-    // Find the rust/src/lib.rs file
     let lib_rs = files
         .iter()
         .find(|f| f.path.ends_with("rust/src/lib.rs"))
@@ -52,14 +48,11 @@ fn test_swift_vec_accessors_phantom_emitted() {
     eprintln!("Content length: {} bytes", lib_content.len());
     eprintln!("Generated lib.rs content:\n{}", lib_content);
 
-    // Verify the phantom Vec accessor function is NOT emitted for empty API
-    // (since there are no types to register accessors for)
     assert!(
         !lib_content.contains("fn __register_vec_accessors("),
         "Empty API should not emit __register_vec_accessors"
     );
 
-    // Empty API may not have an extern Rust block at all, so just verify it's valid Rust
     assert!(
         lib_content.contains("#[swift_bridge::bridge]"),
         "lib.rs must be a valid swift-bridge module"

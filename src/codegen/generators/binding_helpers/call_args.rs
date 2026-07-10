@@ -25,17 +25,12 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
         .enumerate()
         .map(|(idx, p)| {
             let promoted = crate::codegen::shared::is_promoted_optional(params, idx);
-            // If a required param was promoted to optional, unwrap it before use.
             // Note: promoted params that are not Optional<T> will NOT call .expect() because
-            // promoted refers to the PyO3 signature constraint, not the actual Rust type.
-            // The function_params logic wraps promoted params in Option<T>, making them truly optional.
             let unwrap_suffix = if promoted && p.optional {
                 format!(".expect(\"'{}' is required\")", p.name)
             } else {
                 String::new()
             };
-            // If this param's type was resolved from a newtype (e.g. NodeIndex(u32) → u32),
-            // re-wrap the raw value back into the newtype when calling core.
             if let Some(newtype_path) = &p.newtype_wrapper {
                 return if p.optional {
                     format!("{}.map({newtype_path})", p.name)
@@ -47,7 +42,6 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
             }
             match &p.ty {
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                    // Opaque type: borrow through Arc to get &CoreType
                     if p.optional {
                         format!("{}.as_ref().map(|v| &v.inner)", p.name)
                     } else if promoted {
@@ -59,8 +53,6 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
                 TypeRef::Named(_) => {
                     if p.optional {
                         if p.is_ref {
-                            // Option<T> (binding) -> Option<&CoreT>: use as_ref() only
-                            // The Into conversion must happen in a let binding to avoid E0716
                             format!("{}.as_ref()", p.name)
                         } else {
                             format!("{}.map(Into::into)", p.name)
@@ -68,19 +60,11 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
                     } else if promoted {
                         format!("{}{}.into()", p.name, unwrap_suffix)
                     } else if p.is_mut {
-                        // Named param that core takes by &mut: requires a mutable let binding.
-                        // gen_call_args is used when there are no serde let-bindings; in that case
-                        // the binding value is passed directly via .into() then borrowed mutably.
-                        // Since we can't do &mut on a temporary, we rely on the caller to have
-                        // created a let binding; this path emits &mut {name} (binding directly).
                         format!("&mut {}", p.name)
                     } else {
                         format!("{}.into()", p.name)
                     }
                 }
-                // String → &str for core function calls when is_ref=true,
-                // or pass owned when is_ref=false (core takes String/impl Into<String>).
-                // For optional params: as_deref() when is_ref=true, pass owned when is_ref=false.
                 TypeRef::String | TypeRef::Char => {
                     if p.optional {
                         if p.is_ref {
@@ -100,7 +84,6 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
                         p.name.clone()
                     }
                 }
-                // Path → PathBuf/&Path for core function calls
                 TypeRef::Path => {
                     if p.optional && p.is_ref {
                         format!("{}.as_deref().map(std::path::Path::new)", p.name)
@@ -122,16 +105,12 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
                             p.name.clone()
                         }
                     } else if promoted {
-                        // is_ref=true: pass &Vec<u8> (core takes &[u8])
-                        // is_ref=false: pass Vec<u8> (core takes owned Vec<u8>)
                         if p.is_ref {
                             format!("&{}{}", p.name, unwrap_suffix)
                         } else {
                             format!("{}{}", p.name, unwrap_suffix)
                         }
                     } else {
-                        // is_ref=true: pass &Vec<u8> (core takes &[u8])
-                        // is_ref=false: pass Vec<u8> (core takes owned Vec<u8>)
                         if p.is_ref {
                             format!("&{}", p.name)
                         } else {
@@ -139,7 +118,6 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
                         }
                     }
                 }
-                // Duration: binding uses u64 (millis), core uses std::time::Duration
                 TypeRef::Duration => {
                     if p.optional {
                         format!("{}.map(std::time::Duration::from_millis)", p.name)
@@ -150,7 +128,6 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
                     }
                 }
                 TypeRef::Json => {
-                    // JSON params: binding has String, core expects serde_json::Value
                     if p.optional {
                         format!("{}.as_ref().and_then(|s| serde_json::from_str(s).ok())", p.name)
                     } else if promoted {
@@ -160,7 +137,6 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
                     }
                 }
                 TypeRef::Vec(inner) => {
-                    // Vec<Named>: convert each element via Into::into when used with let bindings
                     if matches!(inner.as_ref(), TypeRef::Named(_)) {
                         if p.optional {
                             if p.is_ref {
@@ -183,10 +159,6 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
                         && p.is_ref
                         && p.vec_inner_is_ref
                     {
-                        // Vec<String> with is_ref=true AND vec_inner_is_ref=true: core expects
-                        // `&[&str]`, but the binding holds `Vec<String>`. `&Vec<String>` coerces
-                        // only to `&[String]`, so build a `Vec<&str>` inline; the temporary lives
-                        // for the duration of the call statement.
                         if p.optional {
                             format!(
                                 "{}.as_ref().map(|v| v.iter().map(String::as_str).collect::<Vec<_>>()).as_deref()",
@@ -209,8 +181,6 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
                         p.name.clone()
                     }
                 }
-                // HashMap does not implement Deref, so Option<HashMap<_,_>> must use
-                // .as_ref() (yielding Option<&HashMap<_,_>>) rather than .as_deref().
                 TypeRef::Map(_, _) => {
                     if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
@@ -234,8 +204,6 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
                     } else if p.is_mut {
                         format!("&mut {}", p.name)
                     } else if p.is_ref && p.optional {
-                        // Optional ref params: use as_deref() for slice/str coercion
-                        // Option<Vec<T>> -> Option<&[T]>, Option<String> -> Option<&str>
                         format!("{}.as_deref()", p.name)
                     } else if p.is_ref {
                         format!("&{}", p.name)
@@ -270,13 +238,9 @@ pub fn gen_call_args_cfg(
             } else {
                 String::new()
             };
-            // Newtype params are handled the same as in gen_call_args.
             if p.newtype_wrapper.is_some() {
-                // Delegate newtype handling to the standard gen_call_args helper by
-                // collecting a one-element slice and extracting the result.
                 return gen_call_args(std::slice::from_ref(p), opaque_types);
             }
-            // For primitive params that need a cast, emit the cast expression.
             if let TypeRef::Primitive(prim) = &p.ty {
                 let core_ty = core_prim_str(prim);
                 let needs_cast =
@@ -291,7 +255,6 @@ pub fn gen_call_args_cfg(
                     };
                 }
             }
-            // Delegate all other types to gen_call_args.
             gen_call_args(std::slice::from_ref(p), opaque_types)
         })
         .collect::<Vec<_>>()
@@ -353,18 +316,12 @@ fn gen_call_args_with_let_bindings_inner(
         .map(|(idx, p)| {
             let promoted = crate::codegen::shared::is_promoted_optional(params, idx);
             // Only emit `.expect()` when the core param type is itself `Option<T>`
-            // (p.optional=true). A promoted non-optional param (e.g. `is_inline: bool` that
-            // follows an optional param) keeps its concrete type in the binding signature, so
             // calling `.expect()` on it would be a type error.
             let unwrap_suffix = if promoted && p.optional {
                 format!(".expect(\"'{}' is required\")", p.name)
             } else {
                 String::new()
             };
-            // Primitive params whose binding type was remapped (extendr: u32->i32, u64/usize/f32->f64)
-            // must be cast back to the core type at the call site. The let-binding path otherwise
-            // passes them through unchanged, which fails when mixed with a Named param that forces
-            // this path (e.g. `check_format_limits`'s `sheet_count: Option<u32>` alongside `config`).
             if let TypeRef::Primitive(prim) = &p.ty {
                 let needs_cast =
                     (cast_uints_to_i32 && needs_i32_cast(prim)) || (cast_large_ints_to_f64 && needs_f64_cast(prim));
@@ -379,7 +336,6 @@ fn gen_call_args_with_let_bindings_inner(
                     };
                 }
             }
-            // If this param's type was resolved from a newtype, re-wrap when calling core.
             if let Some(newtype_path) = &p.newtype_wrapper {
                 return if p.optional {
                     format!("{}.map({newtype_path})", p.name)
@@ -401,13 +357,10 @@ fn gen_call_args_with_let_bindings_inner(
                 }
                 TypeRef::Named(_) => {
                     if p.optional && p.is_ref {
-                        // Let binding already created Option<&T> via .as_ref()
                         format!("{}_core", p.name)
                     } else if p.is_mut {
-                        // Let binding created T, need &mut reference for call
                         format!("&mut {}_core", p.name)
                     } else if p.is_ref {
-                        // Let binding created T, need reference for call
                         format!("&{}_core", p.name)
                     } else {
                         format!("{}_core", p.name)
@@ -453,16 +406,12 @@ fn gen_call_args_with_let_bindings_inner(
                             p.name.clone()
                         }
                     } else if promoted {
-                        // is_ref=true: pass &Vec<u8> (core takes &[u8])
-                        // is_ref=false: pass Vec<u8> (core takes owned Vec<u8>)
                         if p.is_ref {
                             format!("&{}{}", p.name, unwrap_suffix)
                         } else {
                             format!("{}{}", p.name, unwrap_suffix)
                         }
                     } else {
-                        // is_ref=true: pass &Vec<u8> (core takes &[u8])
-                        // is_ref=false: pass Vec<u8> (core takes owned Vec<u8>)
                         if p.is_ref {
                             format!("&{}", p.name)
                         } else {
@@ -479,12 +428,6 @@ fn gen_call_args_with_let_bindings_inner(
                         format!("std::time::Duration::from_millis({})", p.name)
                     }
                 }
-                // JSON params: for String-mapped backends the binding has a String and the core
-                // expects serde_json::Value. Mirror the conversion done by gen_call_args — without
-                // this a Json param mixed with Named/Vec params (which trigger the let-binding path)
-                // would be passed through as a raw String, producing a type error at the core call
-                // site. For Value-mapped backends (NAPI/WASM) json_from_str=false and the param is
-                // passed through unchanged.
                 TypeRef::Json if json_from_str => {
                     if p.optional {
                         format!("{}.as_ref().and_then(|s| serde_json::from_str(s).ok())", p.name)
@@ -495,8 +438,6 @@ fn gen_call_args_with_let_bindings_inner(
                     }
                 }
                 TypeRef::Vec(inner) => {
-                    // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuples).
-                    // Let binding created {name}_core via JSON deserialization.
                     if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
                         if p.optional && p.is_ref {
                             format!("{}_core.as_deref()", p.name)
@@ -508,12 +449,9 @@ fn gen_call_args_with_let_bindings_inner(
                             format!("{}_core", p.name)
                         }
                     } else if matches!(inner.as_ref(), TypeRef::Named(_)) {
-                        // Vec<Named>: use let binding that converts each element
                         if p.optional && p.is_ref {
-                            // Let binding creates Option<Vec<CoreType>>, use as_deref() to get Option<&[CoreType]>
                             format!("{}_core.as_deref()", p.name)
                         } else if p.optional {
-                            // Let binding creates Option<Vec<CoreType>>, no ref needed
                             format!("{}_core", p.name)
                         } else if p.is_ref {
                             format!("&{}_core", p.name)
@@ -524,8 +462,6 @@ fn gen_call_args_with_let_bindings_inner(
                         && p.is_ref
                         && p.vec_inner_is_ref
                     {
-                        // Vec<String> with is_ref=true AND vec_inner_is_ref=true: core expects &[&str].
-                        // Convert via _refs intermediate binding (generated in gen_vec_string_refs_bindings).
                         if p.optional {
                             format!("{}.as_deref()", p.name)
                         } else {
@@ -541,10 +477,6 @@ fn gen_call_args_with_let_bindings_inner(
                         p.name.clone()
                     }
                 }
-                // HashMap does not implement Deref; use .as_ref() for Option<&HashMap<_,_>>.
-                // When the core map is a BTreeMap (map_is_btree), the binding's HashMap must be
-                // collected into a BTreeMap before being passed; the temporary lives for the
-                // duration of the call statement (Rust temp extension).
                 TypeRef::Map(_, _) => {
                     let to_btree = |expr: String| {
                         if p.map_is_btree {
@@ -554,9 +486,6 @@ fn gen_call_args_with_let_bindings_inner(
                         }
                     };
                     if promoted {
-                        // A required map param promoted to Option<Map> in the binding signature
-                        // (because it follows an optional param). Materialise the value with
-                        // unwrap_or_default() and re-borrow when the core takes it by reference.
                         let owned = to_btree(format!("{}.unwrap_or_default()", p.name));
                         if p.is_ref { format!("&{owned}") } else { owned }
                     } else if p.is_ref && p.optional {
@@ -625,7 +554,6 @@ fn gen_call_args_with_let_bindings_mutex_inner(
     cast_uints_to_i32: bool,
     cast_large_ints_to_f64: bool,
 ) -> String {
-    // Generate the base call args first, then patch mutex-opaque is_mut entries.
     let base = gen_call_args_with_let_bindings_inner(
         params,
         opaque_types,
@@ -635,8 +563,6 @@ fn gen_call_args_with_let_bindings_mutex_inner(
     )
     .join(", ");
 
-    // Build a replacement map: for each param that is an opaque mutex type with is_ref && is_mut,
-    // the base function emits `&{name}.inner` but we need `&mut *{name}.inner.lock().unwrap()`.
     let mut patched = base;
     for p in params {
         if let TypeRef::Named(type_name) = &p.ty {
@@ -646,7 +572,6 @@ fn gen_call_args_with_let_bindings_mutex_inner(
                 && p.is_mut
                 && !p.optional
             {
-                // Replace the expression emitted by the base function with the lock pattern.
                 let old_expr = format!("&{}.inner", p.name);
                 let new_expr = format!("&mut *{}.inner.lock().unwrap()", p.name);
                 patched = patched.replace(&old_expr, &new_expr);

@@ -149,7 +149,6 @@ pub fn parse_arguments_bullets(body: &str) -> Vec<(String, String)> {
         let is_bullet = trimmed.starts_with("* ") || trimmed.starts_with("- ");
         if is_bullet {
             let after = &trimmed[2..];
-            // Accept `name`, `name:` or `name -` separator forms.
             let (name, desc) = if let Some(idx) = after.find(" - ") {
                 (after[..idx].trim(), after[idx + 3..].trim())
             } else if let Some(idx) = after.find(": ") {
@@ -244,8 +243,6 @@ pub fn replace_fence_lang(body: &str, lang_replacement: &str) -> String {
     for line in body.lines() {
         let trimmed = line.trim_start();
         if let Some(rest) = trimmed.strip_prefix("```") {
-            // Replace the language tag (everything up to the next comma or
-            // end of line). Preserve indentation.
             let indent = &line[..line.len() - trimmed.len()];
             let after_lang = rest.find(',').map(|i| &rest[i..]).unwrap_or("");
             out.push_str(indent);
@@ -346,7 +343,6 @@ pub fn render_javadoc_sections(sections: &RustdocSections, throws_class: &str) -
                 out.push('\n');
             }
             // Java checkstyle requires @param names to match the Java camelCase parameter name,
-            // but Rust rustdoc args use snake_case — convert here.
             let java_name = heck::ToLowerCamelCase::to_lower_camel_case(name.as_str());
             if desc.is_empty() {
                 out.push_str(&crate::codegen::template_env::render(
@@ -439,7 +435,6 @@ pub fn render_csharp_xml_sections(sections: &RustdocSections, exception_class: &
     if let Some(example) = sections.example.as_deref() {
         out.push('\n');
         out.push_str("<example><code language=\"csharp\">\n");
-        // Drop fence markers, keep code.
         for line in example.lines() {
             let t = line.trim_start();
             if t.starts_with("```") {

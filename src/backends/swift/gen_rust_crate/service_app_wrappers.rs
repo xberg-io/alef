@@ -34,11 +34,6 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
         };
         let constructor = &service.constructor.name;
 
-        // The bridge declares `fn app_run(self: &mut App) -> String;` because swift-bridge 0.1.59
-        // does not parse by-value `self: App` consume-self in `extern "Rust"` blocks. The
-        // wrapper's `run` therefore takes `&mut self`, `take()`s the inner App out of the
-        // Mutex (single-shot consume), and returns a String envelope describing success or
-        // the error (Result<T, E> is not bridgeable across this swift-bridge version).
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_service_app_wrapper.rs.jinja",
             minijinja::context! {
@@ -48,13 +43,6 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
             },
         ));
 
-        // swift-bridge extern blocks declare these as free fns taking `client: &mut Foo`
-        // (see rust_extern_service_methods.rs.jinja). The bridge then expects matching
-        // free fns at the parent module scope, which delegate to the wrapper's
-        // inherent methods. The `_raw_ptr` shim exposes the wrapper's raw address as
-        // a `usize` so the Swift side can reconstitute it into an `OpaquePointer`
-        // for the @_silgen_name'd extern "C" callback registration shim — swift-bridge's
-        // generated `ptr` field is `internal` and unreachable from consumer modules.
         let service_snake_local = service_name.to_lowercase();
         out.push_str(&crate::backends::swift::template_env::render(
             "rust_service_app_free_fns.rs.jinja",
@@ -64,12 +52,6 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
             },
         ));
 
-        // Emit `route_builder_new`-style free functions for each unique WrapperConstructorCall.
-        // These are called from Swift variant shorthand methods (e.g. `app.get(handler, path:)`)
-        // to construct the wrapper metadata param before invoking the base callback-registration
-        // C function. Each function uses serde to parse the opaque enum argument (via its
-        // `to_string()` which returns the serde variant wire name) into the Rust core type,
-        // then forwards to the wrapper type's static constructor.
         let mut seen_wrapper_fns = std::collections::HashSet::new();
         for reg in &service.registrations {
             for variant in &reg.variants {
@@ -78,14 +60,11 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
                 if !seen_wrapper_fns.insert(fn_name.clone()) {
                     continue;
                 }
-                // Build parameter list: Fixed args use the opaque enum type by reference,
-                // Free args use their declared Rust type.
                 let mut param_defs: Vec<String> = Vec::new();
                 let mut call_args: Vec<String> = Vec::new();
                 for arg in &wc.args {
                     match arg {
                         WrapperConstructorArg::Fixed { param_name, value_expr } => {
-                            // value_expr is e.g. "source_crate::Method::Get". Extract the type name.
                             let type_name = if let Some(last_colon) = value_expr.rfind("::") {
                                 if let Some(second_colon) = value_expr[..last_colon].rfind("::") {
                                     &value_expr[second_colon + 2..last_colon]
@@ -96,10 +75,6 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
                                 value_expr.as_str()
                             };
                             param_defs.push(format!("{param_name}: &{type_name}"));
-                            // Use the opaque type's to_string() (returns serde variant name like
-                            // "Get", "Post") to reconstruct the core Rust enum via serde_json.
-                            // The wrapper_type_path has the full Rust path for the core enum
-                            // (extracted from value_expr: "source_crate::Method::Get" → "source_crate::Method").
                             let core_enum_path = if let Some(last_colon) = value_expr.rfind("::") {
                                 &value_expr[..last_colon]
                             } else {
@@ -143,7 +118,7 @@ fn rust_type_for_param(ty: &crate::core::ir::TypeRef) -> &'static str {
     use crate::core::ir::TypeRef;
     match ty {
         TypeRef::String => "String",
-        TypeRef::Primitive(_) => "i64", // conservative fallback; callers usually use String for paths
+        TypeRef::Primitive(_) => "i64",
         _ => "String",
     }
 }

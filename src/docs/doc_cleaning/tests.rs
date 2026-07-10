@@ -36,8 +36,6 @@ fn test_clean_doc_bare_rust_links() {
 
 #[test]
 fn test_collapse_adjacent_code_spans_merges_wrapped_link() {
-    // `` `Vec<`[`StructuredOutput`]`>` `` collapses to abutting spans after link
-    // replacement, leaving a doubled-backtick run that desyncs Markdown parsing.
     let input = "JSON-serialised `Vec<``StructuredOutput``>` (a JSON array).";
     let merged = collapse_adjacent_code_spans(input);
     assert_eq!(merged, "JSON-serialised `Vec<StructuredOutput>` (a JSON array).");
@@ -51,8 +49,6 @@ fn test_collapse_adjacent_code_spans_leaves_separated_spans() {
 
 #[test]
 fn test_collapse_adjacent_code_spans_preserves_double_backtick_span() {
-    // A genuine double-backtick span (used to embed a literal backtick) must not
-    // be altered — it has content, not another opening delimiter, after the run.
     let input = "Use ``a ` b`` for a literal tick.";
     assert_eq!(collapse_adjacent_code_spans(input), input);
 }
@@ -61,7 +57,6 @@ fn test_collapse_adjacent_code_spans_preserves_double_backtick_span() {
 fn test_collapse_adjacent_code_spans_ignores_fenced_code_block() {
     let input = "Text.\n\n```rust\nlet x = `a``b`;\n```\n\nMore `c``d` text.";
     let merged = collapse_adjacent_code_spans(input);
-    // Fenced block content is untouched; inline doubled span outside is merged.
     assert!(merged.contains("let x = `a``b`;"));
     assert!(merged.contains("More `cd` text."));
 }
@@ -329,7 +324,6 @@ fn test_clean_doc_inline_collapses_multiline_to_single_line() {
 
 #[test]
 fn test_clean_doc_inline_does_not_escape_pipes() {
-    // clean_doc_inline must NOT escape pipes; callers use escape_table_cell for that.
     let doc = "Value between 0 | 1.";
     let result = clean_doc_inline(doc, Language::Python);
     assert!(
@@ -340,7 +334,6 @@ fn test_clean_doc_inline_does_not_escape_pipes() {
         result.contains(" | "),
         "raw pipe must be preserved for caller to escape: {result}"
     );
-    // The full pipeline (what lib.rs does) escapes exactly once:
     let cell = crate::docs::formatting::escape_table_cell(&result);
     assert!(
         cell.contains("\\|"),
@@ -388,12 +381,10 @@ fn test_clean_doc_inline_filters_blank_only_lines() {
 fn test_clean_doc_inline_does_not_double_escape_pipes_in_logical_or() {
     let doc = "The length of this vec is ≤ rows * cols. An empty table (rows == 0 || cols == 0) produces an empty vec.";
     let raw = clean_doc_inline(doc, Language::Python);
-    // clean_doc_inline must NOT have pre-escaped the pipes
     assert!(
         !raw.contains("\\|"),
         "clean_doc_inline must not escape pipes (double-escaping bug): {raw}"
     );
-    // The caller (lib.rs) escapes once via escape_table_cell
     let cell = crate::docs::formatting::escape_table_cell(&raw);
     assert!(
         cell.contains("\\|\\|"),
@@ -579,7 +570,6 @@ fn test_check_monotonic_headings_ignores_code_blocks() {
 fn test_demote_headings_maintains_monotonic_increments() {
     let doc = "## Sub-page\n\n### Section\n\n#### Item";
     let demoted = demote_headings(doc, 2);
-    // After demotion: #### Page, ##### Section, ###### Item
     assert!(
         check_monotonic_headings(&demoted).is_ok(),
         "demoted headings should maintain monotonic increments"
@@ -591,20 +581,15 @@ fn test_doc_comment_with_internal_headings_demoted() {
     let doc_comment = "Main description.\n\n## Stream Limits\n\nDetailed info about limits.";
     let cleaned = clean_doc(doc_comment, Language::Python);
     let demoted = demote_headings(&cleaned, 2);
-    // After demotion, ## becomes ####
-    // Structure should be: (parent at ####) → (doc content at ####) → (internal heading at ####)
     assert!(
         demoted.contains("#### Stream Limits"),
         "internal heading should be demoted to #### (was ##)"
     );
-    // Verify monotonic increments
     assert!(
         check_monotonic_headings(&demoted).is_ok(),
         "demoted doc comment should have monotonic heading increments"
     );
 }
-
-// --- MD032: lists preceded by blank line ---
 
 #[test]
 fn test_ensure_blank_before_lists_inserts_blank_after_prose() {
@@ -646,7 +631,6 @@ fn test_ensure_blank_before_lists_ignores_lists_inside_fenced_code() {
 
 #[test]
 fn test_ensure_blank_before_lists_does_not_split_emphasis_markers() {
-    // `*bold*` without trailing space must NOT be treated as a list marker.
     let doc = "Plain text.\n*not a list item*\n";
     let result = ensure_blank_before_lists(doc);
     assert_eq!(result, "Plain text.\n*not a list item*\n");
@@ -661,10 +645,8 @@ fn test_ensure_blank_before_lists_handles_ordered_with_paren() {
 
 #[test]
 fn test_clean_doc_inserts_blank_line_before_list_md032() {
-    // Regression: visitor trait docstrings emit lists without preceding blank lines.
     let doc = "# Execution Order\n\nFor a typical element like `<div>`:\n1. Step one\n2. Step two\n";
     let cleaned = clean_doc(doc, Language::Python);
-    // After the prose line ending with `:`, a blank line must precede `1.`
     assert!(
         cleaned.contains(":\n\n1."),
         "blank line must separate prose from list: {cleaned}"
@@ -739,7 +721,6 @@ fn test_collapse_whitespace_with_empty_lines() {
 fn test_collapse_whitespace_with_extra_spaces() {
     let s = "Text   with    multiple     spaces";
     let collapsed = collapse_whitespace(s);
-    // split_whitespace handles multiple spaces
     assert!(
         collapsed.contains("Text with multiple spaces") || collapsed.contains("Text  with"),
         "extra spaces should be normalized"
@@ -752,10 +733,8 @@ fn test_collapse_whitespace_empty() {
     assert_eq!(collapse_whitespace("   \n\n  "), "");
 }
 
-// MD038 (spaces inside code span), MD055/MD056 (table cell count mismatch)
 #[test]
 fn test_field_default_with_multiline_collapsed() {
-    // Simulates a default value with embedded newlines
     let raw = "value_line_1\nvalue_line_2";
     let collapsed = collapse_whitespace(raw);
     let formatted = format!("`{collapsed}`");
@@ -763,7 +742,6 @@ fn test_field_default_with_multiline_collapsed() {
     assert!(!formatted.contains('\n'), "backtick code span must be single-line");
 }
 
-// MD004 (list marker style)
 #[test]
 fn test_clean_doc_normalizes_asterisk_list_markers_to_dash() {
     let doc = "Summary.\n\n* First item\n* Second item";

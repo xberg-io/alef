@@ -74,11 +74,7 @@ pub(super) fn collect_variant_runtime_types(service: &ServiceDef, out: &mut BTre
     for r in &service.registrations {
         for variant in &r.variants {
             if let Some(wc) = &variant.wrapper_call {
-                // The wrapper type itself is constructed at runtime.
                 out.insert(wc.wrapper_type_name.clone());
-                // Each Fixed arg's value_expr like `crate::Method::Get` resolves to
-                // `Method.Get` in Python — the bare `Method` class needs a runtime
-                // import. Take the second-to-last `::` segment as the enum class.
                 for arg in &wc.args {
                     if let crate::core::ir::WrapperConstructorArg::Fixed { value_expr, .. } = arg {
                         let segments: Vec<&str> = value_expr.split("::").collect();

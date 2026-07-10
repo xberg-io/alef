@@ -48,9 +48,6 @@ fn make_group(id: &str, input: serde_json::Value) -> FixtureGroup {
     }
 }
 
-// `mime_type` is declared `optional = true` on the call config because the Rust
-// `extract_file_sync` signature takes `Option<&str>`. The Dart facade still emits
-// it as a positional parameter, so the e2e call must pass it positionally.
 const TOML: &str = r#"
 [workspace]
 languages = ["dart"]

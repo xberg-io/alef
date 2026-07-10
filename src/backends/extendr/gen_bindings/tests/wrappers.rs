@@ -32,7 +32,6 @@ fn r_package_name_drives_output_path() {
     let config = make_config();
     let api = make_api_surface();
     let files = backend.generate_bindings(&api, &config).unwrap();
-    // Output should go to packages/r/src/rust/src/lib.rs (default path)
     assert!(
         files[0].path.to_string_lossy().ends_with("lib.rs"),
         "output file must be lib.rs"
@@ -45,7 +44,6 @@ fn generate_public_api_uses_r_package_name() {
     let config = make_config();
     let api = make_api_surface();
     let files = backend.generate_public_api(&api, &config).unwrap();
-    // Expect: <package>.R (useDynLib stub), extendr-wrappers.R, NAMESPACE.
     let paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
     assert!(
         paths.iter().any(|p| p.ends_with("testlib.R")),
@@ -90,9 +88,6 @@ fn extendr_wrappers_emits_function_call_binding() {
 
 #[test]
 fn extendr_wrappers_emits_roxygen_doc_block_for_free_functions() {
-    // Regression: prior to roxygen2 doc emission, every free function in
-    // extendr-wrappers.R carried only `#' @export` — `?<fn>` in an R REPL
-    // returned an empty .Rd. The wrapper emitter must now derive a title
     // line + description from the Rust doc comment and emit `@param` /
     // `@return` lines from the IR's type information.
     let backend = ExtendrBackend;
@@ -318,8 +313,6 @@ fn extendr_wrappers_default_required_config_objects_in_r() {
 
 #[test]
 fn extendr_wrappers_emits_placeholder_title_when_doc_is_empty() {
-    // Functions with no Rust doc comment must still produce a complete
-    // roxygen block — title falls back to the function name, description
     // is omitted, @param/@return lines are still emitted.
     let backend = ExtendrBackend;
     let config = make_config();
@@ -365,9 +358,6 @@ fn namespace_exports_functions_and_classes() {
         "S3 dispatch operator must be registered: {}",
         namespace.content
     );
-    // NAMESPACE must use the bare `useDynLib(...)` directive — the roxygen2
-    // form (`#' @useDynLib ...`) is silently ignored by R when placed in
-    // NAMESPACE, leaving the .so unloaded and every `.Call` unresolved.
     assert!(
         namespace.content.contains("useDynLib(testlib, .registration = TRUE)"),
         "NAMESPACE must contain bare useDynLib directive: {}",
@@ -445,8 +435,6 @@ fn make_api_with_instance_method() -> ApiSurface {
 
 #[test]
 fn extendr_wrappers_emits_s3_generic_and_method_for_instance_methods() {
-    // Regression: bare env-class form `meta$is_valid()` leaks the extendr implementation
-    // detail. Generate an S3 generic + class method so callers can write `is_valid(meta)`.
     let backend = ExtendrBackend;
     let config = make_config();
     let api = make_api_with_instance_method();
@@ -468,8 +456,6 @@ fn extendr_wrappers_emits_s3_generic_and_method_for_instance_methods() {
 
 #[test]
 fn extendr_wrappers_skips_s3_wrappers_for_static_methods() {
-    // Static factories like `default` / `from_json` are accessed off the class env
-    // (`Type$from_json(json)`) — no `self`, no S3 forwarding needed.
     let backend = ExtendrBackend;
     let config = make_config();
     let mut api = make_api_with_instance_method();
@@ -496,8 +482,6 @@ fn extendr_wrappers_skips_s3_wrappers_for_static_methods() {
 
 #[test]
 fn extendr_wrappers_emits_one_generic_per_unique_method_name() {
-    // Two classes both expose `is_valid` — only one generic should be emitted to
-    // avoid `UseMethod` being clobbered by a second definition.
     let backend = ExtendrBackend;
     let config = make_config();
     let mut api = make_api_with_instance_method();
@@ -531,9 +515,6 @@ fn extendr_wrappers_emits_one_generic_per_unique_method_name() {
 
 #[test]
 fn namespace_exports_s3_generics_and_methods_for_instance_methods() {
-    // S3 generics + class methods emitted into extendr-wrappers.R need matching
-    // `export(name)` + `S3method(name, Type)` NAMESPACE entries. Without them R
-    // refuses to dispatch `is_valid(meta)` even though the function is loaded.
     let backend = ExtendrBackend;
     let config = make_config();
     let api = make_api_with_instance_method();
@@ -555,10 +536,6 @@ fn namespace_exports_s3_generics_and_methods_for_instance_methods() {
 
 #[test]
 fn extendr_wrappers_emits_roxygen_class_block_with_field_lines_for_struct() {
-    // Class envs (`Type <- new.env(parent = emptyenv())`) must carry a roxygen2
-    // block derived from the struct's Rust doc comment: a title line, an
-    // optional description, one `@field` per public field (with the field's
-    // own doc comment as the description), and an `@export` tag.
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
@@ -630,7 +607,6 @@ fn extendr_wrappers_emits_roxygen_class_block_with_field_lines_for_struct() {
         content.contains("#' @field max_connections Maximum number of in-flight requests."),
         "@field must collapse multi-paragraph doc to the first paragraph:\n{content}"
     );
-    // The class env line must follow the roxygen block.
     assert!(
         content.contains("ServerConfig <- new.env(parent = emptyenv())"),
         "class env definition must still be emitted:\n{content}"
@@ -639,8 +615,6 @@ fn extendr_wrappers_emits_roxygen_class_block_with_field_lines_for_struct() {
 
 #[test]
 fn extendr_wrappers_emits_param_doc_from_arguments_section_for_function() {
-    // When a free function's Rust doc carries a `# Arguments` section, the
-    // per-param description from the bullet list must override the default
     // type-based description on the `#' @param` line, and the `# Returns`
     // section must drive the `#' @return` line.
     let backend = ExtendrBackend;
@@ -706,8 +680,6 @@ fn extendr_wrappers_emits_param_doc_from_arguments_section_for_function() {
         content.contains("#' @return The fully interpolated output."),
         "@return must use prose from `# Returns` section:\n{content}"
     );
-    // The raw `# Arguments` / `# Returns` headings must not leak into the
-    // description body now that they're rendered as roxygen tags.
     assert!(
         !content.contains("#' # Arguments"),
         "raw `# Arguments` heading must not appear in roxygen output:\n{content}"
@@ -720,10 +692,6 @@ fn extendr_wrappers_emits_param_doc_from_arguments_section_for_function() {
 
 #[test]
 fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields() {
-    // Flat data enums (single-field tuple variants) are surfaced in R as
-    // class envs with one scalar field per variant. The class env must
-    // carry roxygen with one `@field` per variant carrying the variant's
-    // Rust doc as description.
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
@@ -810,9 +778,6 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
 
 #[test]
 fn extendr_module_registration_registers_complementary_cfg_functions_once() {
-    // Regression: `extendr_module! { ... }` cannot parse attributes on registration entries.
-    // Complementary cfg variants dedupe into `any(P, not(P))`, which is always compiled and
-    // therefore should register once as a bare module entry.
     let backend = ExtendrBackend;
     let config = make_config();
     let mut api = make_api_surface();
@@ -875,7 +840,6 @@ fn extendr_module_registration_registers_complementary_cfg_functions_once() {
         "extendr_module! entries must not carry cfg attributes, got:\n{module_block}"
     );
 
-    // Sanity: a function without a cfg gate keeps the bare registration form.
     assert!(
         module_block.contains("    fn process;\n"),
         "cfg-less function must register without a #[cfg(...)] prefix:\n{module_block}"
@@ -1112,9 +1076,6 @@ fn r_public_api_omits_from_json_for_unregistered_dto_roots() {
 
 #[test]
 fn extendr_json_bridged_function_with_named_return_and_optional_named_params() {
-    // Regression test for: when a function returns a Named struct, optional Named params
-    // must also use JSON bridging for consistency. The fix ensures needs_json_struct
-    // includes `return_type_requires_json` in all three calculation sites.
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
@@ -1244,16 +1205,11 @@ fn extendr_json_bridged_function_with_named_return_and_optional_named_params() {
         "extendr function wrapper must be emitted:\n{content}"
     );
 
-    // When the return type is a Named struct requiring JSON serialization,
-    // optional Named params must ALSO use JSON bridging. The signature must
-    // take config as Option<String> (not Option<&ExtractionConfig>), and the
-    // preamble must deserialize it from JSON.
     assert!(
         content.contains("config: Option<String>"),
         "optional Named param must use JSON bridging when return is Named struct requiring JSON:\n{content}"
     );
 
-    // The preamble must handle JSON deserialization for the optional param
     assert!(
         content.contains("config") && content.contains("serde_json"),
         "preamble must deserialize JSON for optional config param:\n{content}"

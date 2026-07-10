@@ -109,7 +109,7 @@ pub fn merge_cfgs<'a>(cfgs: impl Iterator<Item = Option<&'a str>>) -> Option<Str
     let mut distinct: Vec<&str> = Vec::new();
     for cfg in cfgs {
         match cfg {
-            None => return None, // unconditional wins — no cfg gate at all
+            None => return None,
             Some(s) => {
                 if !distinct.contains(&s) {
                     distinct.push(s);
@@ -136,7 +136,6 @@ fn pick_canonical_entry(indices: &[usize], functions: &[FunctionDef]) -> usize {
             return idx;
         }
     }
-    // All entries use underscore params (or have no params) — fall back to first.
     indices[0]
 }
 

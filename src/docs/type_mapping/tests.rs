@@ -175,8 +175,6 @@ fn test_doc_type_json_all_languages() {
     );
     assert_eq!(doc_type(&TypeRef::Json, Language::Ffi, TEST_PREFIX), "void*");
     assert_eq!(doc_type(&TypeRef::Json, Language::Kotlin, TEST_PREFIX), "Any");
-    // SwiftMapper, DartMapper, GleamMapper, and ZigMapper all serialize JSON
-    // as a string at the FFI boundary; doc names must match the mappers.
     assert_eq!(doc_type(&TypeRef::Json, Language::Swift, TEST_PREFIX), "String");
     assert_eq!(doc_type(&TypeRef::Json, Language::Dart, TEST_PREFIX), "String");
     assert_eq!(doc_type(&TypeRef::Json, Language::Gleam, TEST_PREFIX), "String");
@@ -208,12 +206,10 @@ fn test_doc_type_duration_all_languages() {
 
 #[test]
 fn test_doc_type_swift_dart_vec_and_map() {
-    // Swift uses `[T]` syntactic sugar; Dart uses `List<T>` like Kotlin.
     let vec_string = TypeRef::Vec(Box::new(TypeRef::String));
     assert_eq!(doc_type(&vec_string, Language::Swift, TEST_PREFIX), "[String]");
     assert_eq!(doc_type(&vec_string, Language::Dart, TEST_PREFIX), "List<String>");
 
-    // Swift dict literal: `[K: V]`. Dart: `Map<K, V>`.
     let map = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
     assert_eq!(doc_type(&map, Language::Swift, TEST_PREFIX), "[String: String]");
     assert_eq!(doc_type(&map, Language::Dart, TEST_PREFIX), "Map<String, String>");
@@ -493,8 +489,6 @@ fn test_doc_type_all_gleam_primitives() {
 
 #[test]
 fn test_doc_type_all_zig_primitives() {
-    // ZigMapper deliberately maps Usize/Isize to fixed-width u64/i64 for
-    // FFI stability — pin that choice so docs and the mapper don't drift.
     let cases: &[(PrimitiveType, &str)] = &[
         (PrimitiveType::Bool, "bool"),
         (PrimitiveType::U8, "u8"),

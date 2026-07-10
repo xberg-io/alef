@@ -122,7 +122,6 @@ fn test_doc_first_paragraph_joined_single_line() {
 
 #[test]
 fn test_doc_first_paragraph_joined_wrapped_sentence() {
-    // Simulates a docstring like convert's: "Convert markup conversion,\nreturning a result."
     let doc = "Convert markup conversion,\nreturning a result.";
     assert_eq!(
         doc_first_paragraph_joined(doc),
@@ -166,9 +165,6 @@ fn test_parse_rustdoc_sections_example_with_fence() {
 
 #[test]
 fn test_parse_rustdoc_sections_pound_inside_fence_is_not_a_heading() {
-    // Even though we get rustdoc-hidden lines pre-stripped, a literal
-    // `# foo` inside a non-rust fence (e.g. shell example) must not
-    // start a new section.
     let doc = "Summary.\n\n# Example\n\n```bash\n# install deps\nrun --foo\n```";
     let sections = parse_rustdoc_sections(doc);
     assert_eq!(sections.summary, "Summary.");
@@ -228,7 +224,6 @@ fn test_render_jsdoc_sections() {
     assert!(out.contains("@param config - Optional configuration."));
     assert!(out.contains("@returns The extracted text and metadata."));
     assert!(out.contains("@throws Returns an error when the file is unreadable."));
-    // fixture example is ```rust — stripped when target is TypeScript
     assert!(!out.contains("@example"), "Rust example must not appear in TSDoc");
     assert!(!out.contains("```typescript"));
     assert!(!out.contains("```rust"));
@@ -250,8 +245,6 @@ fn test_render_javadoc_sections() {
     assert!(out.contains("@param path The file path."));
     assert!(out.contains("@return The extracted text and metadata."));
     assert!(out.contains("@throws SampleCrateRsException Returns an error when the file is unreadable."));
-    // Java rendering omits the example block (handled separately by emit_javadoc which
-    // wraps code in `<pre>{@code}</pre>`); we just confirm summary survives.
     assert!(out.starts_with("Extracts text from a file."));
 }
 
@@ -274,7 +267,6 @@ fn test_render_phpdoc_sections() {
     assert!(out.contains("@param mixed $path The file path."));
     assert!(out.contains("@return The extracted text and metadata."));
     assert!(out.contains("@throws SampleCrateException"));
-    // fixture example is ```rust — stripped when target is PHP
     assert!(!out.contains("```php"), "Rust example must not appear in PHPDoc");
     assert!(!out.contains("```rust"));
 }
@@ -377,8 +369,6 @@ fn test_emit_c_doxygen_word_wraps_long_lines() {
     let long = "a ".repeat(80);
     emit_c_doxygen(&mut out, long.trim(), "");
     for line in out.lines() {
-        // Each emitted prefix is "/// " (4 chars); the body after that
-        // should be ≤ 100 chars per `DOXYGEN_WRAP_WIDTH`.
         let body = line.trim_start_matches("/// ");
         assert!(body.len() <= 100, "line too long ({}): {line}", body.len());
     }
@@ -406,7 +396,6 @@ fn test_render_yard_sections() {
     assert!(out.contains("@param path The file path."));
     assert!(out.contains("@return The extracted text and metadata."));
     assert!(out.contains("@raise Returns an error when the file is unreadable."));
-    // fixture example is ```rust — stripped when target is Ruby
     assert!(!out.contains("@example"), "Rust example must not appear in YARD");
     assert!(!out.contains("```ruby"));
     assert!(!out.contains("```rust"));
@@ -420,8 +409,6 @@ fn test_render_yard_sections_preserves_ruby_example() {
     assert!(out.contains("@example"), "Ruby example must be preserved");
     assert!(out.contains("```ruby"));
 }
-
-// --- M1: example_for_target unit tests ---
 
 #[test]
 fn example_for_target_rust_fenced_suppressed_for_php() {
@@ -469,8 +456,6 @@ fn render_phpdoc_sections_with_rust_example_emits_no_at_example_block() {
     assert!(out.contains("@param"), "other sections must still be emitted");
 }
 
-// --- KDoc ktfmt-canonical format tests ---
-
 #[test]
 fn test_emit_kdoc_ktfmt_canonical_short_single_line() {
     let mut out = String::new();
@@ -483,12 +468,6 @@ fn test_emit_kdoc_ktfmt_canonical_short_single_line() {
 
 #[test]
 fn test_emit_kdoc_ktfmt_canonical_escapes_nested_block_comment_open() {
-    // Kotlin block comments NEST: `/*` inside a `/** … */` opens a new
-    // comment level. A backtick-quoted `"image/*"` from rustdoc contains
-    // `/*` but no matching `*/`, leaving the outer block unclosed and the
-    // Kotlin lexer reporting cascading "Missing '}'" / "Unclosed comment"
-    // errors. The escape replaces `/*` with `/ *` so the lexer never opens
-    // a nested block.
     let mut out = String::new();
     emit_kdoc_ktfmt_canonical(&mut out, "Prefix: `\"image/*\"` matches.", "    ");
     assert!(
@@ -500,7 +479,6 @@ fn test_emit_kdoc_ktfmt_canonical_escapes_nested_block_comment_open() {
 
 #[test]
 fn test_emit_kdoc_escapes_block_comment_close() {
-    // `*/` inside the KDoc body terminates the outer block early.
     let mut out = String::new();
     emit_kdoc(&mut out, "Contains literal */ in middle.", "");
     assert!(!out.contains("*/ "), "must escape `*/` in KDoc body: {out}");
@@ -545,8 +523,6 @@ fn test_emit_kdoc_ktfmt_canonical_empty_doc() {
 #[test]
 fn test_emit_kdoc_ktfmt_canonical_fits_within_100_chars() {
     let mut out = String::new();
-    // Construct exactly at the boundary: indent(0) + "/** " + content + " */" = 100 chars
-    // "/** " = 4 chars, " */" = 3 chars, so content can be 93 chars
     let content = "a".repeat(93);
     emit_kdoc_ktfmt_canonical(&mut out, &content, "");
     let line = out.lines().next().unwrap();
@@ -561,7 +537,6 @@ fn test_emit_kdoc_ktfmt_canonical_fits_within_100_chars() {
 #[test]
 fn test_emit_kdoc_ktfmt_canonical_exceeds_100_chars() {
     let mut out = String::new();
-    // Exceed 100 chars: content of 94 chars with "/** " + " */" = 101 chars
     let content = "a".repeat(94);
     emit_kdoc_ktfmt_canonical(&mut out, &content, "");
     assert!(
@@ -574,7 +549,6 @@ fn test_emit_kdoc_ktfmt_canonical_exceeds_100_chars() {
 #[test]
 fn test_emit_kdoc_ktfmt_canonical_respects_indent() {
     let mut out = String::new();
-    // With 4-char indent, max content is 89 chars (4 + 4 + 89 + 3 = 100)
     let content = "a".repeat(89);
     emit_kdoc_ktfmt_canonical(&mut out, &content, "    ");
     let line = out.lines().next().unwrap();
@@ -586,10 +560,8 @@ fn test_emit_kdoc_ktfmt_canonical_respects_indent() {
 fn test_emit_kdoc_ktfmt_canonical_real_world_enum_variant() {
     let mut out = String::new();
     emit_kdoc_ktfmt_canonical(&mut out, "Text node (most frequent - 100+ per document)", "    ");
-    // This is from NodeType enum; should collapse to single-line
     assert!(out.starts_with("    /** "), "should preserve 4-space indent");
     assert!(out.contains(" */\n"), "should end with newline");
-    // Verify it's single-line format
     let line_count = out.lines().count();
     assert_eq!(line_count, 1, "should be single-line format");
 }
@@ -599,7 +571,6 @@ fn test_emit_kdoc_ktfmt_canonical_real_world_data_class_field() {
     let mut out = String::new();
     let doc = "Heading style to use in Markdown output (ATX `#` or Setext underline).";
     emit_kdoc_ktfmt_canonical(&mut out, doc, "    ");
-    // This is from ConversionOptions data class; should collapse to single-line
     let line_count = out.lines().count();
     assert_eq!(line_count, 1, "should be single-line format");
     assert!(out.starts_with("    /** "), "should have correct indent");
@@ -612,13 +583,10 @@ mod sanitize;
 fn emit_c_doxygen_wraps_bare_bracket_references() {
     let mut out = String::new();
     emit_c_doxygen(&mut out, "Call [download()] to fetch data.", "");
-    // The bare [download()] should be wrapped in backticks to prevent
-    // rustdoc from treating it as a broken intra-doc link.
     assert!(
         out.contains("`download()`"),
         "Bare bracket reference should be wrapped in backticks: {out}"
     );
-    // Ensure the original bracket syntax is removed
     assert!(
         !out.contains("[download()]"),
         "Original [download()] should be converted to `download()`: {out}"
@@ -645,7 +613,6 @@ fn emit_c_doxygen_wraps_method_identifier_references() {
 fn emit_c_doxygen_converts_colons_to_dots_in_references() {
     let mut out = String::new();
     emit_c_doxygen(&mut out, "See [Type::method] for details.", "");
-    // :: should be converted to . and wrapped
     assert!(
         out.contains("`Type.method`"),
         "[Type::method] should become `Type.method`: {out}"
@@ -660,20 +627,14 @@ fn emit_c_doxygen_converts_colons_to_dots_in_references() {
 fn emit_c_doxygen_unwraps_intradoc_backtick_references() {
     let mut out = String::new();
     emit_c_doxygen(&mut out, "Use [`identifier`] as documented.", "");
-    // Intra-doc link form [`identifier`] should be unwrapped to bare `identifier`
-    // because referenced items live on the core crate's API and are out of scope
-    // from the FFI wrapper — leaving the [`...`] form would cause rustdoc
-    // broken-intra-doc-link warnings.
     assert!(
         out.contains("`identifier`"),
         "Backtick-wrapped reference should be preserved: {out}"
     );
-    // Should not double-wrap to ``identifier``
     assert!(
         !out.contains("``identifier``"),
         "Already-wrapped references should not be double-wrapped: {out}"
     );
-    // The outer brackets should be removed
     assert!(
         !out.contains("[`identifier`]"),
         "Outer brackets of intra-doc link form should be removed: {out}"
@@ -684,7 +645,6 @@ fn emit_c_doxygen_unwraps_intradoc_backtick_references() {
 fn emit_c_doxygen_unwraps_intradoc_backtick_with_path_separator() {
     let mut out = String::new();
     emit_c_doxygen(&mut out, "Returns [`Error::LanguageNotFound`] if missing.", "");
-    // [`Error::LanguageNotFound`] should become `Error.LanguageNotFound`
     assert!(
         out.contains("`Error.LanguageNotFound`"),
         "Type::method form should be unwrapped and :: → . normalised: {out}"

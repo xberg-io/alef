@@ -2,20 +2,16 @@ use super::*;
 
 #[test]
 fn test_generic_type_alias_not_extracted_as_typedef() {
-    // Generic type aliases (e.g. BoxFuture<'a, T>) are not extracted as TypeDefs
-    // (they're used only to detect result-wrapping patterns for async detection).
     let source = r#"
         pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
     "#;
 
     let surface = extract_from_source(source);
-    // Generic aliases are not added to types
     assert_eq!(surface.types.len(), 0);
 }
 
 #[test]
 fn test_extract_pub_trait() {
-    // A public trait should be extracted as a TypeDef with is_trait=true.
     let source = r#"
         /// A backend for processing.
         pub trait Processor {
@@ -28,7 +24,6 @@ fn test_extract_pub_trait() {
     "#;
 
     let surface = extract_from_source(source);
-    // Trait appears in types with is_trait=true
     let trait_def = surface
         .types
         .iter()
@@ -49,8 +44,6 @@ fn test_extract_pub_trait() {
 
 #[test]
 fn test_generic_trait_not_extracted() {
-    // Traits with generic parameters are not extracted, but they must remain
-    // visible to validation as unsupported public API.
     let source = r#"
         pub trait Converter<T> {
             fn convert(&self, input: T) -> T;
@@ -68,8 +61,6 @@ fn test_generic_trait_not_extracted() {
 
 #[test]
 fn test_is_return_type_marked_on_types() {
-    // Types that appear as the return type of free functions should have is_return_type=true.
-    // This post-processing only runs in the top-level extract() call, not extract_items().
     let tmp = std::env::temp_dir().join("alef_test_is_return_type");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src")).unwrap();
@@ -281,7 +272,6 @@ fn test_asref_str_where_clause_is_unsupported_without_monomorphization_config() 
 
 #[test]
 fn test_multi_generic_still_unsupported() {
-    // Two generic params → conservative rejection, not monomorphized.
     let source = r#"
         pub fn combine<A: AsRef<str>, B: AsRef<str>>(a: &[A], b: &[B]) -> usize {
             unimplemented!()
@@ -299,7 +289,6 @@ fn test_multi_generic_still_unsupported() {
 
 #[test]
 fn test_asref_with_extra_bound_still_unsupported() {
-    // Extra `Clone` bound beyond `AsRef<str>` → conservative rejection.
     let source = r#"
         pub fn echo<S: AsRef<str> + Clone>(name: S) -> String {
             unimplemented!()

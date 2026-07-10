@@ -236,7 +236,6 @@ fn snapshot_basic_struct_function_enum_error() {
 
 #[test]
 fn snapshot_conversion_struct_with_named_types() {
-    // Test struct with Named types as fields, requiring conversion init
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -327,7 +326,6 @@ fn snapshot_conversion_struct_with_named_types() {
 
 #[test]
 fn snapshot_conversion_enum_with_data() {
-    // Test enum with data variants that need conversion
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -418,7 +416,6 @@ fn snapshot_conversion_enum_with_data() {
 
 #[test]
 fn snapshot_conversion_vec_of_named() {
-    // Test function returning Vec<Named> type
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -504,10 +501,6 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
 
 #[test]
 fn snapshot_trait_bridge_inbound() {
-    // Simulates a sample_crate-style plugin trait with a Plugin super-trait, async fallible
-    // method using a Named param/return, plus a sync method returning a primitive.
-    // Verifies the inbound (extern "Swift") code path: extern block, wrapper struct,
-    // Plugin impl, Trait impl, and register/unregister entry points.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -729,8 +722,6 @@ unregister_fn = "unregister_image_processor"
 /// This test locks down that code path so a future refactor cannot regress it.
 #[test]
 fn snapshot_tuple_field_as_vec() {
-    // Build a field whose IR type is Vec<Primitive(Usize)> with sanitized=true.
-    // This is the representation produced by `parse_homogeneous_tuple` for `(usize, usize)`.
     let mut ngram_range_field = make_field(
         "ngram_range",
         TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
@@ -938,7 +929,6 @@ fn snapshot_first_class_struct_optional_field() {
             original_rust_path: String::new(),
             fields: vec![
                 make_field("content", TypeRef::String, false),
-                // optional: true with unwrapped inner type -- what the extractor produces
                 make_field("name", TypeRef::String, true),
             ],
             methods: vec![],
@@ -1018,7 +1008,6 @@ fn snapshot_trait_bridge_inbound_options_field() {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
-            // The type alias — a newtype wrapping the inner Arc<Mutex<dyn Trait + Send>> path.
             TypeDef {
                 name: "CallbackHandle".to_string(),
                 rust_path: "demo::callbacks::CallbackHandle".to_string(),
@@ -1044,7 +1033,6 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 has_private_fields: false,
                 version: Default::default(),
             },
-            // The options type that receives the callback via a field.
             TypeDef {
                 name: "RenderOptions".to_string(),
                 rust_path: "demo::options::RenderOptions".to_string(),
@@ -1070,7 +1058,6 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 has_private_fields: false,
                 version: Default::default(),
             },
-            // The callback trait implemented by Swift.
             TypeDef {
                 name: "MarkupCallback".to_string(),
                 rust_path: "demo::callbacks::MarkupCallback".to_string(),
@@ -1179,7 +1166,6 @@ result_type = "FlowDecision"
 
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
 
-    // Verify the three required From impls are present in the generated lib.rs.
     let lib_rs = files
         .iter()
         .find(|f| f.path.to_str().is_some_and(|p| p.ends_with("lib.rs")))
@@ -1271,7 +1257,6 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("lib.rs"))
         .expect("Rust lib.rs must be emitted");
 
-    // Bulk constructor extern must be emitted on the Rust side.
     assert!(
         lib_rs
             .content
@@ -1280,7 +1265,6 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
         lib_rs.content
     );
 
-    // The Swift host wrapper must call the constructor directly — NOT JSONEncoder.
     assert!(
         swift_file
             .content
@@ -1293,10 +1277,6 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
         "intoRust must NOT use the JSONEncoder fallback for Span:\n{}",
         swift_file.content
     );
-    // Top-level `spanFromJson` forwarder is still emitted (every from_json-eligible
-    // type gets one — see `emit_from_json_forwarders`), but it must use the
-    // JSONDecoder path, not route through `RustBridge.spanFromJson`. The intoRust
-    // body must use the direct bulk constructor.
     assert!(
         !swift_file.content.contains("return try RustBridge.spanFromJson("),
         "intoRust must NOT call RustBridge.spanFromJson when the bulk constructor is available:\n{}",
@@ -1424,7 +1404,6 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         .find(|f| f.path.extension().and_then(|e| e.to_str()) == Some("swift"))
         .expect("Swift source file must be emitted");
 
-    // Span (primitive-only): direct call.
     assert!(
         swift_file
             .content
@@ -1433,8 +1412,6 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         swift_file.content
     );
 
-    // Diagnostic (nested struct) and ProcessResult (vectors) are now emitted as
-    // first-class Swift structs because all their fields are known DTO types.
     assert!(
         swift_file.content.contains("public struct Diagnostic:"),
         "Diagnostic must be a first-class struct:\n{}",
@@ -1446,7 +1423,6 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         swift_file.content
     );
 
-    // Diagnostic.intoRust() uses direct constructor (has_default=true + Named field).
     assert!(
         swift_file
             .content
@@ -1455,9 +1431,6 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         swift_file.content
     );
 
-    // ProcessResult.init(_ rb:) must use .map conversions for Vec<Diagnostic> fields,
-    // but the Diagnostic type has serde, so each element is JSON-encoded in a RustString.
-    // Must decode each element individually via JSONDecoder.
     assert!(
         swift_file
             .content
@@ -1499,9 +1472,6 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
             doc: "Source-text position (row, column).".to_string(),
             cfg: None,
             is_trait: false,
-            // Critical: serde-enabled but NO Default impl. Pre-fix this slipped into the
-            // JSON-roundtrip path; post-fix the primitive-only fast path emits the bulk
-            // constructor extern regardless.
             has_default: false,
             has_stripped_cfg_fields: false,
             is_return_type: false,
@@ -1537,21 +1507,17 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("lib.rs"))
         .expect("Rust lib.rs must be emitted");
 
-    // Rust crate side: positional constructor extern emitted despite no Default impl.
     assert!(
         lib_rs.content.contains("fn new(row: u32, column: u32) -> Point"),
         "primitive-only serde DTO without Default must still declare a bulk-constructor extern:\n{}",
         lib_rs.content
     );
-    // Rust crate side: from_json shim emitted so the top-level Swift fromJson
-    // forwarder has a matching bridge symbol even though intoRust stays direct.
     assert!(
         lib_rs.content.contains("fn point_from_json("),
         "primitive-only DTO must emit a JSON-roundtrip shim for the fromJson forwarder:\n{}",
         lib_rs.content
     );
 
-    // Swift side: direct positional construction; no JSONEncoder fallback.
     assert!(
         swift_file
             .content
@@ -1559,9 +1525,6 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
         "intoRust must call positional constructor directly:\n{}",
         swift_file.content
     );
-    // Top-level `pointFromJson` forwarder is still emitted (every from_json-eligible
-    // type gets one — see `emit_from_json_forwarders`), but it must use JSONDecoder.
-    // The intoRust body must use the direct bulk constructor.
     assert!(
         !swift_file.content.contains("return try RustBridge.pointFromJson("),
         "intoRust must NOT call RustBridge.pointFromJson when bulk constructor is available:\n{}",
@@ -1598,9 +1561,6 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
             original_rust_path: String::new(),
             fields: vec![
                 make_field("kind", TypeRef::String, false),
-                // HashMap<String, String> forces JSON bridging on the field — which forces
-                // default-construction → because there's no Default impl, the swift-bridge
-                // bulk constructor extern cannot be emitted → Swift falls back to JSON.
                 make_field(
                     "attrs",
                     TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
@@ -1645,7 +1605,6 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("lib.rs"))
         .expect("Rust lib.rs must be emitted");
 
-    // The from_json shim must be declared inside the swift-bridge module …
     assert!(
         lib_rs
             .content
@@ -1653,7 +1612,6 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
         "JSON-fallback DTO must have a matching Rust *_from_json extern declared:\n{}",
         lib_rs.content
     );
-    // … and implemented as a pub free function so the swift-bridge codegen links it.
     assert!(
         lib_rs
             .content
@@ -1711,8 +1669,6 @@ fn snapshot_enum_variant_optional_field() {
             rust_path: "demo::StreamEvent".to_string(),
             original_rust_path: String::new(),
             variants: vec![
-                // Variant with optional Named field -- the extractor-unwrapped form:
-                // field.ty = TypeRef::Named("Chunk"), field.optional = true.
                 EnumVariant {
                     name: "Data".to_string(),
                     fields: vec![make_field("chunk", TypeRef::Named("Chunk".to_string()), true)],
@@ -1726,7 +1682,6 @@ fn snapshot_enum_variant_optional_field() {
                     cfg: None,
                     version: Default::default(),
                 },
-                // Variant with optional String field -- same extractor form.
                 EnumVariant {
                     name: "Error".to_string(),
                     fields: vec![make_field("message", TypeRef::String, true)],
@@ -1740,7 +1695,6 @@ fn snapshot_enum_variant_optional_field() {
                     cfg: None,
                     version: Default::default(),
                 },
-                // Variant with non-optional field -- must stay bare.
                 EnumVariant {
                     name: "Done".to_string(),
                     fields: vec![make_field("count", TypeRef::Primitive(PrimitiveType::U32), false)],
@@ -1807,14 +1761,6 @@ fn snapshot_enum_variant_optional_field() {
 #[test]
 fn untagged_enum_field_uses_json_decoder_not_ref_init() {
     // Regression test: a struct whose field type is a `#[serde(untagged)]` enum must emit
-    // a JSONDecoder decode expression in `init(_ rb: RustBridge.{Struct}Ref) throws`, NOT
-    // the opaque-Ref path `try {EnumType}(rb.{field}())`.
-    //
-    // The bug: untagged enums were added to `known_dto_names` (correct — they are Codable),
-    // but the field-init codegen emitted `try UserContent(rb.content())` as if a
-    // `RustBridge.UserContentRef`-taking initializer existed. swift-bridge does not generate
-    // an opaque Ref type for untagged enums; the accessor returns a plain `RustString`
-    // (JSON-encoded payload). The fix routes these fields through `JSONDecoder`.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1909,7 +1855,6 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
         .find(|f| f.path.extension().and_then(|e| e.to_str()) == Some("swift"))
         .expect("Swift source file must be emitted");
 
-    // The field-init for `content` must use JSONDecoder, not `try MessageContent(rb.content())`.
     assert!(
         !swift_file.content.contains("try MessageContent(rb.content())"),
         "untagged enum field must NOT emit Ref-based init — would fail with 'missing argument label \
@@ -1921,7 +1866,6 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
         "untagged enum field must decode via JSONDecoder:\n{}",
         swift_file.content
     );
-    // Verify Message is still emitted as a first-class Swift struct (not a typealias).
     assert!(
         swift_file.content.contains("public struct Message:"),
         "Message must still be emitted as a first-class struct:\n{}",

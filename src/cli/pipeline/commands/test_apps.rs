@@ -36,8 +36,6 @@ struct MockServerHandle {
 
 impl Drop for MockServerHandle {
     fn drop(&mut self) {
-        // Closing stdin triggers the server's graceful shutdown (it blocks on a
-        // stdin read loop). Then kill + wait to guarantee no orphan listener.
         drop(self.child.stdin.take());
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -48,9 +46,6 @@ impl Drop for MockServerHandle {
 fn has_mock_server_bin(manifest_path: &std::path::Path) -> anyhow::Result<bool> {
     let content = std::fs::read_to_string(manifest_path)
         .context("failed to read Cargo.toml to check for mock-server bin target")?;
-    // Simple heuristic: look for the line `name = "mock-server"` within a [[bin]] section.
-    // TOML parsing is more complex, but for generated files we know the format is
-    // `[[bin]]\nname = "mock-server"\npath = "src/main.rs"` when the bin is present.
     Ok(content.contains("[[bin]]") && content.contains("name = \"mock-server\""))
 }
 
@@ -76,8 +71,6 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
     let base_dir = std::env::current_dir().context("failed to resolve current directory")?;
     let rust_crate_dir = base_dir.join(&e2e.output).join("rust");
     let manifest_path = rust_crate_dir.join("Cargo.toml");
-    // No generated rust mock-server crate → nothing to start. This happens for
-    // crates whose fixtures never need an HTTP mock server.
     if !manifest_path.exists() {
         info!(
             "No e2e mock-server crate at {} — running test apps without MOCK_SERVER_URL",
@@ -86,8 +79,6 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
         return Ok(None);
     }
 
-    // Check if the Cargo.toml actually defines a mock-server bin target.
-    // It won't exist if no fixtures required a mock server (needs_mock_server was false).
     if !has_mock_server_bin(&manifest_path)? {
         info!(
             "No [[bin]] mock-server target in {} — running test apps without MOCK_SERVER_URL",
@@ -96,7 +87,6 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
         return Ok(None);
     }
 
-    // Build the mock-server binary in release (matches Taskfile `e2e:build`).
     info!("Building e2e mock-server: {}", manifest_path.display());
     run_command_streamed(
         &format!(
@@ -112,8 +102,6 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
         anyhow::bail!("e2e mock-server binary not found after build: {}", bin_path.display());
     }
 
-    // The mock-server resolves fixtures relative to its first argument; pass an
-    // absolute path so it does not depend on the child's working directory.
     let fixtures_dir = base_dir.join(&e2e.fixtures);
 
     info!(
@@ -134,10 +122,6 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
         .take()
         .context("e2e mock-server stdout pipe was not captured")?;
 
-    // Read the startup lines. The server prints `MOCK_SERVER_URL=...` first, then
-    // always prints `MOCK_SERVERS={...}` (possibly empty `{}`), then blocks on
-    // stdin. We stop once we have the URL and have either seen MOCK_SERVERS or hit
-    // a non-`MOCK_SERVER` line. Bound the loop so a misbehaving server can't hang.
     let mut reader = std::io::BufReader::new(stdout);
     let mut url: Option<String> = None;
     let mut servers: Option<String> = None;
@@ -167,8 +151,6 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
         .context("e2e mock-server did not print a MOCK_SERVER_URL= line on startup; cannot run test apps without it")?;
     info!("e2e mock-server ready at {url}");
 
-    // Drain the rest of stdout in the background so the server's writes never
-    // block on a full pipe over the lifetime of the run.
     std::thread::spawn(move || {
         use std::io::BufRead as _;
         let mut sink = String::new();
@@ -179,10 +161,6 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
 
     let mut env_vars: Vec<(String, String)> = vec![("MOCK_SERVER_URL".to_string(), url)];
     if let Some(servers) = servers {
-        // Derive one MOCK_SERVER_<FIXTURE_ID_UPPER>=<url> env var per entry in
-        // the JSON map. Generated shell-based test scripts (brew, others) read
-        // these directly instead of parsing JSON. Falls back to MOCK_SERVERS-only
-        // export on parse failure so we never silently break existing harnesses.
         match serde_json::from_str::<std::collections::HashMap<String, String>>(&servers) {
             Ok(map) => {
                 for (fixture_id, server_url) in &map {
@@ -227,22 +205,8 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
 /// a target with no `run` command (e.g. `ffi`) — is reported distinctly from a
 /// pass; the first failing target's error is returned so the process exits non-zero.
 pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::Result<()> {
-    // Build + start one shared mock-server for all targets. The guard stops it on
-    // drop (end of this function), whether we return Ok or Err. A build/start
-    // failure aborts the whole run with a clear error rather than letting every
-    // harness fail with "connection refused".
     let server = start_mock_server(config).context("failed to start e2e mock-server for test apps")?;
     let server_env: Vec<(String, String)> = server.as_ref().map(|h| h.env_vars.clone()).unwrap_or_default();
-    // Declared `[crates.e2e.env]` vars (e.g. `SAMPLE_ALLOW_PRIVATE_NETWORK=true`)
-    // must reach the SUT as REAL process env vars so the loaded Rust cdylib sees
-    // them via `getenv`/`std::env::var`. Host-language in-process setters that the
-    // generated harnesses use — `System.setProperty` (Kotlin), `System.put_env`
-    // (Elixir), `Environment.SetEnvironmentVariable` (C#), `putenv` (PHP) — do not
-    // reliably propagate to a native library in the same process, so a binding whose
-    // config default reads the env var (e.g. `SsrfPolicy::from_env`) would silently
-    // see the strict default. The runner exports them outright, same as the server
-    // vars, which is the only mechanism guaranteed to reach the native boundary.
-    // Sorted for deterministic ordering across runs (HashMap iteration is not).
     let e2e_env: Vec<(String, String)> = config
         .e2e
         .as_ref()
@@ -252,13 +216,6 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
             vars
         })
         .unwrap_or_default();
-    // Plain, overwrite-style export prefix for the declared e2e env + server env
-    // vars. Do NOT use `run_command_streamed_with_env` here: it appends PATH-style
-    // (`export VAR='val'"${VAR:+:$VAR}"`), which corrupts a plain value like
-    // MOCK_SERVER_URL into `http://host:port:http://host:port` (invalid → getaddrinfo
-    // failure). These are scalar values, so set them outright. Values are URLs / JSON
-    // / simple flags (double-quoted) with no single quotes, so single-quote wrapping
-    // is safe.
     let env_prefix: String = e2e_env
         .iter()
         .chain(server_env.iter())
@@ -270,7 +227,6 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
         .map(|name| {
             let cfg = config.test_apps_run_config_for_name(name);
             if !check_precondition_named(name, cfg.precondition.as_deref()) {
-                // `check_precondition_named` already warns on miss.
                 return (name.clone(), TestAppOutcome::Skipped);
             }
             if let Some(before) = &cfg.before {
@@ -289,7 +245,6 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
                     }
                     (name.clone(), TestAppOutcome::Passed)
                 }
-                // No run command configured (e.g. ffi/jni) — nothing to verify.
                 None => (name.clone(), TestAppOutcome::Skipped),
             }
         })
@@ -317,10 +272,6 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
 
 #[cfg(all(test, unix))]
 mod test_apps_run_tests {
-    // POSIX-only: relies on the shell builtins `true`/`false` to drive
-    // precondition / run outcomes. On Windows `sh` is absent, so a precondition
-    // miss is indistinguishable from a missing-program error and the skip-vs-fail
-    // distinction this module asserts could not be exercised meaningfully.
     use super::*;
 
     fn resolved_config() -> ResolvedCrateConfig {
@@ -352,10 +303,6 @@ run = "false"
 
     #[test]
     fn failing_precondition_is_skipped_not_failed() {
-        // The python run override has `precondition = "false"`, so the language
-        // is skipped. The `run = "false"` command must NOT execute — if it did,
-        // the run would fail. A skip is reported distinctly and never surfaces
-        // as an error, so the overall result is `Ok`.
         let config = resolved_config();
         let result = test_apps_run(&config, &["python".to_string()]);
         assert!(
@@ -366,9 +313,6 @@ run = "false"
 
     #[test]
     fn failing_run_command_propagates_error() {
-        // With the precondition passing (`true`) and the run command failing
-        // (`false`), the language is genuinely failed and the first error
-        // propagates so the process exits non-zero.
         let cfg: crate::core::config::NewAlefConfig = toml::from_str(
             r#"
 [workspace]
@@ -429,10 +373,6 @@ run = "true"
 
     #[test]
     fn e2e_env_vars_are_exported_to_run_command() {
-        // A declared `[crates.e2e.env]` var must be exported into the run command's
-        // environment so the SUT (and the native library it loads) sees it. The run
-        // command asserts the value is present; if the runner failed to export it,
-        // the `test` builtin fails and the run is reported as an error.
         let cfg: crate::core::config::NewAlefConfig = toml::from_str(
             r#"
 [workspace]

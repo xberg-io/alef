@@ -121,19 +121,16 @@ fn godoc_on_method_with_returns_section_prefixes_symbol_name() {
 
     let content = binding_content(&api, &make_config());
 
-    // Header comment must start with the Go method name.
     assert!(
         content.contains("// RootNode returns the root node of the parse tree."),
         "expected symbol-prefixed Godoc header on RootNode, got:\n{}",
         content,
     );
-    // # Returns section translated to "// Returns ...".
     assert!(
         content.contains("// Returns the root node"),
         "expected `// Returns ...` translation of `# Returns` section, got:\n{}",
         content,
     );
-    // Godoc paragraph separator before sections.
     let header_idx = content
         .find("// RootNode returns the root node of the parse tree.")
         .expect("header present");
@@ -145,7 +142,6 @@ fn godoc_on_method_with_returns_section_prefixes_symbol_name() {
         between,
     );
 
-    // Header must immediately precede the func declaration.
     let func_idx = content.find("func (h *Tree) RootNode(").expect("func decl present");
     let header_full = content[..func_idx].rfind("// RootNode").expect("header before func");
     let tail = &content[header_full..func_idx];
@@ -281,12 +277,10 @@ fn godoc_multiline_summary_continuation_lines_are_prefixed() {
     let api = surface_for_type(typ);
     let content = binding_content(&api, &make_config());
 
-    // Every line in the doc block must start with `//` — no bare continuation lines.
     let func_marker = "func (h *Error) StatusCode(";
     let func_pos = content.find(func_marker).unwrap_or_else(|| {
         panic!("func declaration not found in:\n{content}");
     });
-    // Walk backward to find the start of the doc comment block.
     let comment_start = content[..func_pos]
         .rfind("// StatusCode")
         .unwrap_or_else(|| panic!("doc comment header not found in:\n{content}"));
@@ -302,7 +296,6 @@ fn godoc_multiline_summary_continuation_lines_are_prefixed() {
             );
         }
     }
-    // The blank separator between first line and continuation must be `//` not a true blank line.
     assert!(
         !comment_block.contains("\n\n"),
         "blank line (no `//`) found inside doc block — Go parser would reject it:\n{}",
@@ -375,14 +368,12 @@ fn option_string_return_null_checks_and_boxes_value() {
 
     let content = binding_content(&api, &make_config());
 
-    // Function signature must return *string, not string
     assert!(
         content.contains("func GetOptionalName() *string"),
         "expected return type `*string`, got:\n{}",
         content,
     );
 
-    // Body must contain the conversion and boxing, NOT a bare return C.GoString(ptr)
     let has_conversion_boxed = content.contains("s := C.GoString(ptr)") && content.contains("return &s");
     let has_bad_pattern = content.contains("return C.GoString(ptr)") && !content.contains("&s");
 

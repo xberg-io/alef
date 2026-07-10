@@ -89,9 +89,6 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
 ) -> String {
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
 
-    // Types with lifetime parameters (e.g. `NodeContext<'a>`) have private fields that
-    // make struct-literal construction impossible. Delegate to the `From` impl (generated
-    // separately via `gen_from_binding_to_core_cfg`) which uses the appropriate constructor.
     if typ.has_lifetime_params {
         return format!("let core_self = {core_path}::from(self.clone());\n        ");
     }
@@ -106,12 +103,6 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
     for field in &typ.fields {
         if field.binding_excluded {
             if !typ.has_default {
-                // The core type does not derive Default, so the trailing
-                // `..Default::default()` spread would fail with E0277. Emit
-                // `<field>: Default::default()` explicitly for each binding-excluded
-                // field. This loses any custom core-level Default behaviour for
-                // these fields, but is the only way to construct the struct literal
-                // when the core type lacks a Default impl.
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_struct_field_assignment.jinja",
                     context! {
@@ -121,20 +112,8 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                 ));
                 continue;
             }
-            // Skip binding_excluded fields entirely; the trailing `..Default::default()`
-            // spread fills them with the CORE type's Default impl. Emitting
-            // `<field>: Default::default()` would override that — and is wrong when
-            // the core's Default calls a custom function (e.g. `CrawlConfig::default()`
-            // sets `ssrf: SsrfPolicy::from_env()`, whereas `<SsrfPolicy as Default>`
-            // is the static `deny_private = true` policy).
             continue;
         }
-        // Skip cfg-gated fields — they are absent from the binding struct.
-        // The ..Default::default() spread below fills them when the feature is enabled.
-        // Note: when `!typ.has_default` and the type also has stripped cfg-gated
-        // fields, the spread will fail E0277 — but those fields aren't in
-        // `typ.fields` so there's no way to emit explicit defaults here. Such
-        // types are inherently unconstructible without a Default impl.
         if field.cfg.is_some() {
             continue;
         }
@@ -148,13 +127,7 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                 },
             ));
         } else {
-            // Check if this Named field is an enum (PHP maps enums to String).
-            // If so, use string->enum parsing instead of .into().
             let expr = if let Some(shape) = untagged_data_enum_shape(&field.ty, untagged_data_enum_names) {
-                // Untagged data enum: PHP stores the wire shape as `serde_json::Value` and
-                // `From<serde_json::Value> for CoreEnum` does NOT exist — inline `.map(Into::into)`
-                // would fail E0277. Mirror the dedicated From impl by going through
-                // `serde_json::from_value` (matching `gen_from_binding_to_core_cfg`'s output).
                 untagged_data_enum_expr(name, shape, field.optional)
             } else if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
                 gen_string_to_enum_expr(&format!("self.{name}"), &enum_name, field.optional, enums, core_import)
@@ -180,9 +153,6 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                         if field.optional {
                             format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
                         } else if typ.has_default {
-                            // Duration stored as Option<i64> (option_duration_on_defaults).
-                            // Use the core type's default rather than Duration::default() (0s)
-                            // so that e.g. BrowserConfig.timeout preserves its 30s default.
                             crate::backends::php::template_env::render(
                                 "php_duration_default_expr.jinja",
                                 context! {
@@ -264,11 +234,7 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                         }
                         _ => format!("self.{name}.clone()"),
                     },
-                    // Map with Json values: PHP stores String but core expects serde_json::Value.
-                    // Can't recover original Values, so fall back to an empty map.
                     TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Json) => "Default::default()".to_string(),
-                    // Map<K, Named>: each value needs Into conversion to bridge the binding wrapper
-                    // type into the core type (e.g. PhpExtractionPattern → ExtractionPattern).
                     TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Named(_)) => {
                         if field.optional {
                             format!("self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
@@ -276,8 +242,6 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                             format!("self.{name}.clone().into_iter().map(|(k, v)| (k, v.into())).collect()")
                         }
                     }
-                    // Map<K, V> where V is not Json/Named: PHP uses HashMap but core may use BTreeMap.
-                    // Use into_iter().collect() to allow coercion to the target map type.
                     TypeRef::Map(_, _) => {
                         if field.optional {
                             format!("self.{name}.clone().map(|m| m.into_iter().collect())")
@@ -286,7 +250,6 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                         }
                     }
                     TypeRef::Unit => format!("self.{name}.clone()"),
-                    // Json maps to String in PHP -- can't directly assign to serde_json::Value
                     TypeRef::Json => "Default::default()".to_string(),
                 }
             };
@@ -299,13 +262,6 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
             ));
         }
     }
-    // Emit the ..Default::default() trailer for every has_default core type: it
-    // fills cfg-gated fields stripped from the IR and binding-excluded fields
-    // (alef(skip)) with the core's Default — including custom Default impls that
-    // depend on runtime configuration — and it keeps the literal compiling
-    // (E0063) when an additive field lands on the core struct after generation.
-    // Without Default the spread fails E0277; for binding-excluded fields the
-    // loop above already emitted explicit `field: Default::default()` then.
     if typ.has_default {
         out.push_str(&crate::backends::php::template_env::render(
             "php_default_update.jinja",
@@ -390,9 +346,6 @@ mod tests {
 
     #[test]
     fn fully_mirrored_with_default_still_emits_spread() {
-        // Forward-compatibility: a has_default core type with every field mirrored
-        // must still get the spread trailer, so an additive core field falls back
-        // to its default instead of failing E0063 until the bindings are regenerated.
         let typ = typ("Plain", true, vec![field("name", false), field("value", false)]);
         let out = gen_php_lossy_binding_to_core_fields(&typ, "crate", &AHashSet::new(), &AHashSet::new(), &[]);
 
@@ -410,9 +363,6 @@ mod tests {
 
     #[test]
     fn stripped_cfg_without_default_omits_spread() {
-        // When has_stripped_cfg_fields && !has_default, the spread would fail E0277.
-        // The generated literal will be incomplete (E0063) — but that's a clearer
-        // diagnostic than the spread failure. Verify the spread is suppressed.
         let mut typ = typ("StrippedNoDefault", false, vec![field("kept", false)]);
         typ.has_stripped_cfg_fields = true;
         let out = gen_php_lossy_binding_to_core_fields(&typ, "crate", &AHashSet::new(), &AHashSet::new(), &[]);

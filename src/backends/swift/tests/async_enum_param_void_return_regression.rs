@@ -22,8 +22,6 @@ mod swift_async_enum_param_void_return_regressions {
     /// - Swift compiles without type errors
     #[test]
     fn test_async_enum_param_json_encodes_to_string() {
-        // Marker test; actual codegen validated by running alef on kreuzberg fixture
-        // and verifying that enum-parameter functions compile without type errors.
         assert!(true);
     }
 
@@ -43,8 +41,6 @@ mod swift_async_enum_param_void_return_regressions {
     /// - Closure returns `()` implicitly (correct for async Task.detached returning Void)
     #[test]
     fn test_async_void_return_no_let_result_binding() {
-        // Marker test; actual codegen validated by running alef on kreuzberg fixture
-        // and verifying that void-return functions compile without "inferred to have type '()'" warnings.
         assert!(true);
     }
 
@@ -56,8 +52,6 @@ mod swift_async_enum_param_void_return_regressions {
     /// - Pattern: `let result = try RustBridge.fn(...); return result.toString()`
     #[test]
     fn test_async_string_return_calls_to_string() {
-        // Marker test; String return handling already correct in most cases,
-        // but verified to ensure async Task.detached paths don't regress.
         assert!(true);
     }
 }

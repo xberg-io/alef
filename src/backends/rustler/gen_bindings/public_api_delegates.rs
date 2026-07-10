@@ -35,11 +35,6 @@ fn callback_rows(
                 .params
                 .iter()
                 .map(|p| match (&p.ty, p.optional) {
-                    // Callback direction: the bridge encodes Named struct params as native
-                    // Erlang maps (see the GenServer bridge — "args arrives as a native
-                    // Erlang map"). The input-direction convention (configs as optional
-                    // JSON strings) does NOT apply here, so default_types structs are
-                    // `map()`, not `String.t() | nil`.
                     (TypeRef::Named(name), false) if !opaque_types.contains(name) => "map()".to_string(),
                     (TypeRef::Named(name), true) if !opaque_types.contains(name) => "map() | nil".to_string(),
                     (TypeRef::Optional(inner), _) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n)) => {
@@ -127,9 +122,6 @@ pub(in crate::backends::rustler::gen_bindings) fn append_trait_bridge_delegates(
 
         let behaviour_mod = behaviour_module(app_module, &bridge_cfg.trait_name);
 
-        // Plugin-pattern bridges (those with a `register_*` function) get a typed,
-        // host-implementable behaviour: one `@callback` per trait method with typed params and
-        // return. Visitor/options-field bridges (no `register_*`) keep their existing surface.
         if bridge_cfg.register_fn.is_some() {
             if let Some(trait_def) = crate::codegen::generators::trait_bridge::find_trait_def(bridge_cfg, api) {
                 if !trait_def.methods.is_empty() {
@@ -201,8 +193,6 @@ pub(in crate::backends::rustler::gen_bindings) fn append_visitor_receive_loop(
     config: &ResolvedCrateConfig,
     native_mod: &str,
 ) {
-    // Emit the visitor receive loop helper if any function has a visitor bridge
-    // (function_param or options_field mode).
     let has_visitor_bridges = api.functions.iter().any(|func| {
         func.params.iter().any(|p| {
             let named = match &p.ty {
@@ -217,10 +207,8 @@ pub(in crate::backends::rustler::gen_bindings) fn append_visitor_receive_loop(
                 _ => None,
             };
             config.trait_bridges.iter().any(|b| {
-                // function_param: match by param_name or type_alias
                 let is_function_param = b.param_name.as_deref() == Some(p.name.as_str())
                     || named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false);
-                // options_field: match when the param type is the configured options_type
                 let is_options_field = b.bind_via == BridgeBinding::OptionsField
                     && named.is_some_and(|n| b.options_type.as_deref() == Some(n));
                 is_function_param || is_options_field

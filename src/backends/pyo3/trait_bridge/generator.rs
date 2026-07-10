@@ -68,11 +68,6 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         let has_error = method.error_type.is_some();
 
         let py_args = self.sync_py_args(method);
-        // Invoke the host method through the caller's contextvars Context so any ContextVar
-        // set by the caller is visible inside the callback. `ctx.run(bound_method, *args)`
-        // runs the callable with `ctx` as the active context; calling the method directly
-        // would run it under the worker/empty context instead. The trailing comma keeps the
-        // zero-arg case a 1-tuple `(bound_method,)` rather than a parenthesized expression.
         let run_args = if py_args.is_empty() {
             "bound_method,".to_string()
         } else {
@@ -102,9 +97,6 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         } else {
             let ext = self.extract_ty(&method.return_type);
             let is_named = matches!(method.return_type, TypeRef::Named(_));
-            // Name the expected return type and hint the shape so a host returning a mismatched
-            // value can fix it. This is a PyErr (the sync chain is `PyResult`-typed before the
-            // final `map_err`); the serde error (`{}`) already names the offending field/path.
             let return_type_name = self.return_type_display_name(&method.return_type);
             let deserialize_error_expr = format!(
                 "pyo3::exceptions::PyRuntimeError::new_err(format!(\"method '{name}' returned a value that does not match the expected return type `{return_type_name}`: {{}}. The returned value must be a mapping matching the fields of `{return_type_name}`.\", e))"
@@ -130,7 +122,6 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
 
-        // Build param cloning code using template
         let params: Vec<minijinja::Value> = method
             .params
             .iter()
@@ -150,9 +141,6 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                         _ => "",
                     }.to_string(),
                     ty_is_named => matches!(&p.ty, TypeRef::Named(_)),
-                    // Native serde struct: the preamble clones the core value into `{name}_owned`
-                    // so the call site can build the binding's native Python object from it,
-                    // rather than serializing the param to a JSON string.
                     is_native_struct => matches!(&p.ty, TypeRef::Named(n) if self.is_native_struct_param(n)),
                     is_ref => p.is_ref,
                 }
@@ -167,10 +155,6 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         );
 
         let py_args = self.async_py_args(method);
-        // Run the host method through the caller's contextvars Context (captured on the calling
-        // thread before `spawn_blocking`) so the callback sees the caller's ContextVars rather
-        // than the worker thread's fresh, empty context. The trailing comma keeps the zero-arg
-        // case a 1-tuple `(bound_method,)` rather than a parenthesized expression.
         let run_args = if py_args.is_empty() {
             "bound_method,".to_string()
         } else {
@@ -186,9 +170,6 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         ));
         let json_error_expr =
             spec.make_error("format!(\"Plugin '{}': JSON serialization failed: {}\", cached_name, e)");
-        // Name the expected return type and hint the shape so a host returning a mismatched
-        // value can fix it. The serde error (`{}`) already names the offending field/path
-        // (e.g. "missing field `title`" / "invalid type ... at line L column C").
         let return_type_name = self.return_type_display_name(&method.return_type);
         let deserialize_error_expr = spec.make_error(&format!(
             "format!(\"Plugin '{{}}' method '{name}' returned a value that does not match the expected return type `{return_type_name}`: {{}}. The returned value must be a mapping matching the fields of `{return_type_name}`.\", cached_name, e)"
@@ -258,11 +239,6 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
             return String::new();
         };
-        // Derive the FQN of the host crate's `unregister_*` function from the
-        // bridge's `registry_getter` path: `sample_core::plugins::registry::get_*`
-        // → `sample_core::plugins::*::unregister_*`. When `registry_getter` is not
-        // set we fall back to `{core}::plugins::{unregister_fn}` and trust the
-        // caller's wiring.
         let host_path = host_function_path(spec, unregister_fn);
         let host_symbol = exported_pyfunction_symbol(unregister_fn);
         crate::backends::pyo3::template_env::render(
@@ -350,13 +326,11 @@ impl Pyo3BridgeGenerator {
             TypeRef::Bytes => "Vec<u8>".into(),
             TypeRef::Vec(inner) => format!("Vec<{}>", self.extract_ty(inner)),
             TypeRef::Optional(inner) => format!("Option<{}>", self.extract_ty(inner)),
-            TypeRef::Named(name) => {
-                // Qualify Named types with core crate path if available in type_paths
-                self.type_paths
-                    .get(name.as_str())
-                    .map(|p| p.replace('-', "_"))
-                    .unwrap_or_else(|| format!("{}::{}", self.core_import, name))
-            }
+            TypeRef::Named(name) => self
+                .type_paths
+                .get(name.as_str())
+                .map(|p| p.replace('-', "_"))
+                .unwrap_or_else(|| format!("{}::{}", self.core_import, name)),
             TypeRef::Unit => "()".into(),
             TypeRef::Map(k, v) => format!(
                 "std::collections::HashMap<{}, {}>",
@@ -404,20 +378,13 @@ impl Pyo3BridgeGenerator {
             .map(|p| match (&p.ty, p.is_ref) {
                 (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, {})", p.name),
                 (TypeRef::Path, true) => format!("{}.to_str().unwrap_or_default()", p.name),
-                // Known serde struct: hand the host the binding's native Python object, built from
-                // the core value through the same Rust→Python conversion used for return values
                 // (`{Binding}::from(core_value)`). PyO3 auto-converts the `#[pyclass]` to a Python
-                // object at the call boundary. No JSON round-trip.
                 (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
                     self.options_lift_expr(n, format!("{}::from((*{}).clone())", n, p.name))
                 }
-                // By-value native struct: no deref needed; the owned value is moved into the sync
-                // closure, so clone it directly before wrapping in the binding type.
                 (TypeRef::Named(n), false) if self.is_native_struct_param(n) => {
                     self.options_lift_expr(n, format!("{}::from({}.clone())", n, p.name))
                 }
-                // Other Named params (enums, opaque/handle, excluded/unknown) keep the prior
-                // JSON-string representation.
                 (TypeRef::Named(_), true) => {
                     format!("serde_json::to_string({}).unwrap_or_default()", p.name)
                 }
@@ -439,16 +406,9 @@ impl Pyo3BridgeGenerator {
             .map(|p| match (&p.ty, p.is_ref) {
                 (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, &{})", p.name),
                 (TypeRef::Path, true) => format!("{}_str.as_str()", p.name),
-                // Known serde struct (borrowed or owned): the param-cloning preamble owns the
-                // core value in `{name}_owned`; build the native Python object from it here.
-                // Owned params (`is_ref == false`, e.g. the by-value `ExtractInput` envelope) need
-                // the same marshalling — passing the raw core value has no `IntoPyObject` (E0277).
-                // `{name}_owned` is owned by the closure and consumed once, so move it in.
                 (TypeRef::Named(n), _) if self.is_native_struct_param(n) => {
                     self.options_lift_expr(n, format!("{}::from({}_owned)", n, p.name))
                 }
-                // By-value native struct: the param-cloning preamble stores the clone under
-                // the same name (`let {name} = {name}.clone()`); wrap it in the binding type.
                 (TypeRef::Named(n), false) if self.is_native_struct_param(n) => {
                     self.options_lift_expr(n, format!("{}::from({}.clone())", n, p.name))
                 }

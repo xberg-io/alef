@@ -220,10 +220,6 @@ fn test_enum_from_core_to_binding_with_excluded_variants_has_catchall() {
 
 #[test]
 fn test_enum_from_binding_to_core_with_excluded_variants_no_catchall() {
-    // From<BindingEnum> for CoreEnum matches on the *binding* type, which never
-    // contains excluded variants — the match is always exhaustive. A wildcard
-    // arm would be unreachable and must not be emitted even when the core enum
-    // has excluded (binding-skipped) variants.
     let mut enum_def = simple_enum();
     enum_def.excluded_variants.push(EnumVariant {
         name: "Tpu".into(),
@@ -247,12 +243,7 @@ fn test_enum_from_binding_to_core_with_excluded_variants_no_catchall() {
 
 #[test]
 fn test_enum_from_core_to_binding_unit_only_with_struct_variants_no_catchall() {
-    // Regression: when the binding is unit-only (binding_enums_have_data=false) but the
-    // core enum has named-field (struct) variants, every variant still gets its own
-    // explicit arm (`CoreT::V { .. } => Self::V,`).  The match is exhaustive; emitting
-    // `_ => Default::default()` produces an "unreachable pattern" error under -D warnings.
     let mut enum_def = simple_enum();
-    // Add a named-field (struct) variant to simulate e.g. WebSocketMessage::Close { code, reason }.
     enum_def.variants.push(EnumVariant {
         name: "Disconnect".into(),
         fields: vec![FieldDef {
@@ -285,13 +276,11 @@ fn test_enum_from_core_to_binding_unit_only_with_struct_variants_no_catchall() {
         cfg: None,
         version: Default::default(),
     });
-    // Unit-only binding (default config has binding_enums_have_data=false).
     let result = gen_enum_from_core_to_binding(&enum_def, "my_crate");
     assert!(
         !result.contains("_ => Default::default()"),
         "catch-all must not be emitted when all core variants are covered by explicit arms; got:\n{result}"
     );
-    // The struct variant must still get its own arm (not silently dropped).
     assert!(
         result.contains("Backend::Disconnect { .. } => Self::Disconnect"),
         "struct variant must have an explicit arm; got:\n{result}"
@@ -387,9 +376,6 @@ fn untagged_tuple_enum() -> EnumDef {
 
 #[test]
 fn test_enum_from_binding_to_core_untagged_tuple_emits_tuple_pattern() {
-    // Regression: untagged enums with tuple variants emit tuple-form `Variant(T)` in
-    // the binding (Magnus template since commit a715f378). Conversion match arms must
-    // destructure tuple-form, not struct-form `Variant { _0 }`.
     let enum_def = untagged_tuple_enum();
     let config = ConversionConfig {
         binding_enums_have_data: true,
@@ -397,7 +383,6 @@ fn test_enum_from_binding_to_core_untagged_tuple_emits_tuple_pattern() {
         ..ConversionConfig::default()
     };
     let result = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
-    // MUST destructure as tuple, not struct
     assert!(
         result.contains("UserContent::Text(_0)"),
         "expected tuple-form binding pattern, got: {result}"
@@ -406,14 +391,11 @@ fn test_enum_from_binding_to_core_untagged_tuple_emits_tuple_pattern() {
         !result.contains("UserContent::Text { _0 }"),
         "must NOT use struct-form for untagged enums, got: {result}"
     );
-    // Construct core as tuple
     assert!(result.contains("Self::Text("));
 }
 
 #[test]
 fn test_enum_from_core_to_binding_untagged_tuple_emits_tuple_constructor() {
-    // Regression: untagged enums with tuple variants emit tuple-form `Variant(T)` in
-    // the binding. Constructor must use tuple form, not `Self::Variant { _0 }`.
     let enum_def = untagged_tuple_enum();
     let config = ConversionConfig {
         binding_enums_have_data: true,
@@ -421,7 +403,6 @@ fn test_enum_from_core_to_binding_untagged_tuple_emits_tuple_constructor() {
         ..ConversionConfig::default()
     };
     let result = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
-    // Core destructured as tuple (already correct), binding constructed as tuple
     assert!(
         result.contains("my_crate::UserContent::Text(_0) => Self::Text("),
         "expected tuple-form binding constructor, got: {result}"
@@ -434,8 +415,6 @@ fn test_enum_from_core_to_binding_untagged_tuple_emits_tuple_constructor() {
 
 #[test]
 fn test_enum_tagged_data_keeps_struct_form_pattern() {
-    // Counter-regression: tagged (non-untagged) data enums must keep struct-form
-    // `Variant { _0 }` pattern/constructor — only untagged enums switch to tuple form.
     let mut enum_def = untagged_tuple_enum();
     enum_def.serde_untagged = false;
     enum_def.serde_tag = Some("type".to_string());
@@ -453,10 +432,6 @@ fn test_enum_tagged_data_keeps_struct_form_pattern() {
 
 #[test]
 fn test_enum_untagged_keeps_struct_form_when_backend_does_not_opt_in() {
-    // Counter-regression for the Rustler backend: untagged enums must remain in
-    // struct-form when the backend's enum body emitter does not switch to tuple
-    // form (every backend except Magnus). `binding_tuple_form_for_untagged_variants`
-    // is the opt-in flag.
     let enum_def = untagged_tuple_enum();
     let config = ConversionConfig {
         binding_enums_have_data: true,
@@ -477,7 +452,6 @@ fn test_enum_untagged_keeps_struct_form_when_backend_does_not_opt_in() {
 
 #[test]
 fn test_from_binding_to_core_with_cfg_gated_field() {
-    // Create a type with a cfg-gated field
     let mut typ = simple_type();
     typ.has_stripped_cfg_fields = true;
     typ.fields.push(FieldDef {
@@ -503,19 +477,14 @@ fn test_from_binding_to_core_with_cfg_gated_field() {
 
     let result = gen_from_binding_to_core(&typ, "my_crate");
 
-    // The impl should exist
     assert!(result.contains("impl From<Config> for my_crate::Config"));
-    // Regular fields should be present
     assert!(result.contains("name: val.name"));
     assert!(result.contains("timeout: val.timeout"));
-    // Cfg-gated fields are now preserved on the binding struct, so the conversion
-    // accesses them directly rather than padding with ..Default::default().
     assert!(result.contains("layout: val.layout"));
 }
 
 #[test]
 fn test_from_core_to_binding_with_cfg_gated_field() {
-    // Create a type with a cfg-gated field
     let mut typ = simple_type();
     typ.fields.push(FieldDef {
         name: "layout".into(),
@@ -540,17 +509,13 @@ fn test_from_core_to_binding_with_cfg_gated_field() {
 
     let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
 
-    // The impl should exist
     assert!(result.contains("impl From<my_crate::Config> for Config"));
-    // Regular fields should be present
     assert!(result.contains("name: val.name"));
-    // Cfg-gated fields are now preserved on the binding struct and round-tripped.
     assert!(result.contains("layout: val.layout"));
 }
 
 #[test]
 fn test_field_conversion_from_core_map_named_non_optional() {
-    // Map<K, Named> non-optional: each value needs .into() core→binding
     let result = field_conversion_from_core(
         "tags",
         &TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("Tag".into()))),
@@ -566,7 +531,6 @@ fn test_field_conversion_from_core_map_named_non_optional() {
 
 #[test]
 fn test_field_conversion_from_core_option_map_named() {
-    // Option<Map<K, Named>>: .map() wrapper + per-element .into()
     let result = field_conversion_from_core(
         "tags",
         &TypeRef::Optional(Box::new(TypeRef::Map(
@@ -585,7 +549,6 @@ fn test_field_conversion_from_core_option_map_named() {
 
 #[test]
 fn test_field_conversion_from_core_vec_named_non_optional() {
-    // Vec<Named> non-optional: each element needs .into() core→binding
     let result = field_conversion_from_core(
         "items",
         &TypeRef::Vec(Box::new(TypeRef::Named("Item".into()))),
@@ -598,7 +561,6 @@ fn test_field_conversion_from_core_vec_named_non_optional() {
 
 #[test]
 fn test_field_conversion_from_core_option_vec_named() {
-    // Option<Vec<Named>>: .map() wrapper + per-element .into()
     let result = field_conversion_from_core(
         "items",
         &TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Item".into()))))),
@@ -614,8 +576,6 @@ fn test_field_conversion_from_core_option_vec_named() {
 
 #[test]
 fn test_field_conversion_to_core_option_map_named_applies_per_value_into() {
-    // Bug A1 regression: Option<Map<K, Named>> must apply per-value .into() so that
-    // binding-side wrapper types (e.g. PyO3 / Magnus structs) are converted correctly.
     let result = field_conversion_to_core(
         "patterns",
         &TypeRef::Map(

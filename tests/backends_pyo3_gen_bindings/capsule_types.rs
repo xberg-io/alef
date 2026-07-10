@@ -10,12 +10,10 @@ fn test_capsule_types_end_to_end() {
 
     let backend = Pyo3Backend;
 
-    // IR: two opaque types that are listed as capsule types + two functions.
     let api = ApiSurface {
         crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![
-            // Language — capsule round-trip type
             TypeDef {
                 name: "Language".to_string(),
                 rust_path: "sample_pack::Language".to_string(),
@@ -41,7 +39,6 @@ fn test_capsule_types_end_to_end() {
                 has_private_fields: false,
                 version: Default::default(),
             },
-            // Parser — ConstructFrom type (no into_raw; built via sample_language.Parser(language))
             TypeDef {
                 name: "Parser".to_string(),
                 rust_path: "sample_pack::Parser".to_string(),
@@ -69,7 +66,6 @@ fn test_capsule_types_end_to_end() {
             },
         ],
         functions: vec![
-            // get_language(name: &str) -> Result<Language, Error>
             FunctionDef {
                 name: "get_language".to_string(),
                 rust_path: "sample_pack::get_language".to_string(),
@@ -105,7 +101,6 @@ fn test_capsule_types_end_to_end() {
                 binding_exclusion_reason: None,
                 version: Default::default(),
             },
-            // get_parser(name: &str) -> Result<Parser, Error>
             FunctionDef {
                 name: "get_parser".to_string(),
                 rust_path: "sample_pack::get_parser".to_string(),
@@ -223,13 +218,11 @@ fn test_capsule_types_end_to_end() {
         "Parser must not be emitted as a #[pyclass] struct; content:\n{content}"
     );
 
-    // get_language must use PyCapsule_New for the capsule round-trip return.
     assert!(
         content.contains("PyCapsule_New"),
         "get_language must call PyCapsule_New; content:\n{content}"
     );
 
-    // get_parser must import sample_language and call Parser via getattr + call1.
     assert!(
         content.contains("py.import(\"sample_language\")"),
         "get_parser must import the sample_language module; content:\n{content}"
@@ -243,16 +236,11 @@ fn test_capsule_types_end_to_end() {
         "get_parser must call call1 to construct the Parser; content:\n{content}"
     );
 
-    // The preamble must suppress unsafe_code so downstreams with
-    // workspace-level `unsafe_code = "deny"` compile without overrides.
     assert!(
         content.contains("allow(unsafe_code)"),
         "preamble must include #![allow(unsafe_code)]; content:\n{content}"
     );
 
-    // Bug 1 — error_converter_name must emit function-ref, not redundant closure.
-    // With Error in the IR, error_to_py_err is a known converter; it must appear as
-    // `.map_err(error_to_py_err)`, NOT `.map_err(|e| error_to_py_err(e))`.
     assert!(
         content.contains(".map_err(error_to_py_err)"),
         "lib.rs must use .map_err(error_to_py_err) (function ref, not closure); content:\n{content}"
@@ -262,7 +250,6 @@ fn test_capsule_types_end_to_end() {
         "lib.rs must NOT contain redundant closure .map_err(|e| error_to_py_err(e)); content:\n{content}"
     );
 
-    // Bugs 2 and 3 — api.py import order and capsule type imports.
     let pub_files = backend
         .generate_public_api(&api, &config)
         .expect("generate_public_api with capsule_types should succeed");
@@ -272,7 +259,6 @@ fn test_capsule_types_end_to_end() {
         .expect("api.py not generated");
     let api_py_content = &api_py.content;
 
-    // Bug 2: stdlib `from typing import` must appear BEFORE any `from .` local imports.
     let typing_pos = api_py_content
         .find("from typing import")
         .expect("api.py must contain 'from typing import'");
@@ -282,9 +268,6 @@ fn test_capsule_types_end_to_end() {
         "api.py: 'from typing import' must come before 'from .' imports (isort I001);\ncontent:\n{api_py_content}"
     );
 
-    // Bug 3: capsule types must have an explicit import so bare names resolve (ruff F821).
-    // Both Language (sample_language.Language) and Parser (sample_language.Parser) share the
-    // `sample_language` module, so a single `from sample_language import Language, Parser` is expected.
     assert!(
         api_py_content.contains("from sample_language import"),
         "api.py must contain 'from sample_language import' for capsule types; content:\n{api_py_content}"
@@ -311,8 +294,6 @@ fn test_capsule_types_end_to_end() {
         "api.py must NOT import Parser from the native module; native line: {native_import_line:?}"
     );
 
-    // Stub assertions: capsule types must not be declared as opaque classes in _native.pyi
-    // and function stubs must use `Any` for capsule return types.
     let mut stubs_config = config.clone();
     if let Some(ref mut py) = stubs_config.python {
         py.stubs = Some(alef::core::config::StubsConfig {
@@ -326,7 +307,6 @@ fn test_capsule_types_end_to_end() {
     assert_eq!(stub_files.len(), 1, "expected exactly one .pyi file");
     let stub_content = &stub_files[0].content;
 
-    // Capsule types must NOT appear as standalone class declarations.
     assert!(
         !stub_content.contains("class Language:") && !stub_content.contains("class Language: ..."),
         "stub must NOT declare class Language; content:\n{stub_content}"
@@ -336,7 +316,6 @@ fn test_capsule_types_end_to_end() {
         "stub must NOT declare class Parser; content:\n{stub_content}"
     );
 
-    // Free function stubs must return `Any` for capsule types.
     assert!(
         stub_content.contains("def get_language(name: str) -> Any: ..."),
         "stub must contain 'def get_language(name: str) -> Any: ...'; content:\n{stub_content}"
@@ -346,7 +325,6 @@ fn test_capsule_types_end_to_end() {
         "stub must contain 'def get_parser(name: str) -> Any: ...'; content:\n{stub_content}"
     );
 
-    // The stub must import Any from typing since it is now referenced.
     assert!(
         stub_content.contains("from typing import") && stub_content.contains("Any"),
         "stub must contain 'from typing import ... Any ...'; content:\n{stub_content}"
@@ -364,55 +342,50 @@ fn test_capsule_types_in_methods() {
 
     let backend = Pyo3Backend;
 
-    // IR: an opaque LanguageRegistry type with two methods that return capsule types.
     let api = ApiSurface {
         crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![
-            // LanguageRegistry — the opaque registry that owns the Language/Parser getters
             TypeDef {
                 name: "LanguageRegistry".to_string(),
                 rust_path: "sample_pack::LanguageRegistry".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
-                methods: vec![
-                    // get_language(&self, name: String) -> Result<Language, Error>
-                    MethodDef {
-                        name: "get_language".to_string(),
-                        params: vec![ParamDef {
-                            name: "name".to_string(),
-                            ty: TypeRef::String,
-                            optional: false,
-                            default: None,
-                            sanitized: false,
-                            typed_default: None,
-                            is_ref: false,
-                            is_mut: false,
-                            newtype_wrapper: None,
-                            original_type: None,
-                            map_is_ahash: false,
-                            map_key_is_cow: false,
-                            vec_inner_is_ref: false,
-                            map_is_btree: false,
-                            core_wrapper: alef::core::ir::CoreWrapper::None,
-                        }],
-                        return_type: TypeRef::Named("Language".to_string()),
-                        is_async: false,
-                        is_static: false,
-                        error_type: Some("sample_pack::Error".to_string()),
-                        doc: String::new(),
-                        receiver: Some(ReceiverKind::Ref),
+                methods: vec![MethodDef {
+                    name: "get_language".to_string(),
+                    params: vec![ParamDef {
+                        name: "name".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
                         sanitized: false,
-                        trait_source: None,
-                        returns_ref: false,
-                        returns_cow: false,
-                        return_newtype_wrapper: None,
-                        has_default_impl: false,
-                        binding_excluded: false,
-                        binding_exclusion_reason: None,
-                        version: Default::default(),
-                    },
-                ],
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                        map_is_ahash: false,
+                        map_key_is_cow: false,
+                        vec_inner_is_ref: false,
+                        map_is_btree: false,
+                        core_wrapper: alef::core::ir::CoreWrapper::None,
+                    }],
+                    return_type: TypeRef::Named("Language".to_string()),
+                    is_async: false,
+                    is_static: false,
+                    error_type: Some("sample_pack::Error".to_string()),
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    version: Default::default(),
+                }],
                 is_opaque: true,
                 is_clone: false,
                 is_copy: false,
@@ -506,7 +479,6 @@ fn test_capsule_types_in_methods() {
     let content = &files[0].content;
 
     // The #[pymethods] impl block for LanguageRegistry must be present.
-    // Regression guard: capsule-method rewriting was stripping the impl block header when the
     // first method returns a capsule type (`attr_start` was incorrectly walking past `#[pymethods]`
     // because `#[pymethods]impl Foo {` starts with `#[`).
     assert!(
@@ -516,31 +488,26 @@ fn test_capsule_types_in_methods() {
     );
 
     // Language must NOT appear as a standalone #[pyclass] struct — it is a capsule type.
-    // Note: "struct LanguageRegistry" is expected; we must not match that as a false positive.
     assert!(
         !content.contains("pub struct Language {") && !content.contains("pub struct Language{"),
         "Language must not be emitted as a #[pyclass] struct; content:\n{content}"
     );
 
-    // The get_language method must use PyCapsule_New (capsule round-trip).
     assert!(
         content.contains("PyCapsule_New"),
         "get_language method must call PyCapsule_New; content:\n{content}"
     );
 
-    // The method must NOT reference the removed Language struct in its return type.
     assert!(
         !content.contains("-> PyResult<Language>"),
         "get_language method must not return PyResult<Language> (struct removed); content:\n{content}"
     );
 
-    // The method must return PyResult<Py<PyAny>> instead.
     assert!(
         content.contains("-> pyo3::PyResult<pyo3::Py<pyo3::PyAny>>"),
         "get_language method must return pyo3::PyResult<pyo3::Py<pyo3::PyAny>>; content:\n{content}"
     );
 
-    // The capsule name constant must be emitted with the configured name.
     assert!(
         content.contains("sample_language.Language"),
         "get_language method must embed the 'sample_language.Language' capsule name; content:\n{content}"
@@ -552,7 +519,6 @@ fn test_capsule_types_in_methods() {
         "preamble must include #![allow(unsafe_code)]; content:\n{content}"
     );
 
-    // Stub assertions: LanguageRegistry.get_language must return `Any` in .pyi.
     let mut stubs_config = config.clone();
     if let Some(ref mut py) = stubs_config.python {
         py.stubs = Some(alef::core::config::StubsConfig {
@@ -566,25 +532,21 @@ fn test_capsule_types_in_methods() {
     assert_eq!(stub_files.len(), 1, "expected exactly one .pyi file");
     let stub_content = &stub_files[0].content;
 
-    // Language must NOT appear as a standalone class declaration.
     assert!(
         !stub_content.contains("class Language:") && !stub_content.contains("class Language: ..."),
         "stub must NOT declare class Language; content:\n{stub_content}"
     );
 
-    // LanguageRegistry must be declared (it is NOT a capsule type).
     assert!(
         stub_content.contains("class LanguageRegistry:"),
         "stub must declare class LanguageRegistry; content:\n{stub_content}"
     );
 
-    // Within LanguageRegistry, get_language must return `Any`.
     assert!(
         stub_content.contains("def get_language(self, name: str) -> Any: ..."),
         "stub must contain 'def get_language(self, name: str) -> Any: ...'; content:\n{stub_content}"
     );
 
-    // Any must be imported.
     assert!(
         stub_content.contains("from typing import") && stub_content.contains("Any"),
         "stub must contain 'from typing import ... Any ...'; content:\n{stub_content}"

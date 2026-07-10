@@ -25,7 +25,6 @@ impl Backend for JniBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Require kotlin_android config — the package is needed for JNI symbol names.
         if config.kotlin_android.is_none() {
             anyhow::bail!(
                 "kotlin-android config required for JNI shim generation: \
@@ -59,10 +58,6 @@ impl Backend for JniBackend {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Output path resolution
-// ---------------------------------------------------------------------------
-
 /// Default output directory: `crates/<crate-base>-jni/src/lib.rs`
 ///
 /// `crate-base` is `config.jni_crate_base()`: `[crates.jni] crate_dir` when
@@ -73,7 +68,3 @@ fn jni_output_path(config: &ResolvedCrateConfig) -> PathBuf {
     let jni_crate = format!("{}-jni", config.jni_crate_base());
     PathBuf::from(format!("crates/{jni_crate}/src/lib.rs"))
 }
-
-// ---------------------------------------------------------------------------
-// Top-level emitter
-// ---------------------------------------------------------------------------

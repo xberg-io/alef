@@ -37,14 +37,12 @@ pub(super) fn generate_lang_doc(
         "front_matter.jinja",
         minijinja::context! { title => format!("{lang_display} API Reference") },
     ));
-    // MD071: blank line required between frontmatter and first heading.
     out.push('\n');
     out.push_str(&template_env::render(
         "version_heading.jinja",
         minijinja::context! { marker => "##", title => format!("{lang_display} API Reference"), version => version },
     ));
 
-    // --- Functions section ---
     let public_fns: Vec<&FunctionDef> = api
         .functions
         .iter()
@@ -58,9 +56,6 @@ pub(super) fn generate_lang_doc(
         }
     }
 
-    // --- Types section ---
-    // Order: ParseOptions, ParseOutput, then rest alphabetical
-    // Skip opaque types and *Update types in main section
     let mut types_to_doc: Vec<&TypeDef> = api
         .types
         .iter()
@@ -71,7 +66,6 @@ pub(super) fn generate_lang_doc(
         })
         .collect();
 
-    // Sort: ParseOptions first, ParseOutput second, rest alphabetical
     types_to_doc.sort_by(|a, b| type_sort_key(&a.name).cmp(&type_sort_key(&b.name)));
 
     if !types_to_doc.is_empty() {
@@ -82,7 +76,6 @@ pub(super) fn generate_lang_doc(
         }
     }
 
-    // --- Enums section ---
     let enums_to_doc: Vec<&EnumDef> = api
         .enums
         .iter()
@@ -96,7 +89,6 @@ pub(super) fn generate_lang_doc(
         }
     }
 
-    // --- Errors section ---
     let errors_to_doc: Vec<&ErrorDef> = api
         .errors
         .iter()

@@ -123,7 +123,6 @@ fn lib_rs(api: &ApiSurface) -> String {
 
 #[test]
 fn static_dto_method_with_named_ref_param_binds_owned_core_and_borrows() {
-    // `ConfidenceSignals::from_extraction_result(result: &ExtractionResult, ...) -> Self`.
     let from = MethodDef {
         name: "from_extraction_result".to_string(),
         params: vec![
@@ -154,7 +153,6 @@ fn static_dto_method_with_named_ref_param_binds_owned_core_and_borrows() {
         !content.contains("compile_error!"),
         "static DTO factory with &T param must auto-delegate, not bail:\n{content}"
     );
-    // The owned core temporary is bound, then borrowed at the call site.
     assert!(
         content.contains("let result_core: test_lib::ExtractionResult = result.into();"),
         "should bind an owned core temporary for the &T param:\n{content}"
@@ -163,7 +161,6 @@ fn static_dto_method_with_named_ref_param_binds_owned_core_and_borrows() {
         content.contains("test_lib::ConfidenceSignals::from_extraction_result(&result_core, text_coverage"),
         "should pass a borrow of the owned core temporary:\n{content}"
     );
-    // It must NOT pass `result.into()` directly where `&ExtractionResult` is expected.
     assert!(
         !content.contains("from_extraction_result(result.into()"),
         "must not pass an owned value where &T is expected:\n{content}"
@@ -172,7 +169,6 @@ fn static_dto_method_with_named_ref_param_binds_owned_core_and_borrows() {
 
 #[test]
 fn free_fn_mixing_named_ref_optional_json_and_map_delegates_correctly() {
-    // `resolve(preset: &Preset, custom_schema: Option<Json>, context: &BTreeMap<String,String>) -> Result`.
     let resolve = func(
         "resolve",
         vec![
@@ -205,13 +201,10 @@ fn free_fn_mixing_named_ref_optional_json_and_map_delegates_correctly() {
         content.contains("let preset_core: test_lib::Preset = preset.into();"),
         "should bind an owned core temporary for the &Preset param:\n{content}"
     );
-    // NAPI maps Json to serde_json::Value, so the Json param is passed through unchanged
-    // (no serde_json::from_str at the call site).
     assert!(
         !content.contains("serde_json::from_str(&custom_schema"),
         "NAPI Json params are already serde_json::Value and must not be re-parsed:\n{content}"
     );
-    // The promoted &BTreeMap param is materialised and collected before borrowing.
     assert!(
         content.contains("&context.unwrap_or_default().into_iter().collect::<std::collections::BTreeMap<_, _>>()"),
         "promoted &BTreeMap param should be collected and borrowed:\n{content}"
@@ -220,7 +213,6 @@ fn free_fn_mixing_named_ref_optional_json_and_map_delegates_correctly() {
 
 #[test]
 fn free_fn_optional_bytes_param_converts_option_buffer_not_option_to_vec() {
-    // `analyze(document_bytes: Option<&[u8]>) -> u32` — binding receives Option<Buffer>.
     let analyze = func(
         "analyze",
         vec![param("document_bytes", TypeRef::Bytes, true, true)],
@@ -229,7 +221,6 @@ fn free_fn_optional_bytes_param_converts_option_buffer_not_option_to_vec() {
     );
     let content = lib_rs(&api(vec![], vec![analyze]));
 
-    // Must convert Option<Buffer> -> Option<Vec<u8>> via .map(...), never `Option.to_vec()`.
     assert!(
         content.contains("let document_bytes: Option<Vec<u8>> = document_bytes.map(|b| b.to_vec());"),
         "optional bytes param must convert via .map(|b| b.to_vec()):\n{content}"
@@ -238,7 +229,6 @@ fn free_fn_optional_bytes_param_converts_option_buffer_not_option_to_vec() {
         !content.contains("let document_bytes: Vec<u8> = document_bytes.to_vec();"),
         "must not call .to_vec() directly on Option<Buffer>:\n{content}"
     );
-    // The call site uses as_deref() to reach Option<&[u8]>.
     assert!(
         content.contains("document_bytes.as_deref()"),
         "call site should pass Option<&[u8]> via as_deref():\n{content}"

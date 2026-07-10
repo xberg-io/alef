@@ -61,41 +61,37 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::Zig => format!("?{inner_ty}"),
             }
         }
-        TypeRef::Vec(inner) => {
-            match lang {
-                Language::Java => {
-                    // Java generics can't use primitives — box them
-                    let inner_ty = java_boxed_type(inner);
-                    format!("List<{inner_ty}>")
-                }
-                Language::Csharp => {
-                    let inner_ty = doc_type(inner, lang, ffi_prefix);
-                    format!("List<{inner_ty}>")
-                }
-                _ => {
-                    let inner_ty = doc_type(inner, lang, ffi_prefix);
-                    match lang {
-                        Language::Python => format!("list[{inner_ty}]"),
-                        Language::Node | Language::Wasm => format!("Array<{inner_ty}>"),
-                        Language::Go => format!("[]{inner_ty}"),
-                        Language::Ruby => format!("Array<{inner_ty}>"),
-                        Language::Php => format!("array<{inner_ty}>"),
-                        Language::Elixir => format!("list({inner_ty})"),
-                        Language::R => "list".to_string(),
-                        Language::Rust => format!("Vec<{inner_ty}>"),
-                        Language::Ffi | Language::C | Language::Jni => format!("{inner_ty}*"),
-                        Language::Java | Language::Csharp => unreachable!(),
-                        Language::Kotlin | Language::KotlinAndroid | Language::Dart => format!("List<{inner_ty}>"),
-                        Language::Swift => format!("[{inner_ty}]"),
-                        Language::Gleam => format!("List({inner_ty})"),
-                        Language::Zig => format!("[]const {inner_ty}"),
-                    }
+        TypeRef::Vec(inner) => match lang {
+            Language::Java => {
+                let inner_ty = java_boxed_type(inner);
+                format!("List<{inner_ty}>")
+            }
+            Language::Csharp => {
+                let inner_ty = doc_type(inner, lang, ffi_prefix);
+                format!("List<{inner_ty}>")
+            }
+            _ => {
+                let inner_ty = doc_type(inner, lang, ffi_prefix);
+                match lang {
+                    Language::Python => format!("list[{inner_ty}]"),
+                    Language::Node | Language::Wasm => format!("Array<{inner_ty}>"),
+                    Language::Go => format!("[]{inner_ty}"),
+                    Language::Ruby => format!("Array<{inner_ty}>"),
+                    Language::Php => format!("array<{inner_ty}>"),
+                    Language::Elixir => format!("list({inner_ty})"),
+                    Language::R => "list".to_string(),
+                    Language::Rust => format!("Vec<{inner_ty}>"),
+                    Language::Ffi | Language::C | Language::Jni => format!("{inner_ty}*"),
+                    Language::Java | Language::Csharp => unreachable!(),
+                    Language::Kotlin | Language::KotlinAndroid | Language::Dart => format!("List<{inner_ty}>"),
+                    Language::Swift => format!("[{inner_ty}]"),
+                    Language::Gleam => format!("List({inner_ty})"),
+                    Language::Zig => format!("[]const {inner_ty}"),
                 }
             }
-        }
+        },
         TypeRef::Map(k, v) => {
             if lang == Language::Java {
-                // Java generics require boxed types
                 let kty = java_boxed_type(k);
                 let vty = java_boxed_type(v);
                 return format!("Map<{kty}, {vty}>");
@@ -122,7 +118,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             }
         }
         TypeRef::Named(name) if name.starts_with('(') && name.ends_with(')') => {
-            // Tuple type encoded as Named("(A, B)") — render idiomatically per language
             let inner = &name[1..name.len() - 1];
             let rendered: Vec<String> = inner
                 .split(',')
@@ -130,9 +125,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                     let trimmed = part.trim();
                     match trimmed {
                         "usize" | "u64" | "u32" | "u16" | "u8" | "i64" | "i32" | "i16" | "i8" | "isize" => {
-                            // Swift preserves the signed/unsigned distinction; other
-                            // languages collapse to a single integer type per their
-                            // primitive convention.
                             let swift_name = match trimmed {
                                 "u64" | "usize" => "UInt64",
                                 "u32" => "UInt32",
@@ -181,8 +173,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                             Language::Gleam => "String".to_string(),
                             Language::Zig => "[]const u8".to_string(),
                         },
-                        // Slice of strings — &[&str], &'static [&'static str], Vec<String>, etc.
-                        // Also covers compacted IR forms like &'static[&'staticstr]
                         s if s.contains("[&")
                             || s.contains("[String")
                             || s.contains("Vec<&")
@@ -209,8 +199,6 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                             }
                         }
                         other => {
-                            // For Rust, preserve the raw type token rather than
-                            // PascalCasing it — Rust type names are already correct.
                             if lang == Language::Rust {
                                 other.to_string()
                             } else {
@@ -289,14 +277,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Rust => "serde_json::Value".to_string(),
             Language::Ffi | Language::C | Language::Jni => "void*".to_string(),
             Language::Kotlin | Language::KotlinAndroid => "Any".to_string(),
-            // Swift and Dart mappers return "String" — JSON is passed serialized.
             Language::Swift => "String".to_string(),
             Language::Dart => "String".to_string(),
-            // Gleam and Zig backends serialize JSON as a string (the Mappers
-            // return "String" / "[:0]const u8"); doc names must match.
             Language::Gleam => "String".to_string(),
-            // Zig backend serializes JSON as a string (the Mapper
-            // returns "[:0]const u8"); doc name must match.
             Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Duration => match lang {
@@ -461,7 +444,6 @@ pub(crate) fn doc_primitive(p: &PrimitiveType, lang: Language) -> String {
             PrimitiveType::I16 => "i16".to_string(),
             PrimitiveType::I32 => "i32".to_string(),
             PrimitiveType::I64 => "i64".to_string(),
-            // ZigMapper deliberately uses fixed-width types for FFI stability.
             PrimitiveType::Usize => "u64".to_string(),
             PrimitiveType::Isize => "i64".to_string(),
             PrimitiveType::F32 => "f32".to_string(),
@@ -485,7 +467,6 @@ pub(crate) fn java_boxed_type(ty: &TypeRef) -> String {
             PrimitiveType::F32 => "Float".to_string(),
             PrimitiveType::F64 => "Double".to_string(),
         },
-        // Non-primitive types are already reference types in Java
         _ => doc_type(ty, Language::Java, ""),
     }
 }

@@ -199,7 +199,6 @@ fn test_merge_surface_filtered() {
 
 #[test]
 fn test_merge_surface_includes_functions_and_enums() {
-    // merge_surface should also merge functions and enums, not just types.
     let mut dst = ApiSurface {
         crate_name: "dst".into(),
         version: "0.1.0".into(),
@@ -273,7 +272,6 @@ fn test_merge_surface_includes_functions_and_enums() {
 
 #[test]
 fn test_merge_surface_filtered_includes_functions_and_enums() {
-    // merge_surface_filtered should also filter and merge functions and enums.
     let mut dst = ApiSurface {
         crate_name: "dst".into(),
         version: "0.1.0".into(),
@@ -387,8 +385,3 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
     assert_eq!(dst.enums.len(), 1);
     assert_eq!(dst.enums[0].name, "WantedEnum");
 }
-
-// ---------------------------------------------------------------------------
-// defaults.rs coverage: Duration::from_secs/from_millis, vec![], None,
-// string literal direct, unary negation on non-numeric
-// ---------------------------------------------------------------------------

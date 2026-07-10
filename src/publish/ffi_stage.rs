@@ -24,10 +24,8 @@ pub fn stage_ffi(
     let lib_name = config.ffi_lib_name();
     let shared_lib = target.shared_lib_name(&lib_name);
 
-    // Locate the built library.
     let lib_path = find_built_library(workspace_root, target, &shared_lib)?;
 
-    // Determine destination directory.
     let dest_dir = staging_dir(config, lang, target, workspace_root)?;
     fs::create_dir_all(&dest_dir).with_context(|| format!("creating {}", dest_dir.display()))?;
 
@@ -112,20 +110,17 @@ pub fn find_ffi_crate_dir_pub(config: &ResolvedCrateConfig, workspace_root: &Pat
 /// Find the FFI crate directory (for locating the header file).
 fn find_ffi_crate_dir(config: &ResolvedCrateConfig, workspace_root: &Path) -> PathBuf {
     if let Some(ffi_output) = config.explicit_output.ffi.as_ref() {
-        // ffi output is like "crates/my-lib-ffi/src/" — walk up to find the crate dir.
         let p = Path::new(ffi_output);
         for ancestor in p.ancestors() {
             if ancestor.join("Cargo.toml").exists() || ancestor.join("include").exists() {
                 return workspace_root.join(ancestor);
             }
         }
-        // Fall back to parent of "src" component.
         if let Some(parent) = p.parent() {
             return workspace_root.join(parent);
         }
     }
 
-    // Default: crates/{name}-ffi
     let crate_name = &config.name;
     workspace_root.join(format!("crates/{crate_name}-ffi"))
 }
@@ -257,7 +252,6 @@ namespace = "MyLib"
         setup_header(root);
         fs::create_dir_all(root.join("packages/go")).unwrap();
 
-        // Stage the lib first (creates the dir).
         stage_ffi(&config, Language::Go, &target, root).unwrap();
 
         let result = stage_header(&config, Language::Go, &target, root).unwrap();
@@ -288,7 +282,6 @@ namespace = "MyLib"
         let target = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         let lib_name = target.shared_lib_name("my_lib_ffi");
 
-        // Place lib in target/release/ instead of target/{triple}/release/.
         let release_dir = root.join("target/release");
         fs::create_dir_all(&release_dir).unwrap();
         fs::write(release_dir.join(&lib_name), "fake-lib").unwrap();

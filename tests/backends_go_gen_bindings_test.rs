@@ -57,7 +57,6 @@ module = "github.com/test/test-lib"
 fn test_basic_generation() {
     let backend = GoBackend;
 
-    // Create test API surface with 1 type, 1 function, 1 enum
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -180,7 +179,6 @@ fn test_basic_generation() {
 
     let config = make_config();
 
-    // Generate bindings
     let result = backend.generate_bindings(&api, &config);
     assert!(result.is_ok(), "Generation should succeed");
 
@@ -194,20 +192,16 @@ fn test_basic_generation() {
 
     let content = &binding_file.content;
 
-    // Verify Go package declaration
     assert!(content.contains("package testlib"), "Should declare Go package");
 
-    // Verify cgo directives
     assert!(content.contains("#cgo CFLAGS:"), "Should have cgo CFLAGS directive");
     assert!(content.contains("import \"C\""), "Should import C");
 
-    // Verify standard Go imports
     assert!(content.contains("import ("), "Should have import block");
     assert!(content.contains("\"fmt\""), "Should import fmt");
     assert!(content.contains("\"encoding/json\""), "Should import encoding/json");
     assert!(content.contains("\"unsafe\""), "Should import unsafe");
 
-    // Verify error helper
     assert!(content.contains("func lastError()"), "Should define lastError helper");
     assert!(
         content.contains("C.test_last_error_code()"),
@@ -218,13 +212,11 @@ fn test_basic_generation() {
         "lastError must tolerate a nonzero error code with no context pointer"
     );
 
-    // Verify struct generation
     assert!(content.contains("type Config struct"), "Should define Config struct");
     assert!(content.contains("Timeout"), "Should have Timeout field");
     assert!(content.contains("Name"), "Should have Name field");
     assert!(content.contains("json:"), "Should have JSON tags");
 
-    // Verify enum generation
     assert!(
         content.contains("type Mode string"),
         "Should define Mode as string enum"
@@ -233,7 +225,6 @@ fn test_basic_generation() {
     assert!(content.contains("ModeFast"), "Should have ModeFast constant");
     assert!(content.contains("ModeSlow"), "Should have ModeSlow constant");
 
-    // Verify function wrapper
     assert!(content.contains("func Process("), "Should define Process function");
 }
 
@@ -497,8 +488,6 @@ fn test_type_mapping() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify Go type mappings — gofmt aligns fields with variable whitespace,
-    // so we check for the field name and type without exact spacing.
     let lines: Vec<&str> = content.lines().collect();
     let struct_lines: Vec<&&str> = lines.iter().filter(|l| l.contains("Val")).collect();
     assert!(
@@ -609,13 +598,11 @@ fn test_enum_generation() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify enum type declaration
     assert!(
         content.contains("type Status string"),
         "Should define Status as string type"
     );
 
-    // Verify const block with all variants
     assert!(content.contains("const ("), "Should define const block");
     assert!(content.contains("StatusPending"), "Should have StatusPending constant");
     assert!(content.contains("StatusActive"), "Should have StatusActive constant");
@@ -624,7 +611,6 @@ fn test_enum_generation() {
         "Should have StatusCompleted constant"
     );
 
-    // Verify string values follow Rust serde defaults when no rename_all is configured.
     assert!(content.contains("\"Pending\""), "Should use Rust variant values");
     assert!(content.contains("\"Active\""), "Should use Rust variant values");
     assert!(content.contains("\"Completed\""), "Should use Rust variant values");
@@ -679,7 +665,6 @@ fn test_methods_generation() {
             original_rust_path: String::new(),
             fields: vec![make_field("id", TypeRef::Primitive(PrimitiveType::U64), false)],
             methods: vec![
-                // Instance method that returns a value
                 MethodDef {
                     name: "get_name".to_string(),
                     params: vec![],
@@ -699,7 +684,6 @@ fn test_methods_generation() {
                     binding_exclusion_reason: None,
                     version: Default::default(),
                 },
-                // Static method that returns a primitive (not skipped)
                 MethodDef {
                     name: "version".to_string(),
                     params: vec![],
@@ -719,7 +703,6 @@ fn test_methods_generation() {
                     binding_exclusion_reason: None,
                     version: Default::default(),
                 },
-                // Instance method with parameters and error
                 MethodDef {
                     name: "process".to_string(),
                     params: vec![ParamDef {
@@ -793,23 +776,16 @@ fn test_methods_generation() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify instance method wrapper (receiver with pointer).
-    // Non-opaque receivers must be marshaled to JSON, so even methods without explicit error_type
-    // return (T, error). Verify GetName returns (string, error) with bare string (not *string).
     assert!(
         content.contains("func (r *Handler) GetName(") && content.contains(") (string, error) {"),
         "Should define instance method GetName returning (string, error) with bare string type"
     );
 
-    // Verify static method (no receiver, becomes function)
     assert!(
         content.contains("func HandlerVersion()"),
         "Should define static method as package-level function"
     );
 
-    // Verify instance method with error return.
-    // The generator emits single-line canonical signatures, so check for the
-    // complete signature or unambiguous substrings.
     assert!(
         content.contains("func (r *Handler) Process("),
         "Should define Process method receiver with name"
@@ -881,13 +857,10 @@ fn test_error_types() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify error type generation via alef_codegen
-    // The gen_go_error_types function generates sentinel errors and error wrappers
     assert!(
         content.contains("errors") || content.contains("Error"),
         "Should import or reference errors package"
     );
-    // Verify error-related code is generated
     assert!(
         content.contains("GoError") || content.contains("lastError"),
         "Should generate error-related code"
@@ -954,9 +927,7 @@ fn test_async_function() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify async function is generated
     assert!(content.contains("func AsyncProcess("), "Should define async function");
-    // Async functions in Go use the FFI with block_on() internally, but the wrapper is still generated
     assert!(
         content.contains("AsyncProcess"),
         "Async function should be included in generated code"

@@ -113,14 +113,8 @@ pub fn package_php(
     version: &str,
     options: &PiePackageOptions<'_>,
 ) -> Result<PackageArtifact> {
-    // PHP extension name comes from `[php].extension_name` in alef.toml (which is
-    // also the value emitted into composer.json's `php-ext.extension-name`). PIE
-    // installs the binary using this name, so it MUST match composer.json — never
-    // derive from the crate name (which carries a `-php` binding suffix).
     let ext_name = config.php_extension_name();
 
-    // Cargo's compiled artifact filename comes from the crate name, not the PHP
-    // extension name, so a binding crate suffix may be present in the cargo artifact.
     let cargo_lib_stem = crate::publish::crate_name_from_output(config, crate::core::config::extras::Language::Php)
         .map(|n| n.replace('-', "_"))
         .unwrap_or_else(|| ext_name.clone());
@@ -128,7 +122,6 @@ pub fn package_php(
     let archive_name = pie_archive_name(&ext_name, version, target, options)?;
     let archive_path = output_dir.join(&archive_name);
 
-    // Staging directory (cleaned up after archive creation).
     let staging = output_dir.join(format!("_pie_stage_{ext_name}_{}", target.triple));
     if staging.exists() {
         fs::remove_dir_all(&staging)?;
@@ -136,31 +129,21 @@ pub fn package_php(
     fs::create_dir_all(&staging)?;
 
     if target.os == Os::Windows {
-        // Locate the cargo-produced .dll and rename it to {ext_name}.dll inside the archive.
         let cargo_dll_name = format!("{cargo_lib_stem}.dll");
         let dll_src = find_php_ext(workspace_root, target, &cargo_dll_name)?;
         let staged_name = format!("{ext_name}.dll");
         fs::copy(&dll_src, staging.join(&staged_name))?;
         create_zip(&staging, &archive_path)?;
     } else {
-        // Locate cargo's .so/.dylib and rename appropriately for the archive.
-        // PIE probes for {ext_name}.so on all Unix platforms (Linux, macOS, etc.).
-        // Cargo produces lib{name}.dylib on macOS and lib{name}.so on Linux; we rename
-        // both to {ext_name}.so for the archive so PIE 1.4.5+ can find it consistently.
         let cargo_lib_file = target.shared_lib_name(&cargo_lib_stem);
         let lib_src = find_php_ext(workspace_root, target, &cargo_lib_file)?;
         let staged_name = format!("{ext_name}.so");
         fs::copy(&lib_src, staging.join(&staged_name))?;
-        // PIE's UnixBuild probes the extracted-source root for the extension binary and
-        // only unfolds a single subdirectory if it contains `config.m4` /
-        // `config.w32` — our prebuilt archive has neither, so the binary must
-        // sit at the archive root, not nested under the staging-dir name.
         super::create_tar_gz_flat(&staging, &archive_path)?;
     }
 
     fs::remove_dir_all(&staging).ok();
 
-    // Compute and write SHA-256 sidecar.
     let checksum = sha256_file(&archive_path)?;
     let sidecar_path = output_dir.join(format!("{archive_name}.sha256"));
     fs::write(&sidecar_path, format!("{checksum}  {archive_name}\n"))?;
@@ -192,10 +175,6 @@ fn pie_archive_name(
     options: &PiePackageOptions<'_>,
 ) -> Result<String> {
     let lower = |s: &str| s.to_lowercase();
-    // PIE 1.4+ constructs candidate asset names from `$package->version()`, which
-    // Composer/Packagist returns with the leading `v` (e.g. `v1.9.0-rc.23`) when
-    // the source tag was `v<version>`. Mirror that prefix here so the published
-    // filename matches what PIE looks for.
     let ver_prefixed = if version.starts_with('v') {
         version.to_string()
     } else {
@@ -336,8 +315,6 @@ sources = ["src/lib.rs"]
         }
     }
 
-    // --- TsMode ---
-
     #[test]
     fn ts_mode_from_str_nts() {
         assert_eq!(TsMode::parse("nts").unwrap(), TsMode::Nts);
@@ -363,8 +340,6 @@ sources = ["src/lib.rs"]
     fn ts_mode_from_str_unknown_errors() {
         assert!(TsMode::parse("thread").is_err());
     }
-
-    // --- pie_archive_name ---
 
     #[test]
     fn pie_filename_linux_x86_64_glibc_nts() {
@@ -412,8 +387,6 @@ sources = ["src/lib.rs"]
 
     #[test]
     fn pie_filename_accepts_version_with_v_prefix() {
-        // PIE/Composer hands us the version with leading `v`; ensure we don't
-        // double-prefix when given `v1.2.3` directly.
         let target = RustTarget::parse("aarch64-apple-darwin").unwrap();
         let opts = nts_options("8.5");
         let name = pie_archive_name("demo_render", "v1.2.3", &target, &opts).unwrap();
@@ -437,7 +410,6 @@ sources = ["src/lib.rs"]
     fn pie_filename_lowercase_invariant() {
         let target = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         let opts = nts_options("8.5");
-        // Uppercase ext_name should produce all-lowercase output.
         let name = pie_archive_name("MyExt", "1.0.0", &target, &opts).unwrap();
         assert_eq!(name, name.to_lowercase(), "archive name must be all-lowercase");
     }
@@ -453,17 +425,11 @@ sources = ["src/lib.rs"]
             windows_compiler: None,
         };
         let name = pie_archive_name("ext", "1.0.0", &target, &opts).unwrap();
-        // Override should win over the auto-detected "glibc".
         assert!(name.contains("-musl-"), "expected musl in name, got: {name}");
     }
 
-    // --- Debug segment ---
-
     #[test]
     fn pie_filename_no_debug_segment() {
-        // Per PIE 1.4.5, the canonical filename shape is:
-        // php_{ExtName}-{Ver}_php{PhpVer}-{Arch}-{OS}-{Libc}-{TSMode}.tgz
-        // Debug segment is not included in the filename pattern.
         let target = RustTarget::parse("aarch64-apple-darwin").unwrap();
         let opts = PiePackageOptions {
             php_version: "8.4",
@@ -476,8 +442,6 @@ sources = ["src/lib.rs"]
         assert_eq!(name, "php_demo_client-v1.4.0-rc.32_php8.4-arm64-darwin-bsdlibc-nts.tgz");
     }
 
-    // --- Archive layout ---
-
     #[test]
     fn pie_archive_contains_only_extension_at_root() {
         let tmp = TempDir::new().unwrap();
@@ -485,7 +449,6 @@ sources = ["src/lib.rs"]
         let output_dir = tmp.path().join("dist");
         fs::create_dir_all(&output_dir).unwrap();
 
-        // Create a fake .so in the expected location.
         let target = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         let release_dir = workspace.join("target/x86_64-unknown-linux-gnu/release");
         fs::create_dir_all(&release_dir).unwrap();
@@ -495,22 +458,16 @@ sources = ["src/lib.rs"]
         let opts = nts_options("8.4");
         let artifact = package_php(&config, &target, &workspace, &output_dir, "3.4.0", &opts).unwrap();
 
-        // Verify the archive exists.
         assert!(artifact.path.exists(), "archive file must exist");
         assert!(artifact.checksum.is_some(), "checksum must be set");
 
-        // Untar and check the single entry at root.
         let output = std::process::Command::new("tar")
             .arg("-tzf")
             .arg(&artifact.path)
             .output()
             .expect("tar must be available");
         let listing = String::from_utf8_lossy(&output.stdout);
-        let entries: Vec<&str> = listing
-            .lines()
-            // tar on macOS may produce the directory entry first; strip it
-            .filter(|l| !l.ends_with('/'))
-            .collect();
+        let entries: Vec<&str> = listing.lines().filter(|l| !l.ends_with('/')).collect();
 
         assert_eq!(
             entries.len(),
@@ -523,7 +480,6 @@ sources = ["src/lib.rs"]
             entries[0]
         );
 
-        // Sidecar must exist.
         let sidecar = output_dir.join(format!("{}.sha256", artifact.name));
         assert!(sidecar.exists(), "SHA-256 sidecar must be written");
     }
@@ -535,7 +491,6 @@ sources = ["src/lib.rs"]
         let output_dir = tmp.path().join("dist");
         fs::create_dir_all(&output_dir).unwrap();
 
-        // Create a fake .dylib in the expected location (cargo emits .dylib on macOS).
         let target = RustTarget::parse("aarch64-apple-darwin").unwrap();
         let release_dir = workspace.join("target/aarch64-apple-darwin/release");
         fs::create_dir_all(&release_dir).unwrap();
@@ -545,10 +500,8 @@ sources = ["src/lib.rs"]
         let opts = nts_options("8.4");
         let artifact = package_php(&config, &target, &workspace, &output_dir, "3.4.0", &opts).unwrap();
 
-        // Verify the archive exists.
         assert!(artifact.path.exists(), "archive file must exist");
 
-        // Untar and check the single entry is .dylib at root (for PIE macOS discovery).
         let output = std::process::Command::new("tar")
             .arg("-tzf")
             .arg(&artifact.path)
@@ -562,9 +515,6 @@ sources = ["src/lib.rs"]
             1,
             "expected exactly one file in macOS archive, got: {entries:?}"
         );
-        // PIE 1.4.5+ probes for `{ext}.so` on macOS as well as Linux, so the macOS archive
-        // ships the renamed `.so` alongside its Linux counterpart even though cargo emitted
-        // a `.dylib`. See `c3f90848f fix(php): always stage PIE extension as .so on Unix`.
         assert!(
             entries[0].ends_with("demo_render.so"),
             "expected demo_render.so on macOS at archive root, got: {}",

@@ -20,8 +20,6 @@ pub(super) fn try_template_readme(
 ) -> anyhow::Result<Option<GeneratedFile>> {
     let lang_code = lang_code(lang);
 
-    // Resolve per-language JSON value. Prefer inline `languages` map in alef.toml;
-    // fall back to the deprecated external YAML file when `config` is set.
     let lang_json: Option<serde_json::Value> = if !readme_cfg.languages.is_empty() {
         readme_cfg.languages.get(lang_code).cloned()
     } else if let Some(config_path) = &readme_cfg.config {
@@ -31,7 +29,6 @@ pub(super) fn try_template_readme(
                 .map_err(|e| anyhow::anyhow!("Failed to read readme config {:?}: {}", abs_config, e))?;
             let yaml: serde_yaml::Value = serde_yaml::from_str(&content)
                 .map_err(|e| anyhow::anyhow!("Failed to parse readme config YAML: {}", e))?;
-            // Convert the YAML value to JSON so the rest of the function can use a single type.
             let as_json = serde_json::to_value(&yaml)
                 .map_err(|e| anyhow::anyhow!("Failed to convert readme YAML to JSON: {}", e))?;
             as_json.get("languages").and_then(|l| l.get(lang_code)).cloned()
@@ -43,11 +40,9 @@ pub(super) fn try_template_readme(
     };
 
     let Some(lang_json) = lang_json else {
-        // No entry for this language — signal caller to fall back
         return Ok(None);
     };
 
-    // Determine output path
     let path = readme_output_path(config, lang, readme_cfg, &lang_json);
 
     render_template_readme(
@@ -103,13 +98,9 @@ fn render_template_readme(
     path: PathBuf,
     require_template: bool,
 ) -> anyhow::Result<Option<GeneratedFile>> {
-    // Resolve top-level discord_url / banner_url. Prefer inline fields; fall back to
-    // what may have been loaded from the external YAML (not re-loaded here — callers
-    // using the deprecated path still get the values injected via the JSON block).
     let discord_url = readme_cfg.discord_url.as_deref().unwrap_or("").to_string();
     let banner_url = readme_cfg.banner_url.as_deref().unwrap_or("").to_string();
 
-    // Determine template name: prefer lang config, then default
     let template_name = entry_json
         .get("template")
         .and_then(|v| v.as_str())
@@ -121,16 +112,9 @@ fn render_template_readme(
         if require_template {
             anyhow::bail!("README template '{}' does not exist", template_file.display());
         }
-        // Language template file missing — fall back to hardcoded
         return Ok(None);
     }
 
-    // Set up minijinja environment.
-    //
-    // Match `template_env::make_env()`: strip the newline after `{% ... %}` tags and the leading
-    // whitespace before them, and preserve the trailing newline of loaded template files. Without
-    // these, every Jinja control tag leaks a newline into the output and `{% include %}` drops the
-    // trailing newline of the partial, both of which corrupt spacing around `## Heading` sections.
     let abs_template_dir_owned = abs_template_dir.to_path_buf();
     let mut env = Environment::new();
     env.set_trim_blocks(true);
@@ -148,7 +132,6 @@ fn render_template_readme(
         }
     });
 
-    // Register include_snippet filter: {{ path | include_snippet(language) }}
     let snippets_dir = readme_cfg.snippets_dir.as_ref().map(|s| workspace_root.join(s));
     let snippets_dir_clone = snippets_dir.clone();
     env.add_filter("include_snippet", move |path: String, language: String| -> String {
@@ -158,16 +141,13 @@ fn render_template_readme(
         }
     });
 
-    // Register render_performance_table filter: {{ perf | render_performance_table(name) }}
     env.add_filter(
         "render_performance_table",
         |benchmarks: Value, name: String| -> String { render_performance_table(&benchmarks, &name) },
     );
 
-    // Register has_migration function
     let workspace_root_clone = workspace_root.to_path_buf();
     env.add_function("has_migration", move |_lang: String, _version: String| -> bool {
-        // Check for migration guide file: docs/migrations/{lang}/{version}.md
         let path = workspace_root_clone
             .join("docs")
             .join("migrations")
@@ -176,12 +156,6 @@ fn render_template_readme(
         path.exists()
     });
 
-    // Build template context.
-    //
-    // Multi-line TOML strings (`description = """..."""`) preserve a trailing newline. Combined
-    // with `{{ description }}<blank line>## Heading` in the template, that renders as a double
-    // blank line in the output (independent of `trim_blocks` because `{{ ... }}` is an output
-    // tag, not a block tag). Trim it so the template controls the surrounding whitespace.
     let name = &config.name;
     let description = config
         .scaffold
@@ -206,10 +180,6 @@ fn render_template_readme(
     ctx.insert("banner_url", Value::from(banner_url));
     ctx.insert("language", Value::from(language_context.to_string()));
 
-    // Expose the C# wrapper class name so templates can reference the actual class emitted
-    // by the C# backend (e.g. `SampleRs.Convert(...)`) instead of hardcoding a
-    // crate-specific guess that drifts away from the generated bindings. Computed for every
-    // language so multi-language templates that include C# examples work uniformly.
     ctx.insert(
         "csharp_wrapper_class",
         Value::from(crate::codegen::naming::csharp_wrapper_class_name(
@@ -218,12 +188,6 @@ fn render_template_readme(
         )),
     );
 
-    // Flatten per-language config fields into top-level context
-    // (templates expect snippets, features, performance, etc. at top level)
-    //
-    // String values may themselves contain template expressions (e.g. `{{ version }}`
-    // in Java/Elixir install_command). We render those inline before inserting them
-    // so the outer template receives the final text.
     if let serde_json::Value::Object(map) = entry_json {
         for (key, val) in map {
             let rendered_val = if let serde_json::Value::String(s) = val {
@@ -238,18 +202,12 @@ fn render_template_readme(
             };
             ctx.insert(
                 // SAFETY: we leak the string to get a &'static str for the HashMap key.
-                // This is fine since readmes are generated once per run.
                 Box::leak(key.clone().into_boxed_str()),
                 rendered_val,
             );
         }
     }
 
-    // Ensure `snippets` is always defined so templates can access `snippets.X`
-    // unconditionally without raising an undefined-variable error. When the
-    // per-language config omits the `snippets` key (e.g. sample_crate's `ffi` block),
-    // accessing `snippets.basic_extraction` would otherwise cause minijinja to
-    // error with "could not render include".
     ctx.entry("snippets")
         .or_insert_with(|| json_to_minijinja_value(&serde_json::Value::Object(Default::default())));
 
@@ -261,7 +219,6 @@ fn render_template_readme(
         .render(ctx)
         .map_err(|e| anyhow::anyhow!("Failed to render template '{}': {}", template_name, e))?;
 
-    // Ensure POSIX-compliant trailing newline
     if !content.ends_with('\n') {
         content.push('\n');
     }
@@ -325,7 +282,6 @@ pub(super) fn extract_code_block(md: &str) -> String {
 pub(super) fn render_performance_table(perf: &Value, _name: &str) -> String {
     use minijinja::value::ValueKind;
 
-    // Extract platform/function/note metadata
     let platform = perf
         .get_attr("platform")
         .ok()
@@ -342,7 +298,6 @@ pub(super) fn render_performance_table(perf: &Value, _name: &str) -> String {
         .and_then(|v: Value| v.as_str().map(str::to_string))
         .unwrap_or_default();
 
-    // Extract benchmarks array
     let benchmarks = match perf.get_attr("benchmarks") {
         Ok(v) if v.kind() == ValueKind::Seq => v,
         _ => return String::new(),
@@ -360,7 +315,6 @@ pub(super) fn render_performance_table(perf: &Value, _name: &str) -> String {
         out.push('\n');
     }
 
-    // Detect table format: latency/throughput or ops/sec
     let items: Vec<Value> = iter.collect();
     let has_throughput = items
         .iter()

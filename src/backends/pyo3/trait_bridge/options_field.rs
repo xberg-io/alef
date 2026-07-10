@@ -19,20 +19,15 @@ pub fn gen_bridge_field_function(
     let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Py", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
 
-    // Name of the visitor kwarg that will be appended to the Rust function signature.
     let visitor_kwarg = bridge_cfg.param_name.as_deref().unwrap_or("visitor");
-    // Name of the options parameter.
     let options_param = &bridge_match.param_name;
-    // Rust type of the options parameter.
     let options_type = &bridge_match.options_type;
-    // The field on the options struct that holds the bridge handle.
     let field_name = &bridge_match.field_name;
     let param_is_optional = bridge_match.param_is_optional;
 
     let func_needs_py = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
     let lifetime = if func_needs_py { "<'py>" } else { "" };
 
-    // Build parameter list: same as gen_function but append the extra visitor kwarg.
     let mut sig_parts = Vec::new();
     if func_needs_py {
         sig_parts.push("py: Python<'py>".to_string());
@@ -45,7 +40,6 @@ pub fn gen_bridge_field_function(
         };
         sig_parts.push(format!("{}: {}", p.name, ty));
     }
-    // Extra visitor kwarg — always optional
     sig_parts.push(format!("{visitor_kwarg}: Option<Py<PyAny>>"));
 
     let params_str = sig_parts.join(", ");
@@ -57,9 +51,6 @@ pub fn gen_bridge_field_function(
         ret
     };
 
-    // --- Build function body ---
-
-    // 1. Wrap the extra bridge kwarg into the configured handle type.
     let visitor_wrap = format!(
         "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.map(|v| {{\n        \
          let bridge = {struct_name}::new(v);\n        \
@@ -67,14 +58,11 @@ pub fn gen_bridge_field_function(
          }});"
     );
 
-    // 2. Build serde-based conversion for non-options Named params.
     let serde_err_conv = ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))";
     let serde_bindings: String = func
         .params
         .iter()
         .filter(|p| {
-            // Only process Named or Optional<Named> types that are not opaque and not the
-            // options param (which is handled separately).
             if p.name == *options_param {
                 return false;
             }
@@ -121,25 +109,9 @@ pub fn gen_bridge_field_function(
         })
         .collect();
 
-    // 3. Build the options-core conversion, injecting the visitor handle.
-    //
-    // The visitor field is sanitized in the IR (its type collapsed to String), so we
-    // cannot use the serde round-trip path for it — we inject it directly.
-    //
-    // Use direct .into() conversion instead of serde round-trip to properly handle
-    // PyO3 enums (which don't serialize via serde) like TierStrategy, PreprocessingPreset.
-    //
-    // If the options param is `Option<OptionsType>`:
-    //   - When both options and visitor are provided: convert options, then
-    //     override the field.
-    //   - When only visitor is provided: construct a default OptionsType and set the field.
-    //   - When neither is provided: pass None.
-    //
-    // If the options param is `OptionsType` (non-optional): convert and inject.
     let core_options_type = format!("{core_import}::{options_type}");
     let options_core_binding = if param_is_optional {
         format!(
-            // 3a. Convert the Python options to core via From impl (visitor field excluded via serde skip).
             "let {options_param}_core: Option<{core_options_type}> = {options_param}.map(|v| v.into());\n    \
              // Inject the visitor handle: upgrade existing options or construct defaults.\n    \
              let {options_param}_core: Option<{core_options_type}> = if let Some(handle) = {visitor_kwarg}_handle {{\n        \
@@ -162,7 +134,6 @@ pub fn gen_bridge_field_function(
         )
     };
 
-    // 4. Build the core function call args.
     let call_args: Vec<String> = func
         .params
         .iter()
@@ -213,7 +184,6 @@ pub fn gen_bridge_field_function(
     };
     let core_call = format!("{core_fn_path}({call_args_str})");
 
-    // 5. Build return expression.
     let return_wrap = match &func.return_type {
         TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
             format!("{name} {{ inner: std::sync::Arc::new(val) }}")
@@ -223,11 +193,7 @@ pub fn gen_bridge_field_function(
         _ => "val".to_string(),
     };
 
-    // 6. Build error conversion.
     let body = if let Some(ref error_type) = func.error_type {
-        // Same heuristic as gen_bridge_function: path-qualified types (anyhow::Error) are
-        // treated as generic unless there is exactly one known error converter available,
-        // in which case that converter is used instead of the PyRuntimeError fallback.
         let core_err_conv = if error_type.contains("::") || error_type == "Error" {
             if error_converters.len() == 1 {
                 format!(".map_err({})", error_converters[0])
@@ -262,7 +228,6 @@ pub fn gen_bridge_field_function(
         format!("{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}")
     };
 
-    // Build PyO3 attributes.
     let attr_inner = cfg
         .function_attr
         .trim_start_matches('#')
@@ -287,7 +252,6 @@ pub fn gen_bridge_field_function(
                 }
             })
             .collect();
-        // visitor kwarg is always optional
         sig_items.push(format!("{visitor_kwarg}=None"));
         sig_str = sig_items.join(", ");
     }

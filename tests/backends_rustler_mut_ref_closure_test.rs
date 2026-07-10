@@ -32,9 +32,6 @@ app_name = "{app_name}"
 
 #[test]
 fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
-    // Synthetic fixture: a function that accepts Vec<&mut SampleHandle> where SampleHandle
-    // is an opaque type. The NIF code must build a Vec by iterating over the input and
-    // referencing each element mutably from a mutable local binding.
     let opaque_type = TypeDef {
         name: "SampleHandle".to_string(),
         rust_path: "sample_core::SampleHandle".to_string(),
@@ -61,7 +58,6 @@ fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
         version: Default::default(),
     };
 
-    // Function signature: process_handles(handles: Vec<&mut SampleHandle>) -> bool
     let func = FunctionDef {
         name: "process_handles".to_string(),
         rust_path: "sample_core::process_handles".to_string(),
@@ -117,7 +113,6 @@ fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
         .generate_public_api(&api, &config)
         .expect("should generate Rustler bindings");
 
-    // Find the native.ex Elixir module which contains the NIF function signatures
     let native_module = generated
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("native.ex"))
@@ -128,15 +123,8 @@ fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
     println!("Generated Elixir native module:");
     println!("{}", code);
 
-    // Verify that the process_handles function is declared
     assert!(
         code.contains("process_handles"),
         "should generate process_handles function in native module"
     );
-
-    // Note: The actual Rust &mut propagation in the NIF glue code is validated
-    // at compile-time when the Rust NIF library is built. This test verifies
-    // that the Elixir-side FFI declarations are generated correctly.
-    // The `&mut handles_mut` pattern is internal to the Rust NIF implementation
-    // and validated by the Rust compiler (cargo build in the native/ directory).
 }

@@ -9,8 +9,6 @@ use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, Registrati
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
-// ───────────────────────────────────────────────────────────────── helpers ──
-
 fn render(template_name: &str, ctx: minijinja::Value) -> String {
     crate::backends::magnus::template_env::render(template_name, ctx)
 }
@@ -68,8 +66,6 @@ fn format_ruby_comment(text: &str, indent: usize) -> String {
     out
 }
 
-// ─────────────────────────────────────────────────────────── Ruby output ──
-
 /// Generate the idiomatic Ruby service class (`service.rb`).
 ///
 /// Produces a Ruby module containing one class per service. Each class exposes:
@@ -93,8 +89,6 @@ pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_req
         for service in &api.services {
             gen_service_class(&mut out, service, api, native_module_name);
         }
-        // Trim trailing blank line emitted by the final class so the module's
-        // closing `end` sits flush against it (Layout/EmptyLinesAroundModuleBody).
         while out.ends_with("\n\n") {
             out.pop();
         }
@@ -114,7 +108,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
         },
     ));
 
-    // initialize
     {
         let ctor = &service.constructor;
         let mut init_params = Vec::new();
@@ -146,8 +139,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
         ));
     }
 
-    // Configurator methods — positional params so callers can pass objects directly
-    // without keyword syntax (e.g. `app.config(ServerConfig.new(...))`).
     for method in &service.configurators {
         let mut params = Vec::new();
         for p in &method.params {
@@ -176,12 +167,10 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
         ));
     }
 
-    // Registration methods accepting blocks
     for reg in &service.registrations {
         gen_registration_method(out, reg, service, api, native_module_name);
     }
 
-    // Entrypoint methods — positional params for direct invocation.
     for ep in &service.entrypoints {
         let mut params = Vec::new();
         for p in &ep.params {
@@ -200,7 +189,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
 
         match ep.kind {
             EntrypointKind::Run => {
-                // Convention: native fn is `{snake_service_name}_{entrypoint_name}`
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
                 let call_args = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
                 out.push_str(&render(
@@ -233,8 +221,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
         }
     }
 
-    // Trim trailing whitespace so the final method def emitted above does not
-    // leave a blank line before the class `end` (rubocop Layout/EmptyLinesAroundClassBody).
     while out.ends_with("\n\n") {
         out.pop();
     }
@@ -250,7 +236,6 @@ fn gen_registration_method(
 ) {
     let method_name = &reg.method;
 
-    // Build metadata param signature (excluding the callback param)
     let meta_params: Vec<String> = reg
         .metadata_params
         .iter()
@@ -264,7 +249,6 @@ fn gen_registration_method(
         })
         .collect();
 
-    // For the main method signature, use positional params (no type annotations)
     let positional_params: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
     let param_sig = if positional_params.is_empty() {
         "(&block)".to_owned()
@@ -272,7 +256,6 @@ fn gen_registration_method(
         format!("({}, &block)", positional_params.join(", "))
     };
 
-    // Collect metadata param names for the tuple
     let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
     let meta_tuple = if meta_names.is_empty() {
         "[]".to_owned()
@@ -290,12 +273,8 @@ fn gen_registration_method(
         },
     ));
 
-    // Also expose a positional companion `register_{method_name}(meta..., handler)`
-    // so harness code and scripts can pass a callable without using Ruby block syntax.
     let direct_name = format!("register_{method_name}");
     if direct_name != *method_name {
-        // Use plain positional params only — Ruby forbids positional params after
-        // keyword params, so the companion method takes all args positionally.
         let direct_param_sig = if meta_params.is_empty() {
             format!("({callback})", callback = reg.callback_param)
         } else {
@@ -314,7 +293,6 @@ fn gen_registration_method(
         ));
     }
 
-    // Emit registration variants (shortcuts for common patterns)
     for variant in &reg.variants {
         gen_registration_variant(out, variant, reg);
     }
@@ -328,7 +306,6 @@ fn gen_registration_variant(
     let variant_name = &variant.name;
     let _base_method = &base_reg.method;
 
-    // Build the free params (non-fixed) for the variant signature
     let mut free_params_sig = Vec::new();
     for param in &variant.signature_params {
         let annotation = ruby_type_annotation(&param.ty);
@@ -339,8 +316,6 @@ fn gen_registration_variant(
         }
     }
 
-    // Build metadata array to pass to the Rust side.
-    // For variants with wrapper_call, include the args in declaration order.
     let mut meta_items = Vec::new();
     if let Some(wc) = &variant.wrapper_call {
         for arg in &wc.args {
@@ -357,7 +332,6 @@ fn gen_registration_variant(
             }
         }
     } else {
-        // For non-wrapper variants, add overridden values
         for override_ in &variant.overrides {
             meta_items.push(override_.value_expr.clone());
         }
@@ -369,16 +343,7 @@ fn gen_registration_variant(
         format!("[{}]", meta_items.join(", "))
     };
 
-    // In Ruby, blocks are the idiomatic callback mechanism, making all three
-    // RegistrationVariantStyle variants semantically equivalent at the API surface.
-    // - RegistrationVariantStyle::VerbDecorator: handler as block param
-    // - RegistrationVariantStyle::Builder: handler as block (no decorator factory)
-    // - RegistrationVariantStyle::Hybrid: handler as block (same as both above)
-    // Ruby's unified block form satisfies all three patterns — a block IS a closure
-    // that can serve as either a direct callback or a factory result. The style
-    // field is preserved in the IR so other backends (e.g., Python) can distinguish
-    // between decorator-factory and direct-method forms; Ruby emits one unified form.
-    let _ = variant.style; // acknowledged; no Ruby-specific branching needed
+    let _ = variant.style;
 
     let param_sig = if free_params_sig.is_empty() {
         "(&block)".to_owned()
@@ -402,8 +367,6 @@ fn gen_registration_variant(
     ));
 }
 
-// ──────────────────────────────────────────────────────────────── Rust glue ──
-
 /// Generate the Magnus Rust glue module (`service.rs`).
 ///
 /// For each service this emits:
@@ -417,10 +380,8 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let core_import = config.core_import_name();
     let mut out = String::new();
 
-    // File-level allow attributes to keep clippy happy in generated code
     out.push_str(&render("service_rs_header.rs.jinja", minijinja::context! {}));
 
-    // Emit one handler bridge per unique handler contract referenced by any registration
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
             .services
@@ -437,7 +398,6 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         gen_handler_bridge(&mut out, contract, &core_import);
     }
 
-    // Emit one function per service × entrypoint
     for service in &api.services {
         for ep in &service.entrypoints {
             gen_run_function(&mut out, service, ep, api, &core_import);
@@ -458,11 +418,9 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let bridge_name = format!("Rb{}Bridge", trait_name.to_upper_camel_case());
     let dispatch_name = &contract.dispatch.name;
 
-    // Determine wire types — use plain serde_json::Value, not re-exported from core
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
-    // Special handling: if the wire type includes the core import prefix, strip it
     let req_type = if req_type.contains("::") {
         req_type.split("::").last().unwrap_or(req_type)
     } else {
@@ -474,10 +432,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         resp_type
     };
 
-    // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
-    // contract's dispatch method receives but the wire bridge does not consume). Their concrete
-    // types cannot be reconstructed from the sanitized surface, so the library supplies them
-    // verbatim via `dispatch_extra_params`. Each is emitted as a `, {decl}` prefix argument.
     let extra_param: String = contract
         .dispatch_extra_params
         .iter()
@@ -485,7 +439,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .collect();
     let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
-    // Trait impl — build the request and response paths using core_import
     let req_path = if req_type == "Value" {
         "serde_json::Value".to_string()
     } else {
@@ -497,11 +450,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         format!("{core_import}::{resp_type}")
     };
 
-    // The future's `Output` is the contract dispatch's real return type when the library
-    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
-    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
-    // fallible computation produces the wire `Result` and the adapter converts it into the
-    // dispatch return type — keeping the generator ignorant of the library's response model.
     let box_err = "Box<dyn std::error::Error + Send + Sync>";
     let wire_output = format!("Result<{resp_path}, {box_err}>");
     let output_type = contract
@@ -513,9 +461,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         None => "outcome".to_string(),
     };
 
-    // Returns a boxed future directly (canonical object-safe async-trait shape)
-    // rather than via the async_trait macro, matching a contract whose dispatch
-    // method is hand-written as `-> Pin<Box<dyn Future<..> + Send + '_>>`.
     out.push_str(&render(
         "service_rs_handler_bridge.rs.jinja",
         minijinja::context! {
@@ -534,7 +479,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         },
     ));
 
-    // Emit the helper function that safely calls a Ruby proc with the GVL acquired.
     out.push_str(&render(
         "service_rs_ruby_proc_gvl_helpers.rs.jinja",
         minijinja::context! {},
@@ -568,9 +512,7 @@ fn gen_variant_match_arm(
         },
     ));
 
-    // Extract metadata and build wrapper constructor call if needed
     if let Some(wc) = &variant.wrapper_call {
-        // Extract free params from metadata array
         let mut free_params = Vec::new();
         for arg in &wc.args {
             if let crate::core::ir::WrapperConstructorArg::Free { param } = arg {
@@ -589,7 +531,6 @@ fn gen_variant_match_arm(
             }
         }
 
-        // Build constructor call with fixed and free args
         let mut call_args = Vec::new();
         for arg in &wc.args {
             match arg {
@@ -620,8 +561,6 @@ fn gen_variant_match_arm(
             },
         ));
     } else {
-        // No wrapper call; use override values directly
-        // For now, just call the base method with handler only
         out.push_str(&render(
             "service_rs_owner_call.rs.jinja",
             minijinja::context! {
@@ -632,7 +571,6 @@ fn gen_variant_match_arm(
         ));
     }
 
-    // Handle error if the registration is fallible
     if variant.wrapper_call.is_some() && base_reg.error_type.is_some() {
         out.push_str(
             "\n                    .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n",
@@ -739,7 +677,6 @@ fn gen_run_function(
     let owner_path = &service.rust_path;
     let ep_method = &ep.method;
 
-    // Build parameter list: registrations + entrypoint params (no &Ruby - use Ruby::get())
     let mut fn_params = vec!["registrations: Value".to_owned()];
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
@@ -747,7 +684,6 @@ fn gen_run_function(
     }
     let fn_param_sig = fn_params.join(", ");
 
-    // Build the owner instance as a mutable owned value (no Arc<Mutex<…>> wrapping)
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&render(
         "service_rs_run_function_header.rs.jinja",
@@ -808,13 +744,11 @@ fn gen_run_function(
             }
             out.push_str("            }\n");
 
-            // Emit match arms for variants
             for variant in &reg.variants {
                 gen_variant_match_arm(&mut *out, variant, reg, contract_name, &bridge_name, core_import, api);
             }
         }
     }
-    // Call the entrypoint on the owned, registered owner
     let ep_call = build_ep_call(ep, service, core_import);
     out.push_str(&render(
         "service_rs_run_function_footer.rs.jinja",
@@ -829,7 +763,6 @@ fn build_ctor_call(service: &ServiceDef, owner_path: &str, _core_import: &str) -
     if service.constructor.params.is_empty() {
         format!("{owner_path}::{}()", service.constructor.name)
     } else {
-        // For now, zero-arg constructor. Can be extended to thread constructor params.
         format!("{owner_path}::{}()", service.constructor.name)
     }
 }
@@ -849,8 +782,6 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, service: &ServiceDef, _cor
     let args_str = ep_args.join(", ");
     let owner_path = &service.rust_path;
     let fn_name = format!("{}_run", service.name.to_snake_case());
-    // Bind non-Unit returns to `_` so the unwrapped value (after `?`-propagation) doesn't
-    // trigger `unused_must_use` for `Result`-returning entrypoints like `into_router`.
     let bind = if matches!(ep.return_type, TypeRef::Unit) {
         ""
     } else {
@@ -858,10 +789,7 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, service: &ServiceDef, _cor
     };
 
     if ep.is_async {
-        // Release the GVL and run a current-thread Tokio runtime for the async entrypoint.
         // SAFETY: called on a Ruby thread (GVL held); `rb_thread_call_without_gvl` releases
-        // it and invokes the callback on the SAME OS thread, making `rb_thread_call_with_gvl`
-        // valid from within the callback's Tokio tasks.
         render(
             "service_rs_async_entrypoint_call.rs.jinja",
             minijinja::context! {
@@ -919,8 +847,6 @@ fn typeref_to_rust_type(ty: &TypeRef, core_import: &str) -> String {
     }
 }
 
-// ──────────────────────────────────────────────────────── public entry point ──
-
 /// Generate all service-API files for the Magnus backend.
 ///
 /// Returns up to two `GeneratedFile`s per non-empty service list:
@@ -934,20 +860,14 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     use crate::core::config::resolve_output_dir;
 
     let output_dir = resolve_output_dir(config.output_paths.get("ruby"), &config.name, "crates/{name}-rb/src/");
-    // Convert crate name to PascalCase module name (same as in mod.rs)
     let native_module_name = api.crate_name.to_upper_camel_case();
 
-    // Rust glue
     let service_rs = gen_service_rs(api, config);
 
-    // Ruby wrapper
     let gem_name = config.ruby_gem_name();
     let gem_name_snake = gem_name.replace('-', "_");
     let service_rb = gen_service_rb(api, &native_module_name, &gem_name_snake);
 
-    // Ruby lib output base: service.rb is runtime code and must live under lib/,
-    // not under sig/ (which is for type stubs loaded only by steep/sorbet).
-    // Mirror the path used by the public_api generator in mod.rs.
     let lib_dir = resolve_output_dir(config.output_paths.get("ruby_lib"), &config.name, "packages/ruby/lib/");
     let output_base = PathBuf::from(&lib_dir).join(&gem_name_snake);
 
@@ -966,8 +886,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 
     Ok(files)
 }
-
-// ───────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests;

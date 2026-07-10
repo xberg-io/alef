@@ -29,13 +29,6 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
                     format!("cd {output_dir} && poetry update"),
                     format!("cd {output_dir} && poetry update --with dev"),
                 ),
-                // `--no-install-project` + `--no-install-workspace`: an update/upgrade only
-                // needs to relock dependencies. Building any project (e.g. a maturin
-                // extension whose `manifest-path` is relative to the deployed package dir
-                // rather than the uv project dir) is a separate step (`maturin develop`) and
-                // can fail during a bare relock. `--all-packages` makes uv touch every
-                // workspace member, so we also pass `--no-install-workspace` to keep the
-                // relock from invoking maturin/pep517 against any of them.
                 _ => (
                     format!("cd {output_dir} && uv sync --upgrade --no-install-project --no-install-workspace"),
                     format!(
@@ -79,15 +72,6 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             }
         }
         Language::Ruby => UpdateConfig {
-            // Wrap `bundle update` so it works even when a generated package has
-            // `BUNDLE_FROZEN=true` in `.bundle/config` (the default for shipped gems —
-            // dependents must not edit Gemfile.lock at install time). For the duration of
-            // the update we drop frozen mode locally, then restore the prior value so the
-            // checked-in config is unchanged.
-            //
-            // `bundle update --all --conservative=false` is rejected by bundler: there is
-            // no boolean form of the flag. Plain `bundle update --all` is the correct
-            // "upgrade everything" invocation.
             precondition: Some(require_tool("bundle")),
             before: None,
             update: Some(StringOrVec::Single(format!(
@@ -120,8 +104,6 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
         Language::Java => UpdateConfig {
             precondition: Some(require_tool("mvn")),
             before: None,
-            // The `-Dmaven.version.rules=file://...` flag is appended only when the rules file
-            // exists, since `mvn versions:use-latest-releases` aborts on missing rule files.
             update: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml versions:use-latest-releases $([ -f {output_dir}/versions-rules.xml ] && echo \"-Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml\") --batch-mode --no-transfer-progress"
             ))),
@@ -130,17 +112,10 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             ))),
         },
         Language::Csharp => UpdateConfig {
-            // Require BOTH dotnet and an actual project file under output_dir, otherwise the
-            // upgrade is skipped (with the precondition warning) instead of erroring out with
-            // "directory does not contain any solutions or projects". `dotnet outdated` cannot
-            // operate without a project, and consumers without a populated `packages/csharp/`
-            // shouldn't fail the whole `task upgrade` pipeline.
             precondition: Some(format!(
                 "command -v dotnet >/dev/null 2>&1 && [ -n \"$(find {output_dir} -maxdepth 3 \\( -name '*.sln' -o -name '*.csproj' \\) 2>/dev/null | head -1)\" ]"
             )),
             before: None,
-            // Resolve the first .sln/.csproj under output_dir (depth 3). The precondition
-            // guarantees one exists.
             update: Some(StringOrVec::Single(format!(
                 "dotnet outdated --upgrade $(find {output_dir} -maxdepth 3 \\( -name '*.sln' -o -name '*.csproj' \\) 2>/dev/null | head -1)"
             ))),
@@ -205,9 +180,6 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             ))),
         },
         Language::Zig => UpdateConfig {
-            // Zig uses zig fetch --save for individual dependency updates.
-            // There is no batch upgrade command; both update and upgrade resolve
-            // declared dependencies using the same mechanism.
             precondition: Some(require_tool("zig")),
             before: None,
             update: Some(StringOrVec::Single(format!("cd {output_dir} && zig build --fetch"))),
@@ -319,12 +291,8 @@ mod tests {
         let upgrade = c.upgrade.unwrap().commands().join(" ");
         assert!(update.contains("uv sync"));
         assert!(upgrade.contains("--all-packages"));
-        // A relock must not try to build the project (e.g. a maturin extension whose
-        // manifest-path is relative to the deployed package dir, not the uv project dir).
         assert!(update.contains("--no-install-project"));
         assert!(upgrade.contains("--no-install-project"));
-        // `--all-packages` makes uv touch every workspace member, so we must also skip
-        // installing workspace members to keep the relock from invoking maturin/pep517.
         assert!(update.contains("--no-install-workspace"));
         assert!(upgrade.contains("--no-install-workspace"));
     }
@@ -377,7 +345,6 @@ mod tests {
         let upgrade = c.upgrade.unwrap().commands().join(" ");
         assert!(update.contains("versions:use-latest-releases"));
         assert!(upgrade.contains("allowMajorUpdates=true"));
-        // Rules-file flag must be guarded so missing versions-rules.xml doesn't fail mvn.
         assert!(
             update.contains("[ -f packages/java/versions-rules.xml ]"),
             "java update should make versions-rules.xml optional"
@@ -389,8 +356,6 @@ mod tests {
         let c = cfg(Language::Csharp, "packages/csharp");
         let update = c.update.unwrap().commands().join(" ");
         let upgrade = c.upgrade.unwrap().commands().join(" ");
-        // Both commands must search for a .sln/.csproj rather than passing the directory raw,
-        // since `dotnet outdated` errors when the dir contains no top-level project file.
         assert!(update.contains("find packages/csharp"), "update should locate csproj");
         assert!(upgrade.contains("find packages/csharp"), "upgrade should locate csproj");
     }
@@ -399,8 +364,6 @@ mod tests {
     fn csharp_precondition_requires_project_file() {
         let c = cfg(Language::Csharp, "packages/csharp");
         let pre = c.precondition.unwrap();
-        // Precondition must check for an actual .sln/.csproj so consumers without a populated
-        // packages/csharp/ skip cleanly instead of failing the whole upgrade pipeline.
         assert!(
             pre.contains("find packages/csharp"),
             "precondition should search for project file"

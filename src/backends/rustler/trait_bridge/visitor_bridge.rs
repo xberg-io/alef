@@ -42,7 +42,6 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         core_crate,
         crate::codegen::visitor_context::VisitorContextBackend::Rustler,
     )?;
-    // Helper: convert configured visitor context to a Rustler NifMap term inside an OwnedEnv
     let ctx_helper = minijinja::context! {
         context_type_path => context_helper.type_path,
         context_field_lines => context_helper.field_lines,
@@ -52,14 +51,11 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         ctx_helper,
     ));
 
-    // Global channel registry: maps ref_id -> SyncSender so visitor_reply can unblock the bridge.
     out.push_str(&crate::backends::rustler::template_env::render(
         "visitor_bridge_globals.rs.jinja",
         minijinja::context! {},
     ));
 
-    // Bridge struct: holds the caller PID and the visitor term in its OwnedEnv.
-    // Both OwnedEnv and SavedTerm are Send, so the bridge can be moved to a system thread.
     let ctx_struct = minijinja::context! {
         struct_name => struct_name
     };
@@ -68,7 +64,6 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         ctx_struct,
     ));
 
-    // Manual Debug impl for visitor traits that require std::fmt::Debug.
     let ctx_debug = minijinja::context! {
         struct_name => struct_name
     };
@@ -77,7 +72,6 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         ctx_debug,
     ));
 
-    // Constructor (called from BEAM thread — saves visitor term into an OwnedEnv)
     let ctx_constructors = minijinja::context! {
         struct_name => struct_name
     };
@@ -86,9 +80,6 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         ctx_constructors,
     ));
 
-    // Helper: send a visitor callback message and block waiting for the reply.
-    // Encoded as: {:visitor_callback, ref_id, callback_atom, args_map} where args_map is a
-    // native Erlang term map built inside the dispatch closure.
     let ctx_send_wait = minijinja::context! {
         struct_name => struct_name
     };
@@ -97,14 +88,11 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
         ctx_send_wait,
     ));
 
-    // visitor_reply NIF: called by Elixir to unblock a waiting visitor callback.
-    // Returns () which Rustler encodes as :ok.
     out.push_str(&crate::backends::rustler::template_env::render(
         "visitor_reply_nif.rs.jinja",
         minijinja::context! {},
     ));
 
-    // Trait impl — each method sends callback message and waits for reply.
     out.push_str(&crate::backends::rustler::template_env::render(
         "trait_impl_header.jinja",
         minijinja::context! {
@@ -112,8 +100,6 @@ pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -
             struct_name => struct_name,
         },
     ));
-    // Classify which callback params marshal to the host as the binding's native struct term,
-    // using the SHARED allowlist — identical to the plugin path and every other backend.
     let struct_param_types = native_marshalled_struct_params(trait_type, api);
     for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
         gen_visitor_method_async(
@@ -163,16 +149,12 @@ fn gen_visitor_method_async(
         other => param_type(other, "", false, type_paths),
     };
 
-    // Convert method name from visit_* to handle_* for Elixir convention.
-    // E.g., "visit_audio" -> "handle_audio"
     let handle_name = if let Some(suffix) = name.strip_prefix("visit_") {
         format!("handle_{suffix}")
     } else {
         name.clone()
     };
 
-    // Build native-arg descriptors: each arg is materialised into an owned binding before the
-    // dispatch closure and encoded into the native term map inside `send_and_clear`.
     let args: Vec<minijinja::Value> = build_native_args(&method.params, struct_param_types)
         .into_iter()
         .map(|a| {

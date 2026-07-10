@@ -8,11 +8,9 @@ use crate::core::ir::TypeDef;
 /// if the caller passes an exotic type — a compile warning rather than a hard stop.
 pub(super) fn ffi_ty_to_go(rust_ty: &str) -> &'static str {
     let normalized = rust_ty.trim();
-    // CString params — any pointer-to-char variant.
     if normalized.contains("c_char") || normalized.contains("CStr") {
         return "string";
     }
-    // Unsigned integers.
     if matches!(normalized, "u8" | "uint8_t") {
         return "uint8";
     }
@@ -25,7 +23,6 @@ pub(super) fn ffi_ty_to_go(rust_ty: &str) -> &'static str {
     if matches!(normalized, "u64" | "uint64_t" | "usize") {
         return "uint64";
     }
-    // Signed integers.
     if matches!(normalized, "i8" | "int8_t") {
         return "int8";
     }
@@ -47,7 +44,6 @@ pub(super) fn ffi_ty_to_go(rust_ty: &str) -> &'static str {
     if matches!(normalized, "f64" | "double") {
         return "float64";
     }
-    // Fall back: treat as unsafe.Pointer for any exotic pointer type.
     "unsafe.Pointer"
 }
 
@@ -61,7 +57,6 @@ pub(super) fn go_ctor_param_setup(go_name: &str, rust_ty: &str, ffi_prefix: &str
     let c_name = format!("c{}{}", &go_name[..1].to_uppercase(), &go_name[1..]);
 
     if normalized.contains("c_char") || normalized.contains("CStr") {
-        // String param: allocate a C string + defer free.
         let setup = format!("\t{c_name} := C.CString({go_name})\n\tdefer C.free(unsafe.Pointer({c_name}))\n");
         (c_name, setup)
     } else if matches!(normalized, "bool") {
@@ -98,7 +93,6 @@ pub(super) fn go_ctor_param_setup(go_name: &str, rust_ty: &str, ffi_prefix: &str
         let setup = format!("\t{c_name} := C.int64_t({go_name})\n");
         (c_name, setup)
     } else {
-        // Opaque pointer — pass through with a cast.
         let _ = ffi_prefix;
         let setup = format!("\t{c_name} := {go_name}\n");
         (c_name, setup)
@@ -116,7 +110,6 @@ pub(super) fn gen_go_opaque_constructor(typ: &TypeDef, ffi_prefix: &str, ctor: &
     let upper_prefix = ffi_prefix.to_uppercase();
     let c_type = format!("{upper_prefix}{}", typ.name);
 
-    // Build Go parameter list.
     let go_params: String = ctor
         .params
         .iter()
@@ -124,7 +117,6 @@ pub(super) fn gen_go_opaque_constructor(typ: &TypeDef, ffi_prefix: &str, ctor: &
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Build setup code + C argument list.
     let mut setup = String::new();
     let c_args: Vec<String> = ctor
         .params

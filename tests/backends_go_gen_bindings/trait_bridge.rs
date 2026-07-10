@@ -7,8 +7,6 @@ use alef::core::ir::*;
 use super::{make_field, resolved_one};
 
 // ---------------------------------------------------------------------------
-// Trait bridge helpers
-// ---------------------------------------------------------------------------
 
 fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
     TypeDef {
@@ -284,10 +282,6 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
     assert!(!binding.contains("ConversionResult"));
 }
 
-// ---------------------------------------------------------------------------
-// Go interface generation
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_gen_trait_bridges_file_produces_go_interface() {
     let trait_type = make_trait_type(
@@ -356,7 +350,6 @@ fn test_gen_trait_bridges_file_interface_includes_plugin_lifecycle_methods() {
 
     let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
 
-    // Plugin lifecycle methods must always be present in the interface
     assert!(
         code.contains("Name() string"),
         "Go interface must include Name() string"
@@ -429,8 +422,8 @@ fn test_gen_trait_bridges_file_interface_method_with_error_returns_tuple_or_erro
     let trait_type = make_trait_type(
         "Analyzer",
         vec![
-            make_trait_method("analyze", vec![], TypeRef::String, true), // (string, error)
-            make_trait_method("ping", vec![], TypeRef::Unit, true),      // error
+            make_trait_method("analyze", vec![], TypeRef::String, true),
+            make_trait_method("ping", vec![], TypeRef::Unit, true),
         ],
     );
     let bridge_cfg = TraitBridgeConfig {
@@ -462,16 +455,11 @@ fn test_gen_trait_bridges_file_interface_method_with_error_returns_tuple_or_erro
         code.contains("(string, error)"),
         "method with non-unit return and error must produce (T, error) return type"
     );
-    // Unit return with error: just "error"
     assert!(
         code.contains("Ping() error") || code.contains("Ping()"),
         "method with unit return and error must produce 'error' return type"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Trampoline generation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_gen_trait_bridges_file_generates_exported_trampolines() {
@@ -504,12 +492,10 @@ fn test_gen_trait_bridges_file_generates_exported_trampolines() {
 
     let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
 
-    // Each trait method must have a //export trampoline
     assert!(
         code.contains("//export goOcrBackendProcess"),
         "trampoline for 'process' must be exported as goOcrBackendProcess"
     );
-    // Plugin lifecycle trampolines
     assert!(
         code.contains("//export goOcrBackendName"),
         "plugin Name trampoline must be exported"
@@ -646,10 +632,6 @@ fn test_gen_trait_bridges_file_trampoline_converts_string_param_from_c() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Registration function
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_gen_trait_bridges_file_registration_fn_builds_vtable_and_calls_c_register() {
     let trait_type = make_trait_type(
@@ -756,10 +738,6 @@ fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// VTable struct name derivation
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
     let trait_type = make_trait_type(
@@ -789,7 +767,6 @@ fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
 
-    // With crate_name="sample_crate", the VTable struct should be SAMPLE_CRATESampleCrateOcrBackendVTable
     let code = gen_trait_bridges_file(
         &api,
         &config,
@@ -810,10 +787,6 @@ fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
         "registration must allocate the VTable through the ffi-prefixed C helper"
     );
 }
-
-// ---------------------------------------------------------------------------
-// CGo preamble
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_gen_trait_bridges_file_cgo_preamble_forward_declares_trampolines() {
@@ -846,7 +819,6 @@ fn test_gen_trait_bridges_file_cgo_preamble_forward_declares_trampolines() {
 
     let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
 
-    // CGo preamble must forward-declare all exported Go functions
     assert!(
         code.contains("extern int32_t goAnalyzerAnalyze("),
         "CGo preamble must forward-declare the analyze trampoline"
@@ -856,10 +828,6 @@ fn test_gen_trait_bridges_file_cgo_preamble_forward_declares_trampolines() {
         "must import C after the CGo preamble block"
     );
 }
-
-// ---------------------------------------------------------------------------
-// via generate_bindings (end-to-end)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
@@ -937,15 +905,10 @@ mod typed_params;
 
 #[test]
 fn test_gen_trait_bridges_file_trampolines_recover_host_panics() {
-    // A Go panic in the host implementation crossing the cgo export into Rust
-    // is a fatal runtime crash — every generated trampoline must carry a
-    // deferred recover() that logs and returns through the named return value.
     let trait_type = make_trait_type(
         "OcrBackend",
         vec![
-            // fallible method: panic is marshaled through outError, status 1
             make_trait_method("process", vec![], TypeRef::String, true),
-            // infallible primitive method: panic logs and returns the zero value
             make_trait_method(
                 "count_tokens",
                 vec![],
@@ -977,23 +940,18 @@ fn test_gen_trait_bridges_file_trampolines_recover_host_panics() {
 
     let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
 
-    // Every trampoline body opens with a deferred recover.
     assert!(
         code.contains("defer func() {") && code.contains("if r := recover(); r != nil {"),
         "trampolines must recover host panics:\n{code}"
     );
-    // Fallible: panic text marshaled through outError with status 1.
     assert!(
         code.contains("host 'Process' panicked") && code.contains("*outError = C.CString(fmt.Sprint(r))"),
         "fallible trampoline must marshal the panic through outError:\n{code}"
     );
-    // Infallible: stderr log, zero-value named return.
     assert!(
         code.contains("host 'CountTokens' panicked; returning default"),
         "infallible trampoline must log the panic and return the default:\n{code}"
     );
-    // Named returns so the deferred recover can set them: int32 status for
-    // fallible slots, the primitive itself for direct-value slots.
     assert!(
         code.contains("(ret C.int32_t)"),
         "fallible trampolines must use a named int32 status return:\n{code}"
@@ -1002,8 +960,6 @@ fn test_gen_trait_bridges_file_trampolines_recover_host_panics() {
         code.contains("(ret C.uintptr_t)"),
         "usize trampolines must use a named primitive return:\n{code}"
     );
-    // Invalid-handle paths must log AND marshal outError (lifecycle slots) —
-    // not return a bare status.
     assert!(
         code.contains("called with an invalid handle"),
         "invalid-handle paths must log:\n{code}"
@@ -1013,7 +969,6 @@ fn test_gen_trait_bridges_file_trampolines_recover_host_panics() {
             && code.contains("*outError = C.CString(\"invalid handle\")"),
         "lifecycle invalid-handle paths must marshal outError:\n{code}"
     );
-    // Plugin lifecycle trampolines are covered too.
     assert!(
         code.contains("host 'Name' panicked"),
         "plugin Name trampoline must recover:\n{code}"

@@ -4,7 +4,6 @@ use super::*;
 fn test_methods_generation() {
     let backend = PhpBackend;
 
-    // Create a type with methods
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -133,7 +132,6 @@ fn test_methods_generation() {
         "Should contain #[php_impl] for method implementation"
     );
 
-    // Check for method names in output
     assert!(content.contains("process"), "Should contain process method");
     assert!(content.contains("from_id"), "Should contain from_id static method");
 }
@@ -142,7 +140,6 @@ fn test_methods_generation() {
 fn test_error_types() {
     let backend = PhpBackend;
 
-    // Create error types with variants
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -219,13 +216,11 @@ fn test_error_types() {
 
     let content = &lib_rs.content;
 
-    // Check that error converter function is generated
     assert!(
         content.contains("ProcessError") || content.contains("risky_operation"),
         "Should reference error type or function with error"
     );
 
-    // Function with error_type should generate static method in Api class
     assert!(
         content.contains("risky_operation"),
         "Should generate method for function with error"
@@ -236,7 +231,6 @@ fn test_error_types() {
 fn test_async_function() {
     let backend = PhpBackend;
 
-    // Create an async function
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -317,20 +311,16 @@ fn test_async_function() {
 
     let content = &lib_rs.content;
 
-    // Async functions should generate a WORKER_RUNTIME for blocking
     assert!(
         content.contains("WORKER_RUNTIME") || content.contains("block_on") || content.contains("_async"),
         "Should contain async runtime support or _async function"
     );
 
-    // Functions are generated as static methods in Api class
     assert!(
         content.contains("Api") && content.contains("#[php_impl]"),
         "Should contain Api class with #[php_impl] for async function"
     );
 
-    // The PHP-facing method name must be camelCase so the userland facade and stubs
-    // (which call `fetchData`) resolve correctly; the Rust fn ident stays snake_case.
     assert!(
         content.contains("#[php(name = \"fetchData\")]"),
         "Extension binding should expose the PHP method as camelCase `fetchData`; content:\n{content}"
@@ -345,7 +335,6 @@ fn test_async_function() {
 fn test_cfg_gated_async_function() {
     let backend = PhpBackend;
 
-    // Create an async function with a cfg condition
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -428,14 +417,12 @@ fn test_cfg_gated_async_function() {
 
     let content = &lib_rs.content;
 
-    // Cfg-gated async functions should use an always-true cfg condition
     // so ext-php-rs's #[php_impl] macro can see them unconditionally.
     assert!(
         content.contains("#[cfg(any(all(feature = \"embeddings\", feature = \"tokio-runtime\"), not(all(feature = \"embeddings\", feature = \"tokio-runtime\"))))]"),
         "Should contain always-true cfg condition for ext-php-rs compatibility; content:\n{content}"
     );
 
-    // The method should still be generated with the correct PHP name
     assert!(
         content.contains("#[php(name = \"embedTextsAsync\")]"),
         "Extension binding should expose the PHP method as camelCase `embedTextsAsync`; content:\n{content}"
@@ -446,7 +433,6 @@ fn test_cfg_gated_async_function() {
 fn test_opaque_type() {
     let backend = PhpBackend;
 
-    // Create an opaque type
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -516,7 +502,6 @@ fn test_opaque_type() {
 
     let content = &lib_rs.content;
 
-    // Opaque types should have Arc import
     assert!(content.contains("std::sync::Arc"), "Should import Arc for opaque types");
 
     // Should contain #[php_class] for opaque type
@@ -525,7 +510,6 @@ fn test_opaque_type() {
         "Should contain #[php_class] for opaque Handle type"
     );
 
-    // Should contain method implementation
     assert!(
         content.contains("close"),
         "Should contain close method for opaque Handle"
@@ -536,7 +520,6 @@ fn test_opaque_type() {
 fn test_default_config() {
     let backend = PhpBackend;
 
-    // Create a type with has_default: true
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -592,12 +575,10 @@ fn test_default_config() {
 
     let content = &lib_rs.content;
 
-    // Type with has_default: true should derive Default or have constructor with defaults
     assert!(
         content.contains("Default") || content.contains("__construct") || content.contains("#[derive"),
         "Should handle default configuration type"
     );
 
-    // Should contain Config type definition
     assert!(content.contains("Config"), "Should contain Config type");
 }

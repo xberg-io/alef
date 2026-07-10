@@ -2,8 +2,6 @@ use super::*;
 
 #[test]
 fn test_scaffold_php_omits_phpstan_and_cs_fixer_configs() {
-    // PHP lint+format is poly-native via mago: no phpstan/php-cs-fixer config
-    // files, and composer.json carries neither dep nor their scripts.
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
@@ -21,9 +19,6 @@ fn test_scaffold_php_omits_phpstan_and_cs_fixer_configs() {
             .any(|p| p.ends_with("phpstan.neon") || p.ends_with("phpstan-baseline.neon")),
         "must not emit phpstan config; got {paths:?}"
     );
-    // Both emitted manifests — the repo-root composer.json (Packagist/PIE) and
-    // the package-dir packages/php/composer.json (dev manifest) — are rendered
-    // from one builder; assert neither carries a retired PHP tool dep or script.
     let composers: Vec<&GeneratedFile> = all_files
         .iter()
         .filter(|f| f.path.to_string_lossy().ends_with("composer.json"))
@@ -55,11 +50,6 @@ fn test_scaffold_php_omits_phpstan_and_cs_fixer_configs() {
 
 #[test]
 fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
-    // Packagist indexes the repo-root composer.json. The scaffold must emit a
-    // root composer.json that mirrors the package manifest byte-for-byte except
-    // that the PSR-4 autoload src path is repointed from `src/` to
-    // `packages/php/src/`, so the same classes resolve when consumers install
-    // the package via Composer/PIE from the repo root.
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
@@ -74,13 +64,11 @@ fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
         .find(|f| f.path.to_string_lossy() == "composer.json")
         .expect("root composer.json must be emitted at repo root for Packagist/PIE");
 
-    // Parse both as JSON to compare structure independently of formatting
     let pkg: serde_json::Value =
         serde_json::from_str(&pkg_composer.content).expect("packages/php/composer.json must be valid JSON");
     let root: serde_json::Value =
         serde_json::from_str(&root_composer.content).expect("root composer.json must be valid JSON");
 
-    // Root should have the same structure as package except for autoload src and the pie block
     assert_eq!(pkg["name"], root["name"], "package and root should have the same name");
     assert_eq!(
         pkg["php-ext"], root["php-ext"],
@@ -92,8 +80,6 @@ fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
         serde_json::json!({"My\\Lib\\": "packages/php/src/"})
     );
 
-    // Both composer.json files must have the extra.pie.binary.url-template block
-    // (both the dev manifest and Packagist/PIE manifest need it)
     for (label, json) in &[("packages/php/composer.json", pkg), ("composer.json", root)] {
         assert!(
             json.get("extra").is_some(),
@@ -149,7 +135,6 @@ fn test_scaffold_dart() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
     let files = language_files(&all_files);
-    // pubspec.yaml + analysis_options.yaml + .gitignore + .pubignore + test + .editorconfig + README.md + example + CHANGELOG.md
     assert_eq!(files.len(), 9, "Expected 9 files for Dart scaffold");
     assert!(
         files.iter().all(|f| !f.path.ends_with("BUILDING.md")),
@@ -208,7 +193,6 @@ fn test_scaffold_dart() {
         "analysis_options.yaml should include linter rules; got: {}",
         analysis_options.content
     );
-    // Dart 3.x removed these lints — they must not appear in the rules list.
     for removed_lint in [
         "avoid_returning_null",
         "avoid_returning_null_for_future",
@@ -221,7 +205,6 @@ fn test_scaffold_dart() {
             "analysis_options.yaml references lint removed in Dart 3.x: {removed_lint}"
         );
     }
-    // analyzer.exclude block silences flutter_rust_bridge-generated paths.
     assert!(
         analysis_options.content.contains("analyzer:")
             && analysis_options.content.contains("exclude:")
@@ -254,7 +237,6 @@ fn test_scaffold_dart() {
     assert!(pubignore.content.contains("rust/"), "got: {}", pubignore.content);
     assert!(pubignore.content.contains("example/"), "got: {}", pubignore.content);
     assert!(pubignore.content.contains("test/"), "got: {}", pubignore.content);
-    // Native binaries are install-time downloads, never shipped in the pub archive.
     assert!(pubignore.content.contains("*.so"), "got: {}", pubignore.content);
     assert!(pubignore.content.contains("*.dylib"), "got: {}", pubignore.content);
     assert!(pubignore.content.contains("*.dll"), "got: {}", pubignore.content);
@@ -325,9 +307,6 @@ style = "ffi"
             pubspec.content
         );
     }
-    // freezed_annotation/json_annotation/freezed/build_runner/json_serializable are now
-    // emitted in both FFI and FRB scaffolds because product-type DTOs are generated via
-    // @freezed regardless of the bridge mode (STY-10).
     for product_dto_dep in [
         "freezed_annotation:",
         "json_annotation:",

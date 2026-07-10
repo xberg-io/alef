@@ -162,14 +162,8 @@ fn output_path_defaults_to_packages_ruby() {
 
 #[test]
 fn test_explicit_re_export_list_filters_internal_types() {
-    // Verify that generate_public_api includes only struct types in the re-export list,
-    // filtering out enums (which are not registered on the native module).
     let backend = MagnusBackend;
 
-    // Create a custom config where module_name != native_module_name
-    // (so the template emits the re-export block).
-    // api.crate_name "my_lib" → native_module_name "MyLib"
-    // gem_name "my_gem" → module_name "MyGem" (different!)
     let cfg_str = r#"
 [workspace]
 languages = ["ruby"]
@@ -186,7 +180,6 @@ gem_name = "my_gem"
 
     let mut api = make_api_surface();
     api.crate_name = "my_lib".to_string();
-    // Add an enum to the API surface
     api.enums.push(EnumDef {
         name: "Status".to_string(),
         rust_path: "sample_markdown::Status".to_string(),
@@ -240,12 +233,10 @@ gem_name = "my_gem"
         .find(|f| f.path.to_string_lossy().ends_with("native.rb"))
         .expect("native.rb must exist");
 
-    // Verify that the enum (Status) is NOT in the re-export list via const_get
     assert!(
         !native_file.content.contains("const_get(:Status)"),
         "enum types must not be in re-export list"
     );
-    // Verify that the struct type (Config) IS in the re-export list via const_get
     assert!(
         native_file.content.contains("const_get(:Config)"),
         "struct types must be in re-export list via const_get"

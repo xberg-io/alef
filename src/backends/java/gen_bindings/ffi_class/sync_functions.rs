@@ -57,9 +57,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
     visitor_bridge: Option<&VisitorFunctionBridge>,
     capsule_types: &HashMap<String, HostCapsuleTypeConfig>,
 ) {
-    // Exclude bridge params from the public Java signature. Optional params
-    // take the boxed Java type (Integer/Long/Boolean/...) so callers can pass
-    // `null` to skip them.
     let params: Vec<String> = func
         .params
         .iter()
@@ -75,8 +72,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
         })
         .collect();
 
-    // Host-native capsule (Language) passthrough: construct the host runtime's
-    // `Language` from the raw C grammar pointer instead of an opaque handle.
     if let Some(capsule_cfg) = capsule_return_config(func, capsule_types) {
         return gen_capsule_function_method(
             out,
@@ -92,8 +87,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
 
     let return_type = java_return_type(&func.return_type);
     let exception_class_name = format!("{}Exception", class_name);
-    // Free-function rustdoc renders above the static-method signature so the
-    // raw-FFI class doubles as a documented public surface.
     emit_javadoc_with_throws(out, &func.doc, "    ", &exception_class_name);
     let method_sig = crate::backends::java::template_env::render(
         "ffi_method_signature.jinja",
@@ -128,9 +121,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
         minijinja::context! {},
     ));
 
-    // Collect non-opaque Named params that need FFI pointer cleanup after the call.
-    // These are Rust-allocated by _from_json and must be freed with _free.
-    // Bridge params are excluded — they are passed as NULL.
     let ffi_ptr_params: Vec<(String, String)> = func
         .params
         .iter()
@@ -160,13 +150,10 @@ pub(super) fn gen_sync_function_method_with_visitor(
         })
         .collect();
 
-    // Marshal non-bridge parameters (use camelCase Java names)
     for param in &func.params {
         if is_bridge_param_java(param, bridge_param_names, bridge_type_aliases) {
             continue;
         }
-        // When a parameter is optional (Option<T> in Rust), wrap the TypeRef so that
-        // marshal_param_to_ffi generates a null-safe allocation path.
         let effective_ty = if param.optional && !matches!(param.ty, TypeRef::Optional(_)) {
             TypeRef::Optional(Box::new(param.ty.clone()))
         } else {
@@ -175,22 +162,11 @@ pub(super) fn gen_sync_function_method_with_visitor(
         marshal_param_to_ffi(out, &to_java_name(&param.name), &effective_ty, opaque_types, prefix);
     }
 
-    // Call FFI.
-    //
-    // Most free functions map 1:1 onto an FFI export named `{prefix}_{func.name}`,
-    // so the handle constant is `{PREFIX}_{FUNC_NAME}`. Trait-bridge `clear_fn`
-    // functions are the exception: the core Rust function is plural
-    // (`clear_text_backends`) but the FFI export — and therefore the `NativeLib`
-    // handle constant — is the singular trait-derived `{PREFIX}_CLEAR_{TRAIT_SNAKE}`.
-    // Use the pre-computed mapping so this body agrees with `NativeLib.java`.
     let ffi_handle = match clear_fn_handles.get(&func.name) {
         Some(handle) => format!("NativeLib.{}", handle),
         None => format!("NativeLib.{}_{}", prefix.to_uppercase(), func.name.to_uppercase()),
     };
 
-    // Build call args: bridge params get MemorySegment.NULL, others are marshalled normally.
-    // Important: Bytes parameters expand to (pointer, length) pairs, so each FFI param
-    // must have a corresponding argument.
     let call_args: Vec<String> = func
         .params
         .iter()
@@ -198,19 +174,16 @@ pub(super) fn gen_sync_function_method_with_visitor(
             if is_bridge_param_java(p, bridge_param_names, bridge_type_aliases) {
                 vec!["MemorySegment.NULL".to_string()]
             } else {
-                // Apply the same optional-wrapping logic used when marshalling.
                 let effective_ty = if p.optional && !matches!(p.ty, TypeRef::Optional(_)) {
                     TypeRef::Optional(Box::new(p.ty.clone()))
                 } else {
                     p.ty.clone()
                 };
-                // ffi_param_args returns one or more args (Bytes expands to 2)
                 ffi_param_args(&to_java_name(&p.name), &effective_ty, opaque_types)
             }
         })
         .collect();
 
-    // Emit a helper closure to free FFI-allocated param pointers (e.g. options created by _from_json)
     let emit_ffi_ptr_cleanup = |out: &mut String| {
         for (cname, free_handle) in &ffi_ptr_params {
             out.push_str(&crate::backends::java::template_env::render(
@@ -223,17 +196,11 @@ pub(super) fn gen_sync_function_method_with_visitor(
         }
     };
 
-    // Unwrap Optional<T> to determine the actual dispatch type and whether we're optional.
     let (is_optional_return, dispatch_return_type) = match &func.return_type {
         TypeRef::Optional(inner) => (true, (**inner).clone()),
         other => (false, other.clone()),
     };
 
-    // Trait-bridge clear_fn functions are special: they return Result<()> in Rust
-    // (so return_type == Unit in the IR) but are exported as
-    // `sample_core_clear_X(char **out_error) -> i32` in the FFI.
-    // We detect them via the clear_fn_handles map and treat them as i32 returns
-    // with error handling (allocate out-error, invoke, check result code).
     let is_clear_fn = clear_fn_handles.contains_key(&func.name);
 
     if matches!(dispatch_return_type, TypeRef::Unit) && !is_clear_fn {
@@ -246,8 +213,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
         ));
         emit_ffi_ptr_cleanup(out);
         if func.error_type.is_some() {
-            // Void returns can't surface failure through the return value;
-            // the FFI sets last_error and the Java caller must check it.
             out.push_str("            checkLastError();\n");
         }
         out.push_str("        } catch (Throwable e) {\n");
@@ -259,9 +224,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
         ));
         out.push_str("        }\n");
     } else if is_clear_fn {
-        // Trait-bridge clear_fn: allocate out-error, invoke with error pointer, check result.
-        // The FFI function signature is: int sample_core_clear_X(char **out_error)
-        // Pattern: allocate MemorySegment for address, pass to FFI, check return code.
         out.push_str("            var outErr = arena.allocate(ValueLayout.ADDRESS);\n");
         out.push_str(&crate::backends::java::template_env::render(
             "ffi_invoke_primitive_result.jinja",
@@ -351,7 +313,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
         ));
         out.push_str("        }\n");
     } else if matches!(dispatch_return_type, TypeRef::Named(_)) {
-        // Named return types: FFI returns a struct pointer.
         let return_type_name = match &dispatch_return_type {
             TypeRef::Named(name) => name,
             _ => unreachable!(),
@@ -375,7 +336,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
         ));
 
         if is_opaque {
-            // Opaque handles: wrap the raw pointer directly, caller owns and will close()
             if is_optional_return {
                 out.push_str(&crate::backends::java::template_env::render(
                     "ffi_return_new_handle.jinja",
@@ -392,7 +352,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
                 ));
             }
         } else {
-            // Record types: use _to_json to serialize the full struct to JSON, then deserialize.
             // NOTE: _content only returns the markdown string field, not a full JSON object.
             let type_snake = return_type_name.to_snake_case();
             let free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
@@ -401,14 +360,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
                 prefix.to_uppercase(),
                 type_snake.to_uppercase()
             );
-            // CPD-OFF — the FFI tail (null-check resultPtr → result_to_json →
-            // free result → null-check jsonPtr → reinterpret → free string →
-            // MAPPER.readValue) is intentionally repeated verbatim in
-            // the visitor helper below. PMD CPD flags it as a 15-line
-            // duplication; extracting it into a helper would require threading
-            // the Arena, MAPPER, and free-handle through a private method for
-            // marginal benefit. Wrap both copies with CPD-OFF/ON markers
-            // instead, matching the existing precedent for the Builder class.
             out.push_str("            // CPD-OFF\n");
             out.push_str(&crate::backends::java::template_env::render(
                 "ffi_invoke_json_ptr.jinja",
@@ -469,10 +420,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
         ));
         out.push_str("        }\n");
     } else if matches!(dispatch_return_type, TypeRef::Vec(_)) {
-        // Vec return types: FFI returns a JSON string pointer; deserialize into List<T>.
-        // The body is delegated to a single `readJsonList` helper emitted by
-        // `gen_helper_methods` so the JSON-deserialize boilerplate isn't duplicated
-        // at every call site (which CPD flagged as copy-paste duplication).
         out.push_str(&crate::backends::java::template_env::render(
             "ffi_result_ptr_call.jinja",
             minijinja::context! {
@@ -513,9 +460,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
         ));
         out.push_str("        }\n");
     } else if matches!(dispatch_return_type, TypeRef::Bytes) && is_bytes_result(func) {
-        // Bytes-result functions use the out-param convention:
-        //   (inputs..., out_ptr: *mut *mut u8, out_len: *mut usize, out_cap: *mut usize) -> i32
-        // Never use the old direct-pointer pattern (FREE_STRING / byteSize()) for these.
         let free_bytes_handle = format!("NativeLib.{}_FREE_BYTES", prefix.to_uppercase());
         let args_with_sep = if call_args.is_empty() {
             String::new()
@@ -541,7 +485,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
         ));
         out.push_str("        }\n");
     } else {
-        // Primitive return types (including boxed types for Optional)
         out.push_str(&crate::backends::java::template_env::render(
             "ffi_invoke_primitive_result.jinja",
             minijinja::context! {
@@ -552,10 +495,6 @@ pub(super) fn gen_sync_function_method_with_visitor(
         ));
         emit_ffi_ptr_cleanup(out);
         if func.error_type.is_some() {
-            // Fallible primitive returns use a sentinel value (0) on error and
-            // set last_error on the FFI side; the Java caller must check it
-            // explicitly because the primitive itself can't distinguish a
-            // legitimate 0 from an error.
             out.push_str("            checkLastError();\n");
         }
         if is_optional_return {
@@ -617,7 +556,6 @@ pub(super) fn gen_capsule_function_method(
     bridge_type_aliases: &HashSet<String>,
     cfg: &HostCapsuleTypeConfig,
 ) {
-    // Exclude bridge params from the public Java signature.
     let params: Vec<String> = func
         .params
         .iter()
@@ -633,7 +571,6 @@ pub(super) fn gen_capsule_function_method(
         })
         .collect();
 
-    // Require host_type — no tree-sitter default fallback.
     let return_type = match cfg.required_host_type("Language", "java") {
         Ok(t) => t.to_string(),
         Err(e) => {
@@ -660,7 +597,6 @@ pub(super) fn gen_capsule_function_method(
         minijinja::context! {},
     ));
 
-    // Marshal parameters (capsule functions take only scalar/string params in practice).
     for param in &func.params {
         if is_bridge_param_java(param, bridge_param_names, bridge_type_aliases) {
             continue;
@@ -673,7 +609,6 @@ pub(super) fn gen_capsule_function_method(
         marshal_param_to_ffi(out, &to_java_name(&param.name), &effective_ty, opaque_types, prefix);
     }
 
-    // Build call args.
     let call_args: Vec<String> = func
         .params
         .iter()
@@ -700,8 +635,6 @@ pub(super) fn gen_capsule_function_method(
         },
     ));
 
-    // Guard null and construct the host Language from the raw pointer.
-    // The `{ptr}` placeholder receives the raw MemorySegment.
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_null_check.jinja",
         minijinja::context! {
@@ -710,7 +643,6 @@ pub(super) fn gen_capsule_function_method(
         },
     ));
 
-    // Require construct_expr — no tree-sitter default fallback.
     let construct = match cfg.construct_required("resultPtr", "Language", "java") {
         Ok(c) => c,
         Err(e) => {

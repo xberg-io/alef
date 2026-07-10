@@ -19,7 +19,6 @@ pub fn emit_phpdoc(out: &mut String, doc: &str, indent: &str, exception_class: &
     if doc.is_empty() {
         return;
     }
-    // Sanitize Rust-specific idioms before processing sections.
     let sanitized = sanitize_rust_idioms(doc, DocTarget::PhpDoc);
     let sections = parse_rustdoc_sections(&sanitized);
     let any_section = sections.arguments.is_some()
@@ -60,9 +59,6 @@ pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str, exception_clas
     if doc.is_empty() {
         return;
     }
-    // Parse sections from the raw rustdoc first (so `# Examples` / `# Arguments`
-    // / `# Returns` / `# Errors` are routed into structured XML tags), then
-    // sanitise each section body to strip Rust idioms and XML-escape `<`/`>`/`&`.
     let raw_sections = parse_rustdoc_sections(doc);
     let sections = RustdocSections {
         summary: sanitize_rust_idioms_keep_sections(&raw_sections.summary, DocTarget::CSharpDoc),
@@ -86,8 +82,6 @@ pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str, exception_clas
             .safety
             .as_deref()
             .map(|s| sanitize_rust_idioms_keep_sections(s, DocTarget::CSharpDoc)),
-        // Examples typically contain Rust code that doesn't compile as C#; drop the body
-        // entirely rather than risk leaking unparseable code into `<example>`.
         example: None,
     };
     let any_section = sections.arguments.is_some()
@@ -95,15 +89,11 @@ pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str, exception_clas
         || sections.errors.is_some()
         || sections.example.is_some();
     if !any_section {
-        // Backwards-compatible path: plain `<summary>` for prose-only docs.
         out.push_str(indent);
         out.push_str("/// <summary>\n");
         for line in sections.summary.lines() {
             out.push_str(indent);
             out.push_str("/// ");
-            // Note: sanitise_rust_idioms_keep_sections already XML-escaped <, >, & for
-            // the CSharpDoc target. We deliberately do NOT call escape_csharp_doc_line
-            // here because that would double-encode (e.g. `&amp;` → `&amp;amp;`).
             out.push_str(line);
             out.push('\n');
         }
@@ -115,10 +105,6 @@ pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str, exception_clas
     for line in rendered.lines() {
         out.push_str(indent);
         out.push_str("/// ");
-        // The rendered tags already contain the canonical chars; we only
-        // escape XML special chars that aren't part of our tag syntax. Since
-        // render_csharp_xml_sections produces well-formed XML, raw passthrough
-        // is correct.
         out.push_str(line);
         out.push('\n');
     }
@@ -147,12 +133,7 @@ pub fn emit_rustdoc(out: &mut String, doc: &str, indent: &str) {
     if doc.is_empty() {
         return;
     }
-    // De-link rustdoc intra-doc references (`` [`Error::LanguageNotFound`] ``,
-    // `` [`get_language`] ``, …). Those item paths resolve in the core crate but
-    // not in the generated binding crate, so `rustdoc -D
-    // rustdoc::broken-intra-doc-links` (forced on the command line, where a
     // crate-level `#![allow]` cannot override it) would fail. Converting them to
-    // plain code spans keeps the text readable without leaving a broken link.
     let delinked = unlink_intradoc_references(doc);
     for line in delinked.lines() {
         out.push_str(indent);
@@ -281,16 +262,13 @@ pub fn emit_kdoc_ktfmt_canonical(out: &mut String, doc: &str, indent: &str) {
 
     let lines: Vec<&str> = doc.lines().collect();
 
-    // Check if this is a short, single-paragraph comment that fits on one line.
     let is_short_single_paragraph = lines.len() == 1 && !lines[0].contains('\n');
 
     if is_short_single_paragraph {
         let trimmed = lines[0].trim();
         let escaped = escape_kdoc_line(trimmed);
-        // Calculate total length: indent + "/** " + content + " */"
-        let single_line_len = indent.len() + 4 + escaped.len() + 3; // 4 for "/** ", 3 for " */"
+        let single_line_len = indent.len() + 4 + escaped.len() + 3;
         if single_line_len <= KTFMT_LINE_WIDTH {
-            // Fits on one line in ktfmt-canonical format
             out.push_str(indent);
             out.push_str("/** ");
             out.push_str(&escaped);
@@ -299,7 +277,6 @@ pub fn emit_kdoc_ktfmt_canonical(out: &mut String, doc: &str, indent: &str) {
         }
     }
 
-    // Multi-line format (default for long or multi-paragraph comments)
     out.push_str(indent);
     out.push_str("/**\n");
     for line in lines {
@@ -382,7 +359,6 @@ pub fn emit_c_doxygen(out: &mut String, doc: &str, indent: &str) {
         sections.summary.clone()
     };
     body = strip_markdown_links(&body);
-    // Wrap bare bracket references in backticks to prevent rustdoc broken-intra-doc-link warnings.
     body = wrap_bare_bracket_references(&body);
     let wrapped = word_wrap(&body, DOXYGEN_WRAP_WIDTH);
     for line in wrapped.lines() {
@@ -467,7 +443,6 @@ fn strip_markdown_links(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'[' {
-            // Find matching closing bracket on the same logical span (no nested brackets).
             if let Some(close) = bytes[i + 1..].iter().position(|&b| b == b']') {
                 let text_end = i + 1 + close;
                 if text_end + 1 < bytes.len() && bytes[text_end + 1] == b'(' {

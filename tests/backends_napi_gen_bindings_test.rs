@@ -218,13 +218,11 @@ fn test_basic_generation() {
     let files = result.unwrap();
     assert!(!files.is_empty(), "Should generate files");
 
-    // Check for lib.rs file
     let lib_rs = files.iter().find(|f| f.path.to_string_lossy().ends_with("lib.rs"));
     assert!(lib_rs.is_some(), "Should generate lib.rs");
 
     let lib_rs_content = lib_rs.unwrap().content.as_str();
 
-    // Assert NAPI markers are present
     assert!(
         lib_rs_content.contains("#[napi("),
         "Should contain #[napi(...)] attributes"
@@ -512,7 +510,6 @@ fn test_type_mapping() {
 
     let content = lib_rs.unwrap().content.as_str();
 
-    // Verify the Numbers struct is defined with NAPI object attribute
     assert!(content.contains("Numbers"), "Should contain Numbers struct");
     assert!(
         content.contains("u32") || content.contains("u32_val"),
@@ -616,7 +613,6 @@ fn test_enum_generation() {
 
     let content = lib_rs.unwrap().content.as_str();
 
-    // Verify enum generation with NAPI string_enum attribute
     assert!(content.contains("Status"), "Should contain Status enum");
     assert!(content.contains("Pending"), "Should contain Pending variant");
     assert!(content.contains("Active"), "Should contain Active variant");
@@ -756,7 +752,6 @@ fn test_generated_header() {
 
     let files = result.unwrap();
 
-    // Verify lib.rs has generated_header: false (as per source code)
     let lib_rs = files.iter().find(|f| f.path.to_string_lossy().ends_with("lib.rs"));
     assert!(lib_rs.is_some());
 
@@ -830,17 +825,14 @@ fn test_async_function() {
 
     let content = lib_rs.unwrap().content.as_str();
 
-    // Verify async function is generated with proper async keyword
     assert!(
         content.contains("async fn process_async"),
         "Should contain async function"
     );
-    // Verify tokio runtime is added for async support
     assert!(
         content.contains("tokio") || content.contains("spawn_blocking"),
         "Should include tokio runtime support for async"
     );
-    // Verify return type indicates async/promise
     assert!(content.contains("#[napi"), "Async function should have napi attribute");
 }
 
@@ -952,23 +944,17 @@ fn test_methods_generation() {
 
     let content = lib_rs.unwrap().content.as_str();
 
-    // Verify opaque struct is generated with Js prefix
     assert!(
         content.contains("struct JsProcessor"),
         "Should contain opaque struct JsProcessor"
     );
-    // Verify impl block with napi attribute for methods
     assert!(
         content.contains("impl JsProcessor"),
         "Should contain impl block for JsProcessor"
     );
-    // Verify instance method is generated
     assert!(content.contains("fn process"), "Should contain instance method process");
-    // Verify static method is generated
     assert!(content.contains("fn create"), "Should contain static method create");
-    // Verify napi attributes on methods
     assert!(content.contains("#[napi"), "Methods should have napi attributes");
-    // Verify Arc usage for opaque types
     assert!(
         content.contains("Arc"),
         "Opaque types should use Arc for interior mutability"
@@ -1053,17 +1039,14 @@ fn test_error_types() {
 
     let content = lib_rs.unwrap().content.as_str();
 
-    // Verify error handling code is generated
     assert!(
         content.contains("ProcessError") || content.contains("map_err"),
         "Should contain error handling for ProcessError"
     );
-    // Verify error conversion function is generated
     assert!(
         content.contains("napi::Error") || content.contains("GenericFailure"),
         "Should contain NAPI error conversion"
     );
-    // Verify error variant constants are generated
     assert!(
         content.contains("NotFound") || content.contains("InvalidInput"),
         "Should contain error variant handling"
@@ -1141,22 +1124,18 @@ fn test_opaque_type() {
 
     let content = lib_rs.unwrap().content.as_str();
 
-    // Verify opaque struct uses Arc for memory management
     assert!(
         content.contains("struct JsHandle") && content.contains("Arc"),
         "Opaque type should be JsHandle wrapped in Arc"
     );
-    // Verify impl block for opaque type methods
     assert!(
         content.contains("impl JsHandle"),
         "Should have impl block for opaque JsHandle"
     );
-    // Verify napi attribute on impl block
     assert!(
         content.contains("#[napi]") && content.contains("impl JsHandle"),
         "Opaque impl block should have napi attribute"
     );
-    // Verify method references self.inner for delegation
     assert!(
         content.contains("self.inner") || content.contains("get_value"),
         "Opaque method should delegate to inner type"
@@ -1220,22 +1199,18 @@ fn test_optional_and_default_fields() {
 
     let content = lib_rs.unwrap().content.as_str();
 
-    // Verify struct with default impl
     assert!(
         content.contains("struct JsOptions"),
         "Should contain Options struct with Js prefix"
     );
-    // Verify fields are wrapped in Option when type has default
     assert!(
         content.contains("Option<") || content.contains("timeout"),
         "Fields should be wrapped in Option for types with defaults"
     );
-    // Verify napi(object, js_name = ...) attribute
     assert!(
         content.contains("napi(object, js_name"),
         "Non-opaque struct should use napi(object, js_name = ...)"
     );
-    // Verify Default derive is added
     assert!(
         content.contains("Default") || content.contains("impl Default for JsOptions"),
         "Type with has_default should derive Default or have impl"
@@ -1329,17 +1304,14 @@ fn test_async_method() {
 
     let content = lib_rs.unwrap().content.as_str();
 
-    // Verify async method keyword
     assert!(
         content.contains("async fn process_async"),
         "Should contain async method"
     );
-    // Verify tokio runtime for async support
     assert!(
         content.contains("tokio") || content.contains("spawn_blocking"),
         "Should include tokio support for async methods"
     );
-    // Verify method is in impl block
     assert!(
         content.contains("impl JsAsyncWorker"),
         "Should have impl block for opaque async worker"
@@ -1433,14 +1405,11 @@ fn test_static_method_with_error() {
 
     let content = lib_rs.unwrap().content.as_str();
 
-    // Verify static method (no &self parameter)
     assert!(content.contains("fn from_config"), "Should contain static method");
-    // Verify error handling in static method
     assert!(
         content.contains("map_err") || content.contains("GenericFailure"),
         "Static method with error should have error conversion"
     );
-    // Verify return type wrapping for opaque types
     assert!(
         content.contains("JsFactory") || content.contains("Arc"),
         "Static method returning opaque type should wrap in Js and Arc"
@@ -1504,9 +1473,7 @@ fn test_map_types() {
 
     let content = lib_rs.unwrap().content.as_str();
 
-    // Verify HashMap import is added for Map types
     assert!(content.contains("HashMap"), "Should import HashMap for Map types");
-    // Verify struct contains map field
     assert!(content.contains("settings"), "Should contain settings field for map");
 }
 
@@ -1517,13 +1484,9 @@ fn test_map_types() {
 fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json() {
     let backend = NapiBackend;
 
-    // Simulate the sample-llm `Message` enum pattern:
     // #[serde(tag = "role")]
-    // enum Message {
     //     #[serde(rename = "system")]  System(SystemMessage),
     //     #[serde(rename = "user")]    User(UserMessage),
-    // }
-    // where SystemMessage and UserMessage are distinct structs, both exposed as types.
     let make_variant = |name: &str, rename: &str, struct_name: &str| EnumVariant {
         name: name.to_string(),
         fields: vec![FieldDef {
@@ -1631,8 +1594,6 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
         .content
         .as_str();
 
-    // Single-tuple Named variants get variant-specific properties (`system`, `user`) so each
-    // payload can keep its concrete binding type instead of falling back to JSON strings.
     assert!(
         !content.contains("serde_json::from_str"),
         "binding→core conversion should use typed .into() conversion for single-tuple Named variants"
@@ -1646,10 +1607,6 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
         "variant-specific fields must retain concrete binding payload types"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Trait bridge helpers
-// ---------------------------------------------------------------------------
 
 fn make_trait_def_napi(name: &str, methods: Vec<MethodDef>) -> TypeDef {
     TypeDef {
@@ -1863,10 +1820,6 @@ fn make_visitor_bridge_cfg(trait_name: &str, type_alias: &str) -> alef::core::co
     }
 }
 
-// ---------------------------------------------------------------------------
-// NAPI trait bridge tests
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_napi_visitor_bridge_produces_visitor_struct() {
     use alef::backends::napi::trait_bridge::gen_trait_bridge;
@@ -2022,8 +1975,8 @@ fn test_napi_plugin_bridge_validates_required_methods() {
     let trait_def = make_trait_def_napi(
         "Analyzer",
         vec![
-            make_method_napi("analyze", TypeRef::String, true, false), // required
-            make_method_napi("describe", TypeRef::String, false, true), // optional
+            make_method_napi("analyze", TypeRef::String, true, false),
+            make_method_napi("describe", TypeRef::String, false, true),
         ],
     );
     let bridge_cfg = alef::core::config::TraitBridgeConfig {
@@ -2051,7 +2004,6 @@ fn test_napi_plugin_bridge_validates_required_methods() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api)
         .expect("trait bridge generation should succeed");
 
-    // Constructor must check for the required method "analyze"
     assert!(
         code.code.contains("\"analyze\""),
         "constructor must validate the required method 'analyze'"
@@ -2173,10 +2125,6 @@ fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
         "lifecycle functions must use runtime public names:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// capsule_types end-to-end: External<T> + __parser passthrough
-// ---------------------------------------------------------------------------
 
 fn make_capsule_config_node(type_name: &str, from_module: &str) -> NodeCapsuleTypeConfig {
     NodeCapsuleTypeConfig {
@@ -2331,14 +2279,11 @@ fn test_capsule_types_end_to_end() {
         "Language must not be emitted as a #[napi] struct; content:\n{content}"
     );
 
-    // The shim must call into_raw() to extract the raw pointer.
     assert!(
         content.contains("into_raw"),
         "get_language shim must call into_raw(); content:\n{content}"
     );
 
-    // The shim must call raw napi_create_external (not napi-rs's wrapper, which
-    // produces a value rejected by node-sample_language's UnwrapLanguage).
     assert!(
         content.contains("napi_create_external"),
         "get_language shim must call raw napi_create_external; content:\n{content}"
@@ -2348,28 +2293,21 @@ fn test_capsule_types_end_to_end() {
         "get_language shim must NOT use bindgen_prelude::External::new; content:\n{content}"
     );
 
-    // The extern block must be gated with a Windows raw-dylib link attribute so
-    // MSVC can synthesize import-library entries for napi_create_external and
-    // napi_type_tag_object — symbols outside napi-sys's generate! allowlist.
     assert!(
         content.contains(r#"#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]"#),
         "extern block must be gated with raw-dylib link attribute for Windows MSVC; content:\n{content}"
     );
 
-    // The shim must set the default __parser property on the returned JsObject
-    // (the test config doesn't override property_name).
     assert!(
         content.contains("__parser"),
         "get_language shim must set __parser property; content:\n{content}"
     );
 
-    // The function must return napi::Result<napi::bindgen_prelude::Object>.
     assert!(
         content.contains("bindgen_prelude::Object"),
         "get_language shim must return napi::bindgen_prelude::Object; content:\n{content}"
     );
 
-    // The shim must accept napi::Env as its first parameter.
     assert!(
         content.contains("napi::Env"),
         "get_language shim must accept napi::Env; content:\n{content}"
@@ -2413,28 +2351,21 @@ fn test_capsule_types_dts_generation() {
     assert_eq!(files.len(), 1, "expected exactly index.d.ts");
     let content = &files[0].content;
 
-    // Import line must be emitted for the capsule type.
     assert!(
         content.contains("import type { Language } from \"sample_language\""),
         "index.d.ts must emit import type for capsule type; content:\n{content}"
     );
 
-    // The class declaration for JsLanguage must NOT be emitted.
     assert!(
         !content.contains("export declare class JsLanguage"),
         "index.d.ts must not emit export declare class JsLanguage; content:\n{content}"
     );
 
-    // getLanguage must use the ecosystem type name, not JsLanguage.
     assert!(
         content.contains("getLanguage(name: string): Language"),
         "index.d.ts must emit getLanguage returning Language (not JsLanguage); content:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// capsule_types on methods of opaque types
-// ---------------------------------------------------------------------------
 
 /// Build an opaque `LanguageRegistry` type whose `getLanguage` instance method
 /// returns the capsule type `Language`.
@@ -2544,7 +2475,6 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
     let content = &files[0].content;
 
     // Language must NOT appear as a #[napi] opaque struct (it's a capsule type).
-    // Use word-boundary check: "JsLanguage {" or "JsLanguage\n" to avoid matching JsLanguageRegistry.
     let has_js_language_struct = content.contains("struct JsLanguage {")
         || content.contains("struct JsLanguage\n")
         || content.contains("struct JsLanguage\r");
@@ -2553,25 +2483,21 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
         "Language must not be emitted as a standalone #[napi] struct; content:\n{content}"
     );
 
-    // The method shim must accept napi::Env.
     assert!(
         content.contains("napi::Env"),
         "method shim must accept napi::Env; content:\n{content}"
     );
 
-    // The method shim must return napi::Result<napi::bindgen_prelude::Object<'_>>.
     assert!(
         content.contains("napi::Result<napi::bindgen_prelude::Object<'_>>"),
         "method shim must return napi::Result<napi::bindgen_prelude::Object<'_>>; content:\n{content}"
     );
 
-    // The shim must call into_raw().
     assert!(
         content.contains("into_raw"),
         "method shim must call into_raw(); content:\n{content}"
     );
 
-    // The shim must call raw napi_create_external (not napi-rs's wrapper).
     assert!(
         content.contains("napi_create_external"),
         "method shim must call raw napi_create_external; content:\n{content}"
@@ -2581,14 +2507,11 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
         "method shim must NOT use bindgen_prelude::External::new; content:\n{content}"
     );
 
-    // The extern block must be gated with the Windows raw-dylib link attribute
-    // so MSVC can synthesize import-library entries for the raw napi symbols.
     assert!(
         content.contains(r#"#[cfg_attr(target_os = "windows", link(name = "node", kind = "raw-dylib"))]"#),
         "extern block must be gated with raw-dylib link attribute for Windows MSVC; content:\n{content}"
     );
 
-    // The shim must set __parser (default property name).
     assert!(
         content.contains("__parser"),
         "method shim must set __parser property; content:\n{content}"
@@ -2633,14 +2556,11 @@ fn test_capsule_types_method_on_opaque_dts() {
     assert_eq!(files.len(), 1);
     let content = &files[0].content;
 
-    // Import must be present.
     assert!(
         content.contains("import type { Language } from \"sample_language\""),
         "index.d.ts must emit import type for capsule type; content:\n{content}"
     );
 
-    // No bare JsLanguage class declaration (as distinct from JsLanguageRegistry).
-    // Check specifically for "JsLanguage {" to avoid matching JsLanguageRegistry.
     let has_js_language_class =
         content.contains("export declare class JsLanguage {") || content.contains("export declare class JsLanguage\n");
     assert!(
@@ -2648,31 +2568,23 @@ fn test_capsule_types_method_on_opaque_dts() {
         "index.d.ts must not emit standalone export declare class JsLanguage; content:\n{content}"
     );
 
-    // The registry class must be present with its unprefixed TS name.
     // The Rust struct is JsLanguageRegistry internally, but #[napi(js_name = "LanguageRegistry")]
-    // causes NAPI-RS to export it as LanguageRegistry in the .d.ts.
     assert!(
         content.contains("export declare class LanguageRegistry"),
         "index.d.ts must emit LanguageRegistry class (unprefixed); content:\n{content}"
     );
 
-    // The method must use the ecosystem type, not the undeclared opaque handle.
     assert!(
         content.contains("getLanguage(name: string): Language"),
         "method must emit return type Language (not JsLanguage); content:\n{content}"
     );
 
-    // Confirm no bare JsLanguage return type references anywhere.
     let bare_js_language_method = content.contains("): JsLanguage");
     assert!(
         !bare_js_language_method,
         "index.d.ts must not contain ): JsLanguage; content:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// W3 regression tests: js_name, readonly, no Js-prefix on TS surface
-// ---------------------------------------------------------------------------
 
 /// Non-opaque structs must carry `#[napi(object, js_name = "Foo")]` so NAPI-RS
 /// exports the type as `Foo` rather than `JsFoo` in the generated .d.ts.
@@ -2720,7 +2632,6 @@ fn test_napi_js_name_on_non_opaque_struct() {
 
     let config = make_config();
 
-    // (a) js_name must appear in the napi attribute on the Rust struct
     let bindings = backend
         .generate_bindings(&api, &config)
         .expect("generate_bindings should succeed");
@@ -2781,7 +2692,6 @@ fn test_napi_js_name_on_opaque_struct() {
 
     let config = make_config();
 
-    // (a) js_name must appear on opaque struct
     let bindings = backend
         .generate_bindings(&api, &config)
         .expect("generate_bindings should succeed");
@@ -2863,7 +2773,6 @@ fn test_napi_js_name_on_string_enum() {
 
     let config = make_config();
 
-    // (a) js_name must appear on string enum
     let bindings = backend
         .generate_bindings(&api, &config)
         .expect("generate_bindings should succeed");
@@ -2931,7 +2840,6 @@ fn test_dts_dto_fields_are_readonly() {
     assert_eq!(stubs.len(), 1);
     let content = &stubs[0].content;
 
-    // (b) readonly must appear on all DTO field declarations
     assert!(
         content.contains("readonly timeout: number"),
         "required field must be emitted as `readonly timeout: number`; content:\n{content}"
@@ -2940,7 +2848,6 @@ fn test_dts_dto_fields_are_readonly() {
         content.contains("readonly name?: string"),
         "optional field must be emitted as `readonly name?: string`; content:\n{content}"
     );
-    // (c) The interface name must be unprefixed
     assert!(
         content.contains("export interface Config {"),
         "interface must be emitted as `Config` (unprefixed); content:\n{content}"
@@ -2949,9 +2856,6 @@ fn test_dts_dto_fields_are_readonly() {
         !content.contains("JsConfig"),
         ".d.ts must not contain JsConfig; content:\n{content}"
     );
-    // CRITICAL REGRESSION TEST: interface members must NOT have trailing semicolons.
-    // napi build produces .d.ts files without semicolons on interface members.
-    // alef must emit the same format to avoid churn when napi regenerates.
     assert!(
         !content.contains("readonly timeout: number;"),
         "interface field must NOT have trailing semicolon; alef format must match napi output; content:\n{content}"
@@ -3027,19 +2931,16 @@ fn test_optional_return_types_emit_null_not_undefined() {
     assert_eq!(files.len(), 1);
     let content = &files[0].content;
 
-    // Optional string return type should be "string | null", NOT "string | undefined | null"
     assert!(
         content.contains("function getName(): string | null"),
         "optional string return type must be 'string | null', not 'string | undefined | null'; content:\n{content}"
     );
 
-    // Optional number return type should be "number | null", NOT "number | undefined | null"
     assert!(
         content.contains("function getId(): number | null"),
         "optional number return type must be 'number | null', not 'number | undefined | null'; content:\n{content}"
     );
 
-    // Sanity check: make sure we don't emit "undefined" in return types
     let lines: Vec<&str> = content.lines().collect();
     for (i, line) in lines.iter().enumerate() {
         if line.contains("function getName()") || line.contains("function getId()") {
@@ -3289,9 +3190,6 @@ fn function_doc_emitted_as_rustdoc_single_and_multiline() {
 
 #[test]
 fn test_vec_vec_string_field_conversion_emits_no_trailing_angle_bracket() {
-    // Regression test: non-optional Vec<Vec<String>> sanitized field previously emitted a stray `>`
-    // after the `.collect::<Vec<Vec<String>>>()` type ascription, producing `...collect::<Vec<Vec<String>>>()>`
-    // which is a syntax error. This test verifies the emitted From impl is syntactically clean.
     let backend = NapiBackend;
 
     let api = ApiSurface {
@@ -3347,7 +3245,6 @@ fn test_vec_vec_string_field_conversion_emits_no_trailing_angle_bracket() {
         .unwrap();
     let content = lib_rs.content.as_str();
 
-    // The collect type ascription must end with `>()` and never `>()>`
     assert!(
         content.contains(".collect::<Vec<Vec<String>>>()"),
         "non-optional Vec<Vec<String>> collect must end with `>()`; content:\n{content}"

@@ -136,13 +136,11 @@ fn kotlin_android_optional_config_arg_emits_default_constructor_not_null() {
     let fixture = make_extract_bytes_fixture("async_extract_bytes", false);
     let rendered = render_kotlin_android_test(TOML_EXTRACT_BYTES, fixture);
 
-    // Must emit the configured type's default constructor, not null.
     assert!(
         rendered.contains("ExtractionConfig()"),
         "must emit ExtractionConfig() for optional config arg with no value; got:\n{rendered}"
     );
 
-    // Must NOT pass null for the config parameter
     let lines: Vec<&str> = rendered
         .lines()
         .filter(|line| line.contains("SampleCrate.extractBytes(") || line.contains(".extractBytes("))
@@ -162,7 +160,6 @@ fn kotlin_android_optional_config_arg_with_value_uses_deserialized_config() {
     let fixture = make_extract_bytes_fixture("async_extract_bytes_with_config", true);
     let rendered = render_kotlin_android_test(TOML_EXTRACT_BYTES, fixture);
 
-    // Must read the config via MAPPER.readValue since it has a value in the fixture
     assert!(
         rendered.contains("MAPPER.readValue(") && rendered.contains("ExtractionConfig"),
         "must deserialize ExtractionConfig from fixture value; got:\n{rendered}"

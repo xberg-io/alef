@@ -55,10 +55,6 @@ pub(in crate::codegen::generators) fn gen_named_let_bindings_by_ref(
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let core_type_path = format!("{core_import}::{name}");
-                // A param that is required in core but follows an optional one is NOT promoted for
-                // extendr (R has no required-after-optional ordering constraint, and the signature
-                // keeps it as required `&T`). Only genuinely-optional params take the by-ref optional
-                // marshalling; everything else uses the simple `{name}.clone().into()` form.
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_by_ref_optional.jinja",
@@ -169,8 +165,6 @@ fn gen_named_let_bindings_inner(
                         minijinja::context! {
                             name => &p.name,
                             core_type_path => &core_type_path,
-                            // Mutable: core function expects &mut T, so the _core binding must
-                            // be declared mut to allow borrowing as mutable reference.
                             is_mut => p.is_mut,
                         },
                     )
@@ -180,8 +174,6 @@ fn gen_named_let_bindings_inner(
                         minijinja::context! {
                             name => &p.name,
                             core_type_path => &core_type_path,
-                            // Mutable: core function expects &mut T, so the _core binding must
-                            // be declared mut to allow borrowing as mutable reference.
                             is_mut => p.is_mut,
                         },
                     )
@@ -223,9 +215,6 @@ fn gen_named_let_bindings_inner(
                 bindings.push_str(&binding);
                 bindings.push_str("\n    ");
             }
-            // Vec<String> with is_ref=true: create a refs binding for call sites that
-            // need `&[&str]`; callers that only need `&[String]` may ignore it.
-            // Convert Vec<String> to Vec<&str> via intermediate binding.
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
@@ -245,7 +234,6 @@ fn gen_named_let_bindings_inner(
                 bindings.push_str(&binding);
                 bindings.push_str("\n    ");
             }
-            // Sanitized Vec<String> (originally Vec<tuple>): deserialize each JSON string.
             TypeRef::Vec(inner)
                 if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() =>
             {
@@ -287,9 +275,6 @@ fn gen_named_let_bindings_inner_augmented(
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let core_type_path = format!("{}::{}", core_import, name);
                 let binding = if is_augmented_optional {
-                    // Augmented: was non-optional in core, promoted to Option<T> in the binding
-                    // signature. Use promoted template so the let binding produces T (not Option<T>),
-                    // allowing the call-site to borrow it as &T.
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_promoted.jinja",
                         minijinja::context! {
@@ -419,9 +404,6 @@ pub fn gen_serde_let_bindings(
                         },
                     ));
                 } else if promoted {
-                    // Promoted-optional: param is required in core but wrapped in Option<T>
-                    // in the binding because an earlier param is optional. Use unwrap_or_default()
-                    // so JS callers can omit it (pass undefined/null) to get default behaviour.
                     bindings.push_str(&crate::codegen::template_env::render(
                         "binding_helpers/serde_named_let_binding_promoted.jinja",
                         minijinja::context! {
@@ -470,8 +452,6 @@ pub fn gen_serde_let_bindings(
                         }
                     }
                 } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
-                    // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuple items).
-                    // Deserialize each JSON string as a tuple using serde_json.
                     let template = if p.optional {
                         "binding_helpers/serde_sanitized_vec_string_optional.jinja"
                     } else {

@@ -153,7 +153,6 @@ mod tests {
 
     #[test]
     fn collect_cfg_feature_names_whitespace_normalisation() {
-        // proc_macro2::TokenStream::to_string inserts spaces around punctuation.
         let mut out = BTreeSet::new();
         collect_cfg_feature_names(r#"any (feature = "a" , feature = "b")"#, &mut out);
         let want: BTreeSet<String> = ["a", "b"].into_iter().map(String::from).collect();

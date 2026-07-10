@@ -61,22 +61,15 @@ impl Backend for WasmBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Collapse same-named cfg-variant functions into one canonical entry. The wasm-bindgen
         // wrapper delegates to the core crate (which resolves the cfg) and emits no `#[cfg]` gate,
         // so two same-named entries would otherwise produce duplicate `#[wasm_bindgen]` fns.
-        // Matches the FFI/pyo3/napi backends; see codegen::fn_dedup.
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
 
         let wasm_config = config.wasm.as_ref();
         let mut exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let mut exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
-        // Declared opaque types from `[workspace.opaque_types]` are external host-runtime
-        // references. When their `rust_path` carries generic parameters (e.g. `Arc<Mutex<dyn T>>`),
-        // the injected IR cannot model them, so wasm-bindgen can't wrap them — exclude those.
         // Simple newtype opaques (no generics in the path) DO wrap as `#[wasm_bindgen]` classes
-        // fine; leave them in so consumers with simple external handle types get a
-        // `WasmLanguage` wrapper struct emitted.
         exclude_types.extend(
             config
                 .opaque_types
@@ -84,9 +77,6 @@ impl Backend for WasmBackend {
                 .filter(|(_, path)| path.contains('<'))
                 .map(|(name, _)| name.clone()),
         );
-        // Content-union types opted into a display-text binding (crate-level
-        // `untagged_union_text_types`): map them to `String` so the binding struct stores and
-        // returns the display text instead of an opaque discriminant. Empty by default → no-op.
         let text_field_enum_names: AHashSet<String> = config.untagged_union_text_types.iter().cloned().collect();
         let mut type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
         for name in &text_field_enum_names {
@@ -97,7 +87,6 @@ impl Backend for WasmBackend {
         let env_shims = wasm_config.map(|c| c.env_shims.clone()).unwrap_or_default();
         let prefix = config.wasm_type_prefix();
 
-        // Auto-exclude types/functions/enums gated behind disabled features
         let enabled_features = config.features_for_language(Language::Wasm).to_vec();
         for typ in &api.types {
             if is_gated_behind_disabled_feature(&typ.cfg, &enabled_features) {
@@ -118,9 +107,6 @@ impl Backend for WasmBackend {
         let mapper = WasmMapper::new(type_overrides, prefix.clone());
         let core_import = config.core_import_for_language(Language::Wasm);
 
-        // Build source-crate remaps from config: each `source_crate_remaps` entry
-        // becomes `(original_crate_name_with_underscores, core_import)`. References
-        // to `<original>::T` in IR rust_paths are rewritten to `<core_import>::T`.
         let source_remap_pairs: Vec<(String, String)> = wasm_config
             .map(|c| c.source_crate_remaps.clone())
             .unwrap_or_default()
@@ -131,24 +117,15 @@ impl Backend for WasmBackend {
             .iter()
             .map(|(o, n)| (o.as_str(), n.as_str()))
             .collect();
-        // Crates whose types should be auto-skipped: source crates that aren't
-        // available as deps (excluded via `exclude_extra_dependencies`) and aren't
-        // remapped to the override. Generated code referencing these would fail
-        // to resolve because the crate isn't in the binding's Cargo deps.
         let dropped_crates: AHashSet<String> = wasm_config
             .map(|c| c.exclude_extra_dependencies.clone())
             .unwrap_or_default()
             .into_iter()
             .map(|name| name.replace('-', "_"))
             .filter(|underscored| {
-                // Keep if it's the core_import (already a dep via override) or remapped
                 underscored != &core_import && !source_remap_pairs.iter().any(|(orig, _)| orig == underscored)
             })
             .collect();
-        // Auto-exclude types whose source crate is in `dropped_crates`. The IR's
-        // `rust_path` starts with the source crate name; if that name is in the
-        // dropped set, alef cannot generate working bindings for the type
-        // (the From impl would reference a crate not in the dep tree).
         for typ in &api.types {
             let crate_seg = typ.rust_path.split("::").next().unwrap_or("").replace('-', "_");
             if dropped_crates.contains(&crate_seg) && !exclude_types.contains(&typ.name) {
@@ -167,7 +144,6 @@ impl Backend for WasmBackend {
                 exclude_functions.push(func.name.clone());
             }
         }
-        // Errors mirror types — skip those whose source crate isn't in the dep tree.
         let dropped_error_names: Vec<String> = api
             .errors
             .iter()
@@ -183,14 +159,8 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Apply per-type field exclusions: any field listed in `[wasm].exclude_fields`
         // is treated as if it were `#[cfg]`-gated, so the binding struct omits it and
-        // the From impl uses `..Default::default()` to fill it.
         let exclude_fields_map = wasm_config.map(|c| c.exclude_fields.clone()).unwrap_or_default();
-        // Build a fresh ApiSurface clone with exclude_fields applied: each field in
-        // the exclude list gets `cfg: Some("excluded_via_alef_toml")` so all
-        // downstream cfg-skip code paths (binding struct gen, From impls, builder
-        // patterns) treat it as native-only and emit ..Default::default() on wasm.
         let api_owned;
         let api: &ApiSurface = if exclude_fields_map.is_empty() {
             api
@@ -213,8 +183,6 @@ impl Backend for WasmBackend {
         let cfg_filtered_api = filter_cfg_fields_for_features(api, &enabled_features);
         let api = &cfg_filtered_api;
 
-        // Note: custom modules and registrations handled below after builder creation
-
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute(
             "allow(dead_code, unused_imports, unused_variables, unreachable_patterns, missing_docs)",
@@ -228,9 +196,6 @@ impl Backend for WasmBackend {
         }
         builder.add_import("wasm_bindgen::prelude::*");
 
-        // Hand-written Rust modules: declare `pub mod <name>;` at the top of lib.rs
-        // and re-export with `pub use <name>::*;`. Source files for these modules
-        // must exist in `crates/<name>-wasm/src/<name>.rs` and are not managed by alef.
         if let Some(modules) = wasm_config.map(|c| c.custom_rust_modules.as_slice()) {
             for module in modules {
                 builder.add_item(&format!("pub mod {module};"));
@@ -238,26 +203,16 @@ impl Backend for WasmBackend {
             }
         }
 
-        // js_sys items are always referenced with full paths (js_sys::Object, js_sys::Reflect, etc.)
         // so no explicit `use js_sys;` import is needed (clippy::single_component_path_imports).
 
-        // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {
             builder.add_import(&trait_path);
         }
 
-        // Note: HashMap is intentionally not imported here.
-        // The WasmMapper always converts Map types to JsValue (wasm-bindgen cannot
-        // pass HashMap<K, V> across the JS boundary), so HashMap is never referenced
-        // in the generated WASM binding code.
-
-        // Emit environment shims for C external scanner interop (e.g. iswspace, iswalnum).
-        // Only shims whose names appear in env_shims are emitted.
         if !env_shims.is_empty() {
             builder.add_item(&gen_env_shims(&env_shims));
         }
 
-        // Check if we have opaque types and add Arc import if needed
         let opaque_types: AHashSet<String> = api
             .types
             .iter()
@@ -277,10 +232,6 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Trait bridge type aliases (e.g. `VisitorHandle`) are opaque — they map to
-        // `Arc<core::VisitorHandle>` in the binding layer and must not attempt From/Into
-        // conversion in generated From impls.  Include them so struct fields referencing
-        // these types use Default::default() instead of val.visitor.map(Into::into).
         let bridge_type_aliases: AHashSet<String> = config
             .trait_bridges
             .iter()
@@ -290,14 +241,8 @@ impl Backend for WasmBackend {
         opaque_names_vec.extend(bridge_type_aliases.iter().cloned());
         let opaque_names_set: AHashSet<String> = opaque_names_vec.iter().cloned().collect();
 
-        // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Wasm)?;
 
-        // Map "OwnerType.method" -> streaming item type. The wasm backend needs to
-        // override the IR-declared return type with the iterator struct name
-        // for streaming adapters, since the generated body returns an iterator instance.
-        // Exclude adapters that have "wasm" in skip_languages — those methods fall back
-        // to the unimplemented-body path and must not receive an iterator return type.
         let streaming_item_types: ahash::AHashMap<String, String> = config
             .adapters
             .iter()
@@ -310,11 +255,6 @@ impl Backend for WasmBackend {
             })
             .collect();
 
-        // Build the set of "OwnerType.method" keys for streaming adapters that are
-        // explicitly skipped for WASM via skip_languages. The WASM backend must omit
-        // these methods entirely — not emit unimplemented stubs — because their
-        // parameter types (e.g. WasmCrawlStreamRequest) are only generated by the
-        // streaming adapter body path and will be missing when the adapter is skipped.
         let wasm_skipped_methods: AHashSet<String> = config
             .adapters
             .iter()
@@ -326,7 +266,6 @@ impl Backend for WasmBackend {
             })
             .collect();
 
-        // Emit adapter-generated standalone items (streaming iterators, callback bridges).
         for adapter in &config.adapters {
             match adapter.pattern {
                 crate::core::config::AdapterPattern::Streaming => {
@@ -349,10 +288,7 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Service-API glue lives in the generated `service.rs`; declare it so its
         // `#[wasm_bindgen]` entrypoints (e.g. `app_run`) are compiled and exported.
-        // Only emit the module declaration when at least one service is NOT skipped
-        // for the wasm backend via its `skip_languages` config entry.
         let has_wasm_services = api.services.iter().any(|svc| {
             !config
                 .services
@@ -363,9 +299,6 @@ impl Backend for WasmBackend {
             builder.add_item("pub mod service;");
         }
 
-        // Collect tagged-data enum names once for use in struct generation and conversions.
-        // These are enums with a serde tag *and* at least one data variant — they are emitted
-        // as wasm-bindgen structs with `JsValue` storage for fields that are Vec<TaggedEnum>.
         let tagged_data_enum_names: AHashSet<String> = api
             .enums
             .iter()
@@ -373,9 +306,6 @@ impl Backend for WasmBackend {
             .map(|e| e.name.clone())
             .collect();
 
-        // Enums exposed to struct-method generation, excluding text-field content unions: those are
-        // stored as `String` in the binding, so the getter/setter must treat their fields as plain
-        // strings rather than taking the unit-enum `to_api_str()` path.
         let methods_enums: Vec<_> = api
             .enums
             .iter()
@@ -383,10 +313,6 @@ impl Backend for WasmBackend {
             .cloned()
             .collect();
 
-        // Compute the core→binding convertible set before the struct loop so we can
-        // pass `is_core_to_binding_convertible` into gen_struct for each type.
-        // Pass `exclude_types` so fields whose type is excluded from the wasm surface
-        // are not counted against the parent type's convertibility.
         let core_to_binding_convertible_for_structs =
             crate::codegen::conversions::core_to_binding_convertible_types(api, &exclude_types);
 
@@ -423,7 +349,6 @@ impl Backend for WasmBackend {
             } else {
                 let is_core_to_binding_convertible = core_to_binding_convertible_for_structs.contains(&typ.name);
                 // gen_struct gates #[derive(Default)] and the delegating Default impl on
-                // is_core_to_binding_convertible; see types.rs for the exact logic.
                 builder.add_item(&gen_struct(
                     typ,
                     &mapper,
@@ -454,9 +379,6 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Pre-compute all input DTOs needed across all functions to avoid duplicate emissions.
-        // Collect all config-like types used as parameters across functions, generate each once,
-        // then mark them as already-emitted so gen_function_with_emitted_dtos() skips them.
         let mut emitted_input_dtos = AHashSet::new();
         let mut input_dto_code = String::new();
 
@@ -511,15 +433,12 @@ impl Backend for WasmBackend {
 
         for func in &api.functions {
             if !exclude_functions.contains(&func.name) {
-                // clear_fn functions are emitted inside the bridge module and glob-re-exported;
-                // emitting them again here would produce duplicate wasm-bindgen symbol names.
                 if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(
                     &func.name,
                     &config.trait_bridges,
                 ) {
                     continue;
                 }
-                // Skip functions whose signature references excluded types
                 let refs_excluded = func
                     .params
                     .iter()
@@ -529,18 +448,21 @@ impl Backend for WasmBackend {
                     continue;
                 }
                 let bridge_param = crate::backends::wasm::trait_bridge::find_bridge_param(func, &config.trait_bridges);
-                let options_field_bridge = crate::backends::wasm::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
-                    // Only use the options-field path when the bridge field actually survives
-                    // into the binding struct.
-                    .filter(|(_, bridge_cfg)| {
-                        let Some(field_name) = bridge_cfg.resolved_options_field() else { return false; };
-                        let Some(options_type) = bridge_cfg.options_type.as_deref() else { return false; };
-                        api.types
-                            .iter()
-                            .filter(|t| t.name == options_type)
-                            .flat_map(|t| t.fields.iter())
-                            .any(|f| f.cfg.is_none() && f.name == field_name)
-                    });
+                let options_field_bridge =
+                    crate::backends::wasm::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
+                        .filter(|(_, bridge_cfg)| {
+                            let Some(field_name) = bridge_cfg.resolved_options_field() else {
+                                return false;
+                            };
+                            let Some(options_type) = bridge_cfg.options_type.as_deref() else {
+                                return false;
+                            };
+                            api.types
+                                .iter()
+                                .filter(|t| t.name == options_type)
+                                .flat_map(|t| t.fields.iter())
+                                .any(|f| f.cfg.is_none() && f.name == field_name)
+                        });
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     let item = crate::backends::wasm::trait_bridge::gen_bridge_function(
                         api,
@@ -584,7 +506,6 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Trait bridge wrappers — generate WASM bridge structs that delegate to JS objects
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
                 let bridge = crate::backends::wasm::trait_bridge::gen_trait_bridge(
@@ -602,10 +523,6 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Trait-bridge fields whose binding-side wrapper holds `inner: Arc<core::T>`
-        // (every OptionsField-style bridge in alef follows this convention). Used by
-        // `binding_to_core` to emit `val.{f}.map(|v| (*v.inner).clone())` instead of
-        // `Default::default()` so the JS visitor handle survives `.into()`.
         let trait_bridge_arc_wrapper_field_names: Vec<String> = config
             .trait_bridges
             .iter()
@@ -619,17 +536,12 @@ impl Backend for WasmBackend {
             optionalize_defaults: false,
             exclude_types: &exclude_types,
             source_crate_remaps: &source_remaps_borrowed,
-            // Treat bridge type aliases (e.g. VisitorHandle) as opaque so binding→core
-            // From impls emit Default::default() instead of val.visitor.map(Into::into),
-            // unless the field is in `trait_bridge_arc_wrapper_field_names` (then it gets
-            // proper Arc-dereferencing forwarding).
             opaque_types: if opaque_names_set.is_empty() {
                 None
             } else {
                 Some(&opaque_names_set)
             },
             trait_bridge_arc_wrapper_field_names: &trait_bridge_arc_wrapper_field_names,
-            // Vec<TaggedDataEnum> fields are stored as JsValue; conversions use serde_wasm_bindgen.
             tagged_data_enum_names: if tagged_data_enum_names.is_empty() {
                 None
             } else {
@@ -646,7 +558,6 @@ impl Backend for WasmBackend {
         let core_to_binding_convertible =
             crate::codegen::conversions::core_to_binding_convertible_types(api, &exclude_types);
         let input_types = crate::codegen::conversions::input_type_names(api);
-        // From/Into conversions using shared parameterized generators
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if exclude_types.contains(&typ.name) {
                 continue;
@@ -654,7 +565,6 @@ impl Backend for WasmBackend {
             let is_strict = crate::codegen::conversions::can_generate_conversion(typ, &convertible);
             let is_relaxed = crate::codegen::conversions::can_generate_conversion(typ, &core_to_binding_convertible);
             if is_strict {
-                // Both directions
                 if input_types.contains(&typ.name) {
                     builder.add_item(&crate::codegen::conversions::gen_from_binding_to_core_cfg(
                         typ,
@@ -669,7 +579,6 @@ impl Backend for WasmBackend {
                     &wasm_conv_config,
                 ));
             } else if is_relaxed {
-                // Only core→binding (sanitized fields prevent binding→core)
                 builder.add_item(&crate::codegen::conversions::gen_from_core_to_binding_cfg(
                     typ,
                     &core_import,
@@ -681,10 +590,6 @@ impl Backend for WasmBackend {
         for e in &api.enums {
             if !exclude_types.contains(&e.name) {
                 if enums::is_tagged_data_enum(e) {
-                    // Tagged data enums emit as a flat wasm-bindgen struct (see
-                    // `gen_tagged_enum_as_struct`); their From/Into impls match on the
-                    // string discriminator field instead of the destination enum variants
-                    // produced by the generic enum-conversion templates.
                     if input_types.contains(&e.name) {
                         builder.add_item(&enums::gen_tagged_enum_binding_to_core(e, &core_import, &prefix));
                     }
@@ -708,9 +613,6 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Error converter functions (skip excluded errors).
-        // When an error declares whitelisted introspection methods, also emit an opaque
-        // WASM struct + impl block so JS/TS callers can inspect the error object.
         for error in &api.errors {
             if exclude_types.contains(&error.name) {
                 continue;
@@ -724,12 +626,6 @@ impl Backend for WasmBackend {
 
         let mut content = builder.build();
 
-        // Post-process generated code to fix bridge type builder methods.
-        // Builder methods on has_default types with opaque bridge parameters
-        // (e.g., visitor: WasmVisitorHandle) should not attempt to access .inner,
-        // as there is no From impl from Arc<VisitorHandle> to the core visitor type.
-        // Replace patterns like .visitor(visitor.as_ref().map(|v| &v.inner))
-        // with .visitor(None) to skip setting the visitor on the core builder.
         for bridge in &config.trait_bridges {
             if let Some(field_name) = bridge.resolved_options_field() {
                 let param_name = bridge.param_name.as_deref().unwrap_or(field_name);
@@ -739,9 +635,6 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Fix From<Wasm*> impls to pass through the bridge field instead of Default::default().
-        // Post-process every From<Wasm{options_type}{variant}> impl whose bridge is bound via
-        // options_field, replacing `{field_name}: Default::default()` with the proper pass-through.
         for bridge in &config.trait_bridges {
             if bridge.bind_via != crate::core::config::BridgeBinding::OptionsField {
                 continue;
@@ -758,12 +651,10 @@ impl Backend for WasmBackend {
                 if !content.contains(&impl_header) {
                     continue;
                 }
-                // Try multiple indentation patterns (tabs or spaces)
-                // Most commonly 12 spaces (3 indent levels) in generated code
                 let patterns = &[
-                    ("            ", "\n            "), // 12 spaces
-                    ("        ", "\n        "),         // 8 spaces
-                    ("  ", "\n  "),                     // 2 spaces
+                    ("            ", "\n            "),
+                    ("        ", "\n        "),
+                    ("  ", "\n  "),
                 ];
                 for (indent, newline_indent) in patterns {
                     let old_pattern =

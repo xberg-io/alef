@@ -63,7 +63,6 @@ fn render_kotlin_smoke(toml: &str, fixture_id: &str) -> String {
     let files = KotlinE2eCodegen
         .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
-    // Find the smoke test file (not the build.gradle.kts).
     files
         .iter()
         .find(|f| {

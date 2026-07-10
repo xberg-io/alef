@@ -109,8 +109,6 @@ fn brew_emits_skip_comment_for_unsupported_in_call() {
 
     let content = &test_file.content;
 
-    // The fixture should be routed to interact, which is unsupported_in brew.
-    // Verify the skip comment appears in the test function.
     assert!(
         content.contains("# SKIP [brew unsupported]"),
         "skip comment with [brew unsupported] marker must appear. Content:\n{content}"
@@ -121,13 +119,11 @@ fn brew_emits_skip_comment_for_unsupported_in_call() {
         "skip comment must include the documented reason. Content:\n{content}"
     );
 
-    // Verify the test function returns early with status 0 (success).
     assert!(
         content.contains("return 0"),
         "skip comment must be followed by 'return 0' so the test passes. Content:\n{content}"
     );
 
-    // Verify the test function is still defined (not omitted).
     assert!(
         content.contains("test_interact_click()"),
         "test function must still be defined (not silently omitted). Content:\n{content}"

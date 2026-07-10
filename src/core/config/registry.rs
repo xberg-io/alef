@@ -137,7 +137,6 @@ mod tests {
 
     #[test]
     fn normalizes_hyphen_query_against_hyphen_package() {
-        // query with underscore, package name with hyphen
         let json = fake_metadata_json(&[(
             "my-crate",
             "/home/user/.cargo/registry/src/index.crates.io-abc/my-crate-1.0.0/Cargo.toml",
@@ -151,7 +150,6 @@ mod tests {
 
     #[test]
     fn normalizes_underscore_query_against_underscore_package() {
-        // query with hyphen, package name with underscore
         let json = fake_metadata_json(&[(
             "my_crate",
             "/home/user/.cargo/registry/src/index.crates.io-abc/my_crate-1.0.0/Cargo.toml",

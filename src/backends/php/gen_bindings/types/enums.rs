@@ -16,7 +16,6 @@ pub(crate) fn gen_enum_constants(enum_def: &EnumDef, php_namespace: Option<&str>
     // Emit the #[php_class] decorator with optional namespace.
     // ext-php-rs 0.15+ removed `#[php_class(name = "...")]` / `(namespace = "...")`;
     // namespace must use the two-attribute form `#[php_class]` + `#[php(name = "Ns\\ClassName")]`.
-    // Backslashes in the namespace must be escaped in the generated Rust string literal.
     if let Some(ns) = php_namespace {
         let ns_escaped = ns.replace('\\', "\\\\");
         lines.push("#[php_class]".to_string());
@@ -25,7 +24,6 @@ pub(crate) fn gen_enum_constants(enum_def: &EnumDef, php_namespace: Option<&str>
         lines.push("#[php_class]".to_string());
     }
 
-    // Emit the PHP class struct (with no fields — exists only for constants).
     lines.push(format!("pub struct {} {{}}", enum_def.name));
     lines.push(String::new());
 
@@ -186,7 +184,6 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
             enum_name => &enum_def.name,
         },
     ));
-    // Discriminator field
     out.push_str(&crate::backends::php::template_env::render(
         "php_flat_enum_tag_field.jinja",
         minijinja::context! {
@@ -194,20 +191,12 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
         },
     ));
 
-    // Collect all unique flat fields across variants, all made Optional.
-    // For tuple variants each positional field gets a per-variant name so that
-    // `System(_0: SystemMessage)` and `User(_0: UserMessage)` produce distinct
-    // fields `system: Option<SystemMessage>` and `user: Option<UserMessage>`.
-    // For struct variants the original field name is used (shared across variants).
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for variant in &enum_def.variants {
         for (idx, field) in variant.fields.iter().enumerate() {
             let flat_name = flat_field_name(variant, idx);
             if seen.insert(flat_name.clone()) {
                 let mapped = mapper.map_type(&field.ty).to_string();
-                // All variant fields become Option in the flat struct. If the core
-                // field is already optional (field.optional == true), the mapped type
-                // is the inner type and we still wrap it in Option.
                 let field_ty = format!("Option<{mapped}>");
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_flat_enum_option_field.jinja",
@@ -243,7 +232,6 @@ pub(crate) fn gen_flat_data_enum_methods(
     let mut impl_builder = ImplBuilder::new(&enum_def.name);
     impl_builder.add_attr("php_impl");
 
-    // from_json constructor so PHP can construct the value.
     let from_json = "#[php(name = \"from_json\")]\npub fn from_json(json: String) -> PhpResult<Self> {\n    \
         serde_json::from_str(&json)\n        \
         .map_err(|e| PhpException::default(e.to_string()))\n\
@@ -251,7 +239,6 @@ pub(crate) fn gen_flat_data_enum_methods(
     .to_string();
     impl_builder.add_method(&from_json);
 
-    // Per-variant constructors — `Shape::circle($radius)` rather than a hand-built `from_json` blob.
     for ctor in gen_flat_data_enum_variant_constructors(
         enum_def,
         mapper,
@@ -263,7 +250,6 @@ pub(crate) fn gen_flat_data_enum_methods(
         impl_builder.add_method(&ctor);
     }
 
-    // Getter for the tag discriminator field
     let tag_getter =
         format!("#[php(getter)]\npub fn get_{tag_field}_tag(&self) -> String {{\n    self.{tag_field}_tag.clone()\n}}");
     impl_builder.add_method(&tag_getter);
@@ -274,9 +260,7 @@ pub(crate) fn gen_flat_data_enum_methods(
             let flat_name = flat_field_name(variant, idx);
             if seen.insert(flat_name.clone()) {
                 let mapped = mapper.map_type(&field.ty).to_string();
-                // Getter returns Option<T> for every variant field (all are optional in flat struct).
                 let field_ty = format!("Option<{mapped}>");
-                // For Copy types (Option<primitive>), omit `.clone()` to avoid clone_on_copy.
                 let body_expr = if is_php_copy_type(&field.ty) {
                     format!("self.{flat_name}")
                 } else {
@@ -313,8 +297,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
     let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = &enum_def.name;
 
-    // Pre-compute the complete set of flat struct field names (excluding the tag discriminator).
-    // This lets us detect when a variant covers ALL fields so we can omit `..Default::default()`.
     let all_flat_fields: std::collections::BTreeSet<String> = {
         let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for variant in &enum_def.variants {
@@ -327,11 +309,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
 
     let mut out = String::new();
 
-    // --- core → binding ---
-    // Converts a core enum value to the flat PHP binding struct.
-    // Destructuring patterns for boxed fields use the raw IR name (e.g. `_0`);
-    // sanitized fields are excluded from the pattern (bound with `_`-prefixed name),
-    // Path fields are converted via `to_string_lossy()`, Usize/U64/Isize are cast to i64.
     out.push_str(&crate::backends::php::template_env::render(
         "php_flat_enum_impl_from_start.jinja",
         minijinja::context! {
@@ -342,8 +319,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
     for variant in &enum_def.variants {
         let tag_val = variant_tag_value(variant, enum_def);
         if variant.fields.is_empty() {
-            // No variant fields: only the tag is set; all Option fields default to None.
-            // `..Default::default()` is only needed when the struct has other fields.
             out.push_str(&crate::backends::php::template_env::render(
                 "php_flat_enum_variant_match_empty.jinja",
                 minijinja::context! {
@@ -356,13 +331,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             ));
         } else {
             let is_tuple = crate::codegen::conversions::is_tuple_variant(&variant.fields);
-            // Build destructuring pattern.
-            // - Tuple variants: positional names (IR names like `_0`, `_1`); sanitized fields
-            //   use a discard binding with a leading underscore prefix (e.g. `__0`).
-            // - Struct variants: `field` or `field: _field` for sanitized fields (the `_` prefix
-            //   suppresses the "unused variable" warning while keeping Rust happy that the field
-            //   is mentioned in the pattern — `_field` can't be used in the pattern directly for
-            //   struct variants).
             let pattern = if is_tuple {
                 let names: Vec<String> = variant
                     .fields
@@ -382,7 +350,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                     .iter()
                     .map(|f| {
                         if f.sanitized {
-                            // `field_name: _field_name` — Rust ignores the value but accepts the pattern.
                             format!("{}: _{}", f.name, f.name)
                         } else {
                             f.name.clone()
@@ -406,16 +373,11 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             ));
             for (idx, f) in variant.fields.iter().enumerate() {
                 let flat_name = flat_field_name(variant, idx);
-                // The destructuring variable name:
-                // - tuple variants: sanitized fields use `_`-prefixed IR name.
-                // - struct variants: sanitized fields use `_`-prefixed field name (from pattern above).
-                // - non-sanitized: use the plain field name.
                 let bound_var = if f.sanitized {
                     format!("_{}", f.name)
                 } else {
                     f.name.clone()
                 };
-                // f.optional means the core field is Option<T>; binding is always Option<T>.
                 let expr = flat_enum_core_to_binding_field_expr(f, &bound_var);
                 out.push_str(&crate::backends::php::template_env::render(
                     "php_flat_enum_variant_field.jinja",
@@ -425,7 +387,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                     },
                 ));
             }
-            // Omit `..Default::default()` when this variant's fields cover every flat struct
             // field — the struct update would have no effect and triggers `clippy::needless_update`.
             let variant_flat_names: std::collections::BTreeSet<String> =
                 (0..variant.fields.len()).map(|i| flat_field_name(variant, i)).collect();
@@ -438,8 +399,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
     }
     // When the IR has excluded variants (e.g. cfg-gated variants with #[alef(skip)] or
     // #[doc(hidden)]), the Rust compiler sees those variants at compile time but the generated
-    // match arms don't cover them, making the match non-exhaustive. Emit a wildcard arm so the
-    // match is always exhaustive regardless of which feature flags are active.
     if !enum_def.excluded_variants.is_empty() {
         out.push_str("            _ => Default::default(),\n");
     }
@@ -448,9 +407,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
         minijinja::Value::default(),
     ));
 
-    // --- binding → core: match on the tag field to reconstruct the correct variant ---
-    // We use tag-value matching rather than serde round-trip to avoid serde field rename
-    // mismatches between the flat struct (uses Rust snake_case names) and the core type
     // (may have #[serde(rename = "camelCase")] on individual variant fields).
     out.push_str(&crate::backends::php::template_env::render(
         "php_flat_enum_impl_into_start.jinja",
@@ -480,7 +436,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             };
             out.push_str(&pattern_start);
             if is_tuple {
-                // Tuple variant: positional syntax uses `, ` separators.
                 let exprs: Vec<String> = variant
                     .fields
                     .iter()
@@ -495,7 +450,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                 ));
                 out.push_str(" ),\n");
             } else {
-                // Struct variant: `field_name: <expr>,` for each field.
                 for (idx, f) in variant.fields.iter().enumerate() {
                     let flat_name = flat_field_name(variant, idx);
                     let expr = flat_enum_binding_to_core_field_expr(f, &flat_name);
@@ -511,12 +465,8 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             }
         }
     }
-    // The conversion matches on the tag discriminator `&str`, which is never exhaustively
-    // coverable — a wildcard arm is ALWAYS required. Its body depends on whether the core
     // enum has a visible `Default` impl (a variant with `#[default]`): delegate to
-    // `<CorePath>::default()` when present, otherwise fail loudly. When the core type's
     // `impl Default` is marked `#[cfg_attr(alef, alef(skip))]` it is invisible to Alef's IR,
-    // so `core_has_default` is false and we must emit a non-`Default` wildcard arm.
     let core_has_default = enum_def.variants.iter().any(|v| v.is_default);
     if core_has_default {
         out.push_str(&crate::backends::php::template_env::render(
@@ -526,9 +476,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             },
         ));
     } else {
-        // No visible `Default`: the binding only ever emits known tags, so an unrecognised
-        // tag is unreachable by construction. Emit a panicking wildcard so the `&str` match
-        // stays exhaustive without calling a non-existent `Default` impl.
         out.push_str(
             "            _ => unreachable!(\"unrecognised tag for flat enum, not constructible from PHP\"),\n",
         );
@@ -538,8 +485,6 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
         minijinja::Value::default(),
     ));
 
-    // Suppress the unused import warning that would appear when TypeRef/PrimitiveType
-    // are only referenced inside the helper closures above (Rust may not see the use).
     let _ = TypeRef::Unit;
     let _ = PrimitiveType::Bool;
 
@@ -558,16 +503,13 @@ fn flat_enum_core_to_binding_field_expr(f: &crate::core::ir::FieldDef, bound_var
     use crate::core::ir::{PrimitiveType, TypeRef};
 
     if f.sanitized {
-        // Sanitized fields have an unknown/complex core type; we can't produce a PHP value.
         return "None".to_string();
     }
 
-    // Helper: produce `Some(<inner>)` from a raw owned expression.
     let wrap_some = |inner: String| -> String { format!("Some({inner})") };
 
     match &f.ty {
         TypeRef::Path => {
-            // PathBuf → String via to_string_lossy
             if f.optional {
                 format!("{bound_var}.map(|p| p.to_string_lossy().into_owned())")
             } else {
@@ -582,21 +524,16 @@ fn flat_enum_core_to_binding_field_expr(f: &crate::core::ir::FieldDef, bound_var
             }
         }
         TypeRef::Named(_) if f.is_boxed => {
-            // Boxed Named: unbox then convert.
             if f.optional {
                 format!("{bound_var}.map(|v| (*v).into())")
             } else {
                 wrap_some(format!("(*{bound_var}).into()"))
             }
         }
-        // Primitives that map to the same type in PHP (all except u64/usize/isize which map
-        // to i64) and String: binding type == core type, no conversion needed.
         TypeRef::Primitive(_) | TypeRef::String => {
             if f.optional {
-                // Core field is Option<T>, binding field is Option<T>: pass through directly.
                 bound_var.to_string()
             } else {
-                // Core field is T, binding field is Option<T>: wrap in Some.
                 wrap_some(bound_var.to_string())
             }
         }
@@ -657,10 +594,7 @@ fn flat_enum_binding_to_core_field_expr(f: &crate::core::ir::FieldDef, flat_name
                 format!("val.{flat_name}.map(|v| v as {core_ty}).unwrap_or_default()")
             }
         }
-        // Primitives that map to the same type in PHP (all except u64/usize/isize) and
-        // String: binding type == core type, no conversion needed.
         TypeRef::Primitive(_) | TypeRef::String => {
-            // Binding field is Option<T>; unwrap for non-optional core fields.
             if f.optional {
                 format!("val.{flat_name}")
             } else {
@@ -728,28 +662,14 @@ pub(crate) fn gen_flat_data_enum_variant_constructors(
     let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
     let mutex_types: AHashSet<String> = AHashSet::new();
 
-    // `collect_variant_constructors` decides which variants qualify (skip rules + hand-written
-    // suppression); look the EnumVariant back up by name to read its concrete fields.
     let qualifying = collect_variant_constructors(enum_def);
     qualifying
         .iter()
         .filter_map(|ctor| {
             let variant = enum_def.variants.iter().find(|v| v.name == ctor.variant_name)?;
 
-            // Constructor params: each variant field as its PHP binding type. Reuse the shared
-            // function-param machinery so refs / enum-as-String / Vec handling stay consistent with
-            // the rest of the PHP backend.
             let params = gen_php_function_params(&ctor.params, mapper, opaque_types, bridge_type_aliases);
 
-            // Build the CORE variant struct literal, pairing each field with its converted expression
-            // (the same per-param machinery method bodies use). Core field names are the original Rust
-            // names; the expressions reference the camelCase PHP params / `_core` let-bindings.
-            //
-            // A plain (non-`Vec`) non-opaque Named field converts inline with `.clone().into()` in the
-            // struct literal instead of via a typed `let <name>_core: <core_import>::<Type>` binding.
-            // The literal gives type inference its target, so the core type path is never named —
-            // non-re-exported core types (`some_crate::submodule::SomeType`) work unchanged. Only
-            // params that still require a let binding (fallible `Vec<struct>` decode, etc.) keep it.
             let inline = |p: &crate::core::ir::ParamDef| -> Option<String> {
                 match &p.ty {
                     TypeRef::Named(name)
@@ -776,9 +696,6 @@ pub(crate) fn gen_flat_data_enum_variant_constructors(
                 .enumerate()
                 .map(|(idx, (p, expr))| {
                     let value = inline(p).unwrap_or(expr);
-                    // Box<T>/Option<Box<T>> core field: wrap the converted value so the core variant
-                    // literal type-checks (there is no `From<Binding> for Box<Core>`). Mirrors
-                    // `flat_enum_binding_to_core_field_expr` and the shared `variant_field_init`.
                     let value = if ctor.boxed[idx] {
                         if p.optional {
                             format!("{value}.map(Box::new)")
@@ -793,8 +710,6 @@ pub(crate) fn gen_flat_data_enum_variant_constructors(
                 .collect();
             let core_variant = format!("{core_path}::{} {{ {} }}", variant.name, field_inits.join(", "));
 
-            // A `Vec<NamedStruct>` field decodes element-by-element and can `return Err`, which forces
-            // the whole constructor to return `PhpResult<Self>`.
             let fallible = ctor
                 .params
                 .iter()

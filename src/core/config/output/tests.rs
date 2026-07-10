@@ -221,7 +221,6 @@ fn test_config_all_optional() {
 
 #[test]
 fn full_alef_toml_with_lint_and_update() {
-    // Parse via WorkspaceConfig (new schema) — lint/update maps live there.
     let toml_str = r#"
 languages = ["python", "node"]
 
@@ -344,7 +343,6 @@ update = "cargo update"
 
 #[test]
 fn full_alef_toml_with_precondition_and_before_across_sections() {
-    // Parse via WorkspaceConfig (new schema).
     let toml_str = r#"
 languages = ["go", "python"]
 
@@ -386,7 +384,6 @@ clean = "cd packages/go && go clean -cache"
 "#;
     let cfg: super::super::workspace::WorkspaceConfig = toml::from_str(toml_str).unwrap();
 
-    // lint.go: precondition and before set
     let go_lint = cfg.lint.get("go").unwrap();
     assert_eq!(
         go_lint.precondition.as_deref(),
@@ -401,7 +398,6 @@ clean = "cd packages/go && go clean -cache"
     assert!(go_lint.format.is_some());
     assert!(go_lint.check.is_some());
 
-    // lint.python: no precondition or before
     let py_lint = cfg.lint.get("python").unwrap();
     assert!(
         py_lint.precondition.is_none(),
@@ -409,7 +405,6 @@ clean = "cd packages/go && go clean -cache"
     );
     assert!(py_lint.before.is_none(), "lint.python should have no before");
 
-    // test.go: precondition and multi-command before
     let go_test = cfg.test.get("go").unwrap();
     assert_eq!(
         go_test.precondition.as_deref(),
@@ -425,7 +420,6 @@ clean = "cd packages/go && go clean -cache"
         "test.go before list should be preserved"
     );
 
-    // build_commands.go: precondition and before
     let go_build = cfg.build_commands.get("go").unwrap();
     assert_eq!(
         go_build.precondition.as_deref(),
@@ -438,7 +432,6 @@ clean = "cd packages/go && go clean -cache"
         "build_commands.go before should be preserved"
     );
 
-    // update.go: precondition only, no before
     let go_update = cfg.update.get("go").unwrap();
     assert_eq!(
         go_update.precondition.as_deref(),
@@ -447,7 +440,6 @@ clean = "cd packages/go && go clean -cache"
     );
     assert!(go_update.before.is_none(), "update.go before should be None");
 
-    // setup.python: precondition only
     let py_setup = cfg.setup.get("python").unwrap();
     assert_eq!(
         py_setup.precondition.as_deref(),
@@ -456,7 +448,6 @@ clean = "cd packages/go && go clean -cache"
     );
     assert!(py_setup.before.is_none(), "setup.python before should be None");
 
-    // clean.go: before only, no precondition
     let go_clean = cfg.clean.get("go").unwrap();
     assert!(go_clean.precondition.is_none(), "clean.go precondition should be None");
     assert_eq!(
@@ -570,7 +561,6 @@ fn resolve_rejects_crate_name_with_nul_byte() {
 #[test]
 #[should_panic(expected = "would escape the project root")]
 fn resolve_rejects_template_that_produces_parent_dir() {
-    // A malicious template that uses .. directly.
     let tmpl = OutputTemplate {
         python: Some("../../etc/{crate}".to_string()),
         ..Default::default()

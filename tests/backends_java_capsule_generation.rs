@@ -62,7 +62,6 @@ fn facade_content(files: &[alef::core::backend::GeneratedFile]) -> String {
     if let Some(f) = file {
         f.content.clone()
     } else {
-        // Debug: list all generated files
         let mut debug_msg = String::from("facade class containing getLanguage not found\nGenerated files:\n");
         for f in files {
             debug_msg.push_str(&format!("  {}\n", f.path.display()));
@@ -107,7 +106,6 @@ construct_expr = "new io.github.treesitter.jtreesitter.Language({ptr})"
         content.contains("io.github.treesitter.jtreesitter.Language getLanguage"),
         "facade should declare the host capsule return type. Content:\n{content}"
     );
-    // The buggy form declared the package-local opaque handle as the return type.
     assert!(
         !content.contains("static Language getLanguage"),
         "facade must not declare the opaque local Language as the return type. Content:\n{content}"

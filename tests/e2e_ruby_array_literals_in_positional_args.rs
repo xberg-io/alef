@@ -94,7 +94,6 @@ fn ruby_array_literals_render_elements() {
 
     let body = &spec_file.content;
 
-    // Check that array elements are present, not just an empty array
     assert!(
         body.contains("\"First\"") || body.contains("'First'"),
         "array should contain 'First' element, got:\n{body}"
@@ -104,7 +103,6 @@ fn ruby_array_literals_render_elements() {
         "array should contain 'Second' element, got:\n{body}"
     );
 
-    // Check that it's not just an empty array
     assert!(
         !body.contains("embed_texts([], ") && !body.contains("embed_texts_async([], "),
         "embed_texts should not be called with empty array [], got:\n{body}"

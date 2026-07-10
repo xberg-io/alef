@@ -36,7 +36,6 @@ pub(super) fn trait_impl_param_type(
     lifetime_type_names: &std::collections::HashSet<String>,
 ) -> String {
     if p.is_ref {
-        // Reference parameters: use the slice/ref form for Bytes/Vec, plain ref for others.
         let base = match &p.ty {
             TypeRef::Bytes => {
                 if p.is_mut {
@@ -75,13 +74,10 @@ pub(super) fn trait_impl_param_type(
                 }
             }
             TypeRef::Named(name) => {
-                // Named reference: resolve path and append lifetime placeholder when needed.
                 let base_path = match type_paths.get(name) {
                     Some(p) => p.clone(),
                     None => format!("{source_crate_name}::{name}"),
                 };
-                // If the core type has lifetime params, the trait method signature
-                // uses `&T<'_>` so rustc can match the trait definition exactly.
                 let ty_str = if lifetime_type_names.contains(name) {
                     format!("{base_path}<'_>")
                 } else {
@@ -120,7 +116,6 @@ pub(super) fn trait_impl_param_conversion(
     let name = &p.name;
     if p.is_ref {
         if p.optional {
-            // Optional reference params: propagate the Option through with `.map(...)`.
             return match &p.ty {
                 TypeRef::Bytes => format!("let {name} = {name}.map(|x| x.to_vec());"),
                 TypeRef::String | TypeRef::Char => format!("let {name} = {name}.map(|x| x.to_string());"),
@@ -151,25 +146,20 @@ pub(super) fn trait_impl_param_conversion(
             TypeRef::String | TypeRef::Char => format!("let {name} = {name}.to_string();"),
             TypeRef::Path => format!("let {name} = {name}.to_string_lossy().into_owned();"),
             TypeRef::Vec(inner) => {
-                // &[T] → Vec<T>; inner type may need widening
                 let orig = match inner.as_ref() {
                     TypeRef::Primitive(prim) => primitive_name(prim).to_string(),
                     _ => return format!("let {name} = {name}.to_vec();"),
                 };
                 let target = frb_rust_type_inner(inner);
                 if target != orig {
-                    // e.g. &[f32] → Vec<f64>
                     format!("let {name} = {name}.iter().map(|x| *x as {target}).collect::<Vec<_>>();")
                 } else {
                     format!("let {name} = {name}.to_vec();")
                 }
             }
-            // Excluded named ref: no mirror struct, the closure signature uses the source-crate
-            // type directly via excluded-aware codegen; just clone to get owned source type.
             TypeRef::Named(type_name) if excluded_type_paths.contains_key(type_name) => {
                 format!("let {name} = {name}.clone();")
             }
-            // Named ref with mirror: clone and convert to mirror type.
             TypeRef::Named(type_name) => {
                 format!("let {name} = {type_name}::from({name}.clone());")
             }
@@ -177,13 +167,10 @@ pub(super) fn trait_impl_param_conversion(
         }
     } else {
         match &p.ty {
-            // Excluded named: closure receives the source-crate type; no conversion needed.
             TypeRef::Named(type_name) if excluded_type_paths.contains_key(type_name) => String::new(),
-            // Non-ref Named with mirror: convert to mirror type.
             TypeRef::Named(type_name) => {
                 format!("let {name} = {type_name}::from({name});")
             }
-            // Non-ref: primitive widening might be needed for the closure.
             TypeRef::Primitive(prim) => {
                 let orig = primitive_name(prim);
                 let widened = frb_rust_type_inner(&p.ty);
@@ -212,21 +199,9 @@ pub(super) fn trait_impl_return_conversion(ty: &TypeRef, _source_crate_name: &st
                 String::new()
             }
         }
-        TypeRef::Named(_) => {
-            // Mirror type → core type: the mirror DartFnFuture returns a mirror struct
-            // (e.g. `VisitResult`), but the trait method must return the core type
-            // (e.g. `sample_markdown_rs::VisitResult`). Convert via the
-            // `From<Mirror> for Core` impl emitted by `emit_from_mirror_to_core_enum` /
-            // `emit_from_mirror_to_core_struct` — the type is added to the
-            // `param_types_needing_from` closure in `gen_rust_crate::mod` so the impl
-            // is in scope. `.into()` resolves to the right direction because the
-            // caller binds `let __result: MirrorType = (closure)(...).await;` and
-            // the method's declared return is the core type.
-            ".into()".to_string()
-        }
+        TypeRef::Named(_) => ".into()".to_string(),
         TypeRef::Vec(inner) => {
             if let TypeRef::Vec(inner2) = inner.as_ref() {
-                // Vec<Vec<f32>> → Vec<Vec<f64>> widened; convert back
                 if let TypeRef::Primitive(prim) = inner2.as_ref() {
                     let orig = primitive_name(prim);
                     let widened = frb_rust_type_inner(inner2);

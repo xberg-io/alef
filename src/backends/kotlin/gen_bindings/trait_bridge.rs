@@ -52,13 +52,6 @@ pub struct KotlinJvmBridgeGenerator {
 }
 
 impl TraitBridgeGenerator for KotlinJvmBridgeGenerator {
-    // -----------------------------------------------------------------------
-    // Rust-side bridge infrastructure — not used by the JVM Kotlin backend.
-    // The Java facade handles all Panama FFM upcall stubs; these methods
-    // intentionally return empty strings so callers that gate on emptiness
-    // skip Rust-side struct/impl emission for this target.
-    // -----------------------------------------------------------------------
-
     fn foreign_object_type(&self) -> &str {
         ""
     }
@@ -78,10 +71,6 @@ impl TraitBridgeGenerator for KotlinJvmBridgeGenerator {
     fn gen_constructor(&self, _spec: &TraitBridgeSpec) -> String {
         String::new()
     }
-
-    // -----------------------------------------------------------------------
-    // Kotlin-side helper functions
-    // -----------------------------------------------------------------------
 
     /// Emit a Kotlin `fun register{Trait}(impl: I{Trait})` wrapper that
     /// delegates to the Java bridge class's static `register{Trait}` method.
@@ -209,8 +198,6 @@ mod tests {
         }
     }
 
-    // --- gen_registration_fn -----------------------------------------------
-
     #[test]
     fn registration_fn_emits_kotlin_fun_when_set() {
         let cfg = make_bridge_config("TextBackend", Some("register_text_backend"), None, None);
@@ -239,8 +226,6 @@ mod tests {
 
         assert!(generator.gen_registration_fn(&spec).is_empty());
     }
-
-    // --- gen_unregistration_fn ---------------------------------------------
 
     #[test]
     fn unregistration_fn_emits_kotlin_fun_when_set() {
@@ -279,8 +264,6 @@ mod tests {
         assert!(generator.gen_unregistration_fn(&spec).is_empty());
     }
 
-    // --- gen_clear_fn ------------------------------------------------------
-
     #[test]
     fn clear_fn_emits_kotlin_fun_when_set() {
         let cfg = make_bridge_config(
@@ -315,8 +298,6 @@ mod tests {
         assert!(generator.gen_clear_fn(&spec).is_empty());
     }
 
-    // --- None-config short-circuit (all three at once) ---------------------
-
     #[test]
     fn all_fns_return_empty_when_all_config_fields_none() {
         let cfg = make_bridge_config("Plugin", None, None, None);
@@ -329,14 +310,8 @@ mod tests {
         assert!(generator.gen_clear_fn(&spec).is_empty());
     }
 
-    // --- Interface conformance in registration parameter type -----------------
-
     #[test]
     fn registration_fn_accepts_i_trait_interface_not_raw_impl() {
-        // Regression: the generated Kotlin JVM registration wrapper must accept
-        // `I{TraitName}` (the hand-authored interface) as its parameter type.
-        // Passing a raw object instead of the typed interface would allow
-        // untyped stubs to bypass the bridge.
         let cfg = make_bridge_config("TextProcessor", Some("register_text_processor"), None, None);
         let trait_def = make_trait_def("TextProcessor");
         let spec = make_spec(&trait_def, &cfg);

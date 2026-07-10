@@ -101,7 +101,6 @@ fn test_gen_csharp_record() {
     assert!(output.contains("init;"));
 }
 fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
-    // Build a type with 16 fields (> MAGNUS_MAX_ARITY = 15) to force hash path
     let mut fields: Vec<FieldDef> = (0..16)
         .map(|i| FieldDef {
             name: format!("field_{i}"),
@@ -124,7 +123,6 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
             original_type: None,
         })
         .collect();
-    // Make one field optional to exercise that branch in the hash constructor
     fields[0].optional = true;
 
     let typ = TypeDef {
@@ -158,7 +156,6 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
         "should accept RHash via scan_args"
     );
     assert!(output.contains("ruby.to_symbol("), "should use symbol lookup");
-    // Optional field uses and_then without unwrap_or
     assert!(
         output.contains("field_0: kwargs.get(ruby.to_symbol(\"field_0\")).and_then(|v|"),
         "optional field should use and_then"
@@ -169,10 +166,6 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
     );
 }
 
-// -------------------------------------------------------------------------
-// gen_php_kwargs_constructor
-// -------------------------------------------------------------------------
-
 #[test]
 fn test_gen_php_kwargs_constructor_basic() {
     let typ = make_test_type();
@@ -182,7 +175,6 @@ fn test_gen_php_kwargs_constructor_basic() {
         output.contains("pub fn __construct("),
         "should use PHP constructor name"
     );
-    // All params are Option<T>
     assert!(
         output.contains("timeout: Option<u64>"),
         "timeout param should be Option<u64>"
@@ -271,10 +263,6 @@ fn test_gen_php_kwargs_constructor_unwrap_or_default_for_primitive() {
     );
 }
 
-// -------------------------------------------------------------------------
-// gen_rustler_kwargs_constructor
-// -------------------------------------------------------------------------
-
 #[test]
 fn test_gen_rustler_kwargs_constructor_basic() {
     let typ = make_test_type();
@@ -285,12 +273,10 @@ fn test_gen_rustler_kwargs_constructor_basic() {
         "should accept HashMap of Terms"
     );
     assert!(output.contains("Self {"), "should construct Self");
-    // timeout has IntLiteral(30) — explicit unwrap_or
     assert!(
         output.contains("timeout: opts.get(\"timeout\").and_then(|t| t.decode().ok()).unwrap_or(30),"),
         "should apply int default for timeout"
     );
-    // enabled has BoolLiteral(true) — explicit unwrap_or
     assert!(
         output.contains("enabled: opts.get(\"enabled\").and_then(|t| t.decode().ok()).unwrap_or(true),"),
         "should apply bool default for enabled"
@@ -391,16 +377,12 @@ fn test_gen_rustler_kwargs_constructor_named_type_uses_unwrap_or_default() {
 
 #[test]
 fn test_gen_rustler_kwargs_constructor_string_field_uses_unwrap_or_default() {
-    // A String field with a StringLiteral default contains "::", triggering the
-    // is_enum_variant_default check — should fall back to unwrap_or_default().
     let mut typ = make_test_type();
-    // 'name' field in make_test_type() has StringLiteral("default") — verify it
     let output = gen_rustler_kwargs_constructor(&typ, &simple_type_mapper);
     assert!(
         output.contains("name: opts.get(\"name\").and_then(|t| t.decode().ok()).unwrap_or_default(),"),
         "String field with quoted default should use unwrap_or_default"
     );
-    // Also verify a plain string field (no default) also falls through to unwrap_or_default
     typ.fields.push(FieldDef {
         name: "label".to_string(),
         ty: TypeRef::String,
@@ -428,10 +410,6 @@ fn test_gen_rustler_kwargs_constructor_string_field_uses_unwrap_or_default() {
     );
 }
 
-// -------------------------------------------------------------------------
-// gen_extendr_kwargs_constructor
-// -------------------------------------------------------------------------
-
 #[test]
 fn test_gen_extendr_kwargs_constructor_basic() {
     let typ = make_test_type();
@@ -443,7 +421,6 @@ fn test_gen_extendr_kwargs_constructor_basic() {
         output.contains("pub fn new_config("),
         "function name should be lowercase type name"
     );
-    // Fields appear as Option<T> parameters — Rust does not support param defaults.
     assert!(
         output.contains("timeout: Option<u64>"),
         "should accept timeout as Option<u64>: {output}"
@@ -477,9 +454,7 @@ fn test_gen_extendr_kwargs_constructor_basic() {
 
 #[test]
 fn test_gen_extendr_kwargs_constructor_uses_option_for_all_fields() {
-    // Rust function-parameter defaults (`x: T = expr`) are a syntax error and
     // extendr 0.9 only supports defaults via the `#[extendr(default = "...")]`
-    // attribute.  Verify that no field is emitted with a Rust-syntax default.
     let typ = make_test_type();
     let empty_enums = ahash::AHashSet::new();
     let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper, &empty_enums);
@@ -488,10 +463,6 @@ fn test_gen_extendr_kwargs_constructor_uses_option_for_all_fields() {
         "constructor must not use Rust-syntax param defaults: {output}"
     );
 }
-
-// -------------------------------------------------------------------------
-// gen_go_functional_options — tuple-field filtering
-// -------------------------------------------------------------------------
 
 #[test]
 fn test_gen_go_functional_options_skips_tuple_fields() {
@@ -523,13 +494,8 @@ fn test_gen_go_functional_options_skips_tuple_fields() {
     );
 }
 
-// -------------------------------------------------------------------------
-// as_type_path_prefix — tested indirectly through hash constructor
-// -------------------------------------------------------------------------
-
 #[test]
 fn test_gen_magnus_hash_constructor_generic_type_prefix() {
-    // A field with a Vec type should use <Vec<...>>::try_convert UFCS form
     let fields: Vec<FieldDef> = (0..16)
         .map(|i| FieldDef {
             name: format!("field_{i}"),
@@ -581,24 +547,14 @@ fn test_gen_magnus_hash_constructor_generic_type_prefix() {
         version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
-    // Vec<String> is a generic type; must use <Vec<String>>::try_convert
     assert!(
         output.contains("<Vec<String>>::try_convert"),
         "generic types should use UFCS angle-bracket prefix: {output}"
     );
 }
 
-// -------------------------------------------------------------------------
-// Bug B regression: Option<Option<T>> must not appear when field.optional==true
-// and field.ty==Optional(T). This happens for "Update" structs where the core
-// field is Option<Option<T>> — the binding flattens to Option<T>.
-// -------------------------------------------------------------------------
-
 #[test]
 fn test_magnus_hash_constructor_no_double_option_when_ty_is_optional() {
-    // field with optional=true AND ty=Optional(Usize) — represents a core Option<Option<usize>>
-    // that should flatten to Option<usize> in the binding constructor.
-    // simple_type_mapper maps Usize → "i64" (catch-all primitive arm).
     let field = FieldDef {
         name: "max_depth".to_string(),
         ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
@@ -619,7 +575,6 @@ fn test_magnus_hash_constructor_no_double_option_when_ty_is_optional() {
         binding_exclusion_reason: None,
         original_type: None,
     };
-    // Build a large type (>15 fields) so the hash constructor is used
     let mut fields: Vec<FieldDef> = (0..15)
         .map(|i| FieldDef {
             name: format!("field_{i}"),
@@ -668,8 +623,6 @@ fn test_magnus_hash_constructor_no_double_option_when_ty_is_optional() {
         version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
-    // The try_convert call must be for the inner type (i64, as mapped by simple_type_mapper),
-    // not Option<i64> (which would yield Option<Option<i64>>).
     assert!(
         !output.contains("Option<Option<"),
         "hash constructor must not emit double Option: {output}"

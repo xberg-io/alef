@@ -157,9 +157,6 @@ pub(super) fn gen_convert_with_visitor_internal_method(
                 .unwrap_or_else(|| "OBJECT".to_string()),
         },
     ));
-    // CPD-OFF — see the comment on the matching block emitted by the
-    // non-visitor convert() above. Duplicating this FFI tail is intentional;
-    // PMD CPD must not flag the pair as a real finding.
     out.push_str("                // CPD-OFF\n");
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_result_free.jinja",

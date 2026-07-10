@@ -120,9 +120,6 @@ fn make_resolved_config_with_service() -> crate::core::config::ResolvedCrateConf
 
 #[test]
 fn service_extraction_populates_service_def_and_handler_contract() {
-    // `add_route<H: IntoHandler>` is dropped by the generic-method guard during
-    // the main pass; the service pass recovers it by re-parsing the configured
-    // sources, so the config must carry the source path.
     let (_dir, file_path, mut surface) = extract_source_persistent(SERVICE_SOURCE);
     let mut config = make_resolved_config_with_service();
     config.sources = vec![file_path];
@@ -130,7 +127,6 @@ fn service_extraction_populates_service_def_and_handler_contract() {
     let warnings = extract_services(&mut surface, &config);
     assert!(warnings.is_empty(), "no warnings expected; got {warnings:?}");
 
-    // HandlerContractDef must be populated.
     assert_eq!(
         surface.handler_contracts.len(),
         1,
@@ -143,13 +139,11 @@ fn service_extraction_populates_service_def_and_handler_contract() {
     assert_eq!(hc.wire_request_type.as_deref(), Some("RequestData"));
     assert_eq!(hc.wire_response_type.as_deref(), Some("ResponseData"));
 
-    // Handler trait must be marked binding-excluded.
     let handler_type = surface.types.iter().find(|t| t.name == "Handler");
     if let Some(t) = handler_type {
         assert!(t.binding_excluded, "Handler trait must be marked binding_excluded");
     }
 
-    // ServiceDef must be populated.
     assert_eq!(surface.services.len(), 1, "exactly one ServiceDef expected");
     let svc = &surface.services[0];
     assert_eq!(svc.name, "App");
@@ -160,7 +154,6 @@ fn service_extraction_populates_service_def_and_handler_contract() {
     assert_eq!(svc.configurators.len(), 1);
     assert_eq!(svc.configurators[0].name, "set_address");
 
-    // The generic registration method was recovered and classified.
     assert_eq!(svc.registrations.len(), 1, "add_route registration must be recovered");
     let reg = &svc.registrations[0];
     assert_eq!(reg.method, "add_route");
@@ -175,7 +168,6 @@ fn service_extraction_populates_service_def_and_handler_contract() {
         "metadata param `path` expected"
     );
 
-    // Entrypoints
     assert_eq!(svc.entrypoints.len(), 2, "expected run + finalize entrypoints");
     let run_ep = svc
         .entrypoints
@@ -191,7 +183,6 @@ fn service_extraction_populates_service_def_and_handler_contract() {
         .expect("into_router entrypoint");
     assert_eq!(fin_ep.kind, EntrypointKind::Finalize);
 
-    // App type must be marked binding-excluded.
     let app_type = surface.types.iter().find(|t| t.name == "App");
     if let Some(t) = app_type {
         assert!(t.binding_excluded, "App must be marked binding_excluded");
@@ -338,10 +329,6 @@ pub trait IntoHandler {}
     assert_eq!(get.signature_params.len(), 1);
     assert_eq!(get.signature_params[0].name, "path");
 
-    // The wrapper type must be flagged so backends opt its `new` constructor
-    // into host-language constructor emission. Without this, variant bodies
-    // calling `RouteBuilder(method, path)` would hit a "cannot create
-    // instances" error at runtime.
     let route_builder = surface
         .types
         .iter()

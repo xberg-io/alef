@@ -24,10 +24,7 @@ impl TypeMapper for RustlerMapper {
     }
 
     fn map_type(&self, ty: &TypeRef) -> String {
-        if let TypeRef::Map(_, _) = ty {
-            // Rustler 0.31+ can encode HashMap<K, V> directly as an Elixir map.
-            // Fall through to the default path which produces HashMap<K, V>.
-        }
+        if let TypeRef::Map(_, _) = ty {}
         match ty {
             TypeRef::Primitive(p) => self.primitive(p).into_owned(),
             TypeRef::String | TypeRef::Char => self.string().into_owned(),

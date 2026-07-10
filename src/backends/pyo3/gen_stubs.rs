@@ -23,9 +23,6 @@ pub(super) fn pyi_docstring(doc: &str, indent: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    // Take the first paragraph (split on blank line) and join multi-line docs
-    // with spaces so the stub stays a single line — easy to read in IDE hovers
-    // and avoids escaping subtleties.
     let first_paragraph = trimmed.split("\n\n").next().unwrap_or(trimmed);
     let joined: String = first_paragraph
         .lines()
@@ -37,8 +34,6 @@ pub(super) fn pyi_docstring(doc: &str, indent: &str) -> Option<String> {
         return None;
     }
     let sanitized = sanitize_python_doc(&joined);
-    // Escape embedded triple-double-quote sequences and backslashes that would
-    // break the docstring boundary.
     let escaped = sanitized.replace('\\', "\\\\").replace("\"\"\"", "\\\"\\\"\\\"");
     Some(format!("{indent}\"\"\"{escaped}\"\"\""))
 }
@@ -158,24 +153,9 @@ pub fn gen_stubs(
     let mut header_lines: Vec<String> = header.lines().map(str::to_string).collect();
     header_lines.push("".to_string());
 
-    // Collect bridge param names so function stubs can emit `object | None` instead of
-    // `str | None` for params that are sanitized trait bridge parameters.
     let bridge_param_names: std::collections::HashSet<&str> =
         trait_bridges.iter().filter_map(|b| b.param_name.as_deref()).collect();
 
-    // Build options-field-bridge lookup keyed by the options type name.
-    // For each function whose params contain a value of one of these types, the PyO3
-    // binding accepts an additional `{kwarg_name}: {trait_name} | None = None` kwarg
-    // (e.g. `ConversionOptions` -> `visitor: HtmlVisitor | None = None`).
-    //
-    // The third tuple element is the trait name (e.g. `HtmlVisitor`). We emit a
-    // generated `class HtmlVisitor(Protocol)` block below so user-facing call sites
-    // type-check against the protocol the PyO3 bridge actually accepts at runtime
-    // (any object implementing the visitor methods), not the binding-internal opaque
-    // wrapper named by `type_alias` (e.g. `VisitorHandle`).
-    //
-    // `type_alias` is retained as a legacy fallback for bridges that have no trait
-    // backing in the API surface — those continue to emit `VisitorHandle`-style names.
     let options_field_bridges: OptionsFieldBridges<'_> = trait_bridges
         .iter()
         .filter(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField)
@@ -192,10 +172,6 @@ pub fn gen_stubs(
         })
         .collect();
 
-    // Build a streaming-adapter lookup: (owner_type, method_name) → item_type.
-    // Used to override return types in method/function stubs with AsyncIterator[ItemType].
-    // Key is (Option<owner_type>, adapter_name); value is the Python item type string.
-    // When owner_type is None the adapter is a free function; otherwise it is a method.
     let streaming_return_types: std::collections::HashMap<(Option<String>, String), String> = config
         .adapters
         .iter()
@@ -206,24 +182,18 @@ pub fn gen_stubs(
         })
         .collect();
 
-    // Collect capsule type names so we can skip their opaque class stubs and replace
-    // any return/param type references with `Any` (they live in third-party packages).
     let capsule_names: std::collections::HashSet<&str> = config
         .python
         .as_ref()
         .map(|p| p.capsule_types.keys().map(String::as_str).collect())
         .unwrap_or_default();
 
-    // Gate docstring emission behind config — ruff PYI021 flags docstrings in stub files.
     let emit_docstrings = config
         .python
         .as_ref()
         .and_then(|p| p.stubs.as_ref())
         .is_some_and(|s| s.emit_docstrings);
 
-    // Generate type stubs — collect opaque types separately so consecutive
-    // one-liner class stubs are emitted without blank lines between them
-    // (ruff strips those in .pyi files).
     let (opaque, non_opaque): (Vec<_>, Vec<_>) = api
         .types
         .iter()
@@ -232,21 +202,7 @@ pub fn gen_stubs(
 
     let mut body_lines: Vec<String> = Vec::new();
 
-    // Emit `class TraitName(Protocol):` for each trait bridge whose trait is resolvable in the
-    // API surface. This surfaces the user-facing, host-implementable protocol the PyO3 bridge
-    // expects, rather than exposing a binding-internal opaque wrapper to callers:
-    //   - OptionsField/visitor bridges → the visitor protocol on the options struct.
-    //   - Plugin bridges (those with a `register_fn`) → the protocol a host backend must
-    //     implement to be registered via `register_*`. Method params that are known serde
-    //     structs are typed as their native TypedDict/pyclass type and returns as the result
-    //     type, matching the native objects the runtime bridge now passes/expects.
-    //
-    // Track the trait names that received a Protocol so the `register_*` signature below can type
-    // its `backend` parameter against the Protocol instead of bare `object`.
     let mut protocol_trait_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // Config structs the package exports as options dataclasses: plugin-bridge
-    // callbacks receive the dataclass (the bridge lifts the native object), so the
-    // Protocol types those params as `options.X` — the publicly exported type.
     let stub_reexported_types = config
         .python
         .as_ref()
@@ -279,8 +235,6 @@ pub fn gen_stubs(
         body_lines.push("".to_string());
     }
 
-    // Opaque stubs: skip any type whose name is a capsule type (it lives in a third-party
-    // package and must not be redeclared here).
     let opaque_non_capsule: Vec<_> = opaque
         .iter()
         .filter(|typ| !capsule_names.contains(typ.name.as_str()))
@@ -293,24 +247,14 @@ pub fn gen_stubs(
         body_lines.push("".to_string());
     }
 
-    // Dataclass-backed config DTOs (e.g. `LlmConfig`): their public name resolves to the
     // `options.py` `@dataclass`, not the compiled `#[pyclass]` this stub declares. A data-enum
-    // factory param of such a type (e.g. `EmbeddingModelType.llm(llm: LlmConfig)`) is widened to
-    // `options.<Name> | dict[str, Any]` so callers can pass the public dataclass (what
-    // `from <pkg> import LlmConfig` yields) or a dict — the forms the runtime coercion accepts.
     let coercible_dtos = crate::backends::pyo3::gen_bindings::wire_schema::coercible_dto_names(api, config);
 
-    // Generate enum stubs
     for enum_def in &api.enums {
         body_lines.push(gen_enum_stub(enum_def, emit_docstrings, &coercible_dtos));
         body_lines.push("".to_string());
     }
 
-    // Generate exception class stubs. The native module defines these via
-    // `pyo3::create_exception!` (base error under `Exception`, each variant under the base) and
-    // the generated `exceptions.py` re-exports them from this module. The stub must therefore
-    // declare them, or mypy reports `_native` "has no attribute <Variant>Error" on the re-export
-    // (tslp issue #147). Base is emitted before its variants so the variant base class resolves.
     {
         let mut seen_exc: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut exc_lines: Vec<String> = Vec::new();
@@ -331,9 +275,6 @@ pub fn gen_stubs(
         }
     }
 
-    // Generate function stubs — no blank lines between consecutive stubs (ruff strips them).
-    // Skip functions excluded for this language backend: they are absent from the native
-    // Rust module and must not appear in the .pyi type-stub either.
     for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
         body_lines.push(gen_function_stub(
             func,
@@ -344,11 +285,6 @@ pub fn gen_stubs(
         ));
     }
 
-    // Service entrypoints are registered as `service::{service_snake}_{method}`
-    // pyfunctions by methods.rs at module-init time. Their stubs are not in
-    // `api.functions` because they're emitted from `api.services`, so declare
-    // them here so mypy can resolve the `_native.{name}` call sites that the
-    // generated service.py wrapper produces.
     {
         use heck::ToSnakeCase as _;
         for service in &api.services {
@@ -365,10 +301,6 @@ pub fn gen_stubs(
             }
         }
     }
-    // Names already declared as plain functions above (from `api.functions`). A trait bridge's
-    // `clear_fn` is frequently also exposed as a regular registry function (`clear_ocr_backends`),
-    // so emitting it again here would produce a duplicate `def` (mypy `no-redef`). Skip any bridge
-    // function whose name already has a declaration; the register/unregister names are bridge-only.
     let declared_function_names: std::collections::HashSet<&str> = api
         .functions
         .iter()
@@ -378,8 +310,6 @@ pub fn gen_stubs(
     for bridge in trait_bridges {
         if let Some(register_fn) = bridge.register_fn.as_deref() {
             if !declared_function_names.contains(register_fn) {
-                // Type the `backend` param against the host-implementable Protocol when one was
-                // emitted for this bridge's trait; otherwise fall back to `object`.
                 let backend_type = if protocol_trait_names.contains(&bridge.trait_name) {
                     bridge.trait_name.as_str()
                 } else {
@@ -400,9 +330,6 @@ pub fn gen_stubs(
         }
     }
 
-    // Build the `from typing import …` line based on names actually referenced in the body,
-    // so unused-import lint (F401) stays clean even when a particular API surface doesn't
-    // need every helper.
     let body_joined = body_lines.join("\n");
     let used_typing: Vec<&str> = ["Any", "AsyncIterator", "Literal", "Protocol", "TypeAlias", "TypedDict"]
         .iter()
@@ -410,16 +337,10 @@ pub fn gen_stubs(
         .filter(|name| contains_word(&body_joined, name))
         .collect();
     let mut lines = header_lines;
-    // A data-enum factory whose name shadows a builtin container forces its annotations to be
-    // written as `builtins.<name>[...]` (see `gen_data_enum_variant_constructor_stubs`), which needs
-    // an explicit `import builtins`. Emit it only when actually referenced so F401 stays clean.
     if contains_word(&body_joined, "builtins") {
         lines.push("import builtins".to_string());
         lines.push("".to_string());
     }
-    // A widened factory param (`options.<Dto> | dict[str, Any]`) references the sibling options
-    // module. The import is stub-only (`.pyi` is never executed, so there is no runtime cycle with
-    // `options.py`, which imports from this module). Emit it only when referenced so F401 stays clean.
     if body_joined.contains("options.") {
         lines.push("from . import options".to_string());
         lines.push("".to_string());
@@ -462,19 +383,16 @@ fn contains_word(text: &str, word: &str) -> bool {
 pub(super) fn substitute_capsule_type(type_str: &str, capsule_names: &std::collections::HashSet<&str>) -> String {
     let mut result = type_str.to_string();
     for name in capsule_names {
-        // Replace `list[Name]` → `list[Any]`
         let list_pattern = format!("list[{name}]");
         if result.contains(&list_pattern) {
             result = result.replace(&list_pattern, "list[Any]");
             continue;
         }
-        // Replace `Name | None` → `Any` (Any already subsumes None)
         let optional_pattern = format!("{name} | None");
         if result.contains(&optional_pattern) {
             result = result.replace(&optional_pattern, "Any");
             continue;
         }
-        // Replace bare `Name` (whole-word) → `Any`
         let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
         let needle = name.as_bytes();
         let bytes = result.as_bytes();

@@ -39,7 +39,6 @@ pub fn gen_trait_bridge(
     error_constructor: &str,
     api: &ApiSurface,
 ) -> anyhow::Result<BridgeOutput> {
-    // Build type name → rust_path lookup: convert to owned HashMap<String, String>
     let type_paths: HashMap<String, String> = api
         .types
         .iter()
@@ -49,8 +48,6 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
-        // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
                 .iter()
@@ -58,7 +55,6 @@ pub fn gen_trait_bridge(
         )
         .collect();
 
-    // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
     let is_visitor_bridge = bridge_cfg.type_alias.is_some()
         && bridge_cfg.register_fn.is_none()
         && bridge_cfg.super_trait.is_none()
@@ -86,17 +82,8 @@ pub fn gen_trait_bridge(
             code: out,
         })
     } else {
-        // Plugin-style bridge: use the IR-driven TraitBridgeGenerator infrastructure.
-        //
-        // Classify which callback params marshal to the host as the binding's native struct term
-        // using the SHARED rule (`native_marshalled_struct_params`), identical to every other
-        // backend's allowlist. For such params the bridge builds the binding `NifStruct` via
-        // `From<core::T>` and encodes it natively; other args are encoded as their natural native
-        // terms.
         let struct_param_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
-        // Rust-defaulted methods the bridge can forward to the host (host-exported
-        // implementations win; the Rust default runs otherwise).
         let forwardable_defaulted =
             crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = super::generator::RustlerBridgeGenerator {
@@ -123,9 +110,6 @@ pub fn gen_trait_bridge(
             error_constructor: error_constructor.to_string(),
         };
         let output = gen_bridge_all(&spec, &generator);
-        // Note: trait support NIFs (complete_trait_call/fail_trait_call) must be emitted
-        // only once, not per-bridge. They are now emitted in gen_bindings/mod.rs after
-        // trait bridge generation to avoid duplicate NIF definitions.
         Ok(output)
     }
 }

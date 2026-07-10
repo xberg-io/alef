@@ -1,4 +1,3 @@
-// Tests for the JNI emitter. Kept in a separate file `include!`d last by `jni_emitter.rs` so the
 // `#[cfg(test)]` module is the final item in the flattened module (the other `include!`d files
 // contribute production items, which must not follow a test module — `clippy::items_after_test_module`).
 

@@ -29,18 +29,9 @@ fn classify_service_imports(api: &ApiSurface, _config: &ResolvedCrateConfig) -> 
     let mut value_imports: Vec<String> = Vec::new();
     let mut native_imports: Vec<String> = Vec::new();
 
-    // Wire DTOs (RequestData, Response, etc.) are deliberately NOT pre-seeded
-    // here. napi-rs generated handler signatures use `(...args: any[])` so
-    // wire-type names never appear in the rendered service body; importing
-    // them produces TS6196 (declared but unused). They will be picked up
-    // organically via constructor/configurator/variant signature_params below
-    // if they ever appear in a position where TypeScript can type-check them.
     let _ = &api.handler_contracts;
 
     if let Some(service) = api.services.first() {
-        // The native service class must be imported to instantiate in the wrapper constructor.
-        // Since the wrapper class will also be named after the service (e.g., "App"), import
-        // the native binding with an alias (`App as NativeApp`) to avoid collision.
         value_imports.push(format!("{} as Native{}", service.name, service.name));
         for param in &service.constructor.params {
             if let TypeRef::Named(name) = &param.ty {
@@ -65,7 +56,6 @@ fn classify_service_imports(api: &ApiSurface, _config: &ResolvedCrateConfig) -> 
                             value_expr,
                         } = arg
                         {
-                            // "mycrate::Method::Get" → second-to-last segment is the type name.
                             let parts: Vec<&str> = value_expr.split("::").collect();
                             if parts.len() >= 2 {
                                 value_imports.push(parts[parts.len() - 2].to_string());
@@ -83,11 +73,6 @@ fn classify_service_imports(api: &ApiSurface, _config: &ResolvedCrateConfig) -> 
 
         let service_name = &service.name;
         for ep in &service.entrypoints {
-            // napi-rs auto-camelCases Rust function names at the JS boundary
-            // (e.g. `app_into_router` → `appIntoRouter`), so the imported
-            // symbol must match the camelCase form. Service entrypoints are
-            // explicit config and always import their free-function shim — the
-            // wrapper class needs it regardless of `exclude.methods`.
             native_imports.push(format!("{}_{}", service_name.to_snake_case(), ep.method).to_lower_camel_case());
         }
     }
@@ -99,9 +84,6 @@ fn classify_service_imports(api: &ApiSurface, _config: &ResolvedCrateConfig) -> 
     native_imports.sort();
     native_imports.dedup();
 
-    // A name that is referenced as a value must not also appear in
-    // `import type { … }` — TypeScript would otherwise flag it unused or the
-    // value import would shadow the type import in the type-only namespace.
     type_imports.retain(|name| !value_imports.contains(name));
 
     ServiceImports {
@@ -132,15 +114,10 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_ts(
         gen_service_class_ts(&mut out, service, api, native_module, config);
     }
 
-    // Add explicit export statements for all services so they're available to CommonJS
-    // (service.cjs will convert these to module.exports)
     let service_names: Vec<&str> = api.services.iter().map(|s| s.name.as_str()).collect();
     if !service_names.is_empty() {
         out.push_str(&format!("\nexport {{ {} }};\n", service_names.join(", ")));
     }
-
-    // Framework-specific aliases (e.g., export const MyFramework = App) are emitted
-    // per-project in alef.toml post-generation or via a separate preamble template
 
     out
 }
@@ -153,12 +130,8 @@ fn gen_service_class_ts(
     _config: &ResolvedCrateConfig,
 ) {
     let class_name = &service.name;
-    // The native class is imported with an alias to avoid collision with the wrapper class.
-    // For a service named "App", it's imported as `App as NativeApp`, so we instantiate
-    // with the alias name "NativeApp".
     let native_class_name = format!("Native{}", service.name);
 
-    // Class docstring
     let class_doc = if service.doc.is_empty() {
         String::new()
     } else {
@@ -174,7 +147,6 @@ fn gen_service_class_ts(
         },
     ));
 
-    // Static factory method for Node.js binding compatibility
     {
         let ctor = &service.constructor;
         let mut params = Vec::new();
@@ -204,7 +176,6 @@ fn gen_service_class_ts(
         ));
     }
 
-    // Constructor
     {
         let ctor = &service.constructor;
         let mut params = Vec::new();
@@ -236,7 +207,6 @@ fn gen_service_class_ts(
         ));
     }
 
-    // Configurator methods
     for method in &service.configurators {
         let mut params = Vec::new();
         for p in &method.params {
@@ -252,11 +222,7 @@ fn gen_service_class_ts(
         let method_name = &method.name;
         let doc = method.doc.trim().replace('\n', "\n   * ");
 
-        // For the config method, emit a native forward call in addition to storing.
-        // All other configurators just store.
         let store_block = if method_name == "config" && method.params.len() == 1 {
-            // Special case: config(config: ServerConfig)
-            // Store locally and forward to native via JSON serialization.
             render(
                 "service_ts_configurator_config_forward.jinja",
                 context! {
@@ -290,16 +256,10 @@ fn gen_service_class_ts(
         ));
     }
 
-    // Registration methods: support both decorator and direct patterns
     for reg in &service.registrations {
         gen_registration_method_ts(out, reg, service, api);
     }
 
-    // Entrypoint methods — service entrypoints are declared explicitly in
-    // `[[crates.services.entrypoints]]` and always belong on the wrapper class,
-    // even when the same method is listed in `exclude.methods` to suppress the
-    // standard type-method placeholder. See the parallel comment in
-    // `service_api::rust_glue` for the full rationale.
     for ep in &service.entrypoints {
         let mut params = Vec::new();
         for p in &ep.params {
@@ -316,10 +276,6 @@ fn gen_service_class_ts(
 
         let doc = ep.doc.trim().replace('\n', "\n   * ");
         // The Rust `#[napi]` glue exposes each service entrypoint under the
-        // js_name `native{UpperCamel}` (see `rust_glue::gen_entrypoint_napi_method`),
-        // so the wrapper must call `this._app.nativeRun()` / `nativeIntoRouter()`,
-        // not the bare `run()`/`intoRouter()` — those methods do not exist on the
-        // native class and calling them throws `TypeError: ... is not a function`.
         let native_method = format!("native{}", ep_name.to_upper_camel_case());
         let native_args = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
 
@@ -337,14 +293,6 @@ fn gen_service_class_ts(
                 ));
             }
             EntrypointKind::Finalize => {
-                // The Rust bridge for Finalize hardcodes its return type to
-                // `napi::Result<()>` (see `rust_glue::gen_run_function`'s
-                // Finalize arm) and is unconditionally declared `pub async
-                // fn`. So the JS-side function always returns
-                // `Promise<void>`. The IR's `ep.return_type` describes the
-                // *Rust* service method's return (e.g. `Router`) — using it
-                // here yields a TS signature that does not match the bridge
-                // and trips TS2322 at the `return native_fn(...)` site.
                 let return_ty = "Promise<void>".to_owned();
                 out.push_str(&render(
                     "service_ts_entrypoint_finalize.jinja",
@@ -399,7 +347,6 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
     let method_name = &reg.method;
     let _class_name = &service.name;
 
-    // Build metadata param signature (excluding the callback param)
     let mut meta_params: Vec<String> = reg
         .metadata_params
         .iter()
@@ -413,13 +360,8 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
         })
         .collect();
 
-    // Decorator-factory form: supports @app.register(meta1, meta2) decorator syntax
     let meta_sig = meta_params.join(", ");
 
-    // Positional metadata params forwarded to the underlying napi method.
-    // The base registration emits a Rust signature with one positional param
-    // per metadata entry plus `handler`, so the TS wrapper must call
-    // `this._app.method(meta1, meta2, ..., fn)` — not an array.
     let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
     let has_meta = !meta_names.is_empty();
     let meta_args = meta_names.join(", ");
@@ -436,11 +378,6 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
         },
     ));
 
-    // Also expose a direct (non-decorator) register variant. The wrapper method
-    // is a JS class method, so it must be lowerCamelCase even though the IR's
-    // `reg.method` is snake_case (matches Rust convention). Without conversion
-    // consumers hit `TypeError: app.registerRoute is not a function` because
-    // the wrapper exposes `register_route` instead.
     let direct_name = format!("register_{method_name}").to_lower_camel_case();
     if direct_name != *method_name {
         meta_params.push("handler: (...args: any[]) => any".to_string());
@@ -457,7 +394,6 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
         ));
     }
 
-    // Emit registration variants (shortcut methods)
     for variant in &reg.variants {
         gen_registration_variant_method_ts(out, variant, reg, service);
     }
@@ -486,7 +422,6 @@ fn gen_registration_variant_method_ts(
     let variant_name = &variant.name;
     let base_method = &reg.method;
 
-    // Build signature from variant's signature_params (without handler)
     let variant_params_no_handler: Vec<String> = variant
         .signature_params
         .iter()
@@ -500,11 +435,9 @@ fn gen_registration_variant_method_ts(
         })
         .collect();
 
-    // Metadata array (shared by both forms)
     let metadata_array = if let Some(wrapper_call) = &variant.wrapper_call {
         let wrapper_type = &wrapper_call.wrapper_type_name;
 
-        // Build the constructor args by substituting Fixed args and pulling Free args
         let mut ctor_args = Vec::new();
         for arg in &wrapper_call.args {
             match arg {
@@ -512,8 +445,6 @@ fn gen_registration_variant_method_ts(
                     param_name: _,
                     value_expr,
                 } => {
-                    // Fixed args are Rust value expressions like "mycrate::Method::Get".
-                    // Extract the type and variant for TypeScript: "mycrate::Method::Get" → "Method.Get"
                     let parts: Vec<&str> = value_expr.split("::").collect();
                     let ts_expr = if parts.len() >= 2 {
                         format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1])
@@ -523,26 +454,18 @@ fn gen_registration_variant_method_ts(
                     ctor_args.push(ts_expr);
                 }
                 crate::core::ir::WrapperConstructorArg::Free { param } => {
-                    // Free args come from the variant's signature params
                     ctor_args.push(param.name.clone());
                 }
             }
         }
         let ctor_arg_str = ctor_args.join(", ");
         let metadata_param = &wrapper_call.metadata_param;
-        // napi-rs does not emit JS `new`-able constructors for Rust types — Rust
-        // constructors are exposed as static methods on the class (typically
-        // named `new`). Call the static factory instead of `new WrapperType(…)`
-        // to avoid TS2350 (`Only a void function can be called with the 'new'
-        // keyword`).
         let constructor_method = &wrapper_call.constructor_method;
 
-        // Return a tuple: (wrapper construction code, metadata array expression)
         let wrapper_code =
             format!("    const {metadata_param} = {wrapper_type}.{constructor_method}({ctor_arg_str});\n");
         (wrapper_code, format!("[{metadata_param}]"))
     } else {
-        // No wrapper constructor: build metadata array from variant params
         let mut metadata_values = Vec::new();
         for param in &variant.signature_params {
             metadata_values.push(param.name.clone());
@@ -556,12 +479,10 @@ fn gen_registration_variant_method_ts(
         ("".to_owned(), metadata_expr)
     };
 
-    // Resolve the effective style (and handler_shape) for the napi/TypeScript backend.
     let resolved = variant.resolved_for("napi", reg.handler_shape);
 
     match resolved.style {
         RegistrationVariantStyle::VerbDecorator => {
-            // Direct method form only: `app.get(path, handler): this`
             emit_variant_direct_method(
                 out,
                 variant_name,
@@ -573,7 +494,6 @@ fn gen_registration_variant_method_ts(
             );
         }
         RegistrationVariantStyle::Builder => {
-            // Decorator-factory form only: `app.get(path): (handler) => any`
             emit_variant_decorator_factory(
                 out,
                 variant_name,
@@ -584,19 +504,10 @@ fn gen_registration_variant_method_ts(
                 variant,
             );
         }
-        // Decorator, Attribute, Dsl and Hybrid all fall through to the hybrid overloaded form.
-        // Per-backend specialization for the new styles is a Phase C concern; until then
-        // the hybrid overload is a safe, correct baseline.
         RegistrationVariantStyle::Hybrid
         | RegistrationVariantStyle::Decorator
         | RegistrationVariantStyle::Attribute
         | RegistrationVariantStyle::Dsl => {
-            // Both forms — emit as TypeScript method overloads (two declaration
-            // signatures + one implementation that branches on the optional
-            // `handler` argument). Emitting them as two separate method bodies
-            // produced `Identifier 'get' has already been declared` oxlint
-            // errors because JavaScript classes do not support runtime method
-            // overloading the way Rust traits do.
             emit_variant_hybrid_overloaded(
                 out,
                 variant_name,
@@ -889,29 +800,13 @@ mod classify_service_imports_tests {
             native_imports,
         } = classify_service_imports(&api, &config);
 
-        // The native service class is imported with an alias to avoid collision
-        // with the wrapper class. For a service named "App", it's imported as
-        // `App as NativeApp` to ensure both the wrapper and native class have
-        // distinct names in the generated code.
         assert_eq!(value_imports, vec!["App as NativeApp", "Method", "RouteBuilder"]);
-        // Wire DTOs (`RequestData`, `Response`) are intentionally NOT
-        // pre-seeded — they would be flagged TS6196 since napi-rs handler
-        // signatures use `(...args: any[])` and never reference them.
         assert_eq!(type_imports, vec!["Path".to_owned(), "ServerConfig".to_owned(),]);
-        // napi-rs auto-camelCases at the JS boundary.
         assert_eq!(native_imports, vec!["appIntoRouter", "appRun"]);
     }
 
     #[test]
     fn entrypoint_imports_ignore_exclude_methods() {
-        // Service entrypoints are declared explicitly under
-        // `[[crates.services.entrypoints]]` and must always import their
-        // free-function shim — they are the wrapper class's entry into the
-        // native binding. `exclude.methods` is a generic per-method blacklist
-        // used to suppress the standard type-method placeholder for items that
-        // cannot be auto-delegated (consuming-self, async, etc.); it must not
-        // suppress entrypoint imports, because the wrapper still needs to
-        // reach the registration-replay free function.
         let api = fixture_surface();
         let mut config = ResolvedCrateConfig::default();
         config.exclude.methods.push("App.run".to_owned());

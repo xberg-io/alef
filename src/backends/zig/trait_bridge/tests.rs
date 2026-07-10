@@ -137,23 +137,16 @@ fn single_method_trait_emits_vtable_and_register() {
         &mut out,
     );
 
-    // Vtable struct
     assert!(
         out.contains("pub const IValidator = extern struct {"),
         "missing vtable struct: {out}"
     );
-    // Method slot present
     assert!(out.contains("validate:"), "missing validate slot: {out}");
-    // user_data first arg
     assert!(out.contains("user_data: ?*anyopaque"), "missing user_data: {out}");
-    // callconv(.c) present
     assert!(out.contains("callconv(.c)"), "missing callconv: {out}");
-    // free_user_data slot
     assert!(out.contains("free_user_data:"), "missing free_user_data: {out}");
-    // Registration shim
     assert!(out.contains("pub fn register_validator("), "missing register fn: {out}");
     assert!(out.contains("c.demo_register_validator("), "wrong C symbol: {out}");
-    // Unregistration shim
     assert!(
         out.contains("pub fn unregister_validator("),
         "missing unregister fn: {out}"
@@ -162,7 +155,6 @@ fn single_method_trait_emits_vtable_and_register() {
         out.contains("c.demo_unregister_validator("),
         "wrong unregister C symbol: {out}"
     );
-    // No plugin lifecycle when no super_trait
     assert!(
         !out.contains("name_fn:"),
         "should not emit name_fn without super_trait: {out}"
@@ -197,12 +189,10 @@ fn emit_trait_bridge_emits_clear_fn_when_configured() {
         out.contains("pub fn clear_plugin_backends() SampleCrateError!void"),
         "missing clear_plugin_backends signature: {out}"
     );
-    // C symbol uses the singular trait-snake suffix to match sample_core-ffi naming.
     assert!(
         out.contains("c.sample_crate_clear_plugin_backend(&_out_error)"),
         "wrong C symbol target for clear wrapper: {out}"
     );
-    // Doc comment present.
     assert!(
         out.contains("/// Remove ALL registered `PluginBackend` plugins"),
         "missing clear doc comment: {out}"
@@ -221,7 +211,6 @@ fn emit_trait_bridge_omits_clear_fn_when_not_configured() {
         )],
     );
     let bridge_cfg = make_bridge_cfg("PluginBackend", Some("sample_crate::plugins::Plugin"));
-    // clear_fn left as None.
 
     let mut out = String::new();
     emit_trait_bridge(
@@ -273,28 +262,22 @@ fn multi_method_trait_with_super_trait_emits_lifecycle_slots() {
         &mut out,
     );
 
-    // Struct name
     assert!(
         out.contains("pub const IPluginBackend = extern struct {"),
         "missing vtable: {out}"
     );
-    // Plugin lifecycle slots emitted
     assert!(out.contains("name_fn:"), "missing name_fn: {out}");
     assert!(out.contains("version_fn:"), "missing version_fn: {out}");
     assert!(out.contains("initialize_fn:"), "missing initialize_fn: {out}");
     assert!(out.contains("shutdown_fn:"), "missing shutdown_fn: {out}");
-    // Trait method slots
     assert!(out.contains("process_payload:"), "missing process_payload slot: {out}");
     assert!(out.contains("supports_mode:"), "missing supports_mode slot: {out}");
-    // Bytes param expands to ptr + len
     assert!(out.contains("payload_bytes_ptr:"), "missing bytes ptr expansion: {out}");
     assert!(out.contains("payload_bytes_len:"), "missing bytes len expansion: {out}");
-    // Fallible method gets out_error
     assert!(
         out.contains("out_error:"),
         "missing out_error for fallible method: {out}"
     );
-    // C symbols use sample_core prefix
     assert!(
         out.contains("c.sample_crate_register_plugin_backend("),
         "wrong register symbol: {out}"
@@ -303,16 +286,11 @@ fn multi_method_trait_with_super_trait_emits_lifecycle_slots() {
         out.contains("c.sample_crate_unregister_plugin_backend("),
         "wrong unregister symbol: {out}"
     );
-    // Registration shim signature
     assert!(
         out.contains("pub fn register_plugin_backend("),
         "missing register_plugin_backend fn: {out}"
     );
 }
-
-// -----------------------------------------------------------------
-// make_*_vtable tests
-// -----------------------------------------------------------------
 
 #[test]
 fn make_vtable_emits_comptime_function_and_thunk() {
@@ -337,25 +315,18 @@ fn make_vtable_emits_comptime_function_and_thunk() {
         &mut out,
     );
 
-    // Helper function declaration
     assert!(
         out.contains("pub fn make_validator_vtable(comptime T: type, instance: *T)"),
         "missing make_validator_vtable: {out}"
     );
-    // Returns the vtable type
     assert!(out.contains("IValidator{"), "missing vtable literal: {out}");
-    // Thunk casts user_data
     assert!(out.contains("@ptrCast(@alignCast(ud))"), "missing @ptrCast cast: {out}");
-    // callconv(.c) in thunk
     assert!(out.contains("callconv(.c)"), "missing callconv(.c) in thunk: {out}");
-    // validate thunk field
     assert!(out.contains(".validate ="), "missing .validate thunk field: {out}");
-    // free_user_data thunk
     assert!(
         out.contains(".free_user_data ="),
         "missing .free_user_data thunk: {out}"
     );
-    // No lifecycle stubs without super_trait
     assert!(
         !out.contains(".name_fn ="),
         "must not emit .name_fn without super_trait: {out}"
@@ -409,12 +380,9 @@ fn make_vtable_bytes_param_passes_c_pointer_in_thunk() {
         &[],
     );
 
-    // Thunk receives ptr+len params
     assert!(out.contains("data_ptr: [*c]const u8"), "missing data_ptr param: {out}");
     assert!(out.contains("data_len: usize"), "missing data_len param: {out}");
-    // The Zig vtable ABI passes the raw C pointer through; the len is discarded.
     assert!(out.contains("_ = data_len;"), "thunk must discard the len param: {out}");
-    // Thunk calls self.process with the C pointer (not a reconstructed slice).
     assert!(
         out.contains("self.process(data_ptr);"),
         "thunk must call self.process with the C pointer: {out}"
@@ -439,16 +407,12 @@ fn make_vtable_fallible_method_returns_i32_error_code() {
         &mut out,
     );
 
-    // Thunk returns i32 (fallible → i32 return)
     assert!(
         out.contains("callconv(.c) i32"),
         "fallible thunk must return i32: {out}"
     );
-    // Returns 0 on success
     assert!(out.contains("return 0;"), "must return 0 on success: {out}");
-    // Returns 1 on error
     assert!(out.contains("return 1;"), "must return 1 on error: {out}");
-    // Error branch writes to out_error
     assert!(out.contains("out_error"), "must write to out_error: {out}");
 }
 
@@ -475,16 +439,11 @@ fn make_vtable_primitive_return_passes_through() {
         &mut out,
     );
 
-    // Infallible primitive method: thunk returns the value directly
     assert!(
         out.contains("return self.count()"),
         "primitive return must be forwarded directly: {out}"
     );
 }
-
-// -----------------------------------------------------------------
-// ZigTraitBridgeGenerator tests
-// -----------------------------------------------------------------
 
 fn make_spec<'a>(trait_def: &'a TypeDef, bridge_cfg: &'a TraitBridgeConfig) -> TraitBridgeSpec<'a> {
     use crate::codegen::generators::trait_bridge::TraitBridgeSpec;
@@ -531,7 +490,7 @@ fn gen_unregistration_fn_emits_wrapper_when_configured() {
 #[test]
 fn gen_unregistration_fn_returns_empty_when_not_configured() {
     let trait_def = make_trait_def("PluginBackend", vec![]);
-    let bridge_cfg = make_bridge_cfg("PluginBackend", None); // unregister_fn is None
+    let bridge_cfg = make_bridge_cfg("PluginBackend", None);
 
     let generator = ZigTraitBridgeGenerator::new("sample_crate");
     let spec = make_spec(&trait_def, &bridge_cfg);
@@ -573,7 +532,7 @@ fn gen_clear_fn_emits_wrapper_when_configured() {
 #[test]
 fn gen_clear_fn_returns_empty_when_not_configured() {
     let trait_def = make_trait_def("PluginBackend", vec![]);
-    let bridge_cfg = make_bridge_cfg("PluginBackend", None); // clear_fn is None
+    let bridge_cfg = make_bridge_cfg("PluginBackend", None);
 
     let generator = ZigTraitBridgeGenerator::new("sample_crate");
     let spec = make_spec(&trait_def, &bridge_cfg);
@@ -587,7 +546,6 @@ fn gen_clear_fn_returns_empty_when_not_configured() {
 
 #[test]
 fn gen_unregistration_fn_uses_snake_case_function_name_verbatim() {
-    // The configured `unregister_fn` name is used as-is (not re-derived from the trait).
     let trait_def = make_trait_def("DocumentExtractor", vec![]);
     let mut bridge_cfg = make_bridge_cfg("DocumentExtractor", None);
     bridge_cfg.unregister_fn = Some("unregister_extractor".to_string());
@@ -628,8 +586,6 @@ fn gen_clear_fn_uses_configured_fn_name_verbatim() {
 
 #[test]
 fn vtable_preserves_named_types_for_c_abi_compatibility() {
-    // Test that VTable signatures do NOT substitute excluded types.
-    // The vtable is a C ABI struct and must preserve the exact C types.
     let mut excluded = std::collections::HashSet::new();
     excluded.insert("InternalDocument".to_string());
     excluded.insert("ExtractionResult".to_string());
@@ -666,42 +622,33 @@ fn vtable_preserves_named_types_for_c_abi_compatibility() {
         &mut out,
     );
 
-    // VTable struct must be present with the trait name
     assert!(
         out.contains("pub const IDocumentExtractor = extern struct {"),
         "missing vtable struct"
     );
 
-    // Method slots must NOT have type substitution — they should use C ABI types
-    // ([*c]const u8, i32, etc.) not Zig types. The excluded types should appear
-    // as C pointers, not as Json or other substitutions.
     assert!(
         out.contains("extract_bytes:") && out.contains("callconv(.c)"),
         "extract_bytes method slot missing"
     );
     assert!(out.contains("process_result:"), "process_result method slot missing");
 
-    // Bytes param expands to ptr + len in vtable signature
     assert!(
         out.contains("content_ptr: [*c]const u8") && out.contains("content_len: usize"),
         "Bytes param should expand to ptr+len in C ABI"
     );
 
-    // The result param should be [*c]const u8 (C string), not the Zig type
-    // ExtractionResult or Json or any substitution
     assert!(
         out.contains("result: [*c]const u8"),
         "Named types in vtable should map to [*c]const u8, not be substituted"
     );
 
-    // Return type should be i32 (error code) for fallible methods, not substituted
     let has_fallible_return = out.contains("callconv(.c) i32");
     assert!(has_fallible_return, "fallible method should return i32 for error code");
 }
 
 #[test]
 fn make_vtable_thunks_preserve_c_abi_types() {
-    // Test that thunk function signatures preserve C ABI types.
     let mut excluded = std::collections::HashSet::new();
     excluded.insert("InternalDocument".to_string());
 
@@ -726,22 +673,18 @@ fn make_vtable_thunks_preserve_c_abi_types() {
         &mut out,
     );
 
-    // make_renderer_vtable should exist
     assert!(
         out.contains("pub fn make_renderer_vtable(comptime T: type, instance: *T)"),
         "make_renderer_vtable helper missing"
     );
 
-    // Thunk for render method should use C ABI types in its signature
     assert!(out.contains(".render ="), "render thunk field missing");
 
-    // Thunk should have callconv(.c) and i32 return for the fallible method
     assert!(
         out.contains("callconv(.c) i32"),
         "thunk should return i32 for error code"
     );
 
-    // The parameter should be [*c]const u8 (C string from doc param)
     assert!(
         out.contains("doc: [*c]const u8"),
         "thunk param should be C ABI type, not substituted"
@@ -750,10 +693,6 @@ fn make_vtable_thunks_preserve_c_abi_types() {
         !out.contains("unreachable"),
         "generated vtable helpers must not use unreachable stubs: {out}"
     );
-    // Complex fallible returns serialize to JSON ([]u8). When JSON serialization
-    // is not yet implemented, the thunk returns null as a placeholder.
-    // The vtable still compiles, allowing e2e tests to run (they'll exercise
-    // the null path and validate error handling).
     assert!(
         out.contains("ptr.* = null") || out.contains("ptr.* = ."),
         "complex fallible vtable returns must return a safe placeholder: {out}"

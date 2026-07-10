@@ -46,7 +46,6 @@ fn api_surface(types: Vec<TypeDef>, excluded_paths: Vec<(&str, &str)>, excluded_
 
 #[test]
 fn return_type_references_in_surface_trait() {
-    // Sanity check: pre-existing behaviour — traits present in api.types are detected.
     let api = api_surface(vec![empty_type_def("MyTrait", true)], vec![], vec![]);
     let ret = TypeRef::Optional(Box::new(TypeRef::Named("MyTrait".into())));
     assert!(return_type_references_trait(&ret, &api));
@@ -54,10 +53,6 @@ fn return_type_references_in_surface_trait() {
 
 #[test]
 fn return_type_references_excluded_trait_is_detected() {
-    // Regression: a trait stripped from api.types via `alef(skip)` must still be
-    // detected via `excluded_trait_names`, otherwise the trait-bridge field is emitted
-    // and the generated `Box<dyn Fn() -> DartFnFuture<Option<demo::SyncExtractor>>>`
-    // fails to compile with E0782 (`SyncExtractor` is a trait, not a type).
     let api = api_surface(
         vec![],
         vec![("SyncExtractor", "demo::extractors::SyncExtractor")],
@@ -69,10 +64,6 @@ fn return_type_references_excluded_trait_is_detected() {
 
 #[test]
 fn return_type_with_excluded_struct_is_not_detected() {
-    // Regression: excluded structs appear by qualified path
-    // in surviving method signatures (`load -> Result<HiddenDocument>`) and
-    // ARE bridgeable — they must NOT be filtered out, or the trait impl ends up missing
-    // a required method (`error[E0046]: not all trait items implemented`).
     let api = api_surface(
         vec![],
         vec![("HiddenDocument", "demo::types::hidden::HiddenDocument")],

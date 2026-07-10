@@ -146,8 +146,6 @@ fn error_with_methods() -> ErrorDef {
 fn test_gen_error_types() {
     let error = sample_error();
     let output = gen_pyo3_error_types(&error, "_module", &mut AHashSet::new());
-    // Base error derives from PyException; variants derive from the base error so that
-    // `except ConversionError:` catches every variant (tslp issue #147).
     assert!(output.contains("pyo3::create_exception!(_module, ConversionError, pyo3::exceptions::PyException);"));
     assert!(output.contains("pyo3::create_exception!(_module, ParseError, ConversionError);"));
     assert!(output.contains("pyo3::create_exception!(_module, IoError, ConversionError);"));
@@ -167,7 +165,7 @@ fn test_gen_error_converter() {
 fn test_gen_error_registration() {
     let error = sample_error();
     let regs = gen_pyo3_error_registration(&error, &mut AHashSet::new());
-    assert_eq!(regs.len(), 4); // 3 variants + 1 base
+    assert_eq!(regs.len(), 4);
     assert!(regs[0].contains("\"ParseError\""));
     assert!(regs[3].contains("\"ConversionError\""));
 }
@@ -196,7 +194,6 @@ fn test_unit_variant_pattern() {
     };
     let output = gen_pyo3_error_converter(&error, "my_crate");
     assert!(output.contains("my_crate::MyError::NotFound => NotFoundError::new_err(msg),"));
-    // Ensure no (..) for unit variants
     assert!(!output.contains("NotFound(..)"));
 }
 
@@ -227,13 +224,8 @@ fn test_struct_variant_pattern() {
         output.contains("my_crate::MyError::Parsing { .. } => ParsingError::new_err(msg),"),
         "Struct variants must use {{ .. }} pattern, got:\n{output}"
     );
-    // Ensure no (..) for struct variants
     assert!(!output.contains("Parsing(..)"));
 }
-
-// -----------------------------------------------------------------------
-// NAPI tests
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_gen_napi_error_types() {
@@ -282,36 +274,25 @@ fn test_napi_unit_variant() {
     assert!(!output.contains("NotFound(..)"));
 }
 
-// -----------------------------------------------------------------------
-// WASM tests
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_gen_wasm_error_converter() {
     let error = sample_error();
     let output = gen_wasm_error_converter(&error, "sample_markup_rs", &[]);
-    // Main converter function signature
     assert!(
         output.contains(
             "fn conversion_error_to_js_value(e: sample_markup_rs::ConversionError) -> wasm_bindgen::JsValue {"
         )
     );
-    // Structured object with code + message
     assert!(output.contains("js_sys::Object::new()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok()"));
     assert!(output.contains("obj.into()"));
-    // error_code helper
     assert!(output.contains("fn conversion_error_error_code(e: &sample_markup_rs::ConversionError) -> &'static str {"));
     assert!(output.contains("\"parse_error\""));
     assert!(output.contains("\"io_error\""));
     assert!(output.contains("\"other\""));
     assert!(output.contains("#[allow(dead_code)]"));
 }
-
-// -----------------------------------------------------------------------
-// PHP tests
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_gen_php_error_converter() {
@@ -323,10 +304,6 @@ fn test_gen_php_error_converter() {
     assert!(output.contains("PhpException::default(format!(\"[ParseError] {}\", msg))"));
     assert!(output.contains("#[allow(dead_code)]"));
 }
-
-// -----------------------------------------------------------------------
-// Magnus tests
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_gen_magnus_error_converter() {
@@ -341,10 +318,6 @@ fn test_gen_magnus_error_converter() {
     assert!(output.contains("#[allow(dead_code)]"));
 }
 
-// -----------------------------------------------------------------------
-// Rustler tests
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_gen_rustler_error_converter() {
     let error = sample_error();
@@ -354,22 +327,14 @@ fn test_gen_rustler_error_converter() {
     assert!(output.contains("#[allow(dead_code)]"));
 }
 
-// -----------------------------------------------------------------------
-// Go error struct with methods tests
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_gen_go_error_struct_with_methods() {
     let error = error_with_methods();
     let output = gen_go_error_struct(&error, "sampleapp");
-    // Stutter-stripped: "SampleApp" prefix of "SampleAppError" stripped for "sampleapp" pkg
     assert!(output.contains("type Error struct {"), "struct def: {output}");
-    // Fields are emitted directly on the struct — no accessor methods (avoids
-    // field/method name collision that go vet rejects).
     assert!(output.contains("StatusCode uint16"), "StatusCode field: {output}");
     assert!(output.contains("IsTransient bool"), "IsTransient field: {output}");
     assert!(output.contains("ErrorType string"), "ErrorType field: {output}");
-    // Accessor methods must NOT be emitted — the struct fields are the accessors.
     assert!(
         !output.contains("func (e Error) StatusCode()"),
         "no StatusCode accessor: {output}"
@@ -386,8 +351,6 @@ fn test_gen_go_error_struct_with_methods() {
 
 #[test]
 fn test_gen_go_error_struct_no_field_method_collision() {
-    // Any property whose PascalCase name would collide as both a struct field and
-    // a method must produce only the field — go vet rejects the combination.
     use crate::core::ir::{ErrorDef, ErrorVariant, PrimitiveType, TypeRef};
     let error = ErrorDef {
         name: "ApiError".to_string(),
@@ -413,11 +376,8 @@ fn test_gen_go_error_struct_no_field_method_collision() {
         version: Default::default(),
     };
     let output = gen_go_error_struct(&error, "mypkg");
-    // Fields must be present.
     assert!(output.contains("RetryCount uint32"), "RetryCount field: {output}");
     assert!(output.contains("Permanent bool"), "Permanent field: {output}");
-    // Accessor methods must NOT be emitted — field name == method name would be
-    // a go vet error.
     assert!(
         !output.contains("func (e ApiError) RetryCount()"),
         "no RetryCount accessor: {output}"
@@ -430,22 +390,18 @@ fn test_gen_go_error_struct_no_field_method_collision() {
 
 #[test]
 fn test_gen_go_error_struct_no_methods() {
-    let error = sample_error(); // methods: vec![]
+    let error = sample_error();
     let output = gen_go_error_struct(&error, "mylib");
     assert!(output.contains("type ConversionError struct {"), "{output}");
     assert!(!output.contains("StatusCode"), "{output}");
     assert!(!output.contains("IsTransient"), "{output}");
 }
 
-// -----------------------------------------------------------------------
-// Java error types with methods tests
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_gen_java_error_types_with_methods() {
     let error = error_with_methods();
     let files = gen_java_error_types(&error, "dev.sample_crate.sampleapp");
-    assert_eq!(files.len(), 1); // base only, no variants
+    assert_eq!(files.len(), 1);
     let base = &files[0].1;
     assert!(
         base.contains("private final int statusCode;"),
@@ -471,12 +427,10 @@ fn test_gen_java_error_types_with_methods() {
         base.contains("public String getErrorType()"),
         "getErrorType getter: {base}"
     );
-    // Simple no-args constructor still present
     assert!(
         base.contains("public SampleAppErrorException(final String message)"),
         "simple ctor: {base}"
     );
-    // Full constructor with introspection params
     assert!(
             base.contains("public SampleAppErrorException(final String message, final int statusCode, final boolean isTransientFlag, final String errorType)"),
             "full ctor: {base}"
@@ -485,7 +439,7 @@ fn test_gen_java_error_types_with_methods() {
 
 #[test]
 fn test_gen_java_error_types_no_methods() {
-    let error = sample_error(); // methods: vec![]
+    let error = sample_error();
     let files = gen_java_error_types(&error, "dev.sample_crate.test");
     let base = &files[0].1;
     assert!(!base.contains("private final"), "no fields when no methods: {base}");
@@ -495,15 +449,11 @@ fn test_gen_java_error_types_no_methods() {
     );
 }
 
-// -----------------------------------------------------------------------
-// C# error types with methods tests
-// -----------------------------------------------------------------------
-
 #[test]
 fn test_gen_csharp_error_types_with_methods() {
     let error = error_with_methods();
     let files = gen_csharp_error_types(&error, "SampleCrate.SampleApp", None);
-    assert_eq!(files.len(), 1); // base only, no variants
+    assert_eq!(files.len(), 1);
     let base = &files[0].1;
     assert!(
         base.contains("public ushort StatusCode { get; }"),
@@ -517,12 +467,10 @@ fn test_gen_csharp_error_types_with_methods() {
         base.contains("public string ErrorType { get; }"),
         "ErrorType prop: {base}"
     );
-    // Simple constructor (with defaults)
     assert!(
         base.contains("public SampleAppErrorException(string message) : base(message)"),
         "simple ctor: {base}"
     );
-    // Full constructor
     assert!(
             base.contains("public SampleAppErrorException(string message, ushort statusCode, bool isTransientFlag, string errorType) : base(message)"),
             "full ctor: {base}"
@@ -531,7 +479,7 @@ fn test_gen_csharp_error_types_with_methods() {
 
 #[test]
 fn test_gen_csharp_error_types_no_methods() {
-    let error = sample_error(); // methods: vec![]
+    let error = sample_error();
     let files = gen_csharp_error_types(&error, "SampleCrate.Test", None);
     let base = &files[0].1;
     assert!(!base.contains("{ get; }"), "no properties when no methods: {base}");
@@ -552,10 +500,6 @@ fn test_gen_csharp_error_types_strips_rust_idioms_in_doc() {
     error.doc = "Errors that can occur during GraphQL operations\n\n\
             These errors are compatible with async-graphql error handling.\n"
         .to_string();
-    // Mirror the real `status_code()` rustdoc from sample_project-graphql: it has a
-    // `# Examples` section with a ```ignore fence referencing `Self::error_code`,
-    // `Result<T, E>`, intra-doc links, and a `::` path separator — everything
-    // that previously leaked into a one-line `<summary>` attribute.
     error.methods[0].doc = "Convert error to HTTP status code\n\n\
             Public alias for the same codes returned by [`Self::error_code`].\n\n\
             # Examples\n\n\
@@ -567,8 +511,6 @@ fn test_gen_csharp_error_types_strips_rust_idioms_in_doc() {
         .to_string();
     let files = gen_csharp_error_types(&error, "SampleRouter", None);
     let base = &files[0].1;
-    // Per-method `<summary>` is single-line — must not contain raw fence markers,
-    // intra-doc square brackets, `::`, or unescaped `<`/`>`.
     assert!(
         !base.contains("```"),
         "code fence markers must not leak into <summary>: {base}"
@@ -583,21 +525,15 @@ fn test_gen_csharp_error_types_strips_rust_idioms_in_doc() {
         !base.contains("GraphQLError::AuthenticationError"),
         "rust path inside fence must be dropped: {base}"
     );
-    // The first line of prose survives.
     assert!(
         base.contains("Convert error to HTTP status code"),
         "first prose line survives: {base}"
     );
-    // The base error doc survives sanitised.
     assert!(
         base.contains("Errors that can occur during GraphQL operations"),
         "base error prose survives: {base}"
     );
 }
-
-// -----------------------------------------------------------------------
-// Helper tests
-// -----------------------------------------------------------------------
 
 #[test]
 fn test_to_screaming_snake() {
@@ -613,8 +549,6 @@ fn test_strip_thiserror_placeholders_struct_field() {
         strip_thiserror_placeholders("plugin error in '{plugin_name}': {message}"),
         "plugin error in"
     );
-    // Multi-placeholder strings retain the surrounding prose verbatim
-    // (minus the holes). Critical contract: no `{` / `}` survives.
     let result = strip_thiserror_placeholders("extraction timed out after {elapsed_ms}ms (limit: {limit_ms}ms)");
     assert!(!result.contains('{'), "no braces: {result}");
     assert!(!result.contains('}'), "no braces: {result}");
@@ -661,8 +595,6 @@ fn test_variant_display_message_acronym_first_word() {
         is_tuple: false,
         doc: String::new(),
     };
-    // Template "I/O error: {0}" → strip → "I/O error" → first token "I/O" not an acronym (with `/`),
-    // so falls back to lowercase first char → "i/O error". Acceptable: at least no `{0}` leak.
     let msg = variant_display_message(&variant);
     assert!(!msg.contains('{'), "no placeholders allowed: {msg}");
 }
@@ -764,7 +696,3 @@ fn test_go_sentinels_no_placeholder_leak() {
         "expected timeout sentinel to start with the prose, got:\n{output}"
     );
 }
-
-// -----------------------------------------------------------------------
-// FFI (C) tests
-// -----------------------------------------------------------------------

@@ -28,19 +28,12 @@ pub(super) fn gen_streaming_method_wrapper(
     let method_go_name = to_go_name(&method.name);
     emit_type_doc(&mut out, &method_go_name, &method.doc, "is a streaming method.");
 
-    // Receiver name follows the pattern used by gen_method_wrapper: opaque -> "h", non-opaque -> "r".
     let receiver_name = if typ.is_opaque { "h" } else { "r" };
     let go_receiver_type = go_type_name(&typ.name);
     let item_go_type = go_type_name(item_type);
 
-    // A data-enum item type is emitted as a Go sealed interface. A bare
-    // `json.Unmarshal` into a named-interface variable fails at runtime
-    // ("cannot unmarshal object into Go value of type <Interface>"), so the
-    // generated `Unmarshal<Type>` discriminator function must be used instead.
     let item_is_sum_type = data_enum_names.contains(item_type);
 
-    // Build the parameter list mirroring gen_method_wrapper. We do not honour
-    // bridge stripping here because streaming adapters never use trait bridges.
     let params: Vec<String> = method
         .params
         .iter()
@@ -71,16 +64,11 @@ pub(super) fn gen_streaming_method_wrapper(
         },
     ));
 
-    // Marshal each parameter exactly like gen_method_wrapper does for the
-    // synchronous case. The start function's signature accepts the same C
-    // request handle as the regular `chat` method, so reuse the existing
-    // gen_param_to_c emitter (returning `(value, error)`-shape).
     for param in &method.params {
         out.push_str(&gen_param_to_c(
             param,
-            /* err_return_prefix = */
-            "nil, ", // streaming returns (<-chan T, error); channel zero-value is nil
-            /* can_return_error = */ true,
+            "nil, ",
+            true,
             ffi_prefix,
             opaque_names,
             enum_names,
@@ -88,7 +76,6 @@ pub(super) fn gen_streaming_method_wrapper(
         ));
     }
 
-    // Build the C parameter list (e.g. `cReq`) — same as gen_method_wrapper.
     let c_params: Vec<String> = method
         .params
         .iter()
@@ -107,8 +94,6 @@ pub(super) fn gen_streaming_method_wrapper(
     let item_snake = item_type.to_snake_case();
     let upper_prefix = ffi_prefix.to_uppercase();
 
-    // Start the stream. Non-static streaming methods always have a non-null
-    // opaque receiver — cast `h.ptr` like other opaque-receiver methods do.
     let c_receiver = format!(
         "(*C.{}{})(unsafe.Pointer({}.ptr))",
         upper_prefix, typ.name, receiver_name
@@ -158,27 +143,18 @@ pub(super) fn gen_method_wrapper(
 
     emit_type_doc(&mut out, &method_go_name, &method.doc, "is a method.");
 
-    // A non-opaque, non-static method marshals its receiver to JSON — that is fallible.
-    // Also include params that require marshaling.
     let receiver_requires_marshal = !method.is_static && !typ.is_opaque;
     let method_marshals = receiver_requires_marshal || params_require_marshal(&method.params, opaque_names);
     let method_can_return_error = method.error_type.is_some() || method_marshals;
 
-    // Detect Result<Vec<u8>> — uses out-param convention, always returns ([]byte, error).
     let is_bytes_result = is_bytes_result_method(method);
 
     let return_type = if is_bytes_result {
-        // Out-param bytes result always returns ([]byte, error)
         "([]byte, error)".to_string()
     } else if method_can_return_error {
         if matches!(method.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
-            // Scalar types (primitives, Duration, String, Char, Path) stay scalar in the (value, error) tuple.
-            // Their conversion bodies produce value expressions or closures returning the bare Go type,
-            // so the signature must match.
-            // Named / Json / Optional / reference types keep go_optional_type because their conversion
-            // bodies produce pointer/slice values and the signature must match.
             let ret_go_type = if matches!(
                 method.return_type,
                 TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
@@ -195,18 +171,11 @@ pub(super) fn gen_method_wrapper(
         method.return_type,
         TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
     ) {
-        // Mirrors the value-form scalar-return condition in the `method_can_return_error`
-        // branch above. The body emitter (`go_return_expr` in `types.rs`) produces a plain
-        // value expression for `TypeRef::Primitive` (e.g. `ptr != 0`, `uint(ptr)`) and
-        // closures for string types that return the bare Go type, so the signature must use
-        // the value type — `*bool`/`*string` here would mismatch the body.
         go_type(&method.return_type).into_owned()
     } else {
         go_optional_type(&method.return_type).into_owned()
     };
 
-    // Opaque types use "h" (for "handle") to match the receiver name in Free().
-    // Non-opaque types use "r" (for "receiver").
     let receiver_name = if typ.is_opaque { "h" } else { "r" };
     let go_receiver_type = go_type_name(&typ.name);
 
@@ -230,15 +199,12 @@ pub(super) fn gen_method_wrapper(
         .collect();
     let params_str = params.join(", ");
 
-    // Prefix return type with a space so the template can emit `() returntype {`
-    // or `() {` (no double-space) when return_type is empty.
     let ret_type_str = if return_type.is_empty() {
         String::new()
     } else {
         format!(" {return_type}")
     };
 
-    // Emit the full method signature on a single canonical line so gofmt is a no-op.
     if method.is_static {
         out.push_str(&crate::backends::go::template_env::render(
             "method_signature_static.jinja",
@@ -263,8 +229,6 @@ pub(super) fn gen_method_wrapper(
     }
 
     {
-        // Synchronous method - just convert params and call FFI
-        // Note: method_can_return_error is set above (includes synthesized error for marshal-requiring methods).
         let returns_value_and_error = method_can_return_error && !matches!(method.return_type, TypeRef::Unit);
         let param_err_return_prefix: String = if returns_value_and_error {
             format!("{}, ", go_zero_value(&method.return_type))
@@ -283,7 +247,6 @@ pub(super) fn gen_method_wrapper(
             ));
         }
 
-        // Bytes params expand to two C arguments: the pointer and the length.
         let c_params: Vec<String> = method
             .params
             .iter()
@@ -300,7 +263,6 @@ pub(super) fn gen_method_wrapper(
         let type_snake = typ.name.to_snake_case();
         let method_snake = method.name.to_snake_case();
         let base_c_call = if method.is_static {
-            // Static methods don't pass a receiver
             if c_params.is_empty() {
                 format!("C.{}_{}_{}()", ffi_prefix, type_snake, method_snake)
             } else {
@@ -313,7 +275,6 @@ pub(super) fn gen_method_wrapper(
                 )
             }
         } else if typ.is_opaque {
-            // Opaque types have a ptr field — cast it directly.
             let c_receiver = format!(
                 "(*C.{}{})(unsafe.Pointer({}.ptr))",
                 ffi_prefix.to_uppercase(),
@@ -333,17 +294,11 @@ pub(super) fn gen_method_wrapper(
                 )
             }
         } else {
-            // Non-opaque structs: marshal to JSON, create a temporary handle, use it, and free it.
-            // err_prefix is the leading "<zero>, " in `return <zero>, fmt.Errorf(...)` early returns.
-            // For (value, error) signatures the zero value depends on the value type — `nil` for
-            // pointer/slice/map/Named, `0`/`false`/`""` for plain primitives/strings/bools.
             let err_prefix = if returns_value_and_error {
                 format!("{}, ", go_zero_value(&method.return_type))
             } else {
                 String::new()
             };
-            // method_can_return_error is always true here (receiver_requires_marshal is true for
-            // non-opaque non-static methods), so we always emit fmt.Errorf, never panic.
             let err_action = format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)");
             let from_json_err_action = format!(
                 "return {err_prefix}fmt.Errorf(\"failed to create receiver: %s\", C.GoString(C.{ffi_prefix}_last_error_context()))"
@@ -371,7 +326,6 @@ pub(super) fn gen_method_wrapper(
             }
         };
 
-        // For Result<Vec<u8>> (bytes_result), append the three out-param references to the call.
         let c_call = if is_bytes_result {
             let base = base_c_call.trim_end_matches(')');
             if base.ends_with('(') {
@@ -383,7 +337,6 @@ pub(super) fn gen_method_wrapper(
             base_c_call
         };
 
-        // Result<Vec<u8>> uses the out-param convention — emit specialized body and return early.
         if is_bytes_result {
             out.push_str(&crate::backends::go::template_env::render(
                 "bytes_result_call.jinja",
@@ -393,10 +346,6 @@ pub(super) fn gen_method_wrapper(
             return out;
         }
 
-        // Detect builder pattern: opaque type METHOD (not static constructor) that returns the same opaque type.
-        // The C function consumes (Box::from_raw) the input pointer and returns a new pointer.
-        // Instead of creating a new Go struct, update h.ptr so the caller's handle stays valid.
-        // For static constructors, we create a new struct wrapper instead.
         let is_builder_return = !method.is_static
             && typ.is_opaque
             && matches!(&method.return_type, TypeRef::Named(n) if n.as_str() == typ.name.as_str());
@@ -409,9 +358,6 @@ pub(super) fn gen_method_wrapper(
                         c_call => &c_call,
                     },
                 ));
-                // For non-opaque, non-static methods with Unit return, the C function may have
-                // mutated cRecv in place (e.g. apply_update).  Write the updated state back to
-                // the Go receiver so the mutation is visible to the caller.
                 if !method.is_static && !typ.is_opaque {
                     out.push_str(&crate::backends::go::template_env::render(
                         "method_update_from_json.jinja",
@@ -436,8 +382,6 @@ pub(super) fn gen_method_wrapper(
                 ));
                 if method.error_type.is_some() {
                     out.push_str("\tif err := lastError(); err != nil {\n");
-                    // Free the pointer if non-nil even on error, to avoid leaks.
-                    // Bytes pointers are NOT freed — they alias internal storage.
                     if matches!(
                         method.return_type,
                         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
@@ -451,8 +395,6 @@ pub(super) fn gen_method_wrapper(
                         ));
                         out.push_str("\t\t}\n");
                     }
-                    // Use the type-appropriate zero value: `nil` for pointer/slice/Named returns,
-                    // `0`/`false`/`""` for scalar Primitive/Duration value-form returns.
                     let zero_value = go_zero_value(&method.return_type);
                     out.push_str(&crate::backends::go::template_env::render(
                         "return_zero_err.jinja",
@@ -462,8 +404,6 @@ pub(super) fn gen_method_wrapper(
                     ));
                     out.push_str("\t}\n");
                 }
-                // Free the FFI-allocated string after unmarshaling.
-                // Bytes pointers are NOT freed — they alias internal storage.
                 if matches!(
                     method.return_type,
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
@@ -476,8 +416,6 @@ pub(super) fn gen_method_wrapper(
                         },
                     ));
                 }
-                // For non-opaque Named return types, free the handle after JSON extraction.
-                // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
                 if let TypeRef::Named(name) = &method.return_type {
                     if !opaque_names.contains(name.as_str()) {
                         let type_snake = name.to_snake_case();
@@ -492,8 +430,6 @@ pub(super) fn gen_method_wrapper(
                     }
                 }
                 if is_builder_return {
-                    // Builder pattern: C consumed the old pointer and returned a new one.
-                    // Update r.ptr in-place so the caller's handle remains valid.
                     out.push_str(&crate::backends::go::template_env::render(
                         "receiver_ptr_assign.jinja",
                         minijinja::context! {
@@ -531,8 +467,6 @@ pub(super) fn gen_method_wrapper(
                     c_call => &c_call,
                 },
             ));
-            // Add defer free for C string returns.
-            // Bytes pointers are NOT freed — they alias internal storage.
             if matches!(
                 method.return_type,
                 TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
@@ -545,8 +479,6 @@ pub(super) fn gen_method_wrapper(
                     },
                 ));
             }
-            // For non-opaque Named return types, free the handle after JSON extraction.
-            // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
             if let TypeRef::Named(name) = &method.return_type {
                 if !opaque_names.contains(name.as_str()) {
                     let type_snake = name.to_snake_case();
@@ -561,8 +493,6 @@ pub(super) fn gen_method_wrapper(
                 }
             }
             if is_builder_return {
-                // Builder pattern: C consumed the old pointer and returned a new one.
-                // Update r.ptr in-place so the caller's handle remains valid.
                 out.push_str(&crate::backends::go::template_env::render(
                     "method_receiver_ptr_assign.jinja",
                     minijinja::context! {
@@ -609,15 +539,12 @@ pub(super) fn gen_param_to_c(
     ffi_param_enum_names: &std::collections::HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(512);
-    // Go param names must be lowerCamelCase (no underscores), and internal C-side
-    // temporaries use the same stem with acronym uppercasing applied.
     let go_param = go_param_name(&param.name);
     let c_name = go_param_name(&format!("c_{}", param.name));
 
     match &param.ty {
         TypeRef::String | TypeRef::Char => {
             if param.optional {
-                // Optional string param (ty=String, optional=true): the Go variable holds *string.
                 out.push_str(&crate::backends::go::template_env::render(
                     "param_string_optional.jinja",
                     minijinja::context! {
@@ -659,8 +586,6 @@ pub(super) fn gen_param_to_c(
             }
         }
         TypeRef::Bytes => {
-            // Empty slices have no first element — `&slice[0]` panics. Pass a nil
-            // pointer in that case; the FFI side reads zero bytes either way.
             out.push_str(&crate::backends::go::template_env::render(
                 "bytes_to_c_pointer.jinja",
                 minijinja::context! {
@@ -672,7 +597,6 @@ pub(super) fn gen_param_to_c(
         }
         TypeRef::Named(name) => {
             if opaque_names.contains(name.as_str()) {
-                // Opaque types are pointer wrappers — cast the raw pointer to the C type.
                 let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name);
                 out.push_str(&crate::backends::go::template_env::render(
                     "param_opaque_cast.jinja",
@@ -684,10 +608,6 @@ pub(super) fn gen_param_to_c(
                 ));
                 out.push('\n');
             } else if ffi_param_enum_names.contains(name) {
-                // Unit-variant enums: the go-side type is a string alias (e.g.
-                // `type Method string`), so convert via the existing C helper
-                // `{prefix}_{enum}_from_str(*c_char) -> i32` rather than direct
-                // `C.int32_t(...)` which would fail to compile on a string-typed value.
                 let enum_snake = name.to_snake_case();
                 out.push_str(&crate::backends::go::template_env::render(
                     "param_enum_to_i32.jinja",
@@ -700,7 +620,6 @@ pub(super) fn gen_param_to_c(
                 ));
                 out.push('\n');
             } else if enum_names.contains(name) {
-                // Data enums: marshal to JSON, create a handle via _from_json.
                 let type_snake = name.to_snake_case();
                 let err_action = if can_return_error {
                     format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
@@ -729,8 +648,6 @@ pub(super) fn gen_param_to_c(
                 ));
                 out.push('\n');
             } else {
-                // Non-opaque, non-enum Named types: marshal to JSON, create a handle via _from_json,
-                // and pass that to the C function.
                 let type_snake = name.to_snake_case();
                 let err_action = if can_return_error {
                     format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
@@ -761,9 +678,6 @@ pub(super) fn gen_param_to_c(
             }
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Json => {
-            // Vec, Map, and raw-JSON (json.RawMessage) types are serialized as JSON strings
-            // across the FFI boundary. json.Marshal on a json.RawMessage returns its bytes
-            // verbatim, so the same path produces the C string the call-site references.
             let err_action = if can_return_error {
                 format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
             } else {
@@ -779,60 +693,52 @@ pub(super) fn gen_param_to_c(
             ));
             out.push('\n');
         }
-        TypeRef::Optional(inner) => {
-            match inner.as_ref() {
-                TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                    out.push_str(&crate::backends::go::template_env::render(
-                        "param_string_optional.jinja",
-                        minijinja::context! {
-                            c_name => &c_name,
-                            go_param => &go_param,
-                        },
-                    ));
-                    out.push('\n');
-                }
-                TypeRef::Named(name) if opaque_names.contains(name.as_str()) => {
-                    // Optional opaque type: cast the raw pointer to the C type or pass nil.
-                    let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name);
-                    out.push_str(&crate::backends::go::template_env::render(
-                        "param_optional_opaque.jinja",
-                        minijinja::context! {
-                            c_name => &c_name,
-                            c_type => &c_type,
-                            go_param => &go_param,
-                        },
-                    ));
-                    out.push('\n');
-                }
-                TypeRef::Named(_) => {
-                    out.push_str(&crate::backends::go::template_env::render(
-                        "param_optional_named_inline.jinja",
-                        minijinja::context! {
-                            c_name => &c_name,
-                            go_param => &go_param,
-                        },
-                    ));
-                    out.push('\n');
-                }
-                _ => {
-                    // For other optional types, just pass nil or default
-                    out.push_str(&crate::backends::go::template_env::render(
-                        "param_optional_decl.jinja",
-                        minijinja::context! {
-                            c_name => &c_name,
-                        },
-                    ));
-                    out.push('\n');
-                }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::String | TypeRef::Char | TypeRef::Path => {
+                out.push_str(&crate::backends::go::template_env::render(
+                    "param_string_optional.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
             }
-        }
+            TypeRef::Named(name) if opaque_names.contains(name.as_str()) => {
+                let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name);
+                out.push_str(&crate::backends::go::template_env::render(
+                    "param_optional_opaque.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        c_type => &c_type,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
+            }
+            TypeRef::Named(_) => {
+                out.push_str(&crate::backends::go::template_env::render(
+                    "param_optional_named_inline.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
+            }
+            _ => {
+                out.push_str(&crate::backends::go::template_env::render(
+                    "param_optional_decl.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                    },
+                ));
+                out.push('\n');
+            }
+        },
         TypeRef::Primitive(prim) if !param.optional => {
-            // Non-optional primitive: cast to the CGo type so the value can be passed directly
-            // to C functions that expect C types (e.g., uintptr_t, uint32_t).
             let cgo_ty = cgo_type_for_primitive(prim);
             let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
-            // Special case for bool: Go bool cannot be directly cast to C.uchar.
-            // Convert via conditional: if true, 1; else 0.
             if matches!(prim, crate::core::ir::PrimitiveType::Bool) {
                 out.push_str(&crate::backends::go::template_env::render(
                     "param_primitive_bool.jinja",
@@ -857,20 +763,10 @@ pub(super) fn gen_param_to_c(
             }
         }
         TypeRef::Primitive(prim) if param.optional => {
-            // Optional primitive: the Go param is a pointer (*T). Dereference it if non-nil,
-            // otherwise pass the max-value sentinel (e.g. u64::MAX) so the FFI layer knows
-            // the parameter was omitted.
-            //
-            // Declare the variable using the CGo type (e.g. C.uint64_t) so that CGo does
-            // not reject the value when it is passed directly to the C function. Go's native
-            // numeric types (uint64, uint32, …) are distinct from CGo types and cannot be
-            // passed without an explicit cast — using the CGo type at declaration avoids a
-            // second cast at every call-site.
             let cgo_ty = cgo_type_for_primitive(prim);
             let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
             let sentinel = primitive_max_sentinel(prim);
 
-            // Special case for bool: Go bool cannot be directly cast to C.uchar.
             if matches!(prim, crate::core::ir::PrimitiveType::Bool) {
                 out.push_str(&crate::backends::go::template_env::render(
                     "param_optional_primitive_bool.jinja",
@@ -895,9 +791,7 @@ pub(super) fn gen_param_to_c(
                 out.push('\n');
             }
         }
-        _ => {
-            // Primitives and other types pass through directly
-        }
+        _ => {}
     }
 
     if !out.is_empty() {

@@ -120,7 +120,6 @@ fn test_gen_struct_type_emits_json_tags() {
 
 #[test]
 fn test_gen_data_enum_sealed_interface() {
-    // Test tagged-data enum (named fields): emits sealed interface pattern
     let enum_def = EnumDef {
         name: "AuthConfig".to_string(),
         rust_path: String::new(),
@@ -171,21 +170,15 @@ fn test_gen_data_enum_sealed_interface() {
         version: Default::default(),
     };
     let out = gen_data_enum_type(&enum_def);
-    // Should emit sealed interface
     assert!(out.contains("type AuthConfig interface"));
     assert!(out.contains("isAuthConfig()"));
     assert!(out.contains("Type() string"));
-    // Should emit concrete structs per variant, not flat struct with all nullables
     assert!(out.contains("type AuthConfigBasic struct"));
     assert!(out.contains("type AuthConfigBearer struct"));
-    // Basic variant should have username/password non-null fields
     assert!(out.contains("Username string"));
     assert!(out.contains("Password string"));
-    // Bearer variant should have token field
     assert!(out.contains("Token string"));
-    // No nullable fields — each struct has only its own fields
     assert!(!out.contains("*string `json:\"username,omitempty\""));
-    // Should emit Unmarshal helper
     assert!(out.contains("func UnmarshalAuthConfig(data []byte)"));
     assert!(out.contains("case \"basic\""));
     assert!(out.contains("case \"bearer\""));
@@ -279,8 +272,6 @@ fn gen_config_options_defaults_data_enum_field_to_nil_not_composite_literal() {
         &[],
     );
     // BUG fixed: previously emitted `Sizing: ChunkSizing{}` which is a Go compile
-    // error (`invalid composite literal type ChunkSizing` — ChunkSizing is an
-    // interface). Verify the constructor now uses the interface zero value `nil`.
     assert!(
         !out.contains("Sizing: ChunkSizing{}") && !out.contains("Sizing:                ChunkSizing{}"),
         "expected no `Sizing: ChunkSizing{{}}` in:\n{out}"
@@ -331,10 +322,8 @@ fn test_gen_struct_type_emits_no_config_options_by_default() {
         &std::collections::HashSet::new(),
         &[],
     );
-    // The struct type should be emitted
     assert!(out.contains("type ContentConfig struct"), "expected struct definition");
     assert!(out.contains("OutputFormat"), "expected OutputFormat field");
-    // But no functional-options should be emitted
     assert!(
         !out.contains("WithContentConfig"),
         "expected no WithContentConfig helpers"
@@ -381,7 +370,6 @@ fn test_gen_config_options_emitted_when_in_allowlist() {
         has_private_fields: false,
         version: Default::default(),
     };
-    // Simulate the config allowing DialOptions for functional-options
     let out = gen_config_options(
         &typ,
         &std::collections::HashSet::new(),
@@ -389,7 +377,6 @@ fn test_gen_config_options_emitted_when_in_allowlist() {
         &std::collections::HashSet::new(),
         &[],
     );
-    // Should emit the WithTimeout and WithVerifySSL helpers
     assert!(
         out.contains("WithDialOptionsTimeout"),
         "expected WithDialOptionsTimeout"
@@ -398,12 +385,10 @@ fn test_gen_config_options_emitted_when_in_allowlist() {
         out.contains("WithDialOptionsVerifySSL"),
         "expected WithDialOptionsVerifySSL"
     );
-    // Should emit the DialOptionsOption type
     assert!(
         out.contains("type DialOptionsOption func"),
         "expected DialOptionsOption type"
     );
-    // Should emit the NewDialOptions constructor
     assert!(
         out.contains("func NewDialOptions"),
         "expected NewDialOptions constructor"
@@ -468,7 +453,6 @@ fn make_passthrough_enum() -> EnumDef {
 #[test]
 fn gen_enum_type_passthrough_without_text_types_does_not_emit_text_accessor() {
     let enum_def = make_passthrough_enum();
-    // Confirm this routes to gen_passthrough_raw_message_enum
     assert!(super::enums::is_passthrough_raw_message_enum(&enum_def));
     let out = gen_enum_type(&enum_def, &[]);
     assert!(
@@ -497,11 +481,8 @@ fn gen_enum_type_passthrough_with_text_types_emits_text_accessor() {
         out.contains("func (e AssistantContent) Text() string"),
         "Text() method must be emitted:\n{out}"
     );
-    // Must handle string variant
     assert!(out.contains("e[0] == '\"'"), "must handle JSON string variant:\n{out}");
-    // Must handle array of parts variant
     assert!(out.contains("e[0] == '['"), "must handle JSON array variant:\n{out}");
-    // Must filter by type == "text"
     assert!(
         out.contains("p.Type == \"text\""),
         "must filter parts by type==\"text\":\n{out}"

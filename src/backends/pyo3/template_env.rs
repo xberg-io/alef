@@ -1,7 +1,6 @@
 use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
-    // trait_bridge templates
     (
         "trait_bridge/import_item.jinja",
         include_str!("templates/trait_bridge/import_item.jinja"),

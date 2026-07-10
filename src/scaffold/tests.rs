@@ -71,8 +71,6 @@ fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
         .filter(|f| {
             let p = f.path.to_string_lossy();
             p != "poly.toml"
-                // rustfmt.toml is a repo-level config emitted alongside poly.toml;
-                // exclude it here so language-specific file-count assertions stay stable.
                 && p != "rustfmt.toml"
                 && !p.ends_with("rust-toolchain.toml")
                 && !p.ends_with(".cargo/config.toml")
@@ -80,7 +78,6 @@ fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
                 // LICENSE files are synced from the workspace root; the consolidated
                 // single-crate layout runs tests from the repo root which has a LICENSE
                 // file, causing scaffold_license_files() to emit per-package LICENSE
-                // entries. Filter them out here so file-count assertions remain stable.
                 && !p.ends_with("/LICENSE")
                 && p != "LICENSE"
         })

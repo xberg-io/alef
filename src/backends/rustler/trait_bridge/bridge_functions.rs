@@ -23,7 +23,6 @@ pub fn gen_bridge_function(
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
-    // Build parameter list — Rustler NIFs always have `env: rustler::Env<'_>` as first param
     let mut sig_parts = vec!["env: rustler::Env<'_>".to_string()];
     for (idx, p) in func.params.iter().enumerate() {
         if idx == bridge_param_idx {
@@ -33,7 +32,6 @@ pub fn gen_bridge_function(
                 sig_parts.push(format!("{}: rustler::Term<'_>", p.name));
             }
         } else {
-            // Use the same type mapping as gen_nif_function
             if let TypeRef::Named(n) = &p.ty {
                 if opaque_types.contains(n) {
                     let promoted = idx > bridge_param_idx;
@@ -65,7 +63,6 @@ pub fn gen_bridge_function(
 
     let err_conv = ".map_err(|e| e.to_string())";
 
-    // Bridge wrapping code
     let bridge_wrap_template = if is_optional {
         "trait_optional_bridge_wrap.rs.jinja"
     } else {
@@ -82,7 +79,6 @@ pub fn gen_bridge_function(
     .trim_end()
     .to_string();
 
-    // Let bindings for non-bridge params that need deserialization
     let deser_bindings: String = func
         .params
         .iter()
@@ -122,7 +118,6 @@ pub fn gen_bridge_function(
         })
         .collect();
 
-    // Build call args
     let call_args: Vec<String> = func
         .params
         .iter()
@@ -218,16 +213,10 @@ pub fn gen_bridge_function(
         ctx,
     ));
 
-    // Generate the async visitor NIF only when the bridge parameter is the visitor.
-    // This NIF spawns a system thread, builds the bridge from the caller PID + visitor term,
-    // runs conversion, and sends the result back as a {:ok, result} / {:error, reason} message.
     if is_optional {
-        // Build the non-bridge params signature for convert_with_visitor
-        // (bridge param replaced by the concrete Elixir term — never nil here).
         let mut with_sig_parts = vec!["env: rustler::Env<'_>".to_string()];
         for (idx, p) in func.params.iter().enumerate() {
             if idx == bridge_param_idx {
-                // visitor is required (not optional) in convert_with_visitor
                 with_sig_parts.push(format!("{}: rustler::Term<'_>", p.name));
             } else if let TypeRef::Named(n) = &p.ty {
                 if default_types.contains(n) {
@@ -251,7 +240,6 @@ pub fn gen_bridge_function(
         }
         let with_params_str = with_sig_parts.join(", ");
 
-        // Build the deser bindings string for non-bridge, non-opaque named params.
         let with_deser: String = func
             .params
             .iter()
@@ -271,14 +259,12 @@ pub fn gen_bridge_function(
             })
             .collect();
 
-        // Build the call args, replacing the bridge param with the configured handle.
         let with_call_args: Vec<String> = func
             .params
             .iter()
             .enumerate()
             .map(|(idx, p)| {
                 if idx == bridge_param_idx {
-                    // visitor_handle is built inside the thread closure
                     p.name.clone()
                 } else if let TypeRef::Named(n) = &p.ty {
                     if default_types.contains(n) {
@@ -299,7 +285,6 @@ pub fn gen_bridge_function(
             .collect();
         let with_call_args_str = with_call_args.join(", ");
 
-        // Clone non-bridge params before moving into the thread.
         let clone_stmts: String = func
             .params
             .iter()
@@ -378,7 +363,6 @@ pub fn gen_bridge_field_function(
     let options_type = &bridge_match.options_type;
     let core_options_type = format!("{core_import}::options::{options_type}");
 
-    // Whether the core function expects Option<ParseOptions> (optional=true).
     let options_param_is_optional = func
         .params
         .iter()
@@ -394,8 +378,6 @@ pub fn gen_bridge_field_function(
         }
     };
 
-    // ── 1. Plain NIF (no visitor) ─────────────────────────────────────────────
-    // Parameters: all original params. Options type is passed as Option<String> (JSON).
     let mut plain_sig: Vec<String> = Vec::new();
     for p in &func.params {
         let ty = if p.name == *options_param {
@@ -419,14 +401,11 @@ pub fn gen_bridge_field_function(
     let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
     let err_conv = ".map_err(|e| e.to_string())";
 
-    // Build call args for the plain NIF.
     let plain_call_args: Vec<String> = func
         .params
         .iter()
         .map(|p| {
             if p.name == *options_param {
-                // Deserialise options JSON → core type.
-                // When the core param is Option<T>, keep it wrapped; otherwise unwrap to Default.
                 if options_param_is_optional {
                     format!(
                         "{options_param}.map(|s| serde_json::from_str::<{core_options_type}>(&s).unwrap_or_default())"
@@ -465,8 +444,6 @@ pub fn gen_bridge_field_function(
         ctx,
     ));
 
-    // ── 2. Async visitor NIF ──────────────────────────────────────────────────
-    // Signature: env + original params + `visitor: Term<'_>` at the end.
     let mut vis_sig: Vec<String> = vec!["env: rustler::Env<'_>".to_string()];
     for p in &func.params {
         let ty = if p.name == *options_param {
@@ -487,7 +464,6 @@ pub fn gen_bridge_field_function(
     vis_sig.push("visitor: rustler::Term<'_>".to_string());
     let vis_params_str = vis_sig.join(", ");
 
-    // Clone stmts for non-String params that need to move into thread.
     let clone_stmts: String = func
         .params
         .iter()
@@ -502,7 +478,6 @@ pub fn gen_bridge_field_function(
         })
         .collect();
 
-    // Deser stmts: parse options JSON and set visitor field.
     let deser_stmts = crate::backends::rustler::template_env::render(
         "visitor_field_options_setup.rs.jinja",
         minijinja::context! {
@@ -514,13 +489,11 @@ pub fn gen_bridge_field_function(
         },
     );
 
-    // Build call args for the visitor variant.
     let vis_call_args: Vec<String> = func
         .params
         .iter()
         .map(|p| {
             if p.name == *options_param {
-                // Core expects Option<T> when optional=true.
                 if options_param_is_optional {
                     format!("Some({options_param}_core)")
                 } else {

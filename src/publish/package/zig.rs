@@ -37,7 +37,6 @@ pub fn package_zig(
     }
     fs::create_dir_all(&staging)?;
 
-    // Copy Zig package source files.
     let pkg_src = workspace_root.join(&pkg_dir);
     if !pkg_src.exists() {
         anyhow::bail!("Zig package directory not found: {}", pkg_dir);
@@ -45,23 +44,19 @@ pub fn package_zig(
 
     copy_dir_recursive(&pkg_src, &staging).context("copying Zig package")?;
 
-    // Create lib/ and include/ directories if needed.
     let lib_dir = staging.join("lib");
     let include_dir = staging.join("include");
     fs::create_dir_all(&lib_dir)?;
     fs::create_dir_all(&include_dir)?;
 
-    // Copy FFI shared library — required for the Zig package to be usable.
     let shared_lib = target.shared_lib_name(&lib_name);
     let shared_src = super::find_built_artifact(workspace_root, target, &shared_lib)
         .with_context(|| format!("locating built FFI artifact `{shared_lib}` for Zig package"))?;
     let shared_dst = lib_dir.join(&shared_lib);
     fs::copy(&shared_src, &shared_dst).context("copying FFI .so into Zig package")?;
 
-    // Fix macOS dylib install_name from absolute build path to @rpath-relative.
     super::util::fix_macos_dylib_id(target, &shared_dst, &shared_lib)?;
 
-    // Copy C header — required so downstream consumers can @cInclude it.
     let ffi_crate_dir = crate::publish::ffi_stage::find_ffi_crate_dir_pub(config, workspace_root);
     let header_src = ffi_crate_dir.join("include").join(&header_name);
     if !header_src.exists() {
@@ -72,42 +67,18 @@ pub fn package_zig(
     }
     fs::copy(&header_src, include_dir.join(&header_name)).context("copying FFI header into Zig package")?;
 
-    // Zig's `.paths` is an allowlist: only listed entries belong to the package
-    // and are materialized for consumers. The scaffolded `build.zig.zon` lists
-    // only `build.zig`/`build.zig.zon`/`src` (the bundled `lib/`+`include/` do not
-    // exist in-tree), so without this step a `zig fetch` consumer would not see
-    // the prebuilt library and `b.path("lib")` in the package's `build.zig` would
-    // resolve to nothing. Add the bundled directories to the staged manifest.
     add_bundled_paths_to_manifest(&staging.join("build.zig.zon"))?;
 
-    // Rewrite build.zig for distribution. The in-tree `packages/zig/build.zig`
-    // resolves the FFI library from the Cargo workspace target dir
-    // (`../../target/release`), which does not exist for a `zig fetch` consumer.
-    // The distributed package links the prebuilt library bundled above in `lib/`
-    // and `include/`, exposing the `{module}` module so a consumer can wire it
-    // with a single `b.dependency(...).module("{module}")`.
-    //
-    // CRITICAL: This step is mandatory. If a workflow bundles libs into `lib/`
-    // but skips calling this function (or calling `alef publish package --lang zig`),
-    // the tarball will ship the in-tree build.zig with hardcoded workspace paths,
-    // and downstream Zig consumers will fail at compile time with:
-    //   error: unable to find dynamic system library 'sample_lib_ffi' using strategy 'paths_first'
-    //   warning: unable to open library directory '../../target/release': FileNotFound
-    //
-    // The rewritten build.zig uses b.path("lib") + b.path("include"), which
-    // resolves package-relative and works inside the Zig global cache.
     fs::write(
         staging.join("build.zig"),
         render_distributable_build_zig(&module_name, &lib_name, config),
     )
     .context("writing distributable build.zig into Zig package")?;
 
-    // Create tarball.
     let archive_name = format!("{pkg_name}.tar.gz");
     let archive_path = output_dir.join(&archive_name);
     super::create_tar_gz(&staging, &archive_path)?;
 
-    // Clean up staging.
     fs::remove_dir_all(&staging).ok();
 
     Ok(PackageArtifact {
@@ -127,12 +98,6 @@ pub fn package_zig(
 /// exports the `{module_name}` module; a consumer links it with
 /// `b.dependency("<pkg>", .{ ... }).module("{module_name}")`.
 fn render_distributable_build_zig(module_name: &str, ffi_lib_name: &str, config: &ResolvedCrateConfig) -> String {
-    // Host-native capsule passthrough: wire each capsule dependency's module into the
-    // distributed module, mirroring the in-tree scaffold's `build.zig`. The distributed
-    // build has no test module, so only the public `module` import is emitted. Without
-    // this, consumers fail with `no module named '<name>' available within module
-    // '{module_name}'` — the staged `build.zig.zon` declares the dependency, but a
-    // `build.zig` that never imports it leaves the module unresolved.
     let capsule_imports_block: String = config
         .zig
         .as_ref()
@@ -242,7 +207,6 @@ sources = []
             s.contains(".link_libc = true"),
             "must link libc for FFI header symbols:\n{s}"
         );
-        // The distributable build script must never reference the in-tree workspace layout.
         assert!(!s.contains("cwd_relative"), "must not use cwd_relative paths:\n{s}");
         assert!(
             !s.contains("../../target/release"),
@@ -276,19 +240,8 @@ sources = []
 
     #[test]
     fn packaged_tarball_includes_rewritten_build_zig_and_ffis() {
-        // This test validates that the produced tarball:
-        // 1. Contains the rewritten build.zig (uses b.path("lib") + b.path("include"),
-        //    NOT ../../target/release relative paths)
-        // 2. Contains lib/ with platform-specific FFI shared libraries
-        // 3. Contains include/ with the C header
-        // 4. Contains build.zig.zon with lib and include in .paths
-        //
-        // Regression test: packaged Zig archives must not retain workspace-relative
-        // library paths from the in-tree build file.
-        // where rc.57 tarball included workspace-relative paths instead of bundled libs.
         let s = render_distributable_build_zig("sample_lib", "sample_lib_ffi", &config_no_capsule());
 
-        // Must NOT contain workspace-relative paths that break consumers.
         assert!(
             !s.contains("../../target/release"),
             "rewritten build.zig must not reference workspace target dir:\n{s}"
@@ -302,14 +255,12 @@ sources = []
             "rewritten build.zig must use package-relative paths only:\n{s}"
         );
 
-        // Must link the bundled lib/ and include/ using b.path() which works in fetched pkgs.
         assert!(s.contains("b.path(\"lib\")"), "must link bundled lib/ directory:\n{s}");
         assert!(
             s.contains("b.path(\"include\")"),
             "must link bundled include/ directory:\n{s}"
         );
 
-        // Must link libc so C header symbols resolve.
         assert!(s.contains(".link_libc = true"), "must enable libc linking:\n{s}");
     }
 
@@ -331,8 +282,6 @@ package_version = "tree_sitter-0.26.0-deadbeef"
         );
         let s = render_distributable_build_zig("sample_lib", "sample_lib_ffi", &config);
 
-        // build.zig.zon declares the dependency; build.zig must wire it into the module,
-        // or consumers hit `no module named 'tree_sitter'`.
         assert!(
             s.contains("b.dependency(\"tree_sitter\""),
             "distributable build.zig must resolve the capsule dependency:\n{s}"
@@ -341,7 +290,6 @@ package_version = "tree_sitter-0.26.0-deadbeef"
             s.contains("module.addImport(\"tree_sitter\", tree_sitter_dep.module(\"tree_sitter\"))"),
             "distributable build.zig must import the capsule module:\n{s}"
         );
-        // The distributable build script has no test module — only the public module.
         assert!(
             !s.contains("test_module"),
             "distributable build.zig must not reference a test module:\n{s}"

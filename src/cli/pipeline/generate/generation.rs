@@ -17,7 +17,6 @@ pub fn generate(
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
     let validated_api = validate_generation_api(api, config, languages)?;
 
-    // Validate that Go/Java/C# have FFI in the languages list
     let has_ffi = languages.contains(&Language::Ffi);
     for &lang in languages {
         if (lang == Language::Go || lang == Language::Java || lang == Language::Csharp) && !has_ffi {
@@ -60,9 +59,6 @@ pub fn generate(
                 .generate_bindings_checked(validated_api, config)
                 .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
 
-            // Collect additional files from registered extensions, then let each
-            // extension transform the full file list. Both hooks receive the
-            // per-extension config from the `[extensions.<name>]` alef.toml section.
             crate::with_extensions(|exts| {
                 let env = crate::core::template_env::TemplateEnv::new();
                 for ext in exts {
@@ -168,12 +164,7 @@ pub fn generate_service_api(
 fn package_entry_filenames(language: Language, config: &ResolvedCrateConfig) -> Vec<String> {
     match language {
         Language::Python => vec!["__init__.py".to_string()],
-        // The magnus backend emits the gem entry `lib/<gem_name_snake>.rb` in this
-        // pass, where `<gem_name_snake>` is `ruby_gem_name()` with dashes normalized.
         Language::Ruby => vec![format!("{}.rb", config.ruby_gem_name().replace('-', "_"))],
-        // The php backend emits the public facade class `<ExtensionNamePascal>.php`
-        // in this pass — the surface users call — where the name is
-        // `php_extension_name()` pascal-cased (matching the backend's `class_name`).
         Language::Php => {
             use heck::ToPascalCase;
             vec![format!("{}.php", config.php_extension_name().to_pascal_case())]
@@ -243,11 +234,6 @@ pub fn generate_public_api(
             };
             let mut files = backend.generate_public_api_checked(validated_api, config)?;
 
-            // Let registered extensions contribute raw lines to the package
-            // public-API init file. This mirrors the bindings pass: each
-            // extension receives its `[extensions.<name>]` config, and core only
-            // appends (with exact-line de-dup). The appended content does not
-            // feed the generation-inputs hash, so `alef verify` is unaffected.
             crate::with_extensions(|exts| {
                 for ext in exts {
                     let raw = crate::core::extension::read_extension_config(config_path, ext.name())
@@ -324,7 +310,6 @@ mod tests {
         assert!(content.contains("__all__ = [*__all__, \"thing\"]"));
         assert!(content.contains("__all__ = [\"Existing\"]"));
 
-        // Applying the same additions again must not duplicate any line.
         append_public_api_additions(&mut files, Language::Python, &test_cfg(), &additions);
         let content = &files[0].content;
         assert_eq!(content.matches("from ._extra import thing").count(), 1);
@@ -345,8 +330,6 @@ mod tests {
 
     #[test]
     fn public_api_additions_ruby_gem_entry_appended_and_idempotent() {
-        // The gem entry file name is dynamic (`<gem_name_snake>.rb`); the append
-        // must resolve it from config and leave sibling files untouched.
         let additions = vec!["require_relative 'pkg/app'".to_string()];
         let mut files = vec![
             GeneratedFile {
@@ -363,19 +346,14 @@ mod tests {
 
         append_public_api_additions(&mut files, Language::Ruby, &test_cfg(), &additions);
         assert!(files[0].content.contains("require_relative 'pkg/app'"));
-        // Sibling (non-entry) file is never touched.
         assert_eq!(files[1].content, "# native\n");
 
-        // Idempotent on re-apply.
         append_public_api_additions(&mut files, Language::Ruby, &test_cfg(), &additions);
         assert_eq!(files[0].content.matches("require_relative 'pkg/app'").count(), 1);
     }
 
     #[test]
     fn public_api_additions_ruby_normalizes_dashed_name_to_snake_entry() {
-        // The gem entry file is `<gem_name_snake>.rb`; `ruby_gem_name()` falls back
-        // to the crate name, and the resolver normalizes dashes so it matches the
-        // magnus backend's `gem_name_snake` (dashes → underscores).
         let config = ResolvedCrateConfig {
             name: "my-gem".to_string(),
             ..Default::default()
@@ -393,10 +371,6 @@ mod tests {
 
     #[test]
     fn public_api_additions_php_facade_entry_appended_and_idempotent() {
-        // The php backend emits the public facade `<ExtensionNamePascal>.php` in the
-        // public-API pass; the append must resolve that dynamic name from config
-        // (test cfg name `pkg` → `Pkg.php`) and leave sibling per-opaque-type files
-        // untouched.
         let additions = vec!["require_once __DIR__ . '/Extra.php';".to_string()];
         let mut files = vec![
             GeneratedFile {
@@ -413,10 +387,8 @@ mod tests {
 
         append_public_api_additions(&mut files, Language::Php, &test_cfg(), &additions);
         assert!(files[0].content.contains("require_once __DIR__ . '/Extra.php';"));
-        // Sibling (non-entry) file is never touched.
         assert_eq!(files[1].content, "<?php\n// opaque\n");
 
-        // Idempotent on re-apply.
         append_public_api_additions(&mut files, Language::Php, &test_cfg(), &additions);
         assert_eq!(
             files[0].content.matches("require_once __DIR__ . '/Extra.php';").count(),
@@ -426,8 +398,6 @@ mod tests {
 
     #[test]
     fn public_api_additions_php_noop_when_facade_absent() {
-        // With only a per-opaque-type file present (no facade entry), the append is a
-        // no-op — nothing matches the resolved `<ExtensionNamePascal>.php` name.
         let additions = vec!["require_once 'x';".to_string()];
         let mut files = vec![GeneratedFile {
             path: std::path::PathBuf::from("packages/php/src/SomeType.php"),
@@ -440,8 +410,6 @@ mod tests {
 
     #[test]
     fn public_api_additions_php_resolves_dashed_name_to_pascal_facade() {
-        // `php_extension_name()` falls back to the crate name with dashes→underscores,
-        // then the resolver pascal-cases it to match the backend's facade `class_name`.
         let config = ResolvedCrateConfig {
             name: "my-ext".to_string(),
             ..Default::default()

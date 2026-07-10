@@ -35,19 +35,12 @@ pub(super) fn emit_adapter_wrapper(
     let adapter_name = &adapter.name;
     let owner_type = adapter.owner_type.as_deref().unwrap_or("Handle");
 
-    // For streaming adapters with a request_type, decompose the request into primitives.
-    // E.g., CrawlStreamRequest { url } → url: str, url
-    // This allows e2e tests to pass `crawl_stream(engine, "url")` instead of
-    // `crawl_stream(engine, CrawlStreamRequest(url="url"))`.
     let (param_parts, request_construction) = if matches!(&adapter.pattern, AdapterPattern::Streaming)
         && adapter.request_type.is_some()
         && adapter.params.len() == 1
     {
-        // Streaming with a single request param: decompose to primitives by
-        // inspecting the request type's first field in the IR.
-        // E.g. a type with field `url: String` → `url: str`; `urls: Vec<String>` → `urls: list[str]`.
         let param = &adapter.params[0];
-        let short_name = &param.ty; // short type name, e.g. the param's declared type
+        let short_name = &param.ty;
         let ir_type = types.iter().find(|t| &t.name == short_name);
         if let Some(ty_def) = ir_type {
             if let Some(first_field) = ty_def.fields.first() {
@@ -58,7 +51,6 @@ pub(super) fn emit_adapter_wrapper(
                 let construction = format!("    req = _rust.{short_name}({field_name}={field_name})\n");
                 (wrapper_params, Some(construction))
             } else {
-                // Type has no fields; fall back to original behavior
                 let mut params = vec![format!("engine: {owner_type}")];
                 for p in &adapter.params {
                     let python_type = adapter_param_python_type(&p.ty);
@@ -72,7 +64,6 @@ pub(super) fn emit_adapter_wrapper(
                 (params, None)
             }
         } else {
-            // Type not found in IR; fall back to original behavior
             let mut params = vec![format!("engine: {owner_type}")];
             for p in &adapter.params {
                 let python_type = adapter_param_python_type(&p.ty);
@@ -86,7 +77,6 @@ pub(super) fn emit_adapter_wrapper(
             (params, None)
         }
     } else {
-        // Non-streaming or multi-param: use original behavior
         let mut params = vec![format!("engine: {owner_type}")];
         for param in &adapter.params {
             let param_name = &param.name;
@@ -101,7 +91,6 @@ pub(super) fn emit_adapter_wrapper(
         (params, None)
     };
 
-    // Build the docstring from the adapter name.
     let doc_content = {
         let snake = adapter_name.to_snake_case();
         let sentence = snake.replace('_', " ");
@@ -113,9 +102,7 @@ pub(super) fn emit_adapter_wrapper(
         format!("{capitalized}.")
     };
 
-    // Build the positional param list for the method call (no `self` — that's `engine`).
     let params_list = if request_construction.is_some() {
-        // If we constructed a request object, use it
         "req".to_string()
     } else {
         adapter
@@ -128,7 +115,6 @@ pub(super) fn emit_adapter_wrapper(
 
     match &adapter.pattern {
         AdapterPattern::Streaming => {
-            // Streaming: the engine method returns an async iterator; re-yield each item.
             let item_type = adapter.item_type.as_deref().unwrap_or("()");
             let return_type = format!("AsyncIterator[{item_type}]");
             out.push_str(&crate::backends::pyo3::template_env::render(
@@ -144,8 +130,6 @@ pub(super) fn emit_adapter_wrapper(
             ));
         }
         AdapterPattern::AsyncMethod => {
-            // Non-streaming: the engine method is a coroutine returning a single value.
-            // Emit a plain async def that awaits and returns the result.
             let raw_return = adapter.returns.as_deref().unwrap_or("None");
             let return_type = adapter_param_python_type(raw_return);
             out.push_str(&crate::backends::pyo3::template_env::render(
@@ -160,8 +144,6 @@ pub(super) fn emit_adapter_wrapper(
                 },
             ));
         }
-        // Other patterns (SyncFunction, CallbackBridge) are not applicable
-        // to the Python api.py wrapper layer — skip them silently.
         _ => return,
     }
 

@@ -19,15 +19,12 @@ fn has_serde_untagged(attrs: &[syn::Attribute]) -> bool {
         } else {
             continue;
         };
-        // Match the bare keyword "untagged" (no `=` after it — it's a flag, not a key-value pair).
         let mut rest = tokens.as_str();
         while let Some(pos) = rest.find("untagged") {
             let before = &rest[..pos];
             let after = &rest[pos + "untagged".len()..];
-            // Ensure it's a standalone word (not part of another identifier)
             let valid_before = before.is_empty() || before.ends_with(|c: char| !c.is_alphanumeric() && c != '_');
             let valid_after = after.is_empty() || after.starts_with(|c: char| !c.is_alphanumeric() && c != '_');
-            // Ensure it's not followed by `=` (that would be a key=value pair)
             let not_kv = !after.trim_start().starts_with('=');
             if valid_before && valid_after && not_kv {
                 return true;
@@ -47,11 +44,8 @@ fn extract_serde_tag(attrs: &[syn::Attribute]) -> Option<String> {
         } else {
             continue;
         };
-        // Look for `tag = "value"` pattern (but not `rename_all` or similar)
         if let Some(pos) = tokens.find("tag") {
             let rest = &tokens[pos..];
-            // Make sure it's exactly "tag" not "rename_all" or other keys containing "tag"
-            // Check that "tag" is followed by whitespace or '=' (not part of another word)
             let after_tag = &rest[3..];
             if !after_tag.starts_with('=') && !after_tag.trim_start().starts_with('=') {
                 continue;
@@ -76,7 +70,6 @@ fn extract_serde_tag(attrs: &[syn::Attribute]) -> Option<String> {
 /// accepted; `has_lifetime_params` is set to `true` so backends can emit the appropriate
 /// lifetime placeholders in `From<T<'_>>` and `T<'static>` positions.
 pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_path: &str) -> Option<TypeDef> {
-    // Reject structs with type or const generic params — they can't be exposed to FFI.
     let has_non_lifetime = item
         .generics
         .params
@@ -91,18 +84,11 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
     let cfg = extract_cfg_condition(&item.attrs);
     let name = item.ident.to_string();
 
-    // Record whether any named field is non-`pub` (e.g. `pub(crate)`). Such fields are
-    // filtered out of the binding surface below, but their presence forbids struct-literal
-    // construction of the core type from a foreign crate. The conversion generator reads
-    // this to pick a non-literal construction strategy.
     let has_private_fields = match &item.fields {
         syn::Fields::Named(named) => named.named.iter().any(|f| !is_pub(&f.vis)),
         _ => false,
     };
 
-    // Detect single-field tuple structs (newtype wrappers like `pub struct Foo(String)`).
-    // These get a single field named `_0` so the post-processing pass in `extract()`
-    // can identify them and resolve `TypeRef::Named("Foo")` → inner type transparently.
     let mut fields = match &item.fields {
         syn::Fields::Named(named) => named
             .named
@@ -144,9 +130,6 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
     let has_serde = has_derive(item.attrs.as_slice(), "Serialize") && has_derive(item.attrs.as_slice(), "Deserialize");
     let serde_rename_all = extract_serde_rename_all(&item.attrs);
     let doc = extract_doc_comments(&item.attrs);
-    // A struct is opaque only when it has no fields AND is not a serializable data type.
-    // Empty structs with Default+Serde (e.g. ExcelMetadata{}) are unit data types that
-    // should be transparent NifMap structs, not opaque resource handles.
     let is_opaque = fields.is_empty() && !(has_default && has_serde);
     let rust_path = build_rust_path(crate_name, module_path, &name);
 
@@ -200,12 +183,6 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
     let name = item.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
 
-    // Extract all variants, separating binding-excluded ones into a side list.
-    // Excluded variants carry internal types not part of the public API; keeping them
-    // out of `variants` means downstream backends and the validator never see them.
-    // However, backends that generate exhaustive Rust match expressions against the
-    // *core* type (e.g. Dart FRB `From<CoreType>`) still need to know excluded variants
-    // exist so they can emit `unreachable!()` arms. Those are stored in `excluded_variants`.
     let all_variants: Vec<_> = item.variants.iter().map(extract_enum_variant).collect();
     let (excluded_variants, variants): (Vec<_>, Vec<_>) = all_variants.into_iter().partition(|v| v.binding_excluded);
 
@@ -252,7 +229,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
     let variants = item
         .variants
         .iter()
-        .filter(|v| !has_cfg_attribute(&v.attrs)) // Skip cfg-gated variants
+        .filter(|v| !has_cfg_attribute(&v.attrs))
         .map(|v| {
             let message_template = extract_error_message_template(&v.attrs);
             let variant_doc = extract_doc_comments(&v.attrs);

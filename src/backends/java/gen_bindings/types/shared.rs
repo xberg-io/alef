@@ -7,25 +7,13 @@ use crate::core::ir::TypeRef;
 /// we use `JsonNode` to preserve the object structure without requiring a Java type definition.
 pub(super) fn resolve_field_type(ty: &TypeRef, visible_types: &std::collections::HashSet<&str>) -> TypeRef {
     match ty {
-        TypeRef::Named(name) if !visible_types.contains(name.as_str()) => {
-            // Unknown type: replace with Json to produce JsonNode
-            TypeRef::Json
-        }
-        TypeRef::Optional(inner) => {
-            // Recursively resolve optional's inner type
-            TypeRef::Optional(Box::new(resolve_field_type(inner, visible_types)))
-        }
-        TypeRef::Vec(inner) => {
-            // Recursively resolve vec's inner type
-            TypeRef::Vec(Box::new(resolve_field_type(inner, visible_types)))
-        }
-        TypeRef::Map(k, v) => {
-            // Recursively resolve map's key and value types
-            TypeRef::Map(
-                Box::new(resolve_field_type(k, visible_types)),
-                Box::new(resolve_field_type(v, visible_types)),
-            )
-        }
+        TypeRef::Named(name) if !visible_types.contains(name.as_str()) => TypeRef::Json,
+        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(resolve_field_type(inner, visible_types))),
+        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(resolve_field_type(inner, visible_types))),
+        TypeRef::Map(k, v) => TypeRef::Map(
+            Box::new(resolve_field_type(k, visible_types)),
+            Box::new(resolve_field_type(v, visible_types)),
+        ),
         _ => ty.clone(),
     }
 }

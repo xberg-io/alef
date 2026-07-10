@@ -27,7 +27,7 @@ fn sanitize_field_doc(doc: &str) -> String {
 pub fn can_generate_default_impl(typ: &TypeDef, known_default_types: &std::collections::HashSet<&str>) -> bool {
     for field in binding_fields(&typ.fields) {
         if field.cfg.is_some() {
-            continue; // Skip cfg-gated fields
+            continue;
         }
         if !field_type_has_default(&field.ty, known_default_types) {
             return false;
@@ -47,15 +47,11 @@ fn field_type_has_default(ty: &TypeRef, known_default_types: &std::collections::
         | TypeRef::Unit
         | TypeRef::Duration
         | TypeRef::Json => true,
-        // Optional<T> defaults to None regardless of T
         TypeRef::Optional(inner) => field_type_has_default(inner, known_default_types),
-        // Vec<T> defaults to empty vec regardless of T
         TypeRef::Vec(inner) => field_type_has_default(inner, known_default_types),
-        // Map<K, V> defaults to empty map regardless of K/V
         TypeRef::Map(k, v) => {
             field_type_has_default(k, known_default_types) && field_type_has_default(v, known_default_types)
         }
-        // Named types only have Default if marked with has_default=true
         TypeRef::Named(name) => known_default_types.contains(name.as_str()),
     }
 }
@@ -65,7 +61,6 @@ fn field_type_has_default(ty: &TypeRef, known_default_types: &std::collections::
 fn has_similar_names(names: &[&String]) -> bool {
     for (i, &name1) in names.iter().enumerate() {
         for &name2 in &names[i + 1..] {
-            // Simple heuristic: if names differ by <= 2 characters and have same length, flag it
             if name1.len() == name2.len() && diff_count(name1, name2) <= 2 {
                 return true;
             }
@@ -108,7 +103,6 @@ pub fn gen_struct_with_per_field_attrs(
         sb.add_attr(attr);
     }
 
-    // Check if struct has similar field names (e.g., sub_symbol and sup_symbol)
     let field_names: Vec<_> = binding_fields(&typ.fields)
         .filter(|f| f.cfg.is_none())
         .map(|f| &f.name)
@@ -132,13 +126,7 @@ pub fn gen_struct_with_per_field_attrs(
         })
         .map(|f| f.name.as_str())
         .collect();
-    // Binding structs normally derive `Default` so host constructors and serde fallback paths
-    // can fill omitted fields. When requested for source types with a custom core `Default`,
-    // suppress the derive and emit a delegating impl below to preserve semantic defaults.
-    // The delegating impl calls `.into()`, requiring `From<core::T>` — so it is only eligible
-    // when the matching From impl will be emitted (gated via `emit_delegating_default_for_types`
     // when set). Skipping the delegating impl for non-convertible types restores `#[derive(Default)]`
-    // so the struct still compiles without a From<core::T>.
     let delegating_eligible = cfg.emit_delegating_default_impl
         && typ.has_default
         && cfg
@@ -159,17 +147,11 @@ pub fn gen_struct_with_per_field_attrs(
         let ty = if (field.optional || force_optional) && !matches!(field.ty, TypeRef::Optional(_)) {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
-            // field.ty is already Optional(T) — mapped type is already Option<T>, don't double-wrap
             mapper.map_type(&field.ty)
         };
         let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
         attrs.extend(extra_field_attrs(field));
         // Add #[serde(skip)] for opaque fields or sanitized fields when the struct derives serde.
-        // Cow-backed strings are lossless String bindings, so they must remain serializable.
-        // Cfg-gated trait-bridge fields are detected via their type referencing an opaque
-        // wrapper (e.g. PyVisitorRef in opaque_type_names) — those get serde(skip) because
-        // their wrapper types typically don't impl serde. Regular cfg-gated fields with
-        // serializable types (e.g. HtmlMetadata) remain serializable.
         let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
         let skip_cfg_bridge_field = field.cfg.is_some()
             && cfg.never_skip_cfg_field_names.contains(&field.name)
@@ -242,8 +224,6 @@ pub fn gen_struct_with_rename(
         })
         .map(|f| f.name.as_str())
         .collect();
-    // See `gen_struct_with_per_field_attrs` for the rationale on suppressing the derived
-    // `Default` when emitting a delegating impl.
     let delegating_eligible = cfg.emit_delegating_default_impl
         && typ.has_default
         && cfg
@@ -268,9 +248,6 @@ pub fn gen_struct_with_rename(
         };
         let name_override = field_name_override(field);
         let extra_attrs = extra_field_attrs(field);
-        // When the field name is overridden (keyword-escaped), skip cfg.field_attrs so the
-        // caller's extra_field_attrs callback can supply the full replacement attr set
-        // (e.g. `pyo3(get, name = "class")` instead of the default `pyo3(get)`).
         let mut attrs: Vec<String> = if name_override.is_some() && !extra_attrs.is_empty() {
             extra_attrs
         } else {
@@ -279,9 +256,6 @@ pub fn gen_struct_with_rename(
             a
         };
         // Add #[serde(skip)] for opaque/sanitized fields and cfg-gated trait-bridge fields.
-        // Trait-bridge fields are detected via their type referencing an opaque wrapper
-        // (e.g. PyVisitorRef in opaque_type_names) so regular cfg-gated fields like
-        // `metadata: HtmlMetadata` remain serializable for JSON round-trip.
         let skip_sanitized_field = field.sanitized && field.core_wrapper != CoreWrapper::Cow;
         let skip_cfg_bridge_field = field.cfg.is_some()
             && cfg.never_skip_cfg_field_names.contains(&field.name)
@@ -291,8 +265,6 @@ pub fn gen_struct_with_rename(
             attrs.push("serde(skip)".to_string());
         }
         // Mirror per-field `#[serde(rename = "...")]` from the core type so the binding
-        // struct's JSON wire format matches the core's. Only when no caller-supplied
-        // serde rename is already present (caller may emit one for keyword-escapes).
         if has_serde
             && !attrs.iter().any(|a| a.starts_with("serde(rename"))
             && !attrs.iter().any(|a| a == "serde(skip)")
@@ -323,7 +295,6 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         sb.add_attr(attr);
     }
 
-    // Check if struct has similar field names (e.g., sub_symbol and sup_symbol)
     let field_names: Vec<_> = binding_fields(&typ.fields)
         .filter(|f| f.cfg.is_none())
         .map(|f| &f.name)
@@ -346,8 +317,6 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         })
         .map(|f| f.name.as_str())
         .collect();
-    // See `gen_struct_with_per_field_attrs` for the rationale on suppressing the derived
-    // `Default` when emitting a delegating impl.
     let delegating_eligible = cfg.emit_delegating_default_impl
         && typ.has_default
         && cfg
@@ -361,15 +330,9 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     sb.add_derive("serde::Deserialize");
     let _has_serde = true;
     for field in binding_fields(&typ.fields) {
-        // Skip cfg-gated fields — they depend on features that may not be enabled
-        // for this binding crate. Including them would require the binding struct to
-        // handle conditional compilation which struct literal initializers can't express.
         if field.cfg.is_some() && !cfg.never_skip_cfg_field_names.contains(&field.name) {
             continue;
         }
-        // When option_duration_on_defaults is set, wrap non-optional Duration fields in
-        // Option<u64> for has_default types so the binding constructor can accept None
-        // and the From conversion falls back to the core type's Default.
         let force_optional = cfg.option_duration_on_defaults
             && typ.has_default
             && !field.optional
@@ -377,20 +340,15 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         let ty = if (field.optional || force_optional) && !matches!(field.ty, TypeRef::Optional(_)) {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
-            // field.ty is already Optional(T) — mapped type is already Option<T>, don't double-wrap
             mapper.map_type(&field.ty)
         };
         let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
         // Mirror per-field `#[serde(rename = "...")]` from the core type so the binding
-        // struct's JSON wire format matches the core's.
         if let Some(rename) = &field.serde_rename {
             if !attrs.iter().any(|a| a.starts_with("serde(rename")) {
                 attrs.push(format!("serde(rename = \"{rename}\")"));
             }
         }
-        // Escape Rust reserved keywords in field names using raw-identifier syntax (r#type).
-        // When the name is escaped, add a serde(rename) attribute so JSON serialization still
-        // uses the original wire name (e.g. `r#type` field serializes as `"type"`).
         let emit_name = crate::core::keywords::rust_raw_ident(&field.name);
         if emit_name != field.name && !attrs.iter().any(|a| a.starts_with("serde(rename")) {
             attrs.push(format!("serde(rename = \"{}\")", field.name));
@@ -428,12 +386,6 @@ pub fn gen_delegating_default_impl(
 ) -> String {
     let binding_name = format!("{type_name_prefix}{}", typ.name);
     let core_path = typ.rust_path.replace('-', "_");
-    // If the type's rust_path resolved to a fully-qualified core path (contains `::`), use it
-    // after applying any source_crate_remaps (e.g. rewriting `acme::T` → `acme_http::T`
-    // when `core_crate_override` is set for a language). Without the remap the Default body
-    // references the original source crate which may not be importable in the binding.
-    // When rust_path is bare (no `::`) fall back to `{core_import}::{TypeName}` — covers
-    // test fixtures and minimal IR inputs that leave rust_path empty.
     let core_qualified = if core_path.contains("::") {
         crate::codegen::conversions::apply_crate_remaps(&core_path, source_crate_remaps)
     } else {
@@ -529,13 +481,6 @@ pub fn type_needs_tokio_mutex(typ: &TypeDef) -> bool {
 /// parameters, which would fail to compile.
 pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
     let needs_mutex = type_needs_mutex(typ);
-    // Omit the inner field only when the rust_path contains generic type parameters
-    // (angle brackets), which means the concrete types are unknown at codegen time and
-    // `Arc<CoreType<_, _, _>>` would fail to compile. This typically occurs for types
-    // created from a generic impl block where all methods are sanitized.
-    // We do NOT omit inner solely because all_methods_sanitized is true: even when no
-    // methods delegate to self.inner, the inner field may be required by From impls
-    // generated for non-opaque structs that have this type as a field.
     let core_path = typ.rust_path.replace('-', "_");
     let has_unresolvable_generics = core_path.contains('<');
     let all_methods_sanitized = !typ.methods.is_empty() && typ.methods.iter().all(|m| m.sanitized);

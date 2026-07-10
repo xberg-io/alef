@@ -5,7 +5,6 @@ pub fn gen_extendr_kwargs_constructor(
     type_mapper: &dyn Fn(&TypeRef) -> String,
     enum_names: &ahash::AHashSet<String>,
 ) -> String {
-    // Helper predicates to classify field types
     let is_named_enum = |ty: &TypeRef| -> bool { matches!(ty, TypeRef::Named(n) if enum_names.contains(n.as_str())) };
     let is_named_struct =
         |ty: &TypeRef| -> bool { matches!(ty, TypeRef::Named(n) if !enum_names.contains(n.as_str())) };
@@ -18,7 +17,6 @@ pub fn gen_extendr_kwargs_constructor(
     };
     let ty_is_optional = |ty: &TypeRef| -> bool { matches!(ty, TypeRef::Optional(_)) };
 
-    // Pre-collect emittable fields (skip struct-typed fields that extendr cannot convert)
     let emittable_fields: Vec<_> = typ
         .fields
         .iter()
@@ -41,7 +39,6 @@ pub fn gen_extendr_kwargs_constructor(
         })
         .collect();
 
-    // Pre-compute body assignments for all fields
     let body_assignments: Vec<_> = typ
         .fields
         .iter()

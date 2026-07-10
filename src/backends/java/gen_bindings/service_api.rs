@@ -21,8 +21,6 @@ use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use minijinja::context;
 use std::path::PathBuf;
 
-// ────────────────────────────────────────────────────────── helpers ──
-
 /// Check if a TypeRef is an opaque (surface-wrapped Named type).
 fn is_opaque_metadata(ty: &TypeRef, api: &ApiSurface) -> bool {
     matches!(ty, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n))
@@ -49,10 +47,7 @@ fn java_type_for_metadata(ty: &TypeRef, api: &ApiSurface) -> String {
         }
         TypeRef::Bytes => "byte[]".to_owned(),
         TypeRef::Unit => "void".to_owned(),
-        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => {
-            // Opaque wrapper class for surface-wrapped types (e.g., RouteBuilder, AppConfig)
-            n.clone()
-        }
+        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => n.clone(),
         _ => "Object".to_owned(),
     }
 }
@@ -63,7 +58,6 @@ fn java_layout_for_metadata(ty: &TypeRef) -> &'static str {
         TypeRef::Primitive(p) => {
             use crate::core::ir::PrimitiveType;
             match p {
-                // All integer types promoted to JAVA_LONG for JBR Win64 Panama compat.
                 PrimitiveType::Bool => "ValueLayout.JAVA_LONG",
                 PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_LONG",
                 PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_LONG",
@@ -122,8 +116,6 @@ fn metadata_arg_comment(param: &ParamDef, api: &ApiSurface, default_comment: &st
     }
 }
 
-// ──────────────────────────────────────────────── Java Service Class ──
-
 /// Generate the idiomatic Java service class wrapper using Panama FFM.
 ///
 /// The class exposes:
@@ -173,7 +165,6 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         },
     ));
 
-    // Constructor: invoke {prefix}_{service}_new() downcall
     out.push_str(&template_env::render(
         "service_constructor.jinja",
         context! {
@@ -184,7 +175,6 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         },
     ));
 
-    // Registration methods: build upcall stub from handler, invoke register downcall
     for reg in &service.registrations {
         let reg_method = &reg.method;
         let reg_method_camel = reg_method.to_upper_camel_case();
@@ -241,7 +231,6 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         ));
     }
 
-    // Registration variant methods
     for reg in &service.registrations {
         let reg_method_snake = reg.method.to_snake_case();
         for variant in &reg.variants {
@@ -268,7 +257,6 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         }
     }
 
-    // Entrypoint methods
     for ep in &service.entrypoints {
         let ep_method = &ep.method;
         let ep_method_snake = ep_method.to_snake_case();
@@ -325,7 +313,6 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         ));
     }
 
-    // Config method: configure host and port via C FFI
     out.push_str(&template_env::render(
         "service_config_method.jinja",
         context! {
@@ -334,7 +321,6 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
         },
     ));
 
-    // AutoCloseable implementation
     out.push_str(&template_env::render(
         "service_close.jinja",
         context! {
@@ -352,8 +338,6 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
 fn gen_callable_interface(package: &str) -> String {
     template_env::render("service_callable_interface.jinja", context! { package => package })
 }
-
-// ──────────────────────────────────────────────── public entry point ──
 
 /// Generate all service-API files for the Java backend.
 ///
@@ -381,17 +365,15 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 
     let mut files = Vec::new();
 
-    // Generate one service class per service (Panama FFM downcalls + upcalls)
     for service in &api.services {
         let service_class = gen_service_class(api, service, &package, config);
         files.push(GeneratedFile {
             path: base_path.join(format!("{}.java", service.name)),
             content: service_class,
-            generated_header: false, // Header already included
+            generated_header: false,
         });
     }
 
-    // Generate Callable interface (once, shared across all services)
     files.push(GeneratedFile {
         path: base_path.join("Callable.java"),
         content: gen_callable_interface(&package),
@@ -400,8 +382,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 
     Ok(files)
 }
-
-// ───────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests {
@@ -549,8 +529,6 @@ mod tests {
     }
 
     fn make_test_config() -> ResolvedCrateConfig {
-        // `ffi_prefix()` derives from `name` (hyphens → underscores) when `[ffi] prefix`
-        // is unset, so `test-crate` yields the prefix `test_crate`.
         ResolvedCrateConfig {
             name: "test-crate".to_owned(),
             ..ResolvedCrateConfig::default()
@@ -563,7 +541,6 @@ mod tests {
         let config = make_test_config();
         let java = gen_service_class(&surface, &surface.services[0], "com.example", &config);
 
-        // Verify Panama FFM imports and patterns
         assert!(java.contains("import java.lang.foreign.*;"), "should import Panama FFM");
         assert!(java.contains("Linker.nativeLinker()"), "should use Linker");
         assert!(java.contains("downcallHandle"), "should use downcalls");
@@ -716,7 +693,6 @@ mod tests {
         let mut surface = make_fixture_surface();
         let reg = &mut surface.services[0].registrations[0];
 
-        // Add more metadata parameters
         reg.metadata_params.push(ParamDef {
             name: "method".to_owned(),
             ty: TypeRef::String,
@@ -735,13 +711,11 @@ mod tests {
         let config = make_test_config();
         let java = gen_service_class(&surface, &surface.services[0], "com.example", &config);
 
-        // Check that the method signature includes all params
         assert!(
             java.contains("public int registerTestServiceAddHandler(Callable handler, String path"),
             "registration method must include all metadata parameters"
         );
 
-        // Check that metadata params are part of function descriptor
         assert!(
             java.contains("ValueLayout.ADDRESS") || java.contains("ValueLayout.JAVA_INT"),
             "registration should build FunctionDescriptor with metadata param layouts"
@@ -754,7 +728,6 @@ mod tests {
         let config = make_test_config();
         let java = gen_service_class(&surface, &surface.services[0], "com.example", &config);
 
-        // Verify variant methods are emitted
         assert!(
             java.contains("public int get(String path, Callable handler)"),
             "should emit get variant method"
@@ -764,7 +737,6 @@ mod tests {
             "should emit post variant method"
         );
 
-        // Verify variant C symbols are correctly formed
         assert!(
             java.contains("test_crate_test_service_register_add_handler_get"),
             "should bind get variant to correct C symbol"
@@ -774,7 +746,6 @@ mod tests {
             "should bind post variant to correct C symbol"
         );
 
-        // Verify variant methods use Panama FFM
         assert!(
             java.contains("LINKER.downcallHandle"),
             "variant methods should use Panama downcalls"

@@ -103,7 +103,6 @@ fn add_test_calls_set_unique_name_per_test_module() {
     ];
     let content = render_build_zig(groups);
 
-    // Every `b.addTest(.{` block must carry a `.name = "..."` field.
     let add_test_count = content.matches("b.addTest(.{").count();
     let named_add_test_count = content.matches(".name = \"").count();
     assert!(
@@ -116,7 +115,6 @@ fn add_test_calls_set_unique_name_per_test_module() {
          found {named_add_test_count} .name entries for {add_test_count} addTest blocks:\n{content}"
     );
 
-    // The per-test names must be distinct — collision is exactly the bug.
     assert!(
         content.contains(".name = \"encoding_test\","),
         "encoding test module must set .name = \"encoding_test\":\n{content}"

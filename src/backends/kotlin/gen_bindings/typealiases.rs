@@ -26,8 +26,6 @@ pub(super) fn emit_typealiases(
             if exclude_types.contains(t.name.as_str()) {
                 return false;
             }
-            // Skip trait types that don't have a configured bridge — Java
-            // doesn't emit them, so a typealias would fail to resolve.
             if t.is_trait && !configured_trait_bridges.contains(t.name.as_str()) {
                 return false;
             }
@@ -75,12 +73,6 @@ pub(super) fn emit_typealiases(
         body.push('\n');
     }
 
-    // Error types are aliased with the `Exception` suffix to mirror the Java
-    // facade's class name and to avoid collision with a same-named non-error
-    // struct in `api.types` (e.g. an error variant `Foo` may coexist with a
-    // struct `Foo` in the same surface). Without the suffix, Kotlin emits two
-    // `typealias Foo` declarations and `compileKotlin` fails with
-    // "Redeclaration:".
     for error in &api.errors {
         body.push_str(&crate::backends::kotlin::template_env::render(
             "typealias_error.jinja",

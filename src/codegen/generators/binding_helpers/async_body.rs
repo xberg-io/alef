@@ -40,12 +40,8 @@ pub fn gen_async_body(
             let (ok_expr, extra_binding) = if is_unit_return && !has_error {
                 ("()".to_string(), String::new())
             } else if return_wrap.contains(".into()") || return_wrap.contains("::from(") {
-                // When return_wrap contains type conversions like .into() or ::from(),
-                // bind to a variable to help type inference for the generic future_into_py.
-                // This avoids E0283 "type annotations needed".
                 let wrapped_var = "wrapped_result";
                 let binding = if let Some(ret_type) = return_type {
-                    // Add explicit type annotation to help type inference
                     format!("let {wrapped_var}: {ret_type} = {return_wrap};\n            ")
                 } else {
                     format!("let {wrapped_var} = {return_wrap};\n            ")
@@ -99,7 +95,6 @@ pub fn gen_async_body(
                 format!("let result = {core_call}.await;")
             };
             let (needs_ok_wrapper, ok_expr) = if !has_error && !is_unit_return {
-                // No error type: return value directly without Ok() wrapper
                 (false, return_wrap.to_string())
             } else {
                 let expr = if is_unit_return && !has_error {
@@ -122,9 +117,6 @@ pub fn gen_async_body(
         AsyncPattern::TokioBlockOn => {
             let rt_new = "tokio::runtime::Runtime::new()\
                           .map_err(|e| extendr_api::Error::Other(e.to_string()))?";
-            // extendr has no `From<CoreError>` for `extendr_api::Error`, so the core future's
-            // error must be converted explicitly (matching the sanitising conversion used by the
-            // rest of the extendr surface) rather than relying on `.into()`.
             let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))";
             crate::codegen::template_env::render(
                 "binding_helpers/async_body_tokio.jinja",

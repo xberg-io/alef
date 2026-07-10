@@ -20,7 +20,6 @@ pub(super) fn gen_visitor_bridge(
         crate::codegen::visitor_context::VisitorContextBackend::Pyo3,
     )?;
 
-    // Emit a helper function for converting the configured visitor context to a Python dict.
     let helper_fn = crate::backends::pyo3::template_env::render(
         "trait_bridge/nodecontext_to_py_dict.jinja",
         minijinja::context! {
@@ -29,7 +28,6 @@ pub(super) fn gen_visitor_bridge(
         },
     );
 
-    // Struct with only the Python object — no cached fields needed
     let struct_def = crate::backends::pyo3::template_env::render(
         "trait_bridge/visitor_struct.jinja",
         minijinja::context! {
@@ -37,7 +35,6 @@ pub(super) fn gen_visitor_bridge(
         },
     );
 
-    // Trait impl — collect all methods
     let mut methods_code = String::new();
     for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
         gen_visitor_method(
@@ -83,9 +80,6 @@ fn gen_visitor_method(
 
     let name = &method.name;
 
-    // Build the &mut self signature using the same helper used for plugin methods.
-    // For visitor methods the IR may encode `Option<&str>` as `ty=String, optional=true, is_ref=true`
-    // and `&[String]` as `ty=Vec<String>, is_ref=true`.
     let mut sig_parts = vec!["&mut self".to_string()];
     for p in &method.params {
         let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
@@ -93,15 +87,11 @@ fn gen_visitor_method(
     }
     let sig = sig_parts.join(", ");
 
-    // Determine the return type for this visitor method.
-    // Visitor-style methods may return a named type from the core crate.
-    // Use the fully-qualified path from type_paths when available.
     let ret_ty = match &method.return_type {
         TypeRef::Named(n) => type_paths.get(n).cloned().unwrap_or_else(|| n.clone()),
         other => param_type(other, "", false, type_paths),
     };
 
-    // Build argument expressions for the Python call
     let py_args = build_visitor_py_args(method, bridge_cfg);
 
     let py_call = if py_args.is_empty() {
@@ -147,7 +137,6 @@ fn build_visitor_py_args(method: &MethodDef, bridge_cfg: &TraitBridgeConfig) -> 
         .params
         .iter()
         .map(|p| {
-            // context_type param: convert to Python dict
             if let TypeRef::Named(n) = &p.ty {
                 if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
                     return if p.is_ref {
@@ -157,11 +146,9 @@ fn build_visitor_py_args(method: &MethodDef, bridge_cfg: &TraitBridgeConfig) -> 
                     };
                 }
             }
-            // `Option<&str>`: IR collapses to String + optional + is_ref — pass directly
             if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
                 return p.name.clone();
             }
-            // `&[String]`: IR collapses to Vec<String> + is_ref — pass directly (slice → PyList)
             if p.is_ref {
                 if let TypeRef::Vec(inner) = &p.ty {
                     if matches!(inner.as_ref(), TypeRef::String) {
@@ -169,26 +156,22 @@ fn build_visitor_py_args(method: &MethodDef, bridge_cfg: &TraitBridgeConfig) -> 
                     }
                 }
             }
-            // Owned Vec<String>: convert to list
             if let TypeRef::Vec(inner) = &p.ty {
                 if matches!(inner.as_ref(), TypeRef::String) {
                     return format!("{}.to_vec()", p.name);
                 }
             }
-            // Option<&str> encoded as Optional<String>
             if let TypeRef::Optional(inner) = &p.ty {
                 if matches!(inner.as_ref(), TypeRef::String) {
                     return p.name.clone();
                 }
             }
-            // &str: pass directly
             if matches!(&p.ty, TypeRef::String) && p.is_ref {
                 return p.name.clone();
             }
             if matches!(&p.ty, TypeRef::String) {
                 return format!("{}.as_str()", p.name);
             }
-            // Primitives and everything else: pass directly
             p.name.clone()
         })
         .collect();

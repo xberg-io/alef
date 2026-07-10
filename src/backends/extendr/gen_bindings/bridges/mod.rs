@@ -160,8 +160,6 @@ impl {name} {{
 fn extendr_factory_param_is_constructible(ty: &TypeRef) -> bool {
     match ty {
         TypeRef::Named(_) | TypeRef::Map(_, _) => false,
-        // R-native vectors only: `Vec<scalar>`. `Vec<Named>`/`Vec<Vec<_>>`/`Vec<Bytes>` have no
-        // automatic R-list conversion.
         TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char),
         TypeRef::Optional(inner) => extendr_factory_param_is_constructible(inner),
         _ => true,
@@ -204,12 +202,6 @@ pub(super) fn gen_extendr_enum_variant_constructors(
         .map(|ctor| {
             let params_str = function_params(&ctor.params, &map_fn);
 
-            // Build each `field: <expr>` init inline (no `let <field>_core: <core_import>::<Type>`
-            // path annotation): the core variant literal gives inference its target, so a non-
-            // re-exported field type resolves without naming `<core_import>::<Type>`. The shared
-            // `variant_field_init` handles DTO `.into()`, promoted-optional `unwrap_or_default()`,
-            // and the extendr numeric cast back to the core type (u8..=u32→i32, big ints/f32→f64).
-            // `field: field` collapses to the shorthand `field` for an unchanged passthrough.
             let field_inits: Vec<String> = ctor
                 .params
                 .iter()

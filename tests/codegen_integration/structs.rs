@@ -1,7 +1,6 @@
 use super::*;
 
 // ==============================================================================
-// Additional tests for structs.rs
 // ==============================================================================
 
 #[test]
@@ -440,8 +439,6 @@ fn test_gen_struct_with_opaque_field_skips_serde_derives() {
     let result = gen_struct(&typ, &mapper, &cfg);
 
     assert!(result.contains("pub struct Wrapper"), "should generate struct");
-    // Derives are always added regardless of opaque fields — the binding struct
-    // still needs serde and Default for constructors and JSON round-trips.
     assert!(
         result.contains("serde::Serialize"),
         "should include Serialize derive even with opaque fields"
@@ -465,8 +462,6 @@ fn test_gen_opaque_impl_block_returns_empty_when_no_methods() {
     let mutex_types = AHashSet::new();
     let adapter_bodies = AdapterBodies::default();
 
-    // simple_type_def has no methods and has fields, but gen_opaque_impl_block
-    // returns empty when there are no emittable methods (fields are ignored)
     let result = gen_opaque_impl_block(&typ, &mapper, &cfg, &opaque_types, &mutex_types, &adapter_bodies);
 
     assert!(result.is_empty(), "opaque impl block with no methods should be empty");
@@ -507,10 +502,6 @@ fn test_gen_opaque_impl_block_generates_impl_with_method() {
     assert!(result.contains("impl MyConfig {"), "should generate impl block");
     assert!(result.contains("pub fn run"), "should contain the method");
 }
-
-// ==============================================================================
-// Bug B regression: source_crate_remaps applied in delegating Default body
-// ==============================================================================
 
 /// When `core_crate_override` remaps a source crate (e.g. `spikard` → `spikard_http`),
 /// `gen_delegating_default_impl` must rewrite the Default body so it references the
@@ -594,10 +585,6 @@ fn delegating_default_body_without_remaps_uses_original_path() {
     );
 }
 
-// ==============================================================================
-// Bug A regression: delegating Default/From emission consistency
-// ==============================================================================
-
 /// When `emit_delegating_default_for_types` is set and the type is NOT in the set
 /// (i.e. no From<core::T> impl will be emitted), the struct must keep `#[derive(Default)]`
 /// and must NOT emit a delegating `impl Default`. Emitting the delegating impl without
@@ -612,8 +599,6 @@ fn delegating_default_suppressed_when_type_not_in_convertible_set() {
         original_rust_path: String::new(),
         fields: vec![FieldDef {
             name: "nested".to_string(),
-            // A Named field whose type is excluded from conversion — causes the parent
-            // type to be absent from core_to_binding_convertible_types.
             ty: TypeRef::Named("ExcludedOpaque".to_string()),
             optional: false,
             default: None,
@@ -654,8 +639,6 @@ fn delegating_default_suppressed_when_type_not_in_convertible_set() {
     };
     let mapper = RustMapper;
 
-    // The convertible set does NOT include ServerConfig (simulating exclusion due to
-    // an unconvertible nested field).
     let convertible_set: AHashSet<String> = AHashSet::new();
     let mut cfg = default_cfg();
     cfg.emit_delegating_default_impl = true;
@@ -743,17 +726,12 @@ fn delegating_default_emitted_when_type_in_convertible_set() {
         result.contains("<my_crate::Config as Default>::default().into()"),
         "delegating Default must delegate via core type; got:\n{result}"
     );
-    // The auto-derived Default must be suppressed — we only want the delegating impl.
     let derive_block = result.split("pub struct Config").next().unwrap_or("");
     assert!(
         !derive_block.contains("Default"),
         "#[derive(Default)] must be suppressed when delegating impl is emitted; got:\n{derive_block}"
     );
 }
-
-// ==============================================================================
-// Bug 1 regression: false-negative in core_to_binding_convertible_types
-// ==============================================================================
 
 /// When a struct has a field whose type appears in `excluded_field_types`, that field
 /// is excluded from the binding surface AND the From impl, so it cannot make the
@@ -764,12 +742,6 @@ fn delegating_default_emitted_when_type_in_convertible_set() {
 /// predicate, so `ServerConfig` stays in the convertible set.
 #[test]
 fn core_to_binding_convertible_excludes_excluded_type_fields() {
-    // Build a surface with ServerConfig having two fields:
-    // - compression: String  (trivially convertible)
-    // - cors: CorsConfig     (type NOT defined in the surface → unknown → non-convertible)
-    //
-    // CorsConfig is intentionally absent from surface.types to simulate an external type
-    // that a backend excludes from the binding surface (wasm exclude_types, for example).
     let server_config = TypeDef {
         name: "ServerConfig".to_string(),
         rust_path: "my_crate::ServerConfig".to_string(),
@@ -840,7 +812,6 @@ fn core_to_binding_convertible_excludes_excluded_type_fields() {
     let surface = ApiSurface {
         crate_name: "my_crate".to_string(),
         version: "0.1.0".to_string(),
-        // CorsConfig is intentionally absent — it's an external type excluded by the backend.
         types: vec![server_config],
         functions: vec![],
         enums: vec![],
@@ -852,14 +823,12 @@ fn core_to_binding_convertible_excludes_excluded_type_fields() {
         unsupported_public_items: vec![],
     };
 
-    // Without hint: CorsConfig is unknown → ServerConfig fails the predicate → not convertible.
     let without_hint = alef::codegen::conversions::core_to_binding_convertible_types(&surface, &[]);
     assert!(
         !without_hint.contains("ServerConfig"),
         "ServerConfig must be absent when CorsConfig is unknown and no excluded_field_types hint is given; got set: {without_hint:?}"
     );
 
-    // With hint: CorsConfig field is skipped → ServerConfig stays in the convertible set.
     let cors_excluded = vec!["CorsConfig".to_string()];
     let with_hint = alef::codegen::conversions::core_to_binding_convertible_types(&surface, &cors_excluded);
     assert!(

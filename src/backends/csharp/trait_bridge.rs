@@ -30,19 +30,13 @@ fn csharp_type_visible(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> Stri
                 "string".to_string()
             }
         }
-        TypeRef::Optional(inner) => {
-            match inner.as_ref() {
-                TypeRef::Named(name) if !visible_type_names.contains(name.as_str()) => {
-                    // Optional<NonApiType> becomes string?
-                    "string?".to_string()
-                }
-                _ => {
-                    // Optional<ApiType> or other types: recurse and add ?
-                    let inner_type = csharp_type_visible(inner, visible_type_names);
-                    format!("{}?", inner_type)
-                }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if !visible_type_names.contains(name.as_str()) => "string?".to_string(),
+            _ => {
+                let inner_type = csharp_type_visible(inner, visible_type_names);
+                format!("{}?", inner_type)
             }
-        }
+        },
         TypeRef::Vec(inner) => {
             let inner_type = csharp_type_visible(inner, visible_type_names);
             format!("List<{}>", inner_type)
@@ -63,7 +57,6 @@ fn csharp_unmanaged_type(ty: &TypeRef) -> String {
         TypeRef::Primitive(PrimitiveType::Bool) => "int".to_string(),
         TypeRef::Primitive(_) => csharp_type(ty).to_string(),
         TypeRef::Unit => csharp_type(ty).to_string(),
-        // All managed types (String, Bytes, Vec, Optional containing managed, Named classes, etc.) become IntPtr
         _ => "IntPtr".to_string(),
     }
 }
@@ -89,13 +82,6 @@ pub fn gen_native_methods_trait_bridges(
         .iter()
         .map(|(trait_name, config, _trait_def)| {
             let trait_snake = trait_name.to_snake_case();
-            // The FFI layer always exports the register/unregister/clear functions as
-            // `{prefix}_register_{trait_snake}` / `{prefix}_unregister_{trait_snake}` /
-            // `{prefix}_clear_{trait_snake}` (see alef-backend-ffi trait_bridge::registration),
-            // deliberately ignoring the alef.toml `register_fn` / `unregister_fn` / `clear_fn`
-            // aliases (which only name the host-language wrappers, and may be plural or
-            // unprefixed, e.g. `clear_text_backends`). The P/Invoke EntryPoint must match the
-            // actual FFI symbol, not the alias. go/java derive these identically.
             let register_fn = format!("{prefix}_register_{trait_snake}");
             let has_unregister = config.unregister_fn.is_some();
             let unregister_fn = format!("{prefix}_unregister_{trait_snake}");
@@ -143,17 +129,11 @@ pub fn gen_trait_bridges_file(
         })),
     );
 
-    // Generate each trait bridge
     for (trait_name, bridge_cfg, trait_def) in bridges {
-        // Skip if csharp is in exclude_languages
         if bridge_cfg.exclude_languages.iter().any(|lang| lang == "csharp") {
             continue;
         }
 
-        // Visitor bridges (context_type + result_type present) use the dedicated callbacks-struct
-        // generator (Path 1, shared with Go/Java) instead of the generic trait-bridge vtable
-        // (Path 2, `{prefix}_register_{trait}`). The generic machinery emits a JSON-context vtable
-        // whose ABI does not match `htm_visitor_create` / `htm_options_set_visitor`.
         if bridge_cfg.context_type.is_some() && bridge_cfg.result_type.is_some() {
             crate::backends::csharp::gen_visitor_bridge::gen_visitor_bridge(
                 &mut out,
@@ -169,7 +149,6 @@ pub fn gen_trait_bridges_file(
         out.push('\n');
     }
 
-    // Generate extension helper class for JSON serialization across trait bridges
     out.push_str(&render(
         "ffi_json_extensions.jinja",
         Value::from_serialize(serde_json::json!({})),
@@ -194,7 +173,6 @@ pub fn gen_bridge_adapters_file(
     use crate::backends::csharp::template_env::render;
     use minijinja::Value;
 
-    // Filter to function_param bridges only (those where user provides implementation instance)
     let adapter_bridges: Vec<_> = bridges
         .iter()
         .filter(|(_, bridge_cfg, _)| {
@@ -214,7 +192,6 @@ pub fn gen_bridge_adapters_file(
         let trait_snake = trait_name.to_snake_case();
         let has_super_trait = bridge_cfg.super_trait.is_some();
 
-        // Build method signatures for delegation
         let methods: Vec<_> = trait_def
             .methods
             .iter()
@@ -248,7 +225,6 @@ pub fn gen_bridge_adapters_file(
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                // Zero-parameter methods with non-void return are properties
                 let is_property = method.params.is_empty() && return_type != "void";
 
                 serde_json::json!({
@@ -301,16 +277,11 @@ fn gen_single_trait_bridge(
         .flat_map(|m| m.params.iter())
         .any(|p| matches!(&p.ty, TypeRef::Bytes));
 
-    // --- Public Interface ---
     let methods: Vec<_> = trait_def
         .methods
         .iter()
         .map(|method| {
-            // Unwrap async Task<T> to T. C# trait bridge interfaces expose synchronous methods
-            // even though the Rust trait methods are async. The bridge implementation blocks
-            // on the async Rust call.
             let return_type = if method.is_async {
-                // async Task -> void, async Task<T> -> T
                 match &method.return_type {
                     TypeRef::Unit => "void".to_string(),
                     _ => csharp_type_visible(&method.return_type, visible_type_names),
@@ -350,13 +321,11 @@ fn gen_single_trait_bridge(
     ));
     out.push('\n');
 
-    // --- Bridge Class ---
     let num_methods = trait_def.methods.len();
     let num_super_slots = if has_super_trait { 4usize } else { 0usize };
     let num_vtable_fields = num_super_slots + num_methods + 2;
     let is_options_field = bridge_cfg.bind_via == BridgeBinding::OptionsField;
 
-    // Build method data for template
     let template_methods: Vec<_> = trait_def
         .methods
         .iter()
@@ -364,10 +333,7 @@ fn gen_single_trait_bridge(
             let mut parts: Vec<String> = Vec::new();
             for p in &method.params {
                 let p_camel = p.name.to_lower_camel_case();
-                // Use camelCase for delegate parameters (idiomatic C# P/Invoke convention).
                 parts.push(format!("{} {}", csharp_unmanaged_type(&p.ty), p_camel));
-                // Bytes params carry a companion length so callers can read the full buffer
-                // without NUL-truncation (mirrors the vtable.rs and call_body.rs pattern).
                 if matches!(p.ty, TypeRef::Bytes) {
                     let len_name = format!("{p_camel}Len");
                     parts.push(format!("UIntPtr {len_name}"));
@@ -386,11 +352,11 @@ fn gen_single_trait_bridge(
                         PrimitiveType::U16 => "ushort",
                         PrimitiveType::U32 => "uint",
                         PrimitiveType::U64 => "ulong",
-                        PrimitiveType::Usize => "ulong", // usize maps to ulong
-                        PrimitiveType::Isize => "long",  // isize maps to long
+                        PrimitiveType::Usize => "ulong",
+                        PrimitiveType::Isize => "long",
                         PrimitiveType::F32 => "float",
                         PrimitiveType::F64 => "double",
-                        PrimitiveType::Bool => "int", // bool marshalled as int
+                        PrimitiveType::Bool => "int",
                     },
                     TypeRef::Unit => "int",
                     _ => "int",
@@ -408,12 +374,10 @@ fn gen_single_trait_bridge(
         })
         .collect();
 
-    // Build vtable slots code
     let mut vtable_slots = String::with_capacity(1024);
     let mut offset = 0usize;
     let ptr_size = std::mem::size_of::<*const ()>();
 
-    // Plugin lifecycle slots
     if has_super_trait {
         vtable_slots.push_str(&render(
             "vtable_slot_comment.jinja",
@@ -480,7 +444,6 @@ fn gen_single_trait_bridge(
         offset += 1;
     }
 
-    // Trait method slots
     for method in &trait_def.methods {
         let method_pascal = to_csharp_name(&method.name);
         let method_camel = method.name.to_lower_camel_case();
@@ -505,7 +468,6 @@ fn gen_single_trait_bridge(
         offset += 1;
     }
 
-    // free_string slot
     vtable_slots.push_str(&render(
         "vtable_slot_comment.jinja",
         minijinja::context! { slot_idx => offset, slot_name => "free_string" },
@@ -522,7 +484,6 @@ fn gen_single_trait_bridge(
     vtable_slots.push('\n');
     offset += 1;
 
-    // free_user_data slot
     vtable_slots.push_str(&render(
         "vtable_slot_comment.jinja",
         minijinja::context! { slot_idx => offset, slot_name => "free_user_data" },
@@ -537,10 +498,8 @@ fn gen_single_trait_bridge(
         minijinja::context! { byte_offset => offset * ptr_size, fn_var => "free" },
     ));
 
-    // Generate callbacks
     let mut callbacks = String::with_capacity(4096);
 
-    // Plugin lifecycle callbacks
     if has_super_trait {
         callbacks.push_str(&render(
             "plugin_string_callback.jinja",
@@ -587,17 +546,11 @@ fn gen_single_trait_bridge(
         callbacks.push('\n');
     }
 
-    // Trait method callbacks
     for method in &trait_def.methods {
         let method_pascal = to_csharp_name(&method.name);
 
-        // Check if return type is a primitive (non-complex type)
         let is_primitive_return = matches!(&method.return_type, TypeRef::Primitive(_) | TypeRef::Unit);
 
-        // Build parameter signature for unmanaged delegate (what we receive).
-        // Bytes params carry a companion UIntPtr {name}Len so the callback can
-        // copy the full buffer without NUL-truncation.
-        // Use camelCase for all delegate parameters (idiomatic C# P/Invoke convention).
         let mut sig_parts: Vec<String> = Vec::new();
         for p in &method.params {
             let p_camel = p.name.to_lower_camel_case();
@@ -609,16 +562,10 @@ fn gen_single_trait_bridge(
         }
         let unmanaged_param_sig = sig_parts.join(", ");
 
-        // params_decl is the comma-separated parameter list WITHOUT trailing
-        // comma. Each callback header template that consumes it is responsible
-        // for emitting the `, ` separator between userData and params_decl (and
-        // between params_decl and the out params). This avoids double-commas
-        // when params_decl is non-empty.
         let params_decl = unmanaged_param_sig.clone();
         let params_decl_no_trailing = params_decl.clone();
 
         if method.return_type == TypeRef::Unit {
-            // void return: no out params
             let params_with_userdata = if params_decl_no_trailing.is_empty() {
                 "IntPtr userData".to_string()
             } else {
@@ -629,7 +576,6 @@ fn gen_single_trait_bridge(
                 minijinja::context! { method_pascal, params_with_userdata },
             ));
         } else if is_primitive_return {
-            // Primitive return: return directly (no out params)
             let return_c_type = match &method.return_type {
                 TypeRef::Primitive(p) => match p {
                     PrimitiveType::I8 => "sbyte",
@@ -640,11 +586,11 @@ fn gen_single_trait_bridge(
                     PrimitiveType::U16 => "ushort",
                     PrimitiveType::U32 => "uint",
                     PrimitiveType::U64 => "ulong",
-                    PrimitiveType::Usize => "ulong", // usize maps to ulong
-                    PrimitiveType::Isize => "long",  // isize maps to long
+                    PrimitiveType::Usize => "ulong",
+                    PrimitiveType::Isize => "long",
                     PrimitiveType::F32 => "float",
                     PrimitiveType::F64 => "double",
-                    PrimitiveType::Bool => "int", // bool marshalled as int for C ABI
+                    PrimitiveType::Bool => "int",
                 },
                 _ => "int",
             };
@@ -658,7 +604,6 @@ fn gen_single_trait_bridge(
                 minijinja::context! { return_c_type, method_pascal, params_with_userdata },
             ));
         } else {
-            // Complex return: use out params
             if is_options_field {
                 callbacks.push_str(&render(
                     "callback_header_options.jinja",
@@ -671,13 +616,11 @@ fn gen_single_trait_bridge(
                 ));
             }
         }
-        // Recover the bridge instance from the registry using userData as key
         callbacks.push_str(&render(
             "callback_registry_acquire.jinja",
             minijinja::context! { trait_pascal },
         ));
 
-        // If bridge not found, return error gracefully
         callbacks.push_str("        if (_bridgeFromRegistry == null) {\n");
         if is_primitive_return {
             callbacks.push_str("            return 0;\n");
@@ -691,25 +634,20 @@ fn gen_single_trait_bridge(
         }
         callbacks.push_str("        }\n");
 
-        // Outer try-finally to ensure refcount is decremented (only for successful bridge acquisition)
         callbacks.push_str("        try {\n");
         callbacks.push_str("            var bridge = _bridgeFromRegistry!;\n");
 
-        // Marshal parameters from IntPtr to managed types
         let mut param_call_parts = Vec::new();
         for param in &method.params {
-            // Use camelCase so the variable name matches the delegate signature.
             let param_name = param.name.to_lower_camel_case();
             let managed_type = csharp_type_visible(&param.ty, visible_type_names);
             let is_non_api = matches!(&param.ty, TypeRef::Named(n) if !visible_type_names.contains(n.as_str()));
 
             match &param.ty {
                 TypeRef::Primitive(PrimitiveType::Bool) => {
-                    // Bool comes from unmanaged side as int; convert to bool
                     param_call_parts.push(format!("({} != 0)", param_name));
                 }
                 TypeRef::Primitive(_) | TypeRef::Unit => {
-                    // Other primitives don't need conversion
                     param_call_parts.push(param_name);
                 }
                 TypeRef::String | TypeRef::Char => {
@@ -728,18 +666,13 @@ fn gen_single_trait_bridge(
                     param_call_parts.push(format!("managed_{param_name}"));
                 }
                 _ => {
-                    // For complex types (including non-API types), assume JSON deserialization
-                    // Non-API types like PrivatePayload are marshalled as strings (JSON)
                     callbacks.push_str(&render(
                         "callback_json_from_ptr.jinja",
                         minijinja::context! { param_name },
                     ));
                     if is_non_api {
-                        // Non-API types: keep as string (JSON), don't deserialize
-                        // callback_json_from_ptr declares json_{param_name}
                         param_call_parts.push(format!("json_{param_name}"));
                     } else {
-                        // API types: deserialize to the actual type
                         callbacks.push_str(&render(
                             "callback_json_deserialize.jinja",
                             minijinja::context! { param_name, managed_type },
@@ -759,9 +692,6 @@ fn gen_single_trait_bridge(
             ));
             callbacks.push_str("            return 0;\n");
         } else if is_primitive_return {
-            // Primitive return: call method and return directly
-            // Use methodResult to avoid variable shadowing with parameters
-            // Zero-parameter non-void methods are emitted as properties in C#
             let method_call_syntax = if method.params.is_empty() {
                 format!("bridge._impl.{}", method_pascal)
             } else {
@@ -771,29 +701,20 @@ fn gen_single_trait_bridge(
                 "callback_primitive_call.jinja",
                 minijinja::context! { method_call_syntax },
             ));
-            // Convert return value based on method return type
             if matches!(&method.return_type, TypeRef::Primitive(PrimitiveType::Bool)) {
-                // bool → int (0 or 1)
                 callbacks.push_str("            return methodResult ? 1 : 0;\n");
             } else {
-                // Other primitives: cast to the delegate return type (no cast needed if already matching type)
-                // Just return as-is since the delegate return type already matches
                 callbacks.push_str("            return methodResult;\n");
             }
         } else {
-            // Complex return: use out params
-            // Zero-parameter non-void methods are emitted as properties in C#
             let is_property = method.params.is_empty();
             callbacks.push_str(&render(
                 "callback_result_call.jinja",
                 minijinja::context! { method_pascal, param_call, result_var => "methodResult", is_property },
             ));
-            // Check if return type is a Named type (struct or enum) that's visible
             let is_named_visible =
                 matches!(&method.return_type, TypeRef::Named(n) if visible_type_names.contains(n.as_str()));
-            // All Named types (both enums and struct types) that are visible have ToFfiJson() extension methods
             let serialize_expr = if is_named_visible {
-                // Named types (enums or structs): use ToFfiJson()
                 "methodResult.ToFfiJson()".to_string()
             } else {
                 "ToJsonString(methodResult)".to_string()
@@ -809,14 +730,10 @@ fn gen_single_trait_bridge(
         }
 
         if is_primitive_return {
-            // Bind ex so the swallowed host failure is logged before the
-            // default is substituted (the direct-value slot has no outError).
             callbacks.push_str("        } catch (Exception ex) {\n");
         } else if !is_options_field {
-            // Only bind ex for non-primitive, non-options-field returns where we log it
             callbacks.push_str("        } catch (Exception ex) {\n");
         } else {
-            // Options-field binding doesn't use exception details
             callbacks.push_str("        } catch (Exception) {\n");
         }
 
@@ -824,10 +741,6 @@ fn gen_single_trait_bridge(
             callbacks.push_str("            outResult = IntPtr.Zero;\n");
         }
         if !is_options_field && !is_primitive_return {
-            // Defensive error handling: if exception occurs, try to log the message,
-            // but if that fails for ANY reason (including p/invoke stack corruption),
-            // just set outError to IntPtr.Zero and let Rust see the 1 return code.
-            // The issue is that StringToCoTaskMemUTF8 itself can crash if the stack is corrupted.
             callbacks.push_str("            outError = IntPtr.Zero;\n");
             callbacks.push_str(
                 "            // Attempt to marshal exception message, but on ANY failure just leave outError null\n",
@@ -852,9 +765,6 @@ fn gen_single_trait_bridge(
         if !is_primitive_return {
             callbacks.push_str("            return 1;\n");
         } else {
-            // Direct-value slot: a thrown exception cannot propagate, so log it
-            // before returning the default — a silent default is
-            // indistinguishable from a real result to the caller.
             callbacks.push_str(&format!(
                 "            Console.Error.WriteLine($\"[{trait_pascal}Bridge] host '{method_pascal}' threw; returning default: {{ex}}\");\n"
             ));
@@ -869,7 +779,6 @@ fn gen_single_trait_bridge(
         callbacks.push('\n');
     }
 
-    // free_string callback
     callbacks.push_str("    private void FreeStringCallback(IntPtr ptr) {\n");
     callbacks.push_str("        if (ptr != IntPtr.Zero) {\n");
     callbacks.push_str("            global::System.Runtime.InteropServices.Marshal.FreeCoTaskMem(ptr);\n");
@@ -877,14 +786,12 @@ fn gen_single_trait_bridge(
     callbacks.push_str("    }\n");
     callbacks.push('\n');
 
-    // free_user_data callback
     callbacks.push_str(&render(
         "free_user_data_callback.jinja",
         minijinja::context! { trait_pascal },
     ));
     callbacks.push('\n');
 
-    // Render the bridge class with callbacks
     out.push_str(&render(
         "trait_bridge_class.jinja",
         Value::from_serialize(serde_json::json!({
@@ -900,7 +807,6 @@ fn gen_single_trait_bridge(
     ));
     out.push('\n');
 
-    // --- Registry Class ---
     let has_unregister = bridge_cfg.unregister_fn.is_some();
     let has_clear = bridge_cfg.clear_fn.is_some();
     let clear_fn = bridge_cfg.clear_fn.as_deref().unwrap_or("").to_string();
@@ -916,7 +822,6 @@ fn gen_single_trait_bridge(
     ));
 }
 
-// Placeholder for JSON serialization — in production, would use System.Text.Json
 fn _to_json_string(_obj: &dyn std::any::Any) -> String {
     "null".to_string()
 }

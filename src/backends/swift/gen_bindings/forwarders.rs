@@ -284,8 +284,6 @@ pub(super) fn emit_free_function_forwarders(
             );
             emitted_any = true;
         }
-        // Host-native capsule (Language) passthrough: construct the host runtime's
-        // `Language` from the raw C grammar pointer instead of an opaque handle.
         if let Some(capsule_cfg) = swift_capsule_return_config(func, &capsule_types) {
             if func.is_async {
                 emit_async_capsule_free_function_forwarder(func, &swift_name, capsule_cfg, out);
@@ -549,13 +547,6 @@ pub(super) fn emit_async_free_function_forwarder(
             },
         ));
     } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_))) {
-        // Vec<Named> async forwarder: iterate opaque results regardless of first-class
-        // status. The Rust shim returns `RustVec<Named>`; the Swift wrapper wraps each
-        // element via either the first-class DTO `init(ref)` or the opaque
-        // `RustBridge.T(ptr: ref.ptr)` constructor. Sendable across the `Task.detached`
-        // boundary is handled by the second-pass `@unchecked Sendable` emitter in
-        // mod.rs::generate_bindings — see "swift-bridge opaque type referenced in async
-        // forwarder return" comments there.
         body.push_str(&crate::backends::swift::template_env::render(
             "swift_forwarder_conversion_line.swift.jinja",
             minijinja::context! {
@@ -832,7 +823,6 @@ fn emit_capsule_free_function_forwarder(
     capsule_cfg: &crate::core::config::HostCapsuleTypeConfig,
     out: &mut String,
 ) {
-    // Require host_type — no SwiftTreeSitter default fallback.
     let host_type = match capsule_cfg.required_host_type("Language", "swift") {
         Ok(t) => t.to_string(),
         Err(e) => {
@@ -845,7 +835,6 @@ fn emit_capsule_free_function_forwarder(
         emit_doc_comment(&func.doc, "", out);
     }
 
-    // Build the parameter list. Capsule functions take only plain scalar/string params.
     let mut sig_params: Vec<String> = Vec::new();
     let mut c_args: Vec<String> = Vec::new();
     for param in &func.params {
@@ -866,9 +855,6 @@ fn emit_capsule_free_function_forwarder(
     };
 
     let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
-    // Require construct_expr — no SwiftTreeSitter default fallback.
-    // The construct_expr uses {ptr} as the placeholder, which will be replaced with the
-    // reconstructed OpaquePointer.
     let construct = match capsule_cfg.construct_required("cLang", "Language", "swift") {
         Ok(c) => c,
         Err(e) => {
@@ -880,8 +866,6 @@ fn emit_capsule_free_function_forwarder(
         "NSError(domain: \"alef.capsule\", code: 1, userInfo: [NSLocalizedDescriptionKey: \"Capsule function returned null: {swift_name}\"])"
     );
 
-    // The extern now returns usize (not Optional or Result). Reconstruct OpaquePointer
-    // via OpaquePointer(bitPattern:) and check for 0 (error sentinel).
     let body = if is_fallible {
         format!(
             "let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ throw {nil_error} }}\n    return {construct}"
@@ -916,7 +900,6 @@ fn emit_async_capsule_free_function_forwarder(
     capsule_cfg: &crate::core::config::HostCapsuleTypeConfig,
     out: &mut String,
 ) {
-    // Require host_type — no SwiftTreeSitter default fallback.
     let host_type = match capsule_cfg.required_host_type("Language", "swift") {
         Ok(t) => t.to_string(),
         Err(e) => {
@@ -929,7 +912,6 @@ fn emit_async_capsule_free_function_forwarder(
         emit_doc_comment(&func.doc, "", out);
     }
 
-    // Build the parameter list.
     let mut sig_params: Vec<String> = Vec::new();
     let mut c_args: Vec<String> = Vec::new();
     for param in &func.params {
@@ -949,7 +931,6 @@ fn emit_async_capsule_free_function_forwarder(
     };
 
     let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
-    // Require construct_expr — no SwiftTreeSitter default fallback.
     let construct = match capsule_cfg.construct_required("cLang", "Language", "swift") {
         Ok(c) => c,
         Err(e) => {
@@ -961,8 +942,6 @@ fn emit_async_capsule_free_function_forwarder(
         "NSError(domain: \"alef.capsule\", code: 1, userInfo: [NSLocalizedDescriptionKey: \"Capsule function returned null: {swift_name}\"])"
     );
 
-    // The extern now returns usize (not Optional or Result). Reconstruct OpaquePointer
-    // via OpaquePointer(bitPattern:) and check for 0 (error sentinel).
     let body = if is_fallible {
         format!(
             "let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ throw {nil_error} }}\n    return {construct}"

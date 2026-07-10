@@ -18,8 +18,6 @@ pub(super) fn binding_config(core_import: &str, has_serde: bool) -> RustBindingC
         async_pattern: AsyncPattern::Pyo3FutureIntoPy,
         has_serde,
         type_name_prefix: "",
-        // Duration fields on has_default types become Option<u64> so that unset fields
-        // fall back to the core type's Default rather than Duration::ZERO.
         option_duration_on_defaults: true,
         opaque_type_names: &[],
         skip_impl_constructor: false,
@@ -32,8 +30,6 @@ pub(super) fn binding_config(core_import: &str, has_serde: bool) -> RustBindingC
         emit_delegating_default_impl: true,
         skip_methods_when_not_delegatable: false,
         source_crate_remaps: &[],
-        // Populated in gen_bindings before the type loop so that the delegating Default
-        // is only emitted when the matching From<core::T> impl will also be emitted.
         emit_delegating_default_for_types: None,
     }
 }
@@ -62,15 +58,12 @@ pub(super) fn unsendable_binding_config(core_import: &str, has_serde: bool) -> R
 /// features, so feature gates are deterministic at binding-compilation time.
 pub(super) fn cfg_present_for_pyo3(cfg: &str) -> bool {
     let normalized: String = cfg.chars().filter(|c| !c.is_whitespace()).collect();
-    // Accept `not(target_arch="wasm32")` — always true on native Python
     if normalized == "not(target_arch=\"wasm32\")" {
         return true;
     }
-    // Accept feature gates — pyo3 features are statically enabled/disabled
     if normalized.starts_with("feature=") {
         return true;
     }
-    // Accept `any(...)` containing only feature gates and native-target gates
     if normalized.starts_with("any(") && normalized.ends_with(")") {
         let inner = &normalized[4..normalized.len() - 1];
         return inner

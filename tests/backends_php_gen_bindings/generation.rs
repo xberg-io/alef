@@ -196,10 +196,6 @@ fn php_serde_defaults_are_generated_from_typed_default_metadata() {
 
 #[test]
 fn php_function_path_serde_default_qualifies_crate_local_dto() {
-    // A field whose serde default is a function path (e.g. `SsrfPolicy::from_env`)
-    // but whose type has no `type_rust_path` uses the crate-local binding DTO. The
-    // import-less `serde_defaults` module must qualify it with `crate::` so it
-    // compiles — regression for the php CrawlConfig.ssrf env-honoring default.
     let backend = PhpBackend;
     let mut policy = make_field("policy", TypeRef::Named("Policy".to_string()), false);
     policy.default = Some("serde(default = \"Policy::from_env\")".to_string());
@@ -270,7 +266,6 @@ fn php_function_path_serde_default_qualifies_crate_local_dto() {
 fn test_basic_generation() {
     let backend = PhpBackend;
 
-    // Create test API surface
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -412,7 +407,6 @@ fn test_basic_generation() {
 
     let config = make_config();
 
-    // Generate bindings
     let result = backend.generate_bindings(&api, &config);
 
     assert!(result.is_ok(), "Generation should succeed");
@@ -420,14 +414,12 @@ fn test_basic_generation() {
     let files = result.unwrap();
     assert!(!files.is_empty(), "Should generate files");
 
-    // Check for lib.rs file
     let file_names: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
     assert!(
         file_names.iter().any(|f| f.contains("lib.rs")),
         "Should generate lib.rs"
     );
 
-    // Verify content contains PHP-specific markers
     let lib_rs = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("lib.rs"))
@@ -439,13 +431,11 @@ fn test_basic_generation() {
         "Should contain #[php_class] marker for classes"
     );
 
-    // Functions are generated as static methods in a *Api class (avoids inventory crate issue on macOS)
     assert!(
         lib_rs.content.contains("Api") && lib_rs.content.contains("#[php_impl]"),
         "Should contain Api class with #[php_impl] for functions"
     );
 
-    // Should contain ext_php_rs imports
     assert!(lib_rs.content.contains("ext_php_rs"), "Should import ext_php_rs");
 }
 
@@ -617,7 +607,6 @@ fn test_type_mapping() {
         .unwrap();
     let content = &lib_rs.content;
 
-    // Should have proper field definitions with types
     assert!(content.contains("u32_val"), "Should contain u32_val field");
     assert!(content.contains("i64_val"), "Should contain i64_val field");
     assert!(content.contains("string_val"), "Should contain string_val field");
@@ -719,7 +708,6 @@ fn test_enum_generation() {
         .unwrap();
     let content = &lib_rs.content;
 
-    // Enum should generate constants for PHP
     assert!(
         content.contains("Pending") && content.contains("Active") && content.contains("Inactive"),
         "Should contain all enum variants"
@@ -751,7 +739,6 @@ fn test_generated_header() {
 
     let files = result.unwrap();
 
-    // All files should have generated_header set to false (as per PHP backend code)
     for file in &files {
         assert!(
             !file.generated_header,

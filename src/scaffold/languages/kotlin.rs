@@ -51,16 +51,8 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     let ktlint = maven::KTLINT;
     let jvm_target = toolchain::KOTLIN_JVM_TARGET;
     let kotlin_artifact_id = format!("{}-kotlin", config.name);
-    // Pascal-cased binding-class filename emitted by alef-backend-kotlin
-    // (e.g. crate `sample_core` -> `SampleCrate.kt`). The alef-emitted file is not
-    // ktlint-clean (parameters on a single line, missing expression bodies),
-    // so we exclude it here rather than reformatting in the backend.
     let binding_class = config.name.to_pascal_case();
 
-    // Maven Central publishing metadata (vanniktech plugin). Mirrors the
-    // kotlin-android backend, adapted to a Kotlin/JVM library: the publication
-    // is signed and uploaded with publishingType=AUTOMATIC so the Central Portal
-    // deployment auto-releases (the bare `maven-publish` plugin can only stage).
     let vanniktech = maven::VANNIKTECH_MAVEN_PUBLISH;
     let repo_url = meta.configured_repository.clone().ok_or_else(|| {
         anyhow::anyhow!(
@@ -84,11 +76,7 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
         "Apache-2.0" => "https://www.apache.org/licenses/LICENSE-2.0",
         _ => "",
     };
-    // Values flow into Kotlin string literals, so escape backslash/quote/dollar
-    // (NOT XML — the author "Na'aman Hirschfeld" must keep its apostrophe).
     let kt = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$");
-    // 2-space indentation matches this file's `.editorconfig` (ktlintKotlinScriptCheck
-    // reads it), unlike the 4-space kotlin-android emitter.
     let licenses_block = if license_url.is_empty() {
         format!(
             "    licenses {{\n      license {{\n        name.set(\"{}\")\n      }}\n    }}\n",
@@ -123,8 +111,6 @@ fn scaffold_kotlin_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     let scm_connection = kt(&scm.connection);
     let scm_developer_connection = kt(&scm.developer_connection);
 
-    // build.gradle.kts: Kotlin 2.x DSL — `compilerOptions` block replaces the
-    // deprecated `kotlinOptions { jvmTarget }` form removed in Kotlin 2.1.
     let build_gradle = format!(
         r#"import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.KotlinJvm
@@ -277,15 +263,6 @@ mavenPublishing {{
 
     let gitignore = "build/\n.gradle/\n.idea/\n*.iml\n";
 
-    // ktlint and the alef kotlin emitter disagree on parameter/argument splitting
-    // heuristics, line length, expression-bodied functions, and chain-method
-    // continuation. The emitted code is canonical from the alef side, so we
-    // disable the ktlint rules that conflict — mirroring the kotlin_android
-    // `.editorconfig` overrides (`src/backends/kotlin_android/gen_editorconfig.rs`).
-    // Without these, `gradle ktlintMainSourceSetCheck` rejects every multi-param
-    // generated method with `standard:class-signature`,
-    // `standard:function-signature`, `standard:parameter-list-wrapping`,
-    // `standard:max-line-length`, etc.
     let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\ntrim_trailing_whitespace = true\n\n\
 [*.kt]\nindent_style = space\nindent_size = 4\n\
 ktlint_standard_class-signature = disabled\n\
@@ -362,9 +339,6 @@ gradle test
         license = license,
     );
 
-    // ktlint's `filename` rule requires a file with a single top-level
-    // declaration to match the declaration name, so the object is named
-    // `Sample` (matching `Sample.kt`) rather than including the project name.
     let sample_kotlin = format!(
         r#"package {package}.sample
 

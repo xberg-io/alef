@@ -83,8 +83,6 @@ fn opaque_result_ir() -> Vec<TypeDef> {
         vec![
             make_field("content", TypeRef::String),
             make_field("mime_type", TypeRef::String),
-            // serde_json::Value → TypeRef::Json — not first-class-supported,
-            // so DocumentResult stays opaque (method-call syntax in bridge).
             make_field("structured_output", TypeRef::Json),
         ],
     )]
@@ -183,7 +181,6 @@ fn opaque_root_without_result_type_uses_method_call_syntax() {
         "Flyers",
     ));
 
-    // Must emit `result.content()` (method call), NOT `result.content` (property / closure ref).
     assert!(
         rendered.contains("result.content()"),
         "opaque root with unknown root type must emit `result.content()` (method call). \

@@ -18,8 +18,6 @@ use alef::e2e::codegen::typescript::TypeScriptCodegen;
 use alef::e2e::codegen::wasm::WasmCodegen;
 use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup};
 
-// ── fixture/config helpers ────────────────────────────────────────────────────
-
 fn make_host_root_fixture(id: &str) -> Fixture {
     Fixture {
         id: id.to_string(),
@@ -278,8 +276,6 @@ fn generate_all(
         .expect("generation succeeds")
 }
 
-// ── Python ────────────────────────────────────────────────────────────────────
-
 #[test]
 fn python_host_root_fixture_url_uses_mock_server_env_key() {
     let files = generate_all(
@@ -330,8 +326,6 @@ fn python_conftest_emits_mock_servers_parsing() {
     );
 }
 
-// ── TypeScript (uses "node" language name) ────────────────────────────────────
-
 #[test]
 fn typescript_host_root_fixture_url_uses_mock_server_env_key() {
     let files = generate_all(
@@ -371,8 +365,6 @@ fn typescript_global_setup_emits_mock_servers_parsing() {
     );
 }
 
-// ── Go ────────────────────────────────────────────────────────────────────────
-
 #[test]
 fn go_host_root_fixture_url_uses_mock_server_env_key() {
     let files = generate_all(&GoCodegen, "go", vec![make_host_root_fixture("robots_disallow_path")]);
@@ -391,24 +383,9 @@ fn go_host_root_fixture_url_uses_mock_server_env_key() {
 }
 
 // NOTE: `go_main_test_emits_mock_servers_parsing` was removed in the
-// harness-pattern refactor (commit b6112c283 "myriad e2e test fixes"). Go no
-// longer parses `MOCK_SERVERS=` inside `main_test.go`; per-fixture URLs are
-// resolved at test time via the `MOCK_SERVER_<FIXTURE_ID>` env vars set by
-// whatever process spawns the mock-server (parent test runner / harness
-// binary), with a `MOCK_SERVER_URL/fixtures/<id>` fallback. See
-// `src/e2e/codegen/go.rs` (`fixture.has_host_root_route()` branch).
-
-// ── Java ──────────────────────────────────────────────────────────────────────
 
 // NOTE: `java_mock_server_listener_emits_mock_servers_parsing` was removed in
-// the same b6112c283 refactor. `render_mock_server_listener` was kept as
 // `#[allow(dead_code)]` Rust scaffolding for a future re-wiring but is not
-// currently emitted: crawler-style fixtures rely on
-// `MOCK_SERVER_<FIXTURE_ID>` env vars (set by parent harness) with a
-// `MOCK_SERVER_URL/fixtures/<id>` fallback; server-pattern HTTP fixtures use
-// `HarnessMain.java` instead. See `src/e2e/codegen/java.rs` lines 1714-1729.
-
-// ── C# ───────────────────────────────────────────────────────────────────────
 
 #[test]
 fn csharp_host_root_fixture_url_uses_mock_server_env_key() {
@@ -417,7 +394,6 @@ fn csharp_host_root_fixture_url_uses_mock_server_env_key() {
         "csharp",
         vec![make_host_root_fixture("robots_disallow_path")],
     );
-    // Test class file is e.g. SmokeTests.cs — not TestSetup.cs
     let test_file = files
         .iter()
         .find(|f| {
@@ -449,8 +425,6 @@ fn csharp_test_setup_emits_mock_servers_parsing() {
         setup.content
     );
 }
-
-// ── PHP ───────────────────────────────────────────────────────────────────────
 
 #[test]
 fn php_bootstrap_emits_mock_servers_parsing() {
@@ -485,8 +459,6 @@ fn php_typed_object_placeholder_escapes_dollar_literal() {
     );
 }
 
-// ── Ruby ──────────────────────────────────────────────────────────────────────
-
 #[test]
 fn ruby_spec_helper_skips_spawn_when_mock_server_url_preset() {
     let files = generate_all(
@@ -504,7 +476,6 @@ fn ruby_spec_helper_skips_spawn_when_mock_server_url_preset() {
         "spec_helper.rb must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
         spec_helper.content
     );
-    // Guard must appear before the popen3 spawn call.
     let guard = spec_helper
         .content
         .find("if existing_url && !existing_url.empty?")
@@ -555,8 +526,6 @@ fn ruby_typed_object_array_replaces_mock_url() {
     );
 }
 
-// ── Elixir ────────────────────────────────────────────────────────────────────
-
 #[test]
 fn elixir_test_helper_skips_spawn_when_mock_server_url_preset() {
     let files = generate_all(
@@ -575,7 +544,6 @@ fn elixir_test_helper_skips_spawn_when_mock_server_url_preset() {
         "test_helper.exs must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
         test_helper.content
     );
-    // Guard must appear before the Port.open spawn call.
     let guard = test_helper
         .content
         .find("unless System.get_env(\"MOCK_SERVER_URL\")")
@@ -634,8 +602,6 @@ fn elixir_typed_object_placeholder_uses_scoped_keyword_arg() {
     );
 }
 
-// ── Kotlin Android ────────────────────────────────────────────────────────────
-
 #[test]
 fn kotlin_android_typed_object_placeholder_uses_mock_server_properties() {
     let files = generate_typed_url_all(
@@ -664,8 +630,6 @@ fn kotlin_android_typed_object_placeholder_uses_mock_server_properties() {
     );
 }
 
-// ── Install isolation + pre-set MOCK_SERVER_URL (node / wasm) ──────────────────
-
 #[test]
 fn typescript_emits_isolated_pnpm_workspace_in_registry_mode() {
     let (mut e2e, resolved) = build_config("node");
@@ -687,10 +651,6 @@ fn typescript_emits_isolated_pnpm_workspace_in_registry_mode() {
 
 #[test]
 fn typescript_omits_pnpm_workspace_in_local_mode() {
-    // In Local (workspace:*) mode the test app depends on the binding via
-    // workspace protocol, which can only resolve through the consumer's root
-    // pnpm-workspace.yaml. Emitting `packages: []` would shadow the consumer's
-    // workspace and break `pnpm install` with no matching version.
     let (e2e, resolved) = build_config("node");
     assert_eq!(e2e.dep_mode, alef::e2e::config::DependencyMode::Local);
     let groups = groups_with(vec![make_plain_fixture("basic_crawl")]);
@@ -733,11 +693,6 @@ fn typescript_global_setup_skips_spawn_when_mock_server_url_preset() {
 
 #[test]
 fn wasm_setup_ts_initializes_wasm_per_worker() {
-    // The wasm init MUST appear in setup.ts (vitest setupFiles, per-worker)
-    // because globalSetup runs only in the main process; worker processes spawn
-    // their own module graph and would hit __wbindgen_add_to_stack_pointer crashes
-    // without a per-worker init call. Uses initSync + readFileSync to bypass
-    // Node.js fetch() not supporting file:// URLs.
     let files = generate_all(
         &WasmCodegen,
         "wasm",

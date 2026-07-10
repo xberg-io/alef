@@ -71,16 +71,9 @@ pub fn gen_pyo3_data_enum_with_coercion(
     let name = &enum_def.name;
     let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
     let has_sanitized = enum_has_sanitized_fields(enum_def);
-    // A delegating `impl Default` (`Self { inner: Default::default() }`) only compiles when the
-    // CORE enum implements `Default`. Two signals indicate this:
     // 1. A variant marked `#[default]` (`is_default = true`) — only emitted with
     //    `#[derive(Default)]`, surfaced in the IR as `EnumVariant::is_default`.
-    // 2. `enum_def.has_default = true` — set when the extractor finds a manual
     //    `impl Default for Enum` (no `#[default]` variant). Data enums with
-    //    `impl Default { Self::Custom(String::new()) }` fall into this category.
-    // When neither signal is present, the core type has no `Default` and emitting the
-    // wrapper `Default` would produce `error[E0277]: the trait bound
-    // `core::Type: std::default::Default` is not satisfied`.
     let has_default = enum_def.has_default || enum_def.variants.iter().any(|v| v.is_default);
     let string_methods_content = crate::codegen::template_env::render(
         "generators/enums/enum_string_methods.jinja",
@@ -98,8 +91,6 @@ pub fn gen_pyo3_data_enum_with_coercion(
         write_pyo3_serde_tag_getter(&mut serde_tag_content, tag_field);
     }
 
-    // Generate a per-variant constructor for each data-carrying struct variant when a mapper
-    // is provided (the mapper maps field types into the binding signature).
     let variant_constructors_content = match mapper {
         Some(m) => gen_pyo3_enum_variant_constructors_content(enum_def, &core_path, m, coercible_dto_names),
         None => String::new(),
@@ -148,7 +139,6 @@ pub(crate) fn collect_variant_constructors(enum_def: &EnumDef) -> Vec<VariantCon
     use crate::codegen::naming::pascal_to_snake;
     use crate::core::ir::ParamDef;
 
-    // Hand-written associated functions suppress the generated constructor of the same name.
     let method_names: ahash::AHashSet<&str> = enum_def
         .methods
         .iter()
@@ -159,9 +149,6 @@ pub(crate) fn collect_variant_constructors(enum_def: &EnumDef) -> Vec<VariantCon
     enum_def
         .variants
         .iter()
-        // Skip variants that cannot be constructed from binding-side values: a `sanitized` field
-        // has no resolvable type (e.g. `[(u32, u32); 4]` -> String) and a `binding_excluded` field
-        // is hidden from the binding surface entirely, so the core variant cannot be built.
         .filter(|v| {
             !v.fields.is_empty()
                 && !v.is_tuple
@@ -232,8 +219,6 @@ pub(crate) fn variant_field_init(
 
     let name = &param.name;
 
-    // Primitive whose binding type was remapped: cast back to the core type. Handles both the
-    // genuinely-optional (`Option<i32>`→`Option<u32>`) and required/promoted shapes.
     if let TypeRef::Primitive(prim) = &param.ty {
         let needs_cast =
             (cast_uints_to_i32 && needs_i32_cast(prim)) || (cast_large_ints_to_f64 && needs_f64_cast(prim));
@@ -249,15 +234,12 @@ pub(crate) fn variant_field_init(
         }
     }
 
-    // Genuinely-optional core field (`Option<T>`): convert through the Option, leaving it intact.
     if param.optional {
         let inner = match &param.ty {
             TypeRef::Optional(inner) => inner.as_ref(),
             other => other,
         };
         return match inner {
-            // Option<Box<T>> for a Named T: convert through the Option, then box each element,
-            // mirroring the From/Into path (`render::gen_from_binding_to_core`).
             TypeRef::Named(_) if is_boxed => format!("{name}.map(Into::into).map(Box::new)"),
             TypeRef::Named(_) | TypeRef::Path => format!("{name}.map(Into::into)"),
             TypeRef::Json => format!("{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())"),
@@ -268,23 +250,16 @@ pub(crate) fn variant_field_init(
                 format!("{name}.map(|v| v.into_iter().map(Into::into).collect())")
             }
             TypeRef::Vec(_) => format!("{name}.map(|v| v.into_iter().collect())"),
-            // String / primitive / Map: the binding `Option<T>` already matches the core field.
             _ => name.clone(),
         };
     }
 
-    // Core field is `T`. A promoted param arrives as `Option<T>`; unwrap to the field default first,
-    // then apply the same per-type conversion to the resulting owned value.
     let base = if promoted {
         format!("{name}.unwrap_or_default()")
     } else {
         name.clone()
     };
     match &param.ty {
-        // Box<T> for a Named T: box the converted value, mirroring the From/Into path
-        // (`render::gen_from_binding_to_core`). Without this the factory emits `field.into()`
-        // where the core variant field is `Box<T>`, which fails to compile (no `From<Binding>
-        // for Box<Core>`).
         TypeRef::Named(_) if is_boxed => format!("Box::new({base}.into())"),
         TypeRef::Named(_) | TypeRef::Path => format!("{base}.into()"),
         TypeRef::Json => format!("serde_json::from_str(&{base}).unwrap_or_default()"),
@@ -295,7 +270,6 @@ pub(crate) fn variant_field_init(
             format!("{base}.into_iter().map(Into::into).collect()")
         }
         TypeRef::Vec(_) => format!("{base}.into_iter().collect()"),
-        // String / primitive / Map: pass the (possibly unwrapped) value through unchanged.
         _ => base,
     }
 }
@@ -320,13 +294,9 @@ fn gen_pyo3_enum_variant_constructors_content(
         return String::new();
     }
 
-    // A payload field is coercible when its (possibly `Vec`/`Map`/`Optional`-wrapped) `Named` type
-    // is a dataclass-backed config DTO: its public wrapper is a `@dataclass`/`dict`, not the compiled
     // `#[pyclass]`, so it must be coerced rather than required as the compiled instance.
     let is_coercible = |ty: &TypeRef| coercible_payload(ty, coercible_dto_names).is_some();
 
-    // A coercible field accepts `&Bound<PyAny>` (the public wrapper / list / dict) rather than the
-    // compiled type. `function_params_vec` wraps optional/promoted params in `Option<…>`.
     let map_fn = |ty: &TypeRef| {
         if is_coercible(ty) {
             "&Bound<'_, pyo3::types::PyAny>".to_string()
@@ -337,8 +307,6 @@ fn gen_pyo3_enum_variant_constructors_content(
 
     let mut out = String::new();
     for ctor in &constructors {
-        // A constructor with any coercible payload calls a fallible `__alef_coerce_dto*` helper,
-        // so it takes `py` and returns `PyResult<Self>`.
         let needs_coercion = ctor.params.iter().any(|p| is_coercible(&p.ty));
         let params_str = function_params(&ctor.params, &map_fn);
         let params_str = if needs_coercion {
@@ -347,8 +315,6 @@ fn gen_pyo3_enum_variant_constructors_content(
             params_str
         };
 
-        // Build each `field: <expr>` init inline. `field: field` collapses to the shorthand `field`
-        // for an unchanged passthrough.
         let field_inits: Vec<String> = ctor
             .params
             .iter()
@@ -358,7 +324,6 @@ fn gen_pyo3_enum_variant_constructors_content(
                 let expr = if let Some((dto, shape)) = coercible_payload(&p.ty, coercible_dto_names) {
                     coercible_field_init(&p.name, dto, shape, p.optional, promoted)
                 } else {
-                    // pyo3 does not remap primitives, so no numeric cast back to the core type.
                     variant_field_init(p, promoted, false, false, ctor.boxed[idx])
                 };
                 if expr == p.name {
@@ -382,7 +347,6 @@ fn gen_pyo3_enum_variant_constructors_content(
             .to_string(),
         ];
 
-        // Always collides with the variant accessor of the same name → `_factory_<name>`.
         let rust_fn_name = format!("_factory_{}", ctor.snake_name);
 
         let has_optional = ctor.params.iter().any(|p| p.optional);
@@ -423,7 +387,6 @@ fn to_pyo3_screaming(name: &str) -> String {
     use heck::ToShoutySnakeCase;
     let chars: Vec<char> = name.chars().collect();
     let upper_prefix_len = chars.iter().take_while(|c| c.is_uppercase()).count();
-    // Acronym: 2+ leading uppercase chars with only lowercase (or empty) remainder
     if upper_prefix_len >= 2 && chars[upper_prefix_len..].iter().all(|c| c.is_lowercase() || *c == '_') {
         name.to_ascii_uppercase()
     } else {
@@ -447,31 +410,21 @@ fn apply_rename_all(name: &str, rule: &str) -> String {
         "PascalCase" => name.to_upper_camel_case(),
         "SCREAMING_SNAKE_CASE" => name.to_shouty_snake_case(),
         "SCREAMING-KEBAB-CASE" => name.to_shouty_kebab_case(),
-        // Unknown rule: pass through; this matches serde's tolerant behavior.
         _ => name.to_string(),
     }
 }
 
 /// Generate an enum.
 pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
-    // All enums are generated as unit-variant-only in the binding layer.
-    // Data variants are flattened to unit variants; the From/Into conversions
-    // handle the lossy mapping (discarding / providing defaults for field data).
     let mut derives: Vec<&str> = cfg.enum_derives.to_vec();
-    // Binding enums always derive Default, Serialize, and Deserialize.
-    // Default: enables using unwrap_or_default() in constructors.
-    // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
     derives.push("Default");
     derives.push("serde::Serialize");
     derives.push("serde::Deserialize");
 
     // Detect PyO3 context so we can rename all variants via #[pyo3(name = "UPPER_SNAKE_CASE")].
-    // PEP 8 mandates UPPER_SNAKE_CASE for enum members; pyclass variants must carry this
-    // rename so Python callers see `BatchStatus.VALIDATING` rather than `BatchStatus.Validating`.
     let is_pyo3 = cfg.enum_attrs.iter().any(|a| a.contains("pyclass"));
 
     // Determine which variant carries #[default].
-    // Prefer the variant that has is_default=true in the source (mirrors the Rust core's
     // #[default] attribute); fall back to the first variant when none is explicitly marked.
     let default_idx = enum_def.variants.iter().position(|v| v.is_default).unwrap_or(0);
 
@@ -482,17 +435,11 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
         .enumerate()
         .map(|(idx, v)| {
             // In pyo3 context every variant gets #[pyo3(name = "UPPER_SNAKE_CASE")] so the
-            // Python-exposed name is PEP 8-compliant. For Python-keyword variants the
-            // Rust identifier is already escaped (None → None_) so we produce "NONE_" as
-            // the screaming form of that escaped name — callers use BatchStatus.NONE.
             let pyo3_name = if is_pyo3 {
                 to_pyo3_screaming(&v.name)
             } else {
                 String::new()
             };
-            // Compute the on-the-wire (serde) name: explicit per-variant rename takes
-            // precedence; otherwise derive from the enum-level rename_all rule. This is what
-            // FromStr-style constructors must accept in addition to the raw variant name.
             let wire_name = v
                 .serde_rename
                 .clone()

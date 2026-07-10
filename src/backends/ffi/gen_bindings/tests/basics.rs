@@ -117,7 +117,6 @@ fn test_emits_enum_to_string_for_pointer_return_enum() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Sanity: pointer-return enum lifecycle helpers are emitted.
     assert!(
         lib.content.contains("my_lib_color_free"),
         "expected my_lib_color_free in emitted lib.rs"
@@ -127,7 +126,6 @@ fn test_emits_enum_to_string_for_pointer_return_enum() {
         "expected my_lib_color_to_json in emitted lib.rs"
     );
 
-    // The new accessor: takes *const Color, returns *mut c_char.
     assert!(
         lib.content
             .contains("pub unsafe extern \"C\" fn my_lib_color_to_string("),
@@ -141,7 +139,6 @@ fn test_emits_enum_to_string_for_pointer_return_enum() {
         lib.content.contains("-> *mut c_char"),
         "to_string should return *mut c_char"
     );
-    // Body should extract the unit-variant name via serde, not via JSON-with-quotes.
     assert!(
         lib.content.contains("serde_json::to_value(val)"),
         "to_string should use serde_json::to_value"
@@ -154,9 +151,6 @@ fn test_emits_enum_to_string_for_pointer_return_enum() {
 
 #[test]
 fn test_omits_enum_to_string_when_enum_not_returned() {
-    // The default sample_api() uses `OutputFormat` only as a non-return enum
-    // (no function returns it, no struct field has it), so neither _free nor
-    // _to_string should be emitted.
     let api = sample_api();
     let config = sample_config();
     let backend = FfiBackend;
@@ -249,14 +243,7 @@ exclude_types = ["HiddenConfig", "HiddenEnum"]
 
 #[test]
 fn test_cbindgen_toml_forward_declares_service_owner() {
-    // A service owner (e.g. `App`) is emitted as the opaque `inner` pointer of its
-    // `{PREFIX}{Service}Opaque` handle but lives in `api.services`, not `api.types`.
-    // It must still be forward-declared or cbindgen reports "unknown type name".
     let mut api = sample_api();
-    // Mirror reality: the owner is ALSO present in `types` as a `binding_excluded`
-    // opaque, so it lands in the cbindgen exclude set. The forward declaration must
-    // still be emitted (regression guard: the naive `!exclude_types.contains` filter
-    // would wrongly drop it).
     let mut owner_type = api.types[0].clone();
     owner_type.name = "App".to_string();
     owner_type.rust_path = "my_lib::App".to_string();

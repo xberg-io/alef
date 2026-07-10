@@ -53,20 +53,16 @@ pub(super) fn render_function(
 
     push_version_annotation(&mut out, &func.version);
 
-    // Extract parameter descriptions from the RAW doc string BEFORE cleaning
     let param_docs = extract_param_docs(&func.doc);
 
     if !func.doc.is_empty() {
         let doc = clean_doc(&func.doc, lang);
-        // Demote any embedded headings in the function documentation by 2 levels
-        // to ensure they stay nested under the function heading (####).
         let doc = demote_headings(&doc, 2);
         out.push_str(&doc);
         out.push('\n');
         out.push('\n');
     }
 
-    // Signature
     out.push_str("**Signature:**\n\n");
     let lang_code = lang_code_fence(lang);
     let sig = render_function_signature(func, lang, ffi_prefix);
@@ -74,7 +70,6 @@ pub(super) fn render_function(
         "code_block.jinja",
         minijinja::context! { lang_code => lang_code, body => sig },
     ));
-    // MD031: blank line required after fenced code block.
     out.push('\n');
 
     out.push_str(&render_function_example(func, lang, ffi_prefix));
@@ -84,7 +79,7 @@ pub(super) fn render_function(
     push_returns(&mut out, &func.return_type, lang, ffi_prefix);
     push_errors(&mut out, func.error_type.as_deref(), lang);
 
-    let _ = api; // api is available for future use in function rendering
+    let _ = api;
     out
 }
 

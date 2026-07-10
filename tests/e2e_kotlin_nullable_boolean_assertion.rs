@@ -119,9 +119,6 @@ fn nullable_boolean_is_true_assertion_uses_equality_comparison() {
 
     let rendered = render(fixtures);
 
-    // The assertion must use explicit equality comparison `== true` to safely handle
-    // nullable Boolean? results from safe-call chains.
-    // Expected pattern: `assertTrue(result.markdown?.citations == true, "expected true")`
     assert!(
         rendered.contains("== true"),
         "is_true assertion on nullable boolean field must use explicit equality comparison (== true). Rendered:\n{rendered}"
@@ -158,9 +155,6 @@ fn nullable_boolean_is_false_assertion_uses_equality_comparison() {
 
     let rendered = render(fixtures);
 
-    // The assertion must use explicit equality comparison `== false` to safely handle
-    // nullable Boolean? results from safe-call chains.
-    // Expected pattern: `assertTrue(result.markdown?.citations == false, "expected false")`
     assert!(
         rendered.contains("== false"),
         "is_false assertion on nullable boolean field must use explicit equality comparison (== false). Rendered:\n{rendered}"

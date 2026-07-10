@@ -26,7 +26,6 @@ pub fn package_kotlin(
         anyhow::bail!("Kotlin package directory not found: {}", pkg_dir);
     }
 
-    // Build the Kotlin project using gradle.
     let status = std::process::Command::new("gradle")
         .arg("build")
         .current_dir(&pkg_path)
@@ -37,19 +36,15 @@ pub fn package_kotlin(
         anyhow::bail!("gradle build failed with exit code {}", status.code().unwrap_or(-1));
     }
 
-    // Locate the built JAR in the Gradle build output.
-    // Standard pattern: build/libs/{module-name}-{version}.jar
     let build_libs = pkg_path.join("build/libs");
     if !build_libs.exists() {
         anyhow::bail!("gradle build did not produce build/libs directory");
     }
 
-    // Find a jar matching the expected version or any jar.
     let jar_file = find_jar_in_dir(&build_libs, version)
         .or_else(|| find_any_jar(&build_libs))
         .context("no JAR found in build/libs")?;
 
-    // Copy JAR to output directory.
     let output_jar_name = format!("{crate_name}-{version}.jar");
     let output_jar = output_dir.join(&output_jar_name);
     fs::copy(&jar_file, &output_jar).context("copying JAR to output directory")?;

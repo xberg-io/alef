@@ -46,7 +46,6 @@ pub(in crate::backends::rustler::gen_bindings) fn regate_ungated_same_name_funct
 ) -> Vec<FunctionDef> {
     let groups = collect_function_groups(functions);
 
-    // For each name, the OR-merge of the distinct cfgs of its *gated* members.
     let mut gated_cfg_by_name: AHashMap<&str, Option<String>> = AHashMap::new();
     for (name, indices) in &groups {
         if !is_mixed_gated_group(indices, functions) {

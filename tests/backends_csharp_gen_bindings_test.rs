@@ -10,7 +10,6 @@ use alef::core::ir::{
 fn test_basic_generation() {
     let backend = CsharpBackend;
 
-    // Create test API surface
     let api = ApiSurface {
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
@@ -188,10 +187,8 @@ fn test_basic_generation() {
         unsupported_public_items: Vec::new(),
     };
 
-    // Create test config
     let config = make_config("sample_crate", Some("SampleCrate"), true);
 
-    // Generate bindings
     let result = backend.generate_bindings(&api, &config);
 
     assert!(result.is_ok(), "Generation should succeed");
@@ -199,7 +196,6 @@ fn test_basic_generation() {
     let files = result.unwrap();
     assert!(!files.is_empty(), "Should generate files");
 
-    // Check for expected files
     let file_names: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
 
     assert!(
@@ -223,7 +219,6 @@ fn test_basic_generation() {
         "Should generate TextBackend enum"
     );
 
-    // Verify content of a generated file
     let native_methods = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
@@ -268,9 +263,6 @@ fn test_basic_generation() {
         enum_type.content.contains("public enum TextBackend"),
         "Should define TextBackend enum"
     );
-    // Sanity-check the XML doc summary renders across separate /// lines for
-    // both the enum class and its variants — regression guard for the issue
-    // where {%- / -%} trimming collapsed the block onto one line.
     assert!(
         enum_type
             .content
@@ -367,9 +359,6 @@ fn test_enum_doc_summary_emits_separate_lines_for_class_and_variants() {
         .expect("BrowserWait.cs should be generated");
     let content = &enum_file.content;
 
-    // Class-level doc: 3-line summary block, one /// per doc line, separate
-    // open/close tags. The concatenated buggy form `<summary>/// text` must
-    // never appear.
     assert!(
         !content.contains("<summary>///"),
         "Concatenated summary/doc-line marker should not appear in enum class doc:\n{content}"
@@ -383,7 +372,6 @@ fn test_enum_doc_summary_emits_separate_lines_for_class_and_variants() {
         "Enum class doc summary should render across separate lines, one /// per source line:\n{content}"
     );
 
-    // Variant-level doc: indented 4 spaces, same shape.
     assert!(
         content.contains("    /// <summary>\n    /// Wait until network activity is idle.\n    /// </summary>\n"),
         "Variant doc summary (NetworkIdle) should render across separate /// lines:\n{content}"
@@ -600,12 +588,6 @@ fn test_opaque_method_return_wraps_handle_without_to_json() {
 
 #[test]
 fn test_bool_param_call_site_matches_pinvoke_bool_decl() {
-    // The P/Invoke declaration in gen_bindings::functions.rs emits
-    // `[MarshalAs(UnmanagedType.U1)] bool <name>` for bool parameters, so the
-    // wrapper method must pass the C# `bool` value directly. Previously the
-    // call site emitted `(<name> ? 1 : 0)` (an int), which C# rejected with
-    // `CS1503: Argument N: cannot convert from 'int' to 'bool'`. Pin both
-    // sides of the contract here so they never drift again.
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
     let api = ApiSurface {
@@ -690,14 +672,12 @@ fn test_bool_param_call_site_matches_pinvoke_bool_decl() {
         .find(|file| file.path.ends_with("NativeMethods.cs"))
         .unwrap();
 
-    // P/Invoke side declares bool with U1 marshalling.
     assert!(
         native.content.contains("[MarshalAs(UnmanagedType.U1)] bool enable"),
         "P/Invoke decl must keep `[MarshalAs(UnmanagedType.U1)] bool` for the enable param; got:\n{}",
         native.content
     );
 
-    // Call site passes the C# bool directly — never the legacy `? 1 : 0` int.
     assert!(
         !wrapper.content.contains("(enable ? 1 : 0)"),
         "Call site must not emit `(enable ? 1 : 0)` (would not type-check against the bool P/Invoke param); got:\n{}",
@@ -912,7 +892,6 @@ fn test_error_class_doc_strips_rust_idioms_and_sections() {
         .expect("GraphQLErrorException.cs must be emitted");
     let content = &exception_file.content;
 
-    // Sentinel rustdoc markup that previously broke Roslyn parsing must be gone.
     assert!(!content.contains("```"), "code fence markers must not leak: {content}");
     assert!(
         !content.contains("# Examples"),
@@ -930,7 +909,6 @@ fn test_error_class_doc_strips_rust_idioms_and_sections() {
         !content.contains("GraphQLError::AuthenticationError"),
         "rust code inside fence must be dropped: {content}"
     );
-    // The high-level prose survives.
     assert!(
         content.contains("Errors that can occur during GraphQL operations"),
         "base error prose survives: {content}"
@@ -967,7 +945,6 @@ fn test_namespace_resolution() {
     let files = result.unwrap();
     let file_names: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
 
-    // Should contain nested namespace
     assert!(
         file_names.iter().any(|f| f.contains("MyCompany/MyLib")),
         "Should create nested namespace directories"
@@ -999,7 +976,6 @@ fn test_generated_header() {
 
     let files = result.unwrap();
 
-    // All files should have generated_header set to true
     for file in &files {
         assert!(
             file.generated_header,
@@ -1147,7 +1123,6 @@ fn test_type_mapping() {
         .unwrap();
     let content = &numbers_file.content;
 
-    // Verify type mappings
     assert!(content.contains("uint U32Val"), "U32 should map to uint");
     assert!(content.contains("long I64Val"), "I64 should map to long");
     assert!(
@@ -1253,7 +1228,6 @@ fn test_tuple_struct_fields_skipped() {
         .iter()
         .find(|f| f.path.to_string_lossy().contains("TupleStruct.cs"));
 
-    // Types with only tuple fields should not generate a record file at all
     assert!(
         tuple_file.is_none(),
         "Tuple struct with only positional fields should not generate a .cs file"
@@ -1264,7 +1238,6 @@ fn test_tuple_struct_fields_skipped() {
 fn test_mixed_struct_skips_tuple_fields_only() {
     let backend = CsharpBackend;
 
-    // A struct with both named and tuple fields — only named fields should appear as properties
     let api = ApiSurface {
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
@@ -1355,12 +1328,10 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         .find(|f| f.path.to_string_lossy().contains("MixedStruct.cs"))
         .expect("MixedStruct.cs should be generated since it has named fields");
 
-    // The named field "label" should appear as a property
     assert!(
         mixed_file.content.contains("Label"),
         "Named field 'label' should generate a property"
     );
-    // The tuple field "_0" should NOT appear
     assert!(
         !mixed_file.content.contains("\"_0\""),
         "Tuple field '_0' should not appear in JSON property names"
@@ -1393,8 +1364,6 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
     let backend = CsharpBackend;
     let config = make_config("sample_router", Some("SampleRouter"), true);
 
-    // Two error enums, each declaring a `ValidationError` variant — the exact
-    // pattern from sample_router that produced the corruption.
     let make_variant = |name: &str, doc: &str, is_unit: bool| ErrorVariant {
         name: name.to_string(),
         message_template: Some(format!("{}: {{0}}", name.to_lowercase())),
@@ -1417,8 +1386,6 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
                 name: "GraphQLError".to_string(),
                 rust_path: "sample_router::GraphQLError".to_string(),
                 original_rust_path: String::new(),
-                // Longer doc on GraphQL side — produces a longer payload than
-                // the SchemaError side, exposing the truncate-race.
                 variants: vec![
                     make_variant(
                         "ValidationError",
@@ -1441,8 +1408,6 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
                 name: "SchemaError".to_string(),
                 rust_path: "sample_router::SchemaError".to_string(),
                 original_rust_path: String::new(),
-                // Shorter doc on SchemaError side — would corrupt the longer
-                // GraphQL-side file if both were written to the same path.
                 variants: vec![
                     make_variant("ValidationError", "Configuration validation error", false),
                     make_variant("DepthLimitExceeded", "Depth limit exceeded", false),
@@ -1463,9 +1428,6 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
 
     let files = backend.generate_bindings(&api, &config).expect("generate ok");
 
-    // (1) No two GeneratedFile entries may share the same path. Without this
-    // invariant, write_files' par_iter can leave tails of bytes from the
-    // longer payload past the shorter payload's end-of-file.
     let mut seen_paths: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
     for file in &files {
         assert!(
@@ -1475,12 +1437,6 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
         );
     }
 
-    // (2) Each variant exception file must be well-formed. A pure state-machine
-    // walk: the last non-empty line is exactly `}`, and every line that
-    // contains the constructor body marker `: base(` is preceded by the full
-    // `public {ClassName}(` token on the same line. A truncated leftover line
-    // like `tring message, Exception innerException) : base(...) { }` would
-    // satisfy the `: base(` check but fail the `public ` prefix check.
     for variant_class in ["ValidationErrorException", "DepthLimitExceededException"] {
         let file_name = format!("{variant_class}.cs");
         let file = files
@@ -1495,15 +1451,12 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
             "}",
             "{file_name} must end with a single `}}` after closing brace — found `{last}`\nfull content:\n{content}"
         );
-        // Count balanced braces — exactly one open class brace, one close.
         let opens = content.matches('{').count();
         let closes = content.matches('}').count();
         assert_eq!(
             opens, closes,
             "{file_name} must have balanced braces (opens={opens}, closes={closes})\ncontent:\n{content}"
         );
-        // Every `: base(` line must carry the full `public ` prefix on the same
-        // line — guards against truncated constructor leftovers.
         for (idx, line) in content.lines().enumerate() {
             if line.contains(": base(") {
                 assert!(
@@ -1743,7 +1696,6 @@ fn test_duration_field_emits_single_nullable_not_double() {
             name: "BrowserConfig".to_string(),
             rust_path: "test::BrowserConfig".to_string(),
             original_rust_path: String::new(),
-            // has_default = true triggers the defaulted-field path
             has_default: true,
             fields: vec![FieldDef {
                 name: "timeout".to_string(),
@@ -1804,7 +1756,6 @@ fn test_duration_field_emits_single_nullable_not_double() {
         .find(|f| f.path.to_string_lossy().contains("BrowserConfig.cs"))
         .expect("BrowserConfig.cs should be generated");
 
-    // Must have exactly one `?` after ulong — never `??`
     assert!(
         !cs_file.content.contains("ulong??"),
         "Duration field must not produce ulong?? (double nullable); got:\n{}",
@@ -1920,7 +1871,6 @@ fn test_plain_enum_with_default_emits_single_nullable() {
                 ty: TypeRef::Named("Mode".to_string()),
                 optional: false,
                 default: None,
-                // No explicit variant default → default_val will resolve to "null"
                 typed_default: None,
                 doc: String::new(),
                 sanitized: false,
@@ -2005,13 +1955,11 @@ fn test_plain_enum_with_default_emits_single_nullable() {
         .find(|f| f.path.to_string_lossy().contains("Config.cs"))
         .expect("Config.cs should be generated");
 
-    // Should not have double `?` — e.g. `Mode??`
     assert!(
         !cs_file.content.contains("Mode??"),
         "Enum field must not produce Mode?? (double nullable); got:\n{}",
         cs_file.content
     );
-    // Should have `Mode? Mode` property (single nullable)
     assert!(
         cs_file.content.contains("Mode?"),
         "Enum field with null default should be nullable; got:\n{}",
@@ -2083,19 +2031,16 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
         .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
         .expect("NativeMethods.cs must be generated");
 
-    // P/Invoke: return type must be int (not IntPtr).
     assert!(
         native.content.contains("internal static extern int ProcessImage"),
         "P/Invoke return must be int for bytes_result; got:\n{}",
         native.content
     );
-    // P/Invoke: must have input byte-length parameter for byte-slice input.
     assert!(
         native.content.contains("IntPtr data") && native.content.contains("UIntPtr dataLen"),
         "P/Invoke must have byte-slice length parameter; got:\n{}",
         native.content
     );
-    // P/Invoke: must have out-params.
     assert!(
         native.content.contains("out IntPtr outPtr"),
         "P/Invoke must have out IntPtr outPtr; got:\n{}",
@@ -2111,7 +2056,6 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
         "P/Invoke must have out UIntPtr outCap; got:\n{}",
         native.content
     );
-    // P/Invoke: FreeBytes declaration must be present.
     assert!(
         native.content.contains("internal static extern void FreeBytes"),
         "NativeMethods.cs must have FreeBytes; got:\n{}",
@@ -2123,31 +2067,26 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
         .find(|f| f.path.to_string_lossy().contains("SampleCrateConverter.cs"))
         .expect("SampleCrateConverter.cs must be generated");
 
-    // Wrapper: return type must be byte[].
     assert!(
         wrapper.content.contains("public static byte[] ProcessImage"),
         "Wrapper return must be byte[] for bytes_result; got:\n{}",
         wrapper.content
     );
-    // Wrapper: must pass byte-length argument for byte-slice input.
     assert!(
         wrapper.content.contains("(UIntPtr)data.Length"),
         "Wrapper must pass byte-length argument (UIntPtr)data.Length; got:\n{}",
         wrapper.content
     );
-    // Wrapper: must check rc != 0.
     assert!(
         wrapper.content.contains("rc != 0"),
         "Wrapper must check rc != 0; got:\n{}",
         wrapper.content
     );
-    // Wrapper: must call Marshal.Copy.
     assert!(
         wrapper.content.contains("Marshal.Copy"),
         "Wrapper must call Marshal.Copy; got:\n{}",
         wrapper.content
     );
-    // Wrapper: must call FreeBytes.
     assert!(
         wrapper.content.contains("FreeBytes"),
         "Wrapper must call NativeMethods.FreeBytes; got:\n{}",
@@ -2592,7 +2531,6 @@ fn test_file_scoped_namespace_emitted() {
     };
     let config = make_config("test", Some("MyNs"), false);
     let files = backend.generate_bindings(&api, &config).unwrap();
-    // Only .cs files contain a namespace declaration; skip project/props files.
     let cs_files: Vec<_> = files
         .iter()
         .filter(|f| f.path.extension().and_then(|e| e.to_str()) == Some("cs"))
@@ -3016,7 +2954,6 @@ fn test_using_directives_each_on_own_line() {
         .find(|f| f.path.to_string_lossy().contains("Parser.cs"))
         .expect("Parser.cs should be generated");
 
-    // Extract the using directives section (before namespace declaration)
     let content = &parser_file.content;
     let using_section = content
         .lines()
@@ -3024,7 +2961,6 @@ fn test_using_directives_each_on_own_line() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    // Check that no two using directives are concatenated on a single line
     for line in using_section.lines() {
         let using_count = line.matches("using ").count();
         assert!(
@@ -3101,7 +3037,6 @@ type = "*const std::ffi::c_char"
     let backend = CsharpBackend;
     let files = backend.generate_bindings(&api, &config).unwrap();
 
-    // Find DefaultClient.cs — should contain the factory method.
     let handle_file = files.iter().find(|f| f.path.ends_with("DefaultClient.cs"));
     assert!(handle_file.is_some(), "DefaultClient.cs must be emitted");
     let handle_content = &handle_file.unwrap().content;
@@ -3119,7 +3054,6 @@ type = "*const std::ffi::c_char"
         "factory should call NativeMethods.DefaultClientNew: {handle_content}"
     );
 
-    // Find NativeMethods.cs — should contain the P/Invoke for _new.
     let native_methods_file = files.iter().find(|f| f.path.ends_with("NativeMethods.cs"));
     assert!(native_methods_file.is_some(), "NativeMethods.cs must be emitted");
     let native_content = &native_methods_file.unwrap().content;
@@ -3227,7 +3161,6 @@ fn test_record_method_bool_param_passes_bool_directly() {
         .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
         .expect("NativeMethods.cs should be generated");
 
-    // Verify P/Invoke declaration uses [MarshalAs(UnmanagedType.U1)] bool
     assert!(
         native_file
             .content
@@ -3236,14 +3169,12 @@ fn test_record_method_bool_param_passes_bool_directly() {
         native_file.content
     );
 
-    // Verify method call passes bool directly (not (enable ? 1 : 0))
     assert!(
         config_file.content.contains("enable"),
         "Bool parameter should be passed directly in method call: {}",
         config_file.content
     );
 
-    // Verify the int conversion does NOT appear
     assert!(
         !config_file.content.contains("(enable ? 1 : 0)"),
         "Bool parameter should not be converted to int with (enable ? 1 : 0): {}",
@@ -3391,8 +3322,6 @@ fn test_receiver_selfhandle_freed_on_named_param_failure() {
         .find(|f| f.path.to_string_lossy().contains("SomeConfig.cs"))
         .expect("SomeConfig.cs should be generated");
 
-    // Verify that try block starts BEFORE the named param setup
-    // by checking that "try" appears before "otherHandle"
     let try_pos = config_file.content.find("try").expect("Should contain 'try' block");
     let other_handle_pos = config_file
         .content
@@ -3405,7 +3334,6 @@ fn test_receiver_selfhandle_freed_on_named_param_failure() {
         config_file.content
     );
 
-    // Verify that selfHandle is freed in finally
     assert!(
         config_file.content.contains("NativeMethods.SomeConfigFree(selfHandle)"),
         "selfHandle must be freed in finally block: {}",
@@ -3519,7 +3447,6 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
 
     let files = backend.generate_bindings(&api, &config).unwrap();
 
-    // Find the ParseResult file (not TextParseResult)
     let result_file = files
         .iter()
         .find(|f| {
@@ -3528,21 +3455,18 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
         })
         .expect("ParseResult.cs should be generated");
 
-    // Should contain FromJson handle creation for the Named param
     assert!(
         result_file.content.contains("FromJson"),
         "Should create handle using FromJson: {}",
         result_file.content
     );
 
-    // Should contain try/finally block for handle cleanup
     assert!(
         result_file.content.contains("try") && result_file.content.contains("finally"),
         "Should wrap native call in try/finally for cleanup: {}",
         result_file.content
     );
 
-    // Should contain Free call for the Named param handle
     assert!(
         result_file.content.contains("TextParseResultFree"),
         "Should free Named param handle: {}",
@@ -3637,7 +3561,6 @@ fn test_bool_param_record_method_compiles_with_dotnet() {
 
     let files = backend.generate_bindings(&api, &config).unwrap();
 
-    // Write generated files to a temp directory preserving their relative paths.
     let tmp = tempfile::tempdir().expect("failed to create temp dir");
     for file in &files {
         let dest = tmp.path().join(&file.path);
@@ -3647,9 +3570,6 @@ fn test_bool_param_record_method_compiles_with_dotnet() {
         std::fs::write(&dest, &file.content).expect("failed to write generated file");
     }
 
-    // Place the .csproj alongside the generated Directory.Build.props so MSBuild
-    // inherits Nullable/LangVersion/TreatWarningsAsErrors and discovers all .cs
-    // files in the Test/ subdirectory automatically.
     let csproj_dir = tmp.path().join("packages/csharp");
     std::fs::create_dir_all(&csproj_dir).unwrap();
     std::fs::write(
@@ -3685,7 +3605,6 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
     let backend = CsharpBackend;
     let mut config = minimal_csharp_config("test");
 
-    // Add trait bridges with clear_fn configured to test the method naming
     config.trait_bridges = vec![
         alef::core::config::TraitBridgeConfig {
             trait_name: "TextBackend".to_string(),
@@ -3741,7 +3660,6 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
 
     let files = backend.generate_bindings(&api, &config).unwrap();
 
-    // Find the wrapper class file (contains the Clear* facade methods)
     let wrapper_file = files
         .iter()
         .find(|f| {
@@ -3761,8 +3679,6 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
 
     let content = &wrapper_file.content;
 
-    // Verify that the method names are ClearTextBackends and ClearPostProcessors (plural, from clear_fn)
-    // NOT ClearTextBackend and ClearPostProcessor (singular, from trait name)
     assert!(
         content.contains("public static void ClearTextBackends()"),
         "Expected method ClearTextBackends (from clear_text_backends), but not found.\n\
@@ -3777,7 +3693,6 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
         content
     );
 
-    // Verify that singular names are NOT present (these would be the wrong names)
     assert!(
         !content.contains("public static void ClearTextBackend()"),
         "Found incorrect method ClearTextBackend (singular). \

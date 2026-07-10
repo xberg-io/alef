@@ -104,7 +104,6 @@ mod tests {
 
     #[test]
     fn test_trait_name_to_dart_convention() {
-        // Verify snake_case → camelCase conversion
         let dart_name = "register_ocr_backend".to_lower_camel_case();
         assert_eq!(dart_name, "registerOcrBackend");
 

@@ -178,14 +178,12 @@ fn test_field_missing_from_struct_literal() {
 
     assert_eq!(partial.fields.len(), 2);
 
-    // field_a is in the struct literal
     let field_a = &partial.fields[0];
     assert_eq!(
         field_a.typed_default,
         Some(crate::core::ir::DefaultValue::IntLiteral(99))
     );
 
-    // field_b is NOT in the struct literal → should be Empty
     let field_b = &partial.fields[1];
     assert_eq!(
         field_b.typed_default,
@@ -276,8 +274,6 @@ fn test_field_with_zero_defaults() {
 
 #[test]
 fn test_field_with_str_literal_default() {
-    // A bare `&str` literal used directly as a string expression (not via .into())
-    // The extractor handles `syn::Lit::Str` directly — exercises the Lit::Str branch.
     let source = r#"
         pub struct Prefix {
             pub label: String,
@@ -304,7 +300,6 @@ fn test_field_with_str_literal_default() {
 
 #[test]
 fn test_field_with_duration_from_secs_non_literal_fallback() {
-    // Duration::from_secs with a non-literal arg falls back to Empty
     let source = r#"
         use std::time::Duration;
 

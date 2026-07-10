@@ -19,13 +19,9 @@ pub fn gen_bridge_function(
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
-    // Build parameter list, hiding bridge params from signature
     let mut sig_parts = Vec::new();
     for (idx, p) in func.params.iter().enumerate() {
         if idx == bridge_param_idx {
-            // Bridge param: &mut ZendObject implements FromZvalMut in ext-php-rs 0.15,
-            // allowing PHP to pass any object. ZBox<ZendObject> does NOT implement
-            // FromZvalMut, so we must use the reference form here.
             let php_obj_ty = "&mut ext_php_rs::types::ZendObject";
             if is_optional {
                 sig_parts.push(format!("{}: Option<{php_obj_ty}>", p.name));
@@ -36,7 +32,6 @@ pub fn gen_bridge_function(
             let promoted = idx > bridge_param_idx || func.params[..idx].iter().any(|pp| pp.optional);
             let base = mapper.map_type(&p.ty);
             // #[php_class] types (non-opaque Named) only implement FromZvalMut for &mut T,
-            // not for owned T — so we must use &mut T in the function signature.
             let ty = match &p.ty {
                 TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => {
                     if p.optional || promoted {
@@ -78,7 +73,6 @@ pub fn gen_bridge_function(
 
     let err_conv = ".map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))";
 
-    // Bridge wrapping code
     let bridge_wrap = if is_optional {
         format!(
             "let {param_name} = {param_name}.map(|v| {{\n        \
@@ -95,7 +89,6 @@ pub fn gen_bridge_function(
         )
     };
 
-    // Serde let bindings for non-bridge Named params
     let serde_bindings: String = func
         .params
         .iter()
@@ -148,7 +141,6 @@ pub fn gen_bridge_function(
         })
         .collect();
 
-    // Build call args
     let call_args: Vec<String> = func
         .params
         .iter()

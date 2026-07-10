@@ -40,10 +40,6 @@ fn type_ref_to_rust_type(ty: &TypeRef, core_import: &str) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Parameter conversion (C types -> Rust)
-// ---------------------------------------------------------------------------
-
 pub(super) fn gen_param_conversion_with_enums(
     param: &ParamDef,
     has_error: bool,
@@ -61,23 +57,16 @@ pub(super) fn gen_param_conversion_with_enums(
     } else if is_void_return(return_type) {
         "return;"
     } else {
-        // Use null_return_value to get the correct default for the return type
-        // (handles primitives, floats, Optional, Duration, pointers)
         match null_return_value(return_type) {
             "()" => "return;",
             v => {
-                // Leak: we need a 'static str but null_return_value returns &'static str
-                // The values are all string literals so this is fine
                 let ret = format!("return {};", v);
-                // Use a leaked string since fail_ret needs 'static lifetime
-                // This is called once per function generation, not in a hot loop
                 Box::leak(ret.into_boxed_str()) as &str
             }
         }
     };
 
     if param.optional {
-        // Optional parameter — null means None
         match &param.ty {
             TypeRef::String | TypeRef::Char => {
                 out.push_str(&crate::backends::ffi::template_env::render(
@@ -113,15 +102,6 @@ pub(super) fn gen_param_conversion_with_enums(
                 ));
             }
             TypeRef::Named(type_name) if enum_names.contains(type_name.as_str()) => {
-                // Optional enum passed as i32 sentinel: reconstruct via private Rust helper.
-                // Use match+explicit return rather than `?` because the outer function may return
-                // *mut T or i32, not Result/Option, so the ? operator is unavailable.
-                //
-                // IMPORTANT: the local variable name is `{rs_name}` (derived from the FFI param
-                // name), NOT from `enum_snake` (which is derived from the type name). The
-                // conversion helper is named `{enum_snake}_from_i32_rs` and receives `{name}`
-                // (the actual FFI param), not `{enum_snake}` which may differ when param name
-                // != snake_case(type_name) (e.g. param `strategy` of type `RedactionStrategy`).
                 let enum_snake = c_symbol_component(type_name);
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_enum_discriminant_match.jinja",
@@ -155,7 +135,6 @@ pub(super) fn gen_param_conversion_with_enums(
                 ));
             }
             TypeRef::Primitive(prim) => {
-                // Optional numeric primitive: max value of type = None
                 let max_val = match prim {
                     crate::core::ir::PrimitiveType::U8 => "u8::MAX",
                     crate::core::ir::PrimitiveType::U16 => "u16::MAX",
@@ -187,14 +166,11 @@ pub(super) fn gen_param_conversion_with_enums(
                 ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                // Optional Vec/Map: deserialize from JSON string
                 let type_hint = match &param.ty {
                     TypeRef::Vec(_) => {
                         format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
                     }
                     TypeRef::Map(_, val_ty) if param.map_is_ahash => {
-                        // AHashMap target: deserialize directly into AHashMap with the correct
-                        // key type so no post-deserialization conversion is needed.
                         let val_rust = type_ref_to_rust_type(val_ty, core_import);
                         let key_rust = if param.map_key_is_cow {
                             "std::borrow::Cow<'static, str>".to_string()
@@ -220,9 +196,6 @@ pub(super) fn gen_param_conversion_with_enums(
                 ));
             }
             TypeRef::Bytes => {
-                // Optional bytes: (*const u8, {name}_len) — a null pointer maps to None,
-                // otherwise reconstruct a `Vec<u8>` from the (ptr, len) pair. The downstream
-                // call-arg applies `.as_deref()` to yield the core's `Option<&[u8]>`.
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_bytes_conversion.jinja",
                     context! {
@@ -233,7 +206,6 @@ pub(super) fn gen_param_conversion_with_enums(
                 ));
             }
             _ => {
-                // Fallback: treat as nullable JSON string
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_fallback.jinja",
                     context! {
@@ -289,7 +261,6 @@ pub(super) fn gen_param_conversion_with_enums(
                 }
                 _ => {
                     if let Some(newtype_path) = &param.newtype_wrapper {
-                        // Param was resolved from a newtype (e.g. NodeIndex→u32): re-wrap for core call.
                         out.push_str(&crate::backends::ffi::template_env::render("param_primitive_newtype.jinja", context! { rs_name => rs_name.clone(), newtype_path => newtype_path.clone(), name => name.clone() }));
                     } else {
                         out.push_str(&crate::backends::ffi::template_env::render(
@@ -300,15 +271,6 @@ pub(super) fn gen_param_conversion_with_enums(
                 }
             },
             TypeRef::Named(type_name) if enum_names.contains(type_name.as_str()) => {
-                // Enum passed as i32: reconstruct using the private Rust helper.
-                // Use match+explicit return rather than `?` because the outer function may return
-                // *mut T or i32, not Result/Option, so the ? operator is unavailable.
-                //
-                // IMPORTANT: the local variable name is `{rs_name}` (derived from the FFI param
-                // name, e.g. `strategy_rs`), NOT `{enum_snake}_rs` (which would use the type
-                // name, e.g. `redaction_strategy_rs`). The conversion helper is still named
-                // `{enum_snake}_from_i32_rs` but it receives `{name}` (the actual FFI param).
-                // This fixes the mismatch when param name != snake_case(type_name).
                 let enum_snake = c_symbol_component(type_name);
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_enum_discriminant_match.jinja",
@@ -334,11 +296,6 @@ pub(super) fn gen_param_conversion_with_enums(
                 ));
             }
             TypeRef::Bytes => {
-                // Bytes come as (*const u8, len: usize) — the len param is a separate
-                // parameter named {name}_len by convention. A null pointer is allowed
-                // when the corresponding length is zero (empty input is a legitimate
-                // case — e.g. extracting from a 0-byte file). Reject null only when
-                // the caller claims a non-zero length.
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_non_optional_bytes_conversion.jinja",
                     context! {
@@ -349,14 +306,12 @@ pub(super) fn gen_param_conversion_with_enums(
                 ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                // Passed as JSON string
                 let mut_keyword = if param.is_mut { "mut " } else { "" };
                 let type_hint = match &param.ty {
                     TypeRef::Vec(_) => {
                         format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
                     }
                     TypeRef::Map(_, val_ty) if param.map_is_ahash => {
-                        // AHashMap target: deserialize directly.
                         let val_rust = type_ref_to_rust_type(val_ty, core_import);
                         let key_rust = if param.map_key_is_cow {
                             "std::borrow::Cow<'static, str>".to_string()
@@ -382,22 +337,18 @@ pub(super) fn gen_param_conversion_with_enums(
                 ));
             }
             TypeRef::Optional(_) => {
-                // Should not happen for non-optional param, but handle gracefully
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_passthrough.jinja",
                     context! { rs_name => rs_name.clone(), name => name.clone() },
                 ));
             }
             TypeRef::Duration => {
-                // Duration passed as u64 milliseconds
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_duration_conversion.jinja",
                     context! { rs_name => rs_name.clone(), name => name.clone() },
                 ));
             }
-            TypeRef::Unit => {
-                // No parameter to convert
-            }
+            TypeRef::Unit => {}
         }
     }
 

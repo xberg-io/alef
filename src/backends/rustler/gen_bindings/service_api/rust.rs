@@ -27,15 +27,8 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         },
     ));
 
-    // Global registry of pending oneshot senders, keyed by reply_id. The handler
-    // bridge inserts a sender when it sends a `{:trait_call, ...}` message to the
-    // Elixir GenServer; the GenServer (once it has processed the call) invokes
-    // the `complete_trait_call` NIF with the reply_id and the JSON response,
-    // which removes the sender from the map and forwards the response through
-    // the oneshot channel.
     out.push_str(&render("service_api_trait_reply_support.rs.jinja", context! {}));
 
-    // Emit one handler bridge per unique handler contract referenced
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
             .services
@@ -52,13 +45,11 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         gen_handler_bridge(&mut out, contract, &core_import);
     }
 
-    // Emit one NIF per service × entrypoint
     for service in &api.services {
         for ep in &service.entrypoints {
             gen_run_nif(&mut out, service, ep, api, &core_import);
         }
 
-        // Emit registration variant NIFs
         for reg in &service.registrations {
             for variant in &reg.variants {
                 gen_registration_variant_nif(&mut out, service, reg, variant, api, &core_import);
@@ -82,15 +73,11 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let trait_name = &contract.trait_name;
     let bridge_name = format!("Elixir{}Bridge", trait_name.to_upper_camel_case());
     let dispatch_name = &contract.dispatch.name;
-    let _unused = bridge_name.clone(); // silence warnings, used in format!() strings
+    let _unused = bridge_name.clone();
 
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
-    // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
-    // contract's dispatch method receives but the wire bridge does not consume). Their concrete
-    // types cannot be reconstructed from the sanitized surface, so the library supplies them
-    // verbatim via `dispatch_extra_params`. Each is emitted as a `, {decl}` prefix argument.
     let extra_param: String = contract
         .dispatch_extra_params
         .iter()
@@ -98,7 +85,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .collect();
     let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
-    // Build request/response type paths
     let req_path = if req_type == "Value" {
         "serde_json::Value".to_string()
     } else {
@@ -110,11 +96,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         format!("{core_import}::{resp_type}")
     };
 
-    // The future's `Output` is the contract dispatch's real return type when the library
-    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
-    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
-    // fallible computation produces the wire `Result` and the adapter converts it into the
-    // dispatch return type — keeping the generator ignorant of the library's response model.
     let box_err = "Box<dyn std::error::Error + Send + Sync>";
     let wire_output = format!("Result<{resp_path}, {box_err}>");
     let output_type = contract
@@ -165,7 +146,6 @@ fn gen_run_nif(
     let owner_path = &service.rust_path;
     let ep_method = &ep.method;
 
-    // Build the function signature with lifetime-annotated Term
     let mut params = vec!["registrations: rustler::Term<'_>".to_owned()];
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
@@ -185,7 +165,6 @@ fn gen_run_nif(
         },
     ));
 
-    // Generate dispatch for each registration
     for (i, reg) in service.registrations.iter().enumerate() {
         let contract_name = &reg.callback_contract;
         let reg_method = &reg.method;
@@ -193,20 +172,12 @@ fn gen_run_nif(
         let bridge_wrapper = format!("Elixir{contract_name}Bridge");
         let prefix = if i == 0 { "            " } else { "            } else " };
 
-        // Decode metadata if present
         let (has_metadata, trailing, tuple_types, opaque_bindings, args_list) = if !metadata_param_names.is_empty() {
-            // The Elixir registration method always wraps metadata in a tuple `{...}`
-            // (see gen_registration_method), so a single param `path` arrives as the
-            // 1-element Elixir tuple `{path}`. A 1-element Elixir tuple decodes to a Rust
-            // 1-tuple `(T,)`, so emit a trailing comma when there is exactly one param.
             let trailing = if metadata_param_names.len() == 1 { "," } else { "" };
             let tuple_types = reg
                 .metadata_params
                 .iter()
                 .map(|p| {
-                    // Opaque types are passed as ResourceArc<super::T> where super::T is the
-                    // local lib-module wrapper (implements rustler::Resource). The wildcard
-                    // import in service.rs would shadow a bare `T` name, so qualify with `super::`.
                     if let TypeRef::Named(n) = &p.ty {
                         if api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque) {
                             return format!("rustler::ResourceArc<super::{}>", n);
@@ -217,9 +188,6 @@ fn gen_run_nif(
                 .collect::<Vec<_>>()
                 .join(", ");
             let tuple_types_with_trailing = format!("{}{}", tuple_types, trailing);
-            // Decode and bind opaque metadata params to locals for later use.
-            // ResourceArc<super::T> derefs to super::T (the local wrapper); wrapper.inner is
-            // Arc<CoreType>. Call as_ref() on the Arc to get &CoreType, then clone to own it.
             let mut opaque_bindings = String::new();
             for meta_param in reg.metadata_params.iter() {
                 let is_opaque = if let TypeRef::Named(n) = &meta_param.ty {
@@ -288,5 +256,3 @@ fn gen_run_nif(
         },
     ));
 }
-
-// Registration-variant NIF emission lives in registration_nif.rs.

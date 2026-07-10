@@ -25,9 +25,6 @@ impl FfiBridgeGenerator {
     ) -> String {
         let name = &method.name;
 
-        // Short-circuit: methods that return `&[T]` (Vec(T) + returns_ref) are pre-cached
-        // at construction time.  The body simply returns the cached field directly,
-        // bypassing the vtable call entirely.
         if method.returns_ref && matches!(&method.return_type, TypeRef::Vec(_)) {
             return format!("self.{name}_strs\n");
         }
@@ -35,19 +32,7 @@ impl FfiBridgeGenerator {
         let mut out = String::with_capacity(512);
         let has_error = method.error_type.is_some();
 
-        // Helper: emit an error expression appropriate for the calling context.
-        // Inside the async _SendFn closure the return type is Box<dyn Error + Send + Sync>;
-        // outside (sync method body) it is Result<T, TraitErrorType>.
-        //
-        // When inside_closure=false the error constructor wraps a String (e.g.
-        // `SampleCrateError::Other(String)`).  If msg_literal is a bare string literal
-        // (starts with `"`) we append `.to_string()` so the generated code compiles
-        // regardless of whether the error variant accepts `&str` or `String`.
         let make_err = |msg_literal: String| -> String {
-            // Templates often end with a trailing newline; strip it so that
-            // appended suffixes (`.to_string()`, etc.) stay on the same source
-            // line as the literal — keeps the per-line lint in the regression
-            // test (`bug_sync_static_error_literal_coerced_to_string`) honest.
             let msg_literal = msg_literal.trim_end().to_string();
             if inside_closure {
                 format!("return Err(Box::from({msg_literal}));\n")
@@ -61,7 +46,6 @@ impl FfiBridgeGenerator {
             }
         };
 
-        // Extract the vtable fn pointer — return an error / default if it's None.
         out.push_str(&crate::backends::ffi::template_env::render(
             "ffi_vtable_extract.jinja",
             minijinja::context! {
@@ -77,8 +61,6 @@ impl FfiBridgeGenerator {
             );
             out.push_str(&make_err(null_msg));
         } else {
-            // For infallible methods, log the uninitialised slot (the failure
-            // cannot propagate) and return the Rust default value.
             let default_expr = default_for_type(&method.return_type);
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_return_default_4.jinja",
@@ -94,9 +76,6 @@ impl FfiBridgeGenerator {
 ",
         );
 
-        // Marshal each parameter to its C representation.
-        // When p.optional is true, the Rust type is Option<T>; treat it the same as
-        // TypeRef::Optional(T) and generate a nullable-pointer pattern.
         for p in &method.params {
             let effective_optional = p.optional || matches!(&p.ty, TypeRef::Optional(_));
             let inner_ty: &TypeRef = match &p.ty {
@@ -107,7 +86,6 @@ impl FfiBridgeGenerator {
             if effective_optional {
                 match inner_ty {
                     TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                        // Option<&str> → nullable *const c_char via CString storage
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_opt_str_storage_and_ptr.jinja",
                             minijinja::context! {
@@ -142,17 +120,15 @@ impl FfiBridgeGenerator {
                             },
                         ));
                     }
-                    _ => {} // optional primitives: pass directly by name (0 = None sentinel on C side)
+                    _ => {}
                 }
             } else {
                 match inner_ty {
                     TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                        // Path params are &Path / PathBuf — convert to string via to_string_lossy().
-                        // String/Char params are &str / String — use as-is or .as_str().
                         let (val, needs_as_ref) = match inner_ty {
                             TypeRef::Path => {
                                 let expr = format!("{}.to_string_lossy()", p.name);
-                                (expr, true) // Cow<str> needs .as_ref() for CString::new
+                                (expr, true)
                             }
                             _ => {
                                 let expr = if p.is_ref {
@@ -266,12 +242,11 @@ impl FfiBridgeGenerator {
                             },
                         ));
                     }
-                    _ => {} // primitives, bytes, duration: pass directly
+                    _ => {}
                 }
             }
         }
 
-        // Build the argument list for the fn pointer call
         let mut call_args = vec!["self.user_data".to_string()];
         for p in &method.params {
             let effective_optional = p.optional || matches!(&p.ty, TypeRef::Optional(_));
@@ -293,23 +268,17 @@ impl FfiBridgeGenerator {
                     | TypeRef::Named(_)
                     | TypeRef::Vec(_)
                     | TypeRef::Map(_, _) => format!("{}_ptr", p.name),
-                    // Bool is represented as i32 in the C ABI; cast explicitly.
                     TypeRef::Primitive(PrimitiveType::Bool) => format!("{} as i32", p.name),
-                    // Bytes params are &[u8]; the vtable expects *const u8.
                     TypeRef::Bytes => format!("{}.as_ptr()", p.name),
                     _ => p.name.clone(),
                 }
             };
             call_args.push(arg);
-            // Bytes params get a companion `.len()` argument so the callee can
-            // read the full buffer without NUL-truncation. Matches the vtable
-            // signature emitted by vtable.rs.
             if matches!(&p.ty, TypeRef::Bytes) {
                 call_args.push(format!("{}.len()", p.name));
             }
         }
 
-        // Prepare out-params
         let needs_result_out = matches!(
             &method.return_type,
             TypeRef::String
@@ -324,7 +293,6 @@ impl FfiBridgeGenerator {
             out.push_str("let mut _out_result: *mut std::ffi::c_char = std::ptr::null_mut();\n");
             call_args.push("&mut _out_result".to_string());
         }
-        // Always add out_error if method returns complex type or has explicit error, for stack alignment
         let needs_out_error = has_error || needs_result_out;
         if needs_out_error {
             out.push_str(
@@ -338,9 +306,7 @@ impl FfiBridgeGenerator {
 
         out.push_str("// SAFETY: fp is a valid non-null function pointer; all temporaries outlive this call;\n");
         out.push_str("// user_data validity is the caller's responsibility (documented in the vtable API).\n");
-        // For infallible primitive/Duration returns the body would tail with `_rc`,
         // tripping clippy::let_and_return. Skip the binding in that case and emit the
-        // unsafe call inline as the tail expression below.
         let tail_returns_rc_only = !has_error
             && matches!(
                 method.return_type,
@@ -368,7 +334,6 @@ impl FfiBridgeGenerator {
             ));
         }
 
-        // Handle the return
         if has_error {
             let error_return = make_err("msg".to_string());
             out.push_str(&crate::backends::ffi::template_env::render(
@@ -380,7 +345,6 @@ impl FfiBridgeGenerator {
                 },
             ));
 
-            // Decode successful return
             match &method.return_type {
                 TypeRef::Unit => {
                     out.push_str(
@@ -420,7 +384,6 @@ impl FfiBridgeGenerator {
                     out.push_str("    unsafe { free_fn(_out_result) };\n");
                     out.push_str("}\n");
                     if inside_closure {
-                        // Inside the _SendFn closure the return type is Box<dyn Error>
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_serde_from_str_err.jinja",
                             minijinja::context! {
@@ -428,7 +391,6 @@ impl FfiBridgeGenerator {
                             },
                         ));
                     } else {
-                        // Sync method body — error type is the trait's ErrorType
                         let err_constructor = spec.make_error("e.to_string()");
                         out.push_str(&crate::backends::ffi::template_env::render(
                             "ffi_sync_serde_from_str_err.jinja",
@@ -456,7 +418,6 @@ impl FfiBridgeGenerator {
                 }
             }
         } else {
-            // Infallible — decode return value directly
             match &method.return_type {
                 TypeRef::Unit => {}
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
@@ -512,7 +473,6 @@ impl FfiBridgeGenerator {
                     );
                 }
                 TypeRef::Primitive(_) | TypeRef::Duration => {
-                    // tail_returns_rc_only path: emit the unsafe call as the tail expression
                     // (no preceding `let _rc = ...;`) to avoid clippy::let_and_return.
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_unsafe_fp_tail.jinja",
@@ -798,8 +758,6 @@ mod tests {
     fn bug_sync_static_error_literal_coerced_to_string() {
         let generator = make_generator();
         let bridge_cfg = make_bridge_cfg();
-        // A fallible method with a Named (JSON-serialised) param so we exercise the
-        // "nul byte in serialized param" code path as well as the "null vtable fn" path.
         let method = MethodDef {
             name: "submit".to_string(),
             params: vec![ParamDef {
@@ -838,18 +796,14 @@ mod tests {
         let trait_def = make_trait_def("TestTrait", vec![method.clone()]);
         let spec = make_simple_trait_spec(&trait_def, &bridge_cfg);
 
-        // Sync body (inside_closure=false): every static-string error must call .to_string()
         let sync_body = generator.gen_vtable_call_body(&method, &spec, false);
 
-        // The vtable-null path and the nul-byte path must both emit .to_string()
         assert!(
             sync_body.contains("\".to_string()"),
             "sync body must coerce string literals to String via .to_string();\n\
              actual body:\n{sync_body}"
         );
 
-        // Verify the specific error paths all end with .to_string()
-        // (i.e. no string literal is passed to make_error without coercion)
         for line in sync_body.lines() {
             if line.contains("MyError::from(\"") {
                 assert!(

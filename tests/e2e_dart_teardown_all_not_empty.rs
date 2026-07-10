@@ -27,7 +27,7 @@ fn make_fixture(id: &str, description: &str) -> Fixture {
         assertion_recipes: Vec::new(),
         assertions: vec![],
         source: "smoke.json".to_string(),
-        http: None, // Explicitly no HTTP fixtures
+        http: None,
     }
 }
 
@@ -92,19 +92,16 @@ fn teardown_all_always_calls_rust_lib_dispose() {
 
     let rendered = render(fixtures);
 
-    // Must emit tearDownAll block.
     assert!(
         rendered.contains("tearDownAll(() async {"),
         "must emit tearDownAll block. Rendered:\n{rendered}"
     );
 
-    // Must call RustLib.dispose() inside tearDownAll.
     assert!(
         rendered.contains("RustLib.dispose();"),
         "must call RustLib.dispose() in tearDownAll to ensure non-empty body. Rendered:\n{rendered}"
     );
 
-    // Verify the pattern: tearDownAll body should contain dispose before closing.
     let teardown_start = rendered
         .find("tearDownAll(() async {")
         .expect("tearDownAll block found");
@@ -126,15 +123,12 @@ fn teardown_all_has_correct_format() {
 
     let rendered = render(fixtures);
 
-    // The expected pattern (single-line, with body content).
-    // We need to find the tearDownAll and verify it's formatted correctly.
     let lines: Vec<&str> = rendered.lines().collect();
     let teardown_idx = lines
         .iter()
         .position(|line| line.contains("tearDownAll(() async {"))
         .expect("tearDownAll found");
 
-    // The body should contain the guarded RustLib.dispose() call.
     assert!(
         teardown_idx + 2 < lines.len(),
         "tearDownAll must have a body (at least RustLib.dispose)"

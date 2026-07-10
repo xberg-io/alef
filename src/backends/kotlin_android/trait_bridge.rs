@@ -36,7 +36,6 @@ pub fn gen_trait_bridge_files(
 
     let mut files = Vec::new();
 
-    // Emit bridge object
     {
         let has_super_trait = bridge_cfg.super_trait.is_some();
         let register_native_fn = format!("nativeRegister{}", trait_name.to_upper_camel_case());
@@ -153,10 +152,6 @@ pub fn gen_jni_dispatcher_file(
         imports.insert("kotlinx.coroutines.runBlocking".to_string());
     }
 
-    // The interface currently makes every trait method abstract, so a host
-    // provides all of them; lifecycle hooks are interface defaults and always
-    // dispatchable. When interface defaults land for Rust-defaulted methods,
-    // this switches to reflection-based overridden detection.
     let mut implemented: Vec<&str> = own_methods.iter().map(|m| m.name.as_str()).collect();
     if bridge_cfg.super_trait.is_some() {
         implemented.extend(["name", "version", "initialize", "shutdown"]);
@@ -195,7 +190,6 @@ pub fn gen_trait_bridge_object(
 ) -> Option<(String, String)> {
     use crate::core::ir::ApiSurface;
 
-    // Create an empty ApiSurface for backward-compatible test calls
     let api = ApiSurface {
         crate_name: "test_crate".to_string(),
         version: "0.0.0".to_string(),

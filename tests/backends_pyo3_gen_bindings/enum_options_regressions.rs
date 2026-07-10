@@ -1,7 +1,6 @@
 use super::*;
 
 // ==============================================================================
-// Regression tests: UPPER_SNAKE_CASE pyclass enum variants (iter35 wave-1 W2)
 // ==============================================================================
 
 fn make_unit_enum_def(name: &str, variants: &[&str]) -> EnumDef {
@@ -95,8 +94,6 @@ fn test_pyclass_enum_variants_use_upper_snake_case_pyo3_name() {
 #[test]
 fn test_options_py_does_not_emit_screaming_alias_lines() {
     let backend = Pyo3Backend;
-    // Use a has_default type that references the enum so it ends up in `needed_enums` and
-    // is therefore imported from the native module (the code path that previously monkey-patched).
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -144,8 +141,6 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
         .map(|f| f.content.as_str())
         .unwrap_or("");
 
-    // The old pattern was `BatchStatus.VALIDATING = BatchStatus.Validating`
-    // or `setattr(BatchStatus, "VALIDATING", getattr(...))`.  Neither should appear.
     assert!(
         !options_py.contains(".VALIDATING = "),
         "options.py must NOT emit SCREAMING alias assignment, got:\n{}",
@@ -165,9 +160,6 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
 #[test]
 fn test_options_py_escapes_python_keyword_variant_names() {
     let backend = Pyo3Backend;
-    // Create two enums: one referenced by a has_default type (goes to needed_enums, gets
-    // imported) and one unreferenced (emitted as a (str, Enum) class in options.py).
-    // We test the unreferenced one to verify the (str, Enum) emission path.
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -199,8 +191,6 @@ fn test_options_py_escapes_python_keyword_variant_names() {
         functions: vec![],
         enums: vec![
             make_unit_enum_def("HeadingStyle", &["Atx", "Setext"]),
-            // This enum is not referenced by any has_default type, so it will be emitted
-            // as a (str, Enum) class in options.py, allowing us to test the escaping.
             make_unit_enum_def("NodeType", &["Del", "Ins", "Title"]),
         ],
         errors: vec![],
@@ -320,16 +310,13 @@ fn test_api_py_void_function_no_redundant_return() {
         .find(|f| f.path.ends_with("api.py"))
         .expect("api.py not found");
 
-    // The function body should call _rust.init() without a return statement
     assert!(
         api_py.content.contains("def init() -> None:"),
         "api.py should have void-returning init function signature, got:\n{}",
         api_py.content
     );
 
-    // Extract the function body to verify no `return` keyword appears
     if let Some(start) = api_py.content.find("def init() -> None:") {
-        // Look for the next function definition to find the end of this function
         let rest = &api_py.content[start..];
         let next_fn_start = rest[19..].find("def ").map(|p| p + 19);
         let fn_body = if let Some(end) = next_fn_start {
@@ -337,9 +324,7 @@ fn test_api_py_void_function_no_redundant_return() {
         } else {
             rest
         };
-        // The body should have the docstring and the call
         assert!(fn_body.contains("_rust.init()"), "Function should call _rust.init()");
-        // But it should NOT have "return _rust.init()"
         let without_docstring = fn_body.split("\"\"\"").last().unwrap_or(fn_body);
         assert!(
             !without_docstring.contains("return _rust.init()"),
@@ -462,7 +447,6 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         .find(|f| f.path.ends_with("api.py"))
         .expect("api.py not found");
 
-    // Find the three function definitions and verify spacing
     let first_pos = api_py
         .content
         .find("def first_function")
@@ -476,10 +460,7 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         .find("def third_function")
         .expect("third_function not found");
 
-    // Between first and second function
     let between_1_2 = &api_py.content[first_pos..second_pos];
-    // Count the blank lines between the functions
-    // Should be: closing of first function + empty line + empty line + def of second
     let blank_count_1_2 = between_1_2.matches("\n\n").count();
     assert!(
         blank_count_1_2 >= 1,
@@ -487,7 +468,6 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         between_1_2
     );
 
-    // Between second and third function
     let between_2_3 = &api_py.content[second_pos..third_pos];
     let blank_count_2_3 = between_2_3.matches("\n\n").count();
     assert!(
@@ -496,9 +476,6 @@ fn test_api_py_pep8_blank_lines_between_functions() {
         between_2_3
     );
 
-    // More stringent check: no docstrings immediately followed by def (with only 1 newline).
-    // PEP 8 requires 2 blank lines between top-level definitions, meaning 3 newlines total.
-    // We check for the docstring closing followed by only 1 or 2 newlines then 'def'.
     let has_improper_spacing_single = api_py.content.contains("\"\"\"\ndef ");
     let has_improper_spacing_one_blank = api_py.content.contains("\"\"\"\n\ndef ");
     assert!(
@@ -518,9 +495,6 @@ fn test_api_py_pep8_blank_lines_between_functions() {
 fn test_native_import_no_stray_blank_line_after_open_paren() {
     let backend = Pyo3Backend;
 
-    // Create enough opaque types (no has_default) so that the import line exceeds
-    // 88 chars and the multi-line branch is taken.  Names are intentionally long
-    // to force multi-line without needing dozens of types.
     let make_opaque = |name: &str| TypeDef {
         name: name.to_string(),
         rust_path: format!("test_lib::{name}"),
@@ -580,8 +554,6 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
         .find(|f| f.path.ends_with("__init__.py"))
         .expect("__init__.py not generated");
 
-    // The import must start a multi-line block and must NOT have a blank line
-    // immediately after the open paren — `(\n\n` is the bug pattern.
     assert!(
         !init_py.content.contains("import (\n\n"),
         "__init__.py must not have a blank line after the open paren in a multi-line import; \
@@ -589,8 +561,6 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
         init_py.content
     );
 
-    // Verify the import block is actually multi-line (the test is only useful
-    // if we hit the `import_line.len() > 88` branch).
     assert!(
         init_py.content.contains("from ._test_lib import (\n"),
         "__init__.py should emit a multi-line native import for this many types;\ncontent:\n{}",
@@ -753,7 +723,6 @@ fn test_internally_tagged_unit_variant_wraps_bare_string() {
         .find(|f| f.path.ends_with("lib.rs"))
         .expect("lib.rs should be generated");
 
-    // #132: a bare string is wrapped as {"<tag>": s} so serde resolves the (unit) variant name.
     assert!(
         lib_rs.content.contains(r#"serde_json::json!({ "type": s })"#),
         "internally-tagged enum must wrap a bare string as {{\"type\": s}};\ncontent:\n{}",

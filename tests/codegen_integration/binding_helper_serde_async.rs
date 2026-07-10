@@ -204,7 +204,7 @@ fn test_gen_async_body_tokio_block_on_unit_return_opaque() {
 
 #[test]
 fn test_gen_async_body_none_pattern() {
-    let cfg = default_cfg(); // AsyncPattern::None by default
+    let cfg = default_cfg();
 
     let result = binding_helpers::gen_async_body("process()", &cfg, false, "result", false, "", false, None);
 
@@ -216,7 +216,6 @@ fn test_gen_async_body_none_pattern() {
 
 #[test]
 fn test_gen_async_body_napi_no_error_no_unit() {
-    // NAPI pattern without error type returns value directly without Ok() wrapper
     let mut cfg = default_cfg();
     cfg.async_pattern = AsyncPattern::NapiNativeAsync;
 
@@ -229,7 +228,6 @@ fn test_gen_async_body_napi_no_error_no_unit() {
 
 #[test]
 fn test_gen_async_body_pyo3_with_type_annotation() {
-    // When return_wrap contains .into() and return_type is provided, a type annotation is added
     let mut cfg = default_cfg();
     cfg.async_pattern = AsyncPattern::Pyo3FutureIntoPy;
 

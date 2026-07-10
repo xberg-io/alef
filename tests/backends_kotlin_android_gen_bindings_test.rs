@@ -283,7 +283,6 @@ fn streaming_adapter_emits_flow_wrapper_in_kotlin_android() {
     let config = make_streaming_config();
     let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
 
-    // No Java files must be emitted — the AAR is pure-Kotlin JNI.
     let java_files: Vec<_> = files
         .iter()
         .filter(|f| f.path.extension().and_then(|e| e.to_str()) == Some("java"))
@@ -293,7 +292,6 @@ fn streaming_adapter_emits_flow_wrapper_in_kotlin_android() {
         "kotlin-android must not emit Java files; got: {java_files:?}"
     );
 
-    // DefaultClient.kt must contain the callbackFlow wrapper.
     let client_kt = files
         .iter()
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DefaultClient.kt"))
@@ -329,7 +327,6 @@ fn streaming_adapter_emits_flow_wrapper_in_kotlin_android() {
         "expected awaitClose for stream handle cleanup: {kt_content}"
     );
 
-    // DemoBridge.kt must contain the JNI external fun declarations (not Java).
     let bridge_kt = files
         .iter()
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DemoBridge.kt"))
@@ -349,13 +346,8 @@ fn streaming_adapter_emits_flow_wrapper_in_kotlin_android() {
         "expected nativeDefaultClientChatStreamFree external fun in DemoBridge.kt: {bridge_content}"
     );
 
-    // Snapshot the DefaultClient.kt so regressions are caught.
     insta::assert_snapshot!("streaming_flow_default_client_kt", kt_content);
 }
-
-// ---------------------------------------------------------------------------
-// Bug 1 regression: wrapper facade `createClient` must return `DefaultClient`
-// ---------------------------------------------------------------------------
 
 fn make_opaque_factory_config() -> ResolvedCrateConfig {
     resolved_one(
@@ -383,8 +375,6 @@ group_id = "dev.sample_crate"
 }
 
 fn make_opaque_factory_api() -> ApiSurface {
-    // A top-level `create_client(api_key: String) -> DefaultClient` function where
-    // DefaultClient is an opaque type with at least one instance method.
     let chat_method = MethodDef {
         name: "chat".into(),
         params: vec![],
@@ -499,7 +489,6 @@ fn module_kt_create_client_returns_default_client_not_string() {
 
     let content = &module_kt.content;
 
-    // Must return DefaultClient, not String.
     assert!(
         content.contains("): DefaultClient ="),
         "createClient must return DefaultClient, got:\n{content}"
@@ -508,17 +497,11 @@ fn module_kt_create_client_returns_default_client_not_string() {
         !content.contains("): String =") || !content.contains("createClient"),
         "createClient must NOT return String, got:\n{content}"
     );
-    // Must construct DefaultClient from the bridge call.
     assert!(
         content.contains("DefaultClient(DemoBridge.nativeCreateClient("),
         "must wrap bridge call in DefaultClient(...) constructor, got:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Bug 2 regression: handle-only opaque type (sample_crawler shape) — top-level
-// fns taking and returning an opaque handle that has NO instance methods.
-// ---------------------------------------------------------------------------
 
 /// Build an API with the sample_crawler shape:
 /// - `CrawlEngineHandle` is an opaque type with NO instance methods.
@@ -530,7 +513,7 @@ fn make_handle_only_api() -> ApiSurface {
         rust_path: "demo::CrawlEngineHandle".into(),
         original_rust_path: String::new(),
         fields: vec![],
-        methods: vec![], // No instance methods — handle-only shape.
+        methods: vec![],
         is_opaque: true,
         is_clone: false,
         is_copy: false,
@@ -650,7 +633,6 @@ fn handle_only_opaque_returns_wrapper_class_and_accepts_wrapper_params() {
     let config = make_opaque_factory_config();
     let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
 
-    // The facade Demo.kt — must use the wrapper class everywhere.
     let module_kt = files
         .iter()
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
@@ -678,8 +660,6 @@ fn handle_only_opaque_returns_wrapper_class_and_accepts_wrapper_params() {
         "engine param must NOT be String, got:\n{module_content}"
     );
 
-    // The wrapper class file CrawlEngineHandle.kt — must be AutoCloseable
-    // and call nativeFreeCrawlEngineHandle from close().
     let handle_kt = files
         .iter()
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("CrawlEngineHandle.kt"))
@@ -697,15 +677,7 @@ fn handle_only_opaque_returns_wrapper_class_and_accepts_wrapper_params() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Bug 5 regression: optional params must get Kotlin default values so that
-// e2e callers that only pass `apiKey` and `baseUrl` still compile.
-// ---------------------------------------------------------------------------
-
 fn make_optional_params_api() -> ApiSurface {
-    // A top-level `create_client` with three optional params (the sample-app shape):
-    //   create_client(api_key: String, base_url: String, timeout_secs: Option<u64>,
-    //                 max_retries: Option<u32>, model_hint: Option<String>) -> DefaultClient
     let chat_method = MethodDef {
         name: "chat".into(),
         params: vec![],
@@ -790,7 +762,6 @@ fn make_optional_params_api() -> ApiSurface {
                 map_is_btree: false,
                 core_wrapper: alef::core::ir::CoreWrapper::None,
             },
-            // timeout_secs: Option<u64> → mapped as Long in JNI, optional=true
             ParamDef {
                 name: "timeout_secs".into(),
                 ty: TypeRef::Primitive(PrimitiveType::U64),
@@ -808,7 +779,6 @@ fn make_optional_params_api() -> ApiSurface {
                 map_is_btree: false,
                 core_wrapper: alef::core::ir::CoreWrapper::None,
             },
-            // max_retries: Option<u32> → mapped as Int in JNI, optional=true
             ParamDef {
                 name: "max_retries".into(),
                 ty: TypeRef::Primitive(PrimitiveType::U32),
@@ -826,7 +796,6 @@ fn make_optional_params_api() -> ApiSurface {
                 map_is_btree: false,
                 core_wrapper: alef::core::ir::CoreWrapper::None,
             },
-            // model_hint: Option<String> → mapped as String in JNI, optional=true
             ParamDef {
                 name: "model_hint".into(),
                 ty: TypeRef::String,
@@ -890,7 +859,6 @@ fn optional_params_get_kotlin_default_values_in_facade() {
 
     let content = &module_kt.content;
 
-    // Required params must NOT have a default value.
     assert!(
         content.contains("apiKey: String,"),
         "apiKey must be required (no default), got:\n{content}"
@@ -900,39 +868,23 @@ fn optional_params_get_kotlin_default_values_in_facade() {
         "baseUrl must be required (no default), got:\n{content}"
     );
 
-    // Optional Long param must use nullable type with null default.
     assert!(
         content.contains("timeoutSecs: Long? = null"),
         "timeoutSecs must be nullable with null default, got:\n{content}"
     );
 
-    // Optional Int param must use nullable type with null default.
     assert!(
         content.contains("maxRetries: Int? = null"),
         "maxRetries must be nullable with null default, got:\n{content}"
     );
 
-    // Optional String param must use nullable type with null default.
     assert!(
         content.contains("modelHint: String? = null"),
         "modelHint must be nullable with null default, got:\n{content}"
     );
 }
 
-// ---------------------------------------------------------------------------
-// Bug 6 regression: nullable primitive bridge args must null-coalesce to JNI
-// zero values so the non-nullable `external fun` signature is satisfied.
-// ---------------------------------------------------------------------------
-
 fn make_nullable_primitives_api() -> ApiSurface {
-    // A top-level free function with every nullable primitive scalar type:
-    //   fn nullable_all(
-    //       s: Option<String>,
-    //       l: Option<i64>,
-    //       i: Option<i32>,
-    //       d: Option<f64>,
-    //       b: Option<bool>,
-    //   ) -> String
     use alef::core::ir::PrimitiveType;
     ApiSurface {
         crate_name: "demo".into(),
@@ -1071,7 +1023,6 @@ fn nullable_primitive_bridge_args_null_coalesce_to_jni_defaults() {
 
     let content = &module_kt.content;
 
-    // The bridge call must null-coalesce each nullable param to its JNI zero value.
     assert!(
         content.contains("s ?: \"\""),
         "nullable String param must coalesce to \\\"\\\": got:\n{content}"
@@ -1093,7 +1044,6 @@ fn nullable_primitive_bridge_args_null_coalesce_to_jni_defaults() {
         "nullable Boolean param must coalesce to false, got:\n{content}"
     );
 
-    // The facade signature must still use nullable types with null defaults.
     assert!(
         content.contains("s: String? = null"),
         "s must be String? = null in facade signature, got:\n{content}"
@@ -1115,10 +1065,6 @@ fn nullable_primitive_bridge_args_null_coalesce_to_jni_defaults() {
         "b must be Boolean? = null in facade signature, got:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Feature: payload-derived sealed variant param names
-// ---------------------------------------------------------------------------
 
 fn make_sealed_variants_config() -> ResolvedCrateConfig {
     resolved_one(
@@ -1187,10 +1133,6 @@ fn make_sealed_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> Enu
 }
 
 fn make_sealed_variants_api() -> ApiSurface {
-    // Create an enum with tuple variants having different payload types:
-    // - Pdf(PdfMetadata): named type, derives "metadata"
-    // - Custom(String): primitive type, derives "value"
-    // - Multi(String, Int): multiple primitives, derives "value0", "value1"
     let format_metadata_enum = EnumDef {
         name: "FormatMetadata".into(),
         rust_path: "demo::FormatMetadata".into(),
@@ -1268,43 +1210,31 @@ fn sealed_variant_tuple_params_use_payload_derived_names() {
 
     let content = &format_metadata_kt.content;
 
-    // Pdf(PdfMetadata) should derive "metadata" by stripping "Pdf" prefix.
-    // Per the ktfmt 100-char heuristic introduced in v0.16.22, short
-    // declarations are emitted single-line; the assertions below check the
-    // single-line shape (the long multi-line form is exercised elsewhere).
     assert!(
         content.contains("data class Pdf(val metadata: PdfMetadata)"),
         "Pdf variant should use payload-derived name 'metadata', got:\n{content}"
     );
 
-    // Custom(String) should use generic "value" for primitive
     assert!(
         content.contains("data class Custom(val value: String)"),
         "Custom variant should use generic name 'value' for primitive payload, got:\n{content}"
     );
 
-    // Multi(String, Int) should use "value0" and "value1"
     assert!(
         content.contains("data class Multi(val value0: String, val value1: Int)"),
         "Multi variant should use generic names 'value0', 'value1', got:\n{content}"
     );
 
-    // Struct { reason: String } should use the original field name
     assert!(
         content.contains("data class Struct(val reason: String)"),
         "Struct variant should preserve the field name 'reason', got:\n{content}"
     );
 
-    // Should NOT use placeholder "field0" anywhere for tuple variants
     assert!(
         !content.contains("field0"),
         "should not use placeholder 'field0', got:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Track 2.1 — Error message template interpolation
-// ---------------------------------------------------------------------------
 
 fn make_tuple_error_api() -> ApiSurface {
     use alef::core::ir::{ErrorDef, ErrorVariant, FieldDef};
@@ -1319,7 +1249,6 @@ fn make_tuple_error_api() -> ApiSurface {
             rust_path: "demo::ConversionError".to_string(),
             original_rust_path: String::new(),
             variants: vec![
-                // Single-field tuple variant with `{0}` in the template.
                 ErrorVariant {
                     name: "ParseError".to_string(),
                     message_template: Some("HTML parsing error: {0}".to_string()),
@@ -1349,7 +1278,6 @@ fn make_tuple_error_api() -> ApiSurface {
                     is_tuple: false,
                     doc: String::new(),
                 },
-                // Multi-field variant with `{0}` and `{1}`.
                 ErrorVariant {
                     name: "Located".to_string(),
                     message_template: Some("Error at {0}:{1}".to_string()),
@@ -1401,7 +1329,6 @@ fn make_tuple_error_api() -> ApiSurface {
                     is_tuple: false,
                     doc: String::new(),
                 },
-                // Unit variant (no fields) — template must not emit `{0}`.
                 ErrorVariant {
                     name: "Unknown".to_string(),
                     message_template: Some("unknown error".to_string()),
@@ -1449,28 +1376,21 @@ fn error_tuple_variant_message_template_interpolates_field_refs() {
 
     let content = &error_kt.content;
 
-    // Single-field variant: `{0}` → `$field0` (no braces — next char `"` is not
-    // an identifier continuation, so the brace form would be redundant per
-    // ktlint's `standard:string-template` rule).
     assert!(
         content.contains(r#"ConversionError("HTML parsing error: $field0")"#),
         "ParseError must interpolate field0, got:\n{content}"
     );
 
-    // Multi-field variant: `{0}:{1}` → `$field0:$field1`. The `:` and `"`
-    // are not identifier-continuation chars so neither slot needs braces.
     assert!(
         content.contains(r#"ConversionError("Error at $field0:$field1")"#),
         "Located must interpolate field0 and field1, got:\n{content}"
     );
 
-    // Unit variant: no fields, no interpolation — literal message only.
     assert!(
         content.contains(r#"object Unknown : ConversionError("unknown error")"#),
         "Unknown unit variant must emit literal message, got:\n{content}"
     );
 
-    // Must NOT contain any literal `{0}` or `{1}` placeholder tokens.
     assert!(
         !content.contains("{0}"),
         "content must not contain literal {{0}} token, got:\n{content}"
@@ -1481,14 +1401,7 @@ fn error_tuple_variant_message_template_interpolates_field_refs() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Track 2.2 — High-level convert() wrapper with Jackson deserialization
-// ---------------------------------------------------------------------------
-
 fn make_convert_api() -> ApiSurface {
-    // Simulate a parser crate's convert(html: String, options: Option<ParseOptions>) ->
-    // ParseOutput shape where ParseOptions and ParseOutput are
-    // non-opaque named types (DTOs).
     ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1627,31 +1540,26 @@ fn typed_dto_return_emits_jackson_wrapper_and_suspend_async() {
 
     let content = &module_kt.content;
 
-    // Options param must be typed, not raw String.
     assert!(
         content.contains("options: ParseOptions? = null"),
         "options param must be typed ParseOptions? = null, got:\n{content}"
     );
 
-    // Return type must be the named DTO, not String.
     assert!(
         content.contains("): ParseOutput {"),
         "convert must return ParseOutput, got:\n{content}"
     );
 
-    // Jackson deserialization must be present.
     assert!(
         content.contains("mapper.readValue(resultJson, ParseOutput::class.java)"),
         "must deserialize result via Jackson, got:\n{content}"
     );
 
-    // Options must be serialized when non-null.
     assert!(
         content.contains("mapper.writeValueAsString"),
         "must serialize options via Jackson, got:\n{content}"
     );
 
-    // Suspend async companion must be emitted.
     assert!(
         content.contains("suspend fun convertAsync("),
         "must emit suspend fun convertAsync, got:\n{content}"
@@ -1661,27 +1569,18 @@ fn typed_dto_return_emits_jackson_wrapper_and_suspend_async() {
         "convertAsync must use withContext(Dispatchers.IO), got:\n{content}"
     );
 
-    // Jackson import must be present.
     assert!(
         content.contains("import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper"),
         "must import jacksonObjectMapper, got:\n{content}"
     );
 
-    // Must NOT use raw String for options in bridge call.
     assert!(
         !content.contains("options: String"),
         "options param must not be raw String, got:\n{content}"
     );
 }
 
-// ---------------------------------------------------------------------------
-// Defect T1.6 — Batch functions must return typed List<T> not raw String
-// ---------------------------------------------------------------------------
-
 fn make_batch_function_api() -> ApiSurface {
-    // Simulate sample_crate's batch_extract_files and batch_extract_bytes:
-    //   batch_extract_files(items: Vec<BatchFileItem>) -> Result<Vec<ParseResult>, _>
-    //   batch_extract_bytes(items: Vec<BatchBytesItem>) -> Result<Vec<ParseResult>, _>
     ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1800,25 +1699,21 @@ fn batch_function_returns_typed_list_with_jackson_deserialization() {
 
     let content = &module_kt.content;
 
-    // Items param must be typed List<DemoItem>, not raw String.
     assert!(
         content.contains("items: List<DemoItem>"),
         "items param must be typed List<DemoItem>, got:\n{content}"
     );
 
-    // Return type must be List<DemoResult>, not raw String.
     assert!(
         content.contains("): List<DemoResult> {"),
         "batchDemo must return List<DemoResult>, NOT String, got:\n{content}"
     );
 
-    // Must NOT return raw String.
     assert!(
         !content.contains("fun batchDemo(items: List<DemoItem>): String"),
         "batchDemo must not return String, got:\n{content}"
     );
 
-    // Jackson deserialization with TypeReference must be present.
     assert!(
         content.contains("mapper.readValue"),
         "must deserialize result via Jackson mapper.readValue, got:\n{content}"
@@ -1828,13 +1723,11 @@ fn batch_function_returns_typed_list_with_jackson_deserialization() {
         "must use TypeReference<List<DemoResult>> for deserialization, got:\n{content}"
     );
 
-    // Items must be serialized to JSON when passed to bridge.
     assert!(
         content.contains("mapper.writeValueAsString(items)"),
         "must serialize items via Jackson, got:\n{content}"
     );
 
-    // Suspend async companion must be emitted.
     assert!(
         content.contains("suspend fun batchDemoAsync("),
         "must emit suspend fun batchDemoAsync, got:\n{content}"
@@ -1844,7 +1737,6 @@ fn batch_function_returns_typed_list_with_jackson_deserialization() {
         "batchDemoAsync must use withContext(Dispatchers.IO), got:\n{content}"
     );
 
-    // Jackson and coroutine imports must be present.
     assert!(
         content.contains("import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper"),
         "must import jacksonObjectMapper, got:\n{content}"
@@ -1855,19 +1747,12 @@ fn batch_function_returns_typed_list_with_jackson_deserialization() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// KDoc emission regression: every declaration in the Kotlin source the
-// backend writes itself (module-facade fns and handle-only wrapper classes)
-// must carry KDoc derived from the IR's `doc` field.
-// ---------------------------------------------------------------------------
-
 /// Helper: build a handle-only API with a documented opaque type and a
 /// documented free function so KDoc emission can be asserted on both
 /// emitted Kotlin files.
 fn make_documented_handle_only_api() -> ApiSurface {
     let mut api = make_handle_only_api();
     api.types[0].doc = "Opaque crawl engine handle.".to_string();
-    // `create_engine` is the first function; tag it with a rustdoc summary.
     api.functions[0].doc = "Allocate a fresh crawl engine handle.".to_string();
     api
 }
@@ -1907,14 +1792,6 @@ fn handle_only_wrapper_emits_kdoc_from_type_doc() {
         "CrawlEngineHandle wrapper must carry a KDoc block derived from the IR type doc, got:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// iter-9 Stream B: generic-container return routing through Jackson
-// `TypeReference<T>` instead of an invalid `Class<T>::class.java` literal.
-// Covers `Vec<Primitive>`, `Vec<String>`, `HashMap<K, V>`, `Option<Vec<_>>`,
-// and the regression boundary for scalar named DTO returns (still use
-// `::class.java`).
-// ---------------------------------------------------------------------------
 
 fn make_generic_container_api(return_ty: TypeRef, fn_name: &str) -> ApiSurface {
     ApiSurface {
@@ -2024,8 +1901,6 @@ fn optional_vec_string_return_uses_type_reference_with_nullable_list() {
 
 #[test]
 fn vec_of_named_dto_return_still_uses_type_reference_list_dto() {
-    // Regression boundary: the legacy Vec<NamedDto> path must continue to
-    // emit a typed TypeReference<List<DemoResult>>.
     let api = make_batch_function_api();
     let config = make_opaque_factory_config();
     let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
@@ -2043,9 +1918,6 @@ fn vec_of_named_dto_return_still_uses_type_reference_list_dto() {
 
 #[test]
 fn scalar_named_dto_return_still_uses_class_java_literal() {
-    // Regression boundary: scalar Named DTO returns (`ParseOutput`)
-    // must keep the `ParseOutput::class.java` deserialization path —
-    // generic-container routing is reserved for Vec/Map shapes.
     let api = make_convert_api();
     let config = make_opaque_factory_config();
     let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
@@ -2060,11 +1932,6 @@ fn scalar_named_dto_return_still_uses_class_java_literal() {
         "scalar DTO return must use ParseOutput::class.java, got:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// exclude_types: types listed in [crates.kotlin_android].exclude_types must
-// not appear as emitted .kt data-class / enum / error files.
-// ---------------------------------------------------------------------------
 
 fn make_exclude_types_config(excluded: &[&str]) -> ResolvedCrateConfig {
     let exclude_list = excluded
@@ -2295,10 +2162,6 @@ fn exclude_types_suppresses_listed_types_enums_and_errors() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Trait-bridge emission
-// ---------------------------------------------------------------------------
-
 fn make_trait_api() -> ApiSurface {
     use alef::core::ir::{MethodDef, TypeDef};
     let trait_def = TypeDef {
@@ -2445,12 +2308,10 @@ fn trait_bridge_emits_native_funs_and_interface_file() {
         iface_body.contains("interface ITextBackend"),
         "I<Trait> interface declaration missing: {iface_body}"
     );
-    // Super-trait `Plugin` surfaces the canonical lifecycle methods.
     assert!(
         iface_body.contains("fun name(): String"),
         "name() lifecycle method missing: {iface_body}"
     );
-    // Async IR methods become Kotlin `suspend` functions.
     assert!(
         iface_body.contains("suspend fun processImage(image: ByteArray): String"),
         "process_image suspend signature missing: {iface_body}"
@@ -2509,17 +2370,8 @@ exclude_languages = ["kotlin_android"]
     );
 }
 
-// ---------------------------------------------------------------------------
-// Regression: `binding_excluded` types and enums must not produce .kt files.
-//
 // The IR field `binding_excluded` is set by upstream `#[cfg_attr(alef, alef(skip))]`
 // (or `#[doc(hidden)]`) annotations on the Rust source. The kotlin-android emitter
-// must honour the flag for both DTOs and enums, matching the behaviour of every
-// other backend (PHP, WASM, NAPI, etc.). Without this filter, the sample_crate AAR
-// ships ~28 stale wrapper files (`LegacyPlainTextConfig.kt`, `Table2.kt`,
-// `LegacyPipelineConfig.kt`, ...) corresponding to types the Rust source has marked
-// as binding-excluded.
-// ---------------------------------------------------------------------------
 
 fn make_minimal_config() -> ResolvedCrateConfig {
     resolved_one(
@@ -2740,13 +2592,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// AGP Parser Cascade Fix: Long interface method signatures
-// ---------------------------------------------------------------------------
-
 fn make_long_signature_api() -> ApiSurface {
-    // Create a trait with methods that have long signatures (>=115 chars) to
-    // trigger the AGP 8.13.0 + Kotlin 2.3.21 parser cascade on single-line form.
     let extract_method = MethodDef {
         name: "extract_file".into(),
         params: vec![
@@ -2959,12 +2805,10 @@ fn long_signature_short_method_stays_single_line() {
 
     let content = &interface_kt.content;
 
-    // Short method should be single-line
     assert!(
         content.contains("fun extract(data: String): String"),
         "short method must stay single-line, got:\n{content}"
     );
-    // Should NOT wrap into multi-line
     assert!(
         !content.contains("fun extract(\n"),
         "short method must not wrap, got:\n{content}"
@@ -2985,8 +2829,6 @@ fn long_signature_trait_method_substitutes_hidden_types_before_wrapping() {
 
     let content = &interface_kt.content;
 
-    // Named types that are not emitted as visible bindings are substituted with
-    // String before the signature-length decision, keeping this fixture short.
     assert!(
         content.contains("suspend fun extractFile(path: String, mimeType: String, config: String): String"),
         "trait method must use substituted visible types in single-line form, got:\n{content}"
@@ -3011,7 +2853,6 @@ fn long_signature_zero_param_method_always_single_line() {
 
     let content = &interface_kt.content;
 
-    // Zero-param method should always be single-line
     assert!(
         content.contains("fun getVersion(): String"),
         "zero-param method must stay single-line, got:\n{content}"
@@ -3021,10 +2862,6 @@ fn long_signature_zero_param_method_always_single_line() {
         "zero-param method must not wrap, got:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Unit test for format_method_signature helper function
-// ---------------------------------------------------------------------------
 
 use alef::backends::kotlin_android::gen_bindings::format_method_signature;
 
@@ -3049,7 +2886,6 @@ fn format_method_signature_long_wraps_with_trailing_commas() {
         "path: java.nio.file.Path, mimeType: String, config: ExtractionConfig",
         "ParseResult",
     );
-    // Should be multi-line with trailing commas
     assert!(
         sig.contains("suspend fun extractFile(\n"),
         "long suspend signature should wrap, got:\n{sig}"
@@ -3168,14 +3004,12 @@ fn optional_bytes_param_declared_as_bytearray() {
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
         .expect("Demo.kt must be emitted");
 
-    // Check that the optional bytes parameter is declared as ByteArray? not String?
     assert!(
         module_kt.content.contains("documentBytes: ByteArray? = null"),
         "Expected 'documentBytes: ByteArray? = null' in generated Demo.kt, got:\n{}",
         module_kt.content
     );
 
-    // Check that the bridge call correctly base64-encodes it
     assert!(
         module_kt
             .content

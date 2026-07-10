@@ -17,7 +17,6 @@ fn zig_error_variant_component(name: &str) -> String {
 /// no prefix-match dispatch is possible for that variant.
 fn message_template_prefix(template: &str) -> String {
     let cut = template.find('{').unwrap_or(template.len());
-    // thiserror supports `{{` as a literal `{`. Stop at the first single brace.
     let mut idx = 0usize;
     let bytes = template.as_bytes();
     while idx < cut {
@@ -72,9 +71,6 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
             },
         ));
     }
-    // OutOfMemory is always included so allocator failures can be propagated
-    // without a `||error{OutOfMemory}` concat on every return type.
-    // Only emit if not already present as a user-defined variant.
     if !error
         .variants
         .iter()
@@ -204,9 +200,6 @@ mod tests {
             variants: vec![
                 variant("LanguageNotFound", Some("Language '{0}' not found")),
                 variant("ParseFailed", Some("Parse failed: parsing returned no tree")),
-                // Variants without a template — and templates that start with a
-                // placeholder — must be skipped from the dispatch table because
-                // they have no usable literal prefix.
                 variant("NoTemplate", None),
                 variant("PlaceholderFirst", Some("{0}: oops")),
             ],
@@ -234,8 +227,6 @@ mod tests {
             ),
             "missing ParseFailed dispatch in:\n{out}"
         );
-        // Variants without a usable literal prefix must NOT appear in the
-        // dispatch table.
         assert!(
             !out.contains("error.NoTemplate"),
             "NoTemplate (no template) should be skipped:\n{out}"
@@ -244,8 +235,6 @@ mod tests {
             !out.contains("error.PlaceholderFirst"),
             "PlaceholderFirst (template starts with placeholder) should be skipped:\n{out}"
         );
-        // Always falls back through `_first_error` so the function returns a
-        // typed value on miss.
         assert!(
             out.contains("return _first_error(Error);"),
             "missing fallback to _first_error:\n{out}"
@@ -269,10 +258,7 @@ mod tests {
         let mut out = String::new();
         emit_error_set(&error, &mut out);
 
-        // Error set itself is emitted...
         assert!(out.contains("};\n"), "expected closing brace of error set:\n{out}");
-        // ...and the dispatcher is emitted alongside it so callers do not need
-        // to remember to invoke a second emit pass.
         assert!(
             out.contains("inline fn _from_ffi_msg_MyError(msg_opt: ?[]const u8) MyError {"),
             "expected matcher emission after error set:\n{out}"

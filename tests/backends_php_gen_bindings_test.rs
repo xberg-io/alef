@@ -106,10 +106,6 @@ exclude_types = ["HiddenConfig"]
     cfg.resolve().expect("test config must resolve").remove(0)
 }
 
-// ---------------------------------------------------------------------------
-// PHP trait bridge helpers
-// ---------------------------------------------------------------------------
-
 fn make_trait_def_php(name: &str, methods: Vec<MethodDef>) -> TypeDef {
     TypeDef {
         name: name.to_string(),
@@ -321,7 +317,6 @@ fn make_visitor_bridge_cfg_php(trait_name: &str, type_alias: &str) -> alef::core
     }
 }
 
-// ---------------------------------------------------------------------------
 fn make_field_with_doc(name: &str, ty: TypeRef, optional: bool, doc: &str) -> FieldDef {
     FieldDef {
         name: name.to_string(),

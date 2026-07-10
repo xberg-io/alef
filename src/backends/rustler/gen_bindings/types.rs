@@ -33,12 +33,8 @@ pub(super) fn gen_struct(
 ) -> String {
     let mut out = String::with_capacity(512);
     if typ.has_default {
-        // Config types use NifMap so partial maps can be passed —
-        // unspecified keys use Rust Default values instead of Elixir zero values.
-        // Binding types always derive Default, Serialize, and Deserialize.
         out.push_str("#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, rustler::NifMap)]\n");
     } else {
-        // Binding types always derive Serialize and Deserialize for FFI/type conversion.
         out.push_str("#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, rustler::NifStruct)]\n");
         out.push_str(&template_env::render(
             "rust_module_attr.jinja",
@@ -56,16 +52,9 @@ pub(super) fn gen_struct(
     ));
 
     for field in binding_fields(&typ.fields) {
-        // Skip fields excluded by the caller (e.g. options_field bridge fields).
         if exclude_fields.contains(&field.name) {
             continue;
         }
-        // When field.ty is already Optional(T) and field.optional is also true, the type is
-        // a double-optional (Option<Option<T>>) in core — map_type already produces Option<T>,
-        // so wrapping again would give Option<Option<T>> which is correct for the struct but
-        // only when field.optional is acting as the outer wrapper. The shared structs.rs
-        // gen_struct_with_per_field_attrs avoids double-wrapping by checking whether
-        // field.ty is already Optional before applying the outer Option. We match that here.
         let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
@@ -100,7 +89,6 @@ pub(super) fn gen_rustler_config_impl(
         },
     ));
 
-    // Convert AHashSet to std HashSet for config_gen API
     let excl_std: std::collections::HashSet<String> = exclude_fields.iter().cloned().collect();
     let map_fn = |ty: &TypeRef| mapper.map_type(ty);
     let config_method =
@@ -177,7 +165,6 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str) -> String
     let name = &enum_def.name;
     let mut out = String::with_capacity(1024);
 
-    // Derive line for the struct — no Default here; explicit impl Default below
     out.push_str(&template_env::render("flat_enum_derive.jinja", minijinja::context! {}));
     out.push_str(&template_env::render(
         "flat_enum_struct_header.jinja",
@@ -187,7 +174,6 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str) -> String
         },
     ));
 
-    // Add discriminator field (use serde tag name if available, else "type")
     let discriminator_field = enum_def.serde_tag.as_deref().unwrap_or("format_type");
     out.push_str(&template_env::render(
         "flat_enum_discriminator_field.jinja",
@@ -196,11 +182,8 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str) -> String
         },
     ));
 
-    // For each variant with tuple data, add an Optional field with that type.
-    // Use snake_case field names based on variant names.
     for variant in &enum_def.variants {
         if !variant.fields.is_empty() && variant.is_tuple {
-            // Tuple variant: field is the first (and typically only) inner type
             if let Some(first_field) = variant.fields.first() {
                 let field_name = crate::codegen::naming::pascal_to_snake(&variant.name);
                 let field_type = field_type_for_rustler(first_field);
@@ -220,7 +203,6 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str) -> String
         minijinja::context! {},
     ));
 
-    // Add Default impl
     out.push_str(&template_env::render(
         "flat_enum_default_impl.jinja",
         minijinja::context! {
@@ -298,10 +280,8 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
             let first_field = variant.fields.first().unwrap();
             let is_boxed = first_field.is_boxed;
             let is_sanitized_to_string = first_field.sanitized && matches!(first_field.ty, TypeRef::String);
-            // Vec<Named>: blanket From<Vec<core::T>> for Vec<T> doesn't exist; map element-wise.
             let is_vec_of_named =
                 matches!(&first_field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)));
-            // String fields don't need .into() since String → String is already covered by From impl.
             let is_string_field = matches!(first_field.ty, TypeRef::String) && !is_sanitized_to_string;
             let data_expr: String = if is_sanitized_to_string {
                 if is_boxed {
@@ -326,12 +306,7 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
             } else {
                 "_0.into()".to_string()
             };
-            // The flat struct's only payload fields are the per-tuple-variant `fname`
-            // columns plus the `disc` discriminator. When the enum has exactly one
-            // tuple variant, every arm specifies all of the flat struct's fields and
             // `..Default::default()` triggers clippy::needless_update. When there are
-            // multiple tuple variants, each arm only specifies its own column plus
-            // the discriminator, so the spread is required to fill the rest with None.
             let tuple_variant_count = enum_def.variants.iter().filter(|v| v.is_tuple).count();
             let all_fields_specified = tuple_variant_count == 1;
             out.push_str(&template_env::render(
@@ -349,9 +324,6 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
         }
     }
 
-    // If any variants were stripped from the IR (cfg-gated variants like Code), emit a
-    // wildcard arm so the exhaustive match doesn't fail when the crate is compiled with
-    // those features enabled.
     if !enum_def.excluded_variants.is_empty() {
         out.push_str("            #[allow(unreachable_patterns)]\n");
         out.push_str("            _ => Self::default(),\n");
@@ -404,11 +376,7 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
             let is_sanitized_to_string = first_field.sanitized && matches!(first_field.ty, TypeRef::String);
             let is_vec_of_named =
                 matches!(&first_field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)));
-            // String fields don't need .into() since String → String is already covered by From impl.
             let is_string_field = matches!(first_field.ty, TypeRef::String) && !is_sanitized_to_string;
-            // Each variant's payload is stored as `Option<T>` on the local struct;
-            // `.unwrap_or_default()` falls back to T::default() when the discriminator matches
-            // but the payload is missing (defensive against malformed input).
             let payload_expr = if is_sanitized_to_string {
                 "Default::default()".to_string()
             } else if is_vec_of_named {
@@ -453,9 +421,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
 
     let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
-    // Use the flat struct approach for any data enum where every data variant is a
-    // tuple variant (single unnamed field). This covers Named-inner types (e.g.
-    // Excel(ExcelMetadata)) as well as primitive-inner types (e.g. Pdf(String)).
     let use_flat_struct = has_data
         && enum_def
             .variants
@@ -464,13 +429,10 @@ pub(super) fn gen_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
             .all(|v| v.is_tuple);
 
     if use_flat_struct {
-        // Use flat struct approach for better Elixir field access
         return gen_rustler_flat_data_enum(enum_def, module_prefix);
     }
 
     if has_data {
-        // NifTaggedEnum: supports unit variants (atoms) and struct variants (tagged tuples).
-        // Cannot be Copy when variants have fields.
         out.push_str("#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, rustler::NifTaggedEnum)]\n");
         if let Some(tag) = &enum_def.serde_tag {
             out.push_str(&template_env::render(
@@ -504,7 +466,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
                 ));
                 for field in &variant.fields {
                     // Optional fields need #[serde(default)] so Rustler's decoder doesn't fail
-                    // when the field is missing from the map.
                     if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
                         out.push_str(&template_env::render(
                             "nif_tagged_enum_variant_field_attr.jinja",
@@ -513,7 +474,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
                             },
                         ));
                     } else if matches!(field.ty, TypeRef::Optional(_)) && field.optional {
-                        // Double-optional: outer Optional wrapper also needs default
                         out.push_str(&template_env::render(
                             "nif_tagged_enum_variant_field_attr.jinja",
                             minijinja::context! {
@@ -537,7 +497,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
         }
         out.push_str("}\n");
     } else {
-        // All unit variants: NifUnitEnum encodes as atoms.
         out.push_str(&template_env::render(
             "nif_unit_enum_header.jinja",
             minijinja::context! {
@@ -555,7 +514,6 @@ pub(super) fn gen_enum(enum_def: &EnumDef, module_prefix: &str) -> String {
         out.push_str("}\n");
     }
 
-    // Default impl: use the variant marked is_default=true; fall back to the first variant.
     let default_variant = enum_def
         .variants
         .iter()
@@ -621,20 +579,13 @@ pub(super) fn gen_rustler_wrap_return(
                 format!("{expr}.into()")
             }
         }
-        // String and Char: only apply .into() if the core returns a reference (&str, &char).
-        // If returns_ref is false, the core returns owned String/Char, so no conversion needed.
         TypeRef::String | TypeRef::Char => {
             if returns_ref {
-                // Core returns &str/&char, need to convert to String/Char
                 format!("{expr}.into()")
             } else {
-                // Core already returns String/Char, no conversion needed
                 expr.to_string()
             }
         }
-        // Bytes (Vec<u8>): core may return `bytes::Bytes` or `Vec<u8>` or `&[u8]`.
-        // `.to_vec()` works for all three: owned Bytes→Vec<u8>, owned Vec<u8>→no-op clone,
-        // and &[u8]→Vec<u8>. This is safe to apply unconditionally.
         TypeRef::Bytes => format!("{expr}.to_vec()"),
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         TypeRef::Duration => format!("{expr}.as_millis() as u64"),
@@ -642,8 +593,6 @@ pub(super) fn gen_rustler_wrap_return(
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                 if returns_ref {
-                    // Core returns &[T] / &'static [T]; iterate over refs and
-                    // clone each value before wrapping it in a ResourceArc.
                     format!(
                         "{expr}.iter().cloned().map(|v| ResourceArc::new({n} {{ inner: Arc::new(std::sync::RwLock::new(v)) }})).collect()"
                     )
@@ -654,25 +603,16 @@ pub(super) fn gen_rustler_wrap_return(
                 }
             }
             TypeRef::Named(_) if returns_ref => {
-                // Core returns &[T] / &'static [T]. `into_iter()` on a slice
-                // yields `&T`, which the `From<T> for TBinding` impl can't
-                // accept. Clone each element first so `Into::into` resolves.
                 format!("{expr}.iter().cloned().map(Into::into).collect()")
             }
             TypeRef::Named(_) => {
                 format!("{expr}.into_iter().map(Into::into).collect()")
             }
-            // Core returns &[&str]/&[&char] — materialize to owned Vec<String>/Vec<char>.
             TypeRef::String | TypeRef::Char if returns_ref => {
                 format!("{expr}.iter().map(|s| s.to_string()).collect()")
             }
             _ => expr.to_string(),
         },
-        // Map: when core returns &BTreeMap (returns_ref=true) or Cow<BTreeMap>
-        // (returns_cow), the Rustler binding map type (HashMap<String, String>) differs
-        // from the core's container. Collect via iter and clone each entry to coerce
-        // the key/value types into the binding's target. This also handles Cow-keyed
-        // maps that ferment into owned String entries.
         TypeRef::Map(_, _) => {
             if returns_ref {
                 format!("{expr}.iter().map(|(k, v)| (k.clone(), v.clone())).collect()")
@@ -680,9 +620,6 @@ pub(super) fn gen_rustler_wrap_return(
                 expr.to_string()
             }
         }
-        // Optional<T>: when the core returns a reference (&str, &T) wrapped in Option,
-        // we must convert each value with `.map(...)`. Without this, Option<&str> is
-        // returned where the wrapper signature expects Option<String>.
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String | TypeRef::Char | TypeRef::Bytes if returns_ref => {
                 format!("{expr}.map(|v| v.into())")

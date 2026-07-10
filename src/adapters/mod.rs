@@ -53,9 +53,6 @@ pub fn build_adapter_bodies(config: &ResolvedCrateConfig, language: Language) ->
                 bodies.insert(key, body);
             }
             AdapterPattern::Streaming => {
-                // Skip insertion entirely when this backend is in skip_languages.
-                // Backends that look up by key will find no entry and treat the
-                // adapter as absent for this language.
                 let lang_str = language.to_string();
                 if adapter.skip_languages.iter().any(|l| l == &lang_str) {
                     continue;
@@ -72,7 +69,7 @@ pub fn build_adapter_bodies(config: &ResolvedCrateConfig, language: Language) ->
                 bodies.insert(struct_key, struct_code);
                 let impl_key = format!("{}.__bridge_impl__", adapter.name);
                 bodies.insert(impl_key, impl_code);
-                continue; // Don't insert into the normal body map
+                continue;
             }
         }
     }

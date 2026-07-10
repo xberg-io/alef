@@ -74,12 +74,8 @@ pub(super) fn gen_function_wrapper(
 
     emit_type_doc(&mut out, &func_go_name, &func.doc, "calls the FFI function.");
 
-    // Detect Result<Vec<u8>> — uses out-param convention, always returns ([]byte, error).
     let is_bytes_result = is_bytes_result_func(func);
 
-    // A function that marshals parameters to JSON can fail even without a declared error_type.
-    // Synthesize an error return in those cases so we never panic on marshal failure.
-    // Exclude bridge params — they are not marshalled (they're passed as nil).
     let non_bridge_params: Vec<_> = func
         .params
         .iter()
@@ -90,7 +86,6 @@ pub(super) fn gen_function_wrapper(
     let can_return_error = func.error_type.is_some() || marshals_params;
 
     let return_type = if is_bytes_result {
-        // Out-param bytes result always returns ([]byte, error)
         "([]byte, error)".to_string()
     } else if can_return_error {
         if matches!(func.return_type, TypeRef::Unit) {
@@ -99,9 +94,6 @@ pub(super) fn gen_function_wrapper(
             func.return_type,
             TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
         ) {
-            // Scalar value types (primitives and strings) use value-form `(T, error)`.
-            // `go_return_expr` emits `ptr != 0` for bool, `uint(ptr)` for numeric primitives, and
-            // `C.GoString(ptr)` for strings — all producing bare values, not pointers.
             format!("({}, error)", go_type(&func.return_type))
         } else {
             format!("({}, error)", go_optional_type(&func.return_type))
@@ -112,8 +104,6 @@ pub(super) fn gen_function_wrapper(
         func.return_type,
         TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
     ) {
-        // Non-error case: scalar value types use bare form because `go_return_expr`
-        // produces bare values for all scalar types.
         go_type(&func.return_type).into_owned()
     } else {
         go_optional_type(&func.return_type).into_owned()
@@ -122,11 +112,6 @@ pub(super) fn gen_function_wrapper(
     let func_snake = func.name.to_snake_case();
     let ffi_name = format!("C.{}_{}", ffi_prefix, func_snake);
 
-    // All optional params (wherever they appear) are represented as pointer types in the Go
-    // signature so callers can pass nil to omit them.  This is simpler and more correct than
-    // the earlier variadic approach which broke when more than one trailing optional existed.
-    // Bridge params (visitor handles) are stripped from the public signature and integrated
-    // into the function via the configured options field instead.
     let mut param_strs: Vec<String> = Vec::new();
     for p in func.params.iter() {
         if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
@@ -136,7 +121,6 @@ pub(super) fn gen_function_wrapper(
             go_optional_type(&p.ty).into_owned()
         } else if let TypeRef::Named(name) = &p.ty {
             if opaque_names.contains(name.as_str()) {
-                // Opaque types are pointer wrappers — accept as pointer
                 format!("*{}", go_type(&p.ty))
             } else {
                 go_type(&p.ty).into_owned()
@@ -162,8 +146,6 @@ pub(super) fn gen_function_wrapper(
         },
     ));
 
-    // Convert parameters
-    // Note: can_return_error is set above (includes synthesized error for marshal-requiring params).
     let returns_value_and_error = can_return_error && !matches!(func.return_type, TypeRef::Unit);
     let param_err_return_prefix: String = if returns_value_and_error {
         format!("{}, ", crate::backends::go::type_map::go_zero_value(&func.return_type))
@@ -185,20 +167,11 @@ pub(super) fn gen_function_wrapper(
         ));
     }
 
-    // Build the C call with converted parameters.
-    // Bridge params that are sanitized (unknown type in IR) are omitted from the C call — the
-    // FFI backend strips them from the generated C function signature entirely and handles the
-    // visitor path via a separate {prefix}_convert_with_visitor function.
-    // Non-sanitized bridge params pass nil (no visitor) in the plain Convert().
-    // Bytes params expand to two C arguments: the pointer and the length.
-    // For bytes-result functions, three trailing out-params (&outPtr, &outLen, &outCap) are appended.
     let c_params: Vec<String> = func
         .params
         .iter()
         .flat_map(|p| -> Vec<String> {
             if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
-                // Sanitized bridge params have been removed from the C function signature;
-                // do not emit a nil slot for them.
                 if p.sanitized { vec![] } else { vec!["nil".to_string()] }
             } else {
                 let c_name = go_param_name(&format!("c_{}", p.name));
@@ -211,7 +184,6 @@ pub(super) fn gen_function_wrapper(
         })
         .collect();
 
-    // For bytes-result, append the three out-param addresses.
     let c_call = if is_bytes_result {
         let mut all_params = c_params.clone();
         all_params.push("&outPtr".to_string());
@@ -222,10 +194,6 @@ pub(super) fn gen_function_wrapper(
         format!("{}({})", ffi_name, c_params.join(", "))
     };
 
-    // Handle result and error.
-    // Result<Vec<u8>> uses the out-param convention: emit bytes_result_call which
-    // declares outPtr/outLen/outCap, calls the FFI with those addresses appended,
-    // checks the i32 return code, copies the bytes, and frees via {prefix}_free_bytes.
     if is_bytes_result {
         out.push_str(&crate::backends::go::template_env::render(
             "bytes_result_call.jinja",
@@ -241,10 +209,6 @@ pub(super) fn gen_function_wrapper(
         return out;
     }
 
-    // When can_return_error is true (either from declared error_type or synthesized for
-    // marshal-requiring params), emit lastError() checks. For synthesized-error functions
-    // that have no declared error_type, the FFI call itself never sets a last error, so
-    // lastError() will return nil and the return value flows through normally.
     if can_return_error {
         if matches!(func.return_type, TypeRef::Unit) {
             out.push_str(&crate::backends::go::template_env::render(
@@ -267,8 +231,6 @@ pub(super) fn gen_function_wrapper(
             ));
             if func.error_type.is_some() {
                 out.push_str("\tif err := lastError(); err != nil {\n");
-                // Free the pointer if non-nil even on error, to avoid leaks.
-                // Bytes pointers are NOT freed — they alias internal storage.
                 if matches!(
                     func.return_type,
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
@@ -294,8 +256,6 @@ pub(super) fn gen_function_wrapper(
                     ));
                     out.push_str("\t\t}\n");
                 }
-                // Use the type-appropriate zero value: `nil` for pointer/slice/Named returns,
-                // `0`/`false`/`""` for scalar Primitive/Duration value-form returns.
                 let zero_value = crate::backends::go::type_map::go_zero_value(&func.return_type);
                 out.push_str(&crate::backends::go::template_env::render(
                     "return_zero_err.jinja",
@@ -305,9 +265,6 @@ pub(super) fn gen_function_wrapper(
                 ));
                 out.push_str("\t}\n");
             }
-            // Free the FFI-allocated string after unmarshaling.
-            // Bytes pointers are NOT freed — they alias internal storage owned by
-            // the parent handle. The unmarshalBytes helper copies the data instead.
             if matches!(
                 func.return_type,
                 TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
@@ -320,8 +277,6 @@ pub(super) fn gen_function_wrapper(
                     },
                 ));
             }
-            // For non-opaque Named types, free the handle after JSON extraction.
-            // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
             if let TypeRef::Named(name) = &func.return_type {
                 if !opaque_names.contains(name.as_str()) {
                     let type_snake = name.to_snake_case();
@@ -336,8 +291,6 @@ pub(super) fn gen_function_wrapper(
                 }
             }
 
-            // For Named types that require JSON unmarshaling and can return errors,
-            // inline the unmarshal logic to properly propagate errors.
             if can_return_error {
                 if let TypeRef::Named(name) = &func.return_type {
                     if !opaque_names.contains(name.as_str()) {
@@ -382,7 +335,6 @@ pub(super) fn gen_function_wrapper(
                         ));
                     }
                 } else if matches!(func.return_type, TypeRef::Vec(_)) {
-                    // Handle Vec types with error propagation
                     if let TypeRef::Vec(inner) = &func.return_type {
                         let go_elem = go_type(inner);
                         out.push_str("\tif ptr == nil {\n");
@@ -445,8 +397,6 @@ pub(super) fn gen_function_wrapper(
                 c_call => &c_call,
             },
         ));
-        // Add defer free for C string returns.
-        // Bytes pointers are NOT freed — they alias internal storage.
         if matches!(
             func.return_type,
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
@@ -459,8 +409,6 @@ pub(super) fn gen_function_wrapper(
                 },
             ));
         }
-        // For non-opaque Named types, free the handle after JSON extraction.
-        // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
         if let TypeRef::Named(name) = &func.return_type {
             if !opaque_names.contains(name.as_str()) {
                 let type_snake = name.to_snake_case();
@@ -511,7 +459,6 @@ pub(super) fn gen_capsule_function_wrapper(
     let func_go_name = to_go_name(&func.name);
     emit_type_doc(&mut out, &func_go_name, &func.doc, "calls the FFI function.");
 
-    // Parameter list (capsule functions take only plain scalar/string params in practice).
     let mut param_strs: Vec<String> = Vec::new();
     for p in func.params.iter() {
         let param_type = if p.optional {
@@ -522,11 +469,6 @@ pub(super) fn gen_capsule_function_wrapper(
         param_strs.push(format!("{} {}", go_param_name(&p.name), param_type));
     }
     let params_str = param_strs.join(", ");
-    // A fallible capsule function (Rust `Result`, e.g. `get_language`) surfaces the
-    // failure as a Go `error` — matching python (raises) / node (throws) and the
-    // e2e fixtures that assert an error for unknown/empty input. An infallible one
-    // returns the bare host type (nil = not found).
-    // Require host_type and construct_expr from config — no tree-sitter defaults.
     let host_type = match cfg.required_host_type("Language", "go") {
         Ok(t) => t.to_string(),
         Err(e) => return format!("// ALEF ERROR: {e}\n"),
@@ -547,8 +489,6 @@ pub(super) fn gen_capsule_function_wrapper(
         },
     ));
 
-    // Convert parameters to C. The conversion-failure prefix returns the zero value:
-    // `nil, ` for the fallible `(T, error)` form, bare `nil` for the infallible form.
     let conv_fail_prefix = if is_fallible { "nil, " } else { "nil" };
     for param in func.params.iter() {
         out.push_str(&gen_param_to_c(
@@ -571,15 +511,12 @@ pub(super) fn gen_capsule_function_wrapper(
         .collect();
     let c_call = format!("{}({})", ffi_name, c_params.join(", "));
 
-    // Require construct_expr — no tree-sitter default fallback.
     let construct = match cfg.construct_required("cLang", "Language", "go") {
         Ok(c) => c,
         Err(e) => return format!("// ALEF ERROR: {e}\n"),
     };
     out.push_str(&format!("\tcLang := {c_call}\n"));
     if is_fallible {
-        // The FFI sets last_error and returns null on failure; surface it as a Go error
-        // (mirrors the registry's fallible `GetLanguage`, which checks `lastError()`).
         out.push_str("\tif err := lastError(); err != nil {\n\t\treturn nil, err\n\t}\n");
         out.push_str(&format!("\treturn {construct}, nil\n"));
     } else {
@@ -677,7 +614,6 @@ pub(super) fn gen_convert_with_visitor_wrapper(
         ));
     }
 
-    // Otherwise, call the FFI function directly without visitor support.
     let func_snake = func.name.to_snake_case();
     let ffi_name = format!("C.{}_{}", ffi_prefix, func_snake);
 
@@ -804,7 +740,6 @@ pub(super) fn gen_adapter_wrapper(
     });
     let item_type_simple = item_type.rsplit("::").next().unwrap_or(item_type);
 
-    // Extract request type and simplify (remove Rust path prefix)
     let request_type = adapter.request_type.as_deref().unwrap_or_else(|| {
         panic!(
             "go adapter `{adapter_name}`: streaming adapter requires `request_type` in `[[adapters]]` config (the Rust request payload type)"
@@ -812,10 +747,7 @@ pub(super) fn gen_adapter_wrapper(
     });
     let request_type_simple = request_type.rsplit("::").next().unwrap_or(request_type);
 
-    // Decompose request struct into primitives for ergonomic wrapper.
-    // E.g. CrawlStreamRequest { url: String } → accept (url string), construct req, call method.
     let (param_parts, request_construction) = if adapter.request_type.is_some() && adapter.params.len() == 1 {
-        // Single request param: decompose by inspecting the request type's first field in IR.
         let param = &adapter.params[0];
         let param_ty_name = &param.ty;
         let ir_type = types.iter().find(|t| &t.name == param_ty_name);
@@ -825,15 +757,11 @@ pub(super) fn gen_adapter_wrapper(
                 let field_name = &first_field.name;
                 let field_name_go = to_go_name(field_name);
 
-                // Determine Go parameter type based on field type
                 let go_field_type = match &first_field.ty {
                     TypeRef::String => "string".to_string(),
                     TypeRef::Vec(inner) if matches!(**inner, TypeRef::String) => "[]string".to_string(),
                     TypeRef::Vec(_) => "[]interface{}".to_string(),
-                    other => {
-                        // Fallback to type mapping
-                        crate::backends::go::type_map::go_type(other).into_owned()
-                    }
+                    other => crate::backends::go::type_map::go_type(other).into_owned(),
                 };
 
                 let wrapper_params = vec![
@@ -841,21 +769,16 @@ pub(super) fn gen_adapter_wrapper(
                     format!("{field_name_go} {go_field_type}"),
                 ];
 
-                // Construct request struct: req := &CrawlStreamRequest{Url: url}
                 let struct_field_name = to_go_name(field_name);
                 let construction = format!("req := &{request_type_simple}{{{struct_field_name}: {field_name_go}}}\n\t");
 
                 (wrapper_params, Some(construction))
             } else {
-                // Type has no fields; fall back to original behavior
                 let mut params = vec![format!("engine *{owner_type}")];
                 for p in &adapter.params {
                     let go_param_type = match p.ty.as_str() {
                         "String" => "string".to_string(),
-                        ty => {
-                            // Strip Rust path prefix (e.g., "crate::requests::CrawlStreamRequest" → "CrawlStreamRequest")
-                            ty.rsplit("::").next().unwrap_or(ty).to_string()
-                        }
+                        ty => ty.rsplit("::").next().unwrap_or(ty).to_string(),
                     };
                     let param_name = go_param_name(&p.name);
                     params.push(format!("{param_name} {go_param_type}"));
@@ -863,15 +786,11 @@ pub(super) fn gen_adapter_wrapper(
                 (params, None)
             }
         } else {
-            // Type not found in IR; fall back to original behavior
             let mut params = vec![format!("engine *{owner_type}")];
             for p in &adapter.params {
                 let go_param_type = match p.ty.as_str() {
                     "String" => "string".to_string(),
-                    ty => {
-                        // Strip Rust path prefix (e.g., "crate::requests::CrawlStreamRequest" → "CrawlStreamRequest")
-                        ty.rsplit("::").next().unwrap_or(ty).to_string()
-                    }
+                    ty => ty.rsplit("::").next().unwrap_or(ty).to_string(),
                 };
                 let param_name = go_param_name(&p.name);
                 params.push(format!("{param_name} {go_param_type}"));
@@ -879,15 +798,11 @@ pub(super) fn gen_adapter_wrapper(
             (params, None)
         }
     } else {
-        // Multi-param or no request_type: use original behavior
         let mut params = vec![format!("engine *{owner_type}")];
         for p in &adapter.params {
             let go_param_type = match p.ty.as_str() {
                 "String" => "string".to_string(),
-                ty => {
-                    // Strip Rust path prefix (e.g., "crate::requests::CrawlStreamRequest" → "CrawlStreamRequest")
-                    ty.rsplit("::").next().unwrap_or(ty).to_string()
-                }
+                ty => ty.rsplit("::").next().unwrap_or(ty).to_string(),
             };
             let param_name = go_param_name(&p.name);
             params.push(format!("{param_name} {go_param_type}"));
@@ -895,16 +810,12 @@ pub(super) fn gen_adapter_wrapper(
         (params, None)
     };
 
-    // Return type: (channel of items, error)
     let return_type = format!("<-chan {item_type_simple}, error");
 
-    // Build method call: engine.CrawlStream(*req) or engine.CrawlStream(...params)
     let method_call_name = to_go_name(adapter_name);
     let method_call = if request_construction.is_some() {
-        // If we constructed a request, dereference the pointer for the method call
         format!("engine.{}(*req)", method_call_name)
     } else {
-        // Otherwise, pass the original parameters
         let param_args = adapter
             .params
             .iter()

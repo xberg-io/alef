@@ -34,8 +34,6 @@ fn test_trait_impl_methods_extracted() {
 
     let client = &surface.types[0];
     assert_eq!(client.name, "DefaultClient");
-    // Should have: new (not skipped because it doesn't return Self), chat, model
-    // Actually new returns DefaultClient not Self, so it's included
     assert_eq!(client.methods.len(), 3);
 
     let method_names: Vec<&str> = client.methods.iter().map(|m| m.name.as_str()).collect();
@@ -43,7 +41,6 @@ fn test_trait_impl_methods_extracted() {
     assert!(method_names.contains(&"chat"));
     assert!(method_names.contains(&"model"));
 
-    // Verify chat is async
     let chat = client.methods.iter().find(|m| m.name == "chat").unwrap();
     assert!(chat.is_async);
     assert_eq!(chat.receiver, Some(ReceiverKind::Ref));
@@ -74,7 +71,6 @@ fn test_trait_impl_no_duplicate_methods() {
 
     let surface = extract_from_source(source);
     let my_type = &surface.types[0];
-    // Should not have duplicate do_thing
     let do_thing_count = my_type.methods.iter().filter(|m| m.name == "do_thing").count();
     assert_eq!(do_thing_count, 1);
 }
@@ -94,7 +90,6 @@ fn test_trait_impl_ignored_for_unknown_type() {
     "#;
 
     let surface = extract_from_source(source);
-    // UnknownType is not in the surface, so trait impl methods should be ignored
     assert_eq!(surface.types.len(), 0);
 }
 
@@ -131,7 +126,6 @@ fn test_extract_thiserror_enum() {
 
     let surface = extract_from_source(source);
 
-    // Should be in errors, NOT in enums
     assert_eq!(surface.enums.len(), 0, "thiserror enum should not be in enums");
     assert_eq!(surface.errors.len(), 1, "thiserror enum should be in errors");
 
@@ -159,7 +153,6 @@ fn test_extract_thiserror_enum() {
     assert_eq!(parsing.fields[0].name, "message");
     assert_eq!(parsing.fields[1].name, "source");
 
-    // Timeout variant: struct, no source/from
     let timeout = &err.variants[2];
     assert_eq!(timeout.name, "Timeout");
     assert_eq!(
@@ -171,7 +164,6 @@ fn test_extract_thiserror_enum() {
     assert!(!timeout.is_unit);
     assert_eq!(timeout.fields.len(), 2);
 
-    // MissingDependency: tuple variant, no source/from
     let missing = &err.variants[3];
     assert_eq!(missing.name, "MissingDependency");
     assert_eq!(missing.message_template.as_deref(), Some("Missing dependency: {0}"));
@@ -180,7 +172,6 @@ fn test_extract_thiserror_enum() {
     assert!(!missing.is_unit);
     assert_eq!(missing.fields.len(), 1);
 
-    // Unknown: unit variant
     let unknown = &err.variants[4];
     assert_eq!(unknown.name, "Unknown");
     assert_eq!(unknown.message_template.as_deref(), Some("Unknown error"));
@@ -192,7 +183,6 @@ fn test_extract_thiserror_enum() {
 
 #[test]
 fn test_extract_thiserror_with_use_import() {
-    // When Error is imported via `use thiserror::Error`, the derive is just `Error`
     let source = r#"
         #[derive(Debug, Error)]
         pub enum AppError {
@@ -252,7 +242,6 @@ fn test_pub_trait_with_supertrait() {
     assert!(worker.is_trait);
     assert_eq!(worker.super_traits, vec!["Backend"]);
 
-    // Send and Sync are marker traits — filtered out
     let backend = surface
         .types
         .iter()
@@ -266,8 +255,6 @@ fn test_pub_trait_with_supertrait() {
 
 #[test]
 fn test_resolve_trait_sources_retroactive() {
-    // When a trait impl appears before the trait definition in the same source,
-    // trait_source should still be resolved after the full extraction pass.
     let source = r#"
         pub struct Widget {
             pub label: String,
@@ -296,7 +283,6 @@ fn test_resolve_trait_sources_retroactive() {
         .iter()
         .find(|m| m.name == "render")
         .expect("render not found");
-    // trait_source should be filled in by resolve_trait_sources
     assert!(
         render.trait_source.is_some(),
         "trait_source should be resolved even when trait is defined after impl"
@@ -305,7 +291,6 @@ fn test_resolve_trait_sources_retroactive() {
 
 #[test]
 fn test_trait_method_with_default_impl() {
-    // Trait methods with default implementations should have has_default_impl=true.
     let source = r#"
         pub trait Logger {
             fn log(&self, message: String);
@@ -333,11 +318,6 @@ fn test_trait_method_with_default_impl() {
 
 #[test]
 fn test_thiserror_enum_with_inherent_impl_does_not_create_opaque_type() {
-    // Regression test: when a thiserror error enum also has an `impl` block with
-    // pub methods (e.g. status_code()), extract_impl_block must NOT create an
-    // opaque TypeDef for the error type. The error is already in surface.errors;
-    // creating a duplicate TypeDef causes backends (Dart, Gleam, etc.) to emit
-    // two conflicting class definitions for the same name.
     let source = r#"
         use thiserror::Error;
 

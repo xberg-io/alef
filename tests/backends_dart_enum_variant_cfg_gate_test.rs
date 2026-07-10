@@ -201,8 +201,6 @@ fn cfg_gated_variant_cfg_precedes_variant_in_from_core_arm() {
 fn non_cfg_variants_have_no_cfg_attribute() {
     let lib_rs = generate_lib_rs(make_image_output_format_enum());
 
-    // The mirror enum remains unconditional. This output-only enum only needs one cfg guard:
-    // the `From<CoreType>` match arm for `Heif`.
     let cfg_count = lib_rs
         .lines()
         .filter(|l| l.contains(r#"#[cfg(feature = "heic")]"#))
@@ -219,7 +217,6 @@ fn non_cfg_variants_have_no_cfg_attribute() {
 fn ungated_variants_are_present_without_cfg() {
     let lib_rs = generate_lib_rs(make_image_output_format_enum());
 
-    // Native and Jpeg must be present.
     assert!(lib_rs.contains("Native"), "Native variant missing from lib.rs");
     assert!(lib_rs.contains("Jpeg"), "Jpeg variant missing from lib.rs");
 }

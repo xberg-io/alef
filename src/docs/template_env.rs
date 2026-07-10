@@ -45,11 +45,6 @@ pub(crate) fn render(template_name: &str, ctx: minijinja::Value) -> String {
         .unwrap_or_else(|_| panic!("template {template_name} not found"))
         .render(ctx)
         .unwrap_or_else(|e| panic!("template {template_name} failed to render: {e}"));
-    // `heading.jinja` ends with a single newline; rumdl's MD022 requires a
-    // blank line after every heading. The template file itself can't carry
-    // a trailing blank line because the pre-commit `end-of-file-fixer`
-    // strips it on every commit, so append the second newline at render
-    // time. `version_heading.jinja` is special-cased the same way.
     if matches!(template_name, "heading.jinja" | "version_heading.jinja") && !rendered.ends_with("\n\n") {
         return format!("{rendered}\n");
     }

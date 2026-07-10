@@ -340,9 +340,6 @@ fn error_emits_custom_type() {
 
 #[test]
 fn enum_tuple_variant_emits_unlabeled_field() {
-    // Rust tuple variants like `Pdf(String)` produce fields named `_0`, `_1`, etc.
-    // Gleam constructor arguments cannot have labels starting with `_`, so these
-    // must be emitted as unlabeled positional arguments: `Pdf(String)` not `Pdf(_0: String)`.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -442,10 +439,6 @@ fn nif_module_override_uses_custom_name() {
         "should use custom nif_module: {content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Trait bridge helpers
-// ---------------------------------------------------------------------------
 
 fn make_method(name: &str) -> MethodDef {
     MethodDef {
@@ -573,10 +566,6 @@ fn make_config_with_bridges(bridges: Vec<TraitBridgeConfig>) -> ResolvedCrateCon
     config
 }
 
-// ---------------------------------------------------------------------------
-// Trait bridge: single-method trait emits registration shim + support NIFs
-// ---------------------------------------------------------------------------
-
 #[test]
 fn trait_bridge_single_method_emits_register_and_support_nifs() {
     let trait_type = make_trait_type("OcrBackend", vec![make_method("process")]);
@@ -601,7 +590,6 @@ fn trait_bridge_single_method_emits_register_and_support_nifs() {
     assert_eq!(files.len(), 1);
     let content = &files[0].content;
 
-    // Registration shim must reference the correct Rustler NIF name
     assert!(
         content.contains("@external(erlang, \"Elixir.Demo.Native\", \"register_ocr_backend\")"),
         "missing register shim: {content}"
@@ -611,7 +599,6 @@ fn trait_bridge_single_method_emits_register_and_support_nifs() {
         "missing register fn signature: {content}"
     );
 
-    // Support NIFs must be emitted once
     assert!(
         content.contains("@external(erlang, \"Elixir.Demo.Native\", \"complete_trait_call\")"),
         "missing complete_trait_call shim: {content}"
@@ -625,16 +612,11 @@ fn trait_bridge_single_method_emits_register_and_support_nifs() {
         "missing fail_trait_call shim: {content}"
     );
 
-    // Dynamic import must be present
     assert!(
         content.contains("import gleam/dynamic.{type Dynamic}"),
         "missing Dynamic import: {content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Trait bridge: multi-method trait emits only one set of support NIFs
-// ---------------------------------------------------------------------------
 
 #[test]
 fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
@@ -661,7 +643,6 @@ fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
     let files = GleamBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // Both registration shims must be present
     assert!(
         content.contains("pub fn register_ocr_backend("),
         "missing ocr register fn: {content}"
@@ -671,7 +652,6 @@ fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
         "missing embedding register fn: {content}"
     );
 
-    // Support NIFs emitted exactly once (count occurrences)
     let complete_count = content.matches("pub fn complete_trait_call(").count();
     assert_eq!(
         complete_count, 1,
@@ -684,14 +664,8 @@ fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Trait bridge: per-method response shims
-// ---------------------------------------------------------------------------
-
 #[test]
 fn trait_bridge_emits_per_method_response_shim() {
-    // A trait with one method returning Unit and no error type should emit a shim
-    // with `Result(Nil, String)` (fallback error type).
     let trait_type = make_trait_type("OcrBackend", vec![make_method("process_image")]);
     let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
 
@@ -713,7 +687,6 @@ fn trait_bridge_emits_per_method_response_shim() {
     let files = GleamBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // The NIF shim name follows `{trait_snake}_{method_snake}_response`.
     assert!(
         content.contains("@external(erlang, \"Elixir.Demo.Native\", \"ocr_backend_process_image_response\")"),
         "missing response shim @external: {content}"
@@ -728,9 +701,6 @@ fn trait_bridge_emits_per_method_response_shim() {
 
 #[test]
 fn trait_bridge_response_shim_uses_typed_return_and_error() {
-    // A method returning String with a named error type should emit typed Result.
-    // The error type must appear in the declared errors list so resolve_gleam_error_type
-    // can match it; otherwise it falls back to String.
     let method = make_method_with_types("process_image", TypeRef::String, Some("OcrError"));
     let trait_type = make_trait_type("OcrBackend", vec![method]);
     let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
@@ -774,7 +744,6 @@ fn trait_bridge_response_shim_uses_typed_return_and_error() {
 
 #[test]
 fn trait_bridge_response_shim_unit_return_emits_nil() {
-    // Explicit Unit return type must map to Nil in the ok branch.
     let method = make_method_with_types("ping", TypeRef::Unit, Some("MyError"));
     let trait_type = make_trait_type("MyTrait", vec![method]);
     let bridge_cfg = make_bridge_cfg("MyTrait", "register_my_trait");
@@ -816,7 +785,6 @@ fn trait_bridge_response_shim_unit_return_emits_nil() {
 
 #[test]
 fn trait_bridge_multiple_methods_emit_one_shim_each() {
-    // Two methods on one trait → two distinct response shims.
     let trait_type = make_trait_type(
         "OcrBackend",
         vec![
@@ -853,7 +821,6 @@ fn trait_bridge_multiple_methods_emit_one_shim_each() {
         "missing get_name shim: {content}"
     );
 
-    // Each method gets exactly one pub fn shim declaration.
     assert_eq!(
         content.matches("pub fn ocr_backend_process_image_response(").count(),
         1,
@@ -868,7 +835,6 @@ fn trait_bridge_multiple_methods_emit_one_shim_each() {
 
 #[test]
 fn trait_bridge_response_shim_includes_doc_comment() {
-    // The per-method shim must include a doc comment with method name guidance.
     let trait_type = make_trait_type("OcrBackend", vec![make_method("process_image")]);
     let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
 
@@ -895,10 +861,6 @@ fn trait_bridge_response_shim_includes_doc_comment() {
         "missing method doc comment: {content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Trait bridge: unregistration function
-// ---------------------------------------------------------------------------
 
 #[test]
 fn trait_bridge_emits_unregistration_fn_when_configured() {
@@ -966,10 +928,6 @@ fn trait_bridge_omits_unregistration_fn_when_not_configured() {
         "unregister fn must not appear when unregister_fn is None: {content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Trait bridge: clear function
-// ---------------------------------------------------------------------------
 
 #[test]
 fn trait_bridge_emits_clear_fn_when_configured() {
@@ -1075,12 +1033,6 @@ fn trait_bridge_emits_all_three_fns_when_fully_configured() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Regression: a non-trait type that has methods must be emitted ONCE as an
-// opaque resource. It must NOT also be emitted as a regular phantom/record
-// type by the data-type emission pass (gleam rejects duplicate type defs).
-// ---------------------------------------------------------------------------
-
 #[test]
 fn non_trait_type_with_methods_emits_opaque_resource_only_once() {
     let mut client = make_type("DefaultClient", vec![]);
@@ -1107,7 +1059,6 @@ fn non_trait_type_with_methods_emits_opaque_resource_only_once() {
     let normal_defs = content.matches("pub type DefaultClient").count();
     let opaque_defs = content.matches("pub opaque type DefaultClient").count();
     assert_eq!(opaque_defs, 1, "expected exactly one opaque emission: {content}");
-    // `pub type` is a substring of `pub opaque type`? No — they're distinct prefixes.
     assert_eq!(
         normal_defs, 0,
         "non-trait type with methods must not be emitted as a regular type: {content}"

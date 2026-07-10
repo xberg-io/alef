@@ -12,9 +12,7 @@ use std::collections::HashSet;
 pub(super) fn pinvoke_return_type(ty: &TypeRef) -> &'static str {
     match ty {
         TypeRef::Unit => "void",
-        // Bool over FFI is a C int (0/1).
         TypeRef::Primitive(PrimitiveType::Bool) => "int",
-        // Numeric primitives — use their real C# types.
         TypeRef::Primitive(PrimitiveType::U8) => "byte",
         TypeRef::Primitive(PrimitiveType::U16) => "ushort",
         TypeRef::Primitive(PrimitiveType::U32) => "uint",
@@ -27,9 +25,7 @@ pub(super) fn pinvoke_return_type(ty: &TypeRef) -> &'static str {
         TypeRef::Primitive(PrimitiveType::F64) => "double",
         TypeRef::Primitive(PrimitiveType::Usize) => "ulong",
         TypeRef::Primitive(PrimitiveType::Isize) => "long",
-        // Duration as u64
         TypeRef::Duration => "ulong",
-        // Everything else is a pointer that needs manual marshalling.
         TypeRef::String
         | TypeRef::Char
         | TypeRef::Bytes
@@ -51,7 +47,6 @@ pub(super) fn pinvoke_return_type(ty: &TypeRef) -> &'static str {
 pub(super) fn pinvoke_param_type(ty: &TypeRef) -> &'static str {
     match ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "string",
-        // Managed objects — pass as opaque IntPtr (serialised to handle before call)
         TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes | TypeRef::Optional(_) => "IntPtr",
         TypeRef::Unit => "void",
         TypeRef::Primitive(PrimitiveType::Bool) => "int",
@@ -130,7 +125,6 @@ pub(super) fn native_call_arg(
 ) -> String {
     match ty {
         TypeRef::Named(type_name) if true_opaque_types.contains(type_name) => {
-            // Truly opaque: unwrap the IntPtr from the C# handle class.
             let bang = if optional { "!" } else { "" };
             format!("{param_name}{bang}.Handle")
         }
@@ -141,13 +135,6 @@ pub(super) fn native_call_arg(
             format!("{param_name}Handle.AddrOfPinnedObject()")
         }
         TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
-            // The P/Invoke declaration emits `[MarshalAs(UnmanagedType.U1)] bool`
-            // (see gen_bindings::functions.rs), so the call site must pass a `bool`
-            // value directly — C# does not implicitly convert `int` to `bool`.
-            // For nullable bools we collapse `null` to `false`, matching the legacy
-            // FFI semantics (0 = false). A future change could route bool? through
-            // a dedicated optional sentinel if Some(false) vs None ever need to be
-            // distinguished, but no caller relies on that today.
             if optional {
                 format!("({param_name} ?? false)")
             } else {
@@ -156,13 +143,6 @@ pub(super) fn native_call_arg(
         }
         ty => {
             if optional {
-                // For optional primitive types (e.g. ulong?, uint?), pass the FFI's
-                // None sentinel when the value is null. The FFI shim decodes
-                // `{prim}::MAX` (and NAN for floats) as None — passing 0 collides with
-                // a legitimate zero from the caller, e.g. timeout_secs=0 = "no timeout"
-                // would be silently treated as "unset" without this. Mirrors the
-                // `alef-backend-ffi` `param_optional_numeric_conversion` decoder.
-                // String/Char/Path/Json are reference types so `!` is correct for those.
                 if let TypeRef::Primitive(prim) = ty {
                     use crate::core::ir::PrimitiveType;
                     let sentinel = match prim {
@@ -242,21 +222,16 @@ pub(super) fn emit_named_param_setup(
 
         match &param.ty {
             TypeRef::Named(type_name) => {
-                // Truly opaque handles: the C# wrapper class holds the IntPtr directly.
-                // No from_json round-trip needed — pass .Handle directly in native_call_arg.
                 if true_opaque_types.contains(type_name) {
                     continue;
                 }
-                // Enums: marshal as i32 (cast directly), not JSON
                 if enum_names.contains(type_name) {
-                    // For optional enums, emit: var enumHandle = paramName != null ? (int)paramName : -1;
                     if param.optional {
                         out.push_str(&render(
                             "named_param_enum_optional.jinja",
                             minijinja::context! { indent, handle_var, param_name },
                         ));
                     } else {
-                        // For required enums, just cast: var enumHandle = (int)paramName;
                         out.push_str(&render(
                             "named_param_enum_required.jinja",
                             minijinja::context! { indent, handle_var, param_name },
@@ -267,9 +242,6 @@ pub(super) fn emit_named_param_setup(
                 let from_json_method = format!("{}FromJson", csharp_type_name(type_name));
 
                 if param.optional {
-                    // Optional Named param: pass IntPtr.Zero through to native when the
-                    // C# arg is null instead of round-tripping `"null"` through FromJson
-                    // which would error with "invalid type: null, expected struct T".
                     out.push_str(&crate::backends::csharp::template_env::render(
                         "named_param_handle_from_json_optional.jinja",
                         minijinja::context! {
@@ -299,7 +271,6 @@ pub(super) fn emit_named_param_setup(
                 }
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                // Vec/Map: serialize to JSON string, marshal to native pointer
                 out.push_str(&crate::backends::csharp::template_env::render(
                     "named_param_json_serialize.jinja",
                     minijinja::context! { indent, json_var => &json_var, param_name => &param_name },
@@ -310,7 +281,6 @@ pub(super) fn emit_named_param_setup(
                 ));
             }
             TypeRef::Bytes => {
-                // byte[]: pin the managed array and pass pointer to native
                 out.push_str(&crate::backends::csharp::template_env::render(
                     "named_param_handle_pin.jinja",
                     minijinja::context! { indent, handle_var => &handle_var, param_name => &param_name },
@@ -338,11 +308,9 @@ pub(super) fn emit_named_param_teardown(
         match &param.ty {
             TypeRef::Named(type_name) => {
                 if true_opaque_types.contains(type_name) {
-                    // Caller owns the opaque handle — do not free it here.
                     continue;
                 }
                 if enum_names.contains(type_name) {
-                    // Enums are passed as i32 (stack values); no cleanup needed.
                     continue;
                 }
                 let free_method = format!("{}Free", csharp_type_name(type_name));
@@ -382,11 +350,9 @@ pub(super) fn emit_named_param_teardown_indented(
         match &param.ty {
             TypeRef::Named(type_name) => {
                 if true_opaque_types.contains(type_name) {
-                    // Caller owns the opaque handle — do not free it here.
                     continue;
                 }
                 if enum_names.contains(type_name) {
-                    // Enums are passed as i32 (stack values); no cleanup needed.
                     continue;
                 }
                 let free_method = format!("{}Free", csharp_type_name(type_name));

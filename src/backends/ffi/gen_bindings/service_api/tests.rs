@@ -125,7 +125,6 @@ fn test_gen_service_rs_produces_valid_rust() {
 
     let rs = gen_service_rs(&api, &config);
 
-    // Verify that the generated Rust contains expected FFI markers
     assert!(rs.contains("#[no_mangle]"));
     assert!(rs.contains("extern \"C\""));
     assert!(rs.contains("TestServiceOpaque"));
@@ -145,7 +144,6 @@ fn test_handler_bridge_struct_is_generated() {
 
     let rs = gen_service_rs(&api, &config);
 
-    // The bridge must have callback and context fields
     assert!(rs.contains("struct FfiRequestHandlerBridge"));
     assert!(rs.contains("callback: extern \"C\" fn"));
     assert!(rs.contains("context: *mut c_void"));
@@ -161,7 +159,6 @@ fn test_opaque_has_constructor_and_destructor() {
 
     let rs = gen_service_rs(&api, &config);
 
-    // Constructor and destructor should be present
     assert!(rs.contains("pub extern \"C\" fn test_crate_test_service_new()"));
     assert!(rs.contains("pub extern \"C\" fn test_crate_test_service_free"));
 }
@@ -176,9 +173,7 @@ fn test_registration_function_exists() {
 
     let rs = gen_service_rs(&api, &config);
 
-    // Registration function should be present for each registration
     assert!(rs.contains("test_crate_test_service_register_add_handler"));
-    // The callback function pointer type is used in the handler bridge
     assert!(rs.contains("extern \"C\" fn(*mut c_void, *const c_char) -> *mut c_char"));
 }
 
@@ -192,7 +187,6 @@ fn test_entrypoint_function_exists() {
 
     let rs = gen_service_rs(&api, &config);
 
-    // Entrypoint function should be present
     assert!(rs.contains("test_crate_test_service_ep_run"));
     assert!(rs.contains("tokio::runtime::Runtime"));
 }
@@ -213,8 +207,6 @@ fn test_service_header_declares_metadata_and_entrypoint_params() {
         "entrypoint param missing from service header:\n{header}"
     );
 }
-
-// ── registration-variant tests ────────────────────────────────────────────
 
 fn make_surface_with_variant() -> ApiSurface {
     use crate::core::ir::{
@@ -632,17 +624,14 @@ fn configurator_function_unboxes_and_reboxes_inner() {
     };
     let rs = gen_service_rs(&api, &config);
 
-    // The generated configurator function must appear with the correct symbol name.
     assert!(
         rs.contains("fn worker_crate_worker_setup("),
         "configurator fn must be emitted; got:\n{rs}"
     );
-    // Must take the inner App out of the Option before calling the consuming method.
     assert!(
         rs.contains("let inner = match (*owner).inner.take()"),
         "configurator must `take()` owner.inner before calling the consuming method; got:\n{rs}"
     );
-    // Must re-box the returned value and assign it back inside Some(...).
     assert!(
         rs.contains("(*owner).inner = Some(Box::new(inner.setup("),
         "configurator must re-box the result and assign to owner.inner; got:\n{rs}"
@@ -673,16 +662,10 @@ fn registration_function_does_not_consume_builder_ownership() {
 
     let rs = gen_service_rs(&api, &config);
 
-    // The registration function must borrow the metadata params (path) as references,
-    // not consume them with Box::from_raw.
     assert!(
         !rs.contains("*Box::from_raw(path)"),
         "registration function must not use Box::from_raw on metadata params; got:\n{rs}"
     );
-    // String parameters are converted from *const c_char to owned String,
-    // but any Named type (builder, config) must be borrowed.
-    // Verify that path (a String param) uses the correct C-to-Rust conversion
-    // (CStr::from_ptr), not a pointer-ownership transfer.
     assert!(
         rs.contains("CStr::from_ptr(path)"),
         "registration function must convert string params via CStr::from_ptr; got:\n{rs}"
@@ -711,8 +694,6 @@ fn registration_named_opaque_param_clones_borrowed_pointer_at_call_site() {
     use crate::core::ir::TypeDef;
 
     let mut api = make_surface_with_variant();
-    // Register RouteBuilder as a public opaque type so the param-binding
-    // arm `TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n)` fires.
     api.types.push(TypeDef {
         name: "RouteBuilder".to_owned(),
         rust_path: "my_crate::RouteBuilder".to_owned(),
@@ -727,24 +708,16 @@ fn registration_named_opaque_param_clones_borrowed_pointer_at_call_site() {
 
     let rs = gen_service_rs(&api, &config);
 
-    // The borrow must be present (no Box::from_raw double-free).
     assert!(
         rs.contains("let builder = unsafe { &*builder };"),
         "opaque-pointer metadata param `builder` must be borrowed via &*ptr; got:\n{rs}"
     );
-    // The registration-dispatch call site must clone the borrow so the
-    // consuming `route()` API receives `RouteBuilder` by value, not
-    // `&RouteBuilder`. (Variant fns construct their own owned builder via
-    // `RouteBuilder::new(...)` and intentionally pass it by value without
-    // `.clone()` — that path is unaffected.)
     assert!(
         rs.contains(".add_route(builder.clone(), handler)"),
         "opaque-pointer metadata param `builder` must be `.clone()`d at the \
          registration dispatch call site so the consuming Rust API receives \
          `T`, not `&T`; got:\n{rs}"
     );
-    // Belt-and-braces: ensure the broken double-free path (Box::from_raw on
-    // the builder pointer) did not regress.
     assert!(
         !rs.contains("*Box::from_raw(builder)"),
         "opaque-pointer metadata param `builder` must not be consumed via \

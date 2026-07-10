@@ -129,7 +129,6 @@ fn test_struct_module_emits_moduledoc_heredoc_when_doc_present() {
         content.contains("@typedoc"),
         "@typedoc must be emitted; got:\n{content}"
     );
-    // @typedoc must come before @type t to be picked up by ExDoc.
     let typedoc_pos = content.find("@typedoc").expect("@typedoc must be present");
     let type_t_pos = content.find("@type t ::").expect("@type t must be present");
     assert!(
@@ -276,7 +275,6 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
         content.contains("A non-blocking caveat."),
         "Warning variant doc must appear in @doc above accessor; got:\n{content}"
     );
-    // Verify @doc precedes the corresponding @spec/def pair.
     let doc_pos = content.find("A blocking issue.").unwrap();
     let def_error_pos = content
         .find("def error,")
@@ -402,7 +400,6 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
         content.contains("Soft warning diagnostic."),
         "Warning variant doc must appear in @typedoc above type alias; got:\n{content}"
     );
-    // The @typedoc for a variant must precede the corresponding @type alias line.
     let typedoc_idx = content.find("Hard failure diagnostic.").unwrap();
     let alias_idx = content
         .find("@type error ::")

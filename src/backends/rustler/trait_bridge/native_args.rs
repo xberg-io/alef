@@ -51,8 +51,6 @@ pub(super) fn build_native_args(params: &[ParamDef], struct_param_types: &HashSe
 fn owned_arg_expr(p: &ParamDef, struct_param_types: &HashSet<String>) -> String {
     let name = &p.name;
 
-    // Known serde struct → build the binding's native NifStruct/NifMap via `From<core::T>`.
-    // `name` is `&core::T` (struct params are passed by reference), so clone the pointee.
     if let TypeRef::Named(n) = &p.ty {
         if struct_param_types.contains(n) {
             if p.is_ref {
@@ -62,13 +60,11 @@ fn owned_arg_expr(p: &ParamDef, struct_param_types: &HashSet<String>) -> String 
         }
     }
 
-    // Optional<String> (also covers `Option<&str>`): own the inner string.
     if p.optional && matches!(&p.ty, TypeRef::String) {
         return format!("{name}.map(|s| s.to_string())");
     }
 
     match &p.ty {
-        // Strings: own a String (Encoder for String encodes a native binary).
         TypeRef::String | TypeRef::Char => {
             if p.is_ref {
                 format!("{name}.to_string()")
@@ -76,7 +72,6 @@ fn owned_arg_expr(p: &ParamDef, struct_param_types: &HashSet<String>) -> String 
                 format!("{name}.clone()")
             }
         }
-        // Booleans and numeric primitives are Copy and encode as native terms directly.
         TypeRef::Primitive(
             PrimitiveType::Bool
             | PrimitiveType::U8
@@ -92,7 +87,6 @@ fn owned_arg_expr(p: &ParamDef, struct_param_types: &HashSet<String>) -> String 
             | PrimitiveType::F32
             | PrimitiveType::F64,
         ) => name.clone(),
-        // Slices / vecs: own a Vec (Encoder for Vec<T> encodes a native list).
         TypeRef::Vec(_) => {
             if p.is_ref {
                 format!("{name}.to_vec()")
@@ -100,8 +94,6 @@ fn owned_arg_expr(p: &ParamDef, struct_param_types: &HashSet<String>) -> String 
                 format!("{name}.clone()")
             }
         }
-        // Enums, opaque/handle, unknown Named, and any other shape: debug string fallback,
-        // preserving the prior (non-struct) representation as a native binary term.
         _ => format!("format!(\"{{:?}}\", {name})"),
     }
 }

@@ -79,8 +79,6 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
 
     let content = &lib_file.content;
 
-    // The body must call the core default() and convert with .into() so the
-    // binding wrapper type is returned, not the bare inner core type.
     assert!(
         content.contains("test_lib::options::ParseOptions::default().into()"),
         "static default() must wrap core call with .into() to return binding wrapper;\n\
@@ -211,7 +209,6 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
 
     let content = &lib_file.content;
 
-    // The body must delegate to the core method and convert the result with .into().
     assert!(
         content.contains("ParseOptions::from_update(update_core).into()"),
         "static from_update() must wrap core call with .into() to return binding wrapper;\n\

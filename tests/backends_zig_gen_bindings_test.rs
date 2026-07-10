@@ -213,13 +213,6 @@ fn trait_bridge_complex_return_passes_through_as_cstring() {
     let files = ZigBackend.generate_bindings(&api, &make_trait_bridge_config()).unwrap();
     let content = &files[0].content;
 
-    // In the Zig trait-bridge ABI every complex return (Bytes, Vec<T>, struct, enum, Map)
-    // is represented as a pre-serialized JSON `[*c]const u8` that the host impl returns
-    // directly — so the fallible thunk's ok value is ALREADY a C string pointer. It must
-    // be passed through via `@constCast` into `out_result`, NOT re-serialized: zig 0.16
-    // `std.json.fmt` cannot stringify `[*c]const u8`. Assert the pass-through path so a
-    // regression to the (invalid) json.fmt re-serialization — or to the silent-null stub —
-    // surfaces.
     assert!(
         content.contains("// String-like return type ([*c]const u8)"),
         "complex Zig trait-vtable return must take the pass-through path: {content}"
@@ -282,22 +275,18 @@ fn string_param_allocates_z_string_and_frees() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Wrapper signature uses []const u8 (Zig slice), not the C sentinel-terminated form.
     assert!(
         content.contains("pub fn greet(who: []const u8)"),
         "wrapper must accept []const u8 for String param: {content}"
     );
-    // Body allocates a null-terminated copy.
     assert!(
         content.contains("allocPrintSentinel") && content.contains("who_z"),
         "body must allocate a null-terminated copy: {content}"
     );
-    // The null-terminated copy is passed to the C function.
     assert!(
         content.contains("c.demo_greet(who_z)"),
         "C call must use who_z: {content}"
     );
-    // The allocation is freed after the call.
     assert!(
         content.contains("c_allocator.free") && content.contains("who_z"),
         "body must free the null-terminated copy: {content}"
@@ -343,12 +332,10 @@ fn bytes_param_passes_ptr_and_len() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Wrapper signature uses []const u8.
     assert!(
         content.contains("pub fn process(data: []const u8)"),
         "wrapper must accept []const u8 for Bytes param: {content}"
     );
-    // Body passes data.ptr and data.len as separate C arguments.
     assert!(
         content.contains("data.ptr") && content.contains("data.len"),
         "body must pass .ptr and .len for Bytes: {content}"
@@ -397,12 +384,10 @@ fn vec_param_takes_json_slice() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Wrapper parameter is []const u8 (JSON).
     assert!(
         content.contains("pub fn upload(items: []const u8)"),
         "Vec param must be []const u8 (JSON): {content}"
     );
-    // Body allocates a null-terminated copy.
     assert!(
         content.contains("allocPrintSentinel") && content.contains("items_z"),
         "body must allocate null-terminated copy for Vec param: {content}"
@@ -468,12 +453,10 @@ fn result_function_checks_last_error_code() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Return type must include the error union.
     assert!(
         content.contains("DemoError") && content.contains("!"),
         "must emit error-union return type: {content}"
     );
-    // Error check uses last_error_code(), not a broken `result == null or result == 0`.
     assert!(
         content.contains("last_error_code() != 0"),
         "must check last_error_code() for error detection: {content}"
@@ -482,7 +465,6 @@ fn result_function_checks_last_error_code() {
         !content.contains("result == null or result == 0"),
         "must NOT emit the broken null/0 check: {content}"
     );
-    // C call is present.
     assert!(content.contains("c.demo_extract("), "must call C function: {content}");
 }
 
@@ -526,12 +508,10 @@ fn async_function_is_emitted_as_sync() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // No "async unsupported" warning should appear — all functions are sync via C FFI.
     assert!(
         !content.contains("Async functions are not supported in this backend."),
         "must NOT emit async-unsupported comment: {content}"
     );
-    // The wrapper function must be emitted.
     assert!(
         content.contains("pub fn fetch_async"),
         "must emit async function wrapper as sync: {content}"
@@ -734,16 +714,12 @@ fn error_set_emits_zig_error_with_pascal_case_tags() {
 /// "use of undeclared identifier" errors.
 #[test]
 fn opaque_handle_with_no_methods_is_emitted() {
-    // Language is an opaque type with no instance methods — it is a bare
-    // newtype around a C pointer returned by get_language(). Before the fix,
-    // the emission loop filtered on `!t.methods.is_empty()`, silently skipping
-    // it and causing Zig to reject functions whose return type is `Language`.
     let language_type = TypeDef {
         name: "Language".to_string(),
         rust_path: "demo::Language".to_string(),
         original_rust_path: String::new(),
         fields: vec![],
-        methods: vec![], // <-- no methods: the key regression trigger
+        methods: vec![],
         is_opaque: true,
         is_clone: false,
         is_copy: false,
@@ -818,22 +794,18 @@ fn opaque_handle_with_no_methods_is_emitted() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // The Language struct must be declared even though it has no methods.
     assert!(
         content.contains("pub const Language = struct {"),
         "opaque handle with no methods must still be emitted as a Zig struct: {content}"
     );
-    // It must have the _handle field.
     assert!(
         content.contains("_handle: *anyopaque,"),
         "opaque handle struct must have _handle field: {content}"
     );
-    // get_language must reference the declared Language type.
     assert!(
         content.contains("pub fn get_language("),
         "get_language function must be emitted: {content}"
     );
-    // The function return type must reference Language by name.
     assert!(
         content.contains(")!Language") || content.contains("Language {"),
         "get_language return type or body must reference Language: {content}"
@@ -883,18 +855,14 @@ fn bool_return_emits_not_zero_conversion() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // The wrapper return type must be `bool`.
     assert!(
         content.contains(") error{OutOfMemory}!bool") || content.contains(") bool"),
         "return type must be bool: {content}"
     );
-    // The C function result must be converted with `!= 0` so Zig accepts it.
     assert!(
         content.contains("_result != 0"),
         "bool return must emit `_result != 0` conversion: {content}"
     );
-    // Must NOT return the raw `_result` (i32) directly — that would fail to
-    // compile because Zig does not coerce i32 to bool.
     assert!(
         !content.contains("return _result;"),
         "must NOT return raw _result (i32) for bool return: {content}"
@@ -959,12 +927,10 @@ fn bool_return_in_error_union_emits_not_zero_conversion() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // The wrapper return type must be an error union over bool.
     assert!(
         content.contains("!bool"),
         "fallible bool return type must include !bool: {content}"
     );
-    // The C function result must be converted with `!= 0`.
     assert!(
         content.contains("_result != 0"),
         "fallible bool return must emit `_result != 0` conversion: {content}"
@@ -1014,7 +980,6 @@ fn string_param_infallible_defers_free_after_c_call() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // `defer` must appear after allocPrintSentinel and before the C call.
     let alloc_pos = content
         .find("allocPrintSentinel")
         .expect("must allocate sentinel string");
@@ -1037,7 +1002,6 @@ fn string_param_infallible_defers_free_after_c_call() {
         "defer must come before the C call (free-before-use bug): {content}"
     );
 
-    // Must NOT have a bare (non-deferred) free before the C call.
     let pre_call = &content[..c_call_pos];
     assert!(
         !pre_call.contains("c_allocator.free(name_z)") || pre_call.contains("defer std.heap.c_allocator.free(name_z)"),
@@ -1104,17 +1068,14 @@ fn error_set_includes_out_of_memory_and_return_type_is_single_error_set() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Return type must be the single error set, not a double union concat.
     assert!(
         content.contains("DemoError![]u8"),
         "return type must be single error set DemoError![]u8, got: {content}"
     );
-    // Must NOT contain the verbose double error union concat.
     assert!(
         !content.contains("||error{OutOfMemory}"),
         "must NOT emit ||error{{OutOfMemory}} concat: {content}"
     );
-    // OutOfMemory must be present as a variant in the DemoError set definition.
     assert!(
         content.contains("OutOfMemory,"),
         "DemoError must include OutOfMemory variant: {content}"
@@ -1201,10 +1162,6 @@ fn string_param_fallible_defers_free_after_c_call() {
 
 #[test]
 fn string_return_uses_len_companion_and_pointer_slice() {
-    // Verifies: when a free function returns a `*mut c_char`-mapped type
-    // (String/Path/Json/Vec/Map), the Zig wrapper pairs the primary call with
-    // alef-backend-ffi's `_len()` companion and builds an exact-length slice via
-    // `ptr[0..len]` — no `std.mem.sliceTo`/sentinel scan required.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1264,8 +1221,6 @@ fn string_return_uses_len_companion_and_pointer_slice() {
 
 #[test]
 fn optional_string_return_uses_len_companion_with_null_guard() {
-    // Verifies: `Option<String>` returns gate the slice construction on a null
-    // check of `_result`, then build `ptr[0..len]` from the `_len()` companion.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1509,8 +1464,6 @@ type = "CrawlStreamRequest"
     let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
     let config = cfg.resolve().expect("test config must resolve").remove(0);
 
-    // The IR method name must match the adapter `name` for the zig backend to
-    // recognise it as streaming (see `streaming_item_types` map in mod.rs).
     let crawl_stream_method = MethodDef {
         name: "crawl_stream".into(),
         params: vec![make_param("req", TypeRef::Named("CrawlStreamRequest".into()))],
@@ -1593,17 +1546,14 @@ type = "CrawlStreamRequest"
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // Streaming struct type must be emitted (before the opaque handle).
     assert!(
         content.contains("pub const CrawlEventStream = struct {"),
         "must emit CrawlEventStream struct type: {content}"
     );
-    // Struct must have _handle field holding the FFI stream handle.
     assert!(
         content.contains("_handle: *c.DEMOCrawlEventStream,"),
         "struct must have _handle field with FFI stream type: {content}"
     );
-    // Struct must have next() method that returns optional item or error.
     assert!(
         content.contains("pub fn next(self: *CrawlEventStream)"),
         "struct must have next() method: {content}"
@@ -1612,14 +1562,10 @@ type = "CrawlStreamRequest"
         content.contains("!?CrawlEvent"),
         "next() must return error union of optional item: {content}"
     );
-    // next() must call _next to fetch a chunk.
     assert!(
         content.contains("c.demo_crawl_engine_handle_crawl_stream_next(self._handle)"),
         "next() must call _next to fetch the next chunk: {content}"
     );
-    // next() must distinguish clean EOS (null + errno==0) from mid-stream error (null + errno!=0).
-    // The emitter uses the canonical `c.{prefix}_last_error_code() != 0` form rather than an
-    // undefined `_has_error()` helper.
     assert!(
         content.contains("if (c.demo_last_error_code() != 0) return _first_error(DemoError);"),
         "next() must check error state on null chunk via last_error_code: {content}"
@@ -1628,12 +1574,10 @@ type = "CrawlStreamRequest"
         content.contains("return null;"),
         "next() must return null on clean EOS: {content}"
     );
-    // next() must parse the chunk to the item type via `std.json.parseFromSliceLeaky`.
     assert!(
         content.contains("std.json.parseFromSliceLeaky(CrawlEvent,"),
         "next() must parse JSON to item type via parseFromSliceLeaky: {content}"
     );
-    // Struct must have deinit() method to release the stream handle.
     assert!(
         content.contains("pub fn deinit(self: *CrawlEventStream) void {"),
         "struct must have deinit() method: {content}"
@@ -1642,32 +1586,26 @@ type = "CrawlStreamRequest"
         content.contains("c.demo_crawl_engine_handle_crawl_stream_free(self._handle)"),
         "deinit() must call _free to release the stream handle: {content}"
     );
-    // Streaming wrapper method must be emitted on the CrawlEngineHandle struct.
     assert!(
         content.contains("pub fn crawl_stream(self: *CrawlEngineHandle"),
         "must emit streaming wrapper on opaque handle: {content}"
     );
-    // Return type must be the struct (not a JSON array).
     assert!(
         content.contains("!CrawlEventStream {"),
         "streaming return type must be `!CrawlEventStream` (not `![]u8`): {content}"
     );
-    // Body must build the request handle from JSON via the request_type's _from_json.
     assert!(
         content.contains("c.demo_crawl_stream_request_from_json("),
         "must build request handle from JSON: {content}"
     );
-    // Body must call the iterator `_start` symbol to begin the stream.
     assert!(
         content.contains("c.demo_crawl_engine_handle_crawl_stream_start("),
         "must call `_start` to begin the stream: {content}"
     );
-    // Body must return the struct (not defer-free it).
     assert!(
         content.contains("return CrawlEventStream{ ._handle = _stream_handle };"),
         "must return the stream struct (caller owns it via deinit()): {content}"
     );
-    // Must NOT eagerly collect chunks into a JSON array.
     assert!(
         !content.contains("while (true) {"),
         "must NOT eagerly loop over chunks in the binding function: {content}"
@@ -1792,25 +1730,21 @@ type = "CrawlStreamRequest"
     let files = ZigBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // The next() method must be present and take `self: *CrawlEventStream`.
     assert!(
         content.contains("pub fn next(self: *CrawlEventStream)"),
         "next() method must be present on CrawlEventStream: {content}"
     );
 
-    // The deinit() method must be present and take `self: *CrawlEventStream`.
     assert!(
         content.contains("pub fn deinit(self: *CrawlEventStream) void {"),
         "deinit() method must be present on CrawlEventStream: {content}"
     );
 
-    // next() must return an optional item (or error).
     assert!(
         content.contains("!?CrawlEvent"),
         "next() must return error union of optional item type: {content}"
     );
 
-    // deinit() must release the handle via _free.
     assert!(
         content.contains("c.demo_crawl_engine_handle_crawl_stream_free(self._handle);"),
         "deinit() must call the _free FFI function: {content}"
@@ -1819,14 +1753,6 @@ type = "CrawlStreamRequest"
 
 #[test]
 fn named_json_return_guards_against_null_to_json_pointer() {
-    // Regression: `<prefix>_<snake>_to_json` is allowed to return NULL when
-    // serialisation fails (e.g., a result contains a field the FFI layer can't
-    // represent). The previous template called `std.mem.sliceTo(_json_ptr, 0)`
-    // unconditionally and panicked with `reached unreachable code` on the
-    // `ptr != null` assert deep in std.mem.lenSliceTo, crashing the test
-    // process. The fix returns `_first_error(<ErrorSet>)` when the pointer
-    // is NULL so callers see an error (a member of the function's declared
-    // error set) instead of an ABRT.
     let result_type = TypeDef {
         name: "ExtractionResult".into(),
         rust_path: "demo::ExtractionResult".into(),
@@ -1889,7 +1815,6 @@ fn named_json_return_guards_against_null_to_json_pointer() {
         content.contains("if (_json_ptr == null) return _first_error(anyerror);"),
         "named struct return must guard against NULL to_json pointer with _first_error(<ErrorSet>): {content}"
     );
-    // And the slice/dupe must come AFTER the guard, never before.
     let guard_pos = content
         .find("if (_json_ptr == null) return _first_error(anyerror);")
         .expect("guard line present");

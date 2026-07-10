@@ -11,11 +11,6 @@ pub(super) fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> 
     let workspace_root = config.workspace_root.as_deref();
     let default_name = &config.name;
 
-    // Build source groups: use explicit primary source_crates config when
-    // available, otherwise derive crate names from file paths in the flat
-    // sources list. Source-crate entries with `roots` are external type-only
-    // seeds and are merged later by the external-types pass; they must not
-    // replace the host crate sources.
     let mut groups: std::collections::BTreeMap<String, Vec<&Path>> = std::collections::BTreeMap::new();
     let primary_source_crates: Vec<_> = config
         .source_crates
@@ -36,7 +31,6 @@ pub(super) fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> 
         }
     }
 
-    // Extract each group with its own crate name, then merge
     let mut merged = ApiSurface {
         crate_name: default_name.to_string(),
         version: version.clone(),
@@ -55,12 +49,6 @@ pub(super) fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> 
         merged.unsupported_public_items.extend(api.unsupported_public_items);
     }
 
-    // Re-run the return-type marking against the merged surface so that a
-    // function in crate A that returns a type whose canonical home is crate B
-    // (a common pattern when the public facade `pub use`s items from internal
-    // crates) still gets its TypeDef.is_return_type flagged. The per-crate
-    // extractor only marks types that share its own surface, so cross-crate
-    // function→type pairs would otherwise stay false here.
     let return_type_names: ahash::AHashSet<String> = merged
         .functions
         .iter()
@@ -84,7 +72,6 @@ pub(super) fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> 
 /// Falls back to the provided default name if the pattern doesn't match.
 fn derive_crate_name_from_path(path: &Path, default: &str) -> String {
     let path_str = path.to_string_lossy();
-    // Match both "crates/foo-bar/src/" and "/abs/path/crates/foo-bar/src/"
     if let Some(after_crates) = path_str.split("crates/").nth(1) {
         if let Some(name) = after_crates.split('/').next() {
             if path_str.contains(&format!("crates/{name}/src/")) {

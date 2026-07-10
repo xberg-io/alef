@@ -42,64 +42,29 @@ pub(crate) fn emit_trait_bridge(
         trait_def.rust_path.replace('-', "_")
     };
 
-    // Filter to own methods that the foreign object must provide.
-    // - `trait_source.is_none()` excludes methods inherited from super-traits (handled
-    //   separately: `Plugin` via the dedicated impl below, other super-traits via stubs).
-    // - Methods with `has_default_impl = true` are intentionally included: the bridge exists
-    //   precisely to dispatch to Dart-side implementations. Relying on the Rust default impl
-    //   would silently no-op every visitor/plugin callback (D8 fix).
-    // - Methods whose return type references another trait (e.g. `Option<&dyn SyncExtractor>`)
-    //   are NOT bridgeable to Dart — the foreign side cannot construct or return a Rust
-    //   trait object across FFI. Skip them and let the Rust trait's default impl handle
-    //   the receiver. The skipped methods must have `has_default_impl = true`; otherwise
-    //   the emitted `impl Trait for Struct` will fail to compile because the required
-    //   method is missing.
     let own_methods: Vec<&MethodDef> = trait_def
         .methods
         .iter()
         .filter(|m| m.trait_source.is_none() && !return_type_references_trait(&m.return_type, api))
         .collect();
 
-    // Check if Plugin is a direct super-trait.
     let has_plugin_super = trait_def
         .super_traits
         .iter()
         .any(|s| s == "Plugin" || s.ends_with("::Plugin"));
 
-    // The `type_alias` mode (e.g. `VisitorHandle` for the `HtmlVisitor` trait) wraps the
-    // Rust-side impl in the trait's `Arc<Mutex<dyn Trait + Send>>` alias before handing
-    // it back to Dart. In that mode:
-    //
     //   - The impl struct is PRIVATE (no `pub`, no `#[frb(opaque)]`) so FRB never sees
-    //     it. This avoids FRB v2's failure mode where `Box<dyn Fn(...)>` fields on an
-    //     opaque struct render as uninstantiable opaque callback classes on the Dart side.
-    //   - The factory takes closures as `impl Fn(...) -> DartFnFuture<R> + Send + Sync +
-    //     'static` parameters — FRB synthesises Dart-callable function types for closure
-    //     **parameters** (but not for closure **fields** on opaque structs).
-    //   - The factory returns the already-emitted local `type_alias` opaque wrapper
-    //     (e.g. `VisitorHandle { inner: Arc<Mutex<...>> }`) which IS exposed to FRB.
-    //
-    // Bridge configs WITHOUT `type_alias` (the registry-factory pattern) keep the legacy
     // factory shape: a `#[frb(opaque)] pub struct TraitDartImpl { Box<dyn Fn(...)> }`
-    // exposed directly to FRB and handed to a `register_*` forwarder. Those callsites
-    // use the Box-typed fields internally and never construct callbacks from Dart user
-    // code — so the FRB-opaque-callback limitation does not bite.
     let uses_type_alias = bridge_config.type_alias.is_some();
 
     // The closure-bearing struct is ALWAYS private. FRB v2 walks `#[frb(opaque)]`
-    // struct fields and silently drops the surrounding factory if it finds
-    // `Box<dyn Fn(...)>` closures it cannot bridge. In the type-alias path the
-    // wrapper is the configured `type_alias` (e.g. `VisitorHandle`); in the
-    // non-type-alias plugin path the wrapper is a synthesised
     // `#[frb(opaque)] pub struct {Trait}DartImpl(pub Arc<dyn Trait + Send + Sync>)`
-    // emitted after the trait impls (see section 3b below).
     let callbacks_struct_name = if uses_type_alias {
         struct_name.clone()
     } else {
         format!("{trait_name}DartCallbacks")
     };
 
-    // --- 1. Impl struct holding Dart callbacks (private) ---
     if uses_type_alias {
         out.push_str("/// Internal Rust-side storage for Dart-provided visitor callbacks.\n");
         out.push_str("/// Not exposed via FRB (private to the bridge crate); the public factory\n");
@@ -120,7 +85,6 @@ pub(crate) fn emit_trait_bridge(
             name => callbacks_struct_name.as_str(),
         },
     ));
-    // Plugin fields for name/version (required by Plugin super-trait).
     if has_plugin_super {
         out.push_str("    /// Plugin name used by the Plugin super-trait impl.\n");
         out.push_str("    plugin_name: String,\n");
@@ -142,9 +106,6 @@ pub(crate) fn emit_trait_bridge(
         "rust_mirror_struct_close.jinja",
         minijinja::context! {},
     ));
-    // D4: emit a manual Debug impl so the struct satisfies `Debug` supertrait bounds
-    // (e.g. `pub trait HtmlVisitor: Debug + Send`). Closure fields are not Debug;
-    // we use `finish_non_exhaustive()` to produce a valid but opaque representation.
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_callbacks_debug_impl.rs.jinja",
         minijinja::context! {
@@ -153,9 +114,7 @@ pub(crate) fn emit_trait_bridge(
     ));
     out.push('\n');
 
-    // --- 2. impl Plugin for Struct (super-trait) ---
     if has_plugin_super {
-        // Find Plugin trait def to get its rust_path.
         let plugin_path = api
             .types
             .iter()
@@ -199,8 +158,6 @@ pub(crate) fn emit_trait_bridge(
         out.push('\n');
     }
 
-    // --- 3. impl Trait for Struct ---
-    // async_trait macro is required for async methods in trait impls.
     let has_async = own_methods.iter().any(|m| m.is_async);
     if has_async {
         out.push_str("#[async_trait::async_trait]\n");
@@ -227,22 +184,7 @@ pub(crate) fn emit_trait_bridge(
     out.push_str("}\n");
     out.push('\n');
 
-    // --- 3b. Public opaque wrapper (non-type-alias path only) ---
-    // FRB sees ONLY this single-field tuple struct: an `Arc<dyn Trait + Send + Sync>`
-    // already constructed by the factory. The closure-bearing struct above stays
-    // invisible to FRB. The wrapper is what Dart user code holds and what the
-    // register forwarder consumes.
-    //
-    // The trait name inside `Arc<dyn …>` is emitted UNQUALIFIED. FRB v2 strips
-    // `dyn` and the qualified path when copying the inner type into the generated
-    // `frb_generated.rs` (it writes `Arc<DocumentExtractor + Send + Sync>` not
-    // `Arc<dyn example_crate::plugins::DocumentExtractor + …>`). `frb_generated.rs`
-    // imports `use crate::*;` at its top, so a sibling `pub use {trait_path};`
-    // at this site makes the bare trait ident resolvable from inside FRB's code.
     if !uses_type_alias {
-        // Named field literally `field0` to match FRB v2's auto-opaque accessor
-        // codegen, which references `api_that_guard.field0` regardless of whether
-        // the source was a tuple struct (`.0`) or a single-field named struct.
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_reexport_opaque_wrapper.rs.jinja",
             minijinja::context! {
@@ -255,23 +197,8 @@ pub(crate) fn emit_trait_bridge(
         out.push('\n');
     }
 
-    // --- 4. Factory function ---
-    // Two emission shapes:
-    //
-    // (A) `type_alias` is set (visitor pattern): factory takes closures as
-    //     `impl Fn(...) -> DartFnFuture<R> + Send + Sync + 'static` parameters and returns
-    //     the already-emitted local opaque wrapper. FRB synthesises a Dart-callable
-    //     function type for each closure parameter (whereas closure FIELDS on opaque
-    //     structs render as uninstantiable opaque types in FRB v2).
-    //
-    // (B) `type_alias` is unset (registry-factory pattern): legacy factory shape — takes
-    //     `Box<dyn Fn(...) -> DartFnFuture<R> + Send + Sync>` and returns the opaque
-    //     bridge struct directly. The Dart-side wiring goes through `register_*` /
-    //     `unregister_*` forwarders that consume the bridge struct opaquely.
     if uses_type_alias {
         let type_alias = bridge_config.type_alias.as_deref().unwrap_or("");
-        // Locate the local opaque-wrapper TypeDef so we can pull its `rust_path` (the
-        // qualified core path, e.g. `sample_markdown_rs::visitor::VisitorHandle`).
         let alias_def = api.types.iter().find(|t| t.name == type_alias);
         let inner_path = match alias_def {
             Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
@@ -301,14 +228,6 @@ pub(crate) fn emit_trait_bridge(
                 .collect();
             let ret = frb_rust_type_excluded_aware(&method.return_type, false, &api.excluded_type_paths);
             let params_str = params.join(", ");
-            // FRB v2's closure-parameter parser matches the return type by inspecting
-            // the FIRST path segment of the return type (`path.segments.first().ident`).
-            // A fully-qualified `flutter_rust_bridge::DartFnFuture<...>` makes that first
-            // segment resolve to `flutter_rust_bridge`, causing the parser to bail with
-            // "DartFn does not support return types except `DartFnFuture<T>` yet". Use
-            // the bare ident — `DartFnFuture` is already brought into scope via the
-            // `pub use flutter_rust_bridge::DartFnFuture` at the top of every generated
-            // lib.rs (see `gen_rust_crate::mod::generate_lib_rs`).
             out.push_str(&crate::backends::dart::template_env::render(
                 "rust_trait_type_alias_factory_param.jinja",
                 minijinja::context! {
@@ -318,8 +237,6 @@ pub(crate) fn emit_trait_bridge(
                 },
             ));
         }
-        // VisitorHandle is `Arc<Mutex<dyn HtmlVisitor + Send>>`. Build the inner alias and
-        // wrap it in the local opaque struct via its `From<core_type>` impl.
         let method_names: Vec<&str> = own_methods.iter().map(|method| method.name.as_str()).collect();
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_type_alias_factory_body.jinja",
@@ -332,17 +249,6 @@ pub(crate) fn emit_trait_bridge(
             },
         ));
 
-        // --- 4b. Options-builder helper (options_field binding only) ---
-        //
-        // ConversionOptions is a mirror struct rendered as a Dart class with `final` fields
-        // and a `const` constructor — there is no copyWith and no way to set `visitor` after
-        // construction. To thread a visitor handle into an options blob loaded from JSON
-        // (e.g. the e2e fixture pattern), we emit a small Rust helper:
-        //
-        //     pub fn create_<options>_from_json_with_<field>(json, visitor) -> Result<Mirror, String>
-        //
-        // It deserialises the core options, sets the `visitor` field on the core value, then
-        // converts to the mirror type via the already-emitted `From<core>` impl.
         if bridge_config.bind_via == BridgeBinding::OptionsField {
             if let (Some(options_type), Some(field_raw)) = (
                 bridge_config.options_type.as_deref(),
@@ -370,10 +276,6 @@ pub(crate) fn emit_trait_bridge(
             }
         }
     } else {
-        // Non-type-alias plugin factory: same `impl Fn` parameter shape as the
-        // type-alias path so FRB can synthesise Dart-callable function types for
-        // each closure parameter. Returns the `pub struct {Trait}DartImpl(Arc<dyn …>)`
-        // wrapper emitted in section 3b.
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_trait_plugin_factory_doc.rs.jinja",
             minijinja::context! {
@@ -395,10 +297,6 @@ pub(crate) fn emit_trait_bridge(
         }
         for method in &own_methods {
             let param_name = &method.name;
-            // Use the same substitution as the closure-field type
-            // (`dart_fn_future_callback_type`) so the `impl Fn` param shape matches
-            // the field's `Box<dyn Fn>` shape at the `Box::new(name)` init site —
-            // including excluded-type carrier substitution applied to trait signatures.
             let callback_ty =
                 dart_fn_future_factory_param_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
             out.push_str(&crate::backends::dart::template_env::render(
@@ -429,12 +327,6 @@ pub(crate) fn emit_trait_bridge(
         ));
     }
 
-    // --- 5. register_*/unregister_*/clear_* forwarder functions ---
-    // Emitted only when the bridge config sets `register_fn` (and optionally `unregister_fn`
-    // / `clear_fn`). FRB auto-bridges these `pub fn` items so Dart sees them as:
-    //   Future<void> registerOcrBackend(...)
-    //   Future<void> unregisterOcrBackend(...)
-    //   Future<void> clearOcrBackends()
     emit_register_forwarder(out, bridge_config, &struct_name, source_crate_name);
     emit_unregister_forwarder(out, bridge_config, source_crate_name);
     emit_clear_forwarder(out, bridge_config, source_crate_name);

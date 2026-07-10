@@ -25,15 +25,11 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         "packages/elixir/native/{name}_nif/src/",
     );
 
-    // Rust glue
     let service_rs = gen_service_rs(api, config);
 
-    // Elixir module — pass the consumer's module prefix so the
-    // service module can `alias <Prefix>.Native`.
     let (_, module_prefix) = crate::backends::rustler::gen_bindings::helpers::get_module_info(api, config);
     let service_ex = gen_service_ex(api, &module_prefix);
 
-    // Determine Elixir package output directory
     let elixir_pkg = config.output_paths.get("elixir").map(PathBuf::from).unwrap_or_else(|| {
         let app_name = config.elixir_app_name();
         PathBuf::from(format!("packages/elixir/lib/{}", app_name))

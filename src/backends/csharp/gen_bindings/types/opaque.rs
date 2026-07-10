@@ -26,9 +26,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_opaque_handle(
     use crate::backends::csharp::template_env::render;
     use minijinja::Value;
 
-    // Determine which additional using directives are needed.
-    // Streaming methods reuse the JSON / async / generics / pinvoke machinery, so they count
-    // toward `has_methods`, `needs_async`, and `needs_list` regardless of the non-streaming set.
     let has_streaming = typ
         .methods
         .iter()
@@ -54,7 +51,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_opaque_handle(
     let class_name = csharp_type_name(&typ.name);
     let free_method = format!("{}Free", class_name);
 
-    // Prepare doc lines if present
     let doc_lines = super::super::sanitize_doc_lines_for_csharp(&typ.doc);
     let has_doc = !doc_lines.is_empty();
 
@@ -74,11 +70,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_opaque_handle(
     );
     out.push('\n');
 
-    // Generate public methods for each non-streaming method on this opaque type.
-    // These delegate to NativeMethods using this.Handle as the receiver.
-    // Use the full set of opaque type names so that methods returning other opaque
-    // types (e.g., LanguageRegistry::get_language → Language) are wrapped directly
-    // as `new Language(ptr)` rather than being incorrectly JSON-serialized.
     let true_opaque_types = all_opaque_type_names;
     for method in &typ.methods {
         if streaming_methods.contains(&method.name) {
@@ -88,14 +79,9 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_opaque_handle(
             }
             continue;
         }
-        // A static method returning a borrowed reference to its own opaque type (e.g.
-        // `Registry::global() -> &'static Registry`) has no FFI symbol — the FFI backend
-        // cannot box a borrow into an owned `*mut T` handle. Skip the public wrapper so it
-        // does not reference a missing `NativeMethods` P/Invoke entry point.
         if method.returns_ref_to_owner(&typ.name) {
             continue;
         }
-        // Static constructor: emit as public constructor instead of instance method
         if is_static_constructor(method, &typ.name) {
             out.push('\n');
             out.push_str(&gen_opaque_static_constructor(
@@ -119,7 +105,6 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_opaque_handle(
         ));
     }
 
-    // Client constructor factory method.
     if let Some(ctor) = client_constructor {
         out.push('\n');
         out.push_str(&gen_opaque_factory_method(&class_name, exception_name, ctor));
@@ -144,8 +129,6 @@ pub(super) fn gen_opaque_streaming_method(
     let cs_type_name = class_name.to_string();
     let item_pascal = csharp_type_name(&meta.item_type);
 
-    // Resolve the request parameter: first Named parameter is the JSON-serialised request payload.
-    // Streaming adapters pass exactly one named request payload argument.
     let req_param = method.params.iter().find(|p| matches!(&p.ty, TypeRef::Named(_)));
     let (req_pascal, req_param_name) = match req_param {
         Some(p) => match &p.ty {
@@ -166,8 +149,6 @@ pub(super) fn gen_opaque_streaming_method(
 
     let doc_lines = super::super::sanitize_doc_lines_for_csharp(&method.doc);
     let has_doc = !doc_lines.is_empty();
-    // Public method name follows the C# `Async` convention; native FFI names
-    // (start/next/free above) intentionally stay unsuffixed.
     let public_method_name = if cs_method_name.ends_with("Async") {
         cs_method_name.clone()
     } else {
@@ -209,10 +190,8 @@ pub(super) fn gen_opaque_method(
 
     let mut out = String::new();
 
-    // Collect visible params (skip any that are themselves opaque handles acting as bridges).
     let visible_params: Vec<crate::core::ir::ParamDef> = method.params.clone();
 
-    // XML doc comment.
     let method_doc_lines = super::super::sanitize_doc_lines_for_csharp(&method.doc);
     if !method_doc_lines.is_empty() {
         out.push_str(&render(
@@ -225,7 +204,6 @@ pub(super) fn gen_opaque_method(
         ));
     }
 
-    // Return type.
     let return_type_str = if method.is_async {
         if method.return_type == TypeRef::Unit {
             "async Task".to_string()
@@ -242,9 +220,6 @@ pub(super) fn gen_opaque_method(
     };
 
     let method_cs_name = to_csharp_name(&method.name);
-    // Async methods follow the C# Framework Design Guidelines: their public name
-    // ends in `Async`. The native FFI name below (`{class_name}{method_cs_name}`)
-    // intentionally stays unsuffixed so it matches the C ABI export.
     let public_method_name = if method.is_async && !method_cs_name.ends_with("Async") {
         format!("{method_cs_name}Async")
     } else {
@@ -260,7 +235,6 @@ pub(super) fn gen_opaque_method(
         .trim_end_matches('\n'),
     );
 
-    // Parameters.
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
         let param_type = csharp_type(&param.ty);
@@ -287,7 +261,6 @@ pub(super) fn gen_opaque_method(
     }
     out.push_str(")\n    {\n");
 
-    // Serialize Named params to JSON handles.
     emit_named_param_setup(
         &mut out,
         &visible_params,
@@ -298,13 +271,8 @@ pub(super) fn gen_opaque_method(
         enum_names,
     );
 
-    // The native method name is {TypeName}{MethodName} (same as gen_wrapper_method).
     let cs_native_name = format!("{class_name}{method_cs_name}");
 
-    // Result<bytes::Bytes> uses the FFI out-param convention (out_ptr/out_len/out_cap)
-    // rather than the standard pointer-return marshalling. Emit a dedicated body that
-    // throws via NativeMethods.LastError* directly (rather than the wrapper-class-private
-    // GetLastError helper, which is not visible from this opaque-handle class).
     if super::super::functions::is_bytes_result_method(method) {
         let mut args_block = String::new();
         let arg_indent = if method.is_async {
@@ -433,7 +401,7 @@ pub(super) fn gen_opaque_method(
             "            ",
             enum_names,
             true_opaque_types,
-            &HashSet::new(), // Opaque handle methods rarely return other Named types
+            &HashSet::new(),
         );
         emit_named_param_teardown_indented(&mut out, &visible_params, "            ", true_opaque_types, enum_names);
         emit_return_statement_indented(&mut out, &method.return_type, "            ");

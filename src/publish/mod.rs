@@ -75,14 +75,6 @@ pub fn prepare(
                     )?;
                     eprintln!("  vendored to {}", result.vendor_dir.display());
                 }
-                // CoreOnly vendors the core crate's sources alongside the binding,
-                // but the BINDING crate's Cargo.toml still references workspace
-                // members via `path = "..."` — those paths only resolve in-workspace
-                // and break the gem/hex build on a consumer machine. Apply the same
-                // binding-manifest rewrite that Registry mode does so the published
-                // package compiles standalone. The vendored core sources remain
-                // available for users who want to build from local source, while
-                // cargo falls back to the registry version for normal installs.
                 rewrite_binding_path_deps(config, lang, require_registry, dry_run)?;
             }
             VendorMode::Full => {
@@ -107,7 +99,6 @@ pub fn prepare(
             VendorMode::None => {}
         }
 
-        // Stage FFI artifacts for FFI-dependent languages.
         if is_ffi_dependent(lang) {
             if let Some(target) = target {
                 let workspace_root = resolve_workspace_root(config);
@@ -127,7 +118,6 @@ pub fn prepare(
             }
         }
 
-        // Run after hooks on success (before moving to next language).
         if !dry_run {
             run_publish_after_hooks(lang, &lang_config)?;
         }
@@ -161,7 +151,6 @@ pub fn build(
         validate_identifier(&t.triple, "target.triple")?;
     }
 
-    // For FFI-dependent languages, build the FFI crate first.
     let needs_ffi = languages.iter().any(|l| is_ffi_dependent(*l));
     let ffi_in_list = languages.contains(&Language::Ffi);
     if needs_ffi && !ffi_in_list {
@@ -176,15 +165,11 @@ pub fn build(
             continue;
         }
 
-        // Skip FFI-dependent languages if FFI was already built as dependency.
         if matches!(lang, Language::Go | Language::Java | Language::Csharp) && needs_ffi && !ffi_in_list {
             eprintln!("Skipping {lang}: FFI already built as dependency");
             continue;
         }
 
-        // Use custom build command from [publish.languages.{lang}] if set.
-        // Otherwise fall back to [build_commands.{lang}].build_release if set.
-        // Otherwise use the config-driven default.
         let cmd = if let Some(custom) = &lang_config.build_command {
             substitute_target(&custom.commands().join(" && "), target)
         } else if let Some(build_cmd_cfg) = config
@@ -202,7 +187,6 @@ pub fn build(
         run_shell_command(&cmd)?;
         eprintln!("  build complete for {lang}");
 
-        // Run after hooks on success.
         run_publish_after_hooks(lang, &lang_config)?;
     }
     Ok(())
@@ -241,7 +225,6 @@ pub(crate) fn crate_name_from_output(config: &ResolvedCrateConfig, lang: Languag
         Language::Swift | Language::Dart => None,
     }?;
     let path = std::path::Path::new(output_path);
-    // Strip trailing `src/` component if present.
     let crate_dir = if path.file_name().is_some_and(|n| n == "src") {
         path.parent()?
     } else {
@@ -293,7 +276,6 @@ fn build_command_for_lang(
             format!("{cargo} build --release -p {pkg}{target_flag}")
         }
         Language::Go | Language::Java | Language::Csharp => {
-            // FFI-dependent languages: build the FFI crate.
             let pkg = crate_name_from_output(config, Language::Ffi).unwrap_or_else(|| format!("{crate_name}-ffi"));
             format!("{cargo} build --release -p {pkg}{target_flag}")
         }
@@ -395,9 +377,6 @@ pub fn package(
 
         eprintln!("Packaging {lang} for platform {platform}...");
 
-        // Defense-in-depth: if this language vendors in Registry mode, re-scan
-        // the shipped binding manifest and bail if any workspace-member dep still
-        // has a `path` (catches a skipped `prepare`). Cheap — a single read+parse.
         let pkg_vendor_mode = lang_config
             .vendor_mode
             .as_ref()
@@ -470,12 +449,10 @@ pub fn package(
                 Some(vec![artifact])
             }
             Language::Kotlin => {
-                // Kotlin/JVM packaging is target-independent — Gradle produces a JVM jar.
                 let artifact = package::kotlin::package_kotlin(config, ws_root, output_dir, version)?;
                 Some(vec![artifact])
             }
             Language::Gleam => {
-                // Gleam source packaging is target-independent.
                 let artifact = package::gleam::package_gleam(config, ws_root, output_dir, version)?;
                 Some(vec![artifact])
             }
@@ -485,17 +462,14 @@ pub fn package(
                 Some(vec![artifact])
             }
             Language::Dart => {
-                // Dart source packaging is target-independent (FRB handles cross-compilation).
                 let artifact = package::dart::package_dart(config, ws_root, output_dir, version)?;
                 Some(vec![artifact])
             }
             Language::Swift => {
-                // Swift source packaging is target-independent; XCFramework requires xcodebuild.
                 let artifact = package::swift::package_swift(config, ws_root, output_dir, version)?;
                 Some(vec![artifact])
             }
             Language::Rust => {
-                // CLI packaging is invoked explicitly from alef-cli, not through the language dispatch.
                 eprintln!("  CLI (Rust) packaging handled separately");
                 None
             }
@@ -511,7 +485,6 @@ pub fn package(
             }
         }
 
-        // Run after hooks on success.
         run_publish_after_hooks(lang, &lang_config)?;
     }
     Ok(())
@@ -535,7 +508,6 @@ fn resolve_core_crate_dir(config: &ResolvedCrateConfig) -> String {
             return core_crate.clone();
         }
     }
-    // Fall back to deriving from [crate].sources.
     let dir = config.core_crate_dir();
     if !config.sources.is_empty() {
         let first = config.sources[0].to_string_lossy();
@@ -588,13 +560,6 @@ fn rewrite_binding_path_deps(
         return Ok(());
     }
 
-    // Canonicalize after the exists() check so we have a guarantee the path
-    // is on disk. This ensures the absolute path passed to
-    // scrub_or_regenerate_lock (and via manifest_dir.parent()) is truly
-    // absolute even when ws_root is "." (the resolve_workspace_root fallback).
-    // CI runners using /github/workspace symlink mounts can trip canonicalize
-    // even for existing paths; fall back to cwd-prefix in that case so the
-    // path is at least absolute.
     let manifest_abs = manifest_abs
         .canonicalize()
         .or_else(|_| std::env::current_dir().map(|cwd| cwd.join(&manifest_abs)))
@@ -625,10 +590,6 @@ fn rewrite_binding_path_deps(
     );
     vendor::rewrite_path_deps_to_registry(&manifest_abs, &members, &version)?;
     if let Some(manifest_dir) = manifest_abs.parent() {
-        // In require_registry (CI/release) mode, regenerate the lock and fail
-        // hard if a member version is not yet on the registry. Otherwise,
-        // delete the lock (lenient default). The workspace Cargo.lock seeds
-        // the regen so transitive deps stay pinned at workspace versions.
         let ws_lock = ws_root.join("Cargo.lock");
         vendor::scrub_or_regenerate_lock(
             manifest_dir,
@@ -654,8 +615,6 @@ fn rewrite_binding_path_deps(
 fn resolve_binding_manifest(config: &ResolvedCrateConfig, lang: Language) -> Option<PathBuf> {
     let pkg_dir = config.package_dir(lang);
     match lang {
-        // Ruby: rb-sys compiles `{pkg}/ext/{ext}/native/Cargo.toml`, where the
-        // ext dir is `{core_crate_dir}_rb` (matching scaffold_ruby_cargo).
         Language::Ruby => {
             let ext = format!("{}_rb", config.core_crate_dir().replace('-', "_"));
             Some(
@@ -666,25 +625,20 @@ fn resolve_binding_manifest(config: &ResolvedCrateConfig, lang: Language) -> Opt
                     .join("Cargo.toml"),
             )
         }
-        // Elixir: the rustler NIF crate at `{pkg}/native/{app}_nif/Cargo.toml`.
         Language::Elixir => {
             let nif = format!("{}_nif", config.elixir_app_name());
             Some(Path::new(&pkg_dir).join("native").join(nif).join("Cargo.toml"))
         }
-        // Python: the maturin source build uses the binding crate manifest at
-        // `crates/{py_crate}/Cargo.toml` (same crate the python packager uses).
         Language::Python => {
             let py_crate =
                 crate_name_from_output(config, Language::Python).unwrap_or_else(|| format!("{}-py", config.name));
             Some(Path::new("crates").join(py_crate).join("Cargo.toml"))
         }
-        // PHP: the ext-php-rs binding crate at `crates/{php_crate}/Cargo.toml`.
         Language::Php => {
             let php_crate =
                 crate_name_from_output(config, Language::Php).unwrap_or_else(|| format!("{}-php", config.name));
             Some(Path::new("crates").join(php_crate).join("Cargo.toml"))
         }
-        // Swift: the swift-bridge crate ships at `{pkg}/rust/Cargo.toml`.
         Language::Swift => Some(Path::new(&pkg_dir).join("rust").join("Cargo.toml")),
         _ => None,
     }
@@ -699,9 +653,7 @@ fn assert_no_member_path_deps(
 ) -> Result<()> {
     let content = match std::fs::read_to_string(manifest_path) {
         Ok(c) => c,
-        // A missing manifest → nothing to assert (matches prepare()'s skip).
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        // Any other IO error (permissions, dangling symlink) is a real failure.
         Err(e) => return Err(e).with_context(|| format!("reading {}", manifest_path.display())),
     };
     let doc: toml_edit::DocumentMut = content
@@ -764,9 +716,6 @@ fn resolve_vendor_dest(config: &ResolvedCrateConfig, lang: Language) -> String {
 /// Return the default vendor mode for a language.
 fn default_vendor_mode(lang: Language) -> VendorMode {
     match lang {
-        // Source-build languages compile the Rust crate from source on the
-        // user's machine, so their path dependencies are rewritten to
-        // registry version-dependencies rather than vendored.
         Language::Ruby | Language::Elixir | Language::Python | Language::Php | Language::Swift => VendorMode::Registry,
         Language::R => VendorMode::Full,
         _ => VendorMode::None,
@@ -783,7 +732,6 @@ fn is_ffi_dependent(lang: Language) -> bool {
 /// Returns `true` if the main command should proceed, `false` if the
 /// precondition failed (skip with warning).
 fn run_publish_hooks(lang: Language, lang_config: &PublishLanguageConfig) -> Result<bool> {
-    // Check precondition.
     if let Some(precondition) = &lang_config.precondition {
         let status = std::process::Command::new("sh")
             .arg("-c")
@@ -796,7 +744,6 @@ fn run_publish_hooks(lang: Language, lang_config: &PublishLanguageConfig) -> Res
         }
     }
 
-    // Run before hooks.
     if let Some(before) = &lang_config.before {
         for cmd in before.commands() {
             run_shell_command(cmd)?;

@@ -30,7 +30,6 @@ pub(crate) fn emit_options_field_factory(
         None => return (String::new(), String::new()),
     };
 
-    // Locate the type alias definition to get its core Rust path.
     let alias_def = api.types.iter().find(|t| t.name == type_alias);
     let inner_path = match alias_def {
         Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
@@ -39,15 +38,9 @@ pub(crate) fn emit_options_field_factory(
 
     let type_alias_snake = heck::AsSnakeCase(type_alias).to_string();
     let fn_name = format!("make_{trait_snake}_{type_alias_snake}");
-    // The Rust function name keeps `make_{trait}_{type_alias}` to avoid colliding when
-    // multiple traits share an alias, but the Swift-side name must use `make{Trait}Handle`.
-    // This matches the wrapper call shape, the e2e generator, and the docs snippets.
-    // Without this override the swift-bridge layer exports `make{Trait}{TypeAlias}` and the
-    // wrapper layer fails to link.
     let trait_camel = heck::AsUpperCamelCase(trait_name.as_str()).to_string();
     let swift_name = format!("make{trait_camel}Handle");
 
-    // extern "Rust" declaration (goes inside the ffi module).
     let extern_decl = format!(
         "    extern \"Rust\" {{\n\
          \n\
@@ -57,7 +50,6 @@ pub(crate) fn emit_options_field_factory(
          \x20\x20\x20\x20}}\n\n"
     );
 
-    // pub fn body (emitted at the crate root, outside the ffi module).
     let fn_body = format!(
         "/// Construct a `{type_alias}` from a Swift `{box_name}` handle.\n\
          /// Called by Swift e2e tests via `{swift_name}(...)` to build a\n\
@@ -106,14 +98,12 @@ pub(crate) fn emit_options_field_from_impls(
         None => return String::new(),
     };
 
-    // Locate the alias definition to get its core Rust path.
     let alias_def = api.types.iter().find(|t| t.name == type_alias);
     let inner_path = match alias_def {
         Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
         _ => format!("{source_crate}::{type_alias}"),
     };
 
-    // Locate the core options path from the IR.
     let opts_def = api.types.iter().find(|t| t.name == options_type);
     let core_options_path = match opts_def {
         Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
@@ -122,8 +112,6 @@ pub(crate) fn emit_options_field_from_impls(
 
     let mut out = String::new();
 
-    // Bidirectional From impls for the type alias (newtype wrapping inner_path).
-    // Guard: emit once per (type_alias, inner_path) pair.
     let alias_key = format!("alias::{type_alias}::{inner_path}");
     if !already_emitted.contains(&alias_key) {
         already_emitted.insert(alias_key);
@@ -136,8 +124,6 @@ pub(crate) fn emit_options_field_from_impls(
         ));
     }
 
-    // Forward From impl for the options type (newtype wrapping core_options_path).
-    // Guard: emit once per (options_type, core_options_path) pair.
     let opts_key = format!("opts::{options_type}::{core_options_path}");
     if !already_emitted.contains(&opts_key) {
         already_emitted.insert(opts_key);
@@ -189,21 +175,18 @@ pub(crate) fn emit_options_field_options_helper(
     let fn_name = format!("{options_snake}_from_json_with_{field}");
     let swift_name = heck::AsLowerCamelCase(fn_name.as_str()).to_string();
 
-    // Locate the alias def to get the inner Rust path (same as factory).
     let alias_def = api.types.iter().find(|t| t.name == type_alias);
     let inner_path = match alias_def {
         Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
         _ => format!("{source_crate}::{type_alias}"),
     };
 
-    // Locate the core options path from the IR.
     let opts_def = api.types.iter().find(|t| t.name == options_type);
     let core_options_path = match opts_def {
         Some(td) if !td.rust_path.is_empty() => td.rust_path.replace('-', "_"),
         _ => format!("{source_crate}::{options_type}"),
     };
 
-    // extern "Rust" declaration (goes inside the ffi module).
     let extern_decl = format!(
         concat!(
             "    extern \"Rust\" {{\n",
@@ -221,7 +204,6 @@ pub(crate) fn emit_options_field_options_helper(
         options_type = options_type,
     );
 
-    // pub fn body.
     let fn_body = format!(
         "/// Deserialise a `{options_type}` from JSON and attach a visitor handle to its\n\
          /// `{field}` field. Used by Swift e2e tests to thread a `{type_alias}` into the\n\

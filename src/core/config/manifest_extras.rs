@@ -110,7 +110,6 @@ mod tests {
 
     #[test]
     fn partial_tables_deserialize() {
-        // Only dev_dependencies — dependencies bucket should default to empty.
         let toml_src = r#"
             [dev_dependencies]
             vitest = "^3.0.0"

@@ -32,7 +32,6 @@ fn native_struct_php_type(ty: &TypeRef, optional: bool, api: &ApiSurface) -> Opt
 
 /// Convert a Rust TypeRef to a PHP type string for interface declarations.
 fn rust_type_to_php_type(ty: &TypeRef, _is_ref: bool, optional: bool, _type_paths: &HashMap<String, String>) -> String {
-    // String reference or optional string ref → PHP string (nullable if optional)
     if matches!(ty, TypeRef::String) {
         if optional {
             return "?string".to_string();
@@ -40,7 +39,6 @@ fn rust_type_to_php_type(ty: &TypeRef, _is_ref: bool, optional: bool, _type_path
         return "string".to_string();
     }
 
-    // Boolean type
     if matches!(ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
         if optional {
             return "?bool".to_string();
@@ -48,7 +46,6 @@ fn rust_type_to_php_type(ty: &TypeRef, _is_ref: bool, optional: bool, _type_path
         return "bool".to_string();
     }
 
-    // Numeric types → int or float
     if let TypeRef::Primitive(prim) = ty {
         match prim {
             crate::core::ir::PrimitiveType::I32
@@ -71,7 +68,6 @@ fn rust_type_to_php_type(ty: &TypeRef, _is_ref: bool, optional: bool, _type_path
         }
     }
 
-    // Default: untyped (mixed)
     if optional {
         "?mixed".to_string()
     } else {
@@ -92,7 +88,6 @@ pub fn gen_visitor_interface(
     let result_type = bridge_cfg.result_type.as_deref().unwrap_or("mixed");
     let mut out = String::with_capacity(2048);
 
-    // PHP file header with declare(strict_types=1)
     out.push_str("<?php\n\n");
     out.push_str("declare(strict_types=1);\n\n");
     out.push_str(&crate::backends::php::template_env::render(
@@ -101,7 +96,6 @@ pub fn gen_visitor_interface(
     ));
     out.push('\n');
 
-    // Interface declaration header
     out.push_str(&crate::backends::php::template_env::render(
         "php_visitor_interface_start.jinja",
         context! {
@@ -110,7 +104,6 @@ pub fn gen_visitor_interface(
     ));
     out.push('\n');
 
-    // Generate each interface method
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
             continue;
@@ -121,12 +114,10 @@ pub fn gen_visitor_interface(
 
         let name = &method.name;
 
-        // Build method signature parameters (excluding self and only PHP-visible ones)
         let mut method_params_parts = Vec::new();
         let mut param_docs = Vec::new();
 
         for p in &method.params {
-            // Skip the context parameter - it's internal to the bridge
             let is_ctx_param = match &p.ty {
                 TypeRef::Named(n) => Some(n.as_str()) == bridge_cfg.context_type.as_deref(),
                 _ => false,
@@ -135,7 +126,6 @@ pub fn gen_visitor_interface(
                 continue;
             }
 
-            // Convert Rust type to PHP type
             let php_type = rust_type_to_php_type(&p.ty, p.is_ref, p.optional, type_paths);
             method_params_parts.push(format!("{} ${}", php_type, p.name));
 
@@ -151,7 +141,6 @@ pub fn gen_visitor_interface(
             format!("\n{}", param_docs.join("\n"))
         };
 
-        // Get docstring from method, sanitized for PHP target
         let doc_lines = if !method.doc.is_empty() {
             let sanitized = sanitize_rust_idioms(&method.doc, DocTarget::PhpDoc);
             sanitized.lines().next().unwrap_or("").to_string()
@@ -198,7 +187,6 @@ pub fn gen_registration_interface(
     let interface_name = &bridge_cfg.trait_name;
     let mut out = String::with_capacity(2048);
 
-    // PHP file header with declare(strict_types=1)
     out.push_str("<?php\n\n");
     out.push_str("declare(strict_types=1);\n\n");
     out.push_str(&crate::backends::php::template_env::render(
@@ -207,7 +195,6 @@ pub fn gen_registration_interface(
     ));
     out.push('\n');
 
-    // Interface declaration header
     out.push_str(&crate::backends::php::template_env::render(
         "php_interface_start.jinja",
         context! {
@@ -216,12 +203,6 @@ pub fn gen_registration_interface(
     ));
     out.push('\n');
 
-    // Only the trait's non-defaulted methods are required at runtime: the bridge
-    // forwards Rust-defaulted methods when the host class defines them (falling
-    // back to the Rust default otherwise), and the Plugin lifecycle hooks are
-    // no-ops when absent. A PHP `interface` member is a hard language requirement,
-    // so defaulted methods must not be interface members — they are documented in
-    // a comment instead.
     let (required, optional): (Vec<&crate::core::ir::MethodDef>, Vec<&crate::core::ir::MethodDef>) =
         trait_type.methods.iter().partition(|m| !m.has_default_impl);
     if !optional.is_empty() {
@@ -238,13 +219,10 @@ pub fn gen_registration_interface(
     for method in required {
         let name = &method.name;
 
-        // Build method signature parameters
         let mut method_params_parts = Vec::new();
         let mut param_docs = Vec::new();
 
         for p in &method.params {
-            // Known serde structs are typed as their native PHP class (matching the native object
-            // the runtime bridge now passes); everything else uses the scalar/mixed mapping.
             let php_type = native_struct_php_type(&p.ty, p.optional, api)
                 .unwrap_or_else(|| rust_type_to_php_type(&p.ty, p.is_ref, p.optional, type_paths));
             method_params_parts.push(format!("{} ${}", php_type, p.name));
@@ -255,8 +233,6 @@ pub fn gen_registration_interface(
 
         let method_params = method_params_parts.join(", ");
 
-        // Type the return: known serde struct → its native PHP class; otherwise the scalar/mixed
-        // mapping. The interface is host-implementable, so this is the type the host must return.
         let return_type = native_struct_php_type(&method.return_type, false, api)
             .unwrap_or_else(|| rust_type_to_php_type(&method.return_type, false, false, type_paths));
 
@@ -266,7 +242,6 @@ pub fn gen_registration_interface(
             format!("\n{}", param_docs.join("\n"))
         };
 
-        // Get docstring from method, sanitized for PHP target
         let doc_lines = if !method.doc.is_empty() {
             let sanitized = sanitize_rust_idioms(&method.doc, DocTarget::PhpDoc);
             sanitized.lines().next().unwrap_or("").to_string()

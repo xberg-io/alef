@@ -209,7 +209,6 @@ fn test_gen_enum_data_uses_nif_tagged_enum() {
         !result.contains("NifUnitEnum"),
         "data enum must not use NifUnitEnum; got:\n{result}"
     );
-    // Http variant must have its fields
     assert!(
         result.contains("scheme"),
         "Http variant must preserve `scheme` field; got:\n{result}"
@@ -218,7 +217,6 @@ fn test_gen_enum_data_uses_nif_tagged_enum() {
         result.contains("bearer_format"),
         "Http variant must preserve `bearer_format` field; got:\n{result}"
     );
-    // ApiKey variant must have its fields
     assert!(
         result.contains("location"),
         "ApiKey variant must preserve `location` field; got:\n{result}"
@@ -232,7 +230,6 @@ fn test_gen_enum_data_uses_nif_tagged_enum() {
 /// Data enums with tuple variants containing Named types should use flat NifStruct.
 #[test]
 fn test_gen_enum_tuple_named_uses_nif_struct() {
-    // Create a data enum with tuple variants containing Named types (like FormatMetadata)
     let format_enum = EnumDef {
         name: "FormatMetadata".to_string(),
         rust_path: "my_crate::FormatMetadata".to_string(),
@@ -319,7 +316,6 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
     };
 
     let result = gen_enum(&format_enum, "SampleCrate");
-    // Should use NifStruct, not NifTaggedEnum
     assert!(
         result.contains("NifStruct"),
         "tuple data enum with named types should use NifStruct; got:\n{result}"
@@ -328,12 +324,10 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
         !result.contains("NifTaggedEnum"),
         "tuple data enum with named types must not use NifTaggedEnum; got:\n{result}"
     );
-    // Should have format_type discriminator field
     assert!(
         result.contains("format_type: String"),
         "should have format_type discriminator; got:\n{result}"
     );
-    // Should have optional fields for each variant
     assert!(
         result.contains("excel: Option<ExcelMetadata>"),
         "should have optional excel field; got:\n{result}"
@@ -353,7 +347,6 @@ fn test_data_enum_from_impls_destructure_fields() {
         ..Default::default()
     };
     let binding_to_core = crate::codegen::conversions::gen_enum_from_binding_to_core_cfg(&e, "my_crate", &cfg);
-    // Must destructure, not Default::default()
     assert!(
         !binding_to_core.contains("Default::default()"),
         "binding->core From must not use Default::default() for data enum fields; got:\n{binding_to_core}"

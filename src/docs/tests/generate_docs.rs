@@ -18,7 +18,6 @@ fn test_generate_docs_empty_api() {
     let config = make_test_config();
 
     let files = generate_docs(&api, &config, &[Language::Python], "docs").unwrap();
-    // 1 lang + configuration.md + types.md + errors.md
     assert_eq!(files.len(), 4);
     let lang_file = files
         .iter()
@@ -79,7 +78,6 @@ fn test_generate_docs_produces_one_file_per_language_plus_three_shared() {
     let api = make_minimal_api("1.2.3");
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python, Language::Node], "out").unwrap();
-    // 2 language files + configuration.md + types.md + errors.md
     assert_eq!(files.len(), 5);
     let paths: Vec<&str> = files.iter().map(|f| f.path.to_str().unwrap()).collect();
     assert!(paths.iter().any(|p| p.contains("api-python")));
@@ -130,7 +128,6 @@ fn test_generate_docs_multiple_languages_produce_correct_slugs() {
     ];
     let expected_slugs = ["api-python", "api-typescript", "api-go", "api-java", "api-ruby"];
     let files = generate_docs(&api, &config, &langs, "docs/api").unwrap();
-    // 5 lang files + 3 shared
     assert_eq!(files.len(), 8);
     for slug in &expected_slugs {
         assert!(

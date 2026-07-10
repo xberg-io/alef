@@ -17,7 +17,6 @@ fn emit_constructor_shim(
     let type_name = &ty.name;
     let core_prefix = core_use_path(config);
 
-    // Build param signature lines and unmarshal blocks.
     let mut param_sigs = String::new();
     let mut unmarshal = String::new();
     let mut call_args = Vec::new();
@@ -25,35 +24,26 @@ fn emit_constructor_shim(
     for param in &ctor.params {
         let rust_name = param.name.replace('-', "_");
         if param.ty.contains("c_char") {
-            // String parameter: receive as JString and unmarshal to Rust String.
             param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
             unmarshal.push_str(&render_string_unmarshal(&rust_name, "0"));
             call_args.push(rust_name.clone());
         } else {
-            // Non-string: use as-is (caller passes primitive JNI type).
             param_sigs.push_str(&render_param_decl(&rust_name, "jlong"));
             call_args.push(rust_name.clone());
         }
     }
 
-    // Expand the body template.
     let body_expr = ctor
         .body
         .replace("{type_name}", type_name)
         .replace("{source_path}", &format!("{core_prefix}::{type_name}"));
 
-    // Build the call expression: body_expr already encodes the full constructor
-    // call (e.g. `core_crate::DemoClient::new(api_key)`).  If the body uses
-    // positional references we substitute them; otherwise trust the template.
-    // When the body template ends with `(...)` we leave it intact.
     let call_expr = if call_args.is_empty() || body_expr.contains('(') {
         body_expr.clone()
     } else {
         format!("{}({})", body_expr, call_args.join(", "))
     };
 
-    // Always treat the constructor as fallible (match Result<_, E>) since the
-    // typical body is `core_crate::TypeName::new(param)` which returns Result.
     out.push_str(&template_env::render(
         "constructor_shim.rs.jinja",
         context! {

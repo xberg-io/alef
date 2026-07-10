@@ -70,7 +70,7 @@ fn make_enum(name: &str, variants: Vec<EnumVariant>, serde_tag: Option<String>) 
         cfg: None,
         is_copy: false,
         has_serde: true,
-        serde_tag, // Key: serde_tag makes it a sealed interface in Java
+        serde_tag,
         serde_untagged: false,
         serde_rename_all: None,
         binding_excluded: false,
@@ -83,17 +83,10 @@ fn make_enum(name: &str, variants: Vec<EnumVariant>, serde_tag: Option<String>) 
 
 #[test]
 fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
-    // Regression test for EmbeddingConfig.model with EmbeddingModelType sealed interface.
     // When a non-optional sealed interface field has #[serde(default)], and the default variant
-    // has fields (like EmbeddingModelType.Preset(String name)), the Java builder should:
-    // 1. Use a boxed/nullable type
-    // 2. Initialize to `null` (not try to construct `new Preset()` which would fail at compile time)
-    // This allows Jackson to omit the field from JSON, letting Rust's serde apply its own default.
 
     let backend = JavaBackend;
 
-    // Define EmbeddingModelType as a sealed interface with variants that have fields.
-    // The default variant is Preset, which has one field: name: String.
     let model_enum = make_enum(
         "EmbeddingModelType",
         vec![
@@ -120,7 +113,7 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
                     original_type: None,
                 }],
                 doc: "Use a preset model configuration (recommended)".to_string(),
-                is_default: true, // This is the default variant
+                is_default: true,
                 serde_rename: None,
                 is_tuple: true,
                 binding_excluded: false,
@@ -184,14 +177,14 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
                 version: Default::default(),
             },
         ],
-        Some("type".to_string()), // serde_tag makes this a sealed interface
+        Some("type".to_string()),
     );
 
     // Define EmbeddingConfig with a non-optional EmbeddingModelType field that has #[serde(default)]
     let model_field = make_field(
         "model",
         TypeRef::Named("EmbeddingModelType".to_string()),
-        false, // non-optional
+        false,
         Some("/* serde(default) */".to_string()),
     );
 
@@ -233,7 +226,6 @@ package = "dev.demo"
     assert!(result.is_ok(), "generation failed: {:?}", result.err());
     let files = result.unwrap();
 
-    // Find the generated EmbeddingConfig type file
     let config_file = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("EmbeddingConfig.java"))
@@ -241,21 +233,16 @@ package = "dev.demo"
 
     let content = &config_file.content;
 
-    // The builder should declare the model field as a nullable type (@Nullable).
-    // Java's default null value is enough; it must not emit `new EmbeddingModelType.Preset()`.
-    // Because the Preset variant has a required field (name: String), it cannot be instantiated without args.
     assert!(
         content.contains("@Nullable private EmbeddingModelType model;"),
         "Builder field should be nullable without an invalid default. Got:\n{content}"
     );
 
-    // Ensure it does NOT try to instantiate the sealed interface record without arguments
     assert!(
         !content.contains("new EmbeddingModelType.Preset()"),
         "Builder field should not try to instantiate Preset() without arguments, but got:\n{content}"
     );
 
-    // Verify withModel setter exists
     assert!(
         content.contains("withModel"),
         "Builder should have withModel setter, but got:\n{content}"
@@ -264,18 +251,14 @@ package = "dev.demo"
 
 #[test]
 fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
-    // When a sealed interface's default variant has ZERO fields, the builder
-    // should instantiate it with `new EnumName.Variant()`.
-
     let backend = JavaBackend;
 
-    // Define a sealed interface where the default variant has no fields
     let status_enum = make_enum(
         "Status",
         vec![
             EnumVariant {
                 name: "Pending".to_string(),
-                fields: vec![], // Zero fields
+                fields: vec![],
                 doc: "Pending status".to_string(),
                 is_default: true,
                 serde_rename: None,
@@ -288,7 +271,7 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
             },
             EnumVariant {
                 name: "Complete".to_string(),
-                fields: vec![], // Zero fields
+                fields: vec![],
                 doc: "Complete status".to_string(),
                 is_default: false,
                 serde_rename: None,
@@ -300,7 +283,7 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
                 version: Default::default(),
             },
         ],
-        Some("type".to_string()), // serde_tag makes this a sealed interface
+        Some("type".to_string()),
     );
 
     let status_field = make_field(
@@ -355,7 +338,6 @@ package = "dev.demo"
 
     let content = &config_file.content;
 
-    // Since the variant has zero fields, we should instantiate it
     assert!(
         content.contains("new Status.Pending()"),
         "Builder field should instantiate zero-field variant with new Status.Pending(). Got:\n{content}"

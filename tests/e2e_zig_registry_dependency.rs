@@ -106,9 +106,6 @@ fn render_registry_build_zig() -> String {
 fn registry_build_zig_consumes_published_dependency() {
     let content = render_registry_build_zig();
 
-    // Registry mode emits a single generic package (no platform suffix), wired
-    // into the build graph via `b.dependency("<pkg_name>", ...)` and consumed
-    // through its exported module.
     assert!(
         content.contains("b.dependency(\"demo_crawler\", .{"),
         "registry build.zig must consume the published package via b.dependency(\"demo_crawler\", ...):\n{content}"
@@ -171,13 +168,8 @@ hash = "demo_crawler-1.2.3-STALE_HASH_REGENERATE"
     let mut e2e = cfg.crates[0].e2e.clone().expect("e2e config");
     e2e.dep_mode = DependencyMode::Registry;
 
-    // Should not bail on placeholder — instead, will attempt to resolve from network.
-    // Since the network fetch will fail (artifact not published), it will return None
-    // and generate build.zig.zon without a .hash field (which is acceptable during
-    // placeholder regeneration).
     let result = ZigE2eCodegen.generate(&[group()], &e2e, &resolved, &[], &[]);
 
-    // Generation should succeed (not bail on placeholder detection).
     assert!(
         result.is_ok(),
         "zig e2e codegen must not bail on STALE_HASH_REGENERATE placeholder: {:?}",
@@ -190,7 +182,6 @@ hash = "demo_crawler-1.2.3-STALE_HASH_REGENERATE"
         .find(|f| f.path.file_name().is_some_and(|n| n == "build.zig.zon"))
         .expect("build.zig.zon generated");
 
-    // The generated build.zig.zon should not contain the placeholder.
     assert!(
         !zon_file.content.contains("STALE_HASH_REGENERATE"),
         "generated build.zig.zon must not contain STALE_HASH_REGENERATE placeholder:\n{}",

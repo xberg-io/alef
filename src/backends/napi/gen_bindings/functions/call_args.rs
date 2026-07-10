@@ -30,39 +30,28 @@ pub(in crate::backends::napi::gen_bindings) fn napi_apply_primitive_casts_to_cal
     generic_args: &str,
     params: &[ParamDef],
 ) -> String {
-    // Split args on top-level commas only and match with params to apply casting.
     let args_list: Vec<&str> = split_top_level_commas(generic_args);
     args_list
         .iter()
         .zip(params.iter())
         .map(|(arg, p)| {
-            // Special case: Vec<f32> param with is_ref uses the converted variable
             if needs_vec_f32_conversion(&p.ty) && p.is_ref {
                 return format!("&{}_f32", p.name);
             }
-            // Only re-apply NAPI's source→core conversions when the generic let-binding generator
-            // passed the argument through verbatim (still the bare parameter name). If it already
-            // produced a `.into()`/`.map(...)`/`_core` temporary/borrow, leave it untouched.
             let arg_is_bare_name = *arg == p.name;
             match &p.ty {
                 TypeRef::Primitive(prim) if needs_napi_cast(prim) => {
                     let core_ty = core_prim_str(prim);
                     if p.optional {
-                        // Optional: arg might be like "param.map(...)" so re-apply map
                         if arg.contains(".map(") || arg.contains(".as_") {
-                            // Already handled, keep as is
                             arg.to_string()
                         } else {
                             format!("{}.map(|v| v as {})", arg, core_ty)
                         }
                     } else {
-                        // Non-optional: simple cast
                         format!("{} as {}", arg, core_ty)
                     }
                 }
-                // String/char params whose core type is `Cow<str>`: the NAPI binding receives an
-                // owned `String`, which the generic let-binding path passes through unchanged. Mirror
-                // `napi_gen_call_args` so the value is converted into the core's `Cow`.
                 TypeRef::String | TypeRef::Char
                     if arg_is_bare_name && !p.is_ref && p.core_wrapper == CoreWrapper::Cow =>
                 {
@@ -87,7 +76,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_gen_call_args(
     params
         .iter()
         .map(|p| {
-            // Special case: Vec<f32> param with is_ref uses the converted variable
             if needs_vec_f32_conversion(&p.ty) && p.is_ref {
                 return format!("&{}_f32", p.name);
             }
@@ -108,9 +96,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_gen_call_args(
                     }
                 }
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                    // When an opaque type param is required by a builder/owned-receiver method,
-                    // clone the inner value (Arc dereference) to get an owned copy.
-                    // When used as a reference param, borrow `&v.inner` instead.
                     if p.is_ref {
                         if p.optional {
                             format!("{}.as_ref().map(|v| v.inner.as_ref())", p.name)
@@ -139,7 +124,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_gen_call_args(
                         if p.is_ref {
                             format!("{}.as_deref()", p.name)
                         } else if p.core_wrapper == CoreWrapper::Cow {
-                            // Core takes Option<Cow<str>>: convert via .map(Cow::Owned).
                             format!("{}.map(std::borrow::Cow::Owned)", p.name)
                         } else {
                             p.name.clone()
@@ -147,7 +131,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_gen_call_args(
                     } else if p.is_ref {
                         format!("&{}", p.name)
                     } else if p.core_wrapper == CoreWrapper::Cow {
-                        // Core takes Cow<str>: String implements Into<Cow<str>>.
                         format!("{}.into()", p.name)
                     } else {
                         p.name.clone()
@@ -167,8 +150,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_gen_call_args(
                     }
                 }
                 TypeRef::Bytes => {
-                    // In NAPI, Bytes becomes napi::Buffer, which needs conversion to Vec<u8>
-                    // The conversion happens in let bindings, so we use the parameter name as-is
                     if p.optional {
                         if p.is_ref {
                             format!("{}.as_deref()", p.name)
@@ -192,7 +173,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_gen_call_args(
                         && p.vec_inner_is_ref
                         && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char)
                     {
-                        // Core expects &[&str]: use the pre-built _refs binding.
                         format!("&{}_refs", p.name)
                     } else if p.is_ref {
                         format!("&{}", p.name)
@@ -201,9 +181,6 @@ pub(in crate::backends::napi::gen_bindings) fn napi_gen_call_args(
                     }
                 }
                 TypeRef::Map(_, _) => {
-                    // When map_is_btree=true, the core expects BTreeMap but the NAPI binding
-                    // receives HashMap. Convert inline — the temporary BTreeMap lives for
-                    // the duration of the function call statement (Rust temp extension).
                     if p.optional {
                         if p.is_ref {
                             format!("{}.as_ref()", p.name)
@@ -237,9 +214,6 @@ pub(super) fn needs_vec_f32_conversion(ty: &TypeRef) -> bool {
 }
 
 pub(in crate::backends::napi::gen_bindings) fn needs_napi_cast(p: &crate::core::ir::PrimitiveType) -> bool {
-    // U32 maps to u32 in both NAPI and core, so no cast needed.
-    // U64/Usize/Isize map to i64 in NAPI but u64/usize/isize in core.
-    // F32 maps to f64 in NAPI but f32 in core.
     matches!(
         p,
         crate::core::ir::PrimitiveType::U64

@@ -329,10 +329,6 @@ sources = ["src/lib.rs"]
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Warn-on-redundant-default tests — now use validate_resolved directly
-    // -----------------------------------------------------------------------
-
     #[traced_test]
     #[test]
     fn lint_verbatim_default_emits_warning() {
@@ -345,23 +341,16 @@ sources = ["src/lib.rs"]
         let Some(fmt_cmd) = default.format.as_ref().map(|c| c.commands().join(" ")) else {
             return;
         };
-        // Inject a per-crate lint override that matches the default.
         let toml = format!(
             "{base}\n[crates.lint.python]\nformat = {fmt_cmd:?}\n",
             base = base_config()
         );
-        // Note: this validates without error (no precondition required for
-        // format-only because format is a main field — but with our validations
-        // only the precondition check matters here; the redundant-default warning
-        // is now emitted from validate_resolved if we add that logic).
-        // For now, this test simply confirms no panic / compile error.
         let _resolved = resolve_first(&toml);
     }
 
     #[traced_test]
     #[test]
     fn lint_all_custom_emits_no_warning() {
-        // Custom lint config with precondition — should validate cleanly.
         let toml = format!(
             "{base}\n[crates.lint.python]\nprecondition = \"command -v custom\"\nformat = \"custom-fmt\"\n",
             base = base_config()

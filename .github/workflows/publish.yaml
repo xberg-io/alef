@@ -60,9 +60,6 @@ jobs:
         uses: xberg-io/actions/prepare-release-metadata@v1
         with:
           available-targets: crates,cli,homebrew
-          # Bootstrap alef from main (build from source) so this step doesn't
-          # try to download a binary from the just-created release tag — those
-          # binaries don't exist yet (they're built later in this same run).
           alef-version: main
 
   validate-versions:

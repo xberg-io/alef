@@ -97,9 +97,6 @@ fn make_function(name: &str, return_type: TypeRef) -> FunctionDef {
 
 #[test]
 fn extendr_deeply_nested_transitive_types() {
-    // Test: DeepC is only reachable through DeepB which is only reachable through DeepA.
-    // DeepA is returned from a function, so all three should get From<core::T> impls.
-
     let deep_c = make_type("DeepC", vec![make_field("value", TypeRef::String)]);
 
     let deep_b = make_type("DeepB", vec![make_field("nested", TypeRef::Named("DeepC".to_string()))]);
@@ -125,7 +122,6 @@ fn extendr_deeply_nested_transitive_types() {
         .expect("generation succeeds");
     let content = &files[0].content;
 
-    // All three levels of nesting should have conversions
     assert!(
         content.contains("impl From<test_lib::DeepA> for DeepA"),
         "DeepA should have From<core::DeepA> impl"
@@ -142,9 +138,6 @@ fn extendr_deeply_nested_transitive_types() {
 
 #[test]
 fn extendr_vec_of_vec_nested_types() {
-    // Test: Vec<Vec<Item>> - the Item type should still get conversions.
-    // Even though Vec<Vec<T>> doesn't get JSON bridging, Item itself does.
-
     let item = make_type("Item", vec![make_field("id", TypeRef::Primitive(PrimitiveType::U32))]);
 
     let container = make_type(

@@ -44,7 +44,6 @@ fn rust_unwrap_binding_is_underscore_prefixed() {
         binding.starts_with(&format!("let {local_var} =")),
         "binding declaration must use the same `_`-prefixed name; got: {binding:?}"
     );
-    // The full generated line must contain the Display-based unwrap pattern.
     assert!(
         binding.contains("as_ref().map(|v| v.to_string()).unwrap_or_default()"),
         "binding must use Display-based unwrap; got: {binding:?}"
@@ -61,7 +60,6 @@ fn rust_unwrap_binding_local_var_matches_binding_declaration() {
         .rust_unwrap_binding("metadata.output_format", "result")
         .expect("metadata.output_format is optional");
 
-    // The declaration and the returned identifier must agree.
     let expected_decl = format!("let {local_var} =");
     assert!(
         binding.starts_with(&expected_decl),

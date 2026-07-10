@@ -144,7 +144,6 @@ min_ios_version = "17.0"
     #[test]
     fn csharp_package_id_defaults_to_namespace() {
         let r = minimal();
-        // csharp_namespace() defaults to PascalCase of crate name
         assert_eq!(csharp_package_id(&r), "TestLib");
     }
 

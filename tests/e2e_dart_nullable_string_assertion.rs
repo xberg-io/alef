@@ -100,13 +100,11 @@ fn nullable_string_equals_assertion_uses_null_coalescing() {
 
     let rendered = render(fixtures);
 
-    // The assertion must use null-coalescing (?? '') to safely handle null results.
     // Expected pattern: `expect((result ?? '').toString().trim(), equals('bash'.toString().trim()));`
     assert!(
         rendered.contains("(result ?? '')"),
         "must use null-coalescing operator (?? '') for nullable string assertion. Rendered:\n{rendered}"
     );
-    // Sanity check: confirm the expect statement is present.
     assert!(
         rendered.contains("expect(") && rendered.contains("equals("),
         "must emit an equals assertion. Rendered:\n{rendered}"
@@ -133,7 +131,6 @@ fn nullable_string_not_equals_assertion_uses_null_coalescing() {
 
     let rendered = render(fixtures);
 
-    // The assertion must use null-coalescing (?? '') to safely handle null results.
     assert!(
         rendered.contains("(result ?? '')"),
         "must use null-coalescing operator (?? '') for nullable string not_equals assertion. Rendered:\n{rendered}"

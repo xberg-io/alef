@@ -57,7 +57,6 @@ fn test_error_method_uses_value_receiver() {
     let backend = GoBackend;
     let config = make_config();
 
-    // Create test API surface with one error type
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -107,8 +106,6 @@ fn test_error_method_uses_value_receiver() {
     let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
     let content = &binding.content;
 
-    // Check that Error() uses value receiver (not pointer receiver)
-    // The actual type name is TestError, not Error
     assert!(
         content.contains("func (e TestError) Error() string"),
         "Error() method should use value receiver 'func (e TestError) Error()', not pointer receiver"
@@ -125,7 +122,6 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
     let backend = GoBackend;
     let config = make_config();
 
-    // Create a simple API that uses Bytes return type
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -186,9 +182,6 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
     let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
     let content = &binding.content;
 
-    // Check that unmarshalBytes returns []byte, not *[]byte
-    // The function signature should be:
-    // func unmarshalBytes(ptr *C.uint8_t) []byte {
     assert!(
         content.contains("func unmarshalBytes(ptr *C.uint8_t) []byte"),
         "unmarshalBytes should return []byte, not *[]byte"
@@ -218,7 +211,6 @@ fn test_zero_default_dto_skips_functional_options() {
     let backend = GoBackend;
     let config = make_config();
 
-    // Create a DTO with all primitive fields defaulting to zero
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -239,7 +231,6 @@ fn test_zero_default_dto_skips_functional_options() {
             is_clone: true,
             is_copy: false,
             is_trait: false,
-            // This is the key: has_default = true means the struct has defaults
             has_default: true,
             has_stripped_cfg_fields: false,
             is_return_type: false,
@@ -269,11 +260,6 @@ fn test_zero_default_dto_skips_functional_options() {
     let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
     let content = &binding.content;
 
-    // Check that functional-options pattern is NOT emitted for zero-default types
-    // These patterns should NOT appear:
-    // - type SpanOption func(*Span)
-    // - func WithSpanStartByte(...) SpanOption
-    // - func NewSpan(opts ...SpanOption) *Span
     assert!(
         !content.contains("type SpanOption func(*Span)"),
         "Span should not emit SpanOption functional-options type since all fields default to zero"
@@ -287,7 +273,6 @@ fn test_zero_default_dto_skips_functional_options() {
         "Span should not emit NewSpan functional-options factory since all fields default to zero"
     );
 
-    // The struct definition itself should still be present
     assert!(
         content.contains("type Span struct"),
         "Span struct definition must still be present"
@@ -323,7 +308,6 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
             rust_path: "test_lib::InputDoc".to_string(),
             original_rust_path: String::new(),
             variants: vec![
-                // Struct variant with a single named string field
                 EnumVariant {
                     name: "Text".to_string(),
                     fields: vec![make_field("content", TypeRef::String, false)],
@@ -337,7 +321,6 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
                     cfg: None,
                     version: Default::default(),
                 },
-                // Struct variant with multiple named fields
                 EnumVariant {
                     name: "Object".to_string(),
                     fields: vec![
@@ -381,7 +364,6 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
     let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
     let content = &binding.content;
 
-    // Must NOT have the broken switch on an empty wire struct
     assert!(
         !content.contains("switch wire.Type"),
         "Untagged enum must not emit 'switch wire.Type' (wire struct is empty)"
@@ -391,26 +373,22 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
         "Untagged enum must not emit an empty wire struct"
     );
 
-    // Must emit the shape-sniffing preamble
     assert!(
         content.contains("firstByte"),
         "Untagged enum Unmarshal must sniff the first JSON byte"
     );
 
-    // Must try both variants
     assert!(content.contains("var v InputDocText"), "Must try InputDocText variant");
     assert!(
         content.contains("var v InputDocObject"),
         "Must try InputDocObject variant"
     );
 
-    // Struct variants are always objects — gate on '{'
     assert!(
         content.contains("firstByte == '{'"),
         "Struct variants must be gated on firstByte == '{{'"
     );
 
-    // Error message must mention the enum name and the raw JSON shape
     assert!(
         content.contains("unknown InputDoc shape"),
         "Error message must identify the enum and say 'shape'"
@@ -436,7 +414,6 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
             rust_path: "test_lib::OcrDocument".to_string(),
             original_rust_path: String::new(),
             variants: vec![
-                // Struct variant: OcrDocument::Source { source_path: String }
                 EnumVariant {
                     name: "Source".to_string(),
                     fields: vec![make_field("source_path", TypeRef::String, false)],
@@ -450,7 +427,6 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
                     cfg: None,
                     version: Default::default(),
                 },
-                // Struct variant: OcrDocument::Encoded { data: String, mime: String }
                 EnumVariant {
                     name: "Encoded".to_string(),
                     fields: vec![
@@ -494,19 +470,16 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
     let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
     let content = &binding.content;
 
-    // Must NOT fall back to the broken wire.Type switch
     assert!(
         !content.contains("switch wire.Type"),
         "Untagged enum must not emit 'switch wire.Type'"
     );
 
-    // Both struct variants are objects — must gate on '{'
     assert!(
         content.contains("firstByte == '{'"),
         "Struct variants must be gated on firstByte == '{{'"
     );
 
-    // Must try both variants (to_go_name("Source") = "Source", "Encoded" = "Encoded")
     assert!(
         content.contains("var v OcrDocumentSource"),
         "Must try OcrDocumentSource variant"
@@ -516,7 +489,6 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
         "Must try OcrDocumentEncoded variant"
     );
 
-    // Error message must reference shape
     assert!(
         content.contains("unknown OcrDocument shape"),
         "Error message must say 'shape' for untagged enums"
@@ -534,7 +506,6 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
     let backend = GoBackend;
     let config = make_config();
 
-    // Mirrors OcrDocument: internally-tagged data enum
     let ocr_document_enum = EnumDef {
         name: "OcrDocument".to_string(),
         rust_path: "test_lib::OcrDocument".to_string(),
@@ -585,7 +556,6 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
         version: Default::default(),
     };
 
-    // OcrRequest has a required field `document: OcrDocument`
     let ocr_request_type = TypeDef {
         name: "OcrRequest".to_string(),
         rust_path: "test_lib::OcrRequest".to_string(),
@@ -633,25 +603,21 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
     let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
     let content = &binding.content;
 
-    // Must emit a custom UnmarshalJSON on OcrRequest
     assert!(
         content.contains("func (s *OcrRequest) UnmarshalJSON(data []byte) error"),
         "OcrRequest must have custom UnmarshalJSON; got:\n{content}"
     );
 
-    // The helper struct must use json.RawMessage for the document field
     assert!(
         content.contains("Document json.RawMessage"),
         "document field in helper struct must be json.RawMessage; got:\n{content}"
     );
 
-    // Must call UnmarshalOcrDocument to decode the document field
     assert!(
         content.contains("UnmarshalOcrDocument(raw.Document)"),
         "must call UnmarshalOcrDocument to decode the document field; got:\n{content}"
     );
 
-    // Non-enum fields must be copied directly
     assert!(
         content.contains("s.Model = raw.Model"),
         "non-enum field Model must be copied directly; got:\n{content}"
@@ -668,7 +634,6 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
     let backend = GoBackend;
     let config = make_config();
 
-    // Mirrors ResponseFormat: internally-tagged data enum
     let response_format_enum = EnumDef {
         name: "ResponseFormat".to_string(),
         rust_path: "test_lib::ResponseFormat".to_string(),
@@ -729,7 +694,6 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         version: Default::default(),
     };
 
-    // ChatRequest has an optional field `response_format: Option<ResponseFormat>`
     let chat_request_type = TypeDef {
         name: "ChatRequest".to_string(),
         rust_path: "test_lib::ChatRequest".to_string(),
@@ -781,27 +745,21 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
     let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
     let content = &binding.content;
 
-    // Must emit custom UnmarshalJSON on ChatRequest
     assert!(
         content.contains("func (s *ChatRequest) UnmarshalJSON(data []byte) error"),
         "ChatRequest must have custom UnmarshalJSON; got:\n{content}"
     );
 
-    // The helper struct must use json.RawMessage for the response_format field
     assert!(
         content.contains("ResponseFormat json.RawMessage"),
         "response_format field in helper struct must be json.RawMessage; got:\n{content}"
     );
 
-    // Must call UnmarshalResponseFormat
     assert!(
         content.contains("UnmarshalResponseFormat(raw.ResponseFormat)"),
         "must call UnmarshalResponseFormat to decode the optional field; got:\n{content}"
     );
 
-    // Optional sealed-interface fields are stored as the bare interface (no pointer):
-    // Go interfaces are already nullable, and `*Iface` is "pointer to interface", which
-    // is not assignable from the interface. Assignment must be `s.X = v`, not `&v`.
     assert!(
         content.contains("s.ResponseFormat = v"),
         "optional data-enum field must be assigned as v (not &v); got:\n{content}"
@@ -811,7 +769,6 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         "optional data-enum field must not be assigned as &v (pointer-to-interface); got:\n{content}"
     );
 
-    // Non-enum fields must be copied directly
     assert!(
         content.contains("s.Model = raw.Model"),
         "non-enum field Model must be copied directly; got:\n{content}"

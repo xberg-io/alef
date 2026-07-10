@@ -21,8 +21,6 @@ pub(super) fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> Str
     push_version_annotation(&mut out, &en.version);
 
     let doc = clean_doc(&en.doc, lang);
-    // Demote any embedded headings in the enum documentation by 2 levels
-    // to ensure they stay nested under the enum heading (####).
     let doc = demote_headings(&doc, 2);
     if !doc.is_empty() {
         out.push_str(&doc);
@@ -39,7 +37,6 @@ pub(super) fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> Str
         } else {
             generate_enum_variant_description(&variant.name)
         };
-        // Append field info for data variants
         let variant_fields: Vec<_> = if lang == Language::Rust {
             variant.fields.iter().collect()
         } else {
@@ -56,8 +53,6 @@ pub(super) fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> Str
                 .collect();
             vdoc = format!("{vdoc} — Fields: {}", fields_desc.join(", "));
         }
-        // Inline version annotations into the description cell (block-level elements
-        // cannot appear inside a Markdown table row).
         if let Some(ref since) = variant.version.since {
             let since = version_labels::major_minor(since);
             vdoc = format!("{vdoc} — **Since:** `v{since}`");

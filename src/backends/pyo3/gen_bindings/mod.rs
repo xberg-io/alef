@@ -55,25 +55,12 @@ impl Backend for Pyo3Backend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Collapse same-named cfg-variant functions (e.g. a `not(windows)` real impl plus a
-        // `windows` variant of the same fn) into one canonical entry. The pyo3 wrapper delegates
         // to the core crate — which resolves the cfg itself — and emits no `#[cfg]` gate on the
         // wrapper, so two same-named entries would otherwise produce duplicate `#[pyfunction]`
-        // definitions (E0428) plus duplicate `m.add_function` registrations. Matches the FFI
-        // backend's dedup; see codegen::fn_dedup.
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
 
-        // Build trait type names set so the mapper can emit Py<PyAny> for trait parameters
-        // instead of bare trait names (which cause E0782 "bare trait used as type").
-        //
-        // Also include type_alias names from options-field bridges (e.g. `VisitorHandle`).
-        // These are opaque types (is_opaque=true, is_trait=false) but they represent visitor
-        // handles embedded as fields in has_default structs.  When they appear as struct field
-        // types (e.g. ParseOptions.visitor: Option<VisitorHandle>), the binding struct
         // should store them as `Option<Py<PyAny>>` with `#[serde(skip)]` so the visitor can
-        // be extracted before the serde round-trip in the bridge function.  Without this, the
-        // mapper emits `Option<VisitorHandle>` which cannot implement `serde::Serialize`.
         let mut trait_type_names: ahash::AHashSet<String> = api
             .types
             .iter()
@@ -90,39 +77,26 @@ impl Backend for Pyo3Backend {
         let mapper = Pyo3Mapper { trait_type_names };
         let core_import = config.core_import_name();
 
-        // Detect serde availability from the output crate's Cargo.toml
         let output_dir = resolve_output_dir(config.output_paths.get("python"), &config.name, "crates/{name}-py/src/");
         let has_serde = detect_serde_available(&output_dir);
         let mut cfg = config::binding_config(&core_import, has_serde);
         let mut cfg_unsendable = config::unsendable_binding_config(&core_import, has_serde);
 
-        // Build adapter body map for method body substitution
         let adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Python)?;
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         support_items::add_generated_module_attributes(&mut builder, &config.extra_clippy_allows);
         builder.add_import("pyo3::prelude::*");
-        // Note: core_import and path_mapping crates are referenced via fully-qualified paths
-        // in generated code (e.g. `core_import::TypeName`), so no bare `use crate_name;`
         // import is needed — that would trigger clippy::single_component_path_imports.
 
-        // Import serde_json when available (needed for serde-based param conversion)
         if has_serde {
             builder.add_import("serde_json");
         }
 
-        // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {
             builder.add_import(&trait_path);
         }
-        // Core crate types are referenced via fully-qualified paths (e.g.
-        // `sample_crate::ParseOptions`) in generated code, so no
-        // named or glob imports from the core crate are needed.  Importing
-        // core type names would shadow the local PyO3 wrapper structs that
-        // share the same names, causing compilation errors.
-        // Node and WASM backends already follow this fully-qualified pattern.
 
-        // Check if we have non-sanitized async functions (sanitized async methods produce stubs, not async code)
         let has_async = api.functions.iter().any(|f| f.is_async && !f.sanitized)
             || api
                 .types
@@ -130,7 +104,6 @@ impl Backend for Pyo3Backend {
                 .any(|t| t.methods.iter().any(|m| m.is_async && !m.sanitized));
         if has_async {
             builder.add_import("pyo3_async_runtimes");
-            // PyRuntimeError is needed for async error mapping via PyErr::new::<PyRuntimeError, _>
             let has_async_error = api
                 .functions
                 .iter()
@@ -145,10 +118,7 @@ impl Backend for Pyo3Backend {
             }
         }
 
-        // Check if we have opaque types and add Arc import if needed.
-        // Also include config.opaque_types entries without a Python capsule override — they get
         // binding-side #[pyclass] wrapper structs and must be treated as opaque in return wrapping
-        // so functions that return them emit `Language { inner: Arc::new(val) }` not `val.into()`.
         let mut opaque_types: AHashSet<String> = api
             .types
             .iter()
@@ -156,7 +126,6 @@ impl Backend for Pyo3Backend {
             .map(|t| t.name.clone())
             .collect();
         // Capsule types bypass #[pyclass] generation entirely; opaque types that
-        // are also capsule types must NOT be added to opaque_types here.
         let early_capsule_types = config
             .python
             .as_ref()
@@ -167,39 +136,24 @@ impl Backend for Pyo3Backend {
                 opaque_types.insert(name.clone());
             }
         }
-        // Data enums (enums with data variants) are also generated as opaque wrappers —
-        // include them so structs containing these types skip Default/Serialize/Deserialize.
         let data_enum_names: Vec<String> = api
             .enums
             .iter()
             .filter(|e| generators::enum_has_data_variants(e))
             .map(|e| e.name.clone())
             .collect();
-        // Trait bridge type aliases are opaque — they map to Arc<Py<PyAny>> in the binding
-        // layer and must not attempt From/Into conversion. Include them so struct fields
-        // referencing these types use Default::default() and skip serialization.
         let bridge_type_aliases: Vec<String> = config
             .trait_bridges
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        // Build a separate set for From impl generation: only true opaque types and bridge type
-        // aliases. Data enums (like StructureKind) have their own From impls via gen_pyo3_data_enum
-        // and their fields can be converted with val.field.into() — do not Default::default() them.
         let conversion_opaque_set: AHashSet<String> =
             opaque_types.iter().chain(bridge_type_aliases.iter()).cloned().collect();
         let mut opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
         let serializable_opaque_names_vec: Vec<String> = data_enum_names.clone();
         opaque_names_vec.extend(data_enum_names);
         opaque_names_vec.extend(bridge_type_aliases);
-        // Mirror the Vec in a HashSet so the transitive-closure loop's
-        // membership check is O(1) instead of O(n) per type per iteration.
-        // `field_references_opaque_type` still takes a slice (its public
-        // signature is fixed by other callers), but that is bounded by a
-        // single type's field count and not the per-iteration hot path.
         let mut opaque_names_set: AHashSet<String> = opaque_names_vec.iter().cloned().collect();
-        // Transitively close: any non-opaque type whose fields reference an opaque/data-enum
-        // type also can't derive Default/Serialize/Deserialize.
         let mut changed = true;
         while changed {
             changed = false;
@@ -222,22 +176,8 @@ impl Backend for Pyo3Backend {
         cfg_unsendable.opaque_type_names = &opaque_names_vec;
         cfg.serializable_opaque_type_names = &serializable_opaque_names_vec;
         cfg_unsendable.serializable_opaque_type_names = &serializable_opaque_names_vec;
-        // Force-restore cfg-gated config fields into pyo3 constructor signatures so the
-        // generated api.py can pass them as kwargs without TypeError. Without this the
         // emitted `#[new]` filters out fields with `f.cfg.is_some()`, but the python
-        // `_to_rust_extraction_config` helper always passes pdf_options/keywords/html_*/
-        // layout etc. as kwargs and crashes at runtime.
         let never_skip_cfg_field_names = cfg_fields::never_skip_cfg_field_names(api, config);
-        // Force-restore cfg-gated fields into the constructor when they are present in this
-        // binding's compilation unit, so the generated api.py can pass them as kwargs without
-        // a runtime TypeError. A field is restored when either:
-        //   * the type has no stripped cfg fields at all (every field is unconditionally
-        //     compiled in), or
-        //   * the field's own cfg predicate holds on a native target — pyo3 always targets a
-        //     native CPython host, so `not(target_arch = "wasm32")` fields are always present.
-        // Feature gates and other predicates we cannot prove are left out (conservative): the
-        // crate may be built without that feature, so the field stays defaulted in the struct
-        // literal instead of becoming a parameter that fails to compile.
         cfg.never_skip_cfg_field_names = &never_skip_cfg_field_names;
         cfg_unsendable.never_skip_cfg_field_names = &never_skip_cfg_field_names;
         let mutex_types: AHashSet<String> = api
@@ -246,9 +186,6 @@ impl Backend for Pyo3Backend {
             .filter(|t| t.is_opaque && generators::type_needs_mutex(t))
             .map(|t| t.name.clone())
             .collect();
-        // Subset of mutex_types where every &mut self method is async — the binding wrapper
-        // must use `tokio::sync::Mutex` (Send-across-await guard) to satisfy PyO3's `Send`
-        // future bound. See `type_needs_tokio_mutex` for rationale.
         let tokio_mutex_types: AHashSet<String> = api
             .types
             .iter()
@@ -257,16 +194,11 @@ impl Backend for Pyo3Backend {
             .collect();
         if !opaque_types.is_empty() {
             builder.add_import("std::sync::Arc");
-            // Only import std::sync::Mutex when at least one mutex type does NOT use the
-            // tokio variant; the rewriter substitutes `std::sync::Mutex` → `tokio::sync::Mutex`
-            // inline (so no separate import is needed for tokio types).
             if mutex_types.iter().any(|n| !tokio_mutex_types.contains(n)) {
                 builder.add_import("std::sync::Mutex");
             }
         }
 
-        // Check if we have Map types and add HashMap import if needed.
-        // Maps can appear in: struct fields, function parameters/returns, and opaque type methods.
         let type_ref_is_map = |ty: &crate::core::ir::TypeRef| matches!(ty, crate::core::ir::TypeRef::Map(_, _));
         let has_maps = api.types.iter().any(|t| {
             t.fields.iter().any(|f| type_ref_is_map(&f.ty))
@@ -278,34 +210,28 @@ impl Backend for Pyo3Backend {
             .iter()
             .any(|f| f.params.iter().any(|p| type_ref_is_map(&p.ty)) || type_ref_is_map(&f.return_type));
         if has_maps {
-            builder.add_import("std::collections::HashMap"); // Used in Map field conversions and method returns
+            builder.add_import("std::collections::HashMap");
         }
 
         support_items::add_py_visitor_ref(&mut builder);
 
         support_items::add_json_helpers(&mut builder);
 
-        // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Python);
         for module in custom_mods {
             builder.add_item(&format!("pub mod {module};"));
         }
 
-        // Service-API glue lives in the generated `service.rs`; declare it so its
         // `#[pyfunction]` entrypoints are compiled and can be registered in the module init.
         if !api.services.is_empty() {
             builder.add_item("pub mod service;");
         }
 
-        // Add adapter-generated standalone items (streaming iterators, callback bridges)
         for adapter in &config.adapters {
             match adapter.pattern {
                 AdapterPattern::Streaming => {
                     let key = crate::adapters::stream_struct_key(adapter);
                     if let Some(struct_code) = adapter_bodies.get(&key) {
-                        // Don't import item_type — the binding crate defines its own
-                        // wrapper struct with the same name. The streaming struct should
-                        // use the local wrapper type, not the core type.
                         builder.add_item(struct_code);
                     }
                 }
@@ -328,14 +254,7 @@ impl Backend for Pyo3Backend {
             .as_ref()
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
-        // A trait bridge with a `registry_getter` emits its own duck-typed `register_*`
-        // (`Py<PyAny>` → host wrapper → registry) below in `gen_trait_bridge`. The core also
-        // exposes a same-named `register_*` free function, which the api.functions loop would
         // otherwise emit as a SECOND `#[pyfunction]` of the same Rust name — a redefinition
-        // (E0428). It is broken regardless: the core registration now takes `Arc<dyn Trait>`,
-        // so the auto-wrapped visitor body fails to type-check (E0308). Collect these names so
-        // the loop skips them and the duck-typed registration is the single definition.
-        // (Mirrors the stub generator's `declared_function_names` dedup for bridge functions.)
         let bridge_duck_register_fns: AHashSet<&str> = config
             .trait_bridges
             .iter()
@@ -347,12 +266,8 @@ impl Backend for Pyo3Backend {
             .as_ref()
             .map(|c| c.exclude_types.iter().cloned().collect())
             .unwrap_or_default();
-        // Service owner types and handler-contract traits are marked binding_excluded
-        // by the service extraction pass: they are emitted by generate_service_api,
-        // not the generic struct/trait codegen, so skip them in the generic loop too.
         py_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
         // Types listed in capsule_types bypass #[pyclass] generation entirely — they are
-        // passed through as raw PyCapsule handles or Python-side-constructed objects.
         let capsule_types = config
             .python
             .as_ref()
@@ -360,11 +275,6 @@ impl Backend for Pyo3Backend {
             .unwrap_or_default();
         config_opaque::exclude_capsule_opaque_types(&mut py_exclude_types, config, &capsule_types);
 
-        // Collect all names that will be emitted as pyo3::create_exception! macros.
-        // This includes both the base error enum name AND all variant exception names
-        // (which may differ from the variant name, e.g. "Validation" variant → "ValidationError"
-        // exception name via python_exception_name). Any struct type sharing one of these names
-        // must be skipped to avoid E0428 duplicate definition errors.
         let mut error_type_names: AHashSet<String> = AHashSet::new();
         for error in &api.errors {
             error_type_names.insert(error.name.clone());
@@ -374,10 +284,6 @@ impl Backend for Pyo3Backend {
             }
         }
 
-        // Build the list of error converter function names available in the generated module.
-        // These follow the pattern `{snake_error}_to_py_err` for each error in api.errors.
-        // Used by bridge function generators and capsule method rewriters to dispatch typed
-        // exceptions instead of PyRuntimeError when the IR records a generic error type.
         let error_converters: Vec<String> = api
             .errors
             .iter()
@@ -388,22 +294,10 @@ impl Backend for Pyo3Backend {
             .collect();
 
         // Track emitted #[pyclass] struct names to prevent duplicate definitions (E0255/E0428).
-        // Duplicates can slip through when path-mapping collapses two distinct raw paths onto
-        // the same name after dedup has already run on the pre-mapping IR.
-        // Also used to skip wrapper emission for opaque_types already covered by the IR loop.
         let mut emitted_pyclass_names: AHashSet<&str> = AHashSet::new();
-        // Opaque types that MUST implement `Default` because a `has_default` struct holds them
-        // as a non-optional, directly-named field. That parent struct derives `Default`, which
-        // only compiles if every non-optional field type is itself `Default`. Optional/collection
-        // fields supply their own `Default` (None / empty) and so do not force it. This catches
         // core types whose `impl Default` is `#[alef(skip)]`'d (so `has_default` is false on the
-        // type itself) yet are still required to be `Default` by a Default-deriving parent.
         let default_required_types = cfg_fields::default_required_types(api);
-        // Pre-compute the set of types that will receive a core→binding From impl so the
-        // delegating Default is only emitted when From<core::T> will also be emitted.
-        // A type that is excluded from core→binding conversion (e.g. because it has a field
         // whose type is not in the convertible set) must keep #[derive(Default)] instead of
-        // the delegating impl — otherwise the binding crate fails to compile (E0277).
         let core_to_binding_for_default = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
         cfg.emit_delegating_default_for_types = Some(&core_to_binding_for_default);
         cfg_unsendable.emit_delegating_default_for_types = Some(&core_to_binding_for_default);
@@ -412,28 +306,17 @@ impl Backend for Pyo3Backend {
             .iter()
             .filter(|typ| !typ.is_trait && !py_exclude_types.contains(&typ.name))
         {
-            // Error types are emitted as pyo3::create_exception! macros, not as pyclass structs.
             if error_type_names.contains(typ.name.as_str()) {
                 continue;
             }
             // Capsule types bypass #[pyclass] entirely — they travel as raw PyCapsule handles
-            // or are constructed on the Python side. Emitting a wrapper struct for them would
             // produce an unused #[pyclass] that conflicts with the capsule-based call sites.
             if capsule_types.contains_key(typ.name.as_str()) {
                 continue;
             }
-            // Skip duplicate struct definitions — only emit the first occurrence.
             if !emitted_pyclass_names.insert(typ.name.as_str()) {
                 continue;
             }
-            // Only truly opaque types (those with raw FFI pointer handles or non-Send
-            // internals such as Rc) must use `unsendable`. Plain data structs that merely
-            // reference opaque types in their fields ARE Send + Sync and must use `frozen`
-            // so that async Python code can move them between threads without a
-            // "<TypeName> is unsendable" panic.
-            //
-            // We intentionally do NOT use the wider `opaque_names_set` here because that
-            // transitive closure includes plain data structs that are themselves Send.
             let type_cfg = if opaque_types.contains(typ.name.as_str()) {
                 &cfg_unsendable
             } else {
@@ -453,22 +336,14 @@ impl Backend for Pyo3Backend {
                     struct_code = mutex::rewrite_to_tokio_mutex_struct(&struct_code);
                     impl_block = mutex::rewrite_to_tokio_mutex_impl(&impl_block);
                 }
-                // Rewrite methods whose return type is a capsule type so they produce
                 // PyCapsule objects instead of the (non-existent) #[pyclass] wrapper structs.
                 if !capsule_types.is_empty() {
                     impl_block =
                         capsule_methods::rewrite_capsule_methods(impl_block, typ, &capsule_types, &error_converters);
                 }
-                // Variant-wrapper constructor — when the type is referenced as the
-                // wrapper of one or more registration variants (and therefore variant
-                // bodies emit `WrapperType(args...)` constructor-syntax calls), opt
                 // the type into a Python-level constructor by appending a `#[new]
-                // pub fn py_new(...) -> Self { Self::new(...) }` to the SAME impl
                 // block. pyo3 forbids multiple `#[pymethods] impl T` blocks (without
-                // the `multiple-pymethods` feature flag), so the constructor lives
                 // alongside the existing `#[staticmethod] pub fn new`. The two
-                // coexist by giving the constructor a distinct Rust fn name
-                // (`py_new`); pyo3 registers it as Python `__new__` via the
                 // `#[new]` attribute regardless of the Rust name.
                 if typ.is_variant_wrapper
                     && !impl_block.is_empty()
@@ -480,8 +355,6 @@ impl Backend for Pyo3Backend {
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
                 }
-                // Emit `impl Default for Type` when the type has a no-arg new() constructor
-                // to satisfy clippy's `new_without_default` lint
                 if opaque_helpers::should_emit_default_impl(typ, &impl_block, &default_required_types) {
                     builder.add_item(&opaque_helpers::emit_default_impl(typ));
                 }
@@ -493,11 +366,6 @@ impl Backend for Pyo3Backend {
                 }
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
-                // so no separate Default impl is needed.
-                //
-                // Use gen_struct_with_rename so that fields whose names are Python reserved
-                // keywords (e.g. `class`) are emitted with an escaped name in the Rust struct
-                // (e.g. `class_`) while the original name is preserved in the PyO3 property
                 // attribute (e.g. `#[pyo3(get, name = "class")]`) and the serde rename
                 // attribute (`#[serde(rename = "class")]`) so the user-facing API is unchanged.
                 let type_name = typ.name.clone();
@@ -507,12 +375,6 @@ impl Backend for Pyo3Backend {
                     &mapper,
                     type_cfg,
                     |field| {
-                        // For Json-typed fields whose Python binding stores `String`,
-                        // route deserialisation through the `alef_json_str{,_opt}` helpers
-                        // so callers may pass either a JSON-string-encoded value or a
-                        // raw object/array (which the helper re-encodes to a string).
-                        // The Json-field is detected via TypeRef directly (not via the
-                        // mapped type name) so `Option<Json>` cases also match.
                         let is_json_field = matches!(field.ty, crate::core::ir::TypeRef::Json);
                         let is_opt_json_field = field.optional && is_json_field
                             || matches!(&field.ty, crate::core::ir::TypeRef::Optional(inner) if matches!(inner.as_ref(), crate::core::ir::TypeRef::Json));
@@ -524,12 +386,6 @@ impl Backend for Pyo3Backend {
                             None
                         };
 
-                        // When the field needs a keyword-escape rename, replace the default
-                        // `pyo3(get)` with `pyo3(get, name = "original")` and add a serde
-                        // rename attr so JSON serialization still uses the original name.
-                        // Returning a non-empty vec here suppresses cfg.field_attrs for this
-                        // field (gen_struct_with_rename skips cfg.field_attrs when the name is
-                        // overridden AND extra_field_attrs is non-empty).
                         if config_ref
                             .resolve_field_name(crate::core::config::Language::Python, &type_name, &field.name)
                             .is_some()
@@ -550,9 +406,6 @@ impl Backend for Pyo3Backend {
                     },
                     |field| config_ref.resolve_field_name(crate::core::config::Language::Python, &type_name, &field.name),
                 ));
-                // Build per-type field renames for the constructor.
-                // Only includes config-based renames (keyword escaping like class → class_).
-                // serde_rename is handled separately via custom constructor generation.
                 let py_field_renames: std::collections::HashMap<String, String> = typ
                     .fields
                     .iter()
@@ -568,7 +421,6 @@ impl Backend for Pyo3Backend {
                     Some(&py_field_renames)
                 };
 
-                // Generate impl block with config-based renames (not serde_rename — that's handled below)
                 let mut impl_block = generators::gen_impl_block_with_renames(
                     typ,
                     &mapper,
@@ -578,9 +430,6 @@ impl Backend for Pyo3Backend {
                     renames_ref,
                 );
 
-                // For all types, replace the constructor with one that honors serde_rename
-                // For has_default types, fields get default values in the signature.
-                // For non-has_default types, required fields stay required.
                 impl_block = constructors::replace_constructor_with_serde_rename(
                     &impl_block,
                     typ,
@@ -592,8 +441,6 @@ impl Backend for Pyo3Backend {
                     api,
                 );
                 // Inject from_json staticmethod into the existing #[pymethods] block when serde
-                // is available and a core→binding conversion exists. Injecting into the same block
-                // avoids requiring the `multiple-pymethods` pyo3 feature.
                 if has_serde
                     && crate::codegen::conversions::core_to_binding_convertible_types(api, &[]).contains(&typ.name)
                 {
@@ -604,11 +451,9 @@ impl Backend for Pyo3Backend {
                          }"
                     .to_string();
                     if impl_block.is_empty() {
-                        // No existing impl block — create one just for from_json.
                         let type_name = &typ.name;
                         impl_block = format!("#[pymethods]\nimpl {type_name} {{\n{from_json_method}\n}}");
                     } else {
-                        // Inject before the closing `}` of the existing impl block.
                         if let Some(close_pos) = impl_block.rfind('}') {
                             impl_block.insert_str(close_pos, &format!("\n{from_json_method}\n"));
                         }
@@ -628,11 +473,7 @@ impl Backend for Pyo3Backend {
             opaque_types.is_empty(),
         );
 
-        // Classify which config-DTO types are dataclass-backed (their public name is a
         // `@dataclass`/`dict`, not the compiled `#[pyclass]`) so enum-variant payloads of those
-        // types are coerced rather than required as compiled instances. Then emit the runtime
-        // coercion helper plus the per-DTO `__ALEF_WIRE_*` rename-schema consts (both live in
-        // `wire_schema`). `coercible_dto_names` is reused below to drive the variant constructors.
         let coercible_dto_names = wire_schema::coercible_dto_names(api, config);
         let coercion_section = wire_schema::emit_dto_coercion_section(api, has_serde, &coercible_dto_names);
         if !coercion_section.is_empty() {
@@ -642,20 +483,10 @@ impl Backend for Pyo3Backend {
         for e in &api.enums {
             if generators::enum_has_data_variants(e) {
                 // Emit a `#[staticmethod]` constructor for each data-carrying struct variant
-                // (`EmbeddingModelType.preset("balanced")`). These are the type-safe, discoverable
-                // idiomatic path — the discriminator is carried by the variant name rather than a
                 // magic `type="..."` string. The `#[new]` dict/kwargs/string constructor stays as-is
-                // for flexibility; the variant constructors are additive.
                 let data_enum_code =
                     generators::gen_pyo3_data_enum_with_coercion(e, &core_import, Some(&mapper), &coercible_dto_names);
-                // A data enum is rendered as an opaque `{ inner: CoreEnum }` wrapper. The renderer
-                // already emits `impl Default` when the core enum's `has_default` is set. When a
-                // `Default`-deriving parent struct holds the enum as a non-optional field (tracked
                 // in `default_required_types`) but the core `impl Default` is `#[alef(skip)]`'d
-                // (so `has_default` is false and no impl was emitted), forward the core `Default`
-                // through `inner` ourselves — otherwise the parent's derive fails to compile. Guard
-                // against a duplicate impl for enums the renderer already covered (e.g.
-                // `CacheBackend`, whose `impl Default` is not skipped).
                 let needs_default = default_required_types.contains(e.name.as_str())
                     && !data_enum_code.contains(&format!("impl Default for {}", e.name));
                 builder.add_item(&data_enum_code);
@@ -670,14 +501,10 @@ impl Backend for Pyo3Backend {
             if py_exclude_functions.contains(&f.name) {
                 continue;
             }
-            // Skip a core `register_*` free function when its name belongs to a trait bridge
-            // that emits a duck-typed registration below — emitting both produces a redefinition.
             if bridge_duck_register_fns.contains(f.name.as_str()) {
                 continue;
             }
-            // Check whether any parameter's type matches a trait bridge type_alias (function-param binding).
             let bridge_param = crate::backends::pyo3::trait_bridge::find_bridge_param(f, &config.trait_bridges);
-            // Check whether any parameter's type carries a bridge field (options-field binding).
             let bridge_field =
                 crate::codegen::generators::trait_bridge::find_bridge_field(f, &api.types, &config.trait_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
@@ -706,8 +533,6 @@ impl Backend for Pyo3Backend {
                     &error_converters,
                 ));
             } else if !capsule_types.is_empty() && capsule::function_involves_capsule(f, &capsule_types) {
-                // Function returns or accepts a capsule type — emit a PyCapsule-aware body
-                // instead of the default Arc<> wrapping path.
                 builder.add_item(&capsule::gen_capsule_function(
                     f,
                     &capsule_types,
@@ -717,9 +542,6 @@ impl Backend for Pyo3Backend {
             } else {
                 let mut fn_code =
                     generators::gen_function_with_mutex(f, &mapper, &cfg, &adapter_bodies, &opaque_types, &mutex_types);
-                // Rewrite std::sync::Mutex → tokio::sync::Mutex when the returned opaque
-                // type is in `tokio_mutex_types`. The struct/impl rewriter only touches
-                // impl blocks, so apply targeted replacement here for free functions.
                 if !tokio_mutex_types.is_empty()
                     && fn_code.contains("Arc::new(std::sync::Mutex::new(")
                     && mutex::returns_tokio_mutex_type(f, &tokio_mutex_types)
@@ -731,13 +553,8 @@ impl Backend for Pyo3Backend {
         }
 
         // Trait marker classes — emit empty #[pyclass] structs for plugin traits so they can be
-        // imported and subclassed in Python.  The Rust struct is named `Py<TraitName>Marker` to
-        // avoid shadowing the trait import (e.g. `use core_crate::Validator;` would otherwise
-        // collide with a `pub struct Validator;`); the PyO3-exposed name still matches the trait
-        // so native-module imports resolve correctly on the Python side.
         for bridge_cfg in &config.trait_bridges {
             let trait_name = &bridge_cfg.trait_name;
-            // Skip if the trait name was already emitted as a regular type or type alias
             if !emitted_pyclass_names.insert(trait_name) {
                 continue;
             }
@@ -745,10 +562,7 @@ impl Backend for Pyo3Backend {
             builder.add_item(&marker_class);
         }
 
-        // Trait bridge wrappers — generate PyO3 bridge structs that delegate to Python objects
         if !config.trait_bridges.is_empty() {
-            // async_trait is only needed for plugin-style bridges (those with async methods).
-            // Visitor bridges are fully synchronous, so only add the import when needed.
             let needs_async_trait = config.trait_bridges.iter().any(|bridge_cfg| {
                 api.types
                     .iter()
@@ -758,8 +572,6 @@ impl Backend for Pyo3Backend {
             if needs_async_trait {
                 builder.add_import("async_trait::async_trait");
             }
-            // std::sync::Arc is already conditionally imported above for opaque types;
-            // ensure it's present for trait bridges too.
             if opaque_types.is_empty() {
                 builder.add_import("std::sync::Arc");
             }
@@ -768,8 +580,6 @@ impl Backend for Pyo3Backend {
                 .as_ref()
                 .map(|c| c.reexported_types.clone())
                 .unwrap_or_default();
-            // One-time helper for lifting native callback params into the public
-            // options dataclasses (see Pyo3BridgeGenerator::options_lift_expr).
             builder.add_item(&crate::backends::pyo3::template_env::render(
                 "trait_bridge/options_from_native_helper.jinja",
                 minijinja::context! {
@@ -795,7 +605,6 @@ impl Backend for Pyo3Backend {
             }
         }
 
-        // Error types (create_exception! macros + converter functions)
         let module_name = config.python_module_name();
         let mut seen_exceptions = AHashSet::new();
         for error in &api.errors {
@@ -810,7 +619,6 @@ impl Backend for Pyo3Backend {
             ));
             // Emit #[pymethods] impl block when the error exposes introspection methods.
             // The impl adds #[getter] properties that read from the exception args tuple
-            // populated by the converter above.
             let methods_impl = crate::codegen::error_gen::gen_pyo3_error_methods_impl(error);
             if !methods_impl.is_empty() {
                 builder.add_item(&methods_impl);
@@ -820,8 +628,6 @@ impl Backend for Pyo3Backend {
         let binding_to_core = crate::codegen::conversions::convertible_types(api);
         let core_to_binding = crate::codegen::conversions::core_to_binding_convertible_types(api, &[]);
         let input_types = crate::codegen::conversions::input_type_names(api);
-        // Build a rename map for all fields that needed keyword escaping so that From impls
-        // use the correct binding struct field names (e.g. `class_` not `class`).
         let py_field_renames = cfg_fields::py_field_renames(api, config);
         let pyo3_conversion_cfg = crate::codegen::conversions::ConversionConfig {
             option_duration_on_defaults: true,
@@ -834,9 +640,7 @@ impl Backend for Pyo3Backend {
             never_skip_cfg_field_names: &never_skip_cfg_field_names,
             ..Default::default()
         };
-        // From/Into conversions — separate sets for each direction
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-            // binding→core: strict (no sanitized fields)
             if input_types.contains(&typ.name)
                 && crate::codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
@@ -846,7 +650,6 @@ impl Backend for Pyo3Backend {
                     &pyo3_conversion_cfg,
                 ));
             }
-            // core→binding: permissive (sanitized fields use format!("{:?}"))
             if crate::codegen::conversions::can_generate_conversion(typ, &core_to_binding) {
                 builder.add_item(&crate::codegen::conversions::gen_from_core_to_binding_cfg(
                     typ,
@@ -857,18 +660,15 @@ impl Backend for Pyo3Backend {
             }
         }
         for e in &api.enums {
-            // Data enums generate their own From impls inside gen_pyo3_data_enum; skip here.
             if generators::enum_has_data_variants(e) {
                 continue;
             }
-            // Binding→core: only for enums with simple fields (Default::default() must work)
             if input_types.contains(&e.name) && crate::codegen::conversions::can_generate_enum_conversion(e) {
                 builder.add_item(&crate::codegen::conversions::gen_enum_from_binding_to_core(
                     e,
                     &core_import,
                 ));
             }
-            // Core→binding: always possible (data variants discarded with `..`)
             if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
                 builder.add_item(&crate::codegen::conversions::gen_enum_from_core_to_binding(
                     e,
@@ -877,12 +677,10 @@ impl Backend for Pyo3Backend {
             }
         }
 
-        // Async runtime initialization (if needed)
         if has_async {
             builder.add_item(&methods::gen_async_runtime_init());
         }
 
-        // Module init
         builder.add_item(&methods::gen_module_init(&config.python_module_name(), api, config));
 
         let mut content = builder.build();
@@ -902,9 +700,7 @@ impl Backend for Pyo3Backend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Collapse cfg-variant duplicates (e.g. `ensure_crypto_provider`) the same way the
         // Rust binding does — Python has no `#[cfg]`, so two same-named defs in the `.pyi`
-        // stub are a redefinition error.
         let deduped_api = api.with_deduped_functions();
         public_files::generate_type_stubs(&deduped_api, config)
     }
@@ -914,7 +710,6 @@ impl Backend for Pyo3Backend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Same cfg-variant collapse for the `api.py` wrapper functions.
         let deduped_api = api.with_deduped_functions();
         public_files::generate_public_api(&deduped_api, config)
     }

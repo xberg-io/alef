@@ -7,9 +7,6 @@ pub(super) fn backend_readiness_diagnostics(
     bridged_trait_names: &AHashSet<&str>,
 ) -> Vec<ValidationDiagnostic> {
     let known_names = known_type_names(api);
-    // Trait method signatures may reference per-language-excluded types because backend
-    // `trait_bridge.rs` substitutes them with a JSON opaque carrier at code-emit. Free
-    // functions, fields, and inherent-method signatures don't get that substitution.
     let mut trait_known_names = known_names.clone();
     trait_known_names.extend(substitutable_type_names(api));
     let opaque_names = opaque_type_names(api);
@@ -91,7 +88,6 @@ pub(super) fn backend_readiness_diagnostics(
                 continue;
             }
             let item_path = format!("error method {}.{}", error_def.name, method.name);
-            // Error types are never opaque — they are always transparent error enums/structs.
             collect_method_diagnostics(
                 api,
                 &known_names,
@@ -213,12 +209,6 @@ fn collect_method_diagnostics(
             "exclude the item, configure an opaque/trait bridge, or expose a binding-safe DTO",
         ));
     }
-    // A &mut self method without a trait source cannot be straightforwardly delegated to a
-    // free function by the backend's default path. However, when the *receiver* type is itself
-    // opaque, the backend already handles this via the direct inner-call path
-    // (e.g. `self.inner.method()`), so returning another opaque handle from such a method
-    // is a well-supported pattern. Only emit the diagnostic when the receiver is non-opaque
-    // and therefore has no inner-call path available.
     let non_delegatable_ref_mut = matches!(method.receiver, Some(ReceiverKind::RefMut))
         && method.trait_source.is_none()
         && !receiver_type_is_opaque;
@@ -306,8 +296,6 @@ fn collect_service_diagnostics(
     service: &ServiceDef,
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
-    // Service constructors and configurators are static-like factory methods — the receiver
-    // type (the service builder) is not an opaque handle.
     collect_method_diagnostics(
         api,
         known_names,
@@ -387,7 +375,6 @@ fn collect_handler_contract_diagnostics(
     contract: &HandlerContractDef,
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
-    // Handler contracts are trait dispatch methods — no opaque receiver context applies.
     collect_method_diagnostics(
         api,
         known_names,

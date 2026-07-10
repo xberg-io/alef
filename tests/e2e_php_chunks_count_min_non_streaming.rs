@@ -14,19 +14,4 @@
 //! as a streaming field when the call is actually streaming.
 
 #[test]
-fn php_chunks_count_min_non_streaming_uses_result_field() {
-    // Regression test: non-streaming call with count_min on "chunks" should not
-    // treat "chunks" as a streaming virtual field. This documents the fix in php.rs
-    // where we added `is_streaming &&` guard before the streaming field check.
-    //
-    // Before: PHP codegen checked `is_streaming_virtual_field("chunks")` without
-    // verifying `is_streaming`, causing "Undefined variable $chunks" errors.
-    //
-    // After: The `is_streaming &&` guard ensures "chunks" is only treated as a
-    // streaming field when the call is actually streaming.
-
-    // This test documents the fix. Actual validation happens during:
-    // - task e2e:test:php (runs the full PHPUnit suite on generated bindings)
-    // - Specifically: test_config_chunking_prepend_heading_context fixture
-    // See php.rs render_assertion() for the implementation.
-}
+fn php_chunks_count_min_non_streaming_uses_result_field() {}

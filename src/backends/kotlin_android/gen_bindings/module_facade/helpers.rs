@@ -27,7 +27,6 @@ pub(super) fn kotlin_nullable_type_for_optional(ty: &TypeRef) -> String {
         TypeRef::String => "String",
         TypeRef::Bytes => "ByteArray",
         TypeRef::Vec(inner) => {
-            // Vec<u8> (binary data) → ByteArray; other Vec → String (will be JSON-encoded)
             if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) {
                 "ByteArray"
             } else {

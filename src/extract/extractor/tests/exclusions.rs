@@ -47,10 +47,6 @@ fn test_extract_binding_excluded_fields() {
 
 #[test]
 fn test_struct_with_non_pub_field_sets_has_private_fields() {
-    // A `pub(crate)` field is filtered out of the binding surface, but its existence
-    // means the core struct cannot be built with struct-literal syntax from a foreign
-    // crate. `has_private_fields` records that so the conversion generator picks a
-    // non-literal construction strategy.
     let source = r#"
         #[derive(Default)]
         pub struct ResultLike {
@@ -105,7 +101,6 @@ fn test_opaque_struct() {
 #[test]
 fn test_pub_type_alias_with_alef_skip_is_binding_excluded() {
     // `#[cfg_attr(alef, alef(skip))]` on a type alias should mark it as
-    // binding_excluded so downstream backends skip it.
     let source = r#"
         #[cfg_attr(alef, alef(skip))]
         pub type StringBufferPool = Pool<String>;
@@ -273,26 +268,8 @@ fn test_extract_binding_excluded_method() {
 #[test]
 fn test_extract_skip_attribute_on_impl_block_drops_all_methods() {
     // Regression: an `impl` block carrying `#[cfg_attr(alef, alef(skip))]` must
-    // contribute zero methods to the binding surface. The motivating case is a
-    // fluent builder whose method names collide with struct fields:
-    //
-    //     pub struct JsonSchemaFormat {
-    //         pub strict: Option<bool>,
-    //         pub description: Option<String>,
-    //         ...
-    //     }
-    //
     //     #[cfg_attr(alef, alef(skip))]
-    //     impl JsonSchemaFormat {
-    //         pub fn strict(mut self, on: bool) -> Self { ... }
-    //         pub fn description(mut self, d: impl Into<String>) -> Self { ... }
-    //     }
-    //
-    // The C FFI backend emits a field accessor for each public field AND a method
-    // wrapper for each impl method. When the names collide, two
     // `#[no_mangle] extern "C" fn` definitions with the same symbol are emitted,
-    // breaking compilation with E0428. Honoring `alef(skip)` on the impl block at
-    // the IR-extraction layer means *no* backend sees the builder methods.
     let source = r#"
         pub struct JsonSchemaFormat {
             pub name: String,
@@ -318,7 +295,6 @@ fn test_extract_skip_attribute_on_impl_block_drops_all_methods() {
         "no methods should be lifted from a skipped impl block, got: {:?}",
         format.methods.iter().map(|m| &m.name).collect::<Vec<_>>()
     );
-    // Fields must remain — only the impl block is skipped.
     let field_names: Vec<&str> = format.fields.iter().map(|f| f.name.as_str()).collect();
     assert!(field_names.contains(&"strict"));
     assert!(field_names.contains(&"description"));
@@ -353,10 +329,6 @@ fn test_extract_skip_attribute_on_bare_alef_impl_block_drops_all_methods() {
 
 #[test]
 fn test_disambiguation_pass_runs_on_full_extract() {
-    // Two structs named `Event` in sibling modules. Without disambiguation, both
-    // would survive with the same `name`, and downstream codegen would emit two
-    // conflicting binding definitions. With disambiguation, the second is renamed
-    // by prepending its PascalCase parent module segment.
     let dir = tempfile::tempdir().expect("tempdir");
     let lib_rs = dir.path().join("lib.rs");
     std::fs::write(
@@ -375,7 +347,6 @@ fn test_disambiguation_pass_runs_on_full_extract() {
     let surface = super::extract(&[lib_rs.as_path()], "my_crate", "0.0.0", None).expect("extract failed");
 
     let names: Vec<&str> = surface.types.iter().map(|t| t.name.as_str()).collect();
-    // First-seen by sorted rust_path: `my_crate::stream::Event` < `my_crate::testing::Event`.
     assert!(
         names.contains(&"Event"),
         "stream::Event kept its original name: {names:?}"
@@ -388,8 +359,6 @@ fn test_disambiguation_pass_runs_on_full_extract() {
 
 #[test]
 fn test_error_enum_methods_whitelist() {
-    // Simulates a downstream error enum with whitelisted introspection methods
-    // plus a noisy Display::fmt that must be excluded.
     let source = r#"
         #[derive(Debug, thiserror::Error)]
         pub enum SampleLlmError {
@@ -440,7 +409,6 @@ fn test_error_enum_methods_whitelist() {
     assert_eq!(err.name, "SampleLlmError");
     assert_eq!(err.variants.len(), 4);
 
-    // Exactly 3 whitelisted methods must be extracted, noisy helper excluded.
     assert_eq!(
         err.methods.len(),
         3,
@@ -459,7 +427,6 @@ fn test_error_enum_methods_whitelist() {
         "to_status_message is not whitelisted and must be excluded"
     );
 
-    // Verify return types are correctly resolved.
     let status_code = err.methods.iter().find(|m| m.name == "status_code").unwrap();
     assert_eq!(
         status_code.return_type,
@@ -480,9 +447,7 @@ fn test_error_enum_methods_whitelist() {
 
 #[test]
 fn test_extract_excludes_dyn_trait_object_fields() {
-    // Fields whose type contains `dyn Trait` must be auto-excluded from bindings,
     // regardless of whether `#[serde(skip)]` is also present.
-    // Trait objects cannot be marshaled through serde or constructed from non-Rust code.
     let source = r#"
         pub struct Config {
             pub normal: String,
@@ -528,12 +493,9 @@ fn test_extract_excludes_dyn_trait_object_fields() {
     );
 
     // `#[serde(skip)]` alone on a plain type must NOT trigger binding exclusion
-    // (consumers use serde(skip) on types that bindings can still access directly).
     let serde_skip_plain = config.fields.iter().find(|f| f.name == "serde_skip_plain").unwrap();
     assert!(
         !serde_skip_plain.binding_excluded,
         "serde(skip) on plain String must not exclude from bindings"
     );
 }
-
-// --- Generic public functions ---

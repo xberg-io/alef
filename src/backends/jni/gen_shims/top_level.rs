@@ -14,32 +14,18 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         },
     ));
 
-    // Per-trait `use` clauses for trait-method dispatch. The lib_header glob
-    // `use core_crate::*;` only brings items declared at the crate root, so
-    // traits that live in submodules and are NOT `pub use`-d at the root
-    // (Tier-B Rust-public extension points) need explicit imports here.
-    // Without these, every emitted `client.trait_method(...)` call fails
-    // with `no method named X found for reference &T`.
-    //
-    // Mirrors what extendr / rustler / wasm / php / magnus / ffi / dart /
-    // pyo3 / napi already do via the same shared helper.
     for trait_path in collect_trait_imports(api) {
         out.push_str(&format!("use {trait_path};\n"));
     }
 
-    // Shared runtime helpers.
     emit_runtime_helpers(&mut out);
 
-    // Collect visible top-level functions.
     let exclude_functions: std::collections::HashSet<&str> = config
         .kotlin_android
         .as_ref()
         .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
         .unwrap_or_default();
 
-    // Trait-bridge register / unregister / clear functions are also emitted by
-    // `emit_trait_bridge_shims` below; iterating them again as plain top-level
-    // functions would emit duplicate `Java_*_native…` symbols and break linking.
     let trait_bridge_fn_names: std::collections::HashSet<&str> = config
         .trait_bridges
         .iter()
@@ -52,9 +38,6 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
 
     // The JNI shims do not emit `#[cfg]` gates per function, so same-named cfg-variant entries
     // (real impl + no-ORT stub fallback) would produce two `Java_*_native…` `#[no_mangle]`
-    // symbols — a duplicate-symbol error in the JNI crate. Collapse them to a single shim that
-    // delegates to the one `core_crate::<fn>` path the configured feature set provides.
-    // See codegen::fn_dedup.
     let deduped_functions = crate::codegen::fn_dedup::dedup_same_name_functions(&api.functions);
     let visible_functions: Vec<_> = deduped_functions
         .iter()
@@ -65,7 +48,6 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         })
         .collect();
 
-    // Collect opaque type names for handle-vs-JSON dispatch.
     let opaque_type_names: std::collections::HashSet<&str> = api
         .types
         .iter()
@@ -73,7 +55,6 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         .map(|t| t.name.as_str())
         .collect();
 
-    // Top-level function shims.
     for f in &visible_functions {
         let method_name = bridge_method_name("", &f.name);
         let symbol = jni_symbol(&package, &bridge, &method_name);
@@ -90,7 +71,6 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         );
     }
 
-    // Opaque client type shims (types that have instance methods).
     let client_types: Vec<_> = api
         .types
         .iter()
@@ -111,8 +91,6 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         );
     }
 
-    // Emit destructors for opaque types that are returned by top-level functions
-    // but do NOT have instance methods (those are handled by emit_client_shims above).
     let top_level_opaque_returns: std::collections::HashSet<&str> = visible_functions
         .iter()
         .filter_map(|f| {
@@ -131,9 +109,6 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         emit_destructor_shim(&mut out, &free_symbol, type_name);
     }
 
-    // Trait-bridge shims (Java_*_nativeRegister<Trait> / nativeUnregister<Trait> /
-    // nativeClear<Trait>s).  Bridges with `kotlin_android` in `exclude_languages`
-    // are skipped.
     emit_trait_bridge_shims(&mut out, config, api, &package, &bridge);
 
     out

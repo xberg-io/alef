@@ -31,7 +31,6 @@ pub fn default_test_apps_run_config(
 ) -> TestAppRunConfig {
     match lang {
         Language::Rust => TestAppRunConfig {
-            // Rust has no separate package manager — cargo handles install + test.
             precondition: Some(require_tool("cargo")),
             before: None,
             run: Some(StringOrVec::Single(format!("cd {test_apps_dir}/rust && cargo test"))),
@@ -54,11 +53,6 @@ pub fn default_test_apps_run_config(
             let run = match pm {
                 "npm" => format!("cd {test_apps_dir}/node && npm install --no-package-lock && npm test"),
                 "yarn" => format!("cd {test_apps_dir}/node && yarn install && yarn test"),
-                // Registry-mode: re-resolve from package.json (the committed lockfile pins the
-                // previous release) and disable pnpm's minimumReleaseAge supply-chain gate, which
-                // rejects packages published within its window — i.e. the just-released version
-                // under test. The flag must be passed to both `pnpm install` and `pnpm test`
-                // because pnpm 11.3+ runs its own policy check during test invocation.
                 _ => format!(
                     "cd {test_apps_dir}/node && pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0 && pnpm --config.minimumReleaseAge=0 test"
                 ),
@@ -74,10 +68,6 @@ pub fn default_test_apps_run_config(
             let run = match pm {
                 "npm" => format!("cd {test_apps_dir}/wasm && npm install --no-package-lock && npm test"),
                 "yarn" => format!("cd {test_apps_dir}/wasm && yarn install && yarn test"),
-                // See the Node arm: re-resolve and skip pnpm's minimumReleaseAge gate so the
-                // freshly-published version under test installs. The flag must be passed to
-                // both `pnpm install` and `pnpm test` because pnpm 11.3+ runs its own policy
-                // check during test invocation.
                 _ => format!(
                     "cd {test_apps_dir}/wasm && pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0 && pnpm --config.minimumReleaseAge=0 test"
                 ),
@@ -96,21 +86,6 @@ pub fn default_test_apps_run_config(
             ))),
         },
         Language::Php => {
-            // PHP extensions are a special composer case: `composer install`
-            // cannot satisfy a `type: php-ext` package because the platform
-            // resolver consults `php -m` for `ext-<name>`. Alef emits an
-            // `install.sh` next to composer.json that bootstraps PIE and runs
-            // `pie install <vendor>/<crate>:<version>` to drop the binary into
-            // the running PHP's extension dir. Once the extension is loaded,
-            // `composer install` resolves cleanly and `composer test` runs.
-            //
-            // `install.sh` takes the package version as its first argument
-            // (falling back to a generate-time default when omitted). Forward
-            // the published version explicitly so the test app exercises the
-            // exact version the runner installs for every other language. The
-            // version may carry a composer-style constraint prefix (^, ~, >=,
-            // …) that PIE does not accept as a concrete tag — strip it so the
-            // installer receives a bare version.
             let version_arg = published_version
                 .map(strip_version_constraint)
                 .filter(|v| !v.is_empty())
@@ -132,34 +107,7 @@ pub fn default_test_apps_run_config(
             ))),
         },
         Language::Go => {
-            // GOWORK=off prevents a consumer repo's go.work from absorbing
-            // test_apps/go into the outer workspace, which would cause `go test
-            // ./...` to resolve the module graph via the workspace root and
-            // reject the test app's go.mod as a non-member module.
-            //
-            // `go mod tidy` populates `go.sum` with full module + package
-            // checksums from the require directives in `go.mod`. Alef emits a
-            // go.mod with the published-module require but no go.sum (the
-            // hashes resolve at fetch time, not at manifest emission), and
-            // `go test` refuses to proceed without complete checksums.
-            // `go mod download` alone only writes `/go.mod` hashes — `tidy`
-            // adds the package content hashes that `go test` actually checks.
-            // `tidy` is idempotent once the sum is complete.
-            //
-            // For cgo bindings the FFI library must exist under the module's
-            // `.lib/<platform>/` before `go test` links it. The published module
-            // lives in Go's read-only module cache (~/go/pkg/mod) and `go generate`
-            // is a no-op in dependency modules, so the binding's bundled downloader
-            // cannot run in place. We copy the module to a writable temp dir and run
-            // the binding's OWN `cmd/download_ffi` there — that tool (emitted by
-            // alef's Go backend) owns the project's release-asset URL and platform
-            // mapping, so this runner stays generic and carries no project-specific
             // download logic. The tool ships behind a `//go:build ignore` guard so it
-            // is not compiled into the library; strip that guard in the writable copy
-            // so `go run` can execute it (a no-op once the binding is regenerated
-            // without the guard). Then `go mod edit -replace` points the test app at
-            // the populated copy. go.mod/go.sum are restored afterwards unconditionally
-            // so a failed run cannot leave a stale replace directive behind.
             let run_cmd = if let Some(mod_path) = go_module_path {
                 format!(
                     r#"cd {test_apps_dir}/go && GOWORK=off go mod tidy && \
@@ -204,9 +152,6 @@ pub fn default_test_apps_run_config(
             ))),
         },
         Language::KotlinAndroid => TestAppRunConfig {
-            // Tests are JUnit unit tests that run via `gradle test` against the
-            // published AAR and JVM-side deps. No Android device/emulator required,
-            // only gradle + JDK.
             precondition: Some(require_tool("gradle")),
             before: None,
             run: Some(StringOrVec::Single(format!(
@@ -214,18 +159,6 @@ pub fn default_test_apps_run_config(
             ))),
         },
         Language::Dart => TestAppRunConfig {
-            // Native libraries ship inside the pub.dev package itself: the publish pipeline's
-            // `assemble-dart-package` job stages prebuilt cdylibs under
-            // `packages/dart/lib/src/native/<rid>/` before `dart pub publish`, and the
-            // FRB loader (`_alefResolveExternalLibrary` in the generated `frb_generated.dart`)
-            // resolves them from there via `Isolate.resolvePackageUri`. No runtime download
-            // step is required, and no `Upload Dart natives to GitHub Release` step exists
-            // in the publish workflow — invoking the `download_libs` executable here turned a
-            // missing-natives publish-pipeline regression into a runtime HTTP 404 that
-            // masked the real failure mode (and broke every test_app run unconditionally).
-            //
-            // If natives are absent from the pub.dev tarball (publish-pipeline bug), `dart test`
-            // surfaces a direct loader error, which points at the right layer to fix.
             precondition: Some(require_tool("dart")),
             before: None,
             run: Some(StringOrVec::Single(format!(
@@ -233,13 +166,6 @@ pub fn default_test_apps_run_config(
             ))),
         },
         Language::Swift => TestAppRunConfig {
-            // The Swift test app is emitted under `swift_e2e/` (not `swift/`) so the
-            // SwiftPM package identity is distinct from any sibling package — see
-            // `src/e2e/codegen/swift.rs` (`output_base = ...join("swift_e2e")`).
-            //
-            // Package.swift uses `.package(url:, from:)` to depend on the published
-            // GitHub release directly — SwiftPM resolves the source archive, so no
-            // pre-test artifact-bundle download step is required.
             precondition: Some(require_tool("swift")),
             before: None,
             run: Some(StringOrVec::Single(format!(
@@ -247,22 +173,6 @@ pub fn default_test_apps_run_config(
             ))),
         },
         Language::Zig => TestAppRunConfig {
-            // At release time, build.zig.zon is generated with `.url` but no `.hash` field
-            // because the network fetch fails (published tarballs don't yet exist). After
-            // release, the tarballs are live on GitHub. We need to populate the `.hash`
-            // field of each dependency.
-            //
-            // `zig fetch --save=<dep>` silently no-ops when the dep entry already exists
-            // (it warns "overwriting existing dependency named X" but does NOT actually
-            // overwrite the file). So we use plain `zig fetch <url>` (no --save) which
-            // prints the computed hash to stdout, and we inject it into build.zig.zon
-            // ourselves via Python.
-            //
-            // Cache cleanup: `zig-pkg/` (per-test-app global cache) and `.zig-cache/`
-            // (per-build cache) carry stale per-version directories from prior rcs whose
-            // computed `file_hash` no longer matches the new tarball — surfaces as
-            // `failed to check cache: '…/src/<file>.zig' file_hash FileNotFound` even
-            // though the hash in build.zig.zon resolves cleanly. Nuke both before fetch.
             precondition: Some(require_tool("zig")),
             before: None,
             run: Some(StringOrVec::Single(format!(
@@ -298,26 +208,15 @@ zig build test"#
             ))),
         },
         Language::C => TestAppRunConfig {
-            // The C test app is a Makefile-driven harness with a `test` target.
             precondition: Some(require_tool("make")),
             before: None,
             run: Some(StringOrVec::Single(format!("cd {test_apps_dir}/c && make test"))),
         },
-        // FFI is the shared C ABI consumed by other bindings (Go/Swift/…); it has
-        // no standalone test app of its own — coverage comes from the bindings
-        // that link against it.
         Language::Ffi => TestAppRunConfig {
             precondition: None,
             before: None,
             run: None,
         },
-        // The JNI shim is exercised by the kotlin_android test app, which runs
-        // host-JVM JUnit tests loading the JNI cdylib via gradle's buildHostJni
-        // + copyHostJni tasks (no Android emulator). Routing `Language::Jni`'s
-        // run to the same command makes JNI a first-class test-apps target
-        // instead of misleading "⊘ skipped". The duplicate `gradle test` when a
-        // project enables both kotlin_android and jni is acceptable — the
-        // task graph is incremental and the second run is cache-hot.
         Language::Jni => TestAppRunConfig {
             precondition: Some(require_tool("gradle")),
             before: None,
@@ -538,7 +437,6 @@ mod tests {
         let c = cfg(Language::Swift, "test_apps");
         let run = c.run.unwrap().commands().join(" ");
         assert_eq!(c.precondition.as_deref(), Some("command -v swift >/dev/null 2>&1"));
-        // The generator emits the Swift app under `swift_e2e/`, not `swift/`.
         assert!(run.contains("cd test_apps/swift_e2e"), "got: {run}");
         assert!(
             !run.contains("cd test_apps/swift "),
@@ -580,9 +478,6 @@ mod tests {
             !run.contains("go mod vendor") && !run.contains("-mod=vendor"),
             "must not use vendor mode, got: {run}"
         );
-        // The runner copies the published module to a writable dir and invokes the
-        // binding's OWN download_ffi — it must carry NO project-specific download
-        // logic (no hard-coded release URL, platform mapping, or curl).
         assert!(
             run.contains(r#"go list -m -f '{{.Dir}}'"#),
             "expected the module dir to be resolved via `go list -m`, got: {run}"
@@ -620,8 +515,6 @@ mod tests {
         assert!(run.contains("python3"), "got: {run}");
         assert!(run.contains("'zig', 'fetch'"), "got: {run}");
         assert!(run.contains("zig build test"), "got: {run}");
-        // The Python hash-population step must precede `zig build test` so the placeholder
-        // `.hash` fields in build.zig.zon are filled in before the build runs.
         let python_idx = run.find("python3").unwrap();
         let build_idx = run.find("zig build test").unwrap();
         assert!(
@@ -664,9 +557,6 @@ mod tests {
 
     #[test]
     fn homebrew_target_runs_under_homebrew_subdir() {
-        // The newer combined CLI+FFI Homebrew target (HomebrewCodegen) writes to
-        // `test_apps/homebrew/`, not `test_apps/brew/`. The default run command
-        // must cd into the matching subdir.
         let tools = ToolsConfig::default();
         let ctx = LangContext::default(&tools);
         let c = default_test_apps_run_config_for_name("homebrew", "test_apps", &ctx);
@@ -681,11 +571,6 @@ mod tests {
 
     #[test]
     fn dart_run_does_not_invoke_download_libs() {
-        // Pub.dev packages bundle prebuilt natives under `lib/src/native/<rid>/`;
-        // there is no GitHub Release tarball for Dart natives, so invoking
-        // `dart run <pkg>:download_libs` between `pub get` and `dart test` produced
-        // an HTTP 404 on every test_app run. The default command must run only
-        // `dart pub get && dart test` from the dart subdir.
         let c = cfg(Language::Dart, "test_apps");
         let run = c.run.expect("dart should have a run command").commands().join(" ");
         assert_eq!(c.precondition.as_deref(), Some("command -v dart >/dev/null 2>&1"));

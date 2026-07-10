@@ -14,18 +14,12 @@ use regex::Regex;
 /// This post-processor finds patterns like `: Double = <digit>` and
 /// converts them to `: Double = <digit>.0`.
 pub fn fix_float_literals(content: &str) -> String {
-    // Match `: Double = <digits>` followed by non-digit, non-dot boundary character
-    // e.g., "val minNonWhitespacePerPage: Double = 32," -> "= 32.0,"
-    // Capture the boundary char separately to preserve it in the replacement
     let double_pattern = Regex::new(r"(: Double = )(\d+)([^0-9.])").expect("invalid regex");
     let content = double_pattern.replace_all(content, "${1}${2}.0${3}").into_owned();
 
-    // Also handle end-of-line case (: Double = <digits> with nothing after)
     let double_eol_pattern = Regex::new(r"(: Double = )(\d+)$").expect("invalid regex");
     let content = double_eol_pattern.replace_all(&content, "${1}${2}.0").into_owned();
 
-    // Match `: Float = <digits>f` (no decimal point) and add `.0`
-    // e.g., "val field: Float = 32f" -> "= 32.0f"
     let float_pattern = Regex::new(r"(: Float = )(\d+)(f)").expect("invalid regex");
     float_pattern.replace_all(&content, "${1}${2}.0${3}").into_owned()
 }

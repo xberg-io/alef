@@ -161,15 +161,11 @@ fn brew_renders_mock_url_list_as_positional_urls() {
 
     let content = &test_file.content;
 
-    // Verify the test function is defined.
     assert!(
         content.contains("test_scrape_batch_basic()"),
         "test function must be defined. Content:\n{content}"
     );
 
-    // Verify all three URLs are rendered as positional arguments.
-    // Each path should be preceded by the base URL variable.
-    // Paths: /page1, /page2, /page3
     assert!(
         content.contains("${MOCK_SERVER_SCRAPE_BATCH_BASIC:-${MOCK_SERVER_URL}/fixtures/scrape_batch_basic}/page1"),
         "URL /page1 must be rendered with mock server base. Content:\n{content}"
@@ -200,9 +196,6 @@ fn brew_honors_override_subcommand() {
 
     let content = &test_file.content;
 
-    // Verify the subcommand is "batch-scrape" (from brew override),
-    // not "scrape" (the default).
-    // The command line should start with: testlib batch-scrape (not testlib scrape)
     assert!(
         content.contains("testlib batch-scrape"),
         "subcommand must be 'batch-scrape' (from override). Content:\n{content}"
@@ -225,8 +218,6 @@ fn brew_override_subcommand_works_with_tag_routing() {
 
     let content = &test_file.content;
 
-    // Verify the subcommand is "batch-crawl" (from brew override for batch_crawl call),
-    // even though the fixture has a "batch-crawl" tag.
     assert!(
         content.contains("test_crawl_batch_depth()"),
         "test function must be defined. Content:\n{content}"
@@ -237,7 +228,6 @@ fn brew_override_subcommand_works_with_tag_routing() {
         "subcommand must be 'batch-crawl' (from call override). Content:\n{content}"
     );
 
-    // Verify the URLs are rendered with the correct base.
     assert!(
         content.contains("${MOCK_SERVER_CRAWL_BATCH_DEPTH:-${MOCK_SERVER_URL}/fixtures/crawl_batch_depth}/path1"),
         "URL /path1 must be rendered with mock server base. Content:\n{content}"

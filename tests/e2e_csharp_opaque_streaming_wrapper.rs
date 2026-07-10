@@ -9,7 +9,6 @@ use alef::core::ir::{ApiSurface, FieldDef, MethodDef, ParamDef, ReceiverKind, Ty
 fn test_opaque_streaming_static_wrapper() {
     let backend = CsharpBackend;
 
-    // Create API with an opaque type and a streaming method
     let api = ApiSurface {
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
@@ -150,13 +149,11 @@ fn test_opaque_streaming_static_wrapper() {
         ..Default::default()
     };
 
-    // Minimal config with adapter for streaming
     let mut config = ResolvedCrateConfig {
         name: "sample_crate".to_string(),
         ..Default::default()
     };
 
-    // Add streaming adapter that marks stream_items as streaming
     config.adapters.push(AdapterConfig {
         name: "stream_items".to_string(),
         pattern: AdapterPattern::Streaming,
@@ -178,7 +175,6 @@ fn test_opaque_streaming_static_wrapper() {
         .generate_bindings(&api, &config)
         .expect("generation should succeed");
 
-    // Find the wrapper class file
     let wrapper_file = files
         .iter()
         .find(|f| f.path.ends_with("SampleCrateConverter.cs"))
@@ -186,14 +182,12 @@ fn test_opaque_streaming_static_wrapper() {
 
     let content = &wrapper_file.content;
 
-    // Verify that static wrapper method is emitted
     assert!(
         content.contains("public static async IAsyncEnumerable<StreamItem> StreamItemsAsync("),
         "wrapper class should emit static StreamItemsAsync method; content:\n{}",
         content
     );
 
-    // Verify the method delegation pattern
     assert!(
         content.contains("await foreach (var item in engine."),
         "static wrapper should delegate to instance method via await foreach"

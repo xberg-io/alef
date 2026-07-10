@@ -87,9 +87,6 @@ fn mirror_to_core_binding_excluded_without_default_emits_explicit_only() {
 
 #[test]
 fn mirror_to_core_fully_mirrored_with_default_emits_spread() {
-    // Forward-compatibility: a has_default core type with every field mirrored
-    // must still get the spread trailer, so an additive core field falls back
-    // to its default instead of failing E0063 until the bindings are regenerated.
     let ty = typ("Plain", true, false, vec![field("name", false), field("value", false)]);
     let mut out = String::new();
     emit_from_mirror_to_core_struct(&mut out, &ty, "source");

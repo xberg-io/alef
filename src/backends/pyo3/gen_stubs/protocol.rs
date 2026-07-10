@@ -27,21 +27,10 @@ pub(super) fn gen_visitor_protocol_stub(
     }
     let trait_def = api.types.iter().find(|t| t.name == bridge.trait_name)?;
 
-    // Plugin-style bridges (registered via `register_*`) only require the trait's
-    // non-defaulted methods at runtime — the bridge forwards Rust-defaulted methods
-    // when the host defines them and falls back to the Rust default otherwise, and
-    // the Plugin lifecycle hooks are no-ops when absent. Emitting defaulted methods
-    // as required Protocol members would reject every minimal (and valid) backend,
-    // so the Protocol lists the required contract and the docstring documents the
-    // optional surface. Visitor-style (options-field) bridges keep the full method
-    // list: their hosts are ad-hoc override maps, not registered plugin objects.
     let is_plugin_bridge = bridge.register_fn.is_some();
     let (required, optional): (Vec<&crate::core::ir::MethodDef>, Vec<&crate::core::ir::MethodDef>) =
         methods.iter().partition(|m| !(is_plugin_bridge && m.has_default_impl));
 
-    // Types excluded from the public binding surface are never emitted as `.pyi` classes; a
-    // Protocol method referencing one (e.g. `-> InternalDocument`) would be an undefined name.
-    // Substitute them with their JSON marshaling form, matching the runtime bridge.
     let excluded: std::collections::HashSet<&str> = api
         .excluded_type_paths
         .keys()
@@ -51,10 +40,6 @@ pub(super) fn gen_visitor_protocol_stub(
 
     let mut lines = vec![format!("class {}(Protocol):", bridge.trait_name)];
 
-    // Docstrings are emitted only when stub docstrings are enabled. ruff PYI021/PYI013
-    // reject docstrings (and docstring-plus-`...` bodies) in stub files, so the default
-    // (docstrings off) keeps the generated `.pyi` clean. The optional-methods note is
-    // part of the docstring and is gated the same way.
     let mut doc = if emit_docstrings {
         trait_def.doc.clone()
     } else {
@@ -82,16 +67,6 @@ pub(super) fn gen_visitor_protocol_stub(
         lines.push(docstring);
     }
 
-    // Each method becomes a Protocol method stub with `self` and the IR params.
-    // Method bodies are `...` (Protocol convention). Skipped methods that the FFI
-    // backend bypasses (`ffi_skip_methods`) are still part of the trait surface a
-    // host-language visitor must implement, so include them too.
-    //
-    // Host callbacks are always `def`, never `async def`, regardless of the Rust trait:
-    // the bridge invokes the method synchronously on a `tokio::spawn_blocking` worker and
-    // uses its return value directly (see trait_bridge/generator.rs). A host coroutine would
-    // never be awaited. The return type stays the native result type — the bridge now accepts
-    // the binding's native object on return (with a mapping as fallback).
     let mut body_emitted = false;
     for method in required {
         if method.binding_excluded {
@@ -100,9 +75,6 @@ pub(super) fn gen_visitor_protocol_stub(
         body_emitted = true;
         let mut params: Vec<String> = vec!["self".to_string()];
         for p in &method.params {
-            // Plugin-bridge callbacks receive options dataclasses for config structs
-            // (the runtime bridge lifts the native object), so type those params as
-            // the publicly exported `options.X`.
             let param_type = match &p.ty {
                 crate::core::ir::TypeRef::Named(n) if is_plugin_bridge && options_types.contains(n) => {
                     format!("options.{n}")
@@ -124,7 +96,6 @@ pub(super) fn gen_visitor_protocol_stub(
     }
 
     if !body_emitted {
-        // Empty Protocol body is a syntax error; emit a single `...` placeholder.
         lines.push("    ...".to_string());
     }
 

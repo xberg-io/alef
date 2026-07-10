@@ -21,9 +21,6 @@ pub(super) fn sanitize_doc_for_csharp(doc: &str) -> String {
             if line.trim().starts_with("use ") && line.contains("::") {
                 return None;
             }
-            // Preserve the line as-is — don't strip backticks or blank lines.
-            // The emit_csharp_doc function will handle proper sanitization
-            // of Rust idioms, intra-doc links, and XML escaping.
             Some(line.to_string())
         })
         .collect::<Vec<_>>()
@@ -47,7 +44,6 @@ pub(super) fn gen_capsule_function_wrapper(
     let func_cs_name = to_csharp_name(&func.name);
     doc_emission::emit_csharp_doc(&mut out, &func.doc, "        ", exception_name);
 
-    // Require host_type — no tree-sitter default fallback.
     let host_type = match cfg.required_host_type("Language", "csharp") {
         Ok(t) => t.to_string(),
         Err(e) => {
@@ -58,7 +54,6 @@ pub(super) fn gen_capsule_function_wrapper(
 
     out.push_str(&format!("        public static {host_type} {func_cs_name}("));
 
-    // Parameters (capsule functions typically have only simple scalar/string params)
     let param_strs: Vec<String> = func
         .params
         .iter()
@@ -71,8 +66,6 @@ pub(super) fn gen_capsule_function_wrapper(
     out.push_str(&param_strs.join(", "));
     out.push_str(")\n        {\n");
 
-    // Call the native P/Invoke function — use the same C# name as declared in NativeMethods
-    // (which uses to_csharp_name on just the function name, not the full C name with prefix).
     let cs_native_name = to_csharp_name(&func.name);
     let c_params: Vec<String> = func.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
 
@@ -82,7 +75,6 @@ pub(super) fn gen_capsule_function_wrapper(
     out.push_str(&c_params.join(", "));
     out.push_str(");\n");
 
-    // Guard null (grammar not found — return null for Optional, throw for required)
     out.push_str("            if (nativeResult == IntPtr.Zero)\n");
     out.push_str("            {\n");
     if matches!(func.return_type, TypeRef::Optional(_)) {
@@ -92,9 +84,6 @@ pub(super) fn gen_capsule_function_wrapper(
     }
     out.push_str("            }\n");
 
-    // For fallible capsule functions, check error code after successful pointer return.
-    // This mirrors the error handling pattern used by non-capsule fallible functions,
-    // ensuring that Rust Result<T, E> errors are properly surfaced as exceptions.
     if func.error_type.is_some() {
         out.push_str("            if (NativeMethods.LastErrorCode() != 0)\n");
         out.push_str("            {\n");
@@ -102,7 +91,6 @@ pub(super) fn gen_capsule_function_wrapper(
         out.push_str("            }\n");
     }
 
-    // Require construct_expr — no tree-sitter default fallback.
     let construct = match cfg.construct_required("nativeResult", "Language", "csharp") {
         Ok(c) => c,
         Err(e) => {
@@ -137,7 +125,6 @@ pub(super) fn gen_wrapper_function(
 
     let mut out = String::with_capacity(1024);
 
-    // Collect visible params (non-bridge) for the public C# signature.
     let visible_params: Vec<crate::core::ir::ParamDef> = func
         .params
         .iter()
@@ -145,7 +132,6 @@ pub(super) fn gen_wrapper_function(
         .cloned()
         .collect();
 
-    // XML doc comment using shared doc emission
     doc_emission::emit_csharp_doc(&mut out, &func.doc, "    ", exception_name);
     for param in &visible_params {
         if !func.doc.is_empty() {
@@ -160,7 +146,6 @@ pub(super) fn gen_wrapper_function(
 
     out.push_str("    public static ");
 
-    // Return type — use async Task<T> for async methods
     if func.is_async {
         if func.return_type == TypeRef::Unit {
             out.push_str("async Task");
@@ -186,7 +171,6 @@ pub(super) fn gen_wrapper_function(
     }
     out.push('(');
 
-    // Parameters (bridge params stripped from public signature)
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
         let param_type = csharp_type(&param.ty);
@@ -215,8 +199,6 @@ pub(super) fn gen_wrapper_function(
 
     out.push_str(")\n    {\n");
 
-    // Null checks for required string/object parameters.
-    // Enums are value types in C# — ThrowIfNull on them triggers CA2264.
     for param in &visible_params {
         let is_enum = matches!(&param.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
         if !param.optional && !is_enum && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
@@ -225,10 +207,8 @@ pub(super) fn gen_wrapper_function(
         }
     }
 
-    // Result<Vec<u8>> uses the out-param convention — emit specialized body and return early.
     if is_bytes_result_func(func) {
         let cs_native_name = to_csharp_name(&func.name);
-        // Emit setup for Named and Bytes parameters before calling the native method
         emit_named_param_setup(
             &mut out,
             &visible_params,
@@ -238,7 +218,6 @@ pub(super) fn gen_wrapper_function(
             types,
             enum_names,
         );
-        // Build the args block for the template: each arg on its own indented line with trailing comma.
         let mut args_block = String::new();
         for param in visible_params.iter() {
             let param_name = param.name.to_lower_camel_case();
@@ -247,7 +226,6 @@ pub(super) fn gen_wrapper_function(
                 "native_arg_line.jinja",
                 minijinja::context! { indent => "            ", arg },
             ));
-            // For byte-slice input parameters, emit the length argument immediately after.
             if matches!(param.ty, TypeRef::Bytes) {
                 args_block.push_str(&render(
                     "native_bytes_len_arg_line.jinja",
@@ -255,7 +233,6 @@ pub(super) fn gen_wrapper_function(
                 ));
             }
         }
-        // Build cleanup block for try-finally
         let mut cleanup_block = String::new();
         emit_named_param_teardown_indented(
             &mut cleanup_block,
@@ -276,7 +253,6 @@ pub(super) fn gen_wrapper_function(
         return out;
     }
 
-    // Serialize Named (opaque handle) params to JSON and obtain native handles.
     emit_named_param_setup(
         &mut out,
         &visible_params,
@@ -287,18 +263,11 @@ pub(super) fn gen_wrapper_function(
         enum_names,
     );
 
-    // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
 
     let needs_outer_try = needs_param_teardown(&visible_params, true_opaque_types, enum_names);
 
     if func.is_async {
-        // Async: wrap in Task.Run for non-blocking execution. CS1997 disallows
-        // `return await Task.Run(...)` in an `async Task` (non-generic) method,
-        // so for unit returns we drop the `return`.
-
-        // If we allocate temporary handles, wrap the native call in try/finally
-        // so cleanup also runs when the native call reports failure.
         if needs_outer_try {
             out.push_str("        try\n        {\n");
         }
@@ -332,7 +301,6 @@ pub(super) fn gen_wrapper_function(
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 arg_parts.push(arg.clone());
-                // For byte-slice input parameters, emit the length argument immediately after.
                 if matches!(param.ty, TypeRef::Bytes) {
                     arg_parts.push(bytes_len_arg("(UIntPtr)", &param_name, param.optional));
                 }
@@ -347,11 +315,6 @@ pub(super) fn gen_wrapper_function(
             out.push_str("                );\n");
         }
 
-        // Check for FFI error (null result means the call failed).
-        // For Optional(_) return types, null means None (not found), not an error.
-        // For numeric Result-returning functions, native returns a sentinel value (0) on error
-        // and `LastErrorCode()` is set — Rust FFI clears it at every call entry, so a non-zero
-        // value here unambiguously indicates the just-completed call failed.
         if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
             if matches!(func.return_type, TypeRef::Optional(_)) {
                 out.push_str(
@@ -379,7 +342,6 @@ pub(super) fn gen_wrapper_function(
         emit_return_statement_indented(&mut out, &func.return_type, "                ");
         out.push_str("            });\n");
 
-        // Close outer try-finally if needed
         if needs_outer_try {
             out.push_str("        }\n        finally\n        {\n");
             emit_named_param_teardown_indented(
@@ -392,7 +354,6 @@ pub(super) fn gen_wrapper_function(
             out.push_str("        }\n");
         }
     } else {
-        // Sync: wrap in try-finally if we have cleanup to do
         if needs_outer_try {
             out.push_str("        try\n        {\n");
         }
@@ -420,7 +381,6 @@ pub(super) fn gen_wrapper_function(
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 arg_parts.push(arg.clone());
-                // For byte-slice input parameters, emit the length argument immediately after.
                 if matches!(param.ty, TypeRef::Bytes) {
                     arg_parts.push(bytes_len_arg("(UIntPtr)", &param_name, param.optional));
                 }
@@ -437,11 +397,6 @@ pub(super) fn gen_wrapper_function(
 
         let body_indent = if needs_outer_try { "            " } else { "        " };
 
-        // Check for FFI error (null result means the call failed).
-        // Pointer returns use IntPtr.Zero as a sentinel; numeric Result returns surface failure
-        // via `LastErrorCode()`, which the Rust FFI clears at every call entry so a non-zero
-        // value here unambiguously indicates the just-completed call failed.
-        // For Optional(_) return types, null means None (not found), not an error.
         if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
             if matches!(func.return_type, TypeRef::Optional(_)) {
                 out.push_str(&render(
@@ -518,7 +473,6 @@ pub(super) fn gen_wrapper_method(
 
     let mut out = String::with_capacity(1024);
 
-    // Collect visible params (non-bridge) for the public C# signature.
     let visible_params: Vec<crate::core::ir::ParamDef> = method
         .params
         .iter()
@@ -526,7 +480,6 @@ pub(super) fn gen_wrapper_method(
         .cloned()
         .collect();
 
-    // XML doc comment using shared doc emission
     let sanitized_doc = sanitize_doc_for_csharp(&method.doc);
     doc_emission::emit_csharp_doc(&mut out, &sanitized_doc, "    ", exception_name);
     for param in &visible_params {
@@ -540,10 +493,8 @@ pub(super) fn gen_wrapper_method(
         }
     }
 
-    // The wrapper class is always `static class`, so all methods must be static.
     out.push_str("    public static ");
 
-    // Return type — use async Task<T> for async methods
     if method.is_async {
         if method.return_type == TypeRef::Unit {
             out.push_str("async Task");
@@ -559,7 +510,6 @@ pub(super) fn gen_wrapper_method(
         out.push_str(&csharp_type(&method.return_type));
     }
 
-    // Prefix method name with type name to avoid collisions (e.g., MetadataConfigDefault)
     let method_name = to_csharp_name(&method.name);
     let method_cs_name = if method.is_async && !method_name.ends_with("Async") {
         format!("{}{}Async", type_name, method_name)
@@ -570,9 +520,6 @@ pub(super) fn gen_wrapper_method(
     out.push_str(&method_cs_name);
     out.push('(');
 
-    // Non-static methods need a `handle` parameter that the wrapper threads to
-    // the native receiver. Without this, the public method has no way to refer
-    // to the instance and calls NativeMethods.{Method}() one argument short.
     let has_receiver = !method.is_static && method.receiver.is_some();
     if has_receiver {
         out.push_str("IntPtr handle");
@@ -581,7 +528,6 @@ pub(super) fn gen_wrapper_method(
         }
     }
 
-    // Parameters (bridge params stripped from public signature)
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
         let param_type = csharp_type(&param.ty);
@@ -610,8 +556,6 @@ pub(super) fn gen_wrapper_method(
 
     out.push_str(")\n    {\n");
 
-    // Null checks for required string/object parameters.
-    // Enums are value types in C# — ThrowIfNull on them triggers CA2264.
     for param in &visible_params {
         let is_enum = matches!(&param.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
         if !param.optional && !is_enum && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
@@ -622,9 +566,7 @@ pub(super) fn gen_wrapper_method(
 
     let cs_native_name = format!("{}{}", csharp_type_name(type_name), to_csharp_name(&method.name));
 
-    // Result<Vec<u8>> uses the out-param convention — emit specialized body and return early.
     if is_bytes_result_method(method) {
-        // Emit setup for Named and Bytes parameters before calling the native method
         emit_named_param_setup(
             &mut out,
             &visible_params,
@@ -634,7 +576,6 @@ pub(super) fn gen_wrapper_method(
             types,
             enum_names,
         );
-        // Build the args block: receiver (if any) then visible params, each with trailing comma.
         let mut args_block = String::new();
         if has_receiver {
             args_block.push_str(&render(
@@ -649,7 +590,6 @@ pub(super) fn gen_wrapper_method(
                 "native_arg_line.jinja",
                 minijinja::context! { indent => "            ", arg },
             ));
-            // For byte-slice input parameters, emit the length argument immediately after.
             if matches!(param.ty, TypeRef::Bytes) {
                 args_block.push_str(&render(
                     "native_bytes_len_arg_line.jinja",
@@ -657,7 +597,6 @@ pub(super) fn gen_wrapper_method(
                 ));
             }
         }
-        // Build cleanup block for try-finally
         let mut cleanup_block = String::new();
         emit_named_param_teardown_indented(
             &mut cleanup_block,
@@ -678,7 +617,6 @@ pub(super) fn gen_wrapper_method(
         return out;
     }
 
-    // Serialize Named (opaque handle) params to JSON and obtain native handles.
     emit_named_param_setup(
         &mut out,
         &visible_params,
@@ -689,14 +627,7 @@ pub(super) fn gen_wrapper_method(
         enum_names,
     );
 
-    // Method body - delegation to native method with proper marshalling.
-    // Use the type-prefixed name to match the P/Invoke declaration, which includes the type
-    // name to avoid collisions between different types with identically-named methods
-    // (e.g. BrowserConfig::default and CrawlConfig::default).
-
     if method.is_async {
-        // Async: wrap in Task.Run. For unit returns drop the `return` so CS1997 (async Task
-        // method can't `return await` of non-generic Task) does not fire.
         if method.return_type == TypeRef::Unit {
             out.push_str("        await Task.Run(() =>\n        {\n");
         } else {
@@ -721,7 +652,6 @@ pub(super) fn gen_wrapper_method(
             out.push_str(");\n");
         } else {
             out.push('\n');
-            // Build all argument parts (including byte-length args)
             let mut arg_parts: Vec<String> = Vec::new();
             if has_receiver {
                 arg_parts.push("handle".to_string());
@@ -730,7 +660,6 @@ pub(super) fn gen_wrapper_method(
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 arg_parts.push(arg.clone());
-                // For byte-slice input parameters, emit the length argument immediately after.
                 if matches!(param.ty, TypeRef::Bytes) {
                     arg_parts.push(bytes_len_arg("(UIntPtr)", &param_name, param.optional));
                 }
@@ -791,7 +720,6 @@ pub(super) fn gen_wrapper_method(
             out.push_str(");\n");
         } else {
             out.push('\n');
-            // Build all argument parts (including byte-length args)
             let mut arg_parts: Vec<String> = Vec::new();
             if has_receiver {
                 arg_parts.push("handle".to_string());
@@ -800,7 +728,6 @@ pub(super) fn gen_wrapper_method(
                 let param_name = param.name.to_lower_camel_case();
                 let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 arg_parts.push(arg.clone());
-                // For byte-slice input parameters, emit the length argument immediately after.
                 if matches!(param.ty, TypeRef::Bytes) {
                     arg_parts.push(bytes_len_arg("(UIntPtr)", &param_name, param.optional));
                 }
@@ -901,13 +828,11 @@ mod tests {
 
         let code = gen_capsule_function_wrapper(&func, "TestException", "sample_ffi", &cfg);
 
-        // The wrapper should call NativeMethods.GetLanguage (PascalCase), not the raw C symbol name.
         assert!(
             code.contains("NativeMethods.GetLanguage(name)"),
             "Generated code should call NativeMethods.GetLanguage, got:\n{}",
             code
         );
-        // Make sure it doesn't contain the raw snake_case C symbol.
         assert!(
             !code.contains("NativeMethods.sample_ffi_get_language"),
             "Generated code should NOT call NativeMethods.sample_ffi_get_language (snake_case), got:\n{}",

@@ -6,7 +6,6 @@ fn test_scaffold_python() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_python: pyproject.toml + py.typed; scaffold_python_cargo: Cargo.toml
     assert_eq!(files.len(), 3);
     assert_eq!(files[0].path, PathBuf::from("packages/python/pyproject.toml"));
     assert!(files[0].content.contains("maturin"));
@@ -48,14 +47,10 @@ fn test_scaffold_node() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_node: parent package.json + index.js + platform package manifests; scaffold_node_cargo: Cargo.toml.
-    // The dead `packages/node/` scaffold (parallel unscoped npm package) was removed —
-    // the real publish target is `crates/<crate>-node/` built by NAPI-RS.
     assert_eq!(files.len(), 11);
     assert_eq!(files[0].path, PathBuf::from("crates/my-lib-node/package.json"));
     assert!(files[0].content.contains("napi"));
     assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/index.js"));
-    // Verify platform dispatch index contains expected platforms and binary name
     assert!(files[1].content.contains("const { platform, arch } = process"));
     assert!(files[1].content.contains("darwin"));
     assert!(files[1].content.contains("linux"));
@@ -71,11 +66,6 @@ fn test_scaffold_node() {
 
 #[test]
 fn test_scaffold_node_napi_package_name_matches_scoped_package() {
-    // Regression: when `package_name` is a scoped npm name (e.g. `@scope/foo`),
-    // napi.packageName must be set to that same scoped name so `napi create-npm-dirs`
-    // emits platform sub-packages as `@scope/foo-linux-x64-gnu` etc. — not bare
-    // `foo-node-linux-x64-gnu`. The index.js platform-dispatch table must require
-    // those scoped optional-dep names accordingly.
     let config = test_config_from_toml(
         r#"
 [crates.node]
@@ -113,11 +103,6 @@ package_name = "@scope/foo"
 
 #[test]
 fn test_scaffold_node_package_json_includes_repository_url() {
-    // Regression: npm publish-with-provenance verifies the package's
-    // `repository.url` against the provenance attestation and rejects the
-    // upload with E422 if the field is missing or empty. The emitted
-    // package.json must therefore carry a non-empty `repository.url` sourced
-    // from the configured scaffold/registry repository URL.
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
@@ -181,18 +166,12 @@ fn test_scaffold_python_production_features() {
     let content = &files[0].content;
     assert!(content.contains("urls.repository"));
     assert!(content.contains("repository ="));
-    // Type-check config (pyrefly) is included; ruff selection now lives in poly.toml.
     assert!(content.contains("[tool.pyrefly]"));
     assert!(!content.contains("[tool.ruff]"), "ruff config moved to poly.toml");
 }
 
 #[test]
 fn test_scaffold_python_pyproject_canonical_format() {
-    // Verify pyproject.toml is emitted in pyproject-fmt canonical form:
-    // - build-backend before requires in [build-system]
-    // - arrays with spaces: [ "a", "b" ]
-    // - sorted keywords
-    // - dot-syntax for nested tables: urls.repository instead of [project.urls]
     let cfg: NewAlefConfig = toml::from_str(
         r#"
 [workspace]
@@ -216,7 +195,6 @@ keywords = ["zebra", "apple", "banana"]
     let files = scaffold(&api, &config, &[Language::Python]).unwrap();
     let content = &files[0].content;
 
-    // Check build-system section ordering: build-backend before requires
     let build_system_section = content
         .split("[project]")
         .next()
@@ -230,24 +208,16 @@ keywords = ["zebra", "apple", "banana"]
         "build-backend should come before requires in [build-system]"
     );
 
-    // Short arrays stay inline with inner spaces (pyproject-fmt collapses any
-    // array whose total inline width fits in column_width=80, so emitting
-    // them inline natively keeps the file pyproject-fmt-clean across regens).
     assert!(
         content.contains("requires = [ \"maturin"),
         "single-element requires array should stay inline with inner spaces. got:\n{content}",
     );
 
-    // Multi-item arrays still inline-with-spaces when the total length fits
-    // within pyproject-fmt's 80-char column width (`keywords = [ "apple",
-    // "banana", "zebra" ]` is well under that), matching what prek's
-    // pyproject-fmt hook would otherwise rewrite on every regen.
     assert!(
         content.contains("keywords = [ \"apple\", \"banana\", \"zebra\" ]"),
         "short multi-item keywords array should stay inline, alphabetised. got:\n{content}",
     );
 
-    // Check dot-syntax for URLs: urls.repository instead of [project.urls]
     assert!(
         !content.contains("[project.urls]"),
         "should use dot-syntax urls.repository, not [project.urls] section"
@@ -257,16 +227,11 @@ keywords = ["zebra", "apple", "banana"]
         "should have urls.repository in dot-syntax"
     );
 
-    // ruff rule selection no longer lives in pyproject.toml — it moved to the
-    // repo-root poly.toml ([lint.python.ruff] + [per-file-ignores]).
     assert!(
         !content.contains("[tool.ruff]"),
         "ruff config must not be emitted into pyproject.toml — it lives in poly.toml. got:\n{content}"
     );
 
-    // Type-checking is pyrefly (mypy is gone): the strict preset plus a
-    // sub-config that suppresses the api.py wrapper's known FromPyObject
-    // discrepancy errors. mypy tables must not be emitted at all.
     assert!(
         !content.contains("[tool.mypy]"),
         "mypy config must not be emitted — pyrefly replaces it. got:\n{content}"
@@ -287,8 +252,6 @@ keywords = ["zebra", "apple", "banana"]
 
 #[test]
 fn test_scaffold_python_emits_configured_pyrefly_sub_configs() {
-    // `[workspace.poly.pyrefly-sub-configs]` appends extra sub-config blocks for
-    // extension-generated modules alongside the built-in api.py one.
     let config = test_config_from_toml(
         r#"
 [workspace.poly.pyrefly-sub-configs]
@@ -300,12 +263,10 @@ fn test_scaffold_python_emits_configured_pyrefly_sub_configs() {
     let files = language_files(&all_files);
     let content = &files[0].content;
 
-    // Built-in api.py block still present.
     assert!(
         content.contains("matches = \"**/api.py\""),
         "built-in api.py sub-config must remain. got:\n{content}"
     );
-    // Configured extra block emitted with its error codes disabled.
     assert!(
         content.contains("matches = \"**/app.py\"") && content.contains("implicit-any-empty-container = false"),
         "configured pyrefly sub-config must be emitted. got:\n{content}"
@@ -352,9 +313,6 @@ keywords = ["zebra", "apple", "banana"]
     let path = dir.path().join("pyproject.toml");
     std::fs::write(&path, content).unwrap();
 
-    // Format in place, then compare bytes. A single subprocess avoids the flakiness of
-    // spawning pyproject-fmt twice, and comparing content (rather than the `--check` exit
-    // status) is robust to non-formatting exit codes.
     let spawn = Command::new("pyproject-fmt").arg(&path).output();
     let Ok(output) = spawn else {
         eprintln!("skipping: pyproject-fmt failed to spawn");
@@ -374,14 +332,12 @@ fn test_scaffold_node_production_features() {
     let config = test_config();
     let api = test_api();
     let files = scaffold(&api, &config, &[Language::Node]).unwrap();
-    // files[0] is the crate-level package.json (the real NAPI-RS publish target).
     let content = &files[0].content;
     assert!(content.contains("\"scripts\""));
     assert!(content.contains("\"build\""));
     assert!(content.contains("\"files\""));
     assert!(content.contains("\"devDependencies\""));
     assert!(content.contains("@napi-rs/cli"));
-    // Crate-level NAPI package.json uses `targets` (modern NAPI-RS field), not `triples`.
     assert!(content.contains("\"targets\""));
 }
 
@@ -518,16 +474,9 @@ exclude_platforms = ["linux-x64-musl", "linux-arm64-musl"]
 
 #[test]
 fn test_scaffold_node_index_js_re_exports_service_api() {
-    // When services are defined, `index.js` must re-export the service wrapper
-    // from `service.cjs` so that `require("<pkg>")` returns both the raw native
-    // binding and the wrapper class (with method shortcuts like registerRoute).
-    // Without the re-export, consumers calling wrapper methods hit `TypeError`.
     let config = test_config();
 
     let mut api = test_api();
-    // Add a service definition so api.services is non-empty.
-    // The exact structure doesn't matter for the scaffold test — we just need
-    // api.services to be non-empty, which triggers has_service_api = true.
     api.services = vec![crate::core::ir::ServiceDef {
         name: "App".to_string(),
         rust_path: "my_lib::App".to_string(),
@@ -564,7 +513,6 @@ fn test_scaffold_node_index_js_re_exports_service_api() {
         .find(|f| f.path.ends_with("index.js"))
         .expect("crate index.js must be emitted");
 
-    // Verify the index.js contains the re-export pattern
     assert!(
         index_js
             .content
@@ -580,7 +528,6 @@ fn test_scaffold_node_index_js_re_exports_service_api() {
         index_js.content
     );
 
-    // Ensure the old single export line is not present
     assert!(
         !index_js
             .content
@@ -593,9 +540,8 @@ fn test_scaffold_node_index_js_re_exports_service_api() {
 
 #[test]
 fn test_scaffold_node_index_js_single_export_without_services() {
-    // When no services are defined, `index.js` should export only nativeBinding.
     let config = test_config();
-    let api = test_api(); // api.services is empty
+    let api = test_api();
 
     let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
     let files = language_files(&all_files);
@@ -604,14 +550,12 @@ fn test_scaffold_node_index_js_single_export_without_services() {
         .find(|f| f.path.ends_with("index.js"))
         .expect("crate index.js must be emitted");
 
-    // Verify the index.js does NOT contain the re-export pattern
     assert!(
         !index_js.content.contains("_service"),
         "index.js must not reference service.cjs when no services are defined, got:\n{}",
         index_js.content
     );
 
-    // Verify the simple export is present
     assert!(
         index_js
             .content

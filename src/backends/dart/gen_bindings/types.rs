@@ -63,7 +63,6 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
             },
         ));
     }
-    // Constructor
     if visible_fields.len() == 1 {
         let field = visible_fields[0];
         let name = dart_safe_ident(&field.name.to_lower_camel_case());
@@ -79,7 +78,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
                 param_name => name.as_str(),
             },
         ));
-        let _ = ty_str; // used above for field emission, constructor uses `this.`
+        let _ = ty_str;
     } else {
         out.push_str(&template_env::render(
             "multi_param_constructor_open.jinja",
@@ -152,7 +151,6 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
             },
         ));
         for variant in &en.variants {
-            // Use dart_safe_type_name to avoid shadowing Dart core types (e.g. `List`, `Map`).
             let safe_variant_name = dart_safe_type_name(&variant.name, Some(&en.name));
             if !variant.doc.is_empty() {
                 let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
@@ -319,8 +317,6 @@ mod tests {
         }
     }
 
-    // ── (a) sealed class keyword in tagged enum emission ────────────────────
-
     #[test]
     fn tagged_enum_emits_sealed_class_keyword() {
         let en = make_enum(
@@ -362,8 +358,6 @@ mod tests {
         );
     }
 
-    // ── (b) const constructors on DTOs ──────────────────────────────────────
-
     #[test]
     fn dto_single_field_emits_const_constructor() {
         let ty = make_type("Point", vec![make_field("x", TypeRef::Primitive(PrimitiveType::I32))]);
@@ -398,8 +392,6 @@ mod tests {
         );
     }
 
-    // ── (c) final fields throughout ─────────────────────────────────────────
-
     #[test]
     fn dto_fields_are_final() {
         let ty = make_type(
@@ -432,8 +424,6 @@ mod tests {
             "sealed variant fields must be `final`: {out}"
         );
     }
-
-    // ── (d) const constructors on sealed variant classes ────────────────────
 
     #[test]
     fn tagged_enum_data_variant_emits_const_constructor() {

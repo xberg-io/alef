@@ -119,9 +119,6 @@ fn test_optional_vec_return_emits_optional_list() {
         &create_test_capsule_types(),
     );
 
-    // Vec returns now go through the readJsonList helper to deduplicate
-    // the JSON-deserialize boilerplate (CPD was flagging multiple inline
-    // copies). The empty-list-on-null path lives inside the helper.
     assert!(out.contains(
             "return Optional.of(readJsonList(resultPtr, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>()"
         ));
@@ -129,7 +126,6 @@ fn test_optional_vec_return_emits_optional_list() {
 
 #[test]
 fn test_optional_bytes_result_emits_out_param_pattern() {
-    // Bytes with error_type → out-param convention: i32 return + 3 trailing out-params.
     let func = FunctionDef {
         name: "get_data".to_string(),
         rust_path: "test::get_data".to_string(),
@@ -280,7 +276,6 @@ fn test_java_async_wrappers_respect_generate_override() {
 
 #[test]
 fn test_bytes_result_emits_out_param_pattern_non_optional() {
-    // Non-optional Bytes with error_type → out-param convention.
     let func = FunctionDef {
         name: "render_png".to_string(),
         rust_path: "test::render_png".to_string(),
@@ -422,9 +417,6 @@ fn test_non_optional_vec_return_no_optional_wrapper() {
         &create_test_capsule_types(),
     );
 
-    // The Vec dispatch path now delegates to the readJsonList helper.
-    // Optional<List<T>> wrapping is added by the caller; non-optional
-    // is a bare call.
     assert!(out.contains(
         "return readJsonList(resultPtr, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>()"
     ));
@@ -433,11 +425,6 @@ fn test_non_optional_vec_return_no_optional_wrapper() {
 
 #[test]
 fn vec_return_uses_helper_not_inline_json_deserialize() {
-    // CPD regression: every Vec-returning method previously inlined a
-    // ~15-line null-check + reinterpret + free + readValue block, which
-    // CPD (rightly) flagged as duplication. The helper extraction means
-    // the call site is one line and `readJsonList` appears exactly once
-    // in the helper section.
     let func = create_test_function("list_items", TypeRef::Vec(Box::new(TypeRef::String)));
 
     let mut out = String::new();
@@ -457,9 +444,6 @@ fn vec_return_uses_helper_not_inline_json_deserialize() {
         &create_test_capsule_types(),
     );
 
-    // The previously-duplicated JSON-deserialize line must NOT appear at
-    // the call site any more (it now lives only in the helper, which is
-    // emitted by gen_helper_methods at the bottom of the class).
     assert!(!out.contains(
         "createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<"
     ));
@@ -467,12 +451,6 @@ fn vec_return_uses_helper_not_inline_json_deserialize() {
 
 #[test]
 fn clear_fn_body_references_singular_native_lib_handle() {
-    // Regression: a trait-bridge `clear_fn` is the plural core Rust function
-    // name, but the FFI export and the `NativeLib`
-    // handle constant are the singular trait-derived form
-    // (`KRZ_CLEAR_OCR_BACKEND`). The facade body must reference that exact
-    // constant and invoke it with an out-error parameter and check the result
-    // code, just like other fallible FFI functions.
     let func = create_test_function("clear_ocr_backends", TypeRef::Unit);
 
     let mut clear_fn_handles = AHashMap::new();
@@ -495,7 +473,6 @@ fn clear_fn_body_references_singular_native_lib_handle() {
         &create_test_capsule_types(),
     );
 
-    // Must use the singular trait-derived handle constant
     assert!(
         out.contains("NativeLib.KRZ_CLEAR_OCR_BACKEND.invoke"),
         "clear_fn body must reference the singular trait-derived handle, got:\n{out}"
@@ -504,17 +481,14 @@ fn clear_fn_body_references_singular_native_lib_handle() {
         !out.contains("KRZ_CLEAR_OCR_BACKENDS"),
         "clear_fn body must not reference the plural core-function-derived handle, got:\n{out}"
     );
-    // Must allocate out-error buffer
     assert!(
         out.contains("var outErr = arena.allocate(ValueLayout.ADDRESS)"),
         "clear_fn body must allocate outErr, got:\n{out}"
     );
-    // Must pass outErr to the FFI invocation
     assert!(
         out.contains("outErr)"),
         "clear_fn body must pass outErr to FFI invocation, got:\n{out}"
     );
-    // Must check the return code for error
     assert!(
         out.contains("if (primitiveResult != 0)"),
         "clear_fn body must check primitiveResult != 0, got:\n{out}"
@@ -523,8 +497,6 @@ fn clear_fn_body_references_singular_native_lib_handle() {
 
 #[test]
 fn non_clear_fn_body_derives_handle_from_function_name() {
-    // Functions not registered as trait-bridge `clear_fn`s keep deriving the
-    // handle constant from `func.name` (1:1 with their FFI export).
     let func = create_test_function("list_ocr_backends", TypeRef::Vec(Box::new(TypeRef::String)));
 
     let mut clear_fn_handles = AHashMap::new();
@@ -555,10 +527,6 @@ fn non_clear_fn_body_derives_handle_from_function_name() {
 
 #[test]
 fn clear_fn_error_throws_exception_with_code_and_message() {
-    // Regression: clear_fn error path must construct SampleCrateRsException
-    // with (int code, String message) constructor, not (String) constructor.
-    // The error throw must be `new TestClassException(primitiveResult, msg)`
-    // matching the SampleCrateRsException(int, String) constructor signature.
     let func = create_test_function("clear_ocr_backends", TypeRef::Unit);
 
     let mut clear_fn_handles = AHashMap::new();
@@ -581,7 +549,6 @@ fn clear_fn_error_throws_exception_with_code_and_message() {
         &create_test_capsule_types(),
     );
 
-    // Must throw with (int code, String msg) two-argument constructor in the error path
     assert!(
         out.contains("throw new TestClassException(primitiveResult, msg)"),
         "clear_fn error path must throw TestClassException(primitiveResult, msg), got:\n{out}"
@@ -590,8 +557,6 @@ fn clear_fn_error_throws_exception_with_code_and_message() {
 
 #[test]
 fn capsule_function_returns_host_type() {
-    // Host-native capsule (Language) passthrough: construct the host runtime's
-    // `Language` from the raw C grammar pointer instead of an opaque handle.
     let func = create_test_function("get_language", TypeRef::Named("Language".to_string()));
 
     let mut capsule_types = HashMap::new();
@@ -622,12 +587,10 @@ fn capsule_function_returns_host_type() {
         &capsule_types,
     );
 
-    // Must return the host type, not an opaque handle
     assert!(
         out.contains("io.github.tree_sitter.Language"),
         "capsule function must return host type, got:\n{out}"
     );
-    // Must construct the Language from the raw pointer
     assert!(
         out.contains("new Language(resultPtr)"),
         "capsule function must construct Language from pointer, got:\n{out}"

@@ -94,14 +94,12 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             .or_else(|| resolved_cfg.resolved_version())
                             .context("could not determine version — set --version or version_from in alef.toml")?;
 
-                        // Build PHP-specific options when any PHP language is in the list.
                         let needs_php = languages.contains(&crate::core::config::Language::Php);
                         let pie_opts: Option<crate::publish::package::php::PiePackageOptions<'_>> = if needs_php {
                             let php_ver = php_version
                                 .as_deref()
                                 .context("--php-version is required when packaging --lang php")?;
                             let ts_mode = crate::publish::package::php::TsMode::parse(&php_ts)?;
-                            // Validate: Windows target requires --windows-compiler.
                             if let Some(ref rt) = rust_target {
                                 if rt.os == crate::publish::platform::Os::Windows && windows_compiler.is_none() {
                                     anyhow::bail!(

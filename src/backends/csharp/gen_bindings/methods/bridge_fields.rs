@@ -20,10 +20,8 @@ pub(super) fn gen_bridge_field_wrapper_function(
 
     let mut out = String::with_capacity(2048);
 
-    // Visible params (bridge field is embedded in the options param)
     let visible_params: Vec<crate::core::ir::ParamDef> = func.params.to_vec();
 
-    // XML doc comment
     doc_emission::emit_csharp_doc(&mut out, &func.doc, "    ", exception_name);
     for param in &visible_params {
         if !func.doc.is_empty() {
@@ -38,7 +36,6 @@ pub(super) fn gen_bridge_field_wrapper_function(
 
     out.push_str("    public static ");
 
-    // Return type
     if func.is_async {
         if func.return_type == TypeRef::Unit {
             out.push_str("async Task");
@@ -64,7 +61,6 @@ pub(super) fn gen_bridge_field_wrapper_function(
     }
     out.push('(');
 
-    // Parameters (all visible, since bridge is embedded in options param)
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
         let param_type = csharp_type(&param.ty);
@@ -92,7 +88,6 @@ pub(super) fn gen_bridge_field_wrapper_function(
     }
     out.push_str(")\n    {\n");
 
-    // Extract the bridge field value and options parameter name
     let options_param = &bridge_match.param_name;
     let options_param_camel = options_param.to_lower_camel_case();
     let field_name = &bridge_match.field_name;
@@ -118,9 +113,6 @@ pub(super) fn gen_bridge_field_wrapper_function(
             trait_pascal,
         },
     ));
-    // Visitor bridges (context_type + result_type) use the callbacks-struct ABI (Path 1):
-    // wrap the HtmVisitorCallbacks struct in an opaque handle via htm_visitor_create and free
-    // it with htm_visitor_free, instead of the generic trait-bridge new/free (Path 2).
     let is_visitor_bridge = bridge_match.bridge.context_type.is_some() && bridge_match.bridge.result_type.is_some();
     let register_template = if is_visitor_bridge {
         "bridge_field_register_visitor.jinja"
@@ -131,14 +123,12 @@ pub(super) fn gen_bridge_field_wrapper_function(
     out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
     out.push_str("                try\n                {\n");
 
-    // Call native function with injected bridge
     let cs_native_name = to_csharp_name(&func.name);
     out.push_str(&render(
         "bridge_field_inject.jinja",
         minijinja::context! { options_pascal, field_name_pascal, options_param_camel },
     ));
 
-    // Build the native call
     if func.return_type != TypeRef::Unit {
         out.push_str("                    var nativeResult = ");
     } else {
@@ -153,7 +143,6 @@ pub(super) fn gen_bridge_field_wrapper_function(
         .trim_end_matches('\n'),
     );
 
-    // Build call args (non-options params for convert, or all params if not convert-like)
     let call_args: Vec<String> = func
         .params
         .iter()
@@ -174,12 +163,10 @@ pub(super) fn gen_bridge_field_wrapper_function(
     }
     out.push_str(");\n");
 
-    // Error check
     if func.return_type != TypeRef::Unit {
         out.push_str("                    if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
     }
 
-    // Handle return value through the generated FFI JSON helpers for the actual return type.
     if func.return_type != TypeRef::Unit {
         out.push_str(&render(
             "bridge_field_json_return.jinja",
@@ -201,7 +188,6 @@ pub(super) fn gen_bridge_field_wrapper_function(
     out.push_str("            else\n");
     out.push_str("            {\n");
 
-    // Call without bridge
     if func.return_type != TypeRef::Unit {
         out.push_str("                var nativeResult = ");
     } else {

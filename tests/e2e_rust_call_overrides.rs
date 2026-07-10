@@ -20,10 +20,6 @@ fn resolve_one(cfg: &NewAlefConfig) -> (ResolvedCrateConfig, E2eConfig) {
     (resolved, e2e)
 }
 
-// ---------------------------------------------------------------------------
-// Bug regression helpers
-// ---------------------------------------------------------------------------
-
 fn build_config_with_optional_array_fields(extra_call_override: &str) -> NewAlefConfig {
     let toml_src = format!(
         r#"
@@ -188,7 +184,6 @@ fn render_rust_test(cfg: &NewAlefConfig) -> String {
 
 #[test]
 fn default_options_pass_by_reference() {
-    // Without wrap_options_in_some, json_object args render as `&options`.
     let config = build_config("");
     let rendered = render_rust_test(&config);
     assert!(
@@ -199,8 +194,6 @@ fn default_options_pass_by_reference() {
 
 #[test]
 fn wrap_options_in_some_emits_some_clone() {
-    // With wrap_options_in_some = true, the json_object expression is wrapped
-    // in `Some(...).clone()` so it matches owned `Option<T>` parameter slots.
     let config = build_config("wrap_options_in_some = true");
     let rendered = render_rust_test(&config);
     assert!(
@@ -215,8 +208,6 @@ fn wrap_options_in_some_emits_some_clone() {
 
 #[test]
 fn extra_args_are_appended_after_configured_args() {
-    // extra_args = ["None"] must be emitted verbatim after html and options,
-    // matching e.g. `convert(html, options, visitor) -> Result<…>`.
     let config = build_config(r#"extra_args = ["None"]"#);
     let rendered = render_rust_test(&config);
     assert!(
@@ -227,7 +218,6 @@ fn extra_args_are_appended_after_configured_args() {
 
 #[test]
 fn wrap_options_in_some_combined_with_extra_args_and_returns_result() {
-    // The full demo-markup shape: owned options slot, trailing visitor slot,
     // and a fallible return that triggers `.expect("should succeed")`.
     let config = build_config(
         r#"
@@ -247,15 +237,8 @@ returns_result = true
     );
 }
 
-// ---------------------------------------------------------------------------
-// Bug A regression: Option<Vec<String>> unwrap uses &[] not ""
-// ---------------------------------------------------------------------------
-
 #[test]
 fn bug_a_optional_vec_string_unwrap_fallback_is_empty_slice() {
-    // `detected_languages` is both fields_optional and fields_array (Option<Vec<String>>).
-    // The unwrap binding must emit `.as_deref().unwrap_or(&[])`, not `.unwrap_or("")`,
-    // because `as_deref()` on Option<Vec<T>> yields Option<&[T]>, not Option<&str>.
     let config = build_config_with_optional_array_fields("");
     let assertions = vec![Assertion {
         assertion_type: "contains".to_string(),
@@ -278,15 +261,8 @@ fn bug_a_optional_vec_string_unwrap_fallback_is_empty_slice() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Bug B regression: Option<usize> comparison wraps with unwrap_or(0)
-// ---------------------------------------------------------------------------
-
 #[test]
 fn bug_b_optional_numeric_greater_than_or_equal_wraps_unwrap_or() {
-    // `metadata.sheet_count` is fields_optional but not fields_array (Option<usize>).
-    // A `greater_than_or_equal` assertion must emit `.unwrap_or(0) >= N` not bare `>= N`,
-    // because comparing Option<usize> >= N directly is a type error.
     let config = build_config_with_optional_array_fields("");
     let assertions = vec![Assertion {
         assertion_type: "greater_than_or_equal".to_string(),
@@ -309,16 +285,8 @@ fn bug_b_optional_numeric_greater_than_or_equal_wraps_unwrap_or() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Bug C regression: Option<String> in equals uses .as_deref().unwrap_or("").trim()
-// ---------------------------------------------------------------------------
-
 #[test]
 fn bug_c_optional_string_equals_in_vec_result_uses_as_deref_unwrap_or() {
-    // When the outer result is Vec<T> (result_is_vec), the call-site unwrap pass is
-    // skipped. An `equals` assertion on an optional string field inside the per-element
-    // `for r in &result` loop must emit `.as_deref().unwrap_or("").trim()` rather than
-    // `.trim()` directly on Option<String> (which would be E0599).
     let config = build_config_with_optional_array_fields("result_is_vec = true");
     let assertions = vec![Assertion {
         assertion_type: "equals".to_string(),
@@ -341,15 +309,8 @@ fn bug_c_optional_string_equals_in_vec_result_uses_as_deref_unwrap_or() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Bug D regression: field: "result" (sentinel) refers to the whole result var
-// ---------------------------------------------------------------------------
-
 #[test]
 fn bug_d_field_named_result_refers_to_whole_result_not_struct_field() {
-    // When a fixture uses `field: "result"` and the function is NOT result_is_simple,
-    // the codegen must NOT emit `result.result` (treating "result" as a struct field).
-    // Instead it should emit assertions directly against the `result` variable.
     let config = build_config_with_optional_array_fields("");
     let assertions = vec![Assertion {
         assertion_type: "not_empty".to_string(),

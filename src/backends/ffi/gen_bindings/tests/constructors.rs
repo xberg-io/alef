@@ -4,7 +4,6 @@ use crate::core::backend::Backend;
 use crate::core::ir::*;
 
 // -----------------------------------------------------------------------
-// Tests for opaque static constructor emission (Part B)
 // -----------------------------------------------------------------------
 
 /// Build an ApiSurface with an opaque type that has a static `new` constructor.
@@ -13,7 +12,6 @@ fn opaque_with_constructor_api() -> ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![
-            // Enum used as parameter in the constructor
             TypeDef {
                 name: "Method".to_string(),
                 rust_path: "my_lib::Method".to_string(),
@@ -39,7 +37,6 @@ fn opaque_with_constructor_api() -> ApiSurface {
                 has_private_fields: false,
                 version: Default::default(),
             },
-            // Opaque RouteBuilder with static new constructor
             TypeDef {
                 name: "RouteBuilder".to_string(),
                 rust_path: "my_lib::RouteBuilder".to_string(),
@@ -184,7 +181,6 @@ fn test_emits_opaque_static_constructor_as_c_symbol() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Check that the extern "C" fn symbol is emitted
     assert!(
         lib.content
             .contains("pub unsafe extern \"C\" fn my_lib_route_builder_new("),
@@ -202,13 +198,11 @@ fn test_opaque_constructor_signature_has_enum_by_value_as_i32() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Check that enum parameter is passed as i32, not *const
     assert!(
         lib.content.contains("method: i32"),
         "expected enum parameter 'method: i32', got:\n{}",
         lib.content
     );
-    // Verify it's NOT emitted as a pointer
     assert!(
         !lib.content.contains("method: *const my_lib::Method"),
         "enum parameter should not be passed as pointer"
@@ -224,7 +218,6 @@ fn test_opaque_constructor_marshals_enum_from_i32() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Check that the constructor body reconstructs the enum using from_i32
     assert!(
         lib.content.contains("method_from_i32"),
         "constructor should use method_from_i32 to reconstruct enum from discriminant"
@@ -240,9 +233,6 @@ fn test_opaque_constructor_returns_mut_opaque_pointer() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Constructor returns *mut to the inner type (matching the legacy `_free()`
-    // signature) — no separate wrapper struct is emitted. The fixture's crate
-    // name varies; just check for a `-> *mut <something>RouteBuilder {` body.
     let has_mut_return = lib
         .content
         .lines()
@@ -263,26 +253,11 @@ fn test_opaque_constructor_only_for_opaque_types() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The Method type is NOT opaque, so its constructor should NOT be emitted
-    // (if it had one). Only RouteBuilder's constructor should be in the output.
-    // Should have RouteBuilder's _new, but not Method's
     assert!(
         lib.content.contains("my_lib_route_builder_new"),
         "RouteBuilder (opaque) should have _new constructor"
     );
 }
-
-// -----------------------------------------------------------------------
-// Regression: named static Result<Self> constructors (not "new")
-//
-// Prior to the fix, `is_static_constructor` only matched methods named
-// "new".  A method like `MetaSchema::compile` — static, returns Self,
-// error_type set — was silently dropped from FFI output: `should_skip_
-// method_wrapper` routed it away from the generic wrapper path, while
-// `is_static_constructor` refused to emit it as a constructor.  Net
-// result: no C export at all, causing Java <clinit> to crash with
-// NoSuchElementException on the missing symbol.
-// -----------------------------------------------------------------------
 
 /// Build an ApiSurface with an opaque type whose sole constructor is named
 /// `compile` (not `new`) and is fallible (`error_type` is set, representing
@@ -318,7 +293,6 @@ fn opaque_with_named_constructor_api() -> ApiSurface {
                 return_type: TypeRef::Named("Schema".to_string()),
                 is_async: false,
                 is_static: true,
-                // error_type set → Result<Self, SchemaError>
                 error_type: Some("SchemaError".to_string()),
                 doc: "Compile the given JSON text as a schema.".to_string(),
                 receiver: None,
@@ -411,7 +385,6 @@ fn test_named_static_constructor_is_fallible() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // Fallible path: clear_last_error at entry, set_last_error on Err branch
     assert!(
         lib.content.contains("clear_last_error"),
         "fallible constructor must call clear_last_error(); got:\n{}",
@@ -422,7 +395,6 @@ fn test_named_static_constructor_is_fallible() {
         "fallible constructor must call set_last_error() on error; got:\n{}",
         lib.content
     );
-    // Returns null on failure
     assert!(
         lib.content.contains("std::ptr::null_mut()"),
         "fallible constructor must return null_mut() on error; got:\n{}",

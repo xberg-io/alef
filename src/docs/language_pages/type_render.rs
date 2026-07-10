@@ -37,7 +37,6 @@ pub(super) fn render_type(
         out.push('\n');
     }
 
-    // Fields table (only for non-opaque types or opaque types with documented fields)
     let fields: Vec<_> = if lang == Language::Rust {
         ty.fields.iter().collect()
     } else {
@@ -72,7 +71,6 @@ pub(super) fn render_type(
         out.push('\n');
     }
 
-    // Methods (called "Functions" in Elixir)
     let methods: Vec<_> = ty
         .methods
         .iter()

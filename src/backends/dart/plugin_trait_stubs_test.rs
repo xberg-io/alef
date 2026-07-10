@@ -17,7 +17,6 @@ mod plugin_trait_stub_generation {
     use crate::e2e::fixture::Fixture;
     use serde_json::json;
 
-    // Use the Dart-specific emit_test_backend from the e2e codegen module
     fn emit_test_backend_dart(
         bridge: &TraitBridgeConfig,
         methods: &[&MethodDef],
@@ -90,20 +89,13 @@ mod plugin_trait_stub_generation {
 
     #[test]
     fn async_method_generates_async_keyword_and_future_return() {
-        // Note: emit_test_backend_dart is defined above
         let bridge = make_trait_bridge("TestBackend", Some("Plugin"));
-        let async_method = make_method(
-            "process",
-            true, // async
-            TypeRef::Named("ExtractionResult".to_string()),
-            vec![],
-        );
+        let async_method = make_method("process", true, TypeRef::Named("ExtractionResult".to_string()), vec![]);
         let methods = [&async_method];
         let fixture = make_fixture("async_test", Some("test-backend"));
 
         let emission = emit_test_backend_dart(&bridge, &methods, &fixture);
 
-        // The async method should be emitted as `async` with `Future<ExtractionResult>`
         assert!(
             emission.setup_block.contains("Future<ExtractionResult> process(")
                 || emission.setup_block.contains("Future< ExtractionResult > process("),
@@ -120,19 +112,12 @@ mod plugin_trait_stub_generation {
     #[test]
     fn sync_method_generates_future_stub_for_trait_bridge_factory() {
         let bridge = make_trait_bridge("TestValidator", Some("Plugin"));
-        let sync_method = make_method(
-            "validate",
-            false, // sync
-            TypeRef::Primitive(PrimitiveType::Bool),
-            vec![],
-        );
+        let sync_method = make_method("validate", false, TypeRef::Primitive(PrimitiveType::Bool), vec![]);
         let methods = [&sync_method];
         let fixture = make_fixture("sync_test", Some("test-validator"));
 
         let emission = emit_test_backend_dart(&bridge, &methods, &fixture);
 
-        // Generated Dart trait factories expect Future-returning callbacks even
-        // for sync Rust trait methods.
         assert!(
             emission.setup_block.contains("Future<bool> validate()"),
             "sync method must be adapted to Future<T>, got:\n{}",
@@ -154,8 +139,6 @@ mod plugin_trait_stub_generation {
     #[test]
     fn internal_record_type_maps_to_bridge_type() {
         let bridge = make_trait_bridge("TestExtractor", Some("Plugin"));
-        // Simulate a method that returns a hidden named type, which must preserve the
-        // Rust trait contract through an explicit bridge carrier.
         let method_with_internal = make_method("extract", true, TypeRef::Named("InternalRecord".to_string()), vec![]);
         let methods = [&method_with_internal];
         let fixture = make_fixture("extract_test", Some("test-extractor"));
@@ -179,13 +162,11 @@ mod plugin_trait_stub_generation {
 
         let emission = emit_test_backend_dart(&bridge, &methods, &fixture);
 
-        // FRB factory helpers are async, so wrapper creation must await them.
         assert!(
             emission.setup_block.contains("await createOcrBackendDartImpl"),
             "factory call must be awaited, got:\n{}",
             emission.setup_block
         );
-        // But the factory should be called
         assert!(
             emission.setup_block.contains("createOcrBackendDartImpl("),
             "factory function must be called, got:\n{}",
@@ -203,7 +184,6 @@ mod plugin_trait_stub_generation {
 
         let emission = emit_test_backend_dart(&bridge, &methods, &fixture);
 
-        // Both method callbacks should be provided to the factory
         assert!(
             emission.setup_block.contains("doFirst:") && emission.setup_block.contains("doSecond:"),
             "all methods must have callbacks in factory call, got:\n{}",
@@ -220,7 +200,6 @@ mod plugin_trait_stub_generation {
 
         let emission = emit_test_backend_dart(&bridge, &methods, &fixture);
 
-        // The pluginName should come from fixture input, not fixture id
         assert!(
             emission.setup_block.contains("pluginName: 'my-custom-backend'"),
             "pluginName must use fixture input name field, got:\n{}",
@@ -242,7 +221,6 @@ mod plugin_trait_stub_generation {
 
         let emission = emit_test_backend_dart(&bridge, &methods, &fixture);
 
-        // Class name should be TestStub{PascalCaseId}
         assert!(
             emission
                 .setup_block
@@ -268,7 +246,6 @@ mod plugin_trait_stub_generation {
 
         let emission = emit_test_backend_dart(&bridge, &methods, &fixture);
 
-        // Method signature should include typed parameters, not dynamic
         assert!(
             emission.setup_block.contains("String input") || emission.setup_block.contains("String  input"),
             "parameters must be typed, not dynamic, got:\n{}",

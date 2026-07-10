@@ -50,9 +50,6 @@ impl Backend for GoBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Go is a single compiled surface (cgo over the FFI ABI) with no Rust-cfg gating, so
-        // same-named cfg-variant functions must collapse to one func to avoid redeclaration
-        // errors. See codegen::fn_dedup.
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
         let module_path = config.go_module();
@@ -73,7 +70,6 @@ impl Backend for GoBackend {
 
         let ffi_lib_name = config.ffi_lib_name();
         let ffi_header = config.ffi_header_name();
-        // Derive the FFI crate directory from the configured output path.
         let ffi_crate_dir = config
             .output_paths
             .get("ffi")
@@ -87,21 +83,16 @@ impl Backend for GoBackend {
                     .map(|a| a.to_string_lossy().to_string())
             })
             .unwrap_or_else(|| format!("crates/{ffi_lib_name}"));
-        // Collect bridge param names from trait_bridges config so we can strip them
-        // from generated function signatures and emit ConvertWithVisitor instead.
         let bridge_param_names: HashSet<String> = config
             .trait_bridges
             .iter()
             .filter_map(|b| b.param_name.clone())
             .collect();
-        // Also collect type aliases used as bridge params (e.g. "VisitorHandle").
         let bridge_type_aliases: HashSet<String> = config
             .trait_bridges
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        // Determine if any bridge is configured for the visitor pattern.
-        // Options-field bridges generate visitor.go regardless of visitor_callbacks.
         let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
         let visitor_bridge_cfg = config
             .trait_bridges
@@ -111,16 +102,8 @@ impl Backend for GoBackend {
         let has_visitor_bridge =
             has_options_field_bridge || (!config.trait_bridges.is_empty() && visitor_callbacks_enabled);
 
-        // Determine if any plugin-style bridges (with register_fn) are configured.
-        // These are independent of visitor_callbacks and generate trait_bridges.go.
         let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
 
-        // Map streaming adapter (owner_type, method_name) → item_type. The callback-based
-        // FFI export (`<prefix>_<type>_<method>`) cannot be driven from CGO, but the
-        // companion iterator-handle exports (`_start`, `_next`, `_free`) can — we emit a
-        // dedicated Go method that drives them and returns a typed channel.
-        // Adapters missing `owner_type` or `item_type` are skipped (treated as "no Go
-        // streaming method emitted") rather than producing broken code.
         let streaming_methods: HashMap<(String, String), String> = config
             .adapters
             .iter()
@@ -132,8 +115,6 @@ impl Backend for GoBackend {
             })
             .collect();
 
-        // Collect functions excluded from FFI generation. Go bindings call C symbols directly
-        // via cgo, so any function excluded from the FFI header must also be excluded here.
         let ffi_exclude_functions: HashSet<String> = config
             .ffi
             .as_ref()
@@ -147,15 +128,7 @@ impl Backend for GoBackend {
         if let Some(go_config) = &config.go {
             exclude_types.extend(go_config.exclude_types.iter().cloned());
         }
-        // Extend exclude_types with types marked as binding_excluded in the IR.
         exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
-        // Mirror the FFI backend's `contains('<')` filter for declared opaque types: a
-        // workspace-declared opaque whose `rust_path` carries generic parameters (e.g.
-        // `axum::http::Request<axum::body::Body>`) cannot be represented in the C ABI,
-        // so the FFI backend does not emit `_new`/`_free` symbols for it. The Go cgo
-        // shim references those symbols, so the Go backend must follow the same rule —
-        // otherwise generated Go code references `C.{prefix}_request_free` which the
-        // linker cannot resolve.
         exclude_types.extend(
             config
                 .opaque_types
@@ -164,9 +137,6 @@ impl Backend for GoBackend {
                 .map(|(name, _)| name.clone()),
         );
 
-        // Collect value-only types (all fields are primitives). These don't have _to_json
-        // functions emitted by the FFI backend, so Go codegen must construct them from
-        // field accessors instead of JSON deserialization.
         let value_only_types: HashSet<String> = api
             .types
             .iter()
@@ -195,10 +165,8 @@ impl Backend for GoBackend {
             visitor_bridge_cfg,
         )));
 
-        // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Go)?;
 
-        // Compute relative path from Go output dir to project root.
         let depth = output_dir.trim_end_matches('/').matches('/').count() + 1;
         let to_root = "../".repeat(depth);
 
@@ -208,10 +176,7 @@ impl Backend for GoBackend {
             generated_header: true,
         }];
 
-        // Generate visitor.go when an options-field visitor bridge is configured.
         if has_visitor_bridge && let Some(bridge_cfg) = visitor_bridge_cfg {
-            // Derive vtable_trait_name and options_field from the first options-field bridge,
-            // which is the only bridge shape that can attach a visitor to an options DTO.
             let Some(options_field) = bridge_cfg.resolved_options_field() else {
                 return Err(crate::core::AlefError::Config(
                     "Go visitor generation requires trait bridge options_field metadata".to_string(),
@@ -221,7 +186,6 @@ impl Backend for GoBackend {
             let vtable_trait_name = bridge_cfg.trait_name.clone();
             let options_field = options_field.to_string();
 
-            // Look up the visitor trait def in the IR.
             let trait_map: HashMap<&str, &crate::core::ir::TypeDef> = api
                 .types
                 .iter()
@@ -258,9 +222,6 @@ impl Backend for GoBackend {
             });
         }
 
-        // Generate trait_bridges.go for plugin-style bridges (with register_fn).
-        // Per-call bridges (no register_fn) use visitor.go callbacks via convert() instead.
-        // This is independent of visitor_callbacks, which only affects per-call bridges.
         if has_plugin_bridges {
             let trait_bridges_content = strip_trailing_whitespace(&super::trait_bridge::gen_trait_bridges_file(
                 api,
@@ -290,7 +251,6 @@ impl Backend for GoBackend {
             generated_header: false,
         });
 
-        // Generate the download tool under cmd/download_ffi/main.go
         let crate_version = api.version.to_string();
         let repo_url = config.github_repo();
         let asset_prefix = config.name.clone();
@@ -310,10 +270,6 @@ impl Backend for GoBackend {
         });
 
         // Generate embed_ffi.go with //go:embed directive to ensure header files
-        // are included when this module is vendored. Go's go mod vendor command only
-        // includes files that are referenced in the module; this directive tells Go
-        // to include the include/ directory so that the cgo #include directives work
-        // in vendored environments.
         let embed_ffi_content = crate::backends::go::template_env::render(
             "embed_ffi.go.jinja",
             minijinja::context! {
@@ -337,7 +293,6 @@ impl Backend for GoBackend {
         _api: &ApiSurface,
         _config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Go's binding.go IS the public API — no additional wrapper needed.
         Ok(vec![])
     }
 

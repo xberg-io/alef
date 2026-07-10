@@ -18,13 +18,7 @@ pub fn return_type_needs_json(
             extendr_incompatible_types.contains(n.as_str())
         }
         TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Named(_) => {
-                // Vec<Named> always needs JSON bridging because extendr cannot
-                // derive TryFrom<Robj> for Vec<LocalStruct> — the binding wrappers
-                // are local-only, not exposed to R's Robj system. JSON serialization
-                // is the safe transport for heterogeneous struct collections.
-                true
-            }
+            TypeRef::Named(_) => true,
             TypeRef::Vec(_) => true,
             _ => false,
         },
@@ -32,10 +26,7 @@ pub fn return_type_needs_json(
             TypeRef::Named(n) if enum_names.contains(n.as_str()) => true,
             TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !enum_names.contains(n.as_str()) => true,
             TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
-                TypeRef::Named(_) => {
-                    // Optional<Vec<Named>> also needs JSON bridging for the same reason.
-                    true
-                }
+                TypeRef::Named(_) => true,
                 _ => false,
             },
             _ => false,
@@ -66,8 +57,6 @@ pub fn gen_extendr_json_bridged_function(
     let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))";
     let rt_new = format!("tokio::runtime::Runtime::new(){err_map}?");
 
-    // Check if return type requires JSON serialization. If so, all Named params must also
-    // use JSON for bidirectional consistency (caller and callee both speak JSON).
     let return_type_requires_json = matches!(&func.return_type, TypeRef::Named(n)
         if extendr_incompatible_types.contains(n.as_str()))
         || matches!(&func.return_type, TypeRef::Optional(inner)
@@ -83,21 +72,12 @@ pub fn gen_extendr_json_bridged_function(
     for param in &func.params {
         let needs_json_vec = match &param.ty {
             TypeRef::Vec(inner) => match inner.as_ref() {
-                TypeRef::Named(_) => {
-                    // Vec<Named> always needs JSON bridging because extendr cannot
-                    // derive TryFrom<&Robj> for Vec<LocalStruct> — the binding wrappers
-                    // are local-only, not exposed to R's Robj system. JSON serialization
-                    // is the safe transport for heterogeneous struct collections.
-                    true
-                }
+                TypeRef::Named(_) => true,
                 _ => false,
             },
             TypeRef::Optional(opt_inner) => match opt_inner.as_ref() {
                 TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
-                    TypeRef::Named(_) => {
-                        // Optional<Vec<Named>> also needs JSON bridging for the same reason.
-                        true
-                    }
+                    TypeRef::Named(_) => true,
                     _ => false,
                 },
                 _ => false,
@@ -108,16 +88,13 @@ pub fn gen_extendr_json_bridged_function(
             if enum_names.contains(n.as_str()))
             || matches!(&param.ty, TypeRef::Optional(inner)
                 if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())));
-        // Non-optional Named struct when cfg.named_non_opaque_params_by_ref=true: use by-ref instead of JSON
         let needs_by_ref_struct = cfg.named_non_opaque_params_by_ref
             && !param.optional
             && matches!(&param.ty, TypeRef::Named(n)
                 if !opaque_types.contains(n.as_str())
                     && !enum_names.contains(n.as_str())
                     && !extendr_incompatible_types.contains(n.as_str()));
-        // Force JSON-bridge when the type is extendr_incompatible regardless of optional /
         // by-ref config: these types have no `#[extendr] impl` block emitted, so neither
-        // `T` nor `&T` has `TryFrom<&Robj>` and the by-ref path produces E0277.
         let is_named_incompatible = matches!(&param.ty, TypeRef::Named(n)
             if extendr_incompatible_types.contains(n.as_str()));
         let needs_json_struct = !needs_json_enum
@@ -176,13 +153,6 @@ pub fn gen_extendr_json_bridged_function(
                 body_preamble.push_str("    ");
             }
         } else if needs_by_ref_struct {
-            // Non-optional Named struct with cfg.named_non_opaque_params_by_ref=true.
-            // The signature must take `&LocalBinding` (the R wrapper struct) because
-            // extendr derives `TryFrom<&Robj>` only for the local wrapper, not for the
-            // upstream core type. The downstream `named_let_bindings` loop in this same
-            // function emits `let {name}_core: core::T = {name}.clone().into();` so the
-            // call site already receives the core ref via `&{name}_core` — no preamble
-            // needed here.
             let local_name = match &param.ty {
                 TypeRef::Named(n) => n.clone(),
                 _ => unreachable!(),
@@ -233,11 +203,6 @@ pub fn gen_extendr_json_bridged_function(
                     format!("&{ty_str}")
                 }
             } else if let TypeRef::Optional(inner) = &param.ty {
-                // Optional non-opaque Named struct (e.g. a promoted trailing config param whose
-                // core signature is `&T` but is exposed to R as omittable). The by-ref-promoted
-                // let-binding calls `{name}.into_option()`, which requires `Nullable<&Wrapper>`;
-                // emitting `Option<Wrapper>` here breaks both `into_option()` (E0599) and extendr's
-                // `TryFrom<&Robj>` (E0277). Fall through to the default mapping for other optionals.
                 let inner_name = if let TypeRef::Named(n) = inner.as_ref() {
                     if !opaque_types.contains(n.as_str()) {
                         Some(n.clone())
@@ -278,11 +243,7 @@ pub fn gen_extendr_json_bridged_function(
             if enum_names.contains(n.as_str()))
             || matches!(&param.ty, TypeRef::Optional(inner)
                 if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())));
-        // Mirror the upstream needs_json_struct calculation: extendr_incompatible Named
         // types unconditionally route through JSON because they lack #[extendr] impl blocks
-        // and therefore lack the `&T: TryFrom<&Robj>` / `T: TryFrom<Robj>` impls extendr
-        // needs. When the JSON branch owns the preamble, we must skip the named_let
-        // binding here — otherwise we emit a duplicate (and now-wrong-typed) let.
         let is_named_incompatible = matches!(&param.ty, TypeRef::Named(n)
             if extendr_incompatible_types.contains(n.as_str()));
         let needs_by_ref_struct = cfg.named_non_opaque_params_by_ref
@@ -338,10 +299,7 @@ pub fn gen_extendr_json_bridged_function(
         .map(|param| {
             let needs_json = match &param.ty {
                 TypeRef::Vec(inner) => match inner.as_ref() {
-                    TypeRef::Named(_n) => {
-                        // Vec<Named> always needs JSON bridging. See above for explanation.
-                        true
-                    }
+                    TypeRef::Named(_n) => true,
                     _ => false,
                 },
                 _ => false,
@@ -350,7 +308,6 @@ pub fn gen_extendr_json_bridged_function(
                 if enum_names.contains(n.as_str()))
                 || matches!(&param.ty, TypeRef::Optional(inner)
                     if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())));
-            // Same is_named_incompatible shortcut as the upstream needs_json_struct calc.
             let is_named_incompatible = matches!(&param.ty, TypeRef::Named(n)
                 if extendr_incompatible_types.contains(n.as_str()));
             let needs_json_struct = !needs_json_enum
@@ -371,15 +328,11 @@ pub fn gen_extendr_json_bridged_function(
                 } else if param.is_mut {
                     format!("&mut {}_core", param.name)
                 } else if param.is_ref {
-                    // Vec<Named> passed by reference: pass as &[T]
                     format!("&{}_core", param.name)
                 } else {
-                    // Vec<Named> passed by value: pass the Vec directly
                     format!("{}_core", param.name)
                 }
             } else if needs_json_struct || needs_json_enum {
-                // For JSON-bridged params, the _core binding is already deserialized to the core type.
-                // Pass it based on the core function's expectation (is_ref / is_mut / by-value).
                 if param.optional && param.is_ref {
                     format!("{}_core.as_ref()", param.name)
                 } else if param.optional {
@@ -392,32 +345,23 @@ pub fn gen_extendr_json_bridged_function(
                     format!("{}_core", param.name)
                 }
             } else if matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
-                // Non-opaque Named struct: may be by-ref or by-value in the core function.
-                // When cfg.named_non_opaque_params_by_ref=true and !optional, the signature is `&LocalBinding`
-                // and named_let_bindings emits `let {name}_core: core::T = {name}.clone().into();`.
-                // When optional, use as_ref() for Option handling. Otherwise respect param.is_ref.
                 if cfg.named_non_opaque_params_by_ref && !param.optional {
-                    // Signature is `&LocalBinding`; pass to core fn based on what it expects:
                     if param.is_ref {
                         format!("&{}_core", param.name)
                     } else {
                         format!("{}_core", param.name)
                     }
                 } else if param.optional {
-                    // Optional case: use as_ref() for Some/None handling
                     if param.is_ref {
                         format!("{}_core.as_ref()", param.name)
                     } else {
                         format!("{}_core", param.name)
                     }
                 } else if param.is_mut {
-                    // Mutable reference expected by core
                     format!("&mut {}_core", param.name)
                 } else if param.is_ref {
-                    // Immutable reference expected by core
                     format!("&{}_core", param.name)
                 } else {
-                    // By-value: pass directly
                     format!("{}_core", param.name)
                 }
             } else {
@@ -434,10 +378,7 @@ pub fn gen_extendr_json_bridged_function(
 
     let params_need_json_deserialize = func.params.iter().any(|p| match &p.ty {
         TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Named(_n) => {
-                // Vec<Named> always needs JSON deserialization.
-                true
-            }
+            TypeRef::Named(_n) => true,
             _ => false,
         },
         TypeRef::Named(n) => {
@@ -552,8 +493,6 @@ pub fn gen_extendr_json_bridged_function(
     };
 
     let body = if wrap_in_result_closure {
-        // Wrap the computation in a closure that returns Result, then match on it
-        // and convert errors to R stop() calls via throw_r_error()
         let closure_ret_type = match &func.return_type {
             TypeRef::Optional(_) => "Result<Option<String>>".to_string(),
             _ => "Result<String>".to_string(),

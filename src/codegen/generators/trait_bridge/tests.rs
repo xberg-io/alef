@@ -6,7 +6,6 @@ use crate::core::ir::{
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
-// Test helpers
 // ---------------------------------------------------------------------------
 
 fn make_trait_bridge_config(super_trait: Option<&str>, register_fn: Option<&str>) -> TraitBridgeConfig {
@@ -202,10 +201,6 @@ fn make_spec<'a>(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Mock backend
-// ---------------------------------------------------------------------------
-
 struct MockBridgeGenerator;
 
 impl TraitBridgeGenerator for MockBridgeGenerator {
@@ -238,10 +233,6 @@ impl TraitBridgeGenerator for MockBridgeGenerator {
         format!("pub fn {fn_name}(obj: Py<PyAny>) {{ /* register */ }}")
     }
 }
-
-// ---------------------------------------------------------------------------
-// TraitBridgeSpec helpers
-// ---------------------------------------------------------------------------
 
 mod generation;
 mod lookup;

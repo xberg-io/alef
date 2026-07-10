@@ -149,7 +149,6 @@ pub(super) const TRAIT_METHOD_NAMES: &[&str] = &[
     "neg", "not", "index", "deref",
 ];
 
-// Re-exports for backwards compatibility — callers use `crate::codegen::generators::*`.
 pub use binding_helpers::{
     gen_async_body, gen_call_args, gen_call_args_with_let_bindings, gen_call_args_with_let_bindings_json_str,
     gen_call_args_with_let_bindings_mutex, gen_call_args_with_let_bindings_mutex_json_str,

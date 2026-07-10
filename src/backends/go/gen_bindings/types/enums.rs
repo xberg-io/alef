@@ -12,16 +12,12 @@ pub(in crate::backends::go::gen_bindings) fn gen_enum_type(enum_def: &EnumDef, t
         return gen_unit_enum_type(enum_def);
     }
 
-    // Detect "newtype-tuple" pattern: a data enum whose data variants contain only
-    // positional tuple fields (all of which `is_tuple_field` returns true for).
     let all_data_fields_are_tuple = enum_def
         .variants
         .iter()
         .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field));
 
     if all_data_fields_are_tuple {
-        // Check if any tuple field has a Named (struct) type.
-        // If so, use tagged union; otherwise use newtype tuple enum.
         let any_tuple_field_is_named_struct = enum_def.variants.iter().any(|v| {
             v.fields
                 .iter()
@@ -31,12 +27,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_enum_type(enum_def: &EnumDef, t
         if any_tuple_field_is_named_struct {
             gen_tuple_tagged_union_type(enum_def)
         } else if is_passthrough_raw_message_enum(enum_def) {
-            // Untagged enums whose variants mix scalar and collection shapes (e.g.
-            // `Single(String) | Multiple(Vec<String>)`, `Text(String) | Parts(Vec<Foo>)`)
-            // can't be modeled as `type X string` — Vec serializes to an array, not a
-            // string, and any decoded JSON must round-trip without rejecting either shape.
-            // Emit them as a `json.RawMessage` wrapper that passes the raw bytes through
-            // unchanged (mirrors the napi `serde_json::Value` wrapper for the same case).
             gen_passthrough_raw_message_enum(enum_def, text_types)
         } else {
             gen_newtype_tuple_enum_type(enum_def)
@@ -214,7 +204,6 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
     let go_enum_name = go_type_name(&enum_def.name);
     let is_untagged = enum_def.serde_untagged;
 
-    // Collect variant names for the doc comment
     let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
 
     emit_type_doc(
@@ -235,7 +224,6 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
         },
     ));
 
-    // Emit the serde tag discriminator field first (e.g. `FormatType string \`json:"format_type"\``).
     if let Some(tag_name) = &enum_def.serde_tag {
         let tag_field = to_go_name(tag_name);
         out.push_str(&crate::backends::go::template_env::render(
@@ -247,13 +235,11 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
         ));
     }
 
-    // Emit one pointer field per variant
     for variant in &enum_def.variants {
         if variant.fields.is_empty() {
             continue;
         }
 
-        // Find the first (and typically only) tuple field
         if let Some(field) = variant.fields.iter().find(|f| is_tuple_field(f)) {
             if let TypeRef::Named(struct_type_name) = &field.ty {
                 let go_struct_type = go_type_name(struct_type_name);
@@ -501,7 +487,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
     let go_enum_name = go_type_name(&enum_def.name);
     let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
 
-    // Emit the sealed interface
     emit_type_doc(
         &mut out,
         &go_enum_name,
@@ -525,11 +510,9 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         },
     ));
 
-    // Emit one concrete struct per variant
     for variant in &enum_def.variants {
         let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
 
-        // Doc comment for the concrete struct
         emit_type_doc(
             &mut out,
             &variant_struct_name,
@@ -537,12 +520,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             &format!("is the {} variant of {}.", variant.name, enum_def.name),
         );
 
-        // Detect "scalar-tuple" variants (single positional tuple field carrying a
-        // primitive, String, Char, or Path). For untagged enums these need a
-        // named Go field (`Value <type>`) to hold the payload — the default
-        // tuple-field skip would emit an empty struct that loses the payload
-        // entirely. Surfaced on `enum RerankDocument { Text(String), Object { … } }`
-        // where the Text variant otherwise lost its inner String content.
         let scalar_tuple_field =
             if enum_def.serde_untagged && variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]) {
                 match &variant.fields[0].ty {
@@ -553,7 +530,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
                 None
             };
 
-        // Struct definition with only this variant's fields
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_struct_header.jinja",
             minijinja::context! {
@@ -561,10 +537,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             },
         ));
         if let Some(field) = scalar_tuple_field {
-            // Scalar tuple variant: emit `Value <type>` to hold the payload.
-            // The `json:"-"` tag prevents encoding/json from picking it up
-            // through default field marshalling — we emit a custom
-            // MarshalJSON/UnmarshalJSON below that handles the bare scalar.
             let field_type = go_type(&field.ty);
             out.push_str(&crate::backends::go::template_env::render(
                 "data_enum_scalar_tuple_field.jinja",
@@ -607,7 +579,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         }
         out.push_str("}\n\n");
 
-        // Implement the sealed marker method
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_marker_method.jinja",
             minijinja::context! {
@@ -616,7 +587,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             },
         ));
 
-        // Implement the Type() method
         let wire_value = crate::codegen::naming::wire_variant_value(
             &variant.name,
             variant.serde_rename.as_deref(),
@@ -631,9 +601,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         ));
 
         if scalar_tuple_field.is_some() {
-            // Scalar tuple variant: marshal as a bare JSON scalar (the inner Value),
-            // and unmarshal a bare JSON scalar into Value. Skip the default
-            // tag-wrapping aux-struct dance entirely.
             out.push_str(&crate::backends::go::template_env::render(
                 "data_enum_scalar_marshalers.jinja",
                 minijinja::context! {
@@ -641,7 +608,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
                 },
             ));
         } else {
-            // Implement MarshalJSON for the concrete struct
             out.push_str(&crate::backends::go::template_env::render(
                 "data_enum_marshal_json_header.jinja",
                 minijinja::context! {
@@ -717,10 +683,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         }
     }
 
-    // Emit the Unmarshal{EnumName} helper function.
-    // Untagged enums use shape-discriminated try-each-variant unmarshalling.
-    // Tagged enums (internally tagged with serde_tag) use the wire-struct
-    // discriminator field switch.
     out.push_str(&crate::backends::go::template_env::render(
         "data_enum_unmarshal_header.jinja",
         minijinja::context! {
@@ -729,8 +691,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
     ));
 
     if enum_def.serde_untagged {
-        // Untagged path: sniff the first non-whitespace byte to filter candidates,
-        // then try each variant in declared order.
         out.push_str(&crate::backends::go::template_env::render(
             "data_enum_unmarshal_empty_check.jinja",
             minijinja::context! {
@@ -741,22 +701,16 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
         for variant in &enum_def.variants {
             let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
 
-            // Determine the expected JSON shape for this variant.
-            // Tuple/newtype variants: shape is determined by the single inner field type.
-            // Struct variants with named fields: always an object.
             let shape_check = if variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]) {
                 match &variant.fields[0].ty {
                     TypeRef::String | TypeRef::Char | TypeRef::Path => Some("firstByte == '\"'"),
                     TypeRef::Vec(_) | TypeRef::Bytes => Some("firstByte == '['"),
                     TypeRef::Primitive(_) => Some("firstByte != '\"' && firstByte != '{' && firstByte != '['"),
-                    // Named types, maps, and everything else are assumed to be objects.
                     _ => Some("firstByte == '{'"),
                 }
             } else if variant.fields.is_empty() {
-                // Unit variant in an untagged context — skip; cannot match a JSON value.
                 None
             } else {
-                // Struct variant with named fields is always an object.
                 Some("firstByte == '{'")
             };
 
@@ -778,8 +732,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_data_enum_type(enum_def: &EnumD
             },
         ));
     } else {
-        // Tagged path (internally-tagged or externally-tagged): read the discriminator
-        // field from the wire struct, then switch on its value.
         let tag_field = enum_def.serde_tag.as_ref().map(|tn| to_go_name(tn));
         let discriminator_field = tag_field.as_deref().unwrap_or("Type");
 

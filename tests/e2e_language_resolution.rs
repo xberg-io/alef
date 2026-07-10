@@ -62,8 +62,6 @@ fn default_excludes_brew_and_other_non_binding_generators() {
         Language::R,
     ];
     let names = default_e2e_languages(&scaffolded);
-    // brew is a CLI test runner with no Language enum variant — it must be
-    // opt-in via [e2e].languages.
     assert!(
         !names.contains(&"brew".to_string()),
         "brew must not appear in default e2e languages; it requires explicit opt-in"
@@ -74,8 +72,6 @@ fn default_excludes_brew_and_other_non_binding_generators() {
 fn default_excludes_languages_not_in_scaffold_list() {
     let scaffolded = vec![Language::Python, Language::Node];
     let names = default_e2e_languages(&scaffolded);
-    // gleam, kotlin, dart, swift, zig should NOT be generated unless
-    // scaffolded — this is the bug the regression test guards against.
     for unscaffolded in ["gleam", "kotlin", "dart", "swift", "zig"] {
         assert!(
             !names.contains(&unscaffolded.to_string()),
@@ -87,7 +83,5 @@ fn default_excludes_languages_not_in_scaffold_list() {
 #[test]
 fn default_handles_empty_scaffold_list() {
     let names = default_e2e_languages(&[]);
-    // Even with no bindings configured, the rust source-language e2e suite is
-    // emitted so users get at least the core-crate exercise out of the box.
     assert_eq!(names, vec!["rust".to_string()]);
 }

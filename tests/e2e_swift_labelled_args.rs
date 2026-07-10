@@ -94,17 +94,11 @@ fn swift_emits_labelled_arguments_on_free_function_calls() {
 
     let content = &test_file.content;
 
-    // The call should use labelled arguments: `source: "x = 1", config: configObj`
-    // not just positional: `"x = 1", configObj`
     assert!(
         content.contains("source:") && content.contains("config:"),
         "Swift function call must use argument labels. Generated code:\n{content}"
     );
 
-    // Verify it's not using bare positional args (this is a regression test
-    // for the bug where no labels were emitted at all).
-    // The old incorrect pattern would be: try SampleLanguagePack.process("..."
-    // The correct pattern should be: try SampleLanguagePack.process(source: "..."
     let has_qualified_source_label =
         content.contains("source:") && !content.contains("try SampleLanguagePack.process(\"");
     assert!(
@@ -185,9 +179,6 @@ name = "SampleLanguagePack"
 
     let content = &test_file.content;
 
-    // The call must be module-qualified to resolve ambiguity between
-    // the high-level SampleLanguagePack.languageCount() and
-    // the swift-bridge RustBridge.languageCount().
     assert!(
         content.contains("SampleLanguagePack.languageCount()"),
         "Swift free-function call must be qualified with module name. Generated code:\n{content}"

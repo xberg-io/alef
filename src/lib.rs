@@ -17,6 +17,7 @@
 //! ```
 
 #![allow(missing_docs)]
+#![allow(clippy::if_same_then_else, clippy::match_like_matches_macro)]
 
 pub mod adapters;
 pub mod backends;
@@ -37,7 +38,6 @@ pub use core::extension::{Extension, ExtensionConfig};
 pub use core::template_env::TemplateEnv;
 pub use extensions::template::TemplateExtension;
 
-// Convenience re-exports for downstream extensions that own e2e / domain codegen.
 pub use core::backend::GeneratedFile;
 pub use core::config::{E2eConfig, Language, ResolvedCrateConfig};
 pub use core::ir::{ApiSurface, EnumDef, TypeDef};
@@ -58,7 +58,6 @@ pub use e2e::fixture::{Fixture, FixtureGroup, group_fixtures, load_fixtures};
 pub fn run_with_extensions(mut extensions: Vec<Box<dyn Extension>>) -> std::process::ExitCode {
     use clap::Parser;
 
-    // Always prepend the built-in TemplateExtension.
     extensions.insert(0, Box::new(TemplateExtension));
 
     let cli = bin_cli::args::Cli::parse();
@@ -80,10 +79,6 @@ pub fn run_with_extensions(mut extensions: Vec<Box<dyn Extension>>) -> std::proc
         }
     }
 
-    // Store extensions in a process-global so the pipeline can access them
-    // from rayon worker threads (which have their own thread-locals). A
-    // `thread_local!` here would leave the workers seeing an empty list —
-    // every parallel `generate()` call would then skip extension emission.
     let _ = EXTENSIONS.set(extensions);
 
     match bin_cli::dispatch::run(cli) {

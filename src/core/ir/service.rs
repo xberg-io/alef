@@ -91,7 +91,6 @@ impl ParameterConstraint {
 
         while let Some(ch) = chars.next() {
             if ch == '{' {
-                // Collect everything up to the matching `}`.
                 let mut inner = String::new();
                 for c in chars.by_ref() {
                     if c == '}' {
@@ -99,7 +98,6 @@ impl ParameterConstraint {
                     }
                     inner.push(c);
                 }
-                // Split on `:` to extract optional type constraint.
                 let (name, type_constraint) = if let Some(colon_pos) = inner.find(':') {
                     let n = inner[..colon_pos].trim().to_owned();
                     let t = inner[colon_pos + 1..].trim().to_owned();
@@ -117,7 +115,6 @@ impl ParameterConstraint {
                     normalized.push('}');
                 }
             } else if ch == ':' && chars.peek().is_some_and(|c| c.is_alphabetic() || *c == '_') {
-                // Colon-prefix syntax (Express/Sinatra/chi style).
                 let mut name = String::new();
                 while chars.peek().is_some_and(|c| c.is_alphanumeric() || *c == '_') {
                     name.push(chars.next().unwrap());
@@ -621,8 +618,6 @@ pub struct HandlerContractDef {
     pub doc: String,
 }
 
-// ─────────────────────────────────────────────────────────────────────── tests ──
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,8 +630,6 @@ mod tests {
             ..RegistrationVariant::default()
         }
     }
-
-    // ── resolved_for: no override path ───────────────────────────────────────
 
     #[test]
     fn resolved_for_no_override_returns_variant_defaults() {
@@ -654,8 +647,6 @@ mod tests {
         assert_eq!(resolved.handler_shape, HandlerShape::ContextObject);
         assert_eq!(resolved.style, RegistrationVariantStyle::Hybrid);
     }
-
-    // ── resolved_for: per-language override path ──────────────────────────────
 
     #[test]
     fn resolved_for_language_override_wins_over_variant_style() {
@@ -735,7 +726,6 @@ mod tests {
             ..RegistrationVariant::default()
         };
 
-        // Python has no override → falls through to variant-global defaults
         let resolved = variant.resolved_for("python", HandlerShape::IntrospectParams);
         assert_eq!(resolved.style, RegistrationVariantStyle::Hybrid);
         assert_eq!(resolved.handler_shape, HandlerShape::IntrospectParams);
@@ -772,8 +762,6 @@ mod tests {
             "shape falls back to base"
         );
     }
-
-    // ── method_name_for ───────────────────────────────────────────────────────
 
     #[test]
     fn method_name_for_no_override_returns_variant_name() {

@@ -112,15 +112,11 @@ fn mock_server_build_error_string_interpolation_correct() {
 
     let rendered = render(fixtures);
 
-    // The error message should contain the Dart string interpolation exactly:
-    // ${_build.stderr} with single braces, no backslash.
-    // This is what allows Dart to interpolate the stderr value at runtime.
     assert!(
         rendered.contains("mock-server build failed: ${_build.stderr}"),
         "mock-server build error must contain proper Dart string interpolation. Rendered:\n{rendered}"
     );
 
-    // Verify we do NOT have the over-escaped version with double braces or backslash.
     assert!(
         !rendered.contains("mock-server build failed: \\${"),
         "error message must not have escaped $ (backslash before $). Rendered:\n{rendered}"
@@ -130,7 +126,6 @@ fn mock_server_build_error_string_interpolation_correct() {
         "error message must not have double braces {{ (Dart needs single ${{). Rendered:\n{rendered}"
     );
 
-    // Additional sanity check: the line should be within a throw StateError statement.
     assert!(
         rendered.contains("throw StateError('mock-server build failed: ${_build.stderr}')"),
         "full error statement must be present with correct interpolation. Rendered:\n{rendered}"

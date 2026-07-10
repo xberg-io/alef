@@ -160,7 +160,6 @@ fn make_unit_enum(name: &str, variants: &[&str]) -> EnumDef {
 fn test_basic_generation() {
     let backend = ExtendrBackend;
 
-    // Create test API surface with types, functions, and enums
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -283,13 +282,11 @@ fn test_basic_generation() {
 
     let config = make_config();
 
-    // Generate bindings
     let result = backend.generate_bindings(&api, &config);
 
     assert!(result.is_ok(), "Generation should succeed");
     let files = result.unwrap();
 
-    // Should generate a single lib.rs file
     assert_eq!(files.len(), 1, "Should generate exactly one file");
 
     let lib_file = &files[0];
@@ -300,13 +297,11 @@ fn test_basic_generation() {
 
     let content = &lib_file.content;
 
-    // Check for extendr-specific attributes and imports
     assert!(
         content.contains("extendr_api::prelude::*"),
         "Should import extendr_api::prelude::*"
     );
 
-    // Check for struct generation (Config)
     assert!(content.contains("pub struct Config"), "Should generate Config struct");
     assert!(content.contains("timeout"), "Should have timeout field");
     assert!(content.contains("backend"), "Should have backend field");
@@ -318,12 +313,10 @@ fn test_basic_generation() {
     );
     assert!(content.contains("fn extract"), "Should generate extract function");
 
-    // Check for enum generation
     assert!(content.contains("pub enum Mode"), "Should generate Mode enum");
     assert!(content.contains("Fast"), "Should have Fast variant");
     assert!(content.contains("Accurate"), "Should have Accurate variant");
 
-    // Check for module registration
     assert!(
         content.contains("extendr_module!"),
         "Should have extendr_module registration"
@@ -477,10 +470,8 @@ fn test_type_mapping() {
     let lib_file = &files[0];
     let content = &lib_file.content;
 
-    // Verify struct is generated
     assert!(content.contains("pub struct Numbers"));
 
-    // Extendr uses Rust types directly, so verify field names appear
     assert!(content.contains("u32_val"));
     assert!(content.contains("i64_val"));
     assert!(content.contains("string_val"));
@@ -572,24 +563,18 @@ fn test_enum_generation() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify enum is generated
     assert!(content.contains("pub enum Status"));
 
-    // Verify all variants are present
     assert!(content.contains("Pending"));
     assert!(content.contains("Active"));
     assert!(content.contains("Completed"));
 
-    // Verify derive attributes for extendr
     assert!(content.contains("Clone"));
     assert!(content.contains("PartialEq"));
 }
 
 #[test]
 fn test_emits_binding_to_core_from_impls_for_input_types() {
-    // When a struct is used as a function parameter, the binding code calls
-    // `.into()` to bridge from the binding type to the core type.  Verify a
-    // matching `impl From<BindingType> for core::Type` is emitted.
     let backend = ExtendrBackend;
 
     let api = ApiSurface {
@@ -735,9 +720,6 @@ fn test_emits_binding_to_core_from_impls_for_input_types() {
 
 #[test]
 fn test_emits_lossy_from_impls_for_data_variant_enums() {
-    // Enums with data variants are flattened to unit variants in the binding layer
-    // (extendr cannot represent variant payloads).  Lossy From impls must still be
-    // emitted so containing structs that derive `From` can compile.
     let backend = ExtendrBackend;
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
@@ -915,10 +897,7 @@ fn test_generated_header() {
 
     let files = result.unwrap();
 
-    // All files should have generated_header set to true
     for file in &files {
-        // Note: In the current gen_bindings.rs, generated_header is set to false
-        // We check that the field exists and document this behavior
         assert!(
             !file.generated_header,
             "Current extendr backend sets generated_header=false"
@@ -1034,8 +1013,6 @@ fn r_method_wrappers_bind_self_without_mutating_method_environment() {
 
 #[test]
 fn test_opaque_type_generates_inner_field_and_delegates() {
-    // Regression: opaque types (e.g. ParseOptionsBuilder) must generate
-    // `inner: Arc<CoreType>` and delegate methods instead of empty placeholder structs.
     let backend = ExtendrBackend;
 
     let builder_type = TypeDef {
@@ -1131,33 +1108,25 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // Opaque builder struct must have inner: Arc<CoreType>, not be empty
     assert!(
         content.contains("inner: Arc<test_lib::OptionsBuilder>"),
         "Opaque builder must have inner: Arc<CoreType>. Got:\n{}",
         content
     );
-    // Must import Arc
     assert!(
         content.contains("use std::sync::Arc"),
         "Must import Arc for opaque types"
     );
-    // Methods must not use placeholder stubs.
     assert!(
         !content.contains(concat!("to", "do!(\"Not implemented: OptionsBuilder")),
         "Opaque builder methods must not contain placeholder stubs"
     );
-    // build() must delegate to self.inner
     assert!(
         content.contains("self.inner.build()"),
         "build() must delegate to self.inner. Got:\n{}",
         content
     );
 }
-
-// ---------------------------------------------------------------------------
-// Trait bridge tests (Extendr plugin bridge via gen_trait_bridge)
-// ---------------------------------------------------------------------------
 
 mod trait_bridge {
     use super::make_unit_enum;
@@ -1341,8 +1310,6 @@ mod trait_bridge {
         }
     }
 
-    // ---- Plugin bridge: wrapper struct ---
-
     #[test]
     fn test_plugin_bridge_generates_wrapper_struct() {
         let trait_def = make_trait_def(
@@ -1367,8 +1334,6 @@ mod trait_bridge {
         );
     }
 
-    // ---- Plugin bridge: trait impl ---
-
     #[test]
     fn test_plugin_bridge_generates_trait_impl() {
         let trait_def = make_trait_def(
@@ -1389,8 +1354,6 @@ mod trait_bridge {
         );
     }
 
-    // ---- Plugin bridge: sync method uses dollar() to look up R function ---
-
     #[test]
     fn test_plugin_bridge_sync_method_uses_dollar_lookup() {
         let trait_def = make_trait_def("Analyzer", vec![make_method("analyze", TypeRef::String, true, false)]);
@@ -1403,8 +1366,6 @@ mod trait_bridge {
             "sync method body must look up the R function via dollar()"
         );
     }
-
-    // ---- Plugin bridge: async method uses spawn_blocking ---
 
     #[test]
     fn test_plugin_bridge_async_method_uses_spawn_blocking() {
@@ -1422,8 +1383,6 @@ mod trait_bridge {
             "async method must be declared async"
         );
     }
-
-    // ---- Plugin bridge: registration function ---
 
     #[test]
     fn test_plugin_bridge_generates_registration_fn() {
@@ -1449,8 +1408,6 @@ mod trait_bridge {
         );
     }
 
-    // ---- Plugin bridge: registration validates required methods ---
-
     #[test]
     fn test_plugin_bridge_registration_validates_required_methods() {
         let trait_def = make_trait_def(
@@ -1474,8 +1431,6 @@ mod trait_bridge {
         );
     }
 
-    // ---- Plugin bridge: constructor caches name ---
-
     #[test]
     fn test_plugin_bridge_constructor_caches_name() {
         let trait_def = make_trait_def("Worker", vec![make_method("work", TypeRef::Unit, false, false)]);
@@ -1492,8 +1447,6 @@ mod trait_bridge {
             "constructor must call dollar(\"name\") to cache the plugin name"
         );
     }
-
-    // ---- Plugin bridge: super_trait generates Plugin impl ---
 
     #[test]
     fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
@@ -1538,8 +1491,6 @@ mod trait_bridge {
             "Plugin impl must include shutdown()"
         );
     }
-
-    // ---- Visitor bridge ---
 
     #[test]
     fn test_visitor_bridge_generates_r_bridge_struct() {
@@ -1606,9 +1557,6 @@ mod trait_bridge {
 
     #[test]
     fn test_visitor_bridge_generates_unsafe_send_sync_impls() {
-        // VisitorHandle = Arc<Mutex<dyn SyntaxWalker + Send>> requires the bridge to be Send.
-        // Robj wraps a raw SEXP (!Send), so the bridge needs unsafe impl Send + Sync.
-        // R is single-threaded, so callers must not actually move the bridge across threads.
         let trait_def = make_trait_def(
             "SyntaxWalker",
             vec![make_method(
@@ -1634,10 +1582,9 @@ mod trait_bridge {
 
     #[test]
     fn test_exclude_functions_honored() {
-        use super::*; // Import helpers from root scope
+        use super::*;
         let backend = ExtendrBackend;
 
-        // Create API surface with two functions
         let api = ApiSurface {
             crate_name: "test_lib".to_string(),
             version: "0.1.0".to_string(),
@@ -1691,7 +1638,6 @@ mod trait_bridge {
             unsupported_public_items: Vec::new(),
         };
 
-        // Config with exclude_functions for R
         let mut config = super::make_config();
         config.r = Some(alef::core::config::languages::RConfig {
             package_name: Some("testlib".to_string()),
@@ -1710,62 +1656,51 @@ mod trait_bridge {
         let generated_bindings = backend.generate_bindings(&api, &config).unwrap();
         let generated_public = backend.generate_public_api(&api, &config).unwrap();
 
-        // Find the lib.rs file (from bindings)
         let lib_rs = generated_bindings
             .iter()
             .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
             .expect("should generate lib.rs");
 
-        // allowed_func should be present in the generated bindings
         assert!(
             lib_rs.content.contains("pub fn allowed_func"),
             "allowed_func should be present in generated code"
         );
 
-        // excluded_func should NOT be present
         assert!(
             !lib_rs.content.contains("pub fn excluded_func"),
             "excluded_func should be excluded from generated code"
         );
 
-        // Find the extendr-wrappers.R file (from public API)
         let wrappers_r = generated_public
             .iter()
             .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
             .expect("should generate extendr-wrappers.R");
 
-        // allowed_func should have an R wrapper
         assert!(
             wrappers_r.content.contains("allowed_func"),
             "allowed_func should have an R wrapper"
         );
 
-        // excluded_func should NOT have an R wrapper
         assert!(
             !wrappers_r.content.contains("excluded_func"),
             "excluded_func should not have an R wrapper"
         );
 
-        // Find the NAMESPACE file (from public API)
         let namespace = generated_public
             .iter()
             .find(|f| f.path.to_string_lossy().ends_with("NAMESPACE"))
             .expect("should generate NAMESPACE");
 
-        // allowed_func should be exported
         assert!(
             namespace.content.contains("export(allowed_func)"),
             "allowed_func should be exported in NAMESPACE"
         );
 
-        // excluded_func should NOT be exported
         assert!(
             !namespace.content.contains("export(excluded_func)"),
             "excluded_func should not be exported in NAMESPACE"
         );
 
-        // Check that excluded_func is NOT in the extendr_module! macro
-        // The macro should only contain `fn allowed_func;` but not `fn excluded_func;`
         assert!(
             lib_rs.content.contains("fn allowed_func;"),
             "allowed_func should be registered in extendr_module!"
@@ -1777,10 +1712,8 @@ mod trait_bridge {
     }
 }
 
-// Category 4 test: binding_excluded fields should not appear in kwargs constructors
 #[test]
 fn extendr_binding_excluded_config_fields_skipped_in_kwargs_constructor() {
-    // Category 4: binding_excluded fields must not be set in constructor
     let mut field_concurrency = make_field("concurrency", TypeRef::Named("ConcurrencyConfig".to_string()), true);
     field_concurrency.binding_excluded = true;
     field_concurrency.binding_exclusion_reason = Some("alef(skip)".to_string());
@@ -1804,7 +1737,6 @@ fn extendr_binding_excluded_config_fields_skipped_in_kwargs_constructor() {
         &ahash::AHashSet::new(),
     );
 
-    // Constructor should NOT include concurrency parameter or assignment
     assert!(
         !gen_code.contains("concurrency"),
         "binding_excluded field 'concurrency' should not appear in constructor\n{gen_code}"
@@ -1817,7 +1749,6 @@ fn extendr_binding_excluded_config_fields_skipped_in_kwargs_constructor() {
 
 #[test]
 fn extendr_return_type_needs_json_for_vec_enum() {
-    // Category 1: Vec<Enum> should need JSON bridging
     let mut enum_names: ahash::AHashSet<String> = ahash::AHashSet::new();
     enum_names.insert("EntityCategory".to_string());
 
@@ -1826,7 +1757,6 @@ fn extendr_return_type_needs_json_for_vec_enum() {
 
     let ty = TypeRef::Vec(Box::new(TypeRef::Named("EntityCategory".to_string())));
 
-    // Simulate return_type_needs_json function behavior
     let needs_json = match &ty {
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(n) => {
@@ -1844,7 +1774,6 @@ fn extendr_return_type_needs_json_for_vec_enum() {
 
 #[test]
 fn extendr_return_type_needs_json_for_vec_opaque() {
-    // Category 1: Vec<OpaqueDTO> should need JSON bridging
     let enum_names: ahash::AHashSet<String> = ahash::AHashSet::new();
     let mut opaque_types: ahash::AHashSet<String> = ahash::AHashSet::new();
     opaque_types.insert("QrCode".to_string());
@@ -1869,8 +1798,6 @@ fn extendr_return_type_needs_json_for_vec_opaque() {
 
 #[test]
 fn extendr_param_mut_flag_emits_let_mut() {
-    // Category 3: &mut parameters should emit `let mut` in JSON preamble
-    // Simulate preamble generation with mut keyword for a mutable parameter
     let is_mut = true;
     let mut_kw = if is_mut { "mut " } else { "" };
     let preamble = format!(
@@ -1888,8 +1815,6 @@ fn extendr_param_mut_flag_emits_let_mut() {
 
 #[test]
 fn extendr_param_non_mut_emits_let_immut() {
-    // Category 3: non-&mut parameters should emit `let` (no mut) in JSON preamble
-    // Simulate preamble generation without mut keyword for a non-mutable parameter
     let is_mut = false;
     let mut_kw = if is_mut { "mut " } else { "" };
     let preamble = format!(
@@ -1907,12 +1832,6 @@ fn extendr_param_non_mut_emits_let_immut() {
 
 #[test]
 fn extendr_underscore_prefix_stripped_from_r_params() {
-    // Regression test: R identifiers cannot start with underscore.
-    // Rust parameters like `_flag: bool` are common for unused params,
-    // but R requires the leading underscore be stripped in generated wrappers.
-    //
-    // Expected: `compute <- function(value, flag = NULL) .Call("wrap__compute", value, flag, PACKAGE = "...")`
-
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -1988,7 +1907,6 @@ fn extendr_underscore_prefix_stripped_from_r_params() {
         .find(|f| f.path.ends_with("extendr-wrappers.R"))
         .expect("Should generate extendr-wrappers.R");
 
-    // Verify: param name in signature should be `flag` not `_flag`
     assert!(
         r_wrapper_file
             .content
@@ -1997,7 +1915,6 @@ fn extendr_underscore_prefix_stripped_from_r_params() {
         r_wrapper_file.content
     );
 
-    // Verify: param name in .Call() args should also be `flag` not `_flag`
     assert!(
         r_wrapper_file
             .content
@@ -2006,7 +1923,6 @@ fn extendr_underscore_prefix_stripped_from_r_params() {
         r_wrapper_file.content
     );
 
-    // Verify: should NOT contain the invalid `_flag` identifier
     assert!(
         !r_wrapper_file.content.contains("function(value, _flag"),
         "R wrapper should not emit leading underscore in function signature"
@@ -2021,12 +1937,7 @@ fn extendr_underscore_prefix_stripped_from_r_params() {
 
 #[test]
 fn test_emits_reference_for_named_non_opaque_struct_params() {
-    // Regression test for https://github.com/xberg-io/alef/issues/XXX:
-    // Free functions that take non-opaque struct params (e.g. config: ExtractionConfig)
-    // must emit them as `&T` in the Rust binding, not as owned `T` or as `String`.
     // Extendr's #[extendr] macro only generates TryFrom<&Robj> for &T (reference),
-    // not for owned T. The R caller passes ExternalPtr objects directly from the
-    // R6 class, and extendr unwraps them transparently when the param is `&T`.
     let backend = ExtendrBackend;
 
     let config_type = TypeDef {
@@ -2066,9 +1977,6 @@ fn test_emits_reference_for_named_non_opaque_struct_params() {
             params: vec![
                 make_param("path", TypeRef::String, false),
                 make_param("mime_type", TypeRef::Optional(Box::new(TypeRef::String)), true),
-                // Non-optional Named DTO param following an optional param. The core
-                // function takes it by reference (`config: &ExtractionConfig`), mirroring
-                // real kreuzberg signatures; extendr must bind it by reference too.
                 ParamDef {
                     is_ref: true,
                     ..make_param("config", TypeRef::Named("ExtractionConfig".to_string()), false)
@@ -2101,8 +2009,6 @@ fn test_emits_reference_for_named_non_opaque_struct_params() {
     let files = backend.generate_bindings(&api, &config).expect("generation");
     let content = &files[0].content;
 
-    // Verify: free function signature must use &ExtractionConfig for the config param, not String
-    // When a non-optional Named param follows an optional param, extendr wraps it in Nullable<&T>.
     assert!(
         (content.contains(
             "pub fn extract_file(path: String, mime_type: Option<Option<String>>, config: Nullable<&ExtractionConfig>)"
@@ -2112,18 +2018,11 @@ fn test_emits_reference_for_named_non_opaque_struct_params() {
         "free function with named struct param must use &T or Nullable<&T>, not String: {content}"
     );
 
-    // Verify: should NOT deserialize from JSON string — that was the old bug
     assert!(
         !content.contains("serde_json::from_str(&config)"),
         "named struct params should not be deserialized from JSON string: {content}"
     );
 
-    // Verify: the param is converted through an owned `config_core` binding and passed to
-    // the core function by reference (the core signature is `&ExtractionConfig`). Earlier
-    // extendr revisions promoted the trailing non-optional param to `Nullable<&T>` and
-    // marshalled it via `Nullable::into_option()`, which does not compile because extendr
-    // implements `TryFrom<&Robj>` for the wrapper but not the `into_option()` path for a
-    // non-optional struct. The by-reference form below is the compiling, correct behavior.
     assert!(
         content.contains("let config_core: test_lib::ExtractionConfig = config.clone().into();"),
         "config param must convert through an owned core binding, not JSON deserialization: {content}"
@@ -2136,19 +2035,13 @@ fn test_emits_reference_for_named_non_opaque_struct_params() {
 
 #[test]
 fn methods_with_vec_struct_params_are_excluded_from_extendr_impl() {
-    // Methods whose parameters are types extendr cannot convert from an incoming R object —
     // `Vec<NamedStruct>` and `Option<Vec<NamedStruct>>` — must be omitted from the #[extendr]
-    // impl block. The struct wrapper only implements `From<core::T>`, not `TryFrom<&Robj>`, so
     // emitting such a method makes the #[extendr] proc-macro fail with
-    // `error[E0277]: T: TryFrom<&Robj> not satisfied` (the downstream R-binding break).
-    // These cases are NOT caught by the bare-owned-struct / enum param predicates, so this
-    // proves the dedicated `is_extendr_native_incompatible` param check.
     let backend = ExtendrBackend;
 
     let entry = make_type("MetadataEntry", vec![make_field("value", TypeRef::String, false)], true);
     let widget = TypeDef {
         methods: vec![
-            // Vec<struct> param — extendr cannot build it from an R list → excluded.
             make_ref_method(
                 "set_entries",
                 vec![make_param(
@@ -2158,7 +2051,6 @@ fn methods_with_vec_struct_params_are_excluded_from_extendr_impl() {
                 )],
                 TypeRef::Primitive(PrimitiveType::U32),
             ),
-            // Option<Vec<struct>> param — same, via the Optional arm → excluded.
             make_ref_method(
                 "set_optional_entries",
                 vec![make_param(
@@ -2170,7 +2062,6 @@ fn methods_with_vec_struct_params_are_excluded_from_extendr_impl() {
                 )],
                 TypeRef::Primitive(PrimitiveType::U32),
             ),
-            // Primitive param — extendr-compatible → retained.
             make_ref_method(
                 "set_count",
                 vec![make_param("count", TypeRef::Primitive(PrimitiveType::U32), false)],

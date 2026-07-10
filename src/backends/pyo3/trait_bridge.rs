@@ -32,7 +32,6 @@ pub fn gen_trait_bridge(
     api: &ApiSurface,
     reexported_types: &[String],
 ) -> anyhow::Result<BridgeOutput> {
-    // Build type name → rust_path lookup for qualifying Named types in signatures
     let type_paths: HashMap<String, String> = api
         .types
         .iter()
@@ -42,8 +41,6 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods referencing them (for example, `&HiddenDoc`)
-        // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
                 .iter()
@@ -51,8 +48,6 @@ pub fn gen_trait_bridge(
         )
         .collect();
 
-    // Determine bridge pattern: visitor-style (all methods have defaults, no registry) vs
-    // plugin-style (cached fields, registry, super-trait).
     let is_visitor_bridge = bridge_cfg.type_alias.is_some()
         && bridge_cfg.register_fn.is_none()
         && bridge_cfg.super_trait.is_none()
@@ -72,26 +67,13 @@ pub fn gen_trait_bridge(
         )?;
         Ok(BridgeOutput { imports: vec![], code })
     } else {
-        // Use the IR-driven TraitBridgeGenerator infrastructure.
-        //
-        // Classify which callback params get native-object marshalling using the SHARED rule
-        // (`native_marshalled_struct_params`) so the allowlist is identical to what other
-        // backends will consult. For such params the bridge hands the host the binding's native
         // Python object (the `#[pyclass]`, built via the same `From<core::T>` conversion used for
-        // return values) instead of a JSON string.
         let struct_param_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
-        // Return-side counterpart: a host may return the binding's native result object, which the
-        // bridge extracts and converts via `From<Binding>` (falling back to the mapping/JSON path).
         let struct_return_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api);
-        // Rust-defaulted methods the bridge can forward to the host (host-defined
-        // implementations win; the Rust default runs otherwise).
         let forwardable_defaulted =
             crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
-        // Config structs the package exports as options dataclasses: the bridge lifts
-        // the native object into the dataclass before invoking the host, so the type a
-        // host method receives is the type the package publicly exports.
         let options_dataclass_types =
             crate::backends::pyo3::gen_bindings::options_dataclass_type_names(api, reexported_types);
         let generator = Pyo3BridgeGenerator {
@@ -122,13 +104,6 @@ pub fn gen_trait_bridge(
         Ok(gen_bridge_all(&spec, &generator))
     }
 }
-
-// Generate a visitor-style bridge: thin wrapper over `Py<PyAny>` where every trait method
-// tries to call the corresponding Python method, falling back to the default if absent.
-//
-// This pattern is used for traits where:
-// - All methods have default implementations
-// - No registration function is needed (per-call construction via `type_alias`)
 
 mod tests {
     /// Trait callbacks must run inside the caller's contextvars Context so any ContextVar
@@ -256,7 +231,6 @@ mod tests {
             options_dataclass_types: HashSet::new(),
         };
 
-        // A trait method returning a struct `Doc` exercises the json.dumps -> from_str path.
         let make_method = |is_async: bool| MethodDef {
             name: "build".to_owned(),
             params: vec![],
@@ -317,7 +291,6 @@ mod tests {
             error_type: "SampleError".to_owned(),
             error_constructor: "SampleError::Message { message: {msg} }".to_owned(),
         };
-        // `Doc` is on the native-marshalled return allowlist.
         let generator = super::Pyo3BridgeGenerator {
             core_import: "sample_core".to_owned(),
             type_paths: HashMap::new(),
@@ -348,7 +321,6 @@ mod tests {
                 body.contains("extract::<Doc>()"),
                 "native return must try extracting the binding object `Doc` first (is_async={is_async}):\n{body}"
             );
-            // Native object converts via `From<Doc>` for the core type; mapping path is still present.
             assert!(
                 body.contains("::from(native)"),
                 "native return must convert the extracted object via From<Binding> (is_async={is_async}):\n{body}"
@@ -395,7 +367,6 @@ mod tests {
             error_type: "SampleError".to_owned(),
             error_constructor: "SampleError::Message { message: {msg} }".to_owned(),
         };
-        // `Input` is on the native-marshalled struct-param allowlist.
         let generator = super::Pyo3BridgeGenerator {
             core_import: "sample_core".to_owned(),
             type_paths: HashMap::new(),
@@ -408,7 +379,6 @@ mod tests {
 
         let make_method = |is_async: bool| MethodDef {
             name: "handle".to_owned(),
-            // Owned (by-value) native-struct param — no `&`.
             params: vec![ParamDef {
                 name: "input".to_owned(),
                 ty: TypeRef::Named("Input".to_owned()),

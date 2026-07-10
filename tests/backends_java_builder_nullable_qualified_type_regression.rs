@@ -77,11 +77,9 @@ fn builder_nullable_qualified_type_emits_correct_annotation_position() {
             rust_path: "lib::CacheConfig".to_string(),
             original_rust_path: String::new(),
             fields: vec![
-                // Required Path field — no annotation
                 make_field("base_dir", TypeRef::Path, false, None),
                 // Optional Path field with #[serde(default)] — should be @Nullable with qualified type
                 make_field("cache_dir", TypeRef::Path, false, Some("/* serde(default) */")),
-                // Optional String field — should be @Nullable with simple type
                 make_field("description", TypeRef::String, true, None),
             ],
             methods: vec![],
@@ -118,7 +116,6 @@ fn builder_nullable_qualified_type_emits_correct_annotation_position() {
     assert!(result.is_ok(), "generation failed: {:?}", result);
     let files = result.unwrap();
 
-    // Find the CacheConfig.java file (the record + builder)
     let cache_config = files
         .iter()
         .find(|f| f.path.to_string_lossy().contains("CacheConfig.java"))
@@ -126,35 +123,24 @@ fn builder_nullable_qualified_type_emits_correct_annotation_position() {
 
     let content = &cache_config.content;
 
-    // (1) Builder private field with @Nullable and qualified type should use correct annotation position:
-    //     WRONG: @Nullable private java.nio.file.Path cacheDir;
-    //     RIGHT: @Nullable private java.nio.file.@Nullable Path cacheDir;
-    //     (note the @Nullable appears inside the qualified name)
     assert!(
         content.contains("java.nio.file.@Nullable Path cacheDir"),
         "Builder private field with qualified type should place @Nullable at simple-name segment. Got:\n{}",
         content
     );
 
-    // (2) Verify that the WRONG form does NOT appear anywhere in the generated code
     assert!(
         !content.contains("@Nullable private java.nio.file.Path cacheDir"),
         "Builder private field should NOT have @Nullable before fully-qualified type. Got:\n{}",
         content
     );
 
-    // (3) Builder setter parameter should also use correct position:
-    //     WRONG: public Builder withCacheDir(final @Nullable java.nio.file.Path value)
-    //     RIGHT: public Builder withCacheDir(final java.nio.file.@Nullable Path value)
     assert!(
         content.contains("java.nio.file.@Nullable Path value)"),
         "Builder setter parameter with qualified type should place @Nullable at simple-name segment. Got:\n{}",
         content
     );
 
-    // (4) Simple type (String) should still use @Nullable at leading position:
-    //     RIGHT: @Nullable private String description (for builder field)
-    //     RIGHT: public Builder withDescription(final @Nullable String value) (for setter)
     assert!(
         content.contains("@Nullable private String description"),
         "Builder private field with simple type should use leading @Nullable. Got:\n{}",
@@ -167,7 +153,6 @@ fn builder_nullable_qualified_type_emits_correct_annotation_position() {
         content
     );
 
-    // (5) Required Path field should NOT be nullable anywhere:
     assert!(
         content.contains("private java.nio.file.Path baseDir"),
         "Required Path field should not be nullable. Got:\n{}",
@@ -179,7 +164,6 @@ fn builder_nullable_qualified_type_emits_correct_annotation_position() {
         content
     );
 
-    // (6) Verify @Nullable import is present
     assert!(
         content.contains("import org.jspecify.annotations.Nullable;"),
         "Should import @Nullable annotation. Got:\n{}",

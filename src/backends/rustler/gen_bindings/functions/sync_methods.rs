@@ -45,15 +45,11 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
                 params.push(format!("{}: rustler::ResourceArc<{}>", p.name, n));
                 continue;
             }
-            // Default (has_default) types are passed as JSON strings so partial maps
             // work — serde_json::from_str respects #[serde(default)]. Mirrors the
-            // free-function pattern in `gen_nif_function`.
             if default_types.contains(n) {
                 params.push(format!("{}: Option<String>", p.name));
                 continue;
             }
-            // Optional Named non-opaque params must be Option<T> so callers can
-            // pass nil (Elixir) and the NIF receives None rather than a decode error.
             if p.optional {
                 params.push(format!("{}: Option<{}>", p.name, n));
                 continue;
@@ -75,10 +71,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
         .params
         .iter()
         .any(|p| matches!(&p.ty, TypeRef::Named(n) if default_types.contains(n)));
-    // Rustler stores opaque resources behind `Arc<RwLock<T>>`, so `&mut self` methods
-    // mutate in place through a write lock (see the receiver match below). The shared
-    // `can_auto_delegate` conservatively rejects RefMut opaque methods (correct for the
-    // Arc<T>-only backends), so re-permit them here when their params/return are delegatable.
     let can_delegate_refmut_opaque = is_opaque
         && matches!(method.receiver, Some(ReceiverKind::RefMut))
         && method.trait_source.is_none()
@@ -92,7 +84,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
     let can_delegate =
         shared::can_auto_delegate(method, opaque_types) || has_default_params || can_delegate_refmut_opaque;
 
-    // Build deserialization preamble for default-typed (JSON-string) params.
     let deser_preamble = build_default_deser_preamble(
         &method.params,
         default_types,
@@ -104,11 +95,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);
         let core_call = if let (true, Some(receiver)) = (is_opaque, method.receiver.as_ref()) {
-            // For &self: Arc<T> derefs to T, no clone needed (and avoids the
-            // noop_method_call lint that the previous as_ref().clone() tripped).
-            // For &mut self / self: clone the inner T to get an owned value the
-            // method can consume — requires T: Clone (callers needing non-Clone
-            // opaque types with mutating methods should configure exclude_methods).
             match receiver {
                 ReceiverKind::Ref => format!(
                     "resource.inner.read().unwrap_or_else(|e| e.into_inner()).{}({})",
@@ -128,10 +114,8 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
                 }
             }
         } else if is_opaque {
-            // Static method on opaque type: call directly on the inner core type
             render_method_call("rust_method_static_call.rs.jinja", core_path, &method.name, &call_args)
         } else if method.receiver.is_some() {
-            // Instance method on non-opaque: convert binding struct to core type, then call
             render_method_call(
                 "rust_method_instance_call.rs.jinja",
                 core_path,
@@ -139,13 +123,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
                 &call_args,
             )
         } else {
-            // Static method on non-opaque: call directly on core type.
-            // Named (non-opaque) params use `.into()` which can be ambiguous when multiple
-            // From impls exist. Emit explicit let bindings with annotated core types so
-            // Rust can resolve the conversion without ambiguity.
-            // Skip default-typed params — those are already deserialized by the
-            // `deser_preamble` from `build_default_deser_preamble`, which produces
-            // its own `{name}_core` binding. Emitting another would duplicate.
             let named_params: Vec<&ParamDef> = method
                 .params
                 .iter()
@@ -154,7 +131,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
             if named_params.is_empty() {
                 render_method_call("rust_method_static_call.rs.jinja", core_path, &method.name, &call_args)
             } else {
-                // Build annotated let-bindings for each Named param and substitute in call_args.
                 let mut preamble = String::new();
                 let mut resolved_args = call_args.clone();
                 for p in named_params {
@@ -174,7 +150,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
                                 expr => &src,
                             },
                         ));
-                        // Replace the generated expression in call_args with the variable name.
                         if p.optional {
                             resolved_args = resolved_args.replace(&format!("{}.map(Into::into)", p.name), &core_var);
                         } else {
@@ -185,10 +160,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
                 render_method_call_with_preamble(&preamble, core_path, &method.name, &resolved_args)
             }
         };
-        // When the IR's return type was sanitized from a Named type to TypeRef::String
-        // (because the original type is excluded from the binding API), the core call
-        // still returns the original Named type — JSON-serialize it to satisfy the
-        // String return type declared by the NIF.
         let return_was_sanitized = method.sanitized && matches!(&method.return_type, TypeRef::String);
         if method.error_type.is_some() {
             let wrap = if return_was_sanitized {

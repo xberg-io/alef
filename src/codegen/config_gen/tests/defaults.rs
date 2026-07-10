@@ -203,7 +203,6 @@ fn test_default_value_no_typed_no_default() {
         binding_exclusion_reason: None,
         original_type: None,
     };
-    // Should fall back to type-based zero value
     assert_eq!(default_value_for_field(&field, "python"), "0");
     assert_eq!(default_value_for_field(&field, "go"), "0");
 }
@@ -313,7 +312,6 @@ fn test_default_value_string_literal_escapes_quotes() {
 
 #[test]
 fn test_default_value_float_literal_whole_number() {
-    // A whole-number float should be rendered with ".0" suffix.
     let field = FieldDef {
         name: "scale".to_string(),
         ty: TypeRef::Primitive(PrimitiveType::F32),
@@ -592,10 +590,6 @@ fn test_default_value_none_ruby_php_r() {
     assert_eq!(default_value_for_field(&field, "rust"), "None");
 }
 
-// -------------------------------------------------------------------------
-// Fallback (no typed_default, no default) — type-based zero values
-// -------------------------------------------------------------------------
-
 #[test]
 fn test_default_value_fallback_bool_all_languages() {
     let field = make_field("flag", TypeRef::Primitive(PrimitiveType::Bool));
@@ -714,7 +708,6 @@ fn test_default_value_fallback_named_type() {
 
 #[test]
 fn test_default_value_fallback_duration() {
-    // Duration falls through to the wildcard arm
     let field = make_field("timeout", TypeRef::Duration);
     assert_eq!(default_value_for_field(&field, "python"), "None");
     assert_eq!(default_value_for_field(&field, "rust"), "Default::default()");
@@ -723,9 +716,6 @@ fn test_default_value_fallback_duration() {
 #[test]
 fn test_serde_default_marker_falls_through_to_type_zero() {
     // The extractor encodes `#[serde(default = "path")]` as a `serde(default = "...")`
-    // marker string. It is a signal flag, not a value expression — it must never be
-    // emitted verbatim (that produces invalid code in every language). Backends that
-    // do not parse the marker fall through to the type-based zero value.
     let string_field = FieldDef {
         default: Some("serde(default = \"crate::serde_defaults::default_jwt_algorithm\")".to_string()),
         ..make_field("algorithm", TypeRef::String)

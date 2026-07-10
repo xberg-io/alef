@@ -9,7 +9,6 @@ use syn;
 /// Falls back to `DefaultValue::Empty` for expressions that cannot be parsed
 /// into a concrete literal (e.g., method calls, complex expressions).
 pub(crate) fn extract_default_values(item: &syn::ItemImpl, fields: &mut [FieldDef]) {
-    // Find the `fn default()` method
     let default_fn = item.items.iter().find_map(|impl_item| {
         if let syn::ImplItem::Fn(method) = impl_item {
             if method.sig.ident == "default" {
@@ -20,21 +19,18 @@ pub(crate) fn extract_default_values(item: &syn::ItemImpl, fields: &mut [FieldDe
     });
 
     let Some(default_fn) = default_fn else {
-        // No fn default() found — mark all fields as Empty
         for field in fields.iter_mut() {
             field.typed_default = Some(DefaultValue::Empty);
         }
         return;
     };
 
-    // Build a map of field name → DefaultValue from the struct literal
     let defaults = parse_default_body(&default_fn.block);
 
     for field in fields.iter_mut() {
         if let Some(default_val) = defaults.get(&field.name) {
             field.typed_default = Some(default_val.clone());
         } else {
-            // Field exists but wasn't in the struct literal — use Empty
             field.typed_default = Some(DefaultValue::Empty);
         }
     }
@@ -47,8 +43,6 @@ pub(crate) fn extract_default_values(item: &syn::ItemImpl, fields: &mut [FieldDe
 fn parse_default_body(block: &syn::Block) -> AHashMap<String, DefaultValue> {
     let mut defaults = AHashMap::new();
 
-    // The body should contain a struct literal, possibly as the last expression.
-    // It could be `Self { ... }` or `TypeName { ... }`.
     let struct_expr = find_struct_expr(block);
 
     let Some(struct_expr) = struct_expr else {
@@ -69,7 +63,6 @@ fn parse_default_body(block: &syn::Block) -> AHashMap<String, DefaultValue> {
 
 /// Recursively search a block for a struct expression (`Self { ... }` or `Name { ... }`).
 fn find_struct_expr(block: &syn::Block) -> Option<&syn::ExprStruct> {
-    // Check the last statement (tail expression or expression statement)
     for stmt in block.stmts.iter().rev() {
         match stmt {
             syn::Stmt::Expr(expr, _) => {
@@ -128,7 +121,6 @@ impl FieldMemberExt for syn::FieldValue {
 /// - Anything else → `Empty`
 fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
     match expr {
-        // Boolean and numeric literals
         syn::Expr::Lit(lit) => match &lit.lit {
             syn::Lit::Bool(b) => DefaultValue::BoolLiteral(b.value),
             syn::Lit::Int(i) => {
@@ -150,16 +142,12 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
             _ => DefaultValue::Empty,
         },
 
-        // Unary negation: `-1`, `-3.14`
         syn::Expr::Unary(unary) if matches!(unary.op, syn::UnOp::Neg(_)) => match expr_to_default_value(&unary.expr) {
             DefaultValue::IntLiteral(v) => DefaultValue::IntLiteral(-v),
             DefaultValue::FloatLiteral(v) => DefaultValue::FloatLiteral(-v),
             _ => DefaultValue::Empty,
         },
 
-        // Binary arithmetic: const-fold `a OP b` where both sides are integer
-        // (or both float) literals — supports common patterns like
-        // `500 * 1024 * 1024` (left-associative chains fold recursively).
         syn::Expr::Binary(bin) => {
             let lhs = expr_to_default_value(&bin.left);
             let rhs = expr_to_default_value(&bin.right);
@@ -200,12 +188,10 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
             }
         }
 
-        // Method calls: "str".to_string(), "str".into(), etc.
         syn::Expr::MethodCall(mc) => {
             let method_name = mc.method.to_string();
             match method_name.as_str() {
                 "to_string" | "to_owned" | "into" => {
-                    // Check if receiver is a string literal
                     if let syn::Expr::Lit(lit) = &*mc.receiver {
                         if let syn::Lit::Str(s) = &lit.lit {
                             return DefaultValue::StringLiteral(s.value());
@@ -217,24 +203,16 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
             }
         }
 
-        // Function/associated function calls: String::from("..."), String::new(), Vec::new(),
-        // SomeType::default(), Default::default()
         syn::Expr::Call(call) => {
             if let syn::Expr::Path(path) = &*call.func {
                 let segments: Vec<String> = path.path.segments.iter().map(|s| s.ident.to_string()).collect();
 
-                // Some(inner) / Option::Some(inner) → the field's default is the inner
-                // value, not `None`. Recurse so `Some(50 * 1024 * 1024)` surfaces as
-                // `IntLiteral(52428800)` instead of collapsing to `Empty` (which each
-                // backend then renders as the type's zero/null, silently dropping the
-                // real default).
                 if (segments == ["Some"] || segments == ["Option", "Some"]) && call.args.len() == 1 {
                     if let Some(inner) = call.args.first() {
                         return expr_to_default_value(inner);
                     }
                 }
 
-                // String::from("...") or String::from(lit)
                 if segments == ["String", "from"] && call.args.len() == 1 {
                     if let Some(syn::Expr::Lit(lit)) = call.args.first() {
                         if let syn::Lit::Str(s) = &lit.lit {
@@ -244,12 +222,10 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
                     return DefaultValue::Empty;
                 }
 
-                // String::new() → empty string
                 if segments == ["String", "new"] && call.args.is_empty() {
                     return DefaultValue::StringLiteral(String::new());
                 }
 
-                // Vec::new(), HashMap::new(), HashSet::new(), etc.
                 if segments.len() == 2 && segments[1] == "new" && call.args.is_empty() {
                     let type_name = &segments[0];
                     if matches!(
@@ -260,7 +236,6 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
                     }
                 }
 
-                // Duration::from_secs(N) → IntLiteral(N * 1000) (milliseconds)
                 if segments == ["Duration", "from_secs"] && call.args.len() == 1 {
                     if let Some(syn::Expr::Lit(lit)) = call.args.first() {
                         if let syn::Lit::Int(i) = &lit.lit {
@@ -272,7 +247,6 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
                     return DefaultValue::Empty;
                 }
 
-                // Duration::from_millis(N) → IntLiteral(N) (already milliseconds)
                 if segments == ["Duration", "from_millis"] && call.args.len() == 1 {
                     if let Some(syn::Expr::Lit(lit)) = call.args.first() {
                         if let syn::Lit::Int(i) = &lit.lit {
@@ -284,7 +258,6 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
                     return DefaultValue::Empty;
                 }
 
-                // SomeType::default() or Default::default()
                 if segments.last().is_some_and(|s| s == "default") {
                     return DefaultValue::Empty;
                 }
@@ -292,24 +265,18 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
             DefaultValue::Empty
         }
 
-        // Path expressions: SomeEnum::Variant (no function call), or bare `None`
         syn::Expr::Path(path) => {
             let segments: Vec<String> = path.path.segments.iter().map(|s| s.ident.to_string()).collect();
             if segments.len() == 2 {
-                // SomeEnum::Variant → EnumVariant("Variant")
                 return DefaultValue::EnumVariant(segments[1].clone());
             }
-            // Bare `None` → DefaultValue::None
             if segments.len() == 1 && segments[0] == "None" {
                 return DefaultValue::None;
             }
-            // Single ident like `true`/`false` are handled as Lit, but just in case
             DefaultValue::Empty
         }
 
-        // Macro calls: vec![], hashmap!{}, etc.
         syn::Expr::Macro(mac) => {
-            // vec![] with empty tokens → Empty
             let macro_name = mac
                 .mac
                 .path
@@ -338,9 +305,6 @@ mod tests {
 
     #[test]
     fn some_int_literal_unwraps_to_inner_int() {
-        // `Some(50 * 1024 * 1024)` must surface the inner constant, not `Empty`
-        // (which every backend renders as the type's zero/null, silently dropping
-        // the real default — this caused documentMaxSize: 0 in the Dart bindings).
         assert_eq!(
             default_value_of("Some(50 * 1024 * 1024)"),
             DefaultValue::IntLiteral(52_428_800)

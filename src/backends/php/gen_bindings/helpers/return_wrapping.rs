@@ -31,9 +31,6 @@ pub(crate) fn php_wrap_return(
 ) -> String {
     match return_type {
         TypeRef::Bytes => {
-            // Core returns Vec<u8> or Bytes; convert to String for PHP binary-safe string.
-            // ext-php-rs marshals &[u8] to PHP string, but Vec<u8> to PHP array.
-            // So we convert to String using lossy UTF-8 encoding (safe for binary PNG/PDF data).
             let vec_expr = if returns_ref {
                 format!("{expr}.to_vec()")
             } else {
@@ -45,10 +42,7 @@ pub(crate) fn php_wrap_return(
             format!("{expr} as i64")
         }
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
-        // Opaque Named returns need Arc wrapper (and Mutex for mutex types)
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
-            // If the expression already evaluates to Arc<T> (e.g. `self.inner.clone()`
-            // where `inner: Arc<T>`), don't wrap in another Arc.
             if php_expr_is_already_arc(expr) {
                 return format!("Self {{ inner: {expr} }}");
             }
@@ -83,9 +77,7 @@ pub(crate) fn php_wrap_return(
             }
         }
         TypeRef::Named(n) => {
-            // Non-opaque Named return type
             if json_string_enum_names.contains(n.as_str()) {
-                // Externally-tagged data enum: serialize to JSON string
                 if returns_cow {
                     format!("serde_json::to_string(&{expr}.into_owned()).unwrap_or_default()")
                 } else if returns_ref {
@@ -94,7 +86,6 @@ pub(crate) fn php_wrap_return(
                     format!("serde_json::to_string(&{expr}).unwrap_or_default()")
                 }
             } else if string_enum_names.contains(n.as_str()) {
-                // Pure unit enum: extract discriminant string via serde_json
                 if returns_cow {
                     format!(
                         "serde_json::to_value(&{expr}.into_owned()).ok().and_then(|v| v.as_str().map(std::string::ToString::to_string)).unwrap_or_default()"
@@ -109,7 +100,6 @@ pub(crate) fn php_wrap_return(
                     )
                 }
             } else {
-                // Non-enum Named type: use .into() for core-to-binding From conversion
                 if returns_cow {
                     format!("{expr}.into_owned().into()")
                 } else if returns_ref {
@@ -141,14 +131,12 @@ pub(crate) fn php_wrap_return(
             }
             TypeRef::Named(n) => {
                 if json_string_enum_names.contains(n.as_str()) {
-                    // Externally-tagged data enum in Option
                     if returns_ref {
                         format!("{expr}.map(|v| serde_json::to_string(&v.clone()).unwrap_or_default())")
                     } else {
                         format!("{expr}.map(|v| serde_json::to_string(&v).unwrap_or_default())")
                     }
                 } else if string_enum_names.contains(n.as_str()) {
-                    // Pure unit enum in Option
                     if returns_ref {
                         format!(
                             "{expr}.map(|v| serde_json::to_value(&v.clone()).ok().and_then(|j| j.as_str().map(std::string::ToString::to_string)).unwrap_or_default())"
@@ -159,7 +147,6 @@ pub(crate) fn php_wrap_return(
                         )
                     }
                 } else {
-                    // Non-enum Named type
                     if returns_ref {
                         format!("{expr}.map(|v| v.clone().into())")
                     } else {
@@ -168,7 +155,6 @@ pub(crate) fn php_wrap_return(
                 }
             }
             _ => {
-                // Fall back to shared wrap_return for other Option types
                 use crate::codegen::generators;
                 generators::wrap_return(
                     expr,
@@ -182,15 +168,11 @@ pub(crate) fn php_wrap_return(
             }
         },
         TypeRef::Map(_, _) => {
-            // The PHP binding layer uses `HashMap<K, V>` for Map returns. When the core
-            // returns a reference (`returns_ref=true`), the type is `&BTreeMap` (or `&HashMap`).
-            // Iterate over the map and collect into `HashMap` to satisfy the PHP return type.
             if returns_ref {
                 format!(
                     "{expr}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::HashMap<_, _>>()"
                 )
             } else {
-                // Owned map: collect into HashMap (works for BTreeMap and AHashMap via IntoIterator).
                 format!("{expr}.into_iter().collect::<std::collections::HashMap<_, _>>()")
             }
         }
@@ -198,7 +180,6 @@ pub(crate) fn php_wrap_return(
             TypeRef::Primitive(p) if needs_i64_cast(p) => {
                 format!("{expr}.into_iter().map(|v| v as i64).collect()")
             }
-            // Vec<Vec<T>> where the inner primitive needs widening (e.g. Vec<Vec<usize>> → Vec<Vec<i64>>)
             TypeRef::Vec(inner2) => {
                 if let TypeRef::Primitive(p) = inner2.as_ref() {
                     if needs_i64_cast(p) {
@@ -207,7 +188,6 @@ pub(crate) fn php_wrap_return(
                         );
                     }
                 }
-                // Fall back to shared wrap_return for nested Vec types that don't need casting
                 use crate::codegen::generators;
                 generators::wrap_return(
                     expr,
@@ -219,19 +199,15 @@ pub(crate) fn php_wrap_return(
                     returns_cow,
                 )
             }
-            // Vec<Named> (non-opaque): when core returns &[T], use .iter().cloned() to avoid
             // clippy::into_iter_on_ref — `.into_iter()` on a slice reference is equivalent to
-            // `.iter()` and does not consume it.
             TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => {
                 if json_string_enum_names.contains(n.as_str()) {
-                    // Vec<externally-tagged data enum>
                     if returns_ref {
                         format!("{expr}.iter().map(|v| serde_json::to_string(v).unwrap_or_default()).collect()")
                     } else {
                         format!("{expr}.into_iter().map(|v| serde_json::to_string(&v).unwrap_or_default()).collect()")
                     }
                 } else if string_enum_names.contains(n.as_str()) {
-                    // Vec<pure unit enum>
                     if returns_ref {
                         format!(
                             "{expr}.iter().map(|v| serde_json::to_value(v).ok().and_then(|j| j.as_str().map(std::string::ToString::to_string)).unwrap_or_default()).collect()"
@@ -242,7 +218,6 @@ pub(crate) fn php_wrap_return(
                         )
                     }
                 } else {
-                    // Non-enum Named type
                     if returns_ref {
                         format!("{expr}.iter().cloned().map(Into::into).collect()")
                     } else {
@@ -251,7 +226,6 @@ pub(crate) fn php_wrap_return(
                 }
             }
             _ => {
-                // Fall back to shared wrap_return for other Vec types
                 use crate::codegen::generators;
                 generators::wrap_return(
                     expr,
@@ -265,7 +239,6 @@ pub(crate) fn php_wrap_return(
             }
         },
         _ => {
-            // Fall back to shared wrap_return for all other types
             use crate::codegen::generators;
             generators::wrap_return(
                 expr,

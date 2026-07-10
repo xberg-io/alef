@@ -9,9 +9,6 @@ pub fn has_named_params(params: &[ParamDef], opaque_types: &AHashSet<String>) ->
     params.iter().any(|p| match &p.ty {
         TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => true,
         TypeRef::Vec(inner) => {
-            // Vec<Named> always needs a conversion let binding.
-            // Sanitized Vec<String> needs JSON deserialization via let binding.
-            // Vec<String> with is_ref=true needs a _refs let binding for &[&str] conversion.
             matches!(inner.as_ref(), TypeRef::Named(name) if !opaque_types.contains(name.as_str()))
                 || (matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref)
                 || (matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some())

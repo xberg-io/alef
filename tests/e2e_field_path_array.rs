@@ -21,8 +21,6 @@ fn empty_resolver() -> FieldResolver {
     )
 }
 
-// ── choices[0].message.content ────────────────────────────────────────────────
-
 #[test]
 fn choices_0_message_content_rust() {
     let r = empty_resolver();
@@ -80,8 +78,6 @@ fn choices_0_message_content_csharp() {
 #[test]
 fn choices_0_message_content_swift() {
     let r = empty_resolver();
-    // With no Swift first-class map configured, unknown roots default to
-    // swift-bridge method access.
     assert_eq!(
         r.accessor("choices[0].message.content", "swift", "result"),
         "result.choices()[0].message().content()"
@@ -142,8 +138,6 @@ fn choices_0_message_content_dart() {
     );
 }
 
-// ── data[2].text ──────────────────────────────────────────────────────────────
-
 #[test]
 fn data_2_text_rust() {
     let r = empty_resolver();
@@ -177,7 +171,6 @@ fn data_2_text_java() {
 #[test]
 fn data_2_text_kotlin() {
     let r = empty_resolver();
-    // index 2 ≠ 0, so use .get(2) instead of .first()
     assert_eq!(
         r.accessor("data[2].text", "kotlin", "result"),
         "result.data().get(2).text()"
@@ -216,8 +209,6 @@ fn data_2_text_elixir() {
         "Enum.at(result.data, 2).text"
     );
 }
-
-// ── errors[1].messages[0].detail ─────────────────────────────────────────────
 
 #[test]
 fn nested_array_indices_rust() {
@@ -258,7 +249,6 @@ fn nested_array_indices_java() {
 #[test]
 fn nested_array_indices_kotlin() {
     let r = empty_resolver();
-    // errors[1] → .get(1), messages[0] → .first()
     assert_eq!(
         r.accessor("errors[1].messages[0].detail", "kotlin", "result"),
         "result.errors().get(1).messages().first().detail()"
@@ -292,12 +282,8 @@ fn nested_array_indices_elixir() {
     );
 }
 
-// ── explicit index takes precedence over config default ───────────────────────
-
 #[test]
 fn explicit_index_overrides_config_default() {
-    // When the user writes `choices[2]` and `choices` is also in array_fields,
-    // the explicit index 2 must take precedence over the default index 0.
     let mut arrays = HashSet::new();
     arrays.insert("choices".to_string());
     let r = FieldResolver::new(
@@ -317,17 +303,6 @@ fn explicit_index_overrides_config_default() {
     );
 }
 
-// ── Swift optional-chain subscript on Optional<Vec<T>> getter ─────────────────
-//
-// When an array field is listed in `fields_optional` (meaning the getter
-// returns `Optional<RustVec<T>>` in Swift), the subscript must use `()?[N]`
-// so Swift can unwrap the Optional before indexing.  Subsequent non-leaf
-// segments must also use `?.` chaining.
-//
-// Mirrors the real-world fixture:
-//   field = "choices[0].message.tool_calls[0].function.name"
-//   fields_optional = ["choices[0].message.tool_calls"]
-
 fn resolver_with_optional(optional_path: &str) -> FieldResolver {
     let mut optional = HashSet::new();
     optional.insert(optional_path.to_string());
@@ -342,8 +317,6 @@ fn resolver_with_optional(optional_path: &str) -> FieldResolver {
 
 #[test]
 fn swift_optional_array_field_subscript_uses_optional_chain() {
-    // tool_calls[0] is an explicit-index ArrayField where the getter returns
-    // Optional<RustVec<T>>.  Swift accessor must emit `()?[0]` not `()[0]`.
     let r = resolver_with_optional("choices[0].message.tool_calls");
     assert_eq!(
         r.accessor("choices[0].message.tool_calls[0].function.name", "swift", "result"),
@@ -353,8 +326,6 @@ fn swift_optional_array_field_subscript_uses_optional_chain() {
 
 #[test]
 fn swift_optional_array_field_leaf_no_trailing_question() {
-    // When tool_calls[0] is the leaf (last segment), no trailing `?` should be
-    // appended — the Optional subscript is correct on its own.
     let r = resolver_with_optional("choices[0].message.tool_calls");
     assert_eq!(
         r.accessor("choices[0].message.tool_calls[0]", "swift", "result"),
@@ -364,7 +335,6 @@ fn swift_optional_array_field_leaf_no_trailing_question() {
 
 #[test]
 fn swift_non_optional_array_field_unchanged() {
-    // Array fields NOT in fields_optional emit plain `[N]` without `?`.
     let r = resolver_with_optional("choices[0].message.tool_calls");
     assert_eq!(
         r.accessor("choices[0].message.content", "swift", "result"),
@@ -374,10 +344,6 @@ fn swift_non_optional_array_field_unchanged() {
 
 #[test]
 fn swift_path_so_far_includes_index_for_subsequent_checks() {
-    // After processing `choices[0]` (optional), path_so_far must be "choices[0]"
-    // so that a subsequent Field segment can build "choices[0].message" for its
-    // optional check.  This test uses a resolver where "choices[0].message" is
-    // optional to verify the index suffix is correctly threaded.
     let r = resolver_with_optional("choices[0].message");
     assert_eq!(
         r.accessor("choices[0].message.content", "swift", "result"),
@@ -385,11 +351,8 @@ fn swift_path_so_far_includes_index_for_subsequent_checks() {
     );
 }
 
-// ── string-keyed map access is unaffected ─────────────────────────────────────
-
 #[test]
 fn string_bracket_key_stays_map_access() {
-    // `meta[key]` must still produce MapAccess, not ArrayField.
     let r = empty_resolver();
     assert_eq!(
         r.accessor("meta[key].value", "rust", "result"),

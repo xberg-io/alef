@@ -8,18 +8,12 @@ use rayon::prelude::*;
 use tracing::{info, warn};
 
 pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, coverage: bool) -> anyhow::Result<()> {
-    // Compute pdfium dylib path from the workspace target directory.
-    // Set DYLD_LIBRARY_PATH/LD_LIBRARY_PATH so pdfium-render can dlopen libpdfium.dylib at runtime.
     let pdfium_dir = compute_pdfium_dir();
     let mut env_vars: Vec<(&str, String)> = Vec::new();
 
     if let Some(lib_dir) = pdfium_dir {
-        // Set platform-appropriate library search path
         #[cfg(target_os = "macos")]
         {
-            // DYLD_LIBRARY_PATH is stripped by macOS SIP across some exec chains
-            // (notably when child processes are signed/notarized).
-            // DYLD_FALLBACK_LIBRARY_PATH is preserved and serves the same role for dlopen.
             env_vars.push(("DYLD_FALLBACK_LIBRARY_PATH", lib_dir.clone()));
             env_vars.push(("DYLD_LIBRARY_PATH", lib_dir));
         }
@@ -35,25 +29,6 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
 
     let base_dir = std::env::current_dir()?;
 
-    // Phase 1 (sequential): run all per-language `before` hooks.
-    //
-    // `before` hooks run before BOTH `command` and `e2e` — any setup step
-    // (building native libraries, creating symlinks, etc.) declared in
-    // `[crates.test.<lang>] before = [...]` is guaranteed to complete before
-    // either the unit-test commands (Phase 2) or the e2e test commands
-    // (also Phase 2) execute.
-    //
-    // The test phase used to run before hooks inside the same `par_iter` as the
-    // test commands. Most consumer `[crates.test.<lang>] before = ...` entries
-    // invoke `cargo build` against the shared `target/` directory, so running
-    // them in parallel produces a textbook cargo race: one process deletes a
-    // dep info file while another is writing it, surfacing as
-    // "could not parse/generate dep info" / "No such file or directory" /
-    // "failed to write bytecode" and assorted half-baked artifacts (e.g. the
-    // flutter_rust_bridge `lib.dart` containing mismatched `value`/`field0`
-    // factory params, because a sibling cargo build trampled the FRB emit).
-    // The build phase already runs its before hooks sequentially (see `build`
-    // above); mirror that here so the test phase is equally safe.
     let langs_to_test: Vec<Language> = languages
         .iter()
         .copied()
@@ -69,15 +44,6 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
         }
     }
 
-    // Phase 1b (sequential, only when `--e2e`): run each language's post-build
-    // step before the parallel test phase. Many post-build steps shell out to
-    // `cargo build` against the shared `target/` directory (swift, kotlin
-    // android …); running them inside Phase 2's `par_iter` produces the same
-    // textbook cargo race the before-hook serialization (Phase 1) was added
-    // to avoid: rustc temp files (`*.rcgu.o.*`) fail with "No such file or
-    // directory" when a sibling cargo invocation cleans the deps dir under
-    // them. Doing the post-build pass serially before parallel tests start
-    // mirrors the build pipeline's own serialization of post-build steps.
     if e2e {
         for &lang in &langs_to_test {
             let lang_test = config.test_config_for_language(lang);
@@ -99,19 +65,16 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
             }
         }
 
-        // Stage FFI artifacts for FFI-dependent languages before e2e tests
         let host_target = get_host_target().context("failed to detect host target for FFI staging")?;
         for &lang in &langs_to_test {
             let lang_test = config.test_config_for_language(lang);
             if lang_test.e2e.is_none() {
                 continue;
             }
-            // Only stage for Go, Java, C# (FFI-dependent languages)
             if !matches!(lang, Language::Go | Language::Java | Language::Csharp) {
                 continue;
             }
             let workspace_root = std::env::current_dir().ok().and_then(|cwd| {
-                // Walk up to workspace root (directory containing target/ and alef.toml)
                 let mut current = cwd;
                 loop {
                     if current.join("target").exists() && current.join("alef.toml").exists() {
@@ -128,11 +91,9 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
                         info!("[{lang}] staged FFI artifacts to {}", dest.display());
                     }
                     Err(e) => {
-                        // Log as warning but don't fail — FFI may not be built yet
                         warn!("[{lang}] failed to stage FFI artifacts: {e}");
                     }
                 }
-                // Optionally stage the header
                 if let Ok(Some(header)) = ffi_stage::stage_header(config, lang, &host_target, &workspace_root) {
                     info!("[{lang}] staged FFI header to {}", header.display());
                 }
@@ -140,14 +101,12 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
         }
     }
 
-    // Phase 2 (parallel): run per-language test commands.
     let results: Vec<(Language, anyhow::Result<()>)> = langs_to_test
         .par_iter()
         .map(|lang| {
             let label = lang.to_string();
             let lang_test = config.test_config_for_language(*lang);
 
-            // Use coverage commands when --coverage flag is set, fall back to regular test
             let test_cmds = if coverage {
                 lang_test.coverage.as_ref().or(lang_test.command.as_ref())
             } else {
@@ -211,9 +170,6 @@ fn compute_pdfium_dir() -> Option<String> {
     loop {
         let target_release = current.join("target").join("release");
         if target_release.exists() {
-            // Accept the directory if it contains *any* native library matching
-            // the platform's prefix/extension. We don't care which library — the
-            // DYLD path is shared by every test process that dlopens FFI deps.
             if let Ok(entries) = std::fs::read_dir(&target_release) {
                 for entry in entries.flatten() {
                     let name = entry.file_name();
@@ -307,13 +263,11 @@ e2e = "{e2e_cmd}"
     #[cfg(unix)]
     #[test]
     fn before_hook_runs_before_e2e_command() {
-        // Write a sentinel file to a temp path and record the append order.
         let tmp = std::env::temp_dir().join(format!("alef_before_e2e_{}", std::process::id()));
         std::fs::create_dir_all(&tmp).expect("create tmp dir");
         let order_file = tmp.join("order.txt");
         std::fs::write(&order_file, "").expect("create order file");
 
-        // Escape the path for shell: replace single-quotes with escaped form.
         let path_str = order_file.display().to_string().replace('\'', "'\\''");
 
         let before_cmd = format!("printf 'A\\n' >> '{path_str}'");
@@ -321,13 +275,8 @@ e2e = "{e2e_cmd}"
 
         let config = make_config_with_before_and_e2e(&before_cmd, &e2e_cmd);
 
-        test(
-            &config,
-            &[Language::Python],
-            /* e2e= */ true,
-            /* coverage= */ false,
-        )
-        .expect("test() should succeed when before and e2e commands exit 0");
+        test(&config, &[Language::Python], true, false)
+            .expect("test() should succeed when before and e2e commands exit 0");
 
         let content = std::fs::read_to_string(&order_file).expect("read order file");
         let lines: Vec<&str> = content.lines().collect();

@@ -46,7 +46,6 @@ impl TypeMapper for CsharpMapper {
     }
 
     fn json(&self) -> Cow<'static, str> {
-        // Default to string for FFI compatibility — see csharp_type_for_dto_field for DTO usage.
         Cow::Borrowed("string")
     }
 
@@ -100,7 +99,6 @@ pub fn csharp_type_for_dto_field(ty: &TypeRef) -> Cow<'static, str> {
             Cow::Owned(format!("Dictionary<{}, JsonElement>", key_type))
         }
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json) => Cow::Borrowed("JsonElement?"),
-        // For all other types, use the standard FFI mapping
         _ => csharp_type(ty),
     }
 }
@@ -145,26 +143,22 @@ mod tests {
 
     #[test]
     fn test_json() {
-        // FFI context: Json -> string
         assert_eq!(CsharpMapper.map_type(&TypeRef::Json), "string");
     }
 
     #[test]
     fn test_json_for_dto_field() {
-        // DTO context: Json -> JsonElement
         assert_eq!(csharp_type_for_dto_field(&TypeRef::Json), "JsonElement");
     }
 
     #[test]
     fn test_map_json_for_dto_field() {
-        // DTO context: Map<String, Json> -> Dictionary<string, JsonElement>
         let map_type = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Json));
         assert_eq!(csharp_type_for_dto_field(&map_type), "Dictionary<string, JsonElement>");
     }
 
     #[test]
     fn test_optional_json_for_dto_field() {
-        // DTO context: Optional<Json> -> JsonElement?
         let opt_type = TypeRef::Optional(Box::new(TypeRef::Json));
         assert_eq!(csharp_type_for_dto_field(&opt_type), "JsonElement?");
     }
@@ -189,8 +183,6 @@ mod tests {
 
     #[test]
     fn test_optional_duration() {
-        // Duration is already ulong? — Optional<Duration> becomes ulong??
-        // This is consistent with what the old free function produced.
         assert_eq!(
             CsharpMapper.map_type(&TypeRef::Optional(Box::new(TypeRef::Duration))),
             "ulong??"
@@ -219,12 +211,10 @@ mod tests {
     #[test]
     fn test_named() {
         assert_eq!(CsharpMapper.map_type(&TypeRef::Named("MyType".to_string())), "MyType");
-        // IR type names in PascalCase are preserved with initialism uppercasing.
         assert_eq!(
             CsharpMapper.map_type(&TypeRef::Named("GraphQLRouteConfig".to_string())),
             "GraphQLRouteConfig"
         );
-        // heck-corrupted input is restored to canonical initialism form.
         assert_eq!(
             CsharpMapper.map_type(&TypeRef::Named("GraphQlRouteConfig".to_string())),
             "GraphQLRouteConfig"
@@ -237,7 +227,6 @@ mod tests {
 
     #[test]
     fn test_csharp_type_delegate() {
-        // Ensure the free function produces the same output as the mapper
         let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32)));
         assert_eq!(csharp_type(&ty).as_ref(), CsharpMapper.map_type(&ty));
     }

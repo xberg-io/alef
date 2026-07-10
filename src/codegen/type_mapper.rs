@@ -126,10 +126,6 @@ mod tests {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // map_type — default (Rust) mappings for every TypeRef variant
-    // -------------------------------------------------------------------------
-
     #[test]
     fn test_map_type_primitive_bool() {
         assert_eq!(RustMapper.map_type(&TypeRef::Primitive(PrimitiveType::Bool)), "bool");
@@ -204,7 +200,6 @@ mod tests {
 
     #[test]
     fn test_map_type_optional_nested() {
-        // Option<Option<String>>
         let ty = TypeRef::Optional(Box::new(TypeRef::Optional(Box::new(TypeRef::String))));
         assert_eq!(RustMapper.map_type(&ty), "Option<Option<String>>");
     }
@@ -242,10 +237,6 @@ mod tests {
         assert_eq!(RustMapper.map_type(&ty), "Option<Vec<String>>");
     }
 
-    // -------------------------------------------------------------------------
-    // wrap_return — default implementation
-    // -------------------------------------------------------------------------
-
     #[test]
     fn test_wrap_return_no_error_passes_through() {
         assert_eq!(RustMapper.wrap_return("String", false), "String");
@@ -260,10 +251,6 @@ mod tests {
     fn test_wrap_return_unit_with_error() {
         assert_eq!(RustMapper.wrap_return("()", true), "Result<()>");
     }
-
-    // -------------------------------------------------------------------------
-    // Overriding individual methods affects map_type output
-    // -------------------------------------------------------------------------
 
     struct CustomMapper;
 
@@ -301,7 +288,6 @@ mod tests {
 
     #[test]
     fn test_custom_mapper_nested_vec_override() {
-        // Vec<Vec<String>> → outer vec gets inner "Vec<String>", which starts with "Vec<" → JsValue
         let ty = TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::String))));
         assert_eq!(CustomMapper.map_type(&ty), "JsValue");
     }

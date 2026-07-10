@@ -195,9 +195,6 @@ fn typescript_output_contains_private_registrations() {
     let surface = make_fixture_surface();
     let config = make_test_config();
     let output = gen_service_ts(&surface, "my_crate", &config);
-    // After the fix, the TypeScript wrapper no longer accumulates registrations.
-    // Instead, it stores a reference to the Rust wrapper instance (_app)
-    // and delegates variant methods to it directly.
     assert!(
         output.contains("private readonly _app:"),
         "expected `private readonly _app:` (Rust wrapper instance) in output:\n{output}"
@@ -209,9 +206,6 @@ fn typescript_output_contains_configurator() {
     let surface = make_fixture_surface();
     let config = make_test_config();
     let output = gen_service_ts(&surface, "my_crate", &config);
-    // Configurator now persists the argument on `this._<param>` so a future
-    // entrypoint emission can consume it. The signature drops the leading
-    // `_` prefix from the parameter name (the body uses it as `this._x = x`).
     assert!(
         output.contains("with_timeout(timeout_ms: number)"),
         "expected `with_timeout` configurator with non-prefixed param (the body now uses the name to persist on `this`):\n{output}"
@@ -243,11 +237,6 @@ fn typescript_output_contains_registration_method() {
 
 #[test]
 fn typescript_output_direct_register_method_uses_lower_camel_case() {
-    // The direct-register variant (non-decorator) emits as a class method on the
-    // wrapper App. JS classes use lowerCamelCase, so `register_<method>` must be
-    // converted: `register_add_handler` → `registerAddHandler`. Without conversion
-    // consumers hit `TypeError: app.registerAddHandler is not a function` at
-    // runtime because the wrapper exposes the snake_case identifier instead.
     let surface = make_fixture_surface();
     let config = make_test_config();
     let output = gen_service_ts(&surface, "my_crate", &config);
@@ -337,18 +326,11 @@ fn rust_output_extracts_metadata_params() {
     };
     let output = gen_service_rs(&surface, &config);
 
-    // After the fix, metadata extraction moved from app_run to variant methods.
-    // Variant methods on JsApp receive metadata parameters directly as function args
-    // (e.g. path, method) instead of extracting from an array.
-    // The app_run function is now simplified and doesn't handle metadata extraction.
-
-    // Assert that the variant methods are defined (they handle metadata registration)
     assert!(
         output.contains("#[napi]"),
         "expected #[napi] attribute in impl block for variant methods:\n{output}"
     );
 
-    // The handler bridge should still be present
     assert!(
         output.contains("HandlerBridge"),
         "expected HandlerBridge in output:\n{output}"
@@ -361,7 +343,6 @@ fn registration_variants_emit_napi_methods() {
 
     let mut surface = make_fixture_surface();
 
-    // Add a variant to the registration
     if let Some(reg) = surface.services[0].registrations.first_mut() {
         reg.variants.push(RegistrationVariant {
             name: "get".to_owned(),
@@ -406,13 +387,11 @@ fn registration_variants_emit_napi_methods() {
     };
     let output = gen_service_rs(&surface, &config);
 
-    // Assert the variant methods are wrapped in an impl block (default prefix "Js")
     assert!(
         output.contains("impl JsTestService {"),
         "expected `impl JsTestService {{` wrapping in output:\n{output}"
     );
 
-    // Assert the use statement is emitted before the impl block
     assert!(
         output.contains("use crate::JsTestService;"),
         "expected `use crate::JsTestService;` in output:\n{output}"
@@ -424,13 +403,11 @@ fn registration_variants_emit_napi_methods() {
         "expected `#[napi]\\n    pub fn get(` inside impl block in output:\n{output}"
     );
 
-    // Assert the wrapper builder is constructed
     assert!(
         output.contains("my_crate::RouteBuilder::new("),
         "expected wrapper constructor call in output:\n{output}"
     );
 
-    // Assert the fixed arg is substituted
     assert!(
         output.contains("my_crate::Method::GET"),
         "expected fixed arg substitution in output:\n{output}"
@@ -439,11 +416,6 @@ fn registration_variants_emit_napi_methods() {
 
 #[test]
 fn typescript_output_emits_entrypoint_even_when_method_excluded() {
-    // Service entrypoints are explicit config (`[[crates.services.entrypoints]]`)
-    // and must always be emitted on the wrapper, even when the same method
-    // appears in `exclude.methods`. The exclude list is used to suppress the
-    // *standard* type-method placeholder for items that can't be auto-delegated
-    // (consuming-self), not to suppress the wrapper class's run/finalize hooks.
     let surface = make_fixture_surface();
     let mut config = make_test_config();
     config.exclude.methods.push("TestService.run".to_string());
@@ -505,19 +477,16 @@ fn typescript_variant_verb_decorator_style() {
     let config = make_test_config();
     let output = gen_service_ts(&surface, "my_crate", &config);
 
-    // VerbDecorator should emit only the direct form: get(path, handler): this
     assert!(
         output.contains("get(path: string, handler: (...args: any[]) => any): this"),
         "expected VerbDecorator form `get(path, handler): this` in output:\n{output}"
     );
 
-    // Should return `this` for chaining
     assert!(
         output.contains("return this;"),
         "expected `return this;` for chaining in VerbDecorator form:\n{output}"
     );
 
-    // Should NOT emit decorator-factory form
     let get_count = output.matches("  get(").count();
     assert_eq!(
         get_count, 1,
@@ -553,19 +522,16 @@ fn typescript_variant_builder_style() {
     let config = make_test_config();
     let output = gen_service_ts(&surface, "my_crate", &config);
 
-    // Builder should emit only the decorator-factory form: get(path) returns a function
     assert!(
         output.contains("get(path: string): (fn: (...args: any[]) => any) => (...args: any[]) => any"),
         "expected Builder form `get(path): (fn) => ...` in output:\n{output}"
     );
 
-    // Should return the handler unchanged (for decorator form)
     assert!(
         output.contains("return fn;"),
         "expected `return fn;` in Builder form:\n{output}"
     );
 
-    // Should NOT emit direct form with handler parameter
     assert!(
         !output.contains("get(path: string, handler: (...args: any[]) => any): this"),
         "Builder form should not emit direct method with handler parameter:\n{output}"
@@ -599,7 +565,6 @@ fn typescript_variant_hybrid_style() {
     let config = make_test_config();
     let output = gen_service_ts(&surface, "my_crate", &config);
 
-    // Hybrid should emit both forms
     assert!(
         output.contains("get(path: string, handler: (...args: any[]) => any): this"),
         "expected Hybrid to include direct form `get(path, handler): this`:\n{output}"
@@ -610,7 +575,6 @@ fn typescript_variant_hybrid_style() {
         "expected Hybrid to include factory form `get(path): (fn) => ...`:\n{output}"
     );
 
-    // Should have both `return this;` and `return fn;`
     let this_count = output.matches("return this;").count();
     let fn_count = output.matches("return fn;").count();
     assert!(
@@ -626,7 +590,6 @@ fn typescript_variant_hybrid_style() {
 fn rust_output_emits_entrypoint_methods_with_inner_accessor() {
     let config = {
         let mut cfg = make_test_config();
-        // Register TestService with a host_app_inner_accessor so entrypoint methods are emitted
         cfg.services = vec![crate::core::config::ServiceConfig {
             owner_type: "TestService".to_string(),
             constructor: None,
@@ -642,7 +605,6 @@ fn rust_output_emits_entrypoint_methods_with_inner_accessor() {
     let api = make_fixture_surface();
     let output = gen_service_rs(&api, &config);
 
-    // Should emit entrypoint method on the wrapper class (not just free function)
     assert!(
         output.contains("#[napi(js_name = \"nativeRun\")]"),
         "entrypoint method should have napi attribute with js_name; output:\n{output}"
@@ -653,7 +615,6 @@ fn rust_output_emits_entrypoint_methods_with_inner_accessor() {
         "entrypoint method should be emitted as async method on wrapper; output:\n{output}"
     );
 
-    // Should use the configured inner accessor to move the owner out before awaiting.
     assert!(
         output.contains("let mut guard = self.inner.lock().expect(\"mutex poisoned\");"),
         "entrypoint method should use configured inner accessor; output:\n{output}"
@@ -664,7 +625,6 @@ fn rust_output_emits_entrypoint_methods_with_inner_accessor() {
         "entrypoint method should call the inner method; output:\n{output}"
     );
 
-    // The free function should still be emitted for backward compatibility
     assert!(
         output.contains("pub async fn test_service_run("),
         "free function entrypoint should still be emitted; output:\n{output}"
@@ -674,18 +634,15 @@ fn rust_output_emits_entrypoint_methods_with_inner_accessor() {
 #[test]
 fn rust_output_skips_entrypoint_methods_without_inner_accessor() {
     let config = make_test_config();
-    // No host_app_inner_accessor configured, so entrypoint methods should NOT be emitted
 
     let api = make_fixture_surface();
     let output = gen_service_rs(&api, &config);
 
-    // Should NOT emit entrypoint method on the wrapper class
     assert!(
         !output.contains("#[napi(js_name = \"nativeRun\")]"),
         "entrypoint method should not be emitted without host_app_inner_accessor; output:\n{output}"
     );
 
-    // The free function should still be emitted
     assert!(
         output.contains("pub async fn test_service_run("),
         "free function entrypoint should still be emitted; output:\n{output}"

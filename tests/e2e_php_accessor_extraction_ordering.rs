@@ -24,8 +24,6 @@ use alef::e2e::codegen::php::PhpCodegen;
 use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup};
 
 fn build_config() -> (alef::e2e::config::E2eConfig, alef::core::config::ResolvedCrateConfig) {
-    // Two array fields on the result, both referenced by length assertions so
-    // each gets a `$field = $result->getField();` extraction emitted.
     let toml_src = r#"
 [workspace]
 languages = ["php"]
@@ -77,9 +75,6 @@ fn build_fixture_group() -> FixtureGroup {
             args: Vec::new(),
             assertion_recipes: Vec::new(),
             assertions: vec![
-                // List structure first in the fixture so insertion order
-                // differs from lexicographic order — a sort step is required
-                // for the lexicographic assertion below to hold.
                 Assertion {
                     assertion_type: "length".to_string(),
                     field: Some("structure".to_string()),

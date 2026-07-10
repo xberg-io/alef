@@ -159,10 +159,6 @@ impl<'a> ConversionConfig<'a> {
     where
         'a: 'b,
     {
-        // &'b str: we return either the original (which has lifetime 'b from the parameter)
-        // or a &str from the HashMap (which would have lifetime 'a). Since 'a: 'b we can
-        // return either. But Rust's lifetime inference won't let us return `&'a str` from a
-        // `&'b str` parameter without unsafe. Use a helper that returns an owned String instead.
         let _ = type_name;
         field_name
     }

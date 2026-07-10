@@ -177,9 +177,6 @@ fn make_fixture_surface() -> ApiSurface {
 fn elixir_output_contains_service_module() {
     let surface = make_fixture_surface();
     let output = gen_service_ex(&surface, "");
-    // The compiled namespace is implicitly `Elixir.<Name>`, so the emitted
-    // source must NOT re-prefix it (`defmodule Elixir.<Name>` compiles to
-    // `Elixir.Elixir.<Name>`).
     assert!(
         output.contains("defmodule TestService do"),
         "expected `defmodule TestService do` in output:\n{output}"
@@ -328,19 +325,16 @@ fn elixir_genserver_handle_cast_decodes_args_and_dispatches() {
     let surface = make_fixture_surface();
     let output = gen_service_ex(&surface, "");
 
-    // Assert that handle_cast dispatches the native args map (no JSON decode)
     assert!(
         output.contains("decode_args_and_dispatch(method, args, registrations)"),
         "expected decode_args_and_dispatch call in handle_cast:\n{output}"
     );
 
-    // Assert that it calls complete_trait_call with reply_id
     assert!(
         output.contains("Native.complete_trait_call(reply_id, response)"),
         "expected Native.complete_trait_call(reply_id, response) call:\n{output}"
     );
 
-    // Assert that there are NO stub comments or empty placeholders
     assert!(
         !output.contains("simplified stub"),
         "found 'simplified stub' comment — dispatch should not be stubbed:\n{output}"
@@ -361,31 +355,26 @@ fn elixir_genserver_dispatch_helper_invokes_handler() {
     let surface = make_fixture_surface();
     let output = gen_service_ex(&surface, "");
 
-    // Assert that decode_args_and_dispatch helper exists and takes the native `args` map
     assert!(
         output.contains("defp decode_args_and_dispatch(method, args, registrations) do"),
         "expected decode_args_and_dispatch helper function:\n{output}"
     );
 
-    // Assert that args are NOT JSON-decoded — they arrive as a native Erlang map
     assert!(
         !output.contains("Jason.decode"),
         "args must arrive as a native map, not be Jason.decode'd:\n{output}"
     );
 
-    // Assert that it calls the registered handler with the native map directly
     assert!(
         output.contains("response = handler.(args)"),
         "expected handler.(args) invocation:\n{output}"
     );
 
-    // Assert that the reply path still encodes the response back to JSON
     assert!(
         output.contains("Jason.encode(response)"),
         "expected Jason.encode(response) in dispatch:\n{output}"
     );
 
-    // Assert that find_handler helper looks up by method name
     assert!(
         output.contains("defp find_handler"),
         "expected find_handler helper function:\n{output}"
@@ -399,25 +388,21 @@ fn rust_nif_parses_registrations_and_constructs_owner() {
     let config = make_test_config();
     let output = gen_service_rs(&surface, &config);
 
-    // Assert that registrations are parsed from Elixir term
     assert!(
         output.contains("let registration_list: Vec<rustler::Term<'_>> = registrations"),
         "expected registration list parsing in NIF:\n{output}"
     );
 
-    // Assert that service owner is constructed
     assert!(
         output.contains("let mut owner = my_crate::TestService::new()"),
         "expected owner construction in NIF:\n{output}"
     );
 
-    // Assert that registrations are iterated and dispatched
     assert!(
         output.contains("for reg_entry in registration_list"),
         "expected registration iteration in NIF:\n{output}"
     );
 
-    // Assert that no stub markers remain
     assert!(
         !output.contains("placeholder: parse registrations"),
         "found placeholder in registration parsing — should be implemented:\n{output}"
@@ -440,19 +425,16 @@ fn no_stub_responses_in_generated_code() {
     let elixir_output = gen_service_ex(&surface, "");
     let rust_output = gen_service_rs(&surface, &config);
 
-    // Elixir should not return empty JSON map
     assert!(
         !elixir_output.contains("response = {:ok, %{}}"),
         "found stub response {{:ok, %{{}}}} in Elixir generated code:\n{elixir_output}"
     );
 
-    // Elixir should not have commented-out complete_trait_call
     assert!(
         !elixir_output.contains("# Native.complete_trait_call"),
         "found commented-out complete_trait_call in Elixir:\n{elixir_output}"
     );
 
-    // Rust should not contain stub comment markers
     assert!(
         !rust_output.contains("would be called here"),
         "found 'would be called here' stub comment in Rust NIF:\n{rust_output}"
@@ -462,26 +444,21 @@ fn no_stub_responses_in_generated_code() {
         "found 'would happen here' stub comment in Rust NIF:\n{rust_output}"
     );
 
-    // Rust should actually call owner.run(...) or owner.finalize(...)
     assert!(
         rust_output.contains("owner.run(") || rust_output.contains("owner.finalize("),
         "Rust NIF should call owner.run(...) or owner.finalize(...), found neither:\n{rust_output}"
     );
 
-    // Rust should register handlers before calling entrypoint
     assert!(
         rust_output.contains("ElixirRequestHandlerBridge"),
         "Rust NIF should create handler bridge instances:\n{rust_output}"
     );
 
-    // Regression: Rust should NOT contain illegal if-let type ascription pattern
-    // (`: Result<...> =` on if-let patterns is a syntax error in Rust)
     assert!(
         !rust_output.contains("): Result<"),
         "found illegal if-let type ascription pattern '): Result<' in generated Rust:\n{rust_output}"
     );
 
-    // Rust Term args must be lifetime-annotated (Term<'_> or Term<'a>)
     assert!(
         rust_output.contains("Term<'_>"),
         "expected lifetime-annotated Term<'_> in generated Rust NIF signature:\n{rust_output}"
@@ -497,9 +474,6 @@ fn registration_variant_style_hybrid_emits_both_forms() {
     let mut surface = make_fixture_surface();
     let _config = make_test_config();
 
-    // Attach a Hybrid-styled variant `get` so the variant emission loop runs.
-    // The base `add_handler` is emitted unconditionally by gen_registration_method;
-    // RegistrationVariantStyle gates only the per-variant verb/builder emission.
     surface.services[0].registrations[0]
         .variants
         .push(crate::core::ir::RegistrationVariant {
@@ -523,13 +497,11 @@ fn registration_variant_style_hybrid_emits_both_forms() {
 
     let elixir_output = gen_service_ex(&surface, "");
 
-    // Hybrid → verb-decorator form
     assert!(
         elixir_output.contains("def get(app, path, handler) do"),
         "expected verb-decorator form 'def get(app, path, handler) do' in Elixir output:\n{elixir_output}"
     );
 
-    // Hybrid → builder form
     assert!(
         elixir_output.contains("def get_decorator(app, path) do"),
         "expected builder form 'def get_decorator(app, path) do' in Elixir output:\n{elixir_output}"
@@ -547,49 +519,41 @@ fn handler_bridge_sends_trait_call_message() {
 
     let rust_output = gen_service_rs(&surface, &config);
 
-    // Verify that OwnedEnv is imported
     assert!(
         rust_output.contains("OwnedEnv"),
         "expected OwnedEnv import in generated code"
     );
 
-    // Verify that send_and_clear is called
     assert!(
         rust_output.contains("env.send_and_clear(&pid"),
         "expected env.send_and_clear(&pid, ...) call in generated handler bridge:\n{rust_output}"
     );
 
-    // Verify that trait_call atom is sent
     assert!(
         rust_output.contains("Atom::from_str(env, \"trait_call\")"),
         "expected atom::from_str for 'trait_call' in generated message:\n{rust_output}"
     );
 
-    // Verify that the method name is included in the message
     assert!(
         rust_output.contains("method_name"),
         "expected method_name variable in trait_call message"
     );
 
-    // Verify that request_json is included
     assert!(
         rust_output.contains("request_json_clone"),
         "expected request JSON to be sent in trait_call message"
     );
 
-    // Verify that reply_id is included
     assert!(
         rust_output.contains("reply_id)"),
         "expected reply_id in trait_call tuple"
     );
 
-    // Regression: ensure the old commented-out line is not present
     assert!(
         !rust_output.contains("// crate::nif_support::send_trait_call"),
         "found old commented-out send_trait_call in output — should be replaced with real call"
     );
 
-    // Verify spawn_blocking wraps the send
     assert!(
         rust_output.contains("tokio::task::spawn_blocking(move || {"),
         "expected spawn_blocking to wrap the message send"
@@ -604,32 +568,26 @@ fn rust_codegen_emits_core_import_and_trait_impl() {
     let config = make_test_config();
     let rust_output = gen_service_rs(&surface, &config);
 
-    // GAP 1: Verify core crate import
     assert!(
         rust_output.contains("use my_crate::*;"),
         "expected core crate wildcard import in gen_service_rs output:\n{rust_output}"
     );
 
-    // GAP 3: Verify bridge trait implementation
     assert!(
         rust_output.contains("impl my_crate::RequestHandler for ElixirRequestHandlerBridge"),
         "expected trait impl for bridge in generated output:\n{rust_output}"
     );
 
-    // Verify handler variable bindings for trait casting
     assert!(
         rust_output.contains("let handler: Arc<dyn my_crate::RequestHandler> = Arc::new(bridge);"),
         "expected handler trait cast in registration code:\n{rust_output}"
     );
 
-    // Verify bridge struct definition
     assert!(
         rust_output.contains("pub struct ElixirRequestHandlerBridge"),
         "expected ElixirRequestHandlerBridge struct definition:\n{rust_output}"
     );
 }
-
-// ── helpers ──────────────────────────────────────────────────────────────
 
 fn make_test_config() -> ResolvedCrateConfig {
     use crate::core::config::resolved::ResolvedCrateConfig;

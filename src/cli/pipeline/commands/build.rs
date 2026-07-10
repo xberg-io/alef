@@ -11,12 +11,10 @@ pub fn build(config: &ResolvedCrateConfig, languages: &[Language], release: bool
     let crate_name = &config.name;
     let base_dir = std::env::current_dir()?;
 
-    // Split into FFI-independent and FFI-dependent languages
     let mut independent = Vec::new();
     let mut ffi_dependent = Vec::new();
     let mut need_ffi = false;
 
-    // Rust is handled via configurable build commands, not the registry
     let mut rust_langs: Vec<Language> = Vec::new();
 
     for &lang in languages {
@@ -41,7 +39,6 @@ pub fn build(config: &ResolvedCrateConfig, languages: &[Language], release: bool
         }
     }
 
-    // Build Rust first (other bindings may depend on it)
     for &lang in &rust_langs {
         let build_cmd_cfg = config.build_command_config_for_language(lang);
         run_before(lang, build_cmd_cfg.before.as_ref())?;
@@ -58,21 +55,16 @@ pub fn build(config: &ResolvedCrateConfig, languages: &[Language], release: bool
         }
     }
 
-    // Build FFI first if needed by dependent languages
     if need_ffi
         && !independent
             .iter()
             .any(|(_, bc)| bc.tool == "cargo" && bc.crate_suffix == "-ffi")
     {
-        // Resolve FFI crate name from output path
         let ffi_crate = output_path_for(Language::Ffi, config)
             .map(resolve_crate_dir)
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
-            .unwrap_or_else(|| {
-                // Fallback: construct from crate name
-                Box::leak(format!("{crate_name}-ffi").into_boxed_str())
-            });
+            .unwrap_or_else(|| Box::leak(format!("{crate_name}-ffi").into_boxed_str()));
         info!("Building FFI crate: {ffi_crate}");
         let mut cmd = format!("cargo build -p {ffi_crate}");
         if release {
@@ -81,17 +73,14 @@ pub fn build(config: &ResolvedCrateConfig, languages: &[Language], release: bool
         run_command(&cmd).context("failed to build FFI crate")?;
     }
 
-    // Run before hooks for independent languages (sequentially — they may have side effects)
     for (lang, _) in &independent {
         let build_cmd_cfg = config.build_command_config_for_language(*lang);
         run_before(*lang, build_cmd_cfg.before.as_ref())?;
     }
 
-    // Build independent languages in parallel
     let build_results: Vec<anyhow::Result<(String, String)>> = independent
         .par_iter()
         .map(|(lang, bc)| {
-            // Check for explicit build_commands override before using backend default
             let build_cmd_cfg = config.build_command_config_for_language(*lang);
             let override_cmds = if release {
                 build_cmd_cfg.build_release.as_ref()
@@ -99,7 +88,6 @@ pub fn build(config: &ResolvedCrateConfig, languages: &[Language], release: bool
                 build_cmd_cfg.build.as_ref()
             };
             if let Some(cmd_list) = override_cmds {
-                // Use the user-provided build_commands override if the override differs from defaults
                 if config.build_commands.contains_key(&lang.to_string()) {
                     let mut combined_output = (String::new(), String::new());
                     for cmd in cmd_list.commands() {
@@ -130,17 +118,14 @@ pub fn build(config: &ResolvedCrateConfig, languages: &[Language], release: bool
             .with_context(|| format!("failed to run post-build steps for {lang}"))?;
     }
 
-    // Run before hooks for FFI-dependent languages
     for (lang, _) in &ffi_dependent {
         let build_cmd_cfg = config.build_command_config_for_language(*lang);
         run_before(*lang, build_cmd_cfg.before.as_ref())?;
     }
 
-    // Build FFI-dependent languages in parallel
     let build_results: Vec<anyhow::Result<(String, String)>> = ffi_dependent
         .par_iter()
         .map(|(lang, bc)| {
-            // Check for explicit build_commands override before using backend default
             let build_cmd_cfg = config.build_command_config_for_language(*lang);
             let override_cmds = if release {
                 build_cmd_cfg.build_release.as_ref()
@@ -184,7 +169,6 @@ pub fn build(config: &ResolvedCrateConfig, languages: &[Language], release: bool
 /// Resolve the crate directory from the output config path.
 /// Output paths like `crates/sample-markdown-node/src/` → `crates/sample-markdown-node`.
 fn resolve_crate_dir(output_path: &Path) -> &Path {
-    // If path ends in src/ or src, go up one level
     if output_path.file_name().is_some_and(|n| n == "src") {
         output_path.parent().unwrap_or(output_path)
     } else {
@@ -206,9 +190,6 @@ fn output_path_for(lang: Language, config: &ResolvedCrateConfig) -> Option<&Path
         Language::Wasm => config.explicit_output.wasm.as_deref(),
         Language::Elixir => config.explicit_output.elixir.as_deref(),
         Language::R => config.explicit_output.r.as_deref(),
-        // Rust is the core language — no separate output path.
-        // C is an e2e test consumer of the FFI layer — no generated binding output path.
-        // Jni output is emitted into the consumer's Rust workspace, not a separate binding crate.
         Language::Rust | Language::C | Language::Jni => None,
         Language::Kotlin
         | Language::KotlinAndroid
@@ -228,7 +209,6 @@ fn build_command_for(
 ) -> String {
     let release_flag = if release { " --release" } else { "" };
 
-    // Resolve the crate directory from the output path
     let crate_dir = output_path_for(lang, config)
         .map(resolve_crate_dir)
         .and_then(|p| p.to_str())
@@ -239,8 +219,6 @@ fn build_command_for(
             format!("maturin develop --manifest-path {crate_dir}/Cargo.toml{release_flag}")
         }
         "napi" => {
-            // NAPI outputs .node + .d.ts to the crate directory
-            // Use npx to provision @napi-rs/cli on demand
             format!(
                 "npx --yes -p @napi-rs/cli@{} napi build --platform --manifest-path {}/Cargo.toml -o {}{}",
                 tv::npm::NAPI_RS_CLI_CRATE,
@@ -251,35 +229,18 @@ fn build_command_for(
         }
         "wasm-pack" => {
             let profile = if release { "--release" } else { "--dev" };
-            // `web` target exposes a default `init(wasm_bytes_or_url)` function which
-            // both the e2e test runner and a typical web app use; `bundler` produces a
-            // package that auto-initializes on import and has no `init` default export.
-            // The e2e test codegen calls `init(wasmBytes)` explicitly, so `web` is the
-            // matching target.
             format!("wasm-pack build {crate_dir} {profile} --target web")
         }
         "cargo" => {
-            // When the language has no explicit `output` path (e.g. Dart in FRB style,
-            // whose generated Dart sources live at packages/dart/lib/src/ but whose
-            // Rust crate lives at packages/<lang>/rust/), `output_path_for` returns
-            // None and `crate_dir` is empty. In that case rely on the registered
-            // `crate_suffix` to invoke the workspace member directly.
             if crate_dir.is_empty() && !bc.crate_suffix.is_empty() {
                 return format!("cargo build -p {}{}{}", config.name, bc.crate_suffix, release_flag);
             }
-            // Check for a standalone crate directory (e.g., Ruby's native/ subdir,
-            // or R's extendr crate at packages/r/src/rust/) that is excluded from
-            // the workspace and must be built via cd + cargo build.
             let native_dir = Path::new(crate_dir).join("native");
             let native_manifest = native_dir.join("Cargo.toml");
             if native_manifest.exists() {
                 let dir = native_dir.display();
                 format!("cd {dir} && cargo build{release_flag}")
             } else if let Some(standalone) = {
-                // Look at most 2 levels up for the crate's own Cargo.toml;
-                // if it declares its own `[workspace]`, treat as standalone
-                // (cd in and `cargo build`). Don't walk past that to the
-                // repo-root workspace.
                 let mut p = std::path::PathBuf::from(crate_dir);
                 let mut found: Option<std::path::PathBuf> = None;
                 for _ in 0..3 {
@@ -301,10 +262,6 @@ fn build_command_for(
                 let dir = standalone.display();
                 format!("cd {dir} && cargo build{release_flag}")
             } else {
-                // Walk up to find the nearest [package] Cargo.toml and remember its dir.
-                // Then walk further up to find a parent [workspace] Cargo.toml to determine
-                // whether the package is a workspace member (use `-p name`) or excluded
-                // (fall back to `cd <dir> && cargo build`).
                 let mut p = std::path::PathBuf::from(crate_dir);
                 let mut package_name: Option<String> = None;
                 let mut package_dir: Option<std::path::PathBuf> = None;
@@ -333,8 +290,6 @@ fn build_command_for(
                         break;
                     }
                 }
-                // Search upward from the package dir for a workspace Cargo.toml.
-                // If found and the package is in `exclude = [...]`, treat as standalone.
                 let is_excluded_from_workspace = if let Some(pdir) = &package_dir {
                     let mut q = pdir.clone();
                     let mut excluded = false;
@@ -347,10 +302,6 @@ fn build_command_for(
                                     let rel_norm = rel.replace('\\', "/");
                                     excluded = contents.lines().map(|l| l.trim()).any(|l| {
                                         l.contains(&format!("\"{rel_norm}\"")) && {
-                                            // Only count occurrences inside an `exclude = [...]` context;
-                                            // approximate by also looking for "exclude" in nearby lines.
-                                            // A simple heuristic: the path appears after the literal
-                                            // `exclude = [`. Use a substring match on the whole file.
                                             let needle = format!("\"{rel_norm}\"");
                                             let exclude_section = contents.split("exclude").nth(1).unwrap_or("");
                                             let members_section = contents.split("members").nth(1).unwrap_or("");
@@ -389,8 +340,6 @@ fn build_command_for(
             }
         }
         "mix" => {
-            // The elixir [crates.output] points at native/<nif>/src/, but mix runs from the
-            // mix project root containing mix.exs. Walk up from the source dir to find it.
             let dir = config
                 .explicit_output
                 .elixir
@@ -417,9 +366,6 @@ fn build_command_for(
                 .as_ref()
                 .and_then(|p| p.to_str())
                 .unwrap_or("packages/java");
-            // Walk up from the source dir until we find a pom.xml. The java
-            // [crates.output] points at src/main/java, but maven runs from the
-            // project root.
             let build_dir = {
                 let mut p = std::path::PathBuf::from(dir);
                 loop {
@@ -440,11 +386,6 @@ fn build_command_for(
                 .as_ref()
                 .and_then(|p| p.to_str())
                 .unwrap_or("packages/csharp");
-            // Find the directory containing the .csproj. The csharp [crates.output] often
-            // points at a source path (e.g. `packages/csharp/src/`), so we walk both:
-            //   1. directly inside `dir` and one level of children, and
-            //   2. upward from `dir`, scanning each parent and one level of children.
-            // First match wins.
             let scan_for_csproj = |start: &std::path::Path| -> Option<String> {
                 if start
                     .read_dir()
@@ -504,7 +445,6 @@ pub fn run_post_build(
 ) -> anyhow::Result<()> {
     use crate::core::backend::PostBuildStep;
 
-    // Resolve the crate directory from the output path
     let crate_dir = output_path_for(lang, config)
         .map(resolve_crate_dir)
         .unwrap_or(Path::new(""));
@@ -516,9 +456,6 @@ pub fn run_post_build(
                 if file_path.exists() {
                     let content = std::fs::read_to_string(&file_path)
                         .with_context(|| format!("failed to read post-build patch target {}", file_path.display()))?;
-                    // Skip if the replacement is already present — keeps patches that
-                    // wrap (rather than substitute) their find-string idempotent across
-                    // re-runs.
                     if content.contains(replace) {
                         debug!("Post-build patch target already patched: {}", file_path.display());
                         continue;
@@ -581,8 +518,6 @@ pub fn run_post_build(
                 }
             }
             PostBuildStep::StageDartNatives { lib_stem } => {
-                // Stage native libraries from build output into the Dart package.
-                // workspace_root is base_dir; packages/dart is the package directory.
                 let package_root = base_dir.join("packages/dart");
                 crate::publish::dart_native::stage_dart_native_libraries(base_dir, &package_root, lib_stem)
                     .with_context(|| format!("failed to stage Dart native libraries for stem '{lib_stem}'"))?;
@@ -592,7 +527,6 @@ pub fn run_post_build(
                 binding_crate_name,
                 package_root,
             } => {
-                // `package_root` is stored relative to the workspace base dir.
                 let package_root = base_dir.join(package_root);
                 let materialized = crate::backends::swift::gen_bindings::bridge_artifacts::emit_swift_bridge_files(
                     "",
@@ -785,13 +719,7 @@ mod run_command_tests {
     fn run_run_command_honors_skip_env_var() {
         let _guard = env_lock().lock().expect("env lock poisoned");
         let previous = std::env::var("ALEF_SKIP_COMMANDS").ok();
-        // Single test rather than two parallel tests, because cargo runs tests
-        // concurrently by default and ALEF_SKIP_COMMANDS is a process-global
-        // env var: separate tests would race each other on set/unset.
         let dir = std::env::temp_dir();
-        // Phase 1: env var set, cmd in list → must skip (returns Ok despite
-        // `false` exiting non-zero).
-        // Safety: required by std's set_var contract on recent toolchains.
         unsafe {
             std::env::set_var("ALEF_SKIP_COMMANDS", "noop,false , another");
         }
@@ -801,8 +729,6 @@ mod run_command_tests {
             "listed command must return Ok without spawning: {skipped:?}"
         );
 
-        // Phase 2: env var set, cmd NOT in list → must spawn and surface
-        // failure (so we know the env var isn't a blanket skip).
         unsafe {
             std::env::set_var("ALEF_SKIP_COMMANDS", "something-else");
         }

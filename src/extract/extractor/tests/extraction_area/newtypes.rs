@@ -15,16 +15,13 @@ fn test_newtype_wrapper_resolved() {
 
     let surface = extract_from_source(source);
 
-    // The newtype `ElementId` should be kept in the IR (not resolved away)
     let element_id = surface
         .types
         .iter()
         .find(|t| t.name == "ElementId")
         .expect("Newtype ElementId should be kept in types");
-    // Tuple structs are kept but their positional fields may be stripped
     assert!(element_id.fields.is_empty() || element_id.fields[0].name == "_0");
 
-    // Widget should exist with `id` referencing ElementId as a Named type
     let widget = surface
         .types
         .iter()
@@ -44,7 +41,6 @@ fn test_newtype_wrapper_resolved() {
 
 #[test]
 fn test_newtype_wrapper_with_methods_not_resolved() {
-    // Newtypes that have impl methods should NOT be resolved — they're real types.
     let source = r#"
         pub struct Token(String);
 
@@ -57,7 +53,6 @@ fn test_newtype_wrapper_with_methods_not_resolved() {
 
     let surface = extract_from_source(source);
 
-    // Token has methods, so it should remain in the surface (not resolved away)
     assert!(
         surface.types.iter().any(|t| t.name == "Token"),
         "Newtype with methods should be kept"
@@ -77,7 +72,6 @@ fn test_newtype_in_optional_and_vec_resolved() {
 
     let surface = extract_from_source(source);
 
-    // Newtype Id should be kept in the IR (not resolved away)
     assert!(
         surface.types.iter().any(|t| t.name == "Id"),
         "Newtype Id should be kept in types"
@@ -88,7 +82,6 @@ fn test_newtype_in_optional_and_vec_resolved() {
         .iter()
         .find(|t| t.name == "Container")
         .expect("Container should exist");
-    // primary: Option<Id> → Optional(Named("Id"))
     assert_eq!(container.fields[0].name, "primary");
     assert!(container.fields[0].optional);
     assert_eq!(
@@ -97,7 +90,6 @@ fn test_newtype_in_optional_and_vec_resolved() {
         "Id should be kept as Named reference"
     );
 
-    // all_ids: Vec<Id> → Vec(Named("Id"))
     assert_eq!(container.fields[1].name, "all_ids");
     assert_eq!(
         container.fields[1].ty,
@@ -107,8 +99,6 @@ fn test_newtype_in_optional_and_vec_resolved() {
 
 #[test]
 fn test_tuple_struct_wrapping_named_type_not_resolved() {
-    // A tuple struct wrapping a complex Named type (like a builder pattern)
-    // should NOT be resolved as a transparent newtype.
     let source = r#"
         pub struct RenderOptions {
             pub format: String,
@@ -126,7 +116,6 @@ fn test_tuple_struct_wrapping_named_type_not_resolved() {
 
     let surface = extract_from_source(source);
 
-    // RenderOptionsBuilder wraps a Named type AND has methods — should be kept
     assert!(
         surface.types.iter().any(|t| t.name == "RenderOptionsBuilder"),
         "Tuple struct wrapping Named type should not be resolved away"
@@ -135,8 +124,6 @@ fn test_tuple_struct_wrapping_named_type_not_resolved() {
 
 #[test]
 fn test_tuple_struct_wrapping_named_type_no_methods_not_resolved() {
-    // Even without methods, a tuple struct wrapping a complex Named type
-    // should NOT be resolved as a transparent newtype.
     let source = r#"
         pub struct Inner {
             pub value: u32,
@@ -151,13 +138,11 @@ fn test_tuple_struct_wrapping_named_type_no_methods_not_resolved() {
 
     let surface = extract_from_source(source);
 
-    // Wrapper wraps a Named type — should be kept even without methods
     assert!(
         surface.types.iter().any(|t| t.name == "Wrapper"),
         "Tuple struct wrapping Named type should not be resolved even without methods"
     );
 
-    // Consumer should reference Wrapper as Named, not have it inlined
     let consumer = surface
         .types
         .iter()
@@ -172,11 +157,6 @@ fn test_tuple_struct_wrapping_named_type_no_methods_not_resolved() {
 
 #[test]
 fn wrapper_struct_alongside_per_element_struct_is_extracted() {
-    // fixture with neutral batch/result names while preserving the coverage.
-    // Regression for sample_crawler's BatchScrapeResults: a wrapper struct
-    // declared in the same module as the per-element struct and the
-    // function returning it must appear in surface.types so codegen
-    // resolves the function's return type to Named, not String.
     let source = r#"
         #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
         pub struct BatchScrapeResult {

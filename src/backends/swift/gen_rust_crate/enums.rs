@@ -11,15 +11,6 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     let mut out = String::new();
     let source_path = resolve_type_path(&en.name, source_crate, type_paths);
 
-    // Emit all variants (both unit and data-bearing) as unit-only variants in the bridge enum.
-    // This preserves the variant tag for all source enum variants, allowing consumers to
-    // distinguish them without collapsing data-bearing variants to Unknown.
-
-    // Bridge enum variant names: use the raw Rust identifier from the IR.
-    // Do NOT apply to_upper_camel_case() — heck transforms acronyms like "EasyOCR"
-    // to "EasyOcr" and "RDFa" to "RdFa", creating names that don't match the source.
-    // The bridge enum uses the same names as the source enum so the From impl
-    // match arms are valid Rust identifiers on both sides.
     out.push_str(&crate::backends::swift::template_env::render(
         "enum_unit_header.jinja",
         minijinja::context! {
@@ -37,7 +28,6 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
 
     out.push_str("}\n\n");
 
-    // From conversion: match all source variants and map to the corresponding bridge variant.
     out.push_str(&crate::backends::swift::template_env::render(
         "enum_from_impl_header.jinja",
         minijinja::context! {
@@ -60,8 +50,6 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
 
         // Mirror the dart enum_conversions emitter: variants gated by upstream `#[cfg(...)]`
         // (e.g. `Heif` under `#[cfg(feature = "heic")]`) must carry that same gate on the
-        // From-impl arm so cross-compiling against feature sets that drop the variant (iOS
-        // uses `android-target` which excludes `heic`) compiles cleanly.
         if let Some(condition) = variant.cfg.as_deref() {
             out.push_str("            #[cfg(");
             out.push_str(condition);
@@ -78,17 +66,8 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
         ));
     }
 
-    // Emit a catch-all wildcard arm whenever either of these conditions holds:
-    //
-    // 1. `excluded_variants` is non-empty: source variants live outside `variants`;
-    //    the match arms only cover `variants`, making it non-exhaustive (E0004) under
-    //    `--all-features`.
-    //
     // 2. Any `variants` entry carries a `#[cfg(feature = "X")]` gate: when that feature
-    //    is inactive the arm is compiled out, also making the match non-exhaustive.
-    //
     // `#![allow(unreachable_patterns)]` at the crate root suppresses the redundant-arm
-    // warning when all variants are in fact covered.
     if !en.excluded_variants.is_empty() || has_cfg_variants {
         out.push_str(&format!(
             "            _ => unreachable!(\"bridge enum variant of {} not exposed in binding\"),\n",
@@ -100,10 +79,6 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     out.push_str("    }\n");
     out.push_str("}\n\n");
 
-    // `to_string` impl — returns the serialized (serde) name of the variant so that
-    // swift-bridge can expose it as a `toString() -> RustString` Swift method.
-    // This lets e2e tests do `linkType().toString().toString()` to get "anchor" etc.
-    // instead of relying on `String(describing:)` which yields the opaque class description.
     let mut variants = String::new();
     for variant in &en.variants {
         let serde_name = serde_variant_wire_name(variant, en.serde_rename_all.as_deref());

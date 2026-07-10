@@ -7,8 +7,6 @@ fn test_scaffold_elixir_cargo_lib_name_no_path() {
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
     let files = language_files(&all_files);
     let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
-    // [lib] must NOT have a path pointing to a non-existent -elixir crate.
-    // Cargo defaults to src/lib.rs, which is where the generated lib.rs lives.
     assert!(
         !cargo_toml.content.contains("-elixir/src/lib.rs"),
         "Elixir Cargo.toml [lib] must NOT point to a non-existent -elixir crate; content: {}",
@@ -72,10 +70,6 @@ elixir = "/crates/my-lib-elixir/src/"
 
 #[test]
 fn test_scaffold_elixir_mix_exs_files_list_omits_nonexistent_lib_and_checksum() {
-    // Default config has no explicit elixir output and no trait bridges, so the
-    // generated tree contains no `lib/` directory and no `checksum-*.exs` files.
-    // Hex publish refuses to package a non-existent path, so the emitted
-    // `files:` list must not advertise them.
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
@@ -116,13 +110,6 @@ nif_targets = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]
 
 #[test]
 fn test_scaffold_elixir_mix_exs_files_list_includes_external_source_dir() {
-    // When the Elixir output lives outside packages/elixir/ (the NIF crate's
-    // `[lib] path` points there), the NIF Rust `lib.rs` AND the generated `*.ex`
-    // modules both live in that external dir — NOT in `native/<nif>/src`. The
-    // `files:` list must therefore (a) NOT advertise the nonexistent
-    // `native/<nif>/src` (else `mix hex.build` fails with "Missing files") and
-    // (b) list the external source dir itself so the Rust NIF source ships in
-    // the tarball for RustlerPrecompiled's source-compile fallback.
     let config = test_config_from_toml(
         r#"
 [crates.output]
@@ -141,14 +128,11 @@ elixir = "crates/my-lib-elixir/src/"
         "content: {}",
         mix_exs.content
     );
-    // The nonexistent native src dir must NOT be listed (it would hard-fail mix hex.build).
     assert!(
         !mix_exs.content.contains("native/my_lib_nif/src"),
         "external-output mix.exs must not list the nonexistent native/<nif>/src dir; content: {}",
         mix_exs.content
     );
-    // The Rust NIF source dir must ship (not just a *.ex glob), so the
-    // source-compile fallback can build standalone from the tarball.
     assert!(
         !mix_exs.content.contains("/*.ex)") && !mix_exs.content.contains("/*.ex "),
         "external-output mix.exs must ship the whole source dir, not just *.ex; content: {}",
@@ -160,7 +144,7 @@ elixir = "crates/my-lib-elixir/src/"
 fn test_scaffold_elixir_cargo_no_tokio_when_sync_only() {
     let mut config = test_config();
     config.languages = vec![Language::Elixir];
-    let api = test_api(); // all sync — no async functions or methods
+    let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
     let files = language_files(&all_files);
     let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
@@ -505,14 +489,9 @@ fn test_scaffold_elixir_mix_exs_external_dir_is_listed_as_whole_dir() {
     let tmp = tempfile::tempdir().expect("tempdir must be created");
     let rs_dir = tmp.path();
 
-    // Create a Rust NIF directory with only .rs and .toml files (no .ex files).
     std::fs::write(rs_dir.join("lib.rs"), "// Rust NIF source\n").expect("write lib.rs");
     std::fs::write(rs_dir.join("Cargo.toml"), "[package]\n").expect("write Cargo.toml");
 
-    // Build config pointing explicit_output.elixir at the .rs-only directory.
-    // Use a TOML literal string (single quotes) so Windows backslash paths like
-    // `C:\Users\RUNNER~1\…` aren't interpreted as `\U` unicode escapes by the
-    // TOML basic-string parser.
     let explicit_path = rs_dir.to_string_lossy().to_string();
     let config = test_config_from_toml(&format!(
         r#"
@@ -522,7 +501,6 @@ elixir = '{explicit_path}'
     ));
     let api = test_api();
 
-    // Scaffold Elixir and extract the generated mix.exs.
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
     let files = language_files(&all_files);
     let mix_exs = files
@@ -530,20 +508,16 @@ elixir = '{explicit_path}'
         .find(|f| f.path.ends_with("mix.exs"))
         .expect("mix.exs must be generated");
 
-    // No bare `/*.ex` glob — the whole dir is shipped so the Rust source travels too.
-    // (Note: checksum-*.exs contains the substring *.ex, so check the path-glob form.)
     assert!(
         !mix_exs.content.contains("/*.ex)") && !mix_exs.content.contains("/*.ex "),
         "external-output mix.exs must list the whole source dir, not a /*.ex glob; content:\n{}",
         mix_exs.content
     );
-    // The nonexistent native src dir must not be advertised (else mix hex.build fails).
     assert!(
         !mix_exs.content.contains("native/my_lib_nif/src"),
         "external-output mix.exs must not list native/<nif>/src; content:\n{}",
         mix_exs.content
     );
-    // Verify that standard entries are still present.
     assert!(
         mix_exs.content.contains(".formatter.exs"),
         "mix.exs should contain .formatter.exs"
@@ -562,14 +536,10 @@ fn test_scaffold_elixir_mix_exs_external_dir_with_ex_sources_listed_as_dir() {
     let tmp = tempfile::tempdir().expect("tempdir must be created");
     let ex_dir = tmp.path();
 
-    // Create a directory with both Elixir source files and the Rust NIF source.
     std::fs::write(ex_dir.join("module.ex"), "defmodule Test do\nend\n").expect("write module.ex");
     std::fs::write(ex_dir.join("helper.exs"), "# helper\n").expect("write helper.exs");
     std::fs::write(ex_dir.join("lib.rs"), "// Rust NIF source\n").expect("write lib.rs");
 
-    // Build config pointing explicit_output.elixir at the .ex-containing directory.
-    // Single-quoted TOML literal string keeps Windows `\U`/`\R`/`\T` path segments
-    // intact (basic strings would parse them as unicode escapes and panic).
     let explicit_path = ex_dir.to_string_lossy().to_string();
     let config = test_config_from_toml(&format!(
         r#"
@@ -579,7 +549,6 @@ elixir = '{explicit_path}'
     ));
     let api = test_api();
 
-    // Scaffold Elixir and extract the generated mix.exs.
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
     let files = language_files(&all_files);
     let mix_exs = files
@@ -587,7 +556,6 @@ elixir = '{explicit_path}'
         .find(|f| f.path.ends_with("mix.exs"))
         .expect("mix.exs must be generated");
 
-    // Listed as a whole directory, not a `/*.ex` glob (which would drop lib.rs).
     assert!(
         !mix_exs.content.contains("/*.ex)") && !mix_exs.content.contains("/*.ex "),
         "external-output mix.exs must list the whole source dir, not a /*.ex glob; content:\n{}",
@@ -610,7 +578,6 @@ fn test_scaffold_elixir_cargo_derives_features_from_core_crate() {
     let core_dir = ws_root.join("crates").join("my-lib");
     std::fs::create_dir_all(&core_dir).expect("create core dir");
 
-    // Create a minimal Cargo.toml with only native-http and opendal-cache features.
     let cargo_toml_content = r#"
 [package]
 name = "my-lib"
@@ -625,16 +592,12 @@ wasm-http = []
 "#;
     std::fs::write(core_dir.join("Cargo.toml"), cargo_toml_content).expect("write Cargo.toml");
 
-    // Build a config that points to this workspace root, matching the core crate name.
     let mut config = test_config();
     config.workspace_root = Some(ws_root.to_path_buf());
-    // Ensure the config name matches the crate directory name so feature forwarding works.
     config.name = "my-lib".to_string();
-    // Set sources to match the standard layout so core_crate_dir derives correctly.
     config.sources = vec![std::path::PathBuf::from("crates/my-lib/src/lib.rs")];
     let api = test_api();
 
-    // Scaffold Elixir Cargo.toml.
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
     let files = language_files(&all_files);
     let cargo_toml = files
@@ -642,7 +605,6 @@ wasm-http = []
         .find(|f| f.path.ends_with("Cargo.toml"))
         .expect("Cargo.toml must be generated");
 
-    // The [features] block should NOT list config, download, or serde (which don't exist).
     let features_start = cargo_toml
         .content
         .find("[features]")
@@ -663,7 +625,6 @@ wasm-http = []
         "Elixir Cargo.toml must not forward non-existent 'download' feature in [features]; content:\n{}",
         features_block
     );
-    // Note: serde is a direct dependency, not a feature of the core crate, so it won't be in [features].
 
     assert!(
         features_block.contains("default = []"),

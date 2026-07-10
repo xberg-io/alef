@@ -8,7 +8,6 @@ pub(super) fn inject_declared_opaque_types(api: &mut ApiSurface, config: &Resolv
     let mut sorted_opaques: Vec<_> = config.opaque_types.iter().collect();
     sorted_opaques.sort_by_key(|(name, _)| (*name).clone());
     for (name, rust_path) in sorted_opaques {
-        // Only add if not already in the API surface
         if !api.types.iter().any(|t| t.name == *name) && !api.enums.iter().any(|e| e.name == *name) {
             api.types.push(crate::core::ir::TypeDef {
                 name: name.clone(),
@@ -45,15 +44,10 @@ pub(super) fn strip_cfg_fields(api: &mut ApiSurface, enabled_features: &[String]
     for typ in &mut api.types {
         let original_count = typ.fields.len();
         let cfg_count = typ.fields.iter().filter(|f| f.cfg.is_some()).count();
-        // Retain non-cfg fields and cfg fields whose feature condition is satisfied
-        // by the source crate. Per-binding feature filtering happens later in codegen,
-        // which evaluates `field.cfg` against each binding's effective feature set —
-        // so we keep the cfg attribute on retained fields rather than clearing it.
         typ.fields.retain(|f| match &f.cfg {
             None => true,
             Some(cfg_str) => cfg_condition_enabled(cfg_str, enabled_features),
         });
-        // Mark if any cfg fields were actually stripped (not enabled).
         if cfg_count > 0 && typ.fields.len() < original_count {
             typ.has_stripped_cfg_fields = true;
         }
@@ -69,43 +63,29 @@ pub(super) fn strip_cfg_fields(api: &mut ApiSurface, enabled_features: &[String]
 ///
 /// Defaults to `false` (strip the field) for unrecognized patterns.
 fn cfg_condition_enabled(cfg_str: &str, enabled_features: &[String]) -> bool {
-    // Normalize: trim outer whitespace and collapse spaces adjacent to punctuation.
-    // proc-macro2's `to_string()` inserts spaces between tokens, so
-    // `any(feature = "a")` becomes `any (feature = "a")`.
-    // We normalise by removing spaces before `(` and around `=`.
     let normalized: String = {
         let t = cfg_str.trim();
-        // Remove spaces before `(`: `any (` → `any(`
-        let t = t.replace(" (", "(");
-        // Remove spaces around `=`: `feature = "a"` stays (already fine), but
-        // in case of `feature ="a"` or `feature= "a"` etc.
-        // The proc-macro2 representation is `feature = "a"`, which after
-        // `strip_prefix("feature = \"")` works correctly, so we only need the `any (` fix.
-        t
+
+        t.replace(" (", "(")
     };
     let cfg_str = normalized.as_str();
 
-    // Simple: `feature = "name"`
     if let Some(feature) = cfg_str.strip_prefix("feature = \"").and_then(|s| s.strip_suffix('"')) {
         return enabled_features.iter().any(|ef| ef == feature);
     }
-    // `any(...)` — enabled if at least one condition matches
     if let Some(inner) = cfg_str.strip_prefix("any(").and_then(|s| s.strip_suffix(')')) {
         return parse_cfg_list(inner)
             .iter()
             .any(|cond| cfg_condition_enabled(cond, enabled_features));
     }
-    // `all(...)` — enabled if all conditions match
     if let Some(inner) = cfg_str.strip_prefix("all(").and_then(|s| s.strip_suffix(')')) {
         return parse_cfg_list(inner)
             .iter()
             .all(|cond| cfg_condition_enabled(cond, enabled_features));
     }
-    // `not(...)` — invert the inner condition
     if let Some(inner) = cfg_str.strip_prefix("not(").and_then(|s| s.strip_suffix(')')) {
         return !cfg_condition_enabled(inner.trim(), enabled_features);
     }
-    // Unknown pattern — strip the field (conservative)
     false
 }
 
@@ -145,28 +125,14 @@ fn parse_cfg_list(s: &str) -> Vec<String> {
 /// 3. Duplicate enums: Keep only the first occurrence of each enum name
 /// 4. Duplicate functions: Keep only the first occurrence of each function name
 pub(super) fn dedup_api_surface(api: &mut ApiSurface) {
-    // Remove types that collide with enums (enums win)
     let enum_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
     api.types.retain(|t| !enum_names.contains(&t.name));
 
-    // Remove types that collide with errors (errors win).
-    // This catches the case where extract_impl_block previously created an opaque TypeDef
-    // for a thiserror error enum that also had inherent impl methods.
     let error_names: AHashSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
     api.types.retain(|t| !error_names.contains(&t.name));
 
-    // Dedup types by name — prefer shorter rust_path (closer to crate root).
-    // This handles name collisions like sample_core::Table vs sample_core::extraction::docx::parser::Table.
-    //
-    // When a name resolves to several entries with the SAME crate-root path but disjoint `cfg`
     // gates — a real re-export under `#[cfg(feature = "X")]` plus a stub fallback under
     // `#[cfg(any(not(feature = "X"), ...))]` (e.g. `LlmBackend` on the android-x86_64 emulator,
-    // where core gates the real type out and provides a crate-root stub) — the survivor must carry
-    // the OR-merge of every member's cfg. Otherwise the survivor inherits only the re-export's cfg
-    // and the emitted wrapper struct vanishes on targets the stub was meant to cover, while
-    // flutter_rust_bridge's own `frb_generated.rs` still references `crate::<Type>` unconditionally
-    // → `cannot find type` / `cannot find <Type> in crate`. This mirrors the same-named function
-    // collapse in `codegen::fn_dedup::dedup_same_name_functions`.
     {
         let mut best: AHashMap<String, usize> = AHashMap::new();
         let mut group_indices: AHashMap<String, Vec<usize>> = AHashMap::new();
@@ -180,9 +146,6 @@ pub(super) fn dedup_api_surface(api: &mut ApiSurface) {
                 })
                 .or_insert(i);
         }
-        // OR-merge the cfgs of each same-named group onto its surviving (canonical) entry, but
-        // only when the group's members actually carry differing cfgs — leaving single-cfg name
-        // collisions (e.g. `Table` re-exported from multiple modules under one feature) untouched.
         let merged_cfg_by_canonical: AHashMap<usize, Option<String>> = group_indices
             .iter()
             .filter(|(_, indices)| {
@@ -211,7 +174,6 @@ pub(super) fn dedup_api_surface(api: &mut ApiSurface) {
         });
     }
 
-    // Dedup enums by name — prefer shorter rust_path.
     {
         let mut best: AHashMap<String, usize> = AHashMap::new();
         for (i, e) in api.enums.iter().enumerate() {
@@ -232,19 +194,7 @@ pub(super) fn dedup_api_surface(api: &mut ApiSurface) {
         });
     }
 
-    // Dedup functions by (name, cfg) — prefer shorter rust_path (closer to crate root).
-    // This resolves C2: when the same function name exists at multiple definition
-    // sites (e.g. sample_core::utils::clean_extracted_text and
-    // sample_core::text::quality::clean_extracted_text), prefer the one re-exported
-    // nearest to the crate root, which is the one users call via module = sample_core.
-    //
-    // The cfg is part of the dedup key so that the pub-use-clears-skip extractor pass
     // (which synthesises a paired entry under a disjoint cfg for `#[cfg(X)] pub use mod::fn`
-    // patterns whose source is skipped or generic) is preserved here. Two entries sharing
-    // the same name but carrying different cfg predicates are cfg-gated alternatives, not
-    // duplicates — exactly one survives under any feature combination. Keying on name alone
-    // dropped one and made the symbol vanish from every binding whenever the surviving
-    // entry's cfg was inactive (e.g. `embed_texts_async`, `rerank_async`).
     {
         let mut best: AHashMap<(String, Option<String>), usize> = AHashMap::new();
         for (i, f) in api.functions.iter().enumerate() {
@@ -265,7 +215,6 @@ pub(super) fn dedup_api_surface(api: &mut ApiSurface) {
         });
     }
 
-    // Dedup errors by name (keep first)
     let mut seen_errors: AHashSet<String> = AHashSet::new();
     api.errors.retain(|e| seen_errors.insert(e.name.clone()));
 }
@@ -288,7 +237,6 @@ fn rewrite_path(path: &str, mappings: &HashMap<String, String>) -> String {
 /// are preserved because they may intentionally point at a public re-export or an
 /// external source crate path.
 pub(super) fn normalize_field_type_paths(api: &mut ApiSurface) {
-    // Innermost `Named` short name of a field type, looking through Optional/Vec/Map(value).
     fn named_name(ty: &TypeRef) -> Option<&str> {
         match ty {
             TypeRef::Named(n) => Some(n.as_str()),
@@ -342,8 +290,6 @@ pub(super) fn apply_path_mappings(api: &mut ApiSurface, config: &ResolvedCrateCo
             typ.original_rust_path = typ.rust_path.clone();
         }
         typ.rust_path = rewrite_path(&typ.rust_path, &mappings);
-        // Also rewrite type_rust_path on fields so that field-level path mismatch
-        // checks compare against the same (post-mapping) crate root.
         for field in &mut typ.fields {
             if let Some(ref mut path) = field.type_rust_path {
                 *path = rewrite_path(path, &mappings);

@@ -42,7 +42,6 @@ impl<'a> StreamingAdapter<'a> {
         let error = adapter.error_type.as_deref()?;
         let request_full = adapter.request_type.as_deref()?;
         let req_binding = request_full.rsplit("::").next().unwrap_or(request_full);
-        // Ruby class names are public host type identifiers.
         let pascal = ruby_streaming_iterator_type_name(&adapter.name);
         let iterator_struct_name = format!("{}Iterator", pascal);
         let class_path = format!("{}::{}", module_name, iterator_struct_name);
@@ -225,7 +224,6 @@ pub(super) fn gen_iterator_registration(adapter: &StreamingAdapter<'_>) -> Vec<S
                 arity => 0,
             },
         ),
-        // Mix in Enumerable so .to_a, .map, etc. work.
         render("module_class_include_enumerable.rs.jinja", minijinja::context! {}),
     ]
 }

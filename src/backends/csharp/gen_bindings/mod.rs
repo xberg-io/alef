@@ -66,9 +66,7 @@ pub(crate) fn sanitize_doc_lines_for_csharp(doc: &str) -> Vec<String> {
 
 pub struct CsharpBackend;
 
-impl CsharpBackend {
-    // lib_name comes from config.ffi_lib_name()
-}
+impl CsharpBackend {}
 
 fn effective_exclude_types(api: &ApiSurface, config: &ResolvedCrateConfig) -> HashSet<String> {
     let mut exclude_types: HashSet<String> = config
@@ -79,13 +77,7 @@ fn effective_exclude_types(api: &ApiSurface, config: &ResolvedCrateConfig) -> Ha
     if let Some(csharp) = &config.csharp {
         exclude_types.extend(csharp.exclude_types.iter().cloned());
     }
-    // Also exclude types marked as binding_excluded (service-owned types emitted via service API)
     exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
-    // Mirror the FFI backend's `contains('<')` filter: workspace-declared opaque types whose
-    // `rust_path` carries generic parameters cannot be represented in the C ABI, so the FFI
-    // backend skips emitting `_new`/`_free` symbols. C# P/Invoke imports those symbols, so
-    // the C# backend must follow the same rule to avoid `EntryPointNotFoundException` at
-    // runtime (or DllNotFoundException-shaped linker errors during AOT build).
     exclude_types.extend(
         config
             .opaque_types
@@ -167,17 +159,12 @@ impl Backend for CsharpBackend {
             filtered_api = api_without_excluded_types(api, &exclude_types);
             &filtered_api
         };
-        // C# is a single compiled surface (P/Invoke extern + wrapper) with no Rust-cfg gating, so
-        // same-named cfg-variant functions must collapse to one method/extern to avoid duplicate
-        // member errors. See codegen::fn_dedup.
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
         let namespace = config.csharp_namespace();
         let prefix = config.ffi_prefix();
         let lib_name = config.ffi_lib_name();
 
-        // Collect bridge param names and type aliases from trait_bridges config so we can strip
-        // them from generated function signatures and emit ConvertWithVisitor instead.
         let bridge_param_names: HashSet<String> = config
             .trait_bridges
             .iter()
@@ -188,14 +175,9 @@ impl Backend for CsharpBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        // Only emit ConvertWithVisitor method if visitor_callbacks is explicitly enabled in FFI config
         let has_visitor_callbacks = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
         let bridge_associated_types = config.bridge_associated_types();
 
-        // Streaming adapter methods are emitted via the iterator-handle FFI protocol
-        // (`{prefix}_{owner}_{name}_start` / `_next` / `_free`) — not as direct P/Invoke calls
-        // of the callback-based variant. The set is still used to skip the default
-        // method-emission path; the parallel meta map drives the `IAsyncEnumerable` emitters.
         let streaming_methods: HashSet<String> = config
             .adapters
             .iter()
@@ -213,7 +195,6 @@ impl Backend for CsharpBackend {
             })
             .collect();
 
-        // Functions explicitly excluded from C# bindings (e.g., not present in the C FFI layer).
         let mut exclude_functions: HashSet<String> = config
             .csharp
             .as_ref()
@@ -229,10 +210,8 @@ impl Backend for CsharpBackend {
 
         let mut files = Vec::new();
 
-        // Fallback generic exception class name (used by GetLastError and as base for typed errors)
         let exception_class_name = format!("{}Exception", to_csharp_name(&api.crate_name));
 
-        // 1. Generate NativeMethods.cs
         files.push(GeneratedFile {
             path: base_path.join("NativeMethods.cs"),
             content: strip_trailing_whitespace(&functions::gen_native_methods(
@@ -253,20 +232,6 @@ impl Backend for CsharpBackend {
             generated_header: true,
         });
 
-        // 2. Generate error types from thiserror enums (if any), otherwise generic exception.
-        //
-        // Two thiserror enums in the same crate can declare variants with identical
-        // names (e.g. `GraphQLError::ValidationError` and `SchemaError::ValidationError`
-        // in sample_project). Each variant emits `{VariantName}Exception.cs`, so without
-        // deduplication two `GeneratedFile` entries share the same `path` and the
-        // parallel `write_files` step racily overwrites the file — leaving a tail of
-        // bytes from whichever payload was longer past the file's logical end
-        // (because the second writer's truncate-on-open happens at file open time,
-        // before the first writer's pending bytes have all reached disk).
-        //
-        // Keep the first emission per class name; subsequent same-named variants
-        // are dropped. The base error class (`{ErrorEnum}Exception`) naturally
-        // varies by error name and does not collide.
         if !api.errors.is_empty() {
             let mut seen_exception_files: HashSet<String> = HashSet::new();
             for error in &api.errors {
@@ -274,22 +239,17 @@ impl Backend for CsharpBackend {
                     crate::codegen::error_gen::gen_csharp_error_types(error, &namespace, Some(&exception_class_name));
                 for (class_name, content) in error_files {
                     if !seen_exception_files.insert(class_name.clone()) {
-                        // Duplicate variant name across error enums — earlier
-                        // emission wins. Without this skip, two `GeneratedFile`
-                        // entries share the same path and racily overwrite each
-                        // other in `write_files`.
                         continue;
                     }
                     files.push(GeneratedFile {
                         path: base_path.join(format!("{}.cs", class_name)),
                         content: strip_trailing_whitespace(&content),
-                        generated_header: false, // already has header
+                        generated_header: false,
                     });
                 }
             }
         }
 
-        // Fallback generic exception class (always generated for GetLastError)
         if api.errors.is_empty()
             || !api
                 .errors
@@ -303,7 +263,6 @@ impl Backend for CsharpBackend {
             });
         }
 
-        // Collect all opaque type names (pascal-cased) for instance method detection
         let all_opaque_type_names: HashSet<String> = api
             .types
             .iter()
@@ -311,7 +270,6 @@ impl Backend for CsharpBackend {
             .map(|t| csharp_type_name(&t.name))
             .collect();
 
-        // 3. Generate main wrapper class
         let wrapper_class_name = csharp_wrapper_class_name(&api.crate_name, &namespace);
         let capsule_types = config
             .csharp
@@ -340,10 +298,7 @@ impl Backend for CsharpBackend {
             generated_header: true,
         });
 
-        // 3b. Generate visitor support files when a bridge is configured.
         if has_visitor_callbacks {
-            // Look up the visitor trait def from the IR via TraitBridgeConfig.trait_name,
-            // mirroring the Go backend's pattern so that gen_visitor_files is IR-driven.
             let visitor_bridge_cfg = config
                 .trait_bridges
                 .iter()
@@ -372,17 +327,11 @@ impl Backend for CsharpBackend {
                     visitor_bridge_cfg.map_or("<unknown>", |bridge| bridge.trait_name.as_str())
                 );
             }
-            // IVisitor.cs and VisitorCallbacks.cs were removed from gen_visitor_files() in favour
-            // of the configured bridge path in TraitBridges.cs. Delete any stale copies left
-            // over from earlier generator runs.
             delete_superseded_visitor_files(&base_path)?;
         } else {
-            // When visitor_callbacks is disabled, delete stale files from prior runs
-            // to prevent CS8632 warnings (nullable context not enabled).
             delete_stale_visitor_files(&base_path, config)?;
         }
 
-        // 3c. Generate trait bridge classes when configured.
         if !config.trait_bridges.is_empty() {
             let trait_defs: Vec<_> = api.types.iter().filter(|t| t.is_trait).collect();
             let bridges: Vec<_> = config
@@ -398,9 +347,6 @@ impl Backend for CsharpBackend {
                 .collect();
 
             if !bridges.is_empty() {
-                // Collect visible type names (non-trait types that have C# bindings).
-                // Includes both `api.types` and `api.enums` so trait-bridge method signatures
-                // can reference visitor result enum types without falling back to `string`.
                 let visible_type_names: HashSet<&str> = api
                     .types
                     .iter()
@@ -420,7 +366,6 @@ impl Backend for CsharpBackend {
                     generated_header: true,
                 });
 
-                // Generate bridge adapters (Path A pattern: sealed adapter classes wrapping user impls)
                 if let Some((filename, content)) = crate::backends::csharp::trait_bridge::gen_bridge_adapters_file(
                     &namespace,
                     &bridges,
@@ -435,10 +380,8 @@ impl Backend for CsharpBackend {
             }
         }
 
-        // Collect enum names so record generation can distinguish enum fields from class fields.
         let enum_names: HashSet<String> = api.enums.iter().map(|e| csharp_type_name(&e.name)).collect();
 
-        // 4. Generate opaque handle classes
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 let type_filename = csharp_type_name(&typ.name);
@@ -461,16 +404,8 @@ impl Backend for CsharpBackend {
             }
         }
 
-        // Untagged unions with data variants now emit as JsonElement-wrapper classes
-        // (see gen_untagged_wrapper). The set is intentionally empty so record fields
-        // keep their wrapper-class type instead of being downcast to JsonElement.
         let complex_enums: HashSet<String> = HashSet::new();
 
-        // Tagged-union enums (serde-tagged data enums) are emitted as
-        // `public abstract record Base { public sealed record Variant() : Base; }`
-        // where `Base.Variant` is a TYPE — property defaults must be `new Base.Variant()`
-        // rather than the bare `Base.Variant`, otherwise C# raises CS0119
-        // ("X is a type, which is not valid in the given context").
         let tagged_union_enums: HashSet<String> = api
             .enums
             .iter()
@@ -478,24 +413,14 @@ impl Backend for CsharpBackend {
             .map(|e| csharp_type_name(&e.name))
             .collect();
 
-        // Collect enums that require a custom JsonConverter (non-standard serialized names only).
-        // Tagged unions are generated as abstract records with [JsonPolymorphic] and do NOT need
-        // a custom converter — the attribute on the type itself handles polymorphic deserialization.
-        // When a property has a custom-converter enum as its type, emit a property-level
-        // [JsonConverter] attribute so the custom converter wins over the global JsonStringEnumConverter.
         let custom_converter_enums: HashSet<String> = api
             .enums
             .iter()
             .filter(|e| {
-                // Skip tagged unions — they use [JsonPolymorphic] instead
                 let is_tagged_union = e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty());
                 if is_tagged_union {
                     return false;
                 }
-                // Enums whose `serde_rename_all` is something other than snake_case
-                // (e.g. "kebab-case" for `FilePurpose::FineTune` → `"fine-tune"`)
-                // need a custom converter — `JsonStringEnumConverter(SnakeCaseLower)`
-                // would write `"fine_tune"` instead.
                 let rename_all_differs = matches!(
                     e.serde_rename_all.as_deref(),
                     Some("kebab-case") | Some("SCREAMING-KEBAB-CASE") | Some("camelCase") | Some("PascalCase")
@@ -503,7 +428,6 @@ impl Backend for CsharpBackend {
                 if rename_all_differs {
                     return true;
                 }
-                // Enums with non-standard variant names need a custom converter
                 e.variants.iter().any(|v| {
                     if let Some(ref rename) = v.serde_rename {
                         let default_wire_name =
@@ -517,20 +441,15 @@ impl Backend for CsharpBackend {
             .map(|e| csharp_type_name(&e.name))
             .collect();
 
-        // Resolve the language-level serde rename_all strategy (always wins over IR type-level).
         let lang_rename_all = config.serde_rename_all_for_language(Language::Csharp);
 
-        // 5. Generate record types (structs)
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if !typ.is_opaque {
-                // Skip types where all fields are unnamed tuple positions — they have no
-                // meaningful properties to expose in C#.
                 let has_visible_fields = binding_fields(&typ.fields).next().is_some();
                 let has_named_fields = binding_fields(&typ.fields).any(|f| !is_tuple_field(f));
                 if has_visible_fields && !has_named_fields {
                     continue;
                 }
-                // Skip types that gen_visitor handles with richer visitor-specific versions
                 if has_visitor_callbacks && bridge_associated_types.contains(typ.name.as_str()) {
                     continue;
                 }
@@ -561,10 +480,8 @@ impl Backend for CsharpBackend {
             }
         }
 
-        // 6. Generate enums
         let text_types = &config.untagged_union_text_types;
         for enum_def in &api.enums {
-            // Skip enums that gen_visitor handles with richer visitor-specific versions
             if has_visitor_callbacks && bridge_associated_types.contains(enum_def.name.as_str()) {
                 continue;
             }
@@ -576,9 +493,6 @@ impl Backend for CsharpBackend {
             });
         }
 
-        // 7. Generate ByteArrayJsonConverter if any generated record can reference it.
-        // record_json_options.jinja always registers the converter so generated record
-        // code compiles even before a byte[] field is added.
         let needs_byte_array_converter = api
             .types
             .iter()
@@ -591,21 +505,14 @@ impl Backend for CsharpBackend {
             });
         }
 
-        // 7b. Generate the JsonLeniency helper (lenient deserialization that drops
-        // unknown properties). Always emitted so it is alef-owned rather than a
-        // hand-maintained support file in the package.
         files.push(GeneratedFile {
             path: base_path.join("JsonLeniency.cs"),
             content: types::gen_json_leniency(&namespace),
             generated_header: true,
         });
 
-        // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Csharp)?;
 
-        // 8. Generate Directory.Build.props at the package root (always overwritten).
-        // This file enables Nullable=enable and latest LangVersion for all C# projects
-        // in the packages/csharp hierarchy without requiring per-csproj configuration.
         files.push(GeneratedFile {
             path: PathBuf::from("packages/csharp/Directory.Build.props"),
             content: gen_directory_build_props(),
@@ -624,7 +531,6 @@ impl Backend for CsharpBackend {
         _api: &ApiSurface,
         _config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        // C#'s wrapper class IS the public API — no additional wrapper needed.
         Ok(vec![])
     }
 

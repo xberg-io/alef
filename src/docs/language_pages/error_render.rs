@@ -17,8 +17,6 @@ pub(super) fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> 
     ));
 
     let doc = clean_doc(&err.doc, lang);
-    // Demote any embedded headings in the error documentation by 2 levels
-    // to ensure they stay nested under the error heading (####).
     let doc = demote_headings(&doc, 2);
     if !doc.is_empty() {
         out.push_str(&doc);
@@ -26,12 +24,10 @@ pub(super) fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> 
         out.push('\n');
     }
 
-    // For Node/WASM, note that errors are plain Error objects
     if matches!(lang, Language::Node | Language::Wasm) {
         out.push_str("Errors are thrown as plain `Error` objects with descriptive messages.\n\n");
     }
 
-    // For Python, render as exception class hierarchy
     if lang == Language::Python {
         out.push_str(&template_env::render(
             "base_class.jinja",

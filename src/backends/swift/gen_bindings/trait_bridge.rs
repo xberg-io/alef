@@ -33,7 +33,6 @@ pub fn gen_trait_bridge_files(
 ) -> Vec<(String, String)> {
     let mut files = Vec::new();
 
-    // Collect function_param bridges (non-excluded Swift bridges)
     let function_param_bridges: Vec<_> = bridges
         .iter()
         .filter(|(_, bridge_cfg, _)| {
@@ -42,34 +41,26 @@ pub fn gen_trait_bridge_files(
         })
         .collect();
 
-    // Emit SwiftPluginBridge super-protocol as the first file if there are any function_param bridges
     if !function_param_bridges.is_empty() {
         let content = emit_swift_plugin_bridge_protocol();
         files.push(("SwiftPluginBridge.swift".to_string(), content));
     }
 
     for (trait_name, bridge_cfg, trait_def) in bridges {
-        // Skip if swift is in exclude_languages
         if bridge_cfg.exclude_languages.iter().any(|lang| lang == "swift") {
             continue;
         }
 
-        // Skip if not function_param binding (only outbound plugins use this codegen)
         if !matches!(bridge_cfg.bind_via, crate::core::config::BridgeBinding::FunctionParam) {
             continue;
         }
 
-        // Combine excluded types (internal) and first-class types (only in the primary binding
-        // module, not in RustBridge)
-        // Both sets should be marshalled as JSON strings in trait bridge protocols
         let mut combined_exclude = exclude_types.clone();
         for first_class in first_class_types {
             combined_exclude.insert(first_class.clone());
         }
 
         let content = gen_single_trait_bridge_file(trait_name, bridge_cfg, trait_def, &combined_exclude);
-        // Use the canonical protocol name as the filename base so the filename
-        // stays in sync with the protocol declaration.
         let protocol = bridge_protocol_name(trait_name);
         let filename = format!("{protocol}.swift");
         files.push((filename, content));
@@ -133,20 +124,13 @@ fn gen_single_trait_bridge_file(
     let protocol = bridge_protocol_name(trait_name);
     let mut protocol_methods = String::new();
 
-    // B2 fix: Ensure protocol declares all trait methods. Both protocol and adapter
-    // iterate the same trait_def.methods, so if a method appears in the protocol,
-    // it MUST appear in the adapter. This guarantees callers can invoke any
-    // protocol-declared method on the adapter without compile errors.
     for method in &trait_def.methods {
         let method_camel = method.name.to_lower_camel_case();
-        // Protocol method parameters marshal excluded types as JSON strings (like Java does)
         let params_sig = swift_method_params(&method.params, &bridge_exclude_types);
-        // Protocol method return types marshal excluded types as JSON strings (like Java does)
         let return_type = swift_return_type(&method.return_type, &bridge_exclude_types);
         let throws = if method.error_type.is_some() { " throws" } else { "" };
         // NOTE: async is removed — Swift{Trait}Bridge is now fully sync to match plugin protocol shape
 
-        // Emit all methods as protocol requirements
         protocol_methods.push_str(&crate::backends::swift::template_env::render(
             "swift_trait_protocol_method.swift.jinja",
             minijinja::context! {
@@ -158,8 +142,6 @@ fn gen_single_trait_bridge_file(
         ));
     }
 
-    // Emit an extension providing Swift defaults for methods that have default impls in Rust.
-    // This allows conformers to opt out of implementing them.
     let mut default_methods = String::new();
 
     for method in &trait_def.methods {
@@ -172,16 +154,15 @@ fn gen_single_trait_bridge_file(
         let return_type = swift_return_type(&method.return_type, &bridge_exclude_types);
         let throws = if method.error_type.is_some() { " throws" } else { "" };
 
-        // Generate default body based on return type
         let default_body = match &method.return_type {
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "return true".to_string(),
-            TypeRef::Primitive(crate::core::ir::PrimitiveType::I32) => "return 50".to_string(), // priority default
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::I32) => "return 50".to_string(),
             TypeRef::Primitive(crate::core::ir::PrimitiveType::U64) => "return 0".to_string(),
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Isize) => "return 0".to_string(),
             TypeRef::String => "return \"\"".to_string(),
-            TypeRef::Unit => "".to_string(), // no return needed
+            TypeRef::Unit => "".to_string(),
             TypeRef::Vec(_) => "return []".to_string(),
-            TypeRef::Named(_) => "return \"{}\"".to_string(), // excluded types are strings
+            TypeRef::Named(_) => "return \"{}\"".to_string(),
             _ => "return nil".to_string(),
         };
 
@@ -197,32 +178,22 @@ fn gen_single_trait_bridge_file(
         ));
     }
 
-    // B2 fix: Method entry points — these marshal types across the boundary.
-    // The adapter must register ALL methods declared in the protocol above.
-    // Both loops iterate trait_def.methods in the same order, guaranteeing parity.
     let mut adapter_methods = String::new();
     for method in &trait_def.methods {
         let method_camel = method.name.to_lower_camel_case();
-        // Build parameter signature for the adapter method (input from Rust across the boundary)
         let params_sig = swift_method_params(&method.params, &bridge_exclude_types);
-        // Build return type for the adapter method (output back to Rust)
-        // If the method has an error type, the adapter returns String (JSON envelope);
-        // otherwise, it returns the original type
         let return_type = if method.error_type.is_some() {
             "String".to_string()
         } else {
             swift_return_type(&method.return_type, &bridge_exclude_types)
         };
 
-        // Build async/throws keywords for the adapter method signature
         // NOTE: async is removed from adapter signatures since Swift{Trait}Bridge is now sync
         let throws_kw = if method.error_type.is_some() { " throws" } else { "" };
 
-        // Generate method body: construct call arguments and handle return value.
         let call_args = build_adapter_call_args(method);
         let call_args_str = call_args.join(", ");
         let method_body = if method.error_type.is_some() {
-            // Error-returning method: wrap result in try-catch and return JSON envelope
             // NOTE: async is removed, so only 'try' is used (not 'try await')
             let success_body = trait_adapter_success_body(&method.return_type, &bridge_exclude_types);
             crate::backends::swift::template_env::render(
@@ -234,7 +205,6 @@ fn gen_single_trait_bridge_file(
                 },
             )
         } else {
-            // Sync method without error: return the result directly, no encoding
             // NOTE: async is removed, all methods are now sync
             crate::backends::swift::template_env::render(
                 "swift_trait_adapter_direct_body.swift.jinja",
@@ -258,11 +228,6 @@ fn gen_single_trait_bridge_file(
     }
 
     // NOTE: Registration functions are NOT emitted here. They live in <Binding>.swift
-    // (generated by `emit_trait_bridge_forwarders`) and accept the Box-based type
-    // (`Swift{Trait}Box`) from `Sources/RustBridge/Plugins.swift` that the RustBridge
-    // `register_*` entry point actually expects. Emitting a duplicate here that passes
-    // `Swift{Trait}Adapter` would cause a type mismatch at the `try RustBridge.{camel}(adapter)`
-    // call site because Adapter and Box are distinct, incompatible types.
 
     crate::backends::swift::template_env::render(
         "swift_trait_bridge_file.swift.jinja",
@@ -298,8 +263,6 @@ fn trait_adapter_success_body(return_type: &TypeRef, bridge_exclude_types: &Hash
             },
         )
     } else {
-        // Excluded type: result is the native Swift struct (not Encodable).
-        // Encode directly and wrap in JSON string manually.
         crate::backends::swift::template_env::render(
             "swift_trait_adapter_excluded_success.swift.jinja",
             minijinja::context! {},
@@ -350,9 +313,6 @@ fn swift_method_params(params: &[crate::core::ir::ParamDef], exclude_types: &Has
 /// Get the Swift type name for a TypeRef.
 ///
 /// Protocol methods use native types (excluded types as native structs).
-// Protocol methods use native types; `_exclude_types` is accepted for API
-// symmetry with `swift_type_name` but is not consulted — excluded types are
-// always emitted by their native name in protocol contexts.
 #[allow(dead_code)]
 fn swift_type_name_native(ty: &TypeRef, _exclude_types: &HashSet<String>) -> String {
     match ty {
@@ -375,10 +335,7 @@ fn swift_type_name_native(ty: &TypeRef, _exclude_types: &HashSet<String>) -> Str
         TypeRef::Bytes => "Data".to_string(),
         TypeRef::Path => "URL".to_string(),
         TypeRef::Char => "Character".to_string(),
-        TypeRef::Named(name) => {
-            // Protocol uses native type name (excluded or not)
-            name.clone()
-        }
+        TypeRef::Named(name) => name.clone(),
         TypeRef::Vec(inner) => format!("[{}]", swift_type_name_native(inner, _exclude_types)),
         TypeRef::Map(k, v) => format!(
             "[{}: {}]",
@@ -407,8 +364,8 @@ fn swift_type_name(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
             crate::core::ir::PrimitiveType::U16 => "UInt16".to_string(),
             crate::core::ir::PrimitiveType::U32 => "UInt32".to_string(),
             crate::core::ir::PrimitiveType::U64 => "UInt64".to_string(),
-            crate::core::ir::PrimitiveType::Usize => "UInt".to_string(), // Maps to platform-dependent size
-            crate::core::ir::PrimitiveType::Isize => "Int".to_string(),  // Maps to platform-dependent size
+            crate::core::ir::PrimitiveType::Usize => "UInt".to_string(),
+            crate::core::ir::PrimitiveType::Isize => "Int".to_string(),
             crate::core::ir::PrimitiveType::F32 => "Float".to_string(),
             crate::core::ir::PrimitiveType::F64 => "Double".to_string(),
         },
@@ -417,9 +374,8 @@ fn swift_type_name(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
         TypeRef::Path => "URL".to_string(),
         TypeRef::Char => "Character".to_string(),
         TypeRef::Named(name) => {
-            // If the named type is excluded (internal/not visible), marshal as JSON string
             if exclude_types.contains(name) {
-                "String".to_string() // JSON-marshalled as String
+                "String".to_string()
             } else {
                 name.clone()
             }
@@ -432,8 +388,8 @@ fn swift_type_name(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
         ),
         TypeRef::Optional(inner) => format!("{}?", swift_type_name(inner, exclude_types)),
         TypeRef::Unit => "Void".to_string(),
-        TypeRef::Json => "String".to_string(), // JSON is marshalled as String
-        TypeRef::Duration => "TimeInterval".to_string(), // Duration -> TimeInterval in Swift
+        TypeRef::Json => "String".to_string(),
+        TypeRef::Duration => "TimeInterval".to_string(),
     }
 }
 
@@ -472,7 +428,6 @@ pub fn gen_bridge_registration_overloads_file(
     let trait_bridges: Vec<_> = bridges
         .iter()
         .filter(|(_, bridge_cfg, _)| {
-            // Only include bridges not excluded from swift
             !bridge_cfg.exclude_languages.iter().any(|lang| lang == "swift")
                 && matches!(bridge_cfg.bind_via, crate::core::config::BridgeBinding::FunctionParam)
         })
@@ -481,9 +436,6 @@ pub fn gen_bridge_registration_overloads_file(
     if trait_bridges.is_empty() {
         return None;
     }
-
-    // Note: _loadBytesFromPathOrUtf8 is emitted by the swift_bridge_registration_overloads template,
-    // not here, to avoid duplication.
 
     let mut unregister_overloads = String::new();
     for (trait_name, _, _) in &trait_bridges {
@@ -585,7 +537,6 @@ mod tests {
         let exclude_types = HashSet::new();
         let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
 
-        // Should emit SwiftPluginBridge.swift first, then SwiftTextBackendBridge.swift
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].0, "SwiftPluginBridge.swift");
         assert!(files[0].1.contains("protocol SwiftPluginBridge: AnyObject"));
@@ -713,11 +664,9 @@ mod tests {
         let exclude_types = HashSet::new();
         let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
 
-        // Should emit SwiftPluginBridge.swift first, then SwiftDocumentExtractorBridge.swift
         assert_eq!(files.len(), 2);
         let content = &files[1].1;
 
-        // The protocol and adapter must still be emitted.
         assert!(
             content.contains("protocol SwiftDocumentExtractorBridge: SwiftPluginBridge"),
             "protocol must be emitted with SwiftPluginBridge inheritance, got:\n{content}"
@@ -727,8 +676,6 @@ mod tests {
             "adapter class must be emitted, got:\n{content}"
         );
 
-        // A register function must NOT be emitted — it is emitted by emit_trait_bridge_forwarders
-        // in <Binding>.swift and uses SwiftDocumentExtractorBox (not Adapter).
         assert!(
             !content.contains("public func registerDocumentExtractor("),
             "register function must NOT be emitted in the bridge file (would use wrong Adapter type), got:\n{content}"
@@ -742,7 +689,6 @@ mod tests {
         use crate::core::ir::{MethodDef, ParamDef, ReceiverKind};
 
         let mut trait_def = make_trait_def("DocumentExtractor");
-        // Add a method with an excluded named type as return type.
         trait_def.methods.push(MethodDef {
             name: "extract_bytes".to_string(),
             params: vec![ParamDef {
@@ -782,29 +728,23 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("DocumentExtractor");
         let bridges = vec![("DocumentExtractor".to_string(), &bridge_cfg, &trait_def)];
 
-        // Pass PrivatePayload in exclude_types (mimicking what mod.rs does when
-        // it augments from IR binding_excluded types).
         let mut exclude_types = HashSet::new();
         exclude_types.insert("PrivatePayload".to_string());
 
         let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
-        // Should emit SwiftPluginBridge.swift first, then SwiftDocumentExtractorBridge.swift
         assert_eq!(files.len(), 2);
         let content = &files[1].1;
 
-        // Protocol method must return String (JSON) for excluded type PrivatePayload
         assert!(
             content.contains("func extractBytes(content: Data) throws -> String"),
             "protocol method must marshal excluded type to String, got:\n{content}"
         );
 
-        // Adapter method must return String (JSON marshalling)
         assert!(
             content.contains("func extractBytesCall(content: Data) throws -> String"),
             "adapter method must marshal to String, got:\n{content}"
         );
 
-        // Marshalling helper must be present
         assert!(
             content.contains("marshal_encode_excluded"),
             "marshal_encode_excluded helper must be present, got:\n{content}"
@@ -823,7 +763,6 @@ mod tests {
         let (filename, content) = result.unwrap();
         assert_eq!(filename, "BridgeRegistrationOverloads.swift");
 
-        // Check for expected sections
         assert!(
             content.contains("// MARK: - Unregister name: label overloads"),
             "missing unregister overload section"
@@ -841,7 +780,6 @@ mod tests {
             "unregister label overload must not recursively call itself"
         );
 
-        // Check for register overload
         assert!(
             content.contains("// MARK: - Bridge → Box register overloads"),
             "missing register overload section"
@@ -852,11 +790,6 @@ mod tests {
         );
 
         // NOTE: adapter class, lifecycle stub methods (`name()`, `version()`,
-        // `initialize()`, `shutdown()`), and `_BridgeStubError` emission were
-        // removed in commit `23a58ff9e` ("drop async from trait bridge"). Plugins
-        // are now hand-authored in `Plugins.swift` rather than emitted into
-        // `BridgeRegistrationOverloads.swift`, so the corresponding assertions
-        // were retired alongside the codegen.
     }
 
     #[test]
@@ -878,9 +811,6 @@ mod tests {
     }
 
     // NOTE: previously asserted that async trait methods produced async stubs in
-    // `BridgeRegistrationOverloads.swift`. That stub generation was intentionally
-    // removed in commit `23a58ff9e` ("drop async from trait bridge"), so the
-    // assertion is no longer applicable. The test was retired alongside the feature.
 
     #[test]
     fn test_pascal_case_conversion() {
@@ -899,7 +829,6 @@ mod tests {
 
         let mut trait_def = make_trait_def("TextExtractor");
 
-        // Method returning String
         trait_def.methods.push(MethodDef {
             name: "extract_text".to_string(),
             params: vec![],
@@ -920,7 +849,6 @@ mod tests {
             version: Default::default(),
         });
 
-        // Method returning Vec<String>
         trait_def.methods.push(MethodDef {
             name: "split_text".to_string(),
             params: vec![],
@@ -949,13 +877,11 @@ mod tests {
         assert_eq!(files.len(), 2);
         let content = &files[1].1;
 
-        // String return must be wrapped: marshal_ok_result(String(result))
         assert!(
             content.contains("marshal_ok_result(String(result))"),
             "String return must be wrapped in String(...) converter, got:\n{content}"
         );
 
-        // Vec<String> return must map: marshal_ok_result(result.map { String($0) })
         assert!(
             content.contains("marshal_ok_result(result.map { String($0) })"),
             "Vec<String> return must map each element, got:\n{content}"
@@ -964,15 +890,12 @@ mod tests {
 
     #[test]
     fn text_processor_protocol_inherits_swift_plugin_bridge() {
-        // Regression: `SwiftTextProcessorBridge` must inherit `SwiftPluginBridge`
-        // so conforming types satisfy the hand-authored plugin protocol shape.
         let trait_def = make_trait_def("TextProcessor");
         let bridge_cfg = make_bridge_cfg("TextProcessor");
         let bridges = vec![("TextProcessor".to_string(), &bridge_cfg, &trait_def)];
         let exclude_types = HashSet::new();
         let files = gen_trait_bridge_files(&bridges, &exclude_types, &HashSet::new());
 
-        // Should emit SwiftPluginBridge.swift first, then SwiftTextProcessorBridge.swift
         let protocol_file = files
             .iter()
             .find(|(name, _)| name == "SwiftTextProcessorBridge.swift")

@@ -135,10 +135,6 @@ fn process_result_ir() -> Vec<TypeDef> {
             "FileMetrics",
             vec![usize_field("total_lines"), usize_field("error_count")],
         ),
-        // StructureItem has a Named field that never lands in the known_dto_names
-        // set, keeping StructureItem (and therefore ProcessResult) out of the
-        // first-class set. This mirrors the real sample_language_pack shape where StructureItem
-        // holds a `kind: StructureKind` (non-unit enum).
         make_type(
             "StructureItem",
             vec![make_field("kind", TypeRef::Named("StructureKind".to_string()))],
@@ -231,8 +227,6 @@ fn contains_over_non_optional_vec_does_not_use_optional_chain() {
         "structure",
         serde_json::json!("Function"),
     ));
-    // `structure()` returns non-optional RustVec — the closure must NOT
-    // optional-chain via `?.map`.
     assert!(
         !rendered.contains("structure()?.map"),
         "non-optional RustVec accessor must not chain `?.map`. \
@@ -243,7 +237,6 @@ fn contains_over_non_optional_vec_does_not_use_optional_chain() {
         "non-optional RustVec accessor must chain plain `.map`. \
          Rendered:\n{rendered}"
     );
-    // And: no spurious `?? []` against a non-optional `[String]`.
     assert!(
         !rendered.contains(".map { $0.asStr().toString() } ?? []"),
         "must not coalesce a non-optional `[String]` with `?? []`. \

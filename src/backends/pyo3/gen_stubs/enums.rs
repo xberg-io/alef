@@ -36,11 +36,9 @@ pub(super) fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool, coercible
     let mut lines = vec![];
 
     if enum_has_data_variants(enum_def) {
-        // Data enums: emit a TypedDict per variant and a Union type alias.
         gen_data_enum_typeddicts(&mut lines, enum_def, coercible_dtos);
     } else {
         lines.push(format!("class {}:", enum_def.name));
-        // Enum-level docstring — gated behind emit_docstrings (ruff PYI021).
         if emit_docstrings {
             if let Some(docstring) = pyi_docstring(&enum_def.doc, "    ") {
                 lines.push(docstring);
@@ -48,13 +46,11 @@ pub(super) fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool, coercible
         }
         for variant in &enum_def.variants {
             // Emit snake_case attribute names to match the #[pyo3(name = "...")] rename
-            // on the Rust pyclass variant, following Python idiom (PEP 8: enum members are lowercase).
             lines.push(format!(
                 "    {}: {} = ...",
                 to_python_enum_variant(&variant.name),
                 enum_def.name
             ));
-            // Variant-level docstring — gated behind emit_docstrings (ruff PYI021).
             if emit_docstrings {
                 if let Some(docstring) = pyi_docstring(&variant.doc, "    ") {
                     lines.push(docstring);
@@ -83,10 +79,8 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef, coercib
 
         lines.push(format!("class {}(TypedDict):", class_name));
 
-        // Tag field with Literal type
         lines.push(format!("    {}: Literal[\"{}\"]", tag_field, tag_value));
 
-        // Data fields
         for field in &variant.fields {
             let field_type = python_type(&field.ty);
             let field_type = if field.optional && !field_type.contains("| None") {
@@ -97,35 +91,19 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef, coercib
             lines.push(format!("    {}: {}", python_safe_name(&field.name), field_type));
         }
 
-        // If no data fields, the TypedDict only has the tag
-        if variant.fields.is_empty() && lines.last().is_some_and(|l| l.ends_with("):")) {
-            // Empty body — TypedDict needs at least the tag field which is already added
-        }
-
         lines.push("".to_string());
     }
 
-    // Emit a class stub for the opaque pyo3 wrapper.
-    // The wrapper exposes the serde tag as a readable attribute and delegates __str__
-    // to the inner serde serialization. Variant TypedDicts above are kept for documentation.
     lines.push(format!("class {}:", enum_def.name));
     lines.push(format!("    {}: str", tag_field));
-    // Per-variant `@staticmethod` constructors, declared between the tag attribute and the
-    // dunder stubs so type-checkers and IDEs see `Shape.circle(...)` factory calls. The variant
-    // selection is shared with the runtime binding via `collect_variant_constructors`, so the
-    // declared surface stays in lockstep with the methods PyO3 actually exposes.
     gen_data_enum_variant_constructor_stubs(lines, enum_def, coercible_dtos);
     // The runtime wrapper exposes a `#[new]` accepting a tag string, a `{"type": ...}` dict, or
-    // kwargs (see pyo3_data_enum.jinja) — UNLESS a variant field is sanitized, in which case the
     // serde-based `#[new]` is omitted and the type is return-only. Mirror that here so a converter
-    // constructing `OutputFormat(value)` / `EmbeddingModelType({...})` type-checks.
     if !crate::codegen::generators::enum_has_sanitized_fields(enum_def) {
         lines.push(
             "    def __init__(self, value: dict[str, Any] | str | None = None, **kwargs: Any) -> None: ...".to_string(),
         );
     }
-    // PYI029: __str__/__repr__ stubs are needed because the pyo3 wrapper implements them
-    // via Display/Debug, and downstream callers rely on str(value) returning the serde tag.
     lines.push("    def __str__(self) -> str: ...  # noqa: PYI029".to_string());
     lines.push("    def __repr__(self) -> str: ...  # noqa: PYI029".to_string());
 }
@@ -147,11 +125,6 @@ fn gen_data_enum_variant_constructor_stubs(
 
     let ctors = collect_variant_constructors(enum_def);
 
-    // A per-variant factory method named after a builtin container (e.g. a `List` variant → `def
-    // list(...)`) shadows that builtin within the class body, so a sibling annotation like
-    // `entries: list[MetadataEntry]` resolves to the factory rather than `builtins.list` and mypy
-    // rejects it (`Function ... is not valid as a type`). Qualify the shadowed builtins as
-    // `builtins.<name>` in the factory annotations to break the cycle.
     const SHADOWABLE_BUILTINS: &[&str] = &["list", "dict", "set", "tuple", "frozenset", "type"];
     let shadowed: Vec<&str> = SHADOWABLE_BUILTINS
         .iter()
@@ -165,14 +138,7 @@ fn gen_data_enum_variant_constructor_stubs(
             .iter()
             .enumerate()
             .map(|(idx, p)| {
-                // A param is optional in the emitted signature when it is naturally optional OR was
-                // promoted because it follows an optional param — the same rule the runtime PyO3
-                // binding applies (`is_promoted_optional`), which widens such params to `Optional[T]`
-                // with a `= None` default. Mirroring it keeps the stub's required/optional split and
-                // defaults identical to the runtime constructor signature.
                 let optional = p.optional || crate::codegen::shared::is_promoted_optional(&ctor.params, idx);
-                // Widen dataclass-backed config-DTO params to accept the public dataclass or a dict;
-                // all other types map exactly as `python_type` would.
                 let mut py_type = factory_param_type(&p.ty, coercible_dtos);
                 for builtin in &shadowed {
                     py_type = py_type.replace(&format!("{builtin}["), &format!("builtins.{builtin}["));

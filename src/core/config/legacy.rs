@@ -68,17 +68,11 @@ fn format_keys(keys: &[LegacyKey]) -> String {
 pub fn detect_legacy_keys(raw_toml: &str) -> Result<(), LegacyConfigError> {
     let suggestions = banned_key_suggestions();
 
-    // Parse the TOML to get the top-level key set, then find their line numbers
-    // via a line scan.  We parse first so we only flag keys that actually exist
-    // in the document rather than doing a purely textual match.
     let table: toml::Table = match toml::from_str(raw_toml) {
         Ok(t) => t,
-        // If the document is not valid TOML we can't do meaningful detection;
-        // let the caller's real deserializer surface the parse error.
         Err(_) => return Ok(()),
     };
 
-    // Collect top-level keys that are in the banned set.
     let mut found: Vec<(String, &str)> = table
         .keys()
         .filter_map(|k| suggestions.get(k.as_str()).map(|s| (k.clone(), *s)))
@@ -88,10 +82,8 @@ pub fn detect_legacy_keys(raw_toml: &str) -> Result<(), LegacyConfigError> {
         return Ok(());
     }
 
-    // Stable order: sort by key name so output is deterministic.
     found.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Find line numbers with a best-effort line scan.
     let line_map = first_occurrence_lines(raw_toml, found.iter().map(|(k, _)| k.as_str()));
 
     let keys: Vec<LegacyKey> = found
@@ -169,13 +161,10 @@ fn banned_key_suggestions() -> &'static HashMap<&'static str, &'static str> {
 fn build_banned_key_suggestions() -> HashMap<&'static str, &'static str> {
     let mut m = HashMap::new();
 
-    // Singular [crate] table → [[crates]] array of tables
     m.insert("crate", "move under `[[crates]]` (array of tables)");
 
-    // Bare `version` scalar → [workspace] alef_version
     m.insert("version", "rename to `[workspace] alef_version`");
 
-    // Per-language config → [[crates]] sub-table
     for lang in [
         "python", "node", "ruby", "php", "elixir", "wasm", "ffi", "gleam", "go", "java", "dart", "kotlin", "swift",
         "csharp", "r", "zig",
@@ -183,7 +172,6 @@ fn build_banned_key_suggestions() -> HashMap<&'static str, &'static str> {
         m.insert(lang, "move under `[[crates]]` for the relevant crate");
     }
 
-    // Pipeline maps → [[crates]] sub-tables
     for key in [
         "output",
         "exclude",
@@ -207,10 +195,8 @@ fn build_banned_key_suggestions() -> HashMap<&'static str, &'static str> {
         m.insert(key, "move under `[[crates]]` for the relevant crate");
     }
 
-    // Bare `languages` → [workspace] languages
     m.insert("languages", "move to `[workspace] languages`");
 
-    // Workspace-level generation/format flags
     for key in [
         "tools",
         "dto",
@@ -224,7 +210,6 @@ fn build_banned_key_suggestions() -> HashMap<&'static str, &'static str> {
         m.insert(key, "move under `[workspace.<key>]`");
     }
 
-    // Per-crate source/dep config
     for key in [
         "path_mappings",
         "auto_path_mappings",
@@ -252,7 +237,6 @@ fn first_occurrence_lines<'k>(raw_toml: &str, keys: impl Iterator<Item = &'k str
             if result.contains_key(key) {
                 continue;
             }
-            // Match: `[key]`, `[[key]]`, or `key =` / `key=` at line start.
             if is_top_level_key_line(trimmed, key) {
                 result.insert(key.to_string(), line_no);
             }
@@ -269,8 +253,6 @@ fn first_occurrence_lines<'k>(raw_toml: &str, keys: impl Iterator<Item = &'k str
 /// Return true when `line` is a TOML line that introduces `key` as a
 /// top-level key (not nested inside another table header).
 fn is_top_level_key_line(line: &str, key: &str) -> bool {
-    // Section header: `[key]` or `[key.something]`
-    // Array-of-tables header: `[[key]]` or `[[key.something]]`
     if let Some(inner) = line.strip_prefix("[[").and_then(|s| s.strip_suffix("]]")) {
         let first_segment = inner.split('.').next().unwrap_or("").trim();
         if first_segment == key {
@@ -278,8 +260,6 @@ fn is_top_level_key_line(line: &str, key: &str) -> bool {
         }
     }
     if let Some(inner) = line.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-        // Exclude `[[…]]` — already handled above; a bare `[` line won't have
-        // already been matched.
         if !inner.starts_with('[') {
             let first_segment = inner.split('.').next().unwrap_or("").trim();
             if first_segment == key {
@@ -287,8 +267,6 @@ fn is_top_level_key_line(line: &str, key: &str) -> bool {
             }
         }
     }
-    // Bare assignment: `key =` or `key=` — guard with a word boundary so that
-    // a banned key `r` does not match a longer key like `rust = "x"`.
     if let Some(rest) = line.strip_prefix(key) {
         let next = rest.chars().next();
         let is_word_boundary = match next {
@@ -328,9 +306,6 @@ check = "ruff check ."
 
     #[test]
     fn detect_legacy_keys_catches_bare_crate_table() {
-        // In the legacy schema, `languages` is a top-level key — it MUST appear before
-        // any section header, or after ALL section headers.  Here we put both at the top
-        // level so the TOML parser assigns them to the document root.
         let toml_str = r#"
 languages = ["python"]
 
@@ -381,7 +356,6 @@ sources = []
         for lang in [
             "python", "node", "ruby", "go", "java", "csharp", "wasm", "ffi", "elixir", "gleam", "zig",
         ] {
-            // languages must be top-level (before any section header)
             let toml_str = format!(
                 "languages = [\"{lang}\"]\n\n[crate]\nname = \"foo\"\nsources = []\n\n[{lang}]\nmodule_name = \"foo\"\n"
             );
@@ -393,7 +367,6 @@ sources = []
 
     #[test]
     fn detect_legacy_keys_catches_workspace_level_pipeline_keys() {
-        // languages and crate must be top-level; section headers below belong to root.
         let toml_str = r#"
 languages = ["python"]
 
@@ -428,8 +401,6 @@ Tree = "sample_language::Tree"
 
     #[test]
     fn detect_legacy_keys_catches_per_crate_source_keys() {
-        // Top-level scalars and tables must appear before any section header or after
-        // the last one — put them all at the top so TOML assigns them to the document root.
         let toml_str = r#"
 languages = ["python"]
 auto_path_mappings = true
@@ -533,19 +504,14 @@ check = "ruff check ."
 
     #[test]
     fn detect_legacy_keys_invalid_toml_returns_ok() {
-        // Invalid TOML should not panic — return Ok and let the real parser
-        // surface the error.
         let bad = "[[[ not valid toml";
         assert!(detect_legacy_keys(bad).is_ok());
     }
 
     #[test]
     fn is_top_level_key_line_respects_word_boundary_on_bare_assignment() {
-        // The banned key `r` must not match `rust = ...` (different identifier
-        // that happens to start with `r`).
         assert!(!is_top_level_key_line("rust = true", "r"));
         assert!(!is_top_level_key_line("ruby_extras = []", "ruby"));
-        // But it must still match the genuine assignment forms.
         assert!(is_top_level_key_line("r = { something = true }", "r"));
         assert!(is_top_level_key_line("ruby = {}", "ruby"));
         assert!(is_top_level_key_line("ruby={}", "ruby"));
@@ -576,7 +542,6 @@ enabled = false
         let mut value: toml::Value = toml::from_str(toml_str).unwrap();
         let warnings = strip_deprecated_keys(&mut value);
         assert!(!warnings.is_empty(), "expected deprecation warnings");
-        // Round-trip: must now deserialize cleanly
         let cfg: crate::core::config::NewAlefConfig = value.try_into().unwrap();
         assert_eq!(cfg.workspace.languages.len(), 1);
     }

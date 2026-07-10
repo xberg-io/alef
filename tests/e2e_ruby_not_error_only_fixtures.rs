@@ -97,8 +97,6 @@ fn not_error_only_fixture_does_not_emit_pending() {
         body.contains("smoke_not_error_only"),
         "fixture id must appear in generated spec, got:\n{body}"
     );
-    // The test body should contain a real assertion — either not_to be_nil (the
-    // template fallback when has_usable is false) or some explicit expectation.
     assert!(
         body.contains("not_to be_nil") || body.contains("not_to raise_error"),
         "fixture with only not_error must emit a real assertion, got:\n{body}"

@@ -45,10 +45,6 @@ const ALEF_LOADER_MARKER: &str = "_alefResolveExternalLibrary";
 /// (`kDefaultExternalLibraryLoaderConfig.stem`, e.g. `sample_project_dart`).
 pub fn rewrite_frb_external_library_loader(source: &str, package_name: &str, module_name: &str, stem: &str) -> String {
     let with_loader = if source.contains(ALEF_LOADER_MARKER) {
-        // Loader already injected on a prior run; keep the source verbatim but
-        // still run `ensure_loader_imports` below so subsequent additions to
-        // the required-imports set (e.g. the unprefixed `dart:core` rescue)
-        // land in already-patched files without a full FRB regen.
         source.to_string()
     } else {
         let Some(prologue) = frb_init_prologue(source) else {
@@ -75,9 +71,6 @@ fn frb_init_prologue(source: &str) -> Option<String> {
 fn init_prologue_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        // Match the init prologue with flexible whitespace indentation and parameter order.
-        // FRB generates: `static Future<void> init({ ... }) async {`
-        // We match from "Initialize flutter_rust_bridge" comment through the opening brace.
         Regex::new(r"(?m)^\s*/// Initialize flutter_rust_bridge\n\s*static Future<void> init\((?s:.)*?\}\) async \{\n")
             .expect("init prologue regex must compile")
     })
@@ -269,10 +262,10 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
     final rid = nativeComputeRid() ?? Platform.operatingSystem;
     throw StateError(
       'Native library for {package} ($rid) was not found. '
-      'Expected it in the versioned cache (\${{nativeCacheDir() ?? '<unresolved cache dir>'}}) '
+      'Expected it in the versioned cache (${{nativeCacheDir() ?? '<unresolved cache dir>'}}) '
       'or bundled with the package. Download it with '
       '`dart run {package}:download_libs`, which fetches '
-      '\${{nativeAssetUrlBase()}}.tar.gz and verifies its SHA-256, '
+      '${{nativeAssetUrlBase()}}.tar.gz and verifies its SHA-256, '
       'or point \$nativeLibDirEnv at a directory containing the native library.',
     );
   }}
@@ -322,9 +315,6 @@ pub(super) fn apply_loader_fix_from_stem(source: &str) -> String {
     let Some(stem) = extract_loader_stem(source) else {
         return source.to_string();
     };
-    // Recover the shared crate name from `<crate>_dart`; if the stem does not
-    // follow the convention, fall back to the full stem for both package and
-    // module so the resolution at least targets a plausible path.
     let crate_base = stem.strip_suffix("_dart").unwrap_or(&stem);
     let package_name = crate_base;
     let module_name = crate_base;

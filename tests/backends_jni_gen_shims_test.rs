@@ -77,10 +77,6 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
     }
 }
 
-// ---------------------------------------------------------------------------
-// Shared Demo fixture (richer surface for snapshot coverage)
-// ---------------------------------------------------------------------------
-
 /// Build the Demo fixture API surface:
 /// - one top-level function: `create_client(api_key: String) -> Named("DemoClient")` [async, opaque return]
 /// - TypeDef `DemoClient` (opaque) with:
@@ -286,10 +282,6 @@ fn make_demo_config_with_streaming() -> ResolvedCrateConfig {
     config
 }
 
-// ---------------------------------------------------------------------------
-// 1. Full lib.rs snapshot
-// ---------------------------------------------------------------------------
-
 /// Snapshot: the entire emitted `lib.rs` for the richer Demo fixture with streaming.
 #[test]
 fn snapshot_full_lib_rs() {
@@ -305,10 +297,6 @@ fn snapshot_full_lib_rs() {
     );
     insta::assert_snapshot!("snapshot_full_lib_rs", &lib.content);
 }
-
-// ---------------------------------------------------------------------------
-// 2. Runtime helpers present
-// ---------------------------------------------------------------------------
 
 #[test]
 fn snapshot_runtime_helpers_present() {
@@ -333,10 +321,6 @@ fn snapshot_runtime_helpers_present() {
     insta::assert_snapshot!("snapshot_runtime_helpers_present", content);
 }
 
-// ---------------------------------------------------------------------------
-// 3. Constructor symbol and body
-// ---------------------------------------------------------------------------
-
 #[test]
 fn snapshot_constructor_symbol_and_body() {
     let api = make_demo_api();
@@ -348,22 +332,16 @@ fn snapshot_constructor_symbol_and_body() {
         content.contains("Java_dev_sample_1crate_demo_DemoBridge_nativeCreateClient"),
         "constructor symbol missing; got:\n{content}"
     );
-    // Must return jlong (raw pointer) — NOT a JSON-encoded jstring.
     assert!(
         content.contains("-> jlong"),
         "constructor must return jlong; got:\n{content}"
     );
-    // Must do Box::into_raw to return a handle.
     assert!(
         content.contains("Box::into_raw(Box::new(v)) as jlong"),
         "constructor must Box::into_raw the result; got:\n{content}"
     );
     insta::assert_snapshot!("snapshot_constructor_symbol_and_body", content);
 }
-
-// ---------------------------------------------------------------------------
-// 4. Method with String param
-// ---------------------------------------------------------------------------
 
 #[test]
 fn snapshot_method_with_param() {
@@ -372,12 +350,10 @@ fn snapshot_method_with_param() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // `do_thing` takes a String input, returns String.
     assert!(
         content.contains("nativeDemoClientDoThing"),
         "nativeDemoClientDoThing must be emitted; got:\n{content}"
     );
-    // Must unmarshal request_json.
     assert!(
         content.contains("request_json: JString"),
         "do_thing must accept request_json: JString; got:\n{content}"
@@ -387,19 +363,12 @@ fn snapshot_method_with_param() {
         !do_thing.contains("serde_json::to_string(&v)"),
         "do_thing returns a plain String and must not JSON-serialize it; got:\n{content}"
     );
-    // jni 0.22+: helpers take `&mut Env<'_>`, and `string_to_jstring` accepts
-    // any `impl AsRef<str>`, so the generated `String` return value can be
-    // passed directly.
     assert!(
         do_thing.contains("string_to_jstring(env, v)"),
         "do_thing must return jstring; got:\n{content}"
     );
     insta::assert_snapshot!("snapshot_method_with_param", content);
 }
-
-// ---------------------------------------------------------------------------
-// 5. No-param method returning bool
-// ---------------------------------------------------------------------------
 
 #[test]
 fn snapshot_method_no_params_bool() {
@@ -408,12 +377,10 @@ fn snapshot_method_no_params_bool() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // `ping` takes no params, returns bool.
     assert!(
         content.contains("nativeDemoClientPing"),
         "nativeDemoClientPing must be emitted; got:\n{content}"
     );
-    // No request_json param.
     let ping_section = extract_fn_section(content, "nativeDemoClientPing");
     assert!(
         !ping_section.contains("request_json"),
@@ -423,17 +390,12 @@ fn snapshot_method_no_params_bool() {
         content.contains("-> jboolean"),
         "ping must return jboolean; got:\n{content}"
     );
-    // jni 0.22's `jboolean` is `bool`, so no cast is emitted — the value is returned as-is.
     assert!(
         ping_section.contains("\n    v\n"),
         "ping must return bool as-is (no cast under jni 0.22); section:\n{ping_section}"
     );
     insta::assert_snapshot!("snapshot_method_no_params_bool", content);
 }
-
-// ---------------------------------------------------------------------------
-// 6. No-param method returning Vec<u8>
-// ---------------------------------------------------------------------------
 
 #[test]
 fn snapshot_method_no_params_bytes() {
@@ -442,7 +404,6 @@ fn snapshot_method_no_params_bytes() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // `fetch_blob` takes no params, returns Vec<u8>.
     assert!(
         content.contains("nativeDemoClientFetchBlob"),
         "nativeDemoClientFetchBlob must be emitted; got:\n{content}"
@@ -458,10 +419,6 @@ fn snapshot_method_no_params_bytes() {
     insta::assert_snapshot!("snapshot_method_no_params_bytes", content);
 }
 
-// ---------------------------------------------------------------------------
-// 7. Streaming Start/Next/Free
-// ---------------------------------------------------------------------------
-
 #[test]
 fn snapshot_streaming_start_next_free() {
     let api = make_demo_api();
@@ -469,7 +426,6 @@ fn snapshot_streaming_start_next_free() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // All three streaming symbols present.
     assert!(
         content.contains("nativeDemoClientStreamDataStart"),
         "Start shim missing; got:\n{content}"
@@ -483,12 +439,10 @@ fn snapshot_streaming_start_next_free() {
         "Free shim missing; got:\n{content}"
     );
 
-    // Start: returns jlong. jni 0.22+ uses EnvUnowned in extern signatures.
     assert!(
         content.contains("nativeDemoClientStreamDataStart(\n    mut env: EnvUnowned,\n    _class: JClass,\n    client_handle: jlong,\n    request_json: JString,\n) -> jlong"),
         "Start must have correct signature; got:\n{content}"
     );
-    // Next: polls stream, returns jstring.
     assert!(
         content.contains("stream.next()"),
         "Next must poll stream.next(); got:\n{content}"
@@ -497,7 +451,6 @@ fn snapshot_streaming_start_next_free() {
         content.contains("serde_json::to_string(&chunk)"),
         "Next must serialize chunk; got:\n{content}"
     );
-    // Free: drops the handle.
     assert!(
         content.contains("Box::from_raw(stream_handle as *mut"),
         "Free must Box::from_raw the handle; got:\n{content}"
@@ -505,10 +458,6 @@ fn snapshot_streaming_start_next_free() {
 
     insta::assert_snapshot!("snapshot_streaming_start_next_free", content);
 }
-
-// ---------------------------------------------------------------------------
-// 8. Destructor
-// ---------------------------------------------------------------------------
 
 #[test]
 fn snapshot_destructor() {
@@ -528,15 +477,9 @@ fn snapshot_destructor() {
     insta::assert_snapshot!("snapshot_destructor", content);
 }
 
-// ---------------------------------------------------------------------------
-// 9. Validation: kotlin_android required
-// ---------------------------------------------------------------------------
-
 #[test]
 fn snapshot_validation_requires_kotlin_android() {
     let api = make_demo_api();
-    // Build a config via kotlin_android + jni, then strip the kotlin_android field
-    // to simulate a "jni only" scenario that the backend itself must reject.
     let mut config = make_demo_config();
     config.kotlin_android = None;
 
@@ -548,10 +491,6 @@ fn snapshot_validation_requires_kotlin_android() {
         "error must mention 'kotlin-android'; got: {msg}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// 10. No sample_llm leakage
-// ---------------------------------------------------------------------------
 
 #[test]
 fn snapshot_no_sample_llm_leakage() {
@@ -568,10 +507,6 @@ fn snapshot_no_sample_llm_leakage() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Legacy non-snapshot tests (kept from original file)
-// ---------------------------------------------------------------------------
-
 /// Verify that every JNI symbol in the emitted output starts with `Java_` and
 /// uses the package from `[crates.kotlin_android] package`.
 #[test]
@@ -581,12 +516,10 @@ fn emitted_symbols_match_kotlin_package() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // Package `dev.sample_crate.demo` encodes as `dev_sample_1crate_demo`.
     assert!(
         content.contains("Java_dev_sample_1crate_demo_"),
         "symbols must use package prefix `dev_sample_1crate_demo_`; got:\n{content}"
     );
-    // Bridge class `DemoBridge` appears after the package prefix.
     assert!(
         content.contains("DemoBridge"),
         "symbols must reference `DemoBridge`; got:\n{content}"
@@ -648,12 +581,10 @@ fn jni_symbols_agree_with_alef_core_jni_helpers() {
     let bridge = bridge_class_name("demo");
     assert_eq!(&bridge, "DemoBridge");
 
-    // Top-level function symbol.
     let fn_method = bridge_method_name("", "create_client");
     let fn_sym = jni_symbol(package, &bridge, &fn_method);
     assert_eq!(fn_sym, "Java_dev_sample_1crate_demo_DemoBridge_nativeCreateClient");
 
-    // Instance method symbol.
     let method = bridge_method_name("DemoClient", "ping");
     let method_sym = jni_symbol(package, &bridge, &method);
     assert_eq!(
@@ -661,7 +592,6 @@ fn jni_symbols_agree_with_alef_core_jni_helpers() {
         "Java_dev_sample_1crate_demo_DemoBridge_nativeDemoClientPing"
     );
 
-    // Destructor symbol.
     let dtor = destructor_method_name("DemoClient");
     let dtor_sym = jni_symbol(package, &bridge, &dtor);
     assert_eq!(dtor_sym, "Java_dev_sample_1crate_demo_DemoBridge_nativeFreeDemoClient");
@@ -691,10 +621,6 @@ fn streaming_adapter_shims_are_emitted() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// 11. Real-IR-shape test: Optional<String>, &str, Result, async
-// ---------------------------------------------------------------------------
-
 /// Verifies the emitter handles sample-app-like IR shapes:
 ///   - Optional<String> params → `Some(name)` at the call site
 ///   - `&str` params (is_ref=true, String ty) → `&name` at the call site
@@ -703,7 +629,6 @@ fn streaming_adapter_shims_are_emitted() {
 ///   - `use core_crate::*;` in the import block
 #[test]
 fn real_ir_shape_optional_ref_result_async() {
-    // Build an API surface resembling a sample app's public surface.
     let client_type = TypeDef {
         name: "DemoClient".to_string(),
         rust_path: "demo::DemoClient".to_string(),
@@ -713,7 +638,7 @@ fn real_ir_shape_optional_ref_result_async() {
             "chat_stream",
             vec![make_param("request", TypeRef::Named("ChatRequest".to_string()))],
             TypeRef::Named("ChatResponse".to_string()),
-            true, // async
+            true,
         )],
         is_opaque: true,
         is_clone: false,
@@ -735,8 +660,6 @@ fn real_ir_shape_optional_ref_result_async() {
         version: Default::default(),
     };
 
-    // create_client(api_key: Option<String>, base_url: Option<String>, timeout_secs: Option<u64>,
-    //               max_retries: Option<u32>, model_hint: Option<String>) -> DemoClient
     let create_client = FunctionDef {
         name: "create_client".to_string(),
         rust_path: "demo::create_client".to_string(),
@@ -809,7 +732,6 @@ fn real_ir_shape_optional_ref_result_async() {
         version: Default::default(),
     };
 
-    // unregister_custom_provider(name: &str) -> bool
     let unregister_fn = FunctionDef {
         name: "unregister_custom_provider".to_string(),
         rust_path: "demo::unregister_custom_provider".to_string(),
@@ -821,7 +743,7 @@ fn real_ir_shape_optional_ref_result_async() {
             default: None,
             sanitized: false,
             typed_default: None,
-            is_ref: true, // &str in core
+            is_ref: true,
             is_mut: false,
             newtype_wrapper: None,
             original_type: None,
@@ -883,37 +805,31 @@ fn real_ir_shape_optional_ref_result_async() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // Fix 1: glob import present.
     assert!(
         content.contains("use core_crate::*;"),
         "must contain `use core_crate::*;`; got:\n{content}"
     );
 
-    // Fix 2: Optional<String> params wrapped with Some().
     assert!(
         content.contains("Some(api_key)") && content.contains("Some(base_url)"),
         "Optional<String> params must be wrapped with Some(...); got:\n{content}"
     );
 
-    // Fix 2b: Optional<u64> wrapped with Some().
     assert!(
         content.contains("Some(timeout_secs as u64)"),
         "Optional<u64> param must be wrapped with Some(timeout_secs as u64); got:\n{content}"
     );
 
-    // Fix 3: &str params passed with & reference.
     assert!(
         content.contains("&name"),
         "`name` (is_ref=true, String) must be passed as `&name`; got:\n{content}"
     );
 
-    // Fix 2+3 combined: Result-bearing functions use match result.
     assert!(
         content.contains("match result {"),
         "Result-bearing functions must emit 'match result {{'; got:\n{content}"
     );
 
-    // The create_client call must pass Some(...) for optional params.
     let create_section = extract_fn_section(content, "nativeCreateClient");
     assert!(
         create_section.contains("Some(api_key)"),
@@ -924,7 +840,6 @@ fn real_ir_shape_optional_ref_result_async() {
         "createClient must wrap base_url with Some(); section:\n{create_section}"
     );
 
-    // The unregister call must pass &name.
     let unreg_section = extract_fn_section(content, "nativeUnregisterCustomProvider");
     assert!(
         unreg_section.contains("&name"),
@@ -935,10 +850,6 @@ fn real_ir_shape_optional_ref_result_async() {
         "unregisterCustomProvider (has error_type) must match result; section:\n{unreg_section}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// R1: &mut self receiver uses *mut T cast
-// ---------------------------------------------------------------------------
 
 /// Verifies that a method with `receiver = Some(ReceiverKind::RefMut)` emits
 /// `&mut *(handle as *mut T)` instead of `&*(handle as *const T)`.
@@ -1009,7 +920,6 @@ fn method_ref_mut_receiver_emits_mut_cast() {
     let content = &files[0].content;
 
     let section = extract_fn_section(content, "nativeParserSetLanguage");
-    // Must dereference as *mut, not *const.
     assert!(
         section.contains("&mut *(handle as *mut core_crate::Parser)"),
         "&mut self method must cast to *mut; section:\n{section}"
@@ -1094,10 +1004,6 @@ fn method_ref_receiver_emits_const_cast() {
         "&self method must cast to *const; section:\n{section}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// R2: &[u8] / Vec<u8> / PathBuf params marshalled correctly (not as JSON)
-// ---------------------------------------------------------------------------
 
 /// Verifies that a method taking `source: Vec<u8>` (is_ref=true, so `&[u8]`)
 /// receives a `jbyteArray` and uses `env.convert_byte_array`, not JSON.
@@ -1383,7 +1289,6 @@ fn method_pathbuf_param_receives_raw_string() {
     let content = &files[0].content;
 
     let section = extract_fn_section(content, "nativeLanguageRegistryAddExtraLibsDir");
-    // PathBuf single-param still uses request_json: JString (raw string, not bytes).
     assert!(
         section.contains("request_json: JString"),
         "PathBuf param method must have request_json: JString; section:\n{section}"
@@ -1397,10 +1302,6 @@ fn method_pathbuf_param_receives_raw_string() {
         "PathBuf param must NOT use serde_json::from_str; section:\n{section}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// R4: &[&str] params coerce from Vec<String>
-// ---------------------------------------------------------------------------
 
 /// Verifies that a method taking `names: &[&str]` (TypeRef::Vec(String) with
 /// is_ref=true) deserializes JSON into `Vec<String>` and then collects
@@ -1488,26 +1389,21 @@ fn method_slice_str_param_coerces_to_str_refs() {
     let content = &files[0].content;
 
     let section = extract_fn_section(content, "nativeParserSetIncludedRanges");
-    // Must deserialize to Vec<String> first.
     assert!(
         section.contains("names_vec: Vec<String>"),
         "Vec<String> (is_ref) must deserialize to names_vec: Vec<String>; section:\n{section}"
     );
-    // Must collect refs.
     assert!(
         section.contains("names_refs: Vec<&str>"),
         "must collect names_refs: Vec<&str>; section:\n{section}"
     );
-    // Call site must pass &names_refs.
     assert!(
         section.contains("&names_refs"),
         "call site must pass &names_refs; section:\n{section}"
     );
 }
 
-// ---------------------------------------------------------------------------
 // Regression: streaming handle type aliases prevent clippy::type_complexity
-// ---------------------------------------------------------------------------
 
 /// Regression: the streaming handle struct field must not inline the full
 /// `Mutex<Option<BoxStream<'static, Result<T, Box<dyn Error + Send + Sync + 'static>>>>>>`
@@ -1526,7 +1422,6 @@ fn streaming_handle_struct_uses_type_aliases_to_avoid_type_complexity() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // The two type aliases must appear in the output.
     assert!(
         content.contains("type DemoClientStreamDataStreamHandleItem"),
         "Item alias must be emitted to reduce struct complexity;\ngot:\n{content}"
@@ -1536,7 +1431,6 @@ fn streaming_handle_struct_uses_type_aliases_to_avoid_type_complexity() {
         "Stream alias must be emitted to reduce struct complexity;\ngot:\n{content}"
     );
 
-    // The struct field must reference the alias, NOT the inline nested type.
     assert!(
         content.contains("stream: Mutex<Option<DemoClientStreamDataStreamHandleStream>>"),
         "struct field must use the short alias type, not the inlined nested form;\ngot:\n{content}"
@@ -1548,10 +1442,6 @@ fn streaming_handle_struct_uses_type_aliases_to_avoid_type_complexity() {
         "struct field must not inline the full nested type (would trigger clippy::type_complexity);\ngot:\n{content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// C1: no unwrap_or_default() on JSON serialization paths
-// ---------------------------------------------------------------------------
 
 /// Regression: the emitted JNI shim must NOT use `.unwrap_or_default()` on
 /// any `serde_json::to_string(...)` call.  Silent serialization failures
@@ -1565,9 +1455,6 @@ fn no_unwrap_or_default_on_json_serialization_path() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // The only `unwrap_or_default` that may appear is on the `exclude_functions`
-    // HashSet collection — NOT on any serialization path.  Verify none appear
-    // adjacent to `serde_json::to_string`.
     for line in content.lines() {
         if line.contains("unwrap_or_default") {
             assert!(
@@ -1583,21 +1470,15 @@ fn no_unwrap_or_default_on_json_serialization_path() {
         }
     }
 
-    // Confirm that explicit error handling IS present instead.
     assert!(
         content.contains("serialize: {e}"),
         "serialization errors must propagate via throw_jni_error with message; got:\n{content}"
     );
 }
 
-// ---------------------------------------------------------------------------
-// Helper: extract the function body section for a named symbol
-// ---------------------------------------------------------------------------
-
 /// Extract the text from just before the `fn <sym>` line through the closing `}`.
 fn extract_fn_section(content: &str, symbol: &str) -> String {
     let start = content.find(symbol).unwrap_or(0);
-    // Walk forward to find the final closing brace of this function.
     let rest = &content[start..];
     let mut depth = 0usize;
     let mut end = rest.len();
@@ -1616,10 +1497,6 @@ fn extract_fn_section(content: &str, symbol: &str) -> String {
     }
     rest[..end].to_string()
 }
-
-// ---------------------------------------------------------------------------
-// Panic-safety: run_or_throw helper and block_on wrapping
-// ---------------------------------------------------------------------------
 
 #[test]
 fn panic_safety_run_or_throw_replaces_bare_block_on() {
@@ -1658,10 +1535,6 @@ fn panic_safety_run_or_throw_replaces_bare_block_on() {
     assert!(next.contains("run_or_throw"), "streaming Next must use run_or_throw");
 }
 
-// ---------------------------------------------------------------------------
-// client_constructors: nativeNew<TypeName> shim
-// ---------------------------------------------------------------------------
-
 /// When `client_constructors` contains an entry for an opaque type,
 /// `emit_lib_rs` must emit a `nativeNew<TypeName>` shim that:
 /// - receives each `*const c_char` param as `JString`
@@ -1687,7 +1560,6 @@ fn client_constructors_emits_native_new_shim() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // The constructor shim symbol must use nativeNew<TypeName>.
     assert!(
         content.contains("nativeNewDemoClient"),
         "constructor shim must use nativeNewDemoClient; got:\n{content}"
@@ -1695,40 +1567,31 @@ fn client_constructors_emits_native_new_shim() {
 
     let section = extract_fn_section(content, "nativeNewDemoClient");
 
-    // Param must be JString (c_char maps to string).
     assert!(
         section.contains("api_key: JString"),
         "c_char param must receive JString; section:\n{section}"
     );
 
-    // Must unmarshal via jstring_to_string.
     assert!(
         section.contains("jstring_to_string(env, api_key)"),
         "must unmarshal api_key via jstring_to_string; section:\n{section}"
     );
 
-    // Must return jlong.
     assert!(
         section.contains("-> jlong"),
         "constructor shim must return jlong; section:\n{section}"
     );
 
-    // Must box the result.
     assert!(
         section.contains("Box::into_raw(Box::new(v)) as jlong"),
         "constructor must Box::into_raw result; section:\n{section}"
     );
 
-    // Must return 0 on error.
     assert!(
         section.contains("throw_jni_error"),
         "constructor must call throw_jni_error on failure; section:\n{section}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Trait-bridge shim emission
-// ---------------------------------------------------------------------------
 
 fn trait_bridge_config(exclude_languages: &[&str]) -> ResolvedCrateConfig {
     let exclude_array = if exclude_languages.is_empty() {
@@ -1813,12 +1676,10 @@ fn trait_bridge_emits_jni_shim_symbols() {
         "missing nativeClearTextBackends extern fn: {content}"
     );
 
-    // Unregister wires through to the host-configured function.
     assert!(
         content.contains("core_crate::unregister_text_backend(&name)"),
         "unregister shim must call host unregister_fn: {content}"
     );
-    // Clear wires through to the host-configured function.
     assert!(
         content.contains("core_crate::clear_text_backends"),
         "clear shim must call host clear_fn: {content}"
@@ -1846,10 +1707,6 @@ fn trait_bridge_exclude_languages_suppresses_jni_shim() {
         "excluded trait bridge must not emit clear shim: {content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Bug 2 regression — trait-method `use` clauses
-// ---------------------------------------------------------------------------
 
 /// When a type has a method whose `trait_source` points to a sub-module trait
 /// (one that isn't re-exported at the crate root), the JNI emitted lib.rs MUST
@@ -1976,7 +1833,6 @@ fn lib_rs_dedupes_trait_paths_by_last_segment() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // Exactly one `use` line should reference Dependency (the shorter path wins).
     let count = content.matches("::Dependency;").count();
     assert_eq!(
         count, 1,
@@ -2091,13 +1947,10 @@ fn trait_bridge_register_shim_dispatches_to_host_object() {
         content.contains("jni_dispatch_json(env, self.inner.as_obj(), method, args_json)"),
         "the dispatch helper must route through the shared JSON entry point: {content}"
     );
-    // Bytes params cross as base64 strings inside the args JSON.
     assert!(
         content.contains("base64::Engine::encode"),
         "bytes params must be base64-encoded into the args JSON: {content}"
     );
-    // Rust-defaulted methods are forwarded via the implemented-methods set with
-    // the shared default-delegate fallback.
     assert!(
         content.contains("self.implemented_methods.contains(\"supports_tables\")"),
         "defaulted methods must be presence-guarded: {content}"
@@ -2106,7 +1959,6 @@ fn trait_bridge_register_shim_dispatches_to_host_object() {
         content.contains("JniTextBackendBridgeDefaultSupportsTables(self).supports_tables()"),
         "fallback must run the Rust default via the shared delegate: {content}"
     );
-    // Lifecycle hooks are no-ops when the host doesn't implement them.
     assert!(
         content.contains("self.implemented_methods.contains(\"initialize\")"),
         "initialize must be guarded by the implemented set: {content}"

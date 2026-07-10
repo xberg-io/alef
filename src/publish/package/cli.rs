@@ -31,7 +31,6 @@ pub fn package_cli(
     }
     fs::create_dir_all(&staging)?;
 
-    // Find and copy the CLI binary.
     let bin_src = find_binary(workspace_root, target, &binary_name)?;
     fs::copy(&bin_src, staging.join(&binary_name))?;
 
@@ -44,13 +43,11 @@ pub fn package_cli(
         }
     }
 
-    // Copy README.
     let readme = workspace_root.join("README.md");
     if readme.exists() {
         fs::copy(&readme, staging.join("README.md"))?;
     }
 
-    // Create archive.
     let archive_name = format!("{pkg_name}.tar.gz");
     let archive_path = output_dir.join(&archive_name);
     super::create_tar_gz(&staging, &archive_path)?;

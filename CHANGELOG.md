@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **dart native loader emitted unparseable Dart (`\${...}` instead of `${...}`)**: the
+  `StateError` raised on a full native-library cache miss escaped `${nativeCacheDir() ...}` and
+  `${nativeAssetUrlBase()}` as a literal `\$` instead of real Dart string interpolation. The stray
+  backslash meant the enclosing single-quoted string terminated early at the nested
+  `'<unresolved cache dir>'` literal, producing bare identifiers (`unresolved`, `cache`, `dir`)
+  that fail to compile in every consumer of `frb_generated.dart`. Fixed in
+  `frb_init_prologue_replacement`; added a regression test asserting real interpolation.
 - **e2e shebang scripts lost their executable bit after formatting**: the scaffold writer chmods
   generated shebang scripts (e.g. `run_tests.php`) to `0o755`, but the subsequent `poly fmt --fix`
   pass in the e2e formatter rewrites them via atomic rename, resetting the mode to `0o644`. The

@@ -7,8 +7,6 @@ use alef::core::ir::{
 };
 
 // ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
@@ -132,10 +130,6 @@ target = "multiplatform"
     ))
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 /// KMP target emits five files: commonMain .kt, jvmMain .kt, nativeMain .kt, .def, build.gradle.kts.
 #[test]
 fn mpp_emits_five_files() {
@@ -195,19 +189,16 @@ fn mpp_common_contains_expect_object() {
         "missing expect object: {}",
         common.content
     );
-    // Expect signature — no body (no opening brace after the signature line).
     assert!(
         common.content.contains("fun convertHtml(input: String): String"),
         "missing expect signature: {}",
         common.content
     );
-    // No Bridge call in commonMain.
     assert!(
         !common.content.contains("Bridge."),
         "commonMain must not contain Bridge calls: {}",
         common.content
     );
-    // No memScoped in commonMain.
     assert!(
         !common.content.contains("memScoped"),
         "commonMain must not contain memScoped: {}",

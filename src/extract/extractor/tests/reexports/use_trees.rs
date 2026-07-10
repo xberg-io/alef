@@ -15,8 +15,6 @@ fn test_pub_use_self_super_skipped() {
     "#;
 
     let surface = extract_from_source(source);
-    // self/super/crate use paths are skipped (handled by mod resolution)
-    // The inline module should still be extracted
     assert_eq!(surface.types.len(), 1);
     assert_eq!(surface.types[0].name, "Helper");
 }
@@ -52,7 +50,6 @@ fn test_collect_use_names_glob() {
 
 #[test]
 fn test_collect_use_names_rename() {
-    // `use Foo as Bar` should return the alias name "Bar"
     let tree: syn::UseTree = syn::parse_str("Foo as Bar").unwrap();
     match super::reexports::collect_use_names(&tree) {
         super::reexports::UseFilter::Names(names) => {
@@ -64,7 +61,6 @@ fn test_collect_use_names_rename() {
 
 #[test]
 fn test_collect_use_names_nested_path() {
-    // `some::module::Type` — the leaf is Type
     let tree: syn::UseTree = syn::parse_str("some::module::Type").unwrap();
     match super::reexports::collect_use_names(&tree) {
         super::reexports::UseFilter::Names(names) => {
@@ -76,7 +72,6 @@ fn test_collect_use_names_nested_path() {
 
 #[test]
 fn test_collect_use_names_group_with_glob_returns_all() {
-    // `{Foo, *}` — a group containing a glob means All
     let tree: syn::UseTree = syn::parse_str("{Foo, *}").unwrap();
     assert!(matches!(
         super::reexports::collect_use_names(&tree),
@@ -86,8 +81,6 @@ fn test_collect_use_names_group_with_glob_returns_all() {
 
 #[test]
 fn test_resolve_use_tree_group_variant() {
-    // `pub use self::inner::{Foo};` — group variant of UseTree going through resolve_use_tree
-    // Since these are self-references, they should be skipped without error.
     let source = r#"
         pub use self::{inner::Foo};
 
@@ -96,7 +89,6 @@ fn test_resolve_use_tree_group_variant() {
         }
     "#;
 
-    // Should not panic, and the inline module is still extracted
     let surface = extract_from_source(source);
     assert_eq!(surface.types.len(), 1);
     assert_eq!(surface.types[0].name, "Foo");

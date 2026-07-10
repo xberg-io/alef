@@ -66,7 +66,6 @@ fn test_fixture(input: serde_json::Value) -> Fixture {
 
 #[test]
 fn php_respects_serde_rename_all_camel_case_when_present() {
-    // Create a type WITH `rename_all = "camelCase"`.
     let config_with_camel = TypeDef {
         name: "ConfigWithCamel".to_string(),
         rust_path: "test_crate::ConfigWithCamel".to_string(),
@@ -80,7 +79,7 @@ fn php_respects_serde_rename_all_camel_case_when_present() {
         has_default: true,
         has_stripped_cfg_fields: false,
         is_return_type: false,
-        serde_rename_all: Some("camelCase".to_string()), // Present!
+        serde_rename_all: Some("camelCase".to_string()),
         has_serde: true,
         super_traits: Vec::new(),
         binding_excluded: false,
@@ -123,7 +122,6 @@ options_type = "ConfigWithCamel"
 
     let output = render_with_type_defs(toml_src, vec![config_with_camel], fixture);
 
-    // When serde_rename_all = "camelCase", keys SHOULD be transformed.
     assert!(
         output.contains("extractPages"),
         "camelCase keys should be emitted when type has rename_all = \"camelCase\""
@@ -137,10 +135,6 @@ options_type = "ConfigWithCamel"
 #[test]
 fn php_camel_cases_keys_when_core_type_lacks_rename_all() {
     // The binding emits `#[serde(rename_all = "camelCase")]` on every struct by
-    // default (driven by the PHP backend's `lang_rename_all`), so fixture keys are
-    // camelCased regardless of whether the CORE type carries `rename_all`. This
-    // pins commit 9e8070a8's contract — the rename source of truth is the BINDING,
-    // not the core IR.
     let config_without_camel = TypeDef {
         name: "ConfigWithoutCamel".to_string(),
         rust_path: "test_crate::ConfigWithoutCamel".to_string(),
@@ -154,7 +148,7 @@ fn php_camel_cases_keys_when_core_type_lacks_rename_all() {
         has_default: true,
         has_stripped_cfg_fields: false,
         is_return_type: false,
-        serde_rename_all: None, // Absent on the CORE type — but the PHP binding still uses camelCase.
+        serde_rename_all: None,
         has_serde: true,
         super_traits: Vec::new(),
         binding_excluded: false,
@@ -197,8 +191,6 @@ options_type = "ConfigWithoutCamel"
 
     let output = render_with_type_defs(toml_src, vec![config_without_camel], fixture);
 
-    // camelCase is the PHP binding default — keys are renamed regardless of the
-    // core IR's `serde_rename_all`.
     assert!(
         output.contains("extractPages"),
         "camelCase keys should be emitted because the PHP binding default is camelCase\n{output}"

@@ -111,8 +111,6 @@ fn test_gen_method_wrapper_opaque_free_method_emits_ptr_cast() {
         &enum_names,
         &ffi_param_enum_names,
     );
-    // The function signature may span multiple lines (method_receiver_instance + params + method_return).
-    // Check for the receiver and name components rather than the full single-line form.
     assert!(
         out.contains("func (h *Client) Close("),
         "expected receiver+method in: {out}"
@@ -160,16 +158,11 @@ fn test_gen_method_wrapper_non_opaque_static_emisample_package_func() {
         &enum_names,
         &ffi_param_enum_names,
     );
-    // Static methods become package-level functions (no receiver)
     assert!(out.contains("func Config"));
 }
 
 #[test]
 fn test_gen_method_wrapper_optional_string_getter_emits_nil_check_and_address() {
-    // Regression: `pub fn get_description(&self) -> Option<&str>` produced a body that
-    // returned `C.GoString(ptr)` directly even though the Go signature was `*string`.
-    // The generator must emit a `if ptr == nil { return nil }; s := C.GoString(ptr); return &s`
-    // pattern so the body type matches the signature.
     let typ = opaque_type("GraphQLRouteConfig");
     let method = simple_method("get_description", TypeRef::Optional(Box::new(TypeRef::String)), false);
     let opaque: std::collections::HashSet<&str> = ["GraphQLRouteConfig"].into();
@@ -185,9 +178,7 @@ fn test_gen_method_wrapper_optional_string_getter_emits_nil_check_and_address() 
         &enum_names,
         &ffi_param_enum_names,
     );
-    // Signature must be *string for Optional<String>.
     assert!(out.contains(") *string {"), "expected *string return in:\n{out}");
-    // Body must include nil check and take-address pattern, NOT a bare C.GoString(ptr).
     assert!(
         out.contains("if ptr == nil"),
         "missing nil check in optional-string getter body:\n{out}"
@@ -196,8 +187,6 @@ fn test_gen_method_wrapper_optional_string_getter_emits_nil_check_and_address() 
         out.contains("return &s") || out.contains("return &result"),
         "missing take-address pattern in optional-string getter body:\n{out}"
     );
-    // The bare `return C.GoString(ptr)` is exactly the buggy form — must NOT appear at the
-    // outer return position. (It may still appear inside a `s := C.GoString(ptr)` line.)
     assert!(
         !out.contains("\treturn C.GoString(ptr)\n"),
         "buggy bare `return C.GoString(ptr)` present:\n{out}"
@@ -255,16 +244,11 @@ fn test_gen_method_wrapper_bytes_result_emits_out_params() {
         &enum_names,
         &ffi_param_enum_names,
     );
-    // Return type must be ([]byte, error).
     assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
-    // Must declare out-param variables.
     assert!(out.contains("var outPtr"), "missing outPtr in:\n{out}");
     assert!(out.contains("outLen"), "missing outLen in:\n{out}");
     assert!(out.contains("outCap"), "missing outCap in:\n{out}");
-    // Must pass out-params to C call.
     assert!(out.contains("&outPtr"), "missing &outPtr in:\n{out}");
-    // Must copy bytes via C.GoBytes.
     assert!(out.contains("C.GoBytes"), "missing C.GoBytes in:\n{out}");
-    // Must free via krz_free_bytes.
     assert!(out.contains("krz_free_bytes"), "missing krz_free_bytes in:\n{out}");
 }

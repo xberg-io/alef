@@ -464,7 +464,6 @@ fn test_gen_named_let_bindings_vec_named_non_opaque() {
 
 #[test]
 fn test_gen_named_let_bindings_vec_string_is_ref() {
-    // Vec<String> with is_ref=true should generate a Vec<&str> intermediate
     let opaque_types = AHashSet::new();
     let params = vec![ParamDef {
         name: "labels".to_string(),
@@ -517,8 +516,6 @@ fn test_gen_named_let_bindings_vec_string_is_ref_optional() {
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
-    // Optional Vec<String> with is_ref=true still generates Vec<&str> intermediate binding
-    // (the optional wrapping is handled at the call site, not in the let binding).
     assert!(
         result.contains("let tags_refs: Vec<&str>"),
         "should generate Vec<&str> intermediate for optional Vec<String> is_ref=true"

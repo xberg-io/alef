@@ -10,29 +10,22 @@ use std::collections::BTreeSet;
 pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
     let mut out = String::new();
 
-    // Aggregate every `Named` type referenced across services' user-facing
-    // surface so we can emit a single TYPE_CHECKING import block.
     let mut named_types: BTreeSet<String> = BTreeSet::new();
     let mut runtime_types: BTreeSet<String> = BTreeSet::new();
     for service in &api.services {
         collect_service_named_types(service, &mut named_types);
         collect_variant_runtime_types(service, &mut runtime_types);
     }
-    // Runtime types take precedence — drop them from the TYPE_CHECKING-only set.
     for n in &runtime_types {
         named_types.remove(n);
     }
     let any_registrations = api.services.iter().any(|s| !s.registrations.is_empty());
 
-    // The native extension is a submodule of the package (e.g. `pkg._pkg`), so import it
-    // relatively — a bare `import _pkg` would not resolve at runtime.
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_header.py.jinja",
         context! { module_name => module_name },
     ));
 
-    // Variant constructors reference runtime types (e.g. RouteBuilder, Method),
-    // so emit those as a normal import — TYPE_CHECKING is not enough.
     if !runtime_types.is_empty() {
         let joined = runtime_types.iter().cloned().collect::<Vec<_>>().join(", ");
         out.push_str(&crate::backends::pyo3::template_env::render(
@@ -41,14 +34,9 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
         ));
     }
 
-    // Emit a TYPE_CHECKING block for annotation-only imports so the file
-    // passes ruff `F821`, `TC003`, and import-sort checks without paying the
-    // runtime import cost.
     if any_registrations || !named_types.is_empty() {
         out.push('\n');
         out.push_str("if TYPE_CHECKING:\n");
-        // Mirror ruff's import-sort policy: stdlib group, then local group,
-        // separated by a blank line inside the TYPE_CHECKING block.
         if any_registrations {
             out.push_str("    from collections.abc import Callable\n");
             if !named_types.is_empty() {
@@ -63,7 +51,6 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
             ));
         }
     }
-    // Two blank lines before the first class (PEP8 / ruff-format).
     out.push_str("\n\n");
 
     for service in &api.services {
@@ -85,7 +72,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         out.push('\n');
     }
 
-    // __init__
     {
         let ctor = &service.constructor;
         let mut init_params = vec!["self".to_owned()];
@@ -108,8 +94,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         if !ctor.doc.is_empty() {
             out.push_str(&format_docstring(&ctor.doc, 8));
         }
-        // Stored state for registrations — also serves as a non-empty body so
-        // we never need a stray `pass` statement (ruff `PIE790`).
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_registration_state.py.jinja",
             context! {},
@@ -123,7 +107,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         out.push('\n');
     }
 
-    // Configurator methods
     for method in &service.configurators {
         let mut params = vec!["self".to_owned()];
         for p in &method.params {
@@ -136,9 +119,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         }
         let param_sig = params.join(", ");
         let method_name = &method.name;
-        // With `from __future__ import annotations` the return type is a
-        // string at runtime, so we don't need to quote the self-class name
-        // (ruff `UP037`).
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_configurator_header.py.jinja",
             context! {
@@ -162,12 +142,10 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         ));
     }
 
-    // Registration methods as decorator-style helpers
     for reg in &service.registrations {
         gen_registration_method(out, reg, service, api, module_name);
     }
 
-    // Entrypoint methods
     for ep in &service.entrypoints {
         let mut params = vec!["self".to_owned()];
         for p in &ep.params {

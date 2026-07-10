@@ -6,9 +6,6 @@
 /// to avoid splitting multi-byte UTF-8 sequences.
 #[inline]
 pub(super) fn advance_char(s: &str, out: &mut String, i: usize) -> usize {
-    // Safety: `i` must be a valid char boundary; callers guarantee this
-    // because all branch points look for ASCII bytes which are always
-    // single-byte char boundaries.
     let ch = s[i..].chars().next().expect("valid UTF-8 position");
     out.push(ch);
     i + ch.len_utf8()

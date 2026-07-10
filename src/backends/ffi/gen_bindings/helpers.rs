@@ -21,8 +21,6 @@ fn render_doxygen_typedef_block(doc: &str) -> String {
     let mut out = String::with_capacity(raw.len() + 16);
     out.push_str("/**\n");
     for line in raw.lines() {
-        // `emit_c_doxygen` prefixes each line with `/// ` — swap that for the
-        // Doxygen `*` continuation marker used inside `/** */` blocks.
         let body = line.strip_prefix("/// ").unwrap_or(line.trim_start_matches("///"));
         if body.is_empty() {
             out.push_str(" *\n");
@@ -65,7 +63,6 @@ pub(super) fn gen_value_to_c(
 ) -> String {
     match ty {
         TypeRef::Primitive(p) => {
-            // Bool needs cast to i32 for C ABI; other primitives may need deref if from Option
             let type_class = if matches!(p, crate::core::ir::PrimitiveType::Bool) {
                 "primitive_bool"
             } else {
@@ -118,7 +115,6 @@ pub(super) fn gen_value_to_c(
                     },
                 )
             } else if clone_names.contains(name.as_str()) {
-                // Clone-capable struct: clone the borrowed reference into an owned box.
                 crate::backends::ffi::template_env::render(
                     "value_to_c_conversion.jinja",
                     minijinja::context! {
@@ -128,8 +124,6 @@ pub(super) fn gen_value_to_c(
                     },
                 )
             } else {
-                // Non-Clone opaque type: the caller holds a borrow from the parent struct.
-                // Return a raw pointer alias — the C caller must not outlive the parent handle.
                 crate::backends::ffi::template_env::render(
                     "value_to_c_conversion.jinja",
                     minijinja::context! {
@@ -140,28 +134,22 @@ pub(super) fn gen_value_to_c(
                 )
             }
         }
-        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            // Serialize as JSON
-            crate::backends::ffi::template_env::render(
-                "value_to_c_conversion.jinja",
-                minijinja::context! {
-                    type_class => "json_or_vec_or_map",
-                    expr => expr,
-                    indent => indent,
-                },
-            )
-        }
-        TypeRef::Bytes => {
-            // Return pointer; caller must also get length. Cast to *mut u8 to match FFI signature.
-            crate::backends::ffi::template_env::render(
-                "value_to_c_conversion.jinja",
-                minijinja::context! {
-                    type_class => "bytes",
-                    expr => expr,
-                    indent => indent,
-                },
-            )
-        }
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => crate::backends::ffi::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "json_or_vec_or_map",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Bytes => crate::backends::ffi::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "bytes",
+                expr => expr,
+                indent => indent,
+            },
+        ),
         TypeRef::Duration => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
             minijinja::context! {
@@ -193,13 +181,10 @@ pub(super) fn gen_value_to_c(
 pub(super) fn gen_ffi_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool) -> String {
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error && is_void_return(return_type) {
-        // Fallible + void: return error code
         format!("    set_last_error(99, \"{err_msg}\");\n    -1")
     } else if is_void_return(return_type) {
-        // Infallible void: just set error context and return
         format!("    set_last_error(99, \"{err_msg}\");")
     } else {
-        // Non-void: set error and return null/zero
         let ret = null_return_value(return_type);
         format!("    set_last_error(99, \"{err_msg}\");\n    {ret}")
     }
@@ -223,7 +208,6 @@ pub(super) fn null_return_value(ty: &TypeRef) -> &'static str {
                 PrimitiveType::F32 | PrimitiveType::F64 => "0.0",
                 _ => "0",
             },
-            // Option<Option<Primitive>> — both None cases collapse to 0/false.
             TypeRef::Optional(inner2) => match inner2.as_ref() {
                 TypeRef::Primitive(p) => match p {
                     PrimitiveType::F32 | PrimitiveType::F64 => "0.0",
@@ -237,10 +221,6 @@ pub(super) fn null_return_value(ty: &TypeRef) -> &'static str {
         TypeRef::Unit => "()",
     }
 }
-
-// ---------------------------------------------------------------------------
-// Convert owned Rust value to C return (non-Result path)
-// ---------------------------------------------------------------------------
 
 pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum_names: &AHashSet<String>) -> String {
     match ty {
@@ -285,18 +265,14 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
                 indent => indent,
             },
         ),
-        TypeRef::Named(_) => {
-            // For owned values, .clone() is wasteful AND incorrect when the type is non-Clone
-            // (opaque handles like Parser/Registry). Move the value into the Box.
-            crate::backends::ffi::template_env::render(
-                "value_to_c_conversion.jinja",
-                minijinja::context! {
-                    type_class => "named_owned",
-                    expr => expr,
-                    indent => indent,
-                },
-            )
-        }
+        TypeRef::Named(_) => crate::backends::ffi::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "named_owned",
+                expr => expr,
+                indent => indent,
+            },
+        ),
         TypeRef::Vec(_) | TypeRef::Map(_, _) => crate::backends::ffi::template_env::render(
             "value_to_c_conversion.jinja",
             minijinja::context! {
@@ -305,21 +281,15 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
                 indent => indent,
             },
         ),
-        TypeRef::Bytes => {
-            // Return pointer; assume out-param for length. Cast to *mut u8 to match FFI signature.
-            crate::backends::ffi::template_env::render(
-                "value_to_c_conversion.jinja",
-                minijinja::context! {
-                    type_class => "bytes",
-                    expr => expr,
-                    indent => indent,
-                },
-            )
-        }
+        TypeRef::Bytes => crate::backends::ffi::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "bytes",
+                expr => expr,
+                indent => indent,
+            },
+        ),
         TypeRef::Optional(inner) => {
-            // For non-bool primitives the inner conversion is just the value itself (passthrough),
-            // so the manual-match pattern `match expr { Some(val) => val, None => default }`
-            // is equivalent to `expr.unwrap_or(default)`.  Emit the latter to satisfy
             // clippy::manual_unwrap_or.  Bool needs `as i32` and stays with the match form.
             if let TypeRef::Primitive(prim) = inner.as_ref() {
                 if !matches!(prim, crate::core::ir::PrimitiveType::Bool) {
@@ -329,7 +299,6 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
             }
             let inner_conversion = gen_owned_value_to_c("val", inner, &format!("{indent}        "), _enum_names);
             let null_value = null_return_value(&TypeRef::Optional(inner.clone()));
-            // Owned-context: consume the Option so val is owned T (not &T).
             crate::backends::ffi::template_env::render(
                 "value_to_c_conversion.jinja",
                 minijinja::context! {
@@ -352,10 +321,6 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
         TypeRef::Unit => String::new(),
     }
 }
-
-// ---------------------------------------------------------------------------
-// cbindgen.toml generation
-// ---------------------------------------------------------------------------
 
 pub(super) fn cbindgen_exclude_type_names(
     api: &crate::core::ir::ApiSurface,
@@ -409,15 +374,6 @@ pub(super) fn gen_cbindgen_toml(
 ) -> String {
     let prefix_upper = prefix.to_uppercase();
 
-    // Collect (c_name, doc) pairs for every opaque handle that needs a forward
-    // declaration in the generated C header. cbindgen renames Rust types using
-    // the export prefix, producing e.g. `HTMMetadataConfig` for prefix `HTM`.
-    //
-    // Capsule (Language-passthrough) types are skipped here: their passthrough function
-    // returns the host-native pointee (forward-declared unprefixed below). The exception
-    // is a capsule type still returned as an opaque handle by a method (e.g.
-    // `LanguageRegistry.get_language`) — that prefixed handle (`{PREFIX}Language`) must be
-    // forward-declared too, or the method's C declaration references an undefined type.
     let capsule_used_as_opaque: std::collections::HashSet<&str> = api
         .types
         .iter()
@@ -432,17 +388,9 @@ pub(super) fn gen_cbindgen_toml(
         .iter()
         .filter(|t| !exclude_types.contains(&t.name))
         .filter(|t| !capsule_types.contains_key(t.name.as_str()) || capsule_used_as_opaque.contains(t.name.as_str()))
-        // Use the IR type name verbatim (it already comes from Rust source as
-        // PascalCase). `to_pascal_case` mangles names containing all-caps
-        // abbreviations: e.g. `GraphQLError` becomes `GraphQlError`, which
-        // disagrees with cbindgen's emit (e.g. `MYLIBGraphQLError` for prefix
-        // `MYLIB`) and breaks the C consumer build.
         .map(|t| (format!("{prefix_upper}{}", t.name), t.doc.clone()))
         .collect();
 
-    // Forward-declare each capsule pointee type UNPREFIXED (e.g. `TSLanguage`), so the
-    // `const TSLanguage *` return type cbindgen emits from `*const tree_sitter::ffi::TSLanguage`
-    // resolves in the generated header. Sorted+deduped via the shared `entries` vec below.
     {
         let mut c_names: Vec<&str> = capsule_types.values().map(|c| c.c_return_type.as_str()).collect();
         c_names.sort_unstable();
@@ -454,8 +402,6 @@ pub(super) fn gen_cbindgen_toml(
         }
     }
 
-    // Include enum types as well — they may appear as opaque handles in
-    // function signatures when used across module boundaries.
     for e in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
         let c_name = format!("{prefix_upper}{}", e.name);
         if !entries.iter().any(|(n, _)| n == &c_name) {
@@ -463,10 +409,6 @@ pub(super) fn gen_cbindgen_toml(
         }
     }
 
-    // Include error types — every error whose accessor functions are emitted
-    // (via gen_ffi_error_methods) references *const ErrorType in the FFI
-    // signature. Without a forward typedef cbindgen produces an "unknown type
-    // name" error in the generated C header.
     for err in api.errors.iter().filter(|err| !exclude_types.contains(&err.name)) {
         if !err.methods.is_empty() {
             let c_name = format!("{prefix_upper}{}", err.name);
@@ -476,13 +418,6 @@ pub(super) fn gen_cbindgen_toml(
         }
     }
 
-    // Include service owner types — each service is emitted as the opaque `inner`
-    // pointer of its generated `{PREFIX}{Service}Opaque` handle (e.g.
-    // `{PREFIX}App *inner`). Owners live in `api.services` and are mirrored into
-    // `types` as `binding_excluded`, which places them in `exclude_types` — so they
-    // are intentionally NOT filtered by `exclude_types` here (unlike the type/enum/
-    // error loops above). The `{Service}Opaque.inner` pointer references the owner
-    // regardless, so without a forward typedef cbindgen reports "unknown type name".
     for svc in api.services.iter() {
         let c_name = format!("{prefix_upper}{}", svc.name);
         if !entries.iter().any(|(n, _)| n == &c_name) {
@@ -495,12 +430,6 @@ pub(super) fn gen_cbindgen_toml(
     let forward_decls: String = entries
         .iter()
         .map(|(name, doc)| {
-            // Render a Doxygen `/** ... */` block above each typedef when the
-            // upstream rustdoc is non-empty. The block is emitted inline (the
-            // declaration is part of cbindgen's `after_includes` literal text)
-            // rather than via `///` comments because there is no source line
-            // for cbindgen to lift comments from — `forward_decls` is a raw
-            // C-text passthrough.
             let doc_block = render_doxygen_typedef_block(doc);
             if doc_block.is_empty() {
                 format!("typedef struct {name} {name};")
@@ -540,10 +469,6 @@ fn toml_multiline_basic_string(value: &str) -> String {
     format!("\"\"\"\n{escaped}\"\"\"")
 }
 
-// ---------------------------------------------------------------------------
-// build.rs generation
-// ---------------------------------------------------------------------------
-
 pub(super) fn gen_build_rs(
     header_name: &str,
     lib_name: &str,
@@ -551,12 +476,6 @@ pub(super) fn gen_build_rs(
     prefix: &str,
     capsule_types: &std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
 ) -> String {
-    // cbindgen applies the export prefix to every type it references, including the
-    // host-native capsule pointee types (e.g. `tree_sitter::ffi::TSLanguage`), so
-    // `const TSLanguage *` is emitted as `const {PREFIX}TSLanguage *` — a name cbindgen
-    // never declares. Those pointees are forward-declared UNPREFIXED in the header
-    // prelude, so rewrite the prefixed references back to the bare prelude name.
-    // Longest-first so a prefixed name that is a substring of another is replaced safely.
     let capsule_header_fixup = {
         let prefix_upper = prefix.to_uppercase();
         let mut pairs: Vec<(String, String)> = capsule_types
@@ -617,10 +536,6 @@ pub(super) fn gen_build_rs(
     )
 }
 
-// ---------------------------------------------------------------------------
-// last_error pattern
-// ---------------------------------------------------------------------------
-
 pub(super) fn gen_last_error(prefix: &str) -> String {
     crate::backends::ffi::template_env::render(
         "last_error.jinja",
@@ -629,10 +544,6 @@ pub(super) fn gen_last_error(prefix: &str) -> String {
         },
     )
 }
-
-// ---------------------------------------------------------------------------
-// free_string
-// ---------------------------------------------------------------------------
 
 pub(super) fn gen_free_string(prefix: &str) -> String {
     crate::backends::ffi::template_env::render(
@@ -643,10 +554,6 @@ pub(super) fn gen_free_string(prefix: &str) -> String {
     )
 }
 
-// ---------------------------------------------------------------------------
-// version
-// ---------------------------------------------------------------------------
-
 pub(super) fn gen_version(prefix: &str) -> String {
     crate::backends::ffi::template_env::render(
         "version_fn.jinja",
@@ -655,10 +562,6 @@ pub(super) fn gen_version(prefix: &str) -> String {
         },
     )
 }
-
-// ---------------------------------------------------------------------------
-// free_bytes
-// ---------------------------------------------------------------------------
 
 /// Generate a `{prefix}_free_bytes` companion that reconstructs and drops a
 /// heap-allocated `Vec<u8>` previously returned via the out-param convention
@@ -692,10 +595,6 @@ pub unsafe extern "C" fn {prefix}_free_bytes(ptr: *mut u8, len: usize, cap: usiz
 pub(super) fn gen_ffi_tokio_runtime() -> String {
     crate::backends::ffi::template_env::render("ffi_tokio_runtime.jinja", minijinja::context! {})
 }
-
-// ---------------------------------------------------------------------------
-// Stream handle (iterator-based streaming for FFI consumers)
-// ---------------------------------------------------------------------------
 
 /// Generate the three iterator-handle functions for a streaming adapter:
 ///
@@ -731,10 +630,7 @@ pub(super) fn gen_stream_handle_functions(
     let fn_next = format!("{prefix}_{owner_snake}_{adapter_name}_next");
     let fn_free = format!("{prefix}_{owner_snake}_{adapter_name}_free");
 
-    // Full item type path for the BoxStream generic
     let core_item = format!("{core_import}::{item_type}");
-    // Error type is erased to a boxed trait object so the handle type is stable across
-    // error-type changes in core.  Uses only std — no anyhow dependency required.
     let boxed_err = "Box<dyn std::error::Error + Send + Sync + 'static>";
     let stream_ty = format!("futures_util::stream::BoxStream<'static, Result<{core_item}, {boxed_err}>>");
     let owner_ty = format!("{core_import}::{owner_type}");

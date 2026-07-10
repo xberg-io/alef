@@ -15,17 +15,6 @@ fn visitor_bridge_uses_configured_context_and_result_metadata() {
     assert!(output.code.contains("\"display_name\""));
 }
 
-// -----------------------------------------------------------------------
-// Native-object marshalling of struct callback params (neutral fixtures).
-//
-// A trait-callback param that is a known serde struct registered as an extendr class must be
-// handed to the host as the binding's NATIVE R object — built via the same `From<core::T>`
-// conversion the binding uses for return values, then wrapped as an `Robj` ExternalPtr — NOT
-// serialized to a JSON string. Enum / opaque / unknown / extendr-incompatible params keep
-// their prior JSON-string representation. The positive allowlist comes from the SHARED
-// classifier (`native_marshalled_struct_params`), narrowed to extendr-representable structs.
-// -----------------------------------------------------------------------
-
 use crate::backends::extendr::trait_bridge::{ExtendrBridgeGenerator, native_marshalled_extendr_struct_params};
 use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
 use crate::core::config::TraitBridgeConfig;
@@ -105,9 +94,6 @@ fn plugin_spec<'a>(trait_def: &'a TypeDef, bridge_cfg: &'a TraitBridgeConfig) ->
 
 #[test]
 fn allowlist_includes_serde_struct_excludes_enum_opaque_and_incompatible() {
-    // Opts is a plain serde struct param (qualifies). Bag is a serde struct param with a
-    // Vec<Named> field — extendr cannot register it as a class, so it is excluded. Mood is an
-    // enum (lives in api.enums, never api.types) and Widget is an unknown Named — both absent.
     let mut api = ApiSurface::default();
     api.types
         .push(struct_typedef("Opts", vec![named_field("greeting", TypeRef::String)]));
@@ -214,8 +200,6 @@ fn async_struct_param_marshalled_as_native_r_object_not_json_string() {
     );
     let body = generator.gen_async_method_body(&m, &spec);
 
-    // The preamble clones the OWNED core value (Send) before the spawn_blocking closure; the
-    // native R object is constructed from it INSIDE the closure (R objects are !Send).
     assert!(
         body.contains("let opts_owned = (*opts).clone();"),
         "async preamble must clone the owned core struct value:\n{body}"
@@ -232,7 +216,6 @@ fn async_struct_param_marshalled_as_native_r_object_not_json_string() {
 
 #[test]
 fn enum_and_unknown_named_params_keep_json_string_representation() {
-    // Only Opts is on the allowlist; Mood (enum) and Widget (unknown) are not.
     let generator = generator_with(&["Opts"]);
     let trait_def = greeter_trait_with(vec![]);
     let bridge_cfg = TraitBridgeConfig::default();

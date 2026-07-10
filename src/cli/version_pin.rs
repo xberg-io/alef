@@ -65,7 +65,6 @@ pub fn write_alef_toml_version(config_path: &Path) -> Result<()> {
         .parse()
         .with_context(|| format!("failed to parse {} as TOML", config_path.display()))?;
 
-    // Ensure `[workspace]` exists as a Table (not an inline table).
     if !doc.contains_key("workspace") {
         let mut tbl = toml_edit::Table::new();
         tbl.set_implicit(false);
@@ -125,7 +124,6 @@ mod tests {
 
     #[test]
     fn pin_higher_than_cli_warns_not_errors() {
-        // A pin newer than the running CLI (downgrade) is allowed — warned, not rejected.
         let ws = workspace_with_version(Some("999.0.0"));
         assert!(
             check_alef_toml_version(&ws).is_ok(),

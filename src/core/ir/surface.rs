@@ -166,7 +166,6 @@ mod tests {
         assert!(cfg_feature_satisfied(None, &enabled));
         assert!(cfg_feature_satisfied(Some("feature = \"pdf\""), &enabled));
         assert!(!cfg_feature_satisfied(Some("feature = \"presets\""), &enabled));
-        // The synthetic `full` feature satisfies any gate.
         assert!(cfg_feature_satisfied(
             Some("feature = \"presets\""),
             &features(&["full"])
@@ -188,7 +187,6 @@ mod tests {
 
     #[test]
     fn cfg_feature_satisfied_leaves_non_feature_gates_satisfied() {
-        // Non-feature cfg shapes (e.g. target_os) are deferred to the compiler.
         assert!(cfg_feature_satisfied(
             Some("target_os = \"windows\""),
             &features(&["pdf"])

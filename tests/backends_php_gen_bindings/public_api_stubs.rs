@@ -4,7 +4,6 @@ use super::*;
 fn test_multiple_types_with_shared_error() {
     let backend = PhpBackend;
 
-    // Create multiple types and functions sharing an error type
     let shared_error = ErrorDef {
         name: "SharedError".to_string(),
         rust_path: "test_lib::SharedError".to_string(),
@@ -171,7 +170,6 @@ fn test_multiple_types_with_shared_error() {
 
     let content = &lib_rs.content;
 
-    // Should contain both types
     assert!(
         content.contains("Reader") && content.contains("Parser"),
         "Should contain both Reader and Parser types"
@@ -181,7 +179,6 @@ fn test_multiple_types_with_shared_error() {
     let php_class_count = content.matches("#[php_class]").count();
     assert!(php_class_count >= 2, "Should have #[php_class] for both types");
 
-    // Error should be referenced in both methods
     assert!(
         content.contains("SharedError") || (content.contains("read") && content.contains("parse")),
         "Should reference shared error or contain both methods"
@@ -271,25 +268,21 @@ fn test_generate_type_stubs_contains_exception_and_api_class() {
     let stubs = files.first().unwrap();
     let content = &stubs.content;
 
-    // Exception class must extend \RuntimeException to satisfy PHPStan as Throwable
     assert!(
         content.contains("class TestLibException extends \\RuntimeException"),
         "Exception should extend \\RuntimeException; content:\n{content}"
     );
 
-    // Api class must exist as a static method holder for free functions
     assert!(
         content.contains("class TestLibApi"),
         "Should generate TestLibApi class; content:\n{content}"
     );
 
-    // Api class methods must have fully-qualified return types
     assert!(
         content.contains("createThing") || content.contains("create_thing"),
         "Should have createThing method in TestLibApi; content:\n{content}"
     );
 
-    // Stubs should be namespaced correctly
     assert!(
         content.contains("namespace Test\\Lib"),
         "Should use Test\\Lib namespace; content:\n{content}"
@@ -355,7 +348,6 @@ fn test_generate_public_api_delegates_to_api_class() {
     let facade = files.first().unwrap();
     let content = &facade.content;
 
-    // The facade class must delegate to TestLibApi (not TestLib directly)
     assert!(
         content.contains("TestLibApi::doWork") || content.contains("TestLibApi::do_work"),
         "Facade should delegate to TestLibApi; content:\n{content}"
@@ -498,10 +490,6 @@ fn test_opaque_class_promotes_parameters_after_first_optional() {
 
 #[test]
 fn test_sanitized_function_generates_stub_not_direct_call() {
-    // Regression test for functions whose return types were sanitized from unknown types
-    // (e.g. tuples) to String/Vec<String>/Option<String>.  The PHP backend must NOT emit a
-    // direct core call (which would be a type mismatch), but instead generate an unimplemented
-    // stub body — consistent with the pyo3 and napi backends.
     let backend = PhpBackend;
 
     let api = ApiSurface {
@@ -509,8 +497,6 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         version: "0.1.0".to_string(),
         types: vec![],
         functions: vec![
-            // Mimics `extension_ambiguity`: core returns Option<(&str, &[&str])>,
-            // sanitized to Option<String> in the IR.
             FunctionDef {
                 name: "extension_ambiguity".to_string(),
                 rust_path: "test_lib::extension_ambiguity".to_string(),
@@ -546,8 +532,6 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
                 binding_exclusion_reason: None,
                 version: Default::default(),
             },
-            // Mimics `split_code`: core returns Vec<(usize, usize)>,
-            // sanitized to Vec<String> in the IR.
             FunctionDef {
                 name: "split_code".to_string(),
                 rust_path: "test_lib::split_code".to_string(),
@@ -601,8 +585,6 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         .unwrap();
     let content = &lib_rs.content;
 
-    // The generated bodies must NOT contain a direct delegating call to the core function.
-    // Sanitized functions emit unimplemented stubs instead.
     assert!(
         !content.contains("test_lib::extension_ambiguity("),
         "extension_ambiguity must not delegate to core (type mismatch); content:\n{content}"
@@ -612,19 +594,14 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         "split_code must not delegate to core (type mismatch); content:\n{content}"
     );
 
-    // Sanitized functions without error_type must emit type-appropriate default values,
-    // NOT PhpException stubs (which would be a type mismatch for non-Result return types).
-    // extension_ambiguity returns Option<String>: stub must be `None`
     assert!(
         content.contains("None"),
         "extension_ambiguity (Option<String>, no Result) should emit `None` stub; content:\n{content}"
     );
-    // split_code returns Vec<String>: stub must be `Vec::new()`
     assert!(
         content.contains("Vec::new()"),
         "split_code (Vec<String>, no Result) should emit `Vec::new()` stub; content:\n{content}"
     );
-    // Neither must be wrapped in a PhpException Err
     assert!(
         !content.contains("Err(ext_php_rs::exception::PhpException::default(\"Not implemented: extension_ambiguity"),
         "extension_ambiguity must not emit PhpException (no error_type); content:\n{content}"

@@ -1,7 +1,6 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
-// gen_trait_bridge (the main entry point)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -93,7 +92,6 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
     )
     .expect("trait bridge generation should succeed");
 
-    // The wrapper struct must hold the Python object and a cached name field
     assert!(
         code.code.contains("inner: Py<PyAny>"),
         "wrapper struct must hold inner Py<PyAny>"
@@ -153,7 +151,6 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
 
 #[test]
 fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
-    // A trait with one sync and one async required method — exercises both code paths
     let sync_method = make_method_def(
         "validate",
         vec![],
@@ -202,12 +199,10 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
     .expect("trait bridge generation should succeed");
 
     assert!(!code.code.is_empty(), "output must not be empty");
-    // Sync method body uses Python::attach (no spawn_blocking)
     assert!(
         code.code.contains("fn validate"),
         "sync method should be present in trait impl"
     );
-    // Async method body uses spawn_blocking
     assert!(
         code.code.contains("fn process"),
         "async method should be present in trait impl"
@@ -216,7 +211,6 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
         code.code.contains("spawn_blocking"),
         "async method body should use spawn_blocking"
     );
-    // Both methods are required — registration fn should validate both
     assert!(
         code.code.contains("\"validate\"") || code.code.contains("\"process\""),
         "registration fn should validate required method names"

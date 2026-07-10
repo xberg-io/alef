@@ -25,21 +25,12 @@ use heck::ToPascalCase;
 pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> String {
     let mut builder = RustFileBuilder::new().with_generated_header();
     builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables, unused_mut, noop_method_call)");
-    // The FFI crate is entirely generated glue — rustdoc coverage is not meaningful here.
     builder.add_inner_attribute("allow(missing_docs)");
-    // useless_conversion is suppressed because `From<X> for Y` impls (where X != Y) get
-    // extracted as static methods on Y, then the FFI wrapper signature normalizes the param
-    // to Self. The generated `Y::from(arg: Y)` resolves to the blanket `From<T> for T`
-    // (identity) at runtime; the wrapper is preserved for ABI stability.
     builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::redundant_locals, dropping_references, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::useless_conversion, clippy::type_complexity, clippy::clone_on_copy)");
-    // Unsafe extern "C" functions generated here do not have `# Safety` sections in their
-    // rustdoc because the safety contract is documented at the C header level (cbindgen output).
-    // Doc list indentation reflects the source format and is intentional in generated code.
     builder.add_inner_attribute(
         "allow(clippy::missing_safety_doc, clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)",
     );
 
-    // Imports
     builder.add_import("std::ffi::{c_char, CStr, CString}");
     builder.add_import("std::cell::RefCell");
     let core_import = config.core_import_name();
@@ -51,22 +42,13 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
     let clone_names = &lib_setup.clone_names;
     let serde_names = &lib_setup.serde_names;
 
-    // Extract fields_c_types from e2e config if present.
-    // This allows field accessors to override their return types when e2e explicitly
-    // maps a field to an opaque handle type (e.g. "markdown_result.citations" = "CitationResult").
     let empty_fields_c_types = std::collections::HashMap::new();
     let fields_c_types = lib_setup.fields_c_types.unwrap_or(&empty_fields_c_types);
 
-    // Import traits needed for trait method dispatch
     for trait_path in generators::collect_trait_imports(api) {
         builder.add_import(&trait_path);
     }
-    // FFI backend uses fully qualified paths (e.g. sample_crate::ParseOptions)
-    // for all core type references, so no named or glob imports from the core crate are
-    // needed. Trait imports (collected above) are sufficient for method dispatch.
 
-    // Only import serde_json when types need from_json deserialization or
-    // when Json/Vec/Map fields/returns require serialization
     let has_from_json_types = api
         .types
         .iter()
@@ -90,35 +72,26 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         builder.add_import("serde_json");
     }
 
-    // Custom module declarations
     let custom_mods = config.custom_modules.for_language(Language::Ffi);
     for module in custom_mods {
         builder.add_item(&format!("pub mod {module};"));
     }
 
-    // Service API module (when services are present)
     if !api.services.is_empty() {
         builder.add_item("pub mod service;");
     }
 
-    // Thread-local last_error infrastructure
     builder.add_item(&gen_last_error(prefix));
 
-    // free_string helper
     builder.add_item(&gen_free_string(prefix));
 
-    // free_bytes helper — companion for functions returning Result<Vec<u8>> via out-params
     builder.add_item(&gen_free_bytes(prefix));
 
-    // version helper
     builder.add_item(&gen_version(prefix));
 
-    // Build adapter body map before the method loop so streaming adapters can
-    // substitute in their callback-based bodies instead of the normal wrapper.
     let adapter_bodies: AdapterBodies =
         crate::adapters::build_adapter_bodies(config, Language::Ffi).unwrap_or_default();
 
-    // Emit the stream callback type alias once if any streaming adapters exist.
     let has_streaming_adapters = config
         .adapters
         .iter()
@@ -132,10 +105,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             prefix.to_pascal_case()
         ));
 
-        // Also emit iterator-handle functions for each streaming adapter.
-        // These provide a pull-based alternative to the callback-based wrappers so that
-        // language bindings without native async (Go, Ruby, Java, C#, Elixir, C) can drive
-        // the stream in a simple while loop without holding a C function pointer.
         for adapter in config
             .adapters
             .iter()
@@ -162,11 +131,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
     }
 
-    // Private Rust helpers: for every enum that may be passed as an `i32` discriminant param,
-    // emit a `fn {enum_snake}_from_i32_rs(v: i32) -> Option<{qualified}>` helper. These are
-    // used by constructor and method/function bodies so they don't reference a non-existent
-    // `{core_import}::{enum_snake}_from_i32` Rust function (that would be the exported C ABI
-    // helper, not a Rust-level conversion function).
     for enum_def in &api.enums {
         if ffi_param_enums.contains(&enum_def.name)
             && crate::codegen::conversions::can_generate_enum_conversion(enum_def)
@@ -175,16 +139,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
     }
 
-    // Collect the set of type names excluded via [ffi] exclude_types, plus service-owner and
-    // handler-contract types flagged `binding_excluded` by the service extraction pass. Those are
-    // emitted through the service-API path (service.rs); also wrapping them as plain opaques here
-    // would collide on the `_new`/`_free` C symbols. Configured opaque handle types that remain
-    // present in the IR still need their lifecycle symbols for downstream FFI consumers.
-    // Capsule (Language-passthrough) types. When `[crates.ffi.capsule_types]` lists a type,
-    // it is NOT emitted as an opaque `*mut {Type}` handle; functions returning it instead
-    // return the host runtime's raw grammar pointer via `into_raw()`. We therefore exclude
-    // these types from the opaque `_new`/`_free`/`_to_json` emission below (mirroring how
-    // pyo3/napi suppress their opaque wrappers for capsule types).
     let ffi_capsule_types: std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig> =
         config.ffi.as_ref().map(|c| c.capsule_types.clone()).unwrap_or_default();
 
@@ -194,12 +148,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
     ffi_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()));
-    // A capsule type's *passthrough function* returns the host runtime's raw grammar pointer
-    // (no alef opaque box), but the same type may still be returned as an opaque handle by a
-    // *method* (e.g. `LanguageRegistry.get_language`) — method returns are not capsule-eligible.
-    // Only suppress the opaque `_new`/`_free`/`_to_json` lifecycle when the type is never used
-    // as an opaque handle, i.e. it appears as a method return nowhere. Otherwise the registry
-    // method and the binding's `Free()` reference symbols/types the header never declares.
     let capsule_used_as_opaque: ahash::AHashSet<&str> = api
         .types
         .iter()
@@ -215,9 +163,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             .map(|s| s.as_str())
             .filter(|name| !capsule_used_as_opaque.contains(name)),
     );
-    // Exclude workspace-declared opaque types whose `rust_path` carries generic parameters
-    // (e.g. `Arc<Mutex<dyn Trait>>`), as the C ABI cannot represent them. Simple newtypes
-    // (no generics) are left in so the binding layer emits free functions for them.
     let exclude_generic_opaques: ahash::AHashSet<&str> = config
         .opaque_types
         .iter()
@@ -226,34 +171,16 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         .collect();
     ffi_exclude_types.extend(exclude_generic_opaques);
 
-    // Struct opaque-handle functions (from_json + free + field accessors + methods)
     for typ in api
         .types
         .iter()
         .filter(|typ| !typ.is_trait && !ffi_exclude_types.contains(typ.name.as_str()))
     {
-        // Generate from_json/to_json for types that derive serde Serialize/Deserialize.
-        // Opaque types and types without serde derives are skipped.
-        // Note: sanitized fields do NOT block from_json/to_json generation because these
-        // functions use serde for the full core type (bypassing field-level type mapping).
         if !typ.is_opaque && typ.has_serde {
-            // Skip auto-from_json when the type defines its own `from_json`/`from_str`
-            // method — the method wrapper produces the same FFI export name and would
-            // collide.
             let has_from_json_method = typ.methods.iter().any(|m| m.name == "from_json");
             if !has_from_json_method {
                 builder.add_item(&gen_type_from_json(typ, prefix, &core_import));
             }
-            // Generate to_json for types that support serialization. Skip Update types
-            // (partial update structs typically derive Deserialize only) and skip when
-            // the type already exposes a `to_json` method (would collide on FFI name).
-            //
-            // We used to skip "value-only" types (all primitive fields) under the assumption
-            // that FFI callers would reconstruct them from field accessors. That assumption
-            // breaks down for bindings (Java FFM, C# P/Invoke) that don't have per-binding
-            // value-only reconstruction codegen and rely on the JSON path uniformly. Emitting
-            // to_json for value-only types unblocks `get_embedding_preset` etc. across all
-            // bindings; the FFI surface gains a few extra `_to_json` exports.
             let has_to_json_method = typ.methods.iter().any(|m| m.name == "to_json");
             if !typ.name.ends_with("Update") && !has_to_json_method {
                 builder.add_item(&gen_type_to_json(typ, prefix, &core_import));
@@ -282,7 +209,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             builder.add_item(&gen_type_new(typ, prefix, &core_import, &params_str, &body, err_ty));
         }
 
-        // Field accessors — skip sanitized fields (binding type differs from core)
         for field in &typ.fields {
             if !field.sanitized {
                 builder.add_item(&gen_field_accessor(
@@ -298,10 +224,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             }
         }
 
-        // Opaque static constructors — emit opaque struct + extern "C" fn for static `new` methods
         if typ.is_opaque {
-            // The static constructor returns `*mut {qualified}` to match the legacy
-            // `_free()` signature — no separate `{TypeName}Opaque` wrapper is emitted.
             for method in &typ.methods {
                 if is_static_constructor(method, &typ.name) {
                     builder.add_item(&gen_opaque_static_constructor(
@@ -316,22 +239,14 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             }
         }
 
-        // Build exclude set for FFI method emission. Defense-in-depth against API surface
-        // inconsistencies: ensures methods listed in config.exclude.methods are never emitted,
-        // even if they appear in typ.methods (which should not happen post-extraction, but
-        // prevents header/impl desynchronization if an excluded method somehow persists).
         let ffi_exclude_methods: ahash::AHashSet<String> = config.exclude.methods.iter().cloned().collect();
 
-        // Method wrappers — streaming adapters get a dedicated callback-based wrapper.
         for method in &typ.methods {
-            // Check if this method is excluded by config.exclude.methods.
             let method_key = format!("{}.{}", typ.name, method.name);
             if ffi_exclude_methods.contains(&method_key) {
                 continue;
             }
 
-            // Skip methods with generic type parameters or builder-style returns.
-            // These are handled via the service-API registration path instead.
             if should_skip_method_wrapper(method, typ, path_map) {
                 continue;
             }
@@ -360,7 +275,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
     }
 
-    // Enum functions (from_i32 + to_i32) — only for simple unit-variant enums
     for enum_def in &api.enums {
         if crate::codegen::conversions::can_generate_enum_conversion(enum_def) {
             builder.add_item(&gen_enum_from_i32(enum_def, prefix, &core_import));
@@ -368,11 +282,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
     }
 
-    // Enum pointer lifecycle helpers (_free, _to_json, _from_json) for enums that:
-    //   a) are returned as heap-allocated *mut T by any non-excluded function or struct method, OR
-    //   b) are accepted as parameters by any non-excluded function
-    // These are required by Panama FFM callers (Java) that receive enum pointers and must
-    // free them, serialize them, or pass them as JSON-encoded parameters.
     {
         let ffi_exclude_set: ahash::AHashSet<&str> = config
             .ffi
@@ -380,7 +289,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             .map(|c| c.exclude_functions.iter().map(|s| s.as_str()).collect())
             .unwrap_or_default();
 
-        // Collect enum names returned as Named pointers by non-excluded free functions
         let mut enum_pointer_return: ahash::AHashSet<String> = ahash::AHashSet::new();
         for func in &api.functions {
             if ffi_exclude_set.contains(func.name.as_str()) {
@@ -403,10 +311,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 }
             }
         }
-        // Also check struct field accessors and method returns that yield enum pointers.
-        // Field accessors (gen_field_accessor) emit `*mut Enum` returns whenever a struct
-        // field's type is a Named enum, so any such field implies a heap-allocated enum
-        // pointer that callers must free / stringify — match the function path above.
         for typ in api.types.iter().filter(|t| !t.is_trait) {
             for method in &typ.methods {
                 let return_named = match &method.return_type {
@@ -446,12 +350,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             }
         }
 
-        // Collect enum names used as streaming-adapter `item_type`. The streaming `_next`
-        // helper (emitted via `gen_stream_handle_functions`) returns `*mut item_type`, so
-        // when the item is an enum the FFI surface must also expose `_to_json` and `_free`
-        // for that enum — otherwise downstream language bindings (Go, Ruby, Java, C#, …)
-        // that drive the stream by repeatedly calling `_next` + `_to_json` + `_free` have
-        // no way to consume the returned pointer.
         for adapter in &config.adapters {
             if !matches!(adapter.pattern, AdapterPattern::Streaming) {
                 continue;
@@ -464,7 +362,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             }
         }
 
-        // Collect enum names used as parameters in non-excluded free functions
         let mut enum_pointer_param: ahash::AHashSet<String> = ahash::AHashSet::new();
         for func in &api.functions {
             if ffi_exclude_set.contains(func.name.as_str()) {
@@ -493,18 +390,13 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         let mut emitted_enum_free: ahash::AHashSet<String> = ahash::AHashSet::new();
         for enum_def in &api.enums {
             let needs_free = enum_pointer_return.contains(&enum_def.name);
-            // needs_from_json also implies needs_free: `_from_json` returns *mut T (heap-allocated)
-            // so the caller must call `_free` on the returned pointer after use.
             let needs_from_json = enum_pointer_param.contains(&enum_def.name);
             let has_serde = enum_def.has_serde;
 
-            // Generate _free (and _to_json / _to_string for serialization) for return-type enums.
             if needs_free && emitted_enum_free.insert(enum_def.name.clone()) {
                 builder.add_item(&gen_enum_free(enum_def, prefix, &core_import));
                 if has_serde {
                     builder.add_item(&gen_enum_to_json(enum_def, prefix, &core_import));
-                    // _to_string yields the bare unit-variant string (no JSON quotes).
-                    // Required by C callers that compare enum values to fixture strings.
                     if crate::codegen::conversions::can_generate_enum_conversion(enum_def) {
                         builder.add_item(&gen_enum_to_string(enum_def, prefix, &core_import));
                     }
@@ -515,8 +407,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 if emitted_enum_free.insert(from_json_key) {
                     builder.add_item(&gen_enum_from_json(enum_def, prefix, &core_import));
                 }
-                // `_from_json` returns *mut T — generate _free if not already emitted.
-                // This allows callers (Java FFM) to free the heap pointer returned by _from_json.
                 if emitted_enum_free.insert(enum_def.name.clone()) {
                     builder.add_item(&gen_enum_free(enum_def, prefix, &core_import));
                 }
@@ -524,7 +414,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
     }
 
-    // Emit tokio runtime helper if any function or method is async
     let has_async_functions =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
     if has_async_functions {
@@ -533,9 +422,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
 
     let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
 
-    // Detect whether any options_field bridge is configured.  When true, visitor callbacks
-    // are handled via gen_bridge_field (VTable + options setter) rather than the legacy
-    // gen_visitor path (VisitorCallbacks struct + convert_with_visitor).
     let has_options_field_bridge = config
         .trait_bridges
         .iter()
@@ -547,26 +433,16 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
 
-    // Free functions (async functions are wrapped with block_on via the runtime helper).
-    //
-    // Same-named entries with disjoint cfg gates (e.g. a `pub use real::fn` under
     // `#[cfg(feature = "X")]` plus a stub fallback under
     // `#[cfg(all(feature = "X-presets", not(feature = "X")))]`) are collapsed locally for the
-    // FFI emit, so the single emitted C symbol is gated under the OR of all group members' cfgs.
-    // This dedup is FFI-specific because both entries map to the same `{prefix}_<name>` C symbol;
-    // other backends and the e2e call-export validator see the original multi-entry surface.
     let ffi_functions = crate::backends::ffi::gen_bindings::functions::dedup_same_name_functions(&api.functions);
     for func in &ffi_functions {
         if ffi_exclude_functions.contains(&func.name) {
             continue;
         }
-        // Trait-bridge lifecycle functions are emitted by the trait bridge layer; emitting them here
-        // too would produce duplicate C symbols in the generated FFI header.
         if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
             continue;
         }
-        // For legacy FunctionParam visitor bridges, skip sanitized bridge stubs; the
-        // visitor-specific support emits those ABI entrypoints separately.
         if visitor_callbacks_enabled && func.sanitized && has_trait_bridge_param(func, &config.trait_bridges) {
             continue;
         }
@@ -586,10 +462,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 }
             }
         }
-        // When this function returns a configured capsule type by value (bare Named),
-        // emit the host-native passthrough (`into_raw()`) instead of boxing an opaque handle.
-        // Optional capsule returns are not passthrough-eligible (no single owned value to
-        // hand to `into_raw()`), so they fall through to the standard opaque path.
         let capsule_cfg = if matches!(func.return_type, crate::core::ir::TypeRef::Named(_)) {
             super::capsule::capsule_return_name(func, &ffi_capsule_types).and_then(|name| ffi_capsule_types.get(name))
         } else {
@@ -604,8 +476,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             serde_names,
             capsule_cfg,
         ));
-        // Emit a _len() companion for every function whose return type maps to *mut c_char
-        // so that Zig and Java FFM Panama consumers get byte length without a NUL-scan.
         if returns_c_char(&func.return_type) {
             builder.add_item(&gen_free_function_len_companion(
                 func,
@@ -617,18 +487,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
     }
 
-    // Visitor/callback FFI support.
-    // - OptionsField bridge: VTable + options setter + correct convert implementation.
-    // - FunctionParam bridge (legacy): VisitorCallbacks struct + convert_with_visitor.
-    //
-    // When both flags are active simultaneously (for example, mixed callback modes with
-    // `visitor_callbacks = true` and an `[[trait_bridges]]` entry using
-    // `bind_via = "options_field"`), we emit BOTH:
-    //   1. The OptionsField vtable / options-setter / {prefix}_convert  (used by Go, C)
-    //   2. The visitor-callbacks symbols ({prefix}_visitor_create/free/convert_with_visitor) (used by Java)
-    // The two sets of symbols use different function names and do not conflict.
     if has_options_field_bridge {
-        // Build a type_paths map for delegation method signature generation.
         let type_paths: std::collections::HashMap<String, String> =
             path_map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
 
@@ -664,12 +523,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             ));
         }
 
-        // When visitor_callbacks is also enabled, additionally emit the callback lifecycle
-        // symbols ({prefix}_visitor_create/free) needed by Java's Panama FFM binding.
-        // The legacy {prefix}_options_set_visitor_handle setter and {prefix}_*_with_visitor
-        // wrapper stay isolated to the explicit FunctionParam path below.
         if visitor_callbacks_enabled {
-            // Use the first OptionsField bridge's trait to drive callback spec generation.
             let visitor_trait_def = config
                 .trait_bridges
                 .iter()
@@ -698,8 +552,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             }
         }
     } else if visitor_callbacks_enabled {
-        // FunctionParam path: emit a no-visitor wrapper and a visitor wrapper only when
-        // config identifies the bridge parameter and the matching public function.
         let configured_bridge = function_param_bridge_for_visitor_callbacks(api, &config.trait_bridges);
         if let Some((bridge_cfg, visitor_function)) = configured_bridge {
             let visitor_trait_def = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
@@ -733,8 +585,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
     }
 
-    // Error introspection helpers — `extern "C"` wrappers for whitelisted methods
-    // (status_code, is_transient, error_type) declared in ErrorDef.methods.
     for error in &api.errors {
         let methods_code = crate::codegen::error_gen::gen_ffi_error_methods(error, &core_import, prefix);
         if !methods_code.is_empty() {
@@ -742,15 +592,10 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
     }
 
-    // Plugin bridge support — vtable + user_data pattern for each [[trait_bridges]] entry.
-    // Only emitted when the entry applies to traits present in the extracted IR.
     if !config.trait_bridges.is_empty() {
-        // Bridge code uses c_void and Arc; add them here so the builder deduplicates
-        // against the c_char/CStr/CString already added above.
         builder.add_import("std::ffi::c_void");
         builder.add_import("std::sync::Arc");
 
-        // Emit the shared FFI error helper once for all trait bridges
         builder.add_item(&crate::backends::ffi::trait_bridge::gen_ffi_set_out_error_helper());
 
         let trait_map: ahash::AHashMap<&str, &crate::core::ir::TypeDef> = api
@@ -777,11 +622,6 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 );
                 builder.add_item(&bridge_code);
 
-                // For options-field bridges, emit exported C constructor/destructor so that
-                // non-Rust callers (Go, Java, C#) can create and free bridge handles entirely
-                // through the C ABI.  The exported function signature also forces cbindgen to
-                // emit the full vtable struct definition in the generated C header, which
-                // callers must fill in before invoking `bridge_new`.
                 if bridge_cfg.bind_via == crate::core::config::BridgeBinding::OptionsField {
                     let pascal_prefix = prefix.to_pascal_case();
                     builder.add_item(&crate::backends::ffi::trait_bridge::gen_bridge_new_free(

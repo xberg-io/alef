@@ -33,7 +33,6 @@ pub(super) fn compute_handle_returned_types(api: &crate::core::ir::ApiSurface) -
         }
     }
 
-    // Build a map of type names to their TypeDef for quick lookup of has_serde.
     let mut type_def_map = std::collections::HashMap::new();
     for typ in &api.types {
         type_def_map.insert(typ.name.clone(), typ);
@@ -44,9 +43,6 @@ pub(super) fn compute_handle_returned_types(api: &crate::core::ir::ApiSurface) -
     for func in &api.functions {
         if let Some(name) = inner_named(&func.return_type) {
             if let Some(type_def) = type_def_map.get(name) {
-                // Include only truly opaque types (no serde). Serde-capable types are
-                // routed through JSON round-trip marshalling — they have static
-                // `FromJson` factories rather than `new (IntPtr)` constructors.
                 if !type_def.has_serde {
                     handle_types.insert(name.to_string());
                 }
@@ -96,11 +92,9 @@ pub(super) fn emit_return_marshalling_indented(
     }
 
     if returns_string(return_type) {
-        // IntPtr → string, then free the native buffer.
         out.push_str(&render("return_string_utf8.jinja", minijinja::context! { indent }));
         out.push_str(&render("free_native_string.jinja", minijinja::context! { indent }));
     } else if returns_bool_via_int(return_type) {
-        // C int → bool
         out.push_str(&render("return_bool_from_int.jinja", minijinja::context! { indent }));
     } else if let TypeRef::Named(type_name) = return_type {
         let pascal = csharp_type_name(type_name);
@@ -109,14 +103,11 @@ pub(super) fn emit_return_marshalling_indented(
             || handle_returned_types.contains(type_name)
             || handle_returned_types.contains(&pascal)
         {
-            // Truly opaque handle (is_opaque = true) OR returned from a public function (as *mut T).
-            // Both are wrapped in the C# handle class.
             out.push_str(&render(
                 "return_opaque_ctor.jinja",
                 minijinja::context! { indent, pascal },
             ));
         } else if !enum_names.contains(&pascal) {
-            // Data struct with to_json: call to_json, deserialise, then free both.
             let to_json_method = format!("{pascal}ToJson");
             let free_method = format!("{pascal}Free");
             let cs_ty = csharp_type(return_type);
@@ -141,7 +132,6 @@ pub(super) fn emit_return_marshalling_indented(
                 minijinja::context! { indent, cs_type => cs_ty },
             ));
         } else {
-            // Enum returned as JSON string IntPtr.
             let cs_ty = csharp_type(return_type);
             out.push_str(&render(
                 "json_from_ptr.jinja",
@@ -157,15 +147,12 @@ pub(super) fn emit_return_marshalling_indented(
             ));
         }
     } else if returns_json_object(return_type) {
-        // Optional<String> — the FFI returns a raw C string (not JSON-encoded).
         if let TypeRef::Optional(inner) = return_type {
             if returns_string(inner) {
                 out.push_str(&render("return_ptr_as_string.jinja", minijinja::context! { indent }));
                 out.push_str(&render("free_native_string.jinja", minijinja::context! { indent }));
                 return;
             }
-            // Optional<Named<T>>: route either through the opaque-handle wrapper (no serde)
-            // or through the to_json round-trip (serde-capable data struct returned as *mut T).
             if let TypeRef::Named(type_name) = inner.as_ref() {
                 let pascal = csharp_type_name(type_name);
                 if true_opaque_types.contains(type_name)
@@ -179,10 +166,6 @@ pub(super) fn emit_return_marshalling_indented(
                     ));
                     return;
                 }
-                // Serde-capable api type returned as `*mut T` (FFI export emits
-                // `<type>_to_json` + `<type>_free`). Call to_json, deserialise, then free
-                // both pointers — mirrors the bare TypeRef::Named branch above so that
-                // Optional<T> doesn't misinterpret the handle pointer as a UTF-8 string.
                 let to_json_method = format!("{pascal}ToJson");
                 let free_method = format!("{pascal}Free");
                 let cs_ty = csharp_type(return_type);
@@ -209,7 +192,6 @@ pub(super) fn emit_return_marshalling_indented(
                 return;
             }
         }
-        // IntPtr → JSON string → deserialized object, then free the native buffer.
         let cs_ty = csharp_type(return_type);
         out.push_str(&render(
             "json_from_ptr.jinja",
@@ -224,7 +206,6 @@ pub(super) fn emit_return_marshalling_indented(
             minijinja::context! { indent, cs_type => cs_ty },
         ));
     } else {
-        // Numeric primitives — direct return.
         out.push_str(&render("return_native_result.jinja", minijinja::context! { indent }));
     }
 }

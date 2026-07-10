@@ -46,8 +46,6 @@ fn data_enum_emits_variant_constructors_through_pyo3_mapper() {
 
     let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&Pyo3Mapper::new()));
 
-    // One `_factory_<name>` staticmethod per struct variant, each exposed under its snake_case
-    // name and building the core variant struct literal directly.
     assert!(generated.contains("#[staticmethod]"), "{generated}");
     assert!(generated.contains(r#"#[pyo3(name = "preset")]"#), "{generated}");
     assert!(

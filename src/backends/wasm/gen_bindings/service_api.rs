@@ -44,10 +44,9 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
         return String::new();
     }
 
-    let service = &api.services[0]; // Single service per IR surface
+    let service = &api.services[0];
     let mut out = String::new();
 
-    // Emit the App class with constructor and configurator methods
     let class_name = "App";
     out.push_str(&crate::backends::wasm::template_env::render(
         "service_js_class_open.jinja",
@@ -56,7 +55,6 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
         },
     ));
 
-    // Constructor parameters (if any)
     let constructor_params: Vec<String> = service
         .constructor
         .params
@@ -85,7 +83,6 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
         },
     ));
 
-    // Configurator methods
     for method in &service.configurators {
         let method_params: Vec<String> = method
             .params
@@ -110,14 +107,12 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
         ));
     }
 
-    // Registration methods (per variant, respecting style)
     for reg in &service.registrations {
         for variant in &reg.variants {
             gen_registration_variant_js(&mut out, variant, reg);
         }
     }
 
-    // run() entrypoint
     out.push_str("  run() {\n");
     out.push_str("    // Coordinate with Rust-side service execution\n");
     out.push_str("    // (impl-specific: may spawn server, call native function, etc.)\n");
@@ -133,7 +128,6 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
 fn gen_registration_variant_js(out: &mut String, variant: &RegistrationVariant, _reg: &RegistrationDef) {
     let variant_name = &variant.name;
 
-    // Build signature from variant's signature_params (without handler)
     let variant_params_no_handler: Vec<String> = variant
         .signature_params
         .iter()
@@ -154,8 +148,6 @@ fn gen_registration_variant_js(out: &mut String, variant: &RegistrationVariant, 
         RegistrationVariantStyle::Builder => {
             emit_variant_decorator_factory_js(out, variant_name, &variant_params_no_handler, variant);
         }
-        // Decorator, Attribute, Dsl and Hybrid all fall through to the hybrid form.
-        // Per-backend specialization for the new styles is a Phase C concern.
         RegistrationVariantStyle::Hybrid
         | RegistrationVariantStyle::Decorator
         | RegistrationVariantStyle::Attribute
@@ -252,9 +244,6 @@ pub(super) fn gen_service_rs(api: &ApiSurface, _config: &ResolvedCrateConfig) ->
     out.push_str("#![allow(clippy::too_many_arguments)]\n\n");
     out.push_str("use wasm_bindgen::prelude::*;\n\n");
 
-    // Unsupported: wire up actual service instantiation and handler registration
-    // For now, emit stubs that prevent compilation errors
-
     out.push_str("/// Initialize the service with registered handlers.\n");
     out.push_str("#[wasm_bindgen]\n");
     out.push_str("pub fn init_service(registrations: JsValue) -> Result<(), JsValue> {\n");
@@ -279,7 +268,6 @@ pub(super) fn gen_service_rs(api: &ApiSurface, _config: &ResolvedCrateConfig) ->
 pub fn gen_service_files(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<GeneratedFile> {
     let mut files = Vec::new();
 
-    // Filter out services that are explicitly skipped for the wasm backend.
     let active_services: Vec<_> = api
         .services
         .iter()
@@ -295,11 +283,9 @@ pub fn gen_service_files(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<
         return files;
     }
 
-    // Build a temporary ApiSurface view with only the active services.
     let mut api_active = api.clone();
     api_active.services = active_services.into_iter().cloned().collect();
 
-    // JavaScript service.js
     let js_content = gen_service_js(&api_active);
     files.push(GeneratedFile {
         path: PathBuf::from("src/service.js"),
@@ -307,7 +293,6 @@ pub fn gen_service_files(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<
         generated_header: true,
     });
 
-    // Rust service.rs
     let rs_content = gen_service_rs(&api_active, config);
     files.push(GeneratedFile {
         path: PathBuf::from("src/service.rs"),
@@ -338,7 +323,6 @@ mod tests {
 
         emit_variant_direct_method_js(&mut out, "get", &[], &variant);
 
-        // VerbDecorator should emit only the direct method (takes handler as param)
         assert!(out.contains("get(path: string, handler:") || out.contains("get(handler:"));
         assert!(out.contains("this._registrations.push"));
         assert!(out.contains("return this;"));
@@ -359,7 +343,6 @@ mod tests {
 
         emit_variant_decorator_factory_js(&mut out, "get", &[], &variant);
 
-        // Builder should emit only the decorator-factory form: returns a function that takes fn
         assert!(out.contains("return (fn:"));
         assert!(out.contains("return fn;"));
     }
@@ -377,11 +360,9 @@ mod tests {
             ..Default::default()
         };
 
-        // Hybrid emission calls both direct and decorator-factory
         emit_variant_direct_method_js(&mut out, "get", &[], &variant);
         emit_variant_decorator_factory_js(&mut out, "get", &[], &variant);
 
-        // Should contain both forms: direct method with handler param and decorator-factory
         assert!(out.contains("handler:"));
         assert!(out.contains("return (fn:"));
     }

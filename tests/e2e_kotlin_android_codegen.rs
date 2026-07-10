@@ -318,10 +318,6 @@ fn render_kotlin_android_streaming(fixture: Fixture) -> String {
         .clone()
 }
 
-// ---------------------------------------------------------------------------
-// Bug 2: construct DefaultClient via client_factory
-// ---------------------------------------------------------------------------
-
 /// Regression for Bug 2: when `[crates.e2e.calls.chat.overrides.java]` has
 /// `client_factory = "createClient"` the kotlin_android codegen must also pick
 /// that up and emit:
@@ -352,10 +348,6 @@ fn kotlin_android_uses_java_client_factory() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Bug 3: emit Kotlin property access (no parens) for data class fields
-// ---------------------------------------------------------------------------
-
 /// Regression for Bug 3: field accessors in kotlin_android tests must use
 /// Kotlin property syntax (`result.choices.first().message.content`) rather
 /// than Java getter calls (`result.choices().first().message().content()`).
@@ -364,7 +356,6 @@ fn kotlin_android_field_access_uses_property_syntax_not_getters() {
     let fixture = make_chat_fixture_with_field_assertion("chat_content", "choices.message.content", "hello");
     let rendered = render_kotlin_android_chat(TOML_WITH_JAVA_CLIENT_FACTORY, fixture);
 
-    // Property access: no parentheses after field names.
     assert!(
         !rendered.contains(".choices()"),
         "must NOT emit .choices() getter call; got:\n{rendered}"
@@ -377,16 +368,11 @@ fn kotlin_android_field_access_uses_property_syntax_not_getters() {
         !rendered.contains(".content()"),
         "must NOT emit .content() getter call; got:\n{rendered}"
     );
-    // Must use dot-property access.
     assert!(
         rendered.contains(".choices"),
         "must emit .choices property access; got:\n{rendered}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Bug 4: serialize enum via .name.lowercase() not .getValue()
-// ---------------------------------------------------------------------------
 
 /// Regression for Bug 4: enum-typed fields in kotlin_android tests must be
 /// serialized via `.name.lowercase()` (which maps `FinishReason.STOP` to the
@@ -407,10 +393,6 @@ fn kotlin_android_enum_field_uses_name_lowercase_not_get_value() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Bug 5: streaming collect uses Flow.toList() not asSequence().toList()
-// ---------------------------------------------------------------------------
-
 /// Regression for Bug 5: kotlin_android streaming tests must collect a
 /// `Flow<T>` with `result.toList()` (kotlinx.coroutines suspend extension),
 /// not with `result.asSequence().toList()` (which only applies to Java
@@ -422,7 +404,6 @@ fn kotlin_android_streaming_collect_uses_flow_to_list_not_as_sequence() {
     let fixture = make_streaming_fixture("chat_stream_basic");
     let rendered = render_kotlin_android_streaming(fixture);
 
-    // Must collect the Flow with .toList(), not asSequence().toList().
     assert!(
         rendered.contains(".toList()"),
         "must emit .toList() to collect the Flow; got:\n{rendered}"
@@ -432,7 +413,6 @@ fn kotlin_android_streaming_collect_uses_flow_to_list_not_as_sequence() {
         "must NOT emit .asSequence() (Java Iterator pattern); got:\n{rendered}"
     );
 
-    // Chunk assertions must use Kotlin property access, not Java getter calls.
     assert!(
         !rendered.contains(".choices()"),
         "must NOT emit .choices() getter call in chunk assertions; got:\n{rendered}"
@@ -446,22 +426,16 @@ fn kotlin_android_streaming_collect_uses_flow_to_list_not_as_sequence() {
         "must NOT emit .finishReason() getter call in chunk assertions; got:\n{rendered}"
     );
 
-    // Must use dot-property access on chunk fields.
     assert!(
         rendered.contains(".choices"),
         "must emit .choices property access in chunk assertions; got:\n{rendered}"
     );
 
-    // Must import the coroutines Flow.toList extension.
     assert!(
         rendered.contains("import kotlinx.coroutines.flow.toList"),
         "must import kotlinx.coroutines.flow.toList; got:\n{rendered}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// D: host-JVM test source set + Android Gradle Plugin
-// ---------------------------------------------------------------------------
 
 fn generate_kotlin_android_files(toml: &str, fixture: Fixture) -> Vec<alef::core::backend::GeneratedFile> {
     let cfg: NewAlefConfig = toml::from_str(toml).expect("config parses");
@@ -536,7 +510,6 @@ fn kotlin_android_build_gradle_applies_android_gradle_plugin() {
         .expect("build.gradle.kts must be emitted");
     let content = &build_gradle.content;
 
-    // The AGP plugin must be declared so the `android { }` block compiles.
     assert!(
         content.contains("com.android.library"),
         "build.gradle.kts must apply id(\"com.android.library\"); got:\n{content}"

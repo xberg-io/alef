@@ -57,14 +57,6 @@ pub(crate) fn emit_swift_bridge_files(
             let sources_rust_bridge_c = package_root.join("Sources").join("RustBridgeC");
             let header_path = sources_rust_bridge_c.join("RustBridgeC.h");
 
-            // Preserve an already-populated header. `alef all --clean` regenerates
-            // without compiling the binding crate, so reverting to the placeholder
-            // here would drop the real `__swift_bridge__$*` declarations and break
-            // every SwiftPM consumer of the published source package. The presence
-            // of a `__swift_bridge__$` symbol reliably distinguishes a populated
-            // header (alef umbrella or a consumer concat script) from the
-            // typedef-only placeholder. Mirrors the guard in
-            // `scaffold::languages::swift::render_rust_bridge_c_header`.
             if let Ok(existing) = std::fs::read_to_string(&header_path) {
                 if existing.contains("__swift_bridge__$") {
                     return Ok(None);
@@ -207,16 +199,6 @@ pub(super) fn emit_inbound_protocols(
         let adapter_name = format!("_{trait_name}ProtocolAdapter");
         let protocol_name = format!("{trait_name}Protocol");
         let delegate_protocol_name = format!("_Swift{trait_name}BoxDelegate");
-        // Factory function name: `make{TraitCamel}Handle`, matching the spec
-        // in `mod.rs` ("A factory func `make{TraitCamel}Handle(...)`") and the
-        // identical convention used by the e2e test generator
-        // (`swift_visitors::build_swift_visitor` → `make{Trait}Handle`) and the
-        // user-facing snippets under `docs/snippets/swift/visitor/`. Naming this
-        // `make{Trait}{TypeAlias}` (e.g. `makeHtmlVisitorVisitorHandle` because
-        // type_alias is `VisitorHandle`) silently doubles the trait stem and
-        // means every e2e + snippet reference fails at compile time with
-        // `cannot find 'make{Trait}Handle' in scope`. `type_alias` is still used
-        // downstream as the return type.
         let factory_fn = format!("make{}Handle", trait_name.to_upper_camel_case());
 
         out.push_str(&crate::backends::swift::template_env::render(

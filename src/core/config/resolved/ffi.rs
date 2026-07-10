@@ -70,14 +70,10 @@ impl ResolvedCrateConfig {
     ///    `src`/`lib`/`include` to find the crate directory.
     /// 3. `{ffi_prefix}_ffi` fallback
     pub fn ffi_lib_name(&self) -> String {
-        // 1. Explicit override in [ffi] section.
         if let Some(name) = self.ffi.as_ref().and_then(|f| f.lib_name.as_ref()) {
             return name.clone();
         }
 
-        // 2. Derive from the user-supplied `[crates.output] ffi` path. We use
-        //    `explicit_output` (the raw user input) — NOT `output_paths` — so a
-        //    template-derived FFI dir does not accidentally drive the lib name.
         if let Some(ffi_path) = self.explicit_output.ffi.as_ref() {
             let crate_dir = ffi_path
                 .components()
@@ -95,7 +91,6 @@ impl ResolvedCrateConfig {
             }
         }
 
-        // 3. Default fallback.
         format!("{}_ffi", self.ffi_prefix())
     }
 
@@ -137,7 +132,6 @@ impl ResolvedCrateConfig {
     /// 2. `../../crates/{name}-ffi` fallback derived from the crate name.
     pub fn ffi_crate_path(&self) -> String {
         if let Some(ffi_path) = self.explicit_output.ffi.as_ref() {
-            // Walk path components from the end, skipping src/lib/include.
             let components: Vec<&str> = ffi_path
                 .components()
                 .filter_map(|c| {
@@ -148,13 +142,10 @@ impl ResolvedCrateConfig {
                     }
                 })
                 .collect();
-            // Find the crate directory component (first non-leaf from the right
-            // after skipping src/lib/include).
             if let Some(idx) = components
                 .iter()
                 .rposition(|&s| s != "src" && s != "lib" && s != "include")
             {
-                // Reconstruct the path up to and including this component.
                 let meaningful = &components[..=idx];
                 return format!("../../{}", meaningful.join("/"));
             }
@@ -298,8 +289,6 @@ sources = ["src/lib.rs"]
 ffi = "crates/sample-markdown-ffi/src/"
 "#,
         );
-        // Step 2 of resolution: derive from `[crates.output] ffi` path,
-        // skipping `src`/`lib`/`include` and replacing hyphens with underscores.
         assert_eq!(r.ffi_lib_name(), "sample_markdown_ffi");
     }
 
@@ -321,15 +310,11 @@ lib_name = "explicit_wins"
 ffi = "crates/sample-markdown-ffi/src/"
 "#,
         );
-        // Step 1 (explicit lib_name) takes precedence over step 2 (output path).
         assert_eq!(r.ffi_lib_name(), "explicit_wins");
     }
 
     #[test]
     fn ffi_lib_name_template_derived_output_does_not_drive_lib_name() {
-        // No explicit `[crates.output] ffi`. The template-derived path
-        // (e.g. `packages/ffi/my-lib/`) must NOT drive the lib_name —
-        // it falls through to step 3 (`{ffi_prefix}_ffi`).
         let r = minimal_ffi();
         assert_eq!(r.ffi_lib_name(), "my_lib_ffi");
     }

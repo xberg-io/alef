@@ -49,13 +49,6 @@ pub(crate) fn has_constructor_extern(
     if fields.is_empty() {
         return false;
     }
-    // Primitive-only DTOs (every field is a bare primitive — `bool`/`u32`/`usize`/…) can
-    // always be positionally constructed via swift-bridge regardless of whether the type
-    // implements `Default`. Without this fast path, serde-enabled primitive-only types
-    // (e.g. `Point { row: u32, column: u32 }`, `ByteRange { start: usize, end: usize }`)
-    // would slip into the JSON-roundtrip path whose matching Rust-side `*_from_json`
-    // shim may be filtered out, leaving Swift with a dangling
-    // `RustBridge.pointFromJson` reference at link time.
     let all_primitive_fields = fields.iter().all(|f| matches!(f.ty, TypeRef::Primitive(_)));
     if all_primitive_fields {
         return true;
@@ -86,10 +79,6 @@ pub(crate) fn emit_extern_block_for_type(
     enum_names: &HashSet<String>,
     configured_features: &std::collections::HashSet<&str>,
 ) -> String {
-    // Whether the containing type is emitted as a first-class Codable Swift wrapper. Getters on
-    // a first-class parent JSON-degrade Vec<Named(struct)> so the wrapper can decode; getters on
-    // an opaque-rendered parent keep the real Vec<Opaque>. See
-    // `bridge_type_enum_and_serde_struct_aware`.
     let parent_first_class = first_class_names.contains(ty.name.as_str());
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
@@ -100,18 +89,6 @@ pub(crate) fn emit_extern_block_for_type(
         },
     ));
 
-    // Constructor — use bridge_type to avoid nested generics that swift-bridge 0.1.59
-    // cannot parse (Vec<Vec<T>>, HashMap<K,V>); those become String (JSON).
-    // Excluded fields are omitted from the constructor params.
-    //
-    // When the wrapper would use mutable-default construction but the type does not
-    // implement Default, wrappers.rs omits the impl entirely. We mirror that here by
-    // also skipping the extern declaration — swift-bridge must not declare `fn new()`
-    // without a corresponding Rust impl or linking will fail with E0599.
-    //
-    // The gating predicate lives in `has_constructor_extern` so that gen_bindings.rs
-    // can match the same emission decision when choosing between a bulk constructor
-    // and the JSON roundtrip in `intoRust()`.
     let constructor_fields = constructor_fields(ty, exclude_fields, configured_features);
     let emit_constructor = has_constructor_extern(ty, exclude_fields, configured_features);
 
@@ -125,9 +102,6 @@ pub(crate) fn emit_extern_block_for_type(
                 } else {
                     bridge_ty
                 };
-                // Escape Swift keywords so the swift-bridge-generated init param
-                // doesn't become invalid Swift (e.g. `_ extension: T` referencing
-                // `extension` as expression in the body).
                 let name = swift_ident(&f.name.to_snake_case());
                 format!("{name}: {bridge_ty}")
             })
@@ -145,11 +119,6 @@ pub(crate) fn emit_extern_block_for_type(
         ));
     }
 
-    // Getters — skip declaration entirely for fields whose impl cannot be safely
-    // bridged. The matching `wrappers.rs` skips the impl for the same fields.
-    //
-    // Escape Swift keywords so e.g. `fn extension(&self)` becomes `fn extension_(&self)` —
-    // matches the impl block in `wrappers.rs`.
     for field in &ty.fields {
         if is_unbridgeable_getter(
             ty,
@@ -161,18 +130,10 @@ pub(crate) fn emit_extern_block_for_type(
         ) {
             continue;
         }
-        // Use bridge type that handles both enums and serde-capable structs. swift-bridge
-        // generates broken Vectorizable for enums and broken Vec<OpaqueType> marshaling for
-        // serde-capable structs, so both are serialized to Vec<String> (JSON).
-        //
-        // For optional Vec<Named(enum/struct)> fields, force JSON-serialization (String)
-        // because swift-bridge cannot handle Option<Vec<String>> as a plain getter return type.
         let enum_set: HashSet<&str> = enum_names.iter().map(|s| s.as_str()).collect();
         let bridge_ty =
             bridge_type_enum_and_serde_struct_aware(&field.ty, &enum_set, no_serde_names, parent_first_class);
         let bridge_ty = if field.optional && !needs_json_bridge(&field.ty) {
-            // Option<Vec<String>> is not natively supported by swift-bridge; collapse
-            // to plain String (JSON) only when the Vec inner type is an enum or serde-capable struct.
             if is_vec_of_enum(&field.ty, &enum_set)
                 || (matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !no_serde_names.contains(n.as_str())))
                     && !matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if enum_set.contains(n.as_str()))))
@@ -185,9 +146,6 @@ pub(crate) fn emit_extern_block_for_type(
             bridge_ty
         };
         let name = swift_ident(&field.name.to_snake_case());
-        // Rust-side getter keeps the snake_case ident; Swift-side gets a camelCase
-        // accessor via `swift_name` so consumer code reads `ref.deviceId()` rather
-        // than `ref.device_id()`.
         let swift_name = swift_ident(&field.name.to_lower_camel_case());
         if swift_name != name {
             block.push_str(&crate::backends::swift::template_env::render(
@@ -206,19 +164,6 @@ pub(crate) fn emit_extern_block_for_type(
         ));
     }
 
-    // For opaque types with no visible (non-excluded, non-sanitized) methods,
-    // swift-bridge does not generate a destructor (the `$_free` symbol) unless the type
-    // is returned by value from a bridged function OR has at least one method declared.
-    //
-    // When a type has no methods but IS returned by value (like CrawlEngineHandle), the
-    // by-value return alone signals ownership. However, when a type is returned by value
-    // but ALL its methods are binding_excluded (e.g., streaming adapter owners), OR when
-    // a type is neither returned by value nor has visible methods, swift-bridge needs at
-    // least one method declaration to synthesize $_free.
-    //
-    // Emit a no-op method in such cases. The noop is declared once in the type's primary
-    // extern block and resolved module-wide by swift-bridge when referenced from cfg-gated
-    // function blocks.
     if type_needs_own_block_noop(ty) {
         let type_snake = ty.name.to_snake_case();
         let noop_fn_name = format!("{type_snake}_noop");
@@ -251,24 +196,7 @@ pub(super) fn type_needs_own_block_noop(ty: &TypeDef) -> bool {
 }
 
 pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
-    // Declare the enum as an opaque extern "Rust" type so that it can be used
-    // as a parameter in constructor/function signatures (e.g.
-    // `fn new(content: UserContent, ...)`).  Without this declaration,
-    // swift-bridge rejects any function whose parameter list mentions the enum,
-    // producing "Type must be declared with `type UserContent`".
-    //
     // NOTE: swift-bridge 0.1.59 also generates `extension T: Vectorizable`
-    // (with `__swift_bridge__$Vec_T$*` C-ABI symbols) for every opaque
-    // `type T;` declaration.  These symbols compile fine on the Rust side
-    // (`cargo build` succeeds) because `Vec<EnumName>` is valid Rust.  The
-    // Vectorizable conformance only causes failures when the *Swift* side is
-    // compiled (Xcode / full XCFramework build) and the enum is not a Swift
-    // class type. A Rust-only cargo build does not surface those symbols.
-    //
-    // Getters that *return* enum-typed fields use `String` (the serde variant
-    // name via `to_string()`) rather than the opaque handle — see
-    // `emit_extern_block_for_type` and `wrappers::emit_getters`.  Only the
-    // parameter path needs the type declared here.
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
@@ -277,12 +205,6 @@ pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
             name => &en.name,
         },
     ));
-    // Expose a `toString()` method so Swift can obtain the lowercase variant
-    // name (e.g. "stop", "length") when the enum IS returned as an opaque
-    // handle via a public function.  For struct-field getters the value is
-    // already serialised to String before crossing the bridge, so this method
-    // is not required there — but it is cheap to include and may be useful for
-    // future Swift consumers.
     block.push_str("        fn to_string(&self) -> String;\n");
     block.push_str("    }\n\n");
     block
@@ -300,8 +222,6 @@ pub(crate) fn emit_extern_block_for_type_methods(
     handle_returned_types: &std::collections::HashSet<String>,
     enum_names: &std::collections::HashSet<&str>,
 ) -> Option<String> {
-    // Static / associated functions (e.g. `T::default()`) can't be bridged via
-    // `client: &T` shims — see the matching filter in `wrappers::emit_type_method_shims`.
     let bridgeable: Vec<_> = ty.methods.iter().filter(|m| !m.sanitized && !m.is_static).collect();
     if bridgeable.is_empty() {
         return None;
@@ -316,8 +236,6 @@ pub(crate) fn emit_extern_block_for_type_methods(
         let fn_name = format!("{type_snake}_{method_snake}");
         let swift_name = swift_ident(&fn_name.to_lower_camel_case());
 
-        // Build parameter list: first param is `client: &TypeName` (or `&mut` for
-        // RefMut receivers), then method params.
         let client_receiver = if matches!(method.receiver, Some(crate::core::ir::ReceiverKind::RefMut)) {
             format!("client: &mut {}", ty.name)
         } else {
@@ -347,7 +265,6 @@ pub(crate) fn emit_extern_block_for_type_methods(
             bridge_type_with_handles(&method.return_type, handle_returned_types)
         };
 
-        // Emit swift_name attribute when the generated Swift name differs from fn_name.
         if swift_name != fn_name {
             block.push_str(&crate::backends::swift::template_env::render(
                 "extern_swift_name_attr.jinja",
@@ -391,7 +308,6 @@ pub(crate) fn emit_extern_block_for_type_constructor(ty: &TypeDef) -> Option<Str
             },
         ));
     }
-    // Constructor returns Result<TypeName, String> so errors propagate as Swift throws.
     block.push_str(&crate::backends::swift::template_env::render(
         "extern_fn_decl.jinja",
         minijinja::context! {
@@ -420,7 +336,6 @@ pub(crate) fn emit_extern_block_for_first_class_dto_methods(
     _handle_returned_types: &std::collections::HashSet<String>,
     enum_names: &std::collections::HashSet<&str>,
 ) -> Option<String> {
-    // Only emit for non-opaque types with instance methods
     if ty.is_opaque {
         return None;
     }
@@ -439,7 +354,6 @@ pub(crate) fn emit_extern_block_for_first_class_dto_methods(
         let fn_name = format!("{type_snake}_{method_snake}_from_json");
         let swift_name = swift_ident(&fn_name.to_lower_camel_case());
 
-        // Params: json string of self, then method parameters
         let mut params: Vec<String> = vec!["json: String".to_string()];
         for p in &method.params {
             let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
@@ -453,8 +367,6 @@ pub(crate) fn emit_extern_block_for_first_class_dto_methods(
         }
         let params_str = params.join(", ");
 
-        // Return type: always Result<String, String> (JSON result or error)
-        // The String is the JSON-serialized return value
         let return_ty = "Result<String, String>";
 
         if swift_name != fn_name {
@@ -489,22 +401,6 @@ pub(crate) fn emit_extern_block_for_functions(
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
 
-    // Declare opaque types that were deferred from their own (would-be-empty) type
-    // blocks. Co-locating the declaration here — in the same extern block as the
-    // by-value returns that own them (e.g. `create_engine() -> Result<CrawlEngineHandle, _>`)
-    // — is the ownership signal swift-bridge needs to synthesize the type's `$_free`
-    // destructor and its Ref/RefMut class triple.
-    //
-    // When the type has NO methods at all, we emit a no-op method to guarantee
-    // swift-bridge generates $_free. Some types (e.g. Language, returned by get_language())
-    // have no visible methods and no by-value constructor, so swift-bridge needs
-    // an explicit method declaration to emit the destructor. The noop method is never
-    // called by users — it exists only to signal to swift-bridge that the type is owned.
-    //
-    // This is the canonical declaration. Streaming blocks that reference the
-    // same owner also emit an `already_declared` forward declaration in their
-    // own block because swift-bridge requires block-local type declarations for
-    // referenced opaque types.
     for ty_name in deferred_empty_handle_types {
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_type_decl.jinja",
@@ -512,8 +408,6 @@ pub(crate) fn emit_extern_block_for_functions(
                 name => ty_name,
             },
         ));
-        // Emit noop for deferred types with no methods. This ensures swift-bridge
-        // synthesizes $_free even when there are no other methods to declare.
         let type_snake = ty_name.to_snake_case();
         let noop_fn_name = format!("{type_snake}_noop");
         block.push_str(&crate::backends::swift::template_env::render(
@@ -529,8 +423,6 @@ pub(crate) fn emit_extern_block_for_functions(
     }
 
     for f in functions {
-        // Escape Swift reserved keywords; swift-bridge emits the bridge fn name
-        // verbatim into Swift, so `fn subscript(...)` would become invalid Swift.
         let fn_name = swift_ident(&f.name.to_snake_case());
         let params: Vec<String> = f
             .params
@@ -548,22 +440,9 @@ pub(crate) fn emit_extern_block_for_functions(
             .collect();
         let params_str = params.join(", ");
 
-        // Check if the function returns a capsule type (host-native passthrough).
-        // For capsule functions, override the return type to be a `usize` (0 = error sentinel)
-        // instead of the opaque handle wrapper, since the host constructs the native
-        // Language from the raw C pointer. swift-bridge 0.1.59 does not support Result<*ptr, _>
-        // or Option<*ptr> (panics: "not yet implemented"), so we return usize and let the
-        // forwarder reconstruct OpaquePointer via OpaquePointer(bitPattern:) on the Swift side.
         let is_capsule_return = matches!(&f.return_type, TypeRef::Named(n) if capsule_types.contains_key(n.as_str()));
 
-        // Returns route through the handle-aware bridge mapper so that Named types
-        // returned from public functions stay as
-        // opaque handles instead of getting JSON-collapsed to `String`.
-        // However, capsule functions return raw pointers (as usize) that the host wraps.
         let return_ty = if is_capsule_return {
-            // Capsule functions return usize: 0 = error, nonzero = pointer address.
-            // The usize can be safely transmitted through swift-bridge, and the forwarder
-            // reconstructs OpaquePointer via OpaquePointer(bitPattern:) with 0 check.
             "usize".to_string()
         } else if f.error_type.is_some() {
             let ok_ty = bridge_type_with_handles(&f.return_type, handle_returned_types);
@@ -577,14 +456,6 @@ pub(crate) fn emit_extern_block_for_functions(
         };
 
         // swift-bridge 0.1.59 does not support the `#[swift_bridge(async)]`
-        // attribute (the build script's parser rejects it). To bridge async
-        // functions, we declare them as plain `fn` in the extern block — the
-        // wrapper will block on the future at the bridge boundary.
-        //
-        // `swift_name` rebinds the Swift-side function name to camelCase so the
-        // host wrapper (`Sources/{Module}/SampleCrate.swift`) can call
-        // `RustBridge.batchExtractBytes(...)` instead of the snake_case Rust
-        // identifier — which is what the wrapper emits for idiomatic Swift.
         let swift_name = swift_ident(&f.name.to_lower_camel_case());
         if swift_name != fn_name {
             block.push_str(&crate::backends::swift::template_env::render(
@@ -737,13 +608,6 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
         .filter_map(|adapter| adapter.owner_type.as_deref())
         .collect();
 
-    // An owner that already has a canonical `type Owner;` declaration elsewhere in
-    // this module is referenced bare here — swift-bridge resolves type references
-    // module-wide. Re-declaring it (even as `already_declared`) would suppress the
-    // owner's Swift class and `$_free` synthesis, breaking every consumer that holds
-    // an owner handle. Only when the owner is NOT declared anywhere else (an owner
-    // used solely by streaming adapters) do we emit a plain canonical declaration
-    // here, so swift-bridge still synthesizes its class + destructor.
     for owner_type in owner_types {
         if !declared_owner_types.contains(owner_type) {
             block.push_str(&crate::backends::swift::template_env::render(
@@ -755,8 +619,6 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
         }
     }
 
-    // 1. Opaque handle type declarations. The methods that take `&mut self`
-    //    must appear in the same extern block as the type declaration.
     for adapter in &streaming {
         let owner_type = adapter.owner_type.as_deref().unwrap_or("");
         let owner_pascal = owner_type.to_pascal_case();
@@ -781,14 +643,8 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
         let fn_start = format!("{owner_snake}_{}_start", adapter.name);
         let swift_start = swift_ident(&fn_start.to_lower_camel_case());
 
-        // _start params: client receiver + adapter params (by reference because
-        // swift-bridge wrapper newtypes are non-Copy). The Rust shim clones the
-        // unwrapped inner value when it needs ownership for the async call.
         let mut start_params: Vec<String> = vec![format!("client: &{owner_type}")];
         for p in &adapter.params {
-            // Adapter param types are stored as Rust path strings (e.g.
-            // `sample_llm::ChatCompletionRequest`). Strip any module prefix —
-            // the swift-bridge extern sees only the simple wrapper-newtype name.
             let simple_ty = p.ty.rsplit("::").next().unwrap_or(&p.ty);
             let param_name = swift_ident(&p.name.to_snake_case());
             start_params.push(format!("{param_name}: &{simple_ty}"));
@@ -810,9 +666,6 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
             },
         ));
 
-        // `next` is a method on the handle. swift-bridge places it as a Swift
-        // instance method on the generated class. The Rust impl `next(&mut self)`
-        // lives in `wrappers.rs::emit_streaming_adapter_shims`.
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_decl.jinja",
             minijinja::context! {

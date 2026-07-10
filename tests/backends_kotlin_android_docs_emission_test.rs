@@ -369,7 +369,6 @@ fn error_type_with_methods_emits_abstract_properties() {
         unsupported_public_items: Vec::new(),
     };
     let files = render(api);
-    // kotlin-android emits each error type as a separate .kt file.
     let error_kt = files
         .iter()
         .find(|(p, _)| p.ends_with("DemoError.kt"))

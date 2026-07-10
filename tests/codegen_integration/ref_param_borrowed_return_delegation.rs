@@ -35,8 +35,6 @@ fn typed(name: &str, is_opaque: bool) -> TypeDef {
     t
 }
 
-// ---- Case 1: static method taking a non-opaque Named `&T` param ----
-
 #[test]
 fn static_method_with_named_ref_param_delegates_with_owned_core_borrow() {
     let typ = typed("ConfidenceSignals", false);
@@ -94,8 +92,6 @@ fn static_method_with_named_ref_param_delegates_with_owned_core_borrow() {
     );
 }
 
-// ---- Case 2: opaque instance method returning Option<&T> (borrowed) ----
-
 #[test]
 fn opaque_method_returning_option_ref_clones_before_convert() {
     let typ = typed("Registry", true);
@@ -141,13 +137,8 @@ fn opaque_method_returning_option_ref_clones_before_convert() {
     );
 }
 
-// ---- Case 2b: locked opaque (Arc<Mutex<T>>) instance method returning Option<&T> ----
-
 #[test]
 fn locked_opaque_method_returning_option_ref_clones_before_convert() {
-    // Same shape as Case 2 but the wrapper stores its inner as Arc<Mutex<CoreType>>.
-    // The locked delegation path must apply the borrowed-return conversion the same way
-    // (`.map(|v| v.clone().into())`) instead of bailing with a `compile_error!` stub.
     let typ = typed("Registry", true);
     let method = MethodDef {
         name: "get".to_string(),
@@ -192,8 +183,6 @@ fn locked_opaque_method_returning_option_ref_clones_before_convert() {
         "borrowed Option<&T> return on a locked wrapper should lock, clone, then convert:\n{result}"
     );
 }
-
-// ---- Case 2c: locked opaque method returning a bare &T (borrowed) ----
 
 #[test]
 fn locked_opaque_method_returning_bare_ref_clones_before_convert() {
@@ -241,8 +230,6 @@ fn locked_opaque_method_returning_bare_ref_clones_before_convert() {
         "borrowed &T return on a locked wrapper should lock, clone, then convert:\n{result}"
     );
 }
-
-// ---- Case 3: free fn mixing &Named, Option<Json> and &BTreeMap, returning Result ----
 
 #[test]
 fn free_fn_mixed_ref_json_and_map_params_delegate_with_json_str() {
@@ -292,19 +279,15 @@ fn free_fn_mixed_ref_json_and_map_params_delegate_with_json_str() {
         result.contains("let preset_core: my_crate::Preset = preset.into();"),
         "should bind an owned core temporary for the &Preset param:\n{result}"
     );
-    // Shared generators serve String-Json backends (PyO3/extendr): Json params parse via from_str.
     assert!(
         result.contains("custom_schema.as_ref().and_then(|s| serde_json::from_str(s).ok())"),
         "optional Json param should be parsed from a String at the call site:\n{result}"
     );
-    // The promoted &BTreeMap param is collected and borrowed.
     assert!(
         result.contains("&context.unwrap_or_default()"),
         "promoted &Map param should be materialised and borrowed:\n{result}"
     );
 }
-
-// ---- Call-arg builder unit behaviours ----
 
 #[test]
 fn call_args_json_str_variant_parses_json_string_params() {
@@ -323,7 +306,6 @@ fn call_args_json_str_variant_parses_json_string_params() {
 
 #[test]
 fn call_args_plain_variant_passes_json_value_params_through() {
-    // The plain variant (NAPI/WASM, Json == serde_json::Value/JsValue) must not call from_str.
     let opaque = AHashSet::new();
     let req = vec![ref_param("schema", TypeRef::Json, false, false)];
     assert_eq!(

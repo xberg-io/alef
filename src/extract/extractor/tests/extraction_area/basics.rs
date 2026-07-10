@@ -124,7 +124,6 @@ fn test_extract_impl_block() {
 
     let server = &surface.types[0];
     assert_eq!(server.name, "Server");
-    // `new` returning Self is skipped (constructor generated from fields)
     assert_eq!(server.methods.len(), 2);
 
     let listen_method = &server.methods[0];
@@ -215,8 +214,6 @@ fn test_method_with_owned_self() {
 
 #[test]
 fn test_extract_pub_type_alias() {
-    // Non-generic type alias: `pub type Foo = Bar;`
-    // Should be extracted as an opaque TypeDef with no fields.
     let source = r#"
         /// A result alias.
         pub type Result = std::result::Result<String, String>;
@@ -234,7 +231,6 @@ fn test_extract_pub_type_alias() {
 #[test]
 fn test_pub_type_alias_with_doc_hidden_is_binding_excluded() {
     // `#[doc(hidden)]` on a type alias should mark it as binding_excluded so
-    // downstream backends skip it.
     let source = r#"
         #[doc(hidden)]
         pub type InternalBuffer = std::vec::Vec<u8>;

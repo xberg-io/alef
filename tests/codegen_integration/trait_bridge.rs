@@ -1,7 +1,6 @@
 use super::*;
 
 // ==============================================================================
-// Tests for trait_bridge.rs
 // ==============================================================================
 
 /// Minimal TraitBridgeGenerator for testing the shared bridge helpers.
@@ -255,8 +254,6 @@ fn test_gen_bridge_trait_impl_generates_methods() {
         "should implement the trait"
     );
     assert!(result.contains("fn execute("), "should have required execute method");
-    // optional_method has has_default_impl=true — it must NOT get a generated body so the
-    // trait's own default implementation takes effect.
     assert!(
         !result.contains("fn optional_method("),
         "should NOT generate body for optional_method (has_default_impl=true); got:\n{result}"
@@ -298,7 +295,6 @@ fn test_gen_bridge_all_includes_imports_struct_and_trait_impl() {
         result.code.contains("impl my_crate::MyTrait for PythonMyTraitBridge"),
         "should have trait impl"
     );
-    // No register_fn configured, so registration function should be absent
     assert!(
         !result.code.contains("pub fn register"),
         "should not have registration fn when not configured"
@@ -580,7 +576,6 @@ fn test_format_param_type_named_with_is_ref() {
 
 #[test]
 fn test_format_param_type_primitive_with_is_ref_passes_by_value() {
-    // Primitives (Copy types) are passed by value even when is_ref is true
     let type_paths = HashMap::new();
     let param = ParamDef {
         name: "count".to_string(),

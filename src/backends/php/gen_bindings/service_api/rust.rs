@@ -19,20 +19,17 @@ pub(in crate::backends::php::gen_bindings) fn gen_service_rs(api: &ApiSurface, c
     let core_import = config.core_import_name();
     let mut out = String::new();
 
-    // File-level allow attributes to keep clippy happy in generated code
     out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
     out.push_str("use ext_php_rs::prelude::*;\n");
     out.push_str("use ext_php_rs::types::{ZendCallable, Zval};\n");
     out.push_str("use std::panic::AssertUnwindSafe;\n");
     out.push_str("use std::sync::Arc;\n\n");
 
-    // Global handler registry (thread-local since Zval is not Send/Sync)
     out.push_str("thread_local! {\n");
     out.push_str("    static PHP_HANDLER_REGISTRY: std::cell::RefCell<Vec<ZendCallable<'static>>> =\n");
     out.push_str("        const { std::cell::RefCell::new(Vec::new()) };\n");
     out.push_str("}\n\n");
 
-    // Emit one handler bridge per unique handler contract referenced by any registration
     let referenced_contracts: Vec<&HandlerContractDef> = {
         let mut names: Vec<&str> = api
             .services
@@ -49,7 +46,6 @@ pub(in crate::backends::php::gen_bindings) fn gen_service_rs(api: &ApiSurface, c
         gen_handler_bridge(&mut out, contract, &core_import);
     }
 
-    // Emit one php_function per service × entrypoint
     for service in &api.services {
         for ep in &service.entrypoints {
             gen_run_php_function(&mut out, service, ep, api, &core_import);
@@ -70,11 +66,9 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let bridge_name = format!("Php{}Bridge", trait_name.to_upper_camel_case());
     let dispatch_name = &contract.dispatch.name;
 
-    // Determine wire types
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
-    // Build req/resp paths: if wire type includes "::", strip it; otherwise prefix with core_import
     let req_path = if req_type.contains("::") {
         req_type.split("::").last().unwrap_or(req_type).to_string()
     } else if req_type == "Value" || req_type == "serde_json::Value" {
@@ -90,7 +84,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         format!("{core_import}::{resp_type}")
     };
 
-    // Extra dispatch parameters the bridge ignores (leading verbatim params)
     let extra_param: String = contract
         .dispatch_extra_params
         .iter()
@@ -98,11 +91,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .collect();
     let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
-    // The future's `Output` is the contract dispatch's real return type when the library
-    // supplies one (`dispatch_return_type`); otherwise the bridge yields the wire response
-    // wrapped in a boxed-error `Result`. When a `response_adapter` is configured, the inner
-    // fallible computation produces the wire `Result` and the adapter converts it into the
-    // dispatch return type.
     let box_err = "Box<dyn std::error::Error + Send + Sync>";
     let wire_output = format!("Result<{resp_path}, {box_err}>");
     let output_type = contract
@@ -114,10 +102,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         None => "outcome".to_string(),
     };
 
-    // Trait impl. Returns a boxed future directly (canonical object-safe
-    // async-trait shape) instead of via the async_trait macro, matching a
-    // contract whose dispatch method is hand-written as
-    // `-> Pin<Box<dyn Future<..> + Send + '_>>`.
     out.push_str(&render(
         "php_service_handler_bridge.jinja",
         context! {
@@ -157,7 +141,6 @@ fn gen_run_php_function(
     let owner_path = &service.rust_path;
     let ep_method = &ep.method;
 
-    // Build the function signature: registrations + entrypoint params
     let mut rust_params = vec!["registrations: &Bound<'_, Zval>".to_owned()];
     for p in &ep.params {
         let rust_ty = typeref_to_rust_type(&p.ty, core_import);
@@ -175,14 +158,12 @@ fn gen_run_php_function(
         },
     ));
 
-    // Build the owner instance via its constructor
     let ctor_call = build_ctor_call(service, owner_path, core_import);
     out.push_str(&render(
         "php_service_rust_owner_init.jinja",
         context! { ctor_call => &ctor_call },
     ));
 
-    // Iterate registrations and dispatch
     out.push_str("    // Register all handlers with the owner\n");
     out.push_str("    if let Ok(reg_arr) = registrations.try_into::<Vec<Zval>>() {\n");
     out.push_str("        for entry in reg_arr {\n");
@@ -195,7 +176,6 @@ fn gen_run_php_function(
     out.push_str("                let method_name: String = tuple[0].try_into()?;\n");
     out.push_str("                let callable = tuple[2].clone();\n\n");
 
-    // Dispatch on method name
     out.push_str("                match method_name.as_str() {\n");
     for reg in &service.registrations {
         let reg_method = &reg.method;
@@ -210,7 +190,6 @@ fn gen_run_php_function(
                 context! { reg_method => reg_method },
             ));
 
-            // Store the callable in the registry and get its index
             out.push_str("                        let handler_index = PHP_HANDLER_REGISTRY.with(|registry| {\n");
             out.push_str("                            let mut registry = registry.borrow_mut();\n");
             out.push_str("                            let idx = registry.len();\n");
@@ -268,7 +247,6 @@ fn gen_run_php_function(
                 ));
             }
 
-            // Handle error if the registration is fallible
             if reg.error_type.is_some() {
                 out.push_str("                            .map_err(|e| PhpException::default(e.to_string()))?;\n");
             } else {
@@ -288,7 +266,6 @@ fn gen_run_php_function(
     out.push_str("        }\n");
     out.push_str("    }\n\n");
 
-    // Call the entrypoint
     let ep_call = build_ep_call(ep, service, core_import);
     out.push_str(&ep_call);
 

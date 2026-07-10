@@ -39,7 +39,6 @@ pub(crate) fn is_unbridgeable_getter(
     no_serde_names: &HashSet<&str>,
     configured_features: &std::collections::HashSet<&str>,
 ) -> bool {
-    // First check: if the field's cfg condition is not satisfied, skip it entirely.
     if !super::super::feature_gate::cfg_satisfied(field.cfg.as_deref(), configured_features) {
         return true;
     }
@@ -65,19 +64,9 @@ pub(crate) fn is_unbridgeable_getter(
         }
     }
     if let TypeRef::Vec(inner) = &field.ty {
-        // Vec<non-Primitive, non-Bytes> on a non-serde struct cannot survive the
-        // bridge: there's no JSON round-trip available, and the IR may have
-        // sanitized the inner type away from its real Rust source counterpart.
-        // This covers Vec<String>, Vec<Path>, Vec<Named>, Vec<Vec<…>>, etc.
         if !ty.has_serde && !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes) {
             return true;
         }
-        // A sanitized Vec field (e.g. `Vec<InlineImage>` mapped to `Vec<String>` in the IR)
-        // on a serde struct cannot be round-tripped: the serde bridge would attempt
-        // `from_value::<Vec<InlineImage>>(to_value(Vec<String>))`, which fails if the
-        // inner type does not implement `serde::Deserialize` (e.g. when the `serde`
-        // feature is not unconditionally enabled in the source crate). Treat any
-        // sanitized Vec field as unbridgeable regardless of `ty.has_serde`.
         if field.sanitized && !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes) {
             return true;
         }
@@ -105,19 +94,10 @@ pub(super) fn emit_getters(
     configured_features: &std::collections::HashSet<&str>,
     out: &mut String,
 ) {
-    // See `bridge_type_enum_and_serde_struct_aware`: Vec<Named(struct)> getters JSON-degrade only
-    // when the containing type is a first-class Codable wrapper; opaque parents keep Vec<Opaque>.
     let parent_first_class = first_class_names.contains(ty.name.as_str());
     for field in &ty.fields {
-        // Use enum-aware bridge type so enum-typed Named fields resolve to String.
-        // This keeps extern block declarations consistent with the getter impl bodies.
-        // For optional Vec<Named(enum)> fields, fall back to String (JSON-serialized)
-        // because Option<Vec<String>> is not supported by swift-bridge as a getter return.
         let bridge_ty = bridge_type_enum_aware_ref(&field.ty, enum_names);
         let bridge_ty_owned = if field.optional && !needs_json_bridge(&field.ty) {
-            // Option<Vec<String>> is not natively supported by swift-bridge; collapse
-            // to plain String (JSON) only when the Vec inner type is an enum.  For
-            // Option<Vec<Named(struct)>> keep the opaque-wrapper vector form.
             if is_vec_of_enum(&field.ty, enum_names) {
                 "String".to_string()
             } else {
@@ -127,13 +107,7 @@ pub(super) fn emit_getters(
             bridge_ty
         };
         let name = field.name.to_snake_case();
-        // Swift-bridge emits the Rust fn name verbatim into Swift; escape Swift
-        // reserved keywords (extension, subscript, etc.) so the generated Swift
-        // accessor is valid. Body still uses `name` for source-struct field access.
         let getter_name = swift_ident(&name);
-        // Skip impl entirely for fields whose getter is unbridgeable. The matching
-        // `extern_block::emit_extern_block_for_type` skips the extern declaration
-        // for the same fields, so the swift-bridge surface stays consistent.
         if is_unbridgeable_getter(
             ty,
             field,
@@ -168,18 +142,8 @@ pub(super) fn emit_getters(
                 },
             ));
         } else if is_enum_named(&field.ty, enum_names) {
-            // Enum-typed Named field: return the enum as a String. The opaque enum type is
-            // NOT declared in the extern block (see extern_block.rs), so we must not return
-            // the wrapper type here. Unit enums (all variants fieldless) serialize to their
-            // bare serde raw value via the wrapper's `to_string()`, which Swift reconstructs
-            // with `Type(rawValue:)`. Tagged enums (variants carry data) cannot use the
-            // discriminant-only wrapper — it drops the payload — so the source value is
-            // serialized with `serde_json::to_string`, which Swift decodes via `JSONDecoder`
-            // (matching the bidirectional `*_from_json` representation).
             emit_enum_string_getter(field, &ctx, enum_names, unit_enum_names, out);
         } else if is_vec_of_enum(&field.ty, enum_names) {
-            // Vec<Named(enum)>: map each element to a String (raw value for unit enums,
-            // serde-JSON for tagged enums — see emit_enum_string_getter).
             emit_vec_enum_string_getter(field, &ctx, enum_names, unit_enum_names, out);
         } else if let TypeRef::Named(wrapper) = &field.ty {
             emit_named_getter(field, wrapper, &ctx, enum_names, out);
@@ -200,7 +164,6 @@ pub(super) fn emit_getters(
         ) {
             emit_string_like_getter(ty, field, &ctx, out);
         } else if matches!(field.ty, TypeRef::Bytes) {
-            // bytes::Bytes bridges as Vec<u8>; convert with .to_vec() for the return.
             if field.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "getter_optional_bytes.jinja",
@@ -221,7 +184,6 @@ pub(super) fn emit_getters(
                 ));
             }
         } else if matches!(field.ty, TypeRef::Duration) {
-            // Duration field: bridge type is u64 (millis), core type is std::time::Duration.
             if field.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "getter_optional_duration.jinja",
@@ -240,7 +202,6 @@ pub(super) fn emit_getters(
                 ));
             }
         } else if ty.has_serde && matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Primitive(_)) {
-            // Vec<T> or Primitive fields in serde structs: use serde JSON round-trip.
             if field.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "getter_serde_optional.jinja",
@@ -300,7 +261,6 @@ fn emit_enum_string_getter(
     let getter_name = &ctx.getter_name;
 
     if field.optional {
-        // Option<EnumType> → Option<String>.
         let map_expr = if is_unit {
             if field.is_boxed {
                 format!("self.0.{name}.clone().map(|w| {wrapper}::from(*w).to_string())")
@@ -310,7 +270,6 @@ fn emit_enum_string_getter(
                 format!("self.0.{name}.clone().map(|w| {wrapper}::from(w).to_string())")
             }
         } else if field.is_boxed || matches!(field.core_wrapper, CoreWrapper::Arc) {
-            // Tagged enum: serialize the source value. Boxed and Arc both deref via `&*w`.
             format!(
                 "self.0.{name}.clone().map(|w| serde_json::to_string(&*w).unwrap_or_else(|_| \"null\".to_string()))"
             )
@@ -325,7 +284,6 @@ fn emit_enum_string_getter(
             },
         ));
     } else {
-        // EnumType → String.
         let expr = if is_unit {
             if field.is_boxed {
                 format!("{wrapper}::from(*self.0.{name}.clone()).to_string()")
@@ -335,7 +293,6 @@ fn emit_enum_string_getter(
                 format!("{wrapper}::from(self.0.{name}.clone()).to_string()")
             }
         } else if field.is_boxed || matches!(field.core_wrapper, CoreWrapper::Arc) {
-            // Tagged enum: serialize the source value. Boxed and Arc both deref via `&*self.0.{name}`.
             format!("serde_json::to_string(&*self.0.{name}).unwrap_or_else(|_| \"null\".to_string())")
         } else {
             format!("serde_json::to_string(&self.0.{name}).unwrap_or_else(|_| \"null\".to_string())")
@@ -375,7 +332,6 @@ fn emit_vec_enum_string_getter(
     let name = &ctx.name;
     let getter_name = &ctx.getter_name;
 
-    // Build the per-element mapping expression based on enum kind and wrapping strategy.
     let elem_expr = if is_unit {
         match field.vec_inner_core_wrapper {
             CoreWrapper::Arc => format!("{wrapper}::from((**elem).clone()).to_string()"),
@@ -421,8 +377,6 @@ fn emit_vec_struct_serde_getter(field: &crate::core::ir::FieldDef, ctx: &GetterC
     let name = &ctx.name;
     let getter_name = &ctx.getter_name;
 
-    // For each element, serialize to JSON string. Use serde_json::to_string to match
-    // the enum tagged case which also uses JSON serialization.
     let elem_expr = "serde_json::to_string(elem).unwrap_or_else(|_| \"null\".to_string())".to_string();
 
     if field.optional {
@@ -457,7 +411,6 @@ fn emit_named_getter(
     let getter_name = &ctx.getter_name;
     let is_enum = enum_names.contains(wrapper);
     if field.optional {
-        // Optional Named: self.0.field.clone().map(T) or T::from
         let getter_expr = if field.is_boxed {
             if is_enum {
                 format!("self.0.{name}.clone().map(|w| {wrapper}::from(*w))")
@@ -485,14 +438,12 @@ fn emit_named_getter(
         ));
     } else {
         let expr = if field.is_boxed {
-            // Deref the Box<SourceT> before wrapping.
             if is_enum {
                 format!("{wrapper}::from(*self.0.{name}.clone())")
             } else {
                 format!("{wrapper}(*self.0.{name}.clone())")
             }
         } else if matches!(field.core_wrapper, CoreWrapper::Arc) {
-            // Deref the Arc<SourceT> before wrapping.
             if is_enum {
                 format!("{wrapper}::from((*self.0.{name}).clone())")
             } else {
@@ -530,24 +481,11 @@ fn emit_vec_getter(
     let _bridge_ty_owned = &ctx.bridge_ty_owned;
     if let TypeRef::Named(wrapper) = inner {
         let is_enum = enum_names.contains(wrapper.as_str());
-        // On a first-class parent, Vec<Named(serde struct)> is JSON-marshaled so the parent's
-        // Codable wrapper decodes each element. On an opaque parent, keep the real Vec<Opaque>
-        // so opaque element accessors resolve. Must match the extern signature emitted by
-        // `bridge_type_enum_and_serde_struct_aware`.
         let has_serde = !no_serde_names.contains(wrapper.as_str());
-        // Optional Vec always collapses to a single JSON `String` (swift-bridge cannot express
-        // `Option<Vec<T>>`), so it keeps the serde path regardless of the parent. A non-optional
-        // Vec JSON-degrades only on a first-class parent; an opaque parent keeps Vec<Opaque>.
         if !is_enum && has_serde && (field.optional || parent_first_class) {
-            // Vec<Named(serde struct)>: emit each element (or the whole optional Vec) as JSON.
             emit_vec_struct_serde_getter(field, ctx, out);
         } else {
-            // Vec<Named(enum)>, Vec<Named> on an opaque parent, or Vec<Named(struct without
-            // serde)>: use the opaque wrapper.
-            // When the source field is Vec<Arc<T>>, cloning an element
-            // yields Arc<SourceT>; we must deref before wrapping.
             let elem_expr = match field.vec_inner_core_wrapper {
-                // elem is &Arc<T>; (*elem) is Arc<T>; (**elem) is T — deref twice.
                 CoreWrapper::Arc if !is_enum => format!("{wrapper}((**elem).clone())"),
                 CoreWrapper::Arc => format!("{wrapper}::from((**elem).clone())"),
                 _ if is_enum => format!("{wrapper}::from(elem.clone())"),
@@ -576,7 +514,6 @@ fn emit_vec_getter(
             }
         }
     } else if !matches!(inner, TypeRef::Primitive(_) | TypeRef::Bytes) {
-        // Vec<non-Primitive, non-Bytes>: use JSON round-trip for serde structs.
         if ty.has_serde {
             if field.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
@@ -598,9 +535,6 @@ fn emit_vec_getter(
                 ));
             }
         } else {
-            // Unreachable: `is_unbridgeable_getter` filters this case out before
-            // `emit_vec_getter` is called, so non-serde Vec<Named> never lands here.
-            // Emit a comment for visibility if the filter ever drifts out of sync.
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_vec_complex_skip.jinja",
                 minijinja::context! {
@@ -609,7 +543,6 @@ fn emit_vec_getter(
             ));
         }
     } else {
-        // Vec<Primitive> or Vec<Bytes>: use serde round-trip in serde structs.
         if ty.has_serde {
             if field.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
@@ -647,8 +580,6 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
     let name = &ctx.name;
     let getter_name = &ctx.getter_name;
     let bridge_ty_owned = &ctx.bridge_ty_owned;
-    // Char: bridge type is String; convert via .to_string() (not serde_json::to_string,
-    // which would add JSON quotes around the single character).
     if matches!(field.ty, TypeRef::Char) {
         if field.optional {
             out.push_str(&crate::backends::swift::template_env::render(
@@ -671,14 +602,7 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         }
         return;
     }
-    // String-like fields might be JSON-bridged enums in the source struct;
-    // serialize via serde_json so the result works for both `String` and
-    // typed source fields.
-    // Exception: when the struct itself lacks serde, the field might be a
-    // non-serde type that was mapped to String by the IR. Use Debug format
-    // as a safe fallback that always compiles.
     // NOTE: TypeRef::Bytes is NOT included here — it maps to Vec<u8> in the
-    // bridge, not String, so it must fall through to the plain clone() branch.
     if !ty.has_serde {
         if field.optional {
             out.push_str(&crate::backends::swift::template_env::render(
@@ -703,8 +627,6 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         && !field.sanitized
         && matches!(field.core_wrapper, crate::core::ir::CoreWrapper::None)
     {
-        // Plain String field (not sanitized from another type) — just clone/clone_opt.
-        // serde_json::to_string on a &String adds JSON quotes ("text" → "\"text\"").
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_simple_clone.jinja",
             minijinja::context! {
@@ -717,7 +639,6 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         && matches!(field.core_wrapper, crate::core::ir::CoreWrapper::Cow)
         && !field.optional
     {
-        // Cow<'static, str> field — use .to_string() to avoid JSON quoting.
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_string_cow.jinja",
             minijinja::context! {
@@ -730,7 +651,6 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         && matches!(field.core_wrapper, crate::core::ir::CoreWrapper::Cow)
         && field.optional
     {
-        // Option<Cow<'static, str>> field — map to String via .to_string().
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_string_cow_optional.jinja",
             minijinja::context! {

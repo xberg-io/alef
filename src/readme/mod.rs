@@ -48,24 +48,14 @@ fn generate_readme(
     config: &ResolvedCrateConfig,
     lang: Language,
 ) -> anyhow::Result<Option<GeneratedFile>> {
-    // Rust is the source crate, not a binding. The canonical Rust README lives at
-    // the workspace crate (e.g. `crates/<name>/README.md`) and is hand-written or
-    // managed by the consumer repo. Only emit a Rust README when the user has
-    // explicitly opted in via `[readme.languages.rust]` with an `output_path`.
     if matches!(lang, Language::Rust) && !rust_readme_explicitly_configured(config) {
         return Ok(None);
     }
 
-    // Language::Jni and Language::C are FFI shim glue layers, not publishable
-    // bindings — they share their public surface with the host language (kotlin-android,
-    // ffi). The hardcoded fallback used to emit them at `packages/zig/README.md`,
-    // which collided with the actual Zig README. Skip silently — consumers that
-    // want a C/JNI README can opt in via `[readme.languages.c]` / `.jni`.
     if matches!(lang, Language::C | Language::Jni) {
         return Ok(None);
     }
 
-    // Try template-based generation first when readme config is present
     if let Some(readme_cfg) = &config.readme {
         if let Some(template_dir) = &readme_cfg.template_dir {
             let workspace_root = config.workspace_root.clone().unwrap_or_else(|| PathBuf::from("."));
@@ -80,7 +70,6 @@ fn generate_readme(
         }
     }
 
-    // Fall back to hardcoded generation
     Ok(Some(fallback::generate_readme_hardcoded(api, config, lang)?))
 }
 

@@ -330,9 +330,6 @@ mod tests {
 
     #[test]
     fn typecheck_orders_between_compile_and_run() {
-        // The runner clamps the requested level with `min(level, validator.max_level())` and gates
-        // annotation ceilings with `>`, so the ordering is load-bearing: type-checking is the
-        // strongest static guarantee short of execution.
         assert!(ValidationLevel::Compile < ValidationLevel::TypeCheck);
         assert!(ValidationLevel::TypeCheck < ValidationLevel::Run);
     }

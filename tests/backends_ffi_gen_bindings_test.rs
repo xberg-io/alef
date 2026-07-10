@@ -26,10 +26,6 @@ fn make_empty_api() -> ApiSurface {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
-
 fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
     TypeDef {
         name: name.to_string(),
@@ -168,10 +164,6 @@ fn make_api() -> ApiSurface {
         unsupported_public_items: Vec::new(),
     }
 }
-
-// ---------------------------------------------------------------------------
-// VTable struct tests
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_gen_trait_bridge_vtable_is_repr_c() {
@@ -319,10 +311,6 @@ fn test_gen_trait_bridge_vtable_string_param_maps_to_c_char_ptr() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Registration function naming convention
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pattern() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
@@ -359,7 +347,6 @@ fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pa
         &api,
     );
 
-    // Convention: {prefix}_register_{trait_snake}
     assert!(
         code.contains("extern \"C\" fn kr_register_ocr_backend"),
         "register fn must follow {{prefix}}_register_{{trait_snake}} naming convention"
@@ -402,7 +389,6 @@ fn test_gen_trait_bridge_unregister_fn_is_generated() {
         &api,
     );
 
-    // Convention: {prefix}_unregister_{trait_snake}
     assert!(
         code.contains("extern \"C\" fn kr_unregister_ocr_backend"),
         "unregister fn must be generated alongside register fn"
@@ -419,7 +405,6 @@ fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
         "HtmlVisitor",
         vec![make_method("visit_node", TypeRef::Unit, false, true)],
     );
-    // No register_fn — vtable is still generated but no top-level registration function
     let bridge_cfg = make_bridge_cfg("HtmlVisitor");
     let api = make_api();
 
@@ -435,8 +420,6 @@ fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
     );
 
     // Without register_fn, no #[unsafe(no_mangle)] exported function is generated.
-    // The vtable fields still contain `extern "C" fn` pointer *types*, but no
-    // stand-alone `pub unsafe extern "C" fn lib_register_*` definition.
     assert!(
         !code.contains("#[unsafe(no_mangle)]"),
         "no #[unsafe(no_mangle)] exported function should be generated when register_fn is not configured"
@@ -446,10 +429,6 @@ fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
         "no exported registration function should be generated when register_fn is not configured"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Super-trait ("Plugin") support
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fields() {
@@ -487,7 +466,6 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fiel
         &api,
     );
 
-    // When super_trait = "Plugin", the vtable must include Plugin lifecycle fn pointers
     assert!(
         code.contains("name_fn:"),
         "vtable must include name_fn for Plugin super-trait"
@@ -556,10 +534,6 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_plugin_impl() {
         "Plugin impl must contain shutdown()"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Bridge struct and safety
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_gen_trait_bridge_bridge_struct_holds_vtable_and_user_data() {
@@ -685,10 +659,6 @@ fn test_gen_trait_bridge_drop_impl_calls_free_user_data() {
     assert!(code.contains("free_user_data"), "Drop impl must invoke free_user_data");
 }
 
-// ---------------------------------------------------------------------------
-// Trait impl generation
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_gen_trait_bridge_generates_trait_impl() {
     let trait_def = make_trait_def("Scanner", vec![make_method("scan", TypeRef::String, true, false)]);
@@ -718,8 +688,8 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
     let trait_def = make_trait_def(
         "Transform",
         vec![
-            make_method("transform", TypeRef::String, true, false), // required
-            make_method("describe", TypeRef::String, false, true),  // optional (has default)
+            make_method("transform", TypeRef::String, true, false),
+            make_method("describe", TypeRef::String, false, true),
         ],
     );
     let bridge_cfg = TraitBridgeConfig {
@@ -755,16 +725,11 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
         &api,
     );
 
-    // Required method fn ptr must be null-checked; optional need not be
     assert!(
         code.contains("vtable_ref.transform.is_none()"),
         "register fn must validate required fn pointers are non-null"
     );
 }
-
-// ---------------------------------------------------------------------------
-// build.rs Go header copy (regression: downstream go get compatibility)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_build_rs_contains_go_header_copy_when_go_is_configured() {
@@ -840,10 +805,6 @@ ffi = "crates/mylib-ffi/src/"
     );
 }
 
-// ---------------------------------------------------------------------------
-// _len() companion generation
-// ---------------------------------------------------------------------------
-
 /// A function returning `Option<&'static str>` (Optional<String> + returns_ref=true) must
 /// emit both the primary `*mut c_char` wrapper AND a sibling `_len() -> usize` companion.
 #[test]
@@ -902,13 +863,11 @@ ffi = "crates/mylib-ffi/src/"
     let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
     let code = &lib_rs.content;
 
-    // Primary function must be present and return *mut c_char
     assert!(
         code.contains("pub unsafe extern \"C\" fn ml_detect_language("),
         "primary ml_detect_language function must be emitted"
     );
 
-    // _len companion must be present
     assert!(
         code.contains("pub unsafe extern \"C\" fn ml_detect_language_len("),
         "_len companion ml_detect_language_len must be emitted"
@@ -922,7 +881,6 @@ ffi = "crates/mylib-ffi/src/"
         "primary C-string return must record its byte length before into_raw"
     );
 
-    // Locate and inspect the _len companion body
     let len_fn_start = code
         .find("pub unsafe extern \"C\" fn ml_detect_language_len(")
         .expect("_len companion not found");
@@ -940,7 +898,6 @@ ffi = "crates/mylib-ffi/src/"
         len_fn_snippet.contains("*const std::ffi::c_char"),
         "_len companion must accept the same *const c_char extension param"
     );
-    // Body must not allocate a CString
     assert!(
         !len_fn_snippet.contains("CString::new"),
         "_len companion must not allocate a CString"
@@ -1005,9 +962,7 @@ ffi = "crates/mylib-ffi/src/"
     );
 }
 
-// ---------------------------------------------------------------------------
 // clippy::manual_unwrap_or regression
-// ---------------------------------------------------------------------------
 
 /// A function returning `Option<f64>` must emit `.unwrap_or(0.0)` instead of the
 /// manual `match result { Some(val) => val, None => 0.0 }` pattern that clippy
@@ -1031,7 +986,6 @@ ffi = "crates/mylib-ffi/src/"
 "#,
     );
 
-    // `completion_cost(model: &str) -> Option<f64>` is the canonical example that
     // triggered clippy::manual_unwrap_or in sample-llm-ffi.
     let api = ApiSurface {
         crate_name: "mylib".to_string(),
@@ -1070,13 +1024,11 @@ ffi = "crates/mylib-ffi/src/"
     let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
     let code = &lib_rs.content;
 
-    // The function must exist.
     assert!(
         code.contains("fn ml_cost("),
         "ml_cost function must be emitted; got:\n{code}"
     );
 
-    // Must emit `.unwrap_or(0.0)` — the idiomatic form clippy expects.
     assert!(
         code.contains(".unwrap_or(0.0)"),
         "Option<f64> return must emit .unwrap_or(0.0), not a manual match; got:\n{code}"
@@ -1088,10 +1040,6 @@ ffi = "crates/mylib-ffi/src/"
         "must not emit manual Some(val) => val match for passthrough primitive; got:\n{code}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Opaque type configured in [workspace.opaque_types] regression
-// ---------------------------------------------------------------------------
 
 /// A type declared in [workspace.opaque_types] must have its _new() and _free()
 /// FFI functions emitted, even though it is not defined in the API surface.
@@ -1118,8 +1066,6 @@ ffi = "crates/mylib-ffi/src/"
 "#,
     );
 
-    // Language is an opaque type, so it appears in config but not in the API surface.
-    // However, it may be returned by functions, so we need to emit the wrapper.
     let api = ApiSurface {
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
@@ -1181,14 +1127,11 @@ ffi = "crates/mylib-ffi/src/"
     let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
     let code = &lib_rs.content;
 
-    // The function must exist and return the opaque type.
     assert!(
         code.contains("pub unsafe extern \"C\" fn ml_get_language("),
         "ml_get_language function must be emitted; got:\n{code}"
     );
 
-    // Most importantly, the _free() function for the opaque type must be emitted.
-    // Without this fix, the cgo compilation fails: "could not determine what C.language_free refers to".
     assert!(
         code.contains("pub unsafe extern \"C\" fn ml_language_free("),
         "opaque type Language must emit ml_language_free() for cgo compatibility; got:\n{code}"
@@ -1215,7 +1158,6 @@ ffi = "crates/mylib-ffi/src/"
 "#,
     );
 
-    // Simple newtype opaque (no generics) should have free function emitted
     let api = ApiSurface {
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
@@ -1259,7 +1201,6 @@ ffi = "crates/mylib-ffi/src/"
     let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
     let code = &lib_rs.content;
 
-    // Simple newtype opaques should have free function emitted
     assert!(
         code.contains("pub unsafe extern \"C\" fn ml_language_free("),
         "opaque type Language must emit ml_language_free() for simple newtype opaque (no generics in path)"
@@ -1286,7 +1227,6 @@ ffi = "crates/mylib-ffi/src/"
 "#,
     );
 
-    // Generic-path opaque should be excluded from FFI emission
     let api = ApiSurface {
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
@@ -1330,7 +1270,6 @@ ffi = "crates/mylib-ffi/src/"
     let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
     let code = &lib_rs.content;
 
-    // Generic-path opaques should NOT have free function (excluded)
     assert!(
         !code.contains("pub unsafe extern \"C\" fn ml_handler_free("),
         "opaque type Handler must NOT emit ml_handler_free() for generic-path opaque (contains '<')"

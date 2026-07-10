@@ -75,16 +75,6 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: 
 
     let mut block = String::new();
 
-    // No inbound (Swift-side) phantom Vec block: `Swift{Trait}Box` is an
-    // `extern "Swift" type` with no Rust-side struct backing it at module scope,
-    // so neither the `extern "Rust" { fn ... -> Vec<Swift{Trait}Box>; }` declaration
-    // nor its matching `pub fn` impl can compile. swift-bridge's auto-generated
-    // Vec accessors for inbound traits are not actually used by the bindings we
-    // emit (Swift code consumes individual instances, not Vec<>), so omitting the
-    // phantom does not break anything. The outbound Rust-side trait_bridge.rs
-    // still emits its own phantom for `{Trait}Box`, which is a real `pub struct`
-    // at module scope.
-
     block.push_str("    extern \"Swift\" {\n");
     block.push_str(&crate::backends::swift::template_env::render(
         "inbound_swift_type.rs.jinja",
@@ -94,17 +84,8 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: 
     ));
 
     if emit_plugin_shims {
-        // Plugin super-trait shims — only emitted when the trait has a Plugin super-trait.
-        // We declare these as `&self` methods so swift-bridge treats them as instance methods
-        // on `Swift{Trait}Box` and emits the proper `Unmanaged<T>.fromOpaque(this).takeUnretainedValue()`
-        // dispatch on the Swift side. Free-fn declarations (with `this: &Box` as a regular param)
-        // would force swift-bridge to FFI-encode the box as a value, which breaks for opaque
-        // Swift handle types.
         block.push_str("        fn alef_name(&self) -> String;\n");
         block.push_str("        fn alef_version(&self) -> String;\n");
-        // initialize/shutdown return a JSON envelope `{"ok":null}` / `{"err":"<msg>"}` —
-        // swift-bridge 0.1.59 cannot bridge `Result<(), String>` from `extern "Swift"` (broken
-        // codegen for `Result<RustString, RustString>` shape). The wrapper decodes the envelope.
         block.push_str("        fn alef_initialize(&self) -> String;\n");
         block.push_str("        fn alef_shutdown(&self) -> String;\n");
     }
@@ -133,7 +114,7 @@ pub(crate) fn emit_extern_block_for_inbound(trait_def: &TypeDef, bridge_config: 
                 return_ty => &return_ty,
             },
         ));
-        let _ = box_name; // silence unused if no methods iter has it
+        let _ = box_name;
     }
 
     block.push_str("    }\n\n");

@@ -12,15 +12,10 @@ pub(crate) fn scaffold_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let module_name = config.zig_module_name();
     let ffi_crate_dir = format!("{}-ffi", config.name);
 
-    // Host-native capsule passthrough: each capsule type's `host_type` implies a Zig module
-    // import name (e.g. `?*const my_mod.Language` → `my_mod`). build.zig must wire each
-    // dependency's module into both the public module and the test module. Empty when no
-    // capsule types are configured with a non-empty `package`.
     let capsule_imports_block: String = config
         .zig
         .as_ref()
         .map(|c| {
-            // Collect import names from capsule types that have a package.
             let import_names = crate::core::config::languages::zig_capsule_import_names(&c.capsule_types);
             if import_names.is_empty() {
                 return String::new();
@@ -38,8 +33,6 @@ pub(crate) fn scaffold_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         })
         .unwrap_or_default();
 
-    // Generate build.zig with local workspace defaults. `alef publish package --lang zig`
-    // rewrites it to use bundled lib/ and include/ paths for fetched consumers.
     let build_zig = format!(
         r#"const std = @import("std");
 
@@ -98,15 +91,8 @@ pub fn build(b: *std.Build) void {{
         capsule_imports_block = capsule_imports_block,
     );
 
-    // build.zig.zon — Zig 0.14+ requires `.name` to be an enum literal; Zig 0.16+ requires
-    // a `.fingerprint` field. We derive a stable 64-bit value from the module name so that
-    // regeneration is deterministic.
     let fingerprint = zig_fingerprint(&module_name);
 
-    // Host-native capsule (Language) passthrough: inject each capsule dependency into
-    // build.zig.zon. The dependency key is derived from `host_type` (same import name used
-    // in build.zig). Each capsule entry's `package` is the dependency URL and
-    // `package_version` the URL hash (`.hash = ...`).
     let zig_capsule_deps: String = config
         .zig
         .as_ref()

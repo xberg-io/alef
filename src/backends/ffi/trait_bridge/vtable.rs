@@ -18,7 +18,6 @@ impl FfiBridgeGenerator {
             },
         ));
 
-        // Super-trait methods (Plugin: name, version, initialize, shutdown)
         if spec.bridge_config.super_trait.is_some() {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "vtable_super_trait_methods.jinja",
@@ -26,8 +25,6 @@ impl FfiBridgeGenerator {
             ));
         }
 
-        // One field per trait method (own methods only; super-trait methods are covered above).
-        // Methods listed in `ffi_skip_methods` fall back to the trait default — no vtable slot.
         let skip = &spec.bridge_config.ffi_skip_methods;
         let own_methods: Vec<_> = spec
             .trait_def
@@ -50,14 +47,10 @@ impl FfiBridgeGenerator {
                     },
                 ));
             }
-            // Build params and return type inline for the template
             let mut params = vec!["user_data: *const std::ffi::c_void".to_string()];
             for p in &method.params {
                 let cty = Self::c_param_type(&p.ty);
                 params.push(format!("{}: {}", p.name, cty));
-                // Bytes are passed as raw `*const u8` with a companion `_len: usize`
-                // so the callee can read the full buffer without NUL-truncation.
-                // Matches the regular-function generator's contract.
                 if matches!(p.ty, crate::core::ir::TypeRef::Bytes) {
                     params.push(format!("{}_len: usize", p.name));
                 }
@@ -76,7 +69,6 @@ impl FfiBridgeGenerator {
             ));
         }
 
-        // free_user_data destructor, struct close, and Send + Sync
         let vtable = self.vtable_name(spec);
         out.push_str(&crate::backends::ffi::template_env::render(
             "vtable_free_user_data.jinja",
@@ -97,8 +89,6 @@ impl FfiBridgeGenerator {
         let vtable = self.vtable_name(spec);
         let bridge = self.bridge_name(spec);
 
-        // Detect required methods with a `&[T]` return (Vec(T) + returns_ref = true).
-        // Only `Vec(String)` → `&[&str]` is supported; other element types degrade gracefully.
         let slice_cache_fields: Vec<String> = spec
             .required_methods()
             .into_iter()
@@ -147,7 +137,6 @@ impl FfiBridgeGenerator {
 
         let error_type = &self.error_type;
 
-        // plugin_impl_header
         out.push_str(&crate::backends::ffi::template_env::render(
             "plugin_impl_header.jinja",
             minijinja::context! {
@@ -156,21 +145,16 @@ impl FfiBridgeGenerator {
             },
         ));
 
-        // plugin_impl_version
         out.push_str(&crate::backends::ffi::template_env::render(
             "plugin_impl_version.jinja",
             minijinja::context! {},
         ));
 
-        // The configured plugin_error_constructor takes precedence; otherwise
-        // fall back to a generic `core_import::error_type::from(msg)` shape
-        // (works for any error type that implements `From<String>`).
         let plugin_error_expr = self
             .plugin_error_constructor
             .clone()
             .unwrap_or_else(|| format!("<{core_import}::{error_type} as ::core::convert::From<String>>::from(msg)"));
 
-        // plugin_impl_initialize
         out.push_str(&crate::backends::ffi::template_env::render(
             "plugin_impl_initialize.jinja",
             minijinja::context! {
@@ -180,7 +164,6 @@ impl FfiBridgeGenerator {
             },
         ));
 
-        // plugin_impl_shutdown
         out.push_str(&crate::backends::ffi::template_env::render(
             "plugin_impl_shutdown.jinja",
             minijinja::context! {
@@ -445,8 +428,6 @@ mod tests {
         assert!(out.contains("fn name(&self)"), "must have name()");
         assert!(out.contains("fn initialize(&self)"), "must have initialize()");
         assert!(out.contains("fn shutdown(&self)"), "must have shutdown()");
-        // Default (no plugin_error_constructor configured) emits the generic
-        // `From<String>` fallback so non-sample_core downstreams compile.
         assert!(
             out.contains("<my_lib::MyError as ::core::convert::From<String>>::from(msg)"),
             "default plugin error path must use From<String> fallback;\n\
@@ -489,13 +470,10 @@ mod tests {
         let spec = make_spec(&trait_def, &bridge_cfg);
 
         let out = generator.gen_vtable_struct(&spec);
-        // The pointer field must be present
         assert!(
             out.contains("payload: *const u8"),
             "vtable Bytes param must emit `payload: *const u8`;\nactual:\n{out}"
         );
-        // The length companion must follow — without it the callee cannot determine
-        // where the buffer ends when a 0x00 byte appears in the payload.
         assert!(
             out.contains("payload_len: usize"),
             "vtable Bytes param must emit companion `payload_len: usize`;\nactual:\n{out}"

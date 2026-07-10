@@ -19,8 +19,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
     core_import: &str,
     types_by_name: &AHashMap<&str, &TypeDef>,
 ) -> String {
-    // If the Rust function name already ends with `_async` (e.g. `embed_texts_async`),
-    // do not append another `_async` suffix — the NIF name is already the async variant.
     let nif_fn_name = if func.name.ends_with("_async") {
         func.name.clone()
     } else {
@@ -35,7 +33,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                 if opaque_types.contains(n) {
                     return format!("{}: rustler::ResourceArc<{}>", p.name, n);
                 }
-                // Default (has_default) types are passed as JSON strings.
                 if default_types.contains(n) {
                     return format!("{}: Option<String>", p.name);
                 }
@@ -43,9 +40,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                     return format!("{}: Option<{}>", p.name, n);
                 }
             }
-            // Vec<Named> parameters (batch items like Vec<BatchBytesItem>) are
-            // marshalled via JSON to avoid Rustler's limitation on decoding
-            // complex struct lists.  Mirrors the sync_functions.rs path.
             if let TypeRef::Vec(inner) = &p.ty {
                 if let TypeRef::Named(inner_name) = inner.as_ref() {
                     if !opaque_types.contains(inner_name.as_str()) {
@@ -53,8 +47,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                     }
                 }
             }
-            // Rustler 0.37 cannot marshal Vec<u8> from Erlang binaries;
-            // use rustler::Binary for NIF function parameters.
             if matches!(&p.ty, TypeRef::Bytes) {
                 return if p.optional {
                     format!("{}: Option<rustler::Binary>", p.name)
@@ -74,8 +66,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
 
     let return_type =
         crate::backends::rustler::gen_bindings::helpers::map_return_type(&func.return_type, mapper, opaque_types);
-    // Async NIFs always return Result because Runtime::new() can fail, even when the core
-    // function itself has no error type.
     let return_annotation = mapper.wrap_return(&return_type, true);
 
     let has_default_params = func
@@ -97,14 +87,8 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
 
     let body = if can_delegate {
         let mut deser_lines: Vec<String> = Vec::new();
-        // For async functions, rustler::Binary cannot be moved to spawn closure (not Send).
-        // Convert to Vec<u8> (or &[u8]) before spawn so it can be moved into the closure.
         for p in &func.params {
             if matches!(&p.ty, TypeRef::Bytes) {
-                // rustler::Binary borrows from the input Erlang binary; the borrow
-                // cannot escape into a `'static` thread::spawn closure. Always
-                // convert to an owned `Vec<u8>` (callers that take `&[u8]` re-borrow
-                // from the owned buffer at the call site).
                 deser_lines.push(render_named_deser_line("bytes_to_vec.rs.jinja", &p.name));
             }
         }
@@ -120,28 +104,19 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                             &p.name,
                             &core_ty,
                         ));
-                        // Handle based on whether core function expects reference or option
                         if p.optional {
-                            // Core expects Option<T> → pass as-is
                             return format!("{}_core", p.name);
                         } else if p.is_ref && p.is_mut {
-                            // Core expects &mut T → bind a mutable local, then borrow it
                             let mut_name = format!("{}_mut", p.name);
                             deser_lines.push(format!("let mut {mut_name} = {}_core.unwrap_or_default();", p.name));
                             return format!("&mut {mut_name}");
                         } else if p.is_ref {
-                            // Core expects &T → use as_ref() to get Option<&T>, then unwrap
                             return format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name);
                         } else {
-                            // Core expects T → unwrap or use default
                             return format!("{}_core.unwrap_or_default()", p.name);
                         }
                     }
                 }
-                // Vec<Named> (batch items): the NIF receives an Option<String> of JSON
-                // — deserialize to Vec<core_ty> with an empty-vec fallback so the async
-                // closure can move the owned Vec into the spawned task.  Mirrors the
-                // sync_functions.rs preamble.
                 if let TypeRef::Vec(inner) = &p.ty {
                     if let TypeRef::Named(inner_name) = inner.as_ref() {
                         if !opaque_types.contains(inner_name.as_str()) {
@@ -166,10 +141,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                         }
                     }
                 }
-                // AHashMap<Cow<'static, str>, Value> params: Rustler receives these as
-                // HashMap<String, String> (BEAM maps decoded to Rust). We need a two-step conversion:
-                // (1) bind an owned AHashMap to a named `let` before the call so we can borrow it,
-                // (2) pass the reference in the call arg.
                 if let TypeRef::Map(_, _) = &p.ty {
                     if p.map_is_ahash && p.map_key_is_cow {
                         let bound_name = format!("__{}_ahash", p.name);
@@ -203,7 +174,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                             format!("{}.into()", p.name)
                         }
                     }
-                    // String params: handle optional and reference cases.
                     TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
                         format!("{}.as_deref()", p.name)
                     }
@@ -220,8 +190,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                         }
                     }
                     TypeRef::Bytes => {
-                        // After deser_lines, `content` is owned Vec<u8>. Re-borrow
-                        // when the core fn takes &[u8], else move the Vec.
                         if p.is_ref {
                             format!("&{}", p.name)
                         } else {
@@ -230,16 +198,9 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(inner) => {
-                        // Check if the vector element type is a Named type that needs conversion.
                         if let TypeRef::Named(elem_name) = inner.as_ref() {
                             if !opaque_types.contains(elem_name.as_str()) {
-                                // The element type is a binding enum/struct that needs conversion.
-                                // Convert each element via .into().
                                 if p.is_ref && p.is_mut {
-                                    // For &mut refs to Vec<Named>, create a mutable local binding.
-                                    // The binding must be fully converted upfront so that the
-                                    // core call can borrow it mutably without lifetime issues
-                                    // from the closure environment.
                                     let mut_name = format!("{}_mut", p.name);
                                     deser_lines.push(format!("let mut {mut_name} = {}.iter().map(|e| e.into()).collect::<Vec<_>>();", p.name));
                                     format!("&mut {mut_name}")
@@ -249,23 +210,19 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
                                     format!("{}.into_iter().map(Into::into).collect()", p.name)
                                 }
                             } else if p.is_ref && p.is_mut {
-                                // Opaque types with &mut: create mutable local binding for iter_mut().
                                 let mut_name = format!("{}_mut", p.name);
                                 deser_lines.push(format!("let mut {mut_name} = {};", p.name));
                                 format!("&mut {mut_name}")
                             } else if p.is_ref {
-                                // Opaque types: reference as-is, derefs to slice.
                                 format!("&{}", p.name)
                             } else {
                                 p.name.to_string()
                             }
                         } else if p.is_ref && p.is_mut {
-                            // Non-Named element types with &mut: create mutable binding.
                             let mut_name = format!("{}_mut", p.name);
                             deser_lines.push(format!("let mut {mut_name} = {};", p.name));
                             format!("&mut {mut_name}")
                         } else if p.is_ref {
-                            // Non-Named element types (String, etc.): reference as-is, derefs to slice.
                             format!("&{}", p.name)
                         } else {
                             p.name.to_string()
@@ -291,7 +248,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_async_function(
         if func.error_type.is_some() {
             render_async_body("async_result_body.rs.jinja", &preamble, &core_call, &result_wrap)
         } else {
-            // No error type, but Runtime::new() can still fail — use map_err and Ok().
             render_async_body("async_infallible_body.rs.jinja", &preamble, &core_call, &result_wrap)
         }
     } else {

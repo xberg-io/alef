@@ -30,17 +30,9 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
 ) -> String {
     use crate::core::ir::TypeRef;
 
-    // Collect bridge param names so they can be typed as `object | None` instead of
-    // `str | None`. The IR sanitizes trait handle types to String, but callers pass
-    // arbitrary Python objects implementing the visitor protocol.
     let bridge_param_names: ahash::AHashSet<&str> =
         trait_bridges.iter().filter_map(|b| b.param_name.as_deref()).collect();
 
-    // Build lookup for options-field bridges: options_type_name → (visitor_kwarg_name, field_name, handle_type).
-    // When a function parameter's type matches an options-field bridge's `options_type`, we add
-    // a `visitor: {handle_type} | None = None` convenience kwarg to the Python wrapper.
-    // Prefer the user-facing trait name (e.g. "HtmlVisitor") over the opaque handle alias
-    // (e.g. "VisitorHandle") to match the .pyi Protocol surface emitted by gen_stubs.
     let options_field_bridges: AHashMap<&str, (&str, &str, Option<&str>)> = trait_bridges
         .iter()
         .filter(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField)
@@ -58,7 +50,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         })
         .collect();
 
-    // Build lookup: type_name → TypeDef for has_default types
     let default_types: AHashMap<String, &crate::core::ir::TypeDef> = api
         .types
         .iter()
@@ -66,15 +57,9 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         .map(|t| (t.name.clone(), t))
         .collect();
 
-    // Collect enum names for conversion detection
     let enum_names: AHashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
 
-    // Separate data enums (tagged unions exposed as dict-accepting structs) from simple int enums.
-    // Data enums are passed through as dicts; simple enums need string→variant lookup.
     // A sanitized data enum has an unresolvable variant field, so no serde-based `#[new]` is
-    // generated for it — it is a return-only type. Exclude it here so the converter passes an
-    // existing native instance through instead of trying to construct one (which would be a
-    // "too many arguments" type error against a class with no `__init__`).
     let data_enum_names: AHashSet<&str> = api
         .enums
         .iter()
@@ -82,7 +67,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         .map(|e| e.name.as_str())
         .collect();
 
-    // Determine which has_default types are referenced by function parameters (directly or nested)
     let mut needed_converters: Vec<String> = Vec::new();
     let mut visited: AHashSet<String> = AHashSet::new();
 
@@ -96,9 +80,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
             return;
         }
         if let Some(typ) = default_types.get(type_name) {
-            // First collect nested types so they appear before the parent converter.
-            // `classify_param_type` recursively unwraps Optional/Vec layers so a
-            // `Vec<HasDefault>` field still discovers the leaf converter.
             for field in binding_fields(&typ.fields) {
                 if let Some((name, _)) = classify_param_type(&field.ty) {
                     if default_types.contains_key(name) {
@@ -112,17 +93,12 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
 
     for func in &api.functions {
         for param in &func.params {
-            // `classify_param_type` unwraps Optional/Vec/Optional<Vec> layers
-            // so a `Vec<HasDefault>` parameter still triggers converter emission
-            // for the leaf type.
             if let Some((name, _)) = classify_param_type(&param.ty) {
                 collect_needed(name, &default_types, &mut needed_converters, &mut visited);
             }
         }
     }
 
-    // Collect all type names referenced in function signatures (params + returns)
-    // that aren't converters — these need to be imported too.
     let mut all_type_imports: AHashSet<String> = AHashSet::new();
     for type_name in &needed_converters {
         all_type_imports.insert(type_name.clone());
@@ -131,15 +107,8 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         for param in &func.params {
             collect_named_types(&param.ty, &mut all_type_imports);
         }
-        // Collect return type references so they are imported and can be used as bare
-        // names in annotations. This avoids `_rust.`-prefixed return types which cause
-        // type checkers to see a different type than the public re-export.
         collect_named_types(&func.return_type, &mut all_type_imports);
     }
-    // Adapter wrappers (emitted later in this file) reference the adapter's owner_type,
-    // item_type, and param types as bare names in their `async def` signatures
-    // (`AsyncIterator[ItemType]`, owner-type parameter, request types). Without these
-    // entries the generated `api.py` raises F821 / NameError at import time.
     for adapter in adapters {
         if let Some(owner) = adapter.owner_type.as_deref() {
             all_type_imports.insert(owner.to_string());
@@ -148,23 +117,12 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
             all_type_imports.insert(item.to_string());
         }
         for param in &adapter.params {
-            // Skip Rust primitive types — they're emitted as their Python
-            // equivalents in the wrapper signature (str/bytes/int/float/bool/
-            // None) and have no corresponding name to import. Without this
-            // filter, an adapter declared with a `String` param injects a
-            // stray `from .options import ..., String` line that explodes
-            // with ImportError at module load.
             let mapped = adapter_param_python_type(&param.ty);
             if matches!(mapped, "str" | "bytes" | "None" | "int" | "float" | "bool") {
                 continue;
             }
             all_type_imports.insert(param.ty.clone());
         }
-        // AsyncMethod adapters reference the return type as a bare name in their
-        // `async def foo(...) -> ReturnType` signature; without this entry the
-        // generated api.py raises F821 / NameError at import time. Skip names
-        // that map to Python builtins (str, bytes, None) — those don't need
-        // imports.
         if let Some(returns) = adapter.returns.as_deref() {
             let mapped = adapter_param_python_type(returns);
             if !matches!(mapped, "str" | "bytes" | "None" | "int" | "float" | "bool") {
@@ -172,10 +130,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
             }
         }
     }
-    // Also collect handle type names from options-field bridges so they can be used in
-    // function signature annotations for visitor parameters. Prefer the trait name
-    // (e.g. "HtmlVisitor") when it exists in `api.types` to match the .pyi Protocol
-    // surface; otherwise fall back to the opaque handle alias.
     for bridge in trait_bridges {
         let trait_present = api.types.iter().any(|t| t.name == bridge.trait_name);
         if trait_present {
@@ -185,9 +139,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         }
     }
 
-    // Detect whether any function or method returns a capsule type — drives whether the
-    // api.py needs `cast` in typing imports (used to bridge `Any` from the native stub to
-    // the public third-party return annotation, e.g. `tree_sitter.Language`).
     let needs_cast = api.functions.iter().any(|f| {
         let leaf = match &f.return_type {
             crate::core::ir::TypeRef::Named(n) => Some(n.as_str()),
@@ -203,9 +154,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     let mut out = String::with_capacity(4096);
     out.push_str(&hash::header(CommentStyle::Hash));
     out.push_str("\"\"\"Public API for conversion.\"\"\"\n\n");
-    // stdlib first (isort section 1)
-    // Adapter wrappers reference AsyncIterator in their return annotation, so include it
-    // whenever the surface defines any adapters (they emit `async def ... -> AsyncIterator[T]:`).
     let mut typing_parts: Vec<&str> = vec!["Any", "TypeVar"];
     if needs_cast || !needed_converters.is_empty() {
         typing_parts.push("cast");
@@ -213,8 +161,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     if !needed_converters.is_empty() {
         typing_parts.push("overload");
     }
-    // AsyncIterator is only needed when at least one adapter uses the streaming pattern.
-    // async_method adapters emit `return await engine.foo(...)` and never yield.
     let needs_async_iterator = adapters
         .iter()
         .any(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming));
@@ -230,7 +176,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         minijinja::context! { names => typing_parts },
     ));
     out.push('\n');
-    // third-party / package self-import (isort section 3)
     out.push_str(&crate::backends::pyo3::template_env::render(
         "import_as_module.jinja",
         minijinja::context! {
@@ -239,8 +184,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         },
     ));
 
-    // Split type imports: opaque/error types and non-options types come from the native module,
-    // has_default dataclass types come from .options.
     let opaque_names: AHashSet<String> = api
         .types
         .iter()
@@ -248,24 +191,8 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         .map(|t| t.name.clone())
         .collect();
     let error_names: AHashSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
-    // Types that exist in options.py: has_default structs that are not direct return types
-    // of free functions. Update types are output-only. `t.is_return_type` is set during IR
-    // extraction for types returned directly by a public free function — that's the only
-    // case where a has_default type must live in the native module rather than .options.
-    // Don't try to widen this with method returns or transitive field walks: a builder
-    // method like `PackConfig::from_toml_file -> PackConfig` is a constructor, not evidence
-    // that the type leaves through the native return surface, and falsely excluding it from
-    // .options is what produced alef#72 (PackConfig/ProcessConfig imported from ._native
-    // despite being dataclasses re-exported from .options).
-    // Types re-exported in the public package as native pyclasses (config `reexported_types`):
-    // skip _rust. qualification for these.
     let reexported_names: AHashSet<&str> = reexported_types.iter().map(|s| s.as_str()).collect();
     let output_style = dto.python_output_style();
-    // A has_default struct lives in options.py (a config the caller constructs) unless it is a
-    // native return type. Under the structural (TypedDict) style only the curated `reexported_types`
-    // results stay native; a type that is `is_return_type` but not reexported (e.g. `ExtractionConfig`,
-    // returned by a resolver yet built by the caller) keeps its config identity and is imported from
-    // .options. Under the non-structural style every `is_return_type` lives in the native module.
     let options_type_names: AHashSet<String> = api
         .types
         .iter()
@@ -278,24 +205,13 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         })
         .map(|t| t.name.clone())
         .collect();
-    // Types returned directly by free functions — these live in the native module,
-    // not .options. Function return type annotations must qualify them with _rust,
-    // UNLESS they are in reexported_types (re-exported in public __init__.py).
-    // Capsule types (both raw round-trip and ConstructFrom) are excluded: they resolve to
-    // a host type imported from another package (e.g. `tree_sitter.Parser`), not a native
-    // pyclass, so qualifying them with `_rust.` produces an annotation that raises
-    // AttributeError at import on Pythons with eager annotations (<3.14).
     let return_type_names: AHashSet<String> = api
         .types
         .iter()
         .filter(|t| t.is_return_type && !capsule_types.contains_key(&t.name))
         .map(|t| t.name.clone())
         .collect();
-    // All non-enum IR type names (used to distinguish structs from enums in classification).
     let all_ir_type_names: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
-    // Enums that options.py actually exports: plain (non-data) unit enums referenced by
-    // has_default struct fields. Data enums and enums not referenced by config structs live
-    // in the native module, not options.py — so they must be imported from the native module.
     let options_enum_names: AHashSet<String> = {
         let mut set = AHashSet::new();
         for typ in api
@@ -330,23 +246,17 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     let mut native_imports: Vec<&str> = Vec::new();
     for name in &all_type_imports {
         // Capsule types are not registered as #[pyclass] in the native module; skip them
-        // here so api.py doesn't try `from ._native import <CapsuleType>` and crash at import.
-        // This applies to BOTH explicit capsule_types config AND opaque_types that have a
-        // capsule override — both are host-provided, not wrapper structs.
         if capsule_types.contains_key(name) {
             continue;
         }
         let is_options = options_type_names.contains(name) || options_enum_names.contains(name);
-        // Opaque types from [workspace.opaque_types] without a capsule override have a
         // binding-side #[pyclass] wrapper struct emitted in mod.rs and are exported from
-        // the native module — classify them as native so api.py imports them from ._native.
         let is_opaque_wrapper = opaque_types.contains_key(name) && !capsule_types.contains_key(name);
         let is_native = !is_options
             && (opaque_names.contains(name)
                 || error_names.contains(name)
                 || all_ir_type_names.contains(name)
                 || is_opaque_wrapper
-                // Enums not in options_enum_names live in the native module.
                 || (all_enum_names.contains(name) && !options_enum_names.contains(name)));
         if is_native {
             native_imports.push(name.as_str());
@@ -355,10 +265,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         }
     }
 
-    // Import types used in function signatures at runtime (not under TYPE_CHECKING)
-    // since they appear as parameter/return type annotations in generated wrapper functions.
-    // Sort for deterministic codegen — `all_type_imports` is an AHashSet, so iteration
-    // order changes between runs; without sorting, hash-based caching always misses.
     native_imports.sort_unstable();
     options_imports.sort_unstable();
     if !native_imports.is_empty() {
@@ -380,9 +286,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
             },
         ));
     }
-    // Capsule type imports: group by module path, emit one `from {module} import {names}` per group.
-    // Capsule types (e.g. tree_sitter.Language) are not in ._native or .options; they need their
-    // own first-party import so bare names in function signatures resolve (ruff F821).
     {
         use std::collections::BTreeMap;
         let mut capsule_imports: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -435,11 +338,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         &reexported_names,
     );
 
-    // Emit wrapper functions for adapter-based streaming methods.
-    // Adapters define methods on the owner type (e.g. CrawlEngineHandle) in the binding layer.
-    // We emit module-level wrapper functions here so the public API exposes them alongside
-    // regular functions (e.g. `scrape`, `crawl`) rather than forcing users to call methods
-    // on the engine handle. The wrapper accepts an engine handle as the first parameter.
     for adapter in adapters {
         emit_adapter_wrapper(&mut out, adapter, &api.types);
     }

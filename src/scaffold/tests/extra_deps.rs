@@ -67,7 +67,6 @@ fn test_scaffold_python_cargo_extra_deps() {
         "content: {}",
         cargo_toml.content
     );
-    // Extra deps should appear inside the [dependencies] section (which follows [features]).
     let deps_pos = cargo_toml.content.find("[dependencies]").unwrap();
     let anyhow_pos = cargo_toml.content.find("anyhow").unwrap();
     assert!(anyhow_pos > deps_pos, "anyhow should appear inside [dependencies]");
@@ -149,12 +148,9 @@ fn test_scaffold_r_cargo_extra_deps() {
 #[test]
 fn test_scaffold_language_level_extra_deps_override_crate_level() {
     let mut config = test_config();
-    // Crate-level dep with version "1.0"
     config
         .extra_dependencies
         .insert("shared-dep".to_string(), toml::Value::String("1.0".to_string()));
-    // Python-level override with a different version; inject via extra_deps_for_language
-    // by inserting directly into a Python extra_dependencies map.
     let mut python_extra: std::collections::HashMap<String, toml::Value> = std::collections::HashMap::new();
     python_extra.insert("shared-dep".to_string(), toml::Value::String("2.0".to_string()));
     config.python = Some(PythonConfig {
@@ -180,7 +176,6 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
         target_dep_overrides: Vec::new(),
     });
     let rendered = render_extra_deps(&config, Language::Python);
-    // Python-level "2.0" should win over crate-level "1.0"
     assert!(rendered.contains("shared-dep = \"2.0\""), "got: {rendered}");
     assert!(
         !rendered.contains("1.0"),
@@ -242,7 +237,6 @@ fn test_scaffold_elixir_cargo_deps_are_alphabetically_sorted() {
     let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
     let keys = dep_keys_in_order(&cargo_toml.content);
-    // With a trait bridge, async-trait and tokio must be present.
     assert!(
         keys.contains(&"async-trait"),
         "async-trait must appear when trait bridges are configured; keys: {keys:?}"
@@ -251,7 +245,6 @@ fn test_scaffold_elixir_cargo_deps_are_alphabetically_sorted() {
         keys.contains(&"tokio"),
         "tokio must appear when trait bridges are configured; keys: {keys:?}"
     );
-    // All keys must be in sorted order.
     let mut sorted = keys.clone();
     sorted.sort();
     assert_eq!(
@@ -290,7 +283,6 @@ fn test_scaffold_ruby_cargo_deps_are_alphabetically_sorted() {
     let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
     let keys = dep_keys_in_order(&cargo_toml.content);
-    // With a trait bridge, async-trait and tokio must be present.
     assert!(
         keys.contains(&"async-trait"),
         "async-trait must appear when trait bridges are configured; keys: {keys:?}"
@@ -299,9 +291,6 @@ fn test_scaffold_ruby_cargo_deps_are_alphabetically_sorted() {
         keys.contains(&"tokio"),
         "tokio must appear when trait bridges are configured; keys: {keys:?}"
     );
-    // A synchronous trait bridge emits async-trait and tokio but the generated NIF
-    // never imports them, so both must join rb-sys in the cargo-machete ignored
-    // list — otherwise cargo-machete fails `poly lint` downstream.
     let ignored_line = cargo_toml
         .content
         .lines()
@@ -351,13 +340,10 @@ fn test_scaffold_r_cargo_deps_are_alphabetically_sorted() {
     let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
     let keys = dep_keys_in_order(&cargo_toml.content);
-    // With a trait bridge, async-trait must be present.
     assert!(
         keys.contains(&"async-trait"),
         "async-trait must appear when trait bridges are configured; keys: {keys:?}"
     );
-    // async-trait is declared for the async impl macro but the extendr shim never
-    // imports it, so the R crate must emit a cargo-machete ignore stanza for it.
     let ignored_line = cargo_toml
         .content
         .lines()
@@ -377,7 +363,6 @@ fn test_scaffold_r_cargo_deps_are_alphabetically_sorted() {
 
 #[test]
 fn test_scaffold_elixir_cargo_deps_sorted_no_trait_bridges() {
-    // Even without trait bridges, the basic deps must be in sorted order.
     let mut config = test_config();
     config.languages = vec![Language::Elixir];
     let api = test_api();
@@ -396,7 +381,6 @@ fn test_scaffold_elixir_cargo_deps_sorted_no_trait_bridges() {
 
 #[test]
 fn test_scaffold_r_cargo_deps_sorted_no_trait_bridges() {
-    // Without trait bridges, the basic R deps must still be in sorted order.
     let mut config = test_config();
     config.languages = vec![Language::R];
     let api = test_api();
@@ -431,7 +415,6 @@ fn section_headers_in_order(cargo_toml: &str) -> Vec<&str> {
 
 #[test]
 fn test_scaffold_elixir_cargo_section_order_is_cargo_sort_canonical() {
-    // cargo-sort canonical order for a NIF crate: [package] → [workspace] → [lib] → [dependencies]
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
@@ -439,7 +422,6 @@ fn test_scaffold_elixir_cargo_section_order_is_cargo_sort_canonical() {
     let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
     let headers = section_headers_in_order(&cargo_toml.content);
-    // [workspace] must appear before [lib], which must appear before [dependencies].
     let workspace_pos = headers.iter().position(|h| *h == "[workspace]");
     let lib_pos = headers.iter().position(|h| *h == "[lib]");
     let deps_pos = headers.iter().position(|h| *h == "[dependencies]");
@@ -478,8 +460,6 @@ fn test_render_extra_deps_injects_version_for_workspace_member() {
     use std::fs;
     use tempfile::TempDir;
 
-    // Build a real temp workspace whose root Cargo.toml declares a member
-    // `my-lib-http` at version 2.5.0 (via workspace inheritance).
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
     fs::write(
@@ -504,7 +484,6 @@ version = "2.5.0"
 
     let mut config = test_config();
     config.workspace_root = Some(root.to_path_buf());
-    // A path-only workspace-member dep + a non-member external dep.
     config.extra_dependencies.insert(
         "my-lib-http".to_string(),
         toml::Value::Table(toml::map::Map::from_iter([(
@@ -517,12 +496,10 @@ version = "2.5.0"
         .insert("anyhow".to_string(), toml::Value::String("1.0".to_string()));
 
     let rendered = render_extra_deps(&config, Language::Python);
-    // Member: version injected (toml inline tables sort keys: path before version).
     assert!(
         rendered.contains(r#"my-lib-http = { path = "../my-lib-http", version = "2.5.0" }"#),
         "workspace member should get the resolved workspace version injected; got:\n{rendered}"
     );
-    // Non-member external dep unchanged.
     assert!(
         rendered.contains(r#"anyhow = "1.0""#),
         "non-member external dep must be emitted unchanged; got:\n{rendered}"
@@ -544,8 +521,6 @@ fn test_render_extra_deps_leaves_non_member_path_dep_unchanged() {
 
     let mut config = test_config();
     config.workspace_root = Some(root.to_path_buf());
-    // `vendored-thing` is NOT a workspace member, so its path-only table must
-    // stay path-only (no version injection).
     config.extra_dependencies.insert(
         "vendored-thing".to_string(),
         toml::Value::Table(toml::map::Map::from_iter([(
@@ -587,7 +562,6 @@ fn test_render_extra_deps_does_not_double_inject_version() {
 
     let mut config = test_config();
     config.workspace_root = Some(root.to_path_buf());
-    // Already carries an explicit version — must be left untouched.
     config.extra_dependencies.insert(
         "my-lib-http".to_string(),
         toml::Value::Table(toml::map::Map::from_iter([
@@ -612,8 +586,6 @@ fn test_render_extra_deps_swift_injects_version_for_workspace_member() {
     use std::fs;
     use tempfile::TempDir;
 
-    // Build a real temp workspace whose root Cargo.toml declares a member
-    // `my-lib-http` at version 3.1.0 (via workspace inheritance).
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
     fs::write(
@@ -638,7 +610,6 @@ version = "3.1.0"
 
     let mut config = test_config();
     config.workspace_root = Some(root.to_path_buf());
-    // Path-only workspace-member dep configured under swift extra_dependencies.
     config.extra_dependencies.insert(
         "my-lib-http".to_string(),
         toml::Value::Table(toml::map::Map::from_iter([(
@@ -647,8 +618,6 @@ version = "3.1.0"
         )])),
     );
 
-    // Calling with Language::Swift exercises the same code path as the swift
-    // gen_rust_crate backend, which now delegates to this shared function.
     let rendered = render_extra_deps(&config, Language::Swift);
     assert!(
         rendered.contains(r#"version = "3.1.0""#),

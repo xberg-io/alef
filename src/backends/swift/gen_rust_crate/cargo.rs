@@ -10,12 +10,10 @@ fn format_features_array(features: &[String]) -> String {
         return String::new();
     }
 
-    // Try single-line format first.
     let quoted = features.iter().map(|f| format!("\"{f}\"")).collect::<Vec<_>>();
     let single_line = quoted.join(", ");
     let single_line_full = format!(", features = [{single_line}]");
 
-    // Use multi-line if we have 3+ features or the line would exceed 100 chars.
     if features.len() >= 3 || single_line_full.len() > 100 {
         let mut multi_line = String::from(", features = [\n");
         for feature in &quoted {
@@ -54,20 +52,11 @@ pub(crate) fn emit_cargo_toml(
     } else {
         format_features_array(features)
     };
-    // When the Rust ident form of the umbrella crate name (`core_dep_key`)
-    // differs from the actual cargo package name in the umbrella Cargo.toml
-    // (`crate_name`), cargo will not
-    // resolve the path dependency unless we add an explicit `package = "..."`
-    // rename. Use `crate_name` (the [[crates]] `name` field, which is the
-    // cargo package name) rather than `core_crate_dir` (the directory name)
-    // because the two can differ.
     let package_rename_block = if core_dep_key != crate_name {
         format!(", package = \"{crate_name}\"")
     } else {
         String::new()
     };
-    // Streaming adapter shims use `futures_util::StreamExt`, so the dep is
-    // required only when the crate config declares streaming adapters.
     let streaming_deps = if has_streaming_adapters {
         "futures-util = \"0.3\"\n"
     } else {
@@ -78,16 +67,8 @@ pub(crate) fn emit_cargo_toml(
     } else {
         format!("{extra_deps}\n")
     };
-    // Emit the core-facade dep in dual form (`{ version = "...", path = "..." }`)
-    // so in-repo dev path builds keep working while cargo-package flows can
-    // strip the path to a registry version-dep. Features + the optional
-    // `package = "..."` rename are appended as the inline-table suffix.
-    //
-    // When `target_overrides` is non-empty, the unconditional core dep is
     // gated on `cfg(not(any(<override cfgs>)))` and each override emits its own
     // `[target.'cfg(...)'.dependencies]` block (similar to the FFI and Dart
-    // backends). This lets the Swift crate ship a reduced feature set on iOS,
-    // Android, and Windows where libheif-sys / ORT cannot be linked.
     let core_dep_for_block = crate::scaffold::render_core_dep(
         source_crate_name,
         core_path,
@@ -99,7 +80,6 @@ pub(crate) fn emit_cargo_toml(
     } else {
         let mut blocks = String::new();
         // Gate the default dep on cfg(not(any(<overrides>))) to keep one and only
-        // one branch active per target.
         let neg_cfg = if target_overrides.len() == 1 {
             target_overrides[0].cfg.clone()
         } else {
@@ -140,9 +120,6 @@ pub(crate) fn emit_cargo_toml(
         }
         blocks
     };
-    // Build [dependencies] block alphabetically sorted to match cargo-sort.
-    // Order: ahash, async-trait, futures-util?, <core-crate>,
-    // libc, serde, serde_json, swift-bridge, tokio.
     let mut dep_entries: Vec<String> = vec![
         "ahash = \"0.8\"".to_string(),
         "async-trait = \"0.1\"".to_string(),
@@ -152,9 +129,6 @@ pub(crate) fn emit_cargo_toml(
         format!("swift-bridge = \"{swift_bridge_ver}\""),
         "tokio = { version = \"1\", features = [\"rt\", \"rt-multi-thread\", \"macros\"] }".to_string(),
     ];
-    // Only include the core dep in the unconditional `[dependencies]` block when
-    // there are no target overrides — otherwise it lives in the per-target blocks
-    // emitted via `target_override_blocks` to avoid double-declaration.
     if !core_dep_for_block.is_empty() && target_overrides.is_empty() {
         dep_entries.push(core_dep_for_block.clone());
     }
@@ -172,26 +146,12 @@ pub(crate) fn emit_cargo_toml(
     let _ = streaming_deps;
     let _ = extra_deps_block;
 
-    // Collect every feature name referenced by a cfg attribute on any type, field,
-    // enum variant, or function in the API surface and emit a forwarding `[features]`
-    // table so the binding crate can re-export them to the core dep. Without this,
     // `#[cfg(feature = "X")]` arms emitted by the codegen produce
-    // `error: unexpected cfg condition value: X` because the binding crate's
-    // `Cargo.toml` does not declare that feature.
     let cfg_features = shared_cfg::collect_cfg_features(api);
     let features_table = if cfg_features.is_empty() {
         String::new()
     } else {
-        // Feature names listed under `[crates.swift.excluded_default_features]`
-        // are still declared as opt-in flags (forwarding to the core dep) but
-        // are omitted from `default = [...]`. This lets desktop builds opt
-        // into a feature explicitly via `--features <name>` while keeping
-        // cross-compile targets (iOS / Android NDK) green: the wrapper's
-        // default build does not auto-activate features that pull in system
-        // libraries like `libheif-sys` whose `build.rs` cannot satisfy
-        // `pkg-config` under cross-compilation. The target-conditional
         // `[target.'cfg(...)'.dependencies]` block alone is insufficient
-        // because cargo unions feature sets across dep instances.
         let excluded: std::collections::HashSet<&str> = excluded_default_features.iter().map(String::as_str).collect();
         let mut lines: Vec<String> = Vec::with_capacity(cfg_features.len() + 1);
         let default_list: Vec<String> = cfg_features
@@ -207,8 +167,6 @@ pub(crate) fn emit_cargo_toml(
     };
 
     // The [lints.rust] block keeps cfg(frb_expand) in the allow-list (FRB-internal
-    // cfg key, not a Cargo feature). Feature values no longer need to be listed
-    // here since they are now forwarded through the [features] table above.
     let lints_block = "[lints.rust]\nunexpected_cfgs = { level = \"warn\", check-cfg = ['cfg(frb_expand)'] }";
 
     format!(
@@ -341,13 +299,11 @@ mod tests {
             "Cargo.toml must contain a [features] section; got:\n{}",
             content
         );
-        // frb_expand must still be declared.
         assert!(
             content.contains("'cfg(frb_expand)'"),
             "Cargo.toml must still include cfg(frb_expand); got:\n{}",
             content
         );
-        // No feature values in check-cfg — forwarding replaces the allow-list.
         assert!(
             !content.contains("values("),
             "Cargo.toml must not contain check-cfg values() — forwarding replaces allow-list; got:\n{}",
@@ -484,20 +440,16 @@ mod tests {
             &["heic".to_string()],
         );
 
-        // Forwarding entry still present so `--features heic` works.
         assert!(
             content.contains(r#"heic = ["sample_lib/heic"]"#),
             "Cargo.toml must keep `heic` forwarding entry; got:\n{}",
             content
         );
-        // `svg` is not excluded — must still appear in default.
         assert!(
             content.contains(r#"svg = ["sample_lib/svg"]"#),
             "Cargo.toml must keep `svg` forwarding entry; got:\n{}",
             content
         );
-        // Locate the `default = [...]` line and assert `heic` is NOT in it,
-        // while `svg` IS.
         let default_line = content
             .lines()
             .find(|l| l.starts_with("default = ["))

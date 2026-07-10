@@ -24,23 +24,17 @@ pub(super) fn build_default_deser_preamble(
                     render_deser_line("default_deser_without_error.rs.jinja", &p.name, &core_ty)
                 };
                 lines.push(line);
-                // If this parameter is mutable reference (&mut T), create a mutable binding.
                 if p.is_ref && p.is_mut {
                     lines.push(format!("let mut {}_mut = {}_core.unwrap_or_default();", p.name, p.name));
                 }
             }
         } else if matches!(&p.ty, TypeRef::Json) {
-            // Json params are passed as String (or Option<String>) from the NIF and need conversion
-            // to serde_json::Value. Use unwrap_or_default() to handle parse errors gracefully
-            // (invalid JSON → empty object).
             if p.optional {
-                // Optional JSON: Option<String> → Option<serde_json::Value>
                 lines.push(format!(
                     "let {name}_json: Option<serde_json::Value> = {name}.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());",
                     name = p.name
                 ));
             } else {
-                // Required JSON: String → serde_json::Value
                 let mut_keyword = if p.is_mut { "mut " } else { "" };
                 lines.push(format!(
                     "let {mut_keyword}{name}_json: serde_json::Value = serde_json::from_str::<serde_json::Value>(&{name}).unwrap_or_default();",

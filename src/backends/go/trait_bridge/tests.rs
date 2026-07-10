@@ -9,7 +9,6 @@ use std::collections::HashSet;
 
 #[test]
 fn test_vtable_struct_name_derivation() {
-    // Test the pattern: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
     let crate_name = "sample_crate";
     let crate_upper = crate_name.to_uppercase();
     let crate_pascal = crate_name.to_pascal_case();
@@ -23,7 +22,6 @@ fn test_vtable_struct_name_derivation() {
 
 #[test]
 fn test_register_function_name_format() {
-    // Test the pattern: {ffi_prefix}_register_{trait_snake}
     let ffi_prefix = "sample_crate";
     let trait_name = "OcrBackend";
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
@@ -34,7 +32,6 @@ fn test_register_function_name_format() {
 
 #[test]
 fn test_unregister_function_name_format() {
-    // Test the pattern: {ffi_prefix}_unregister_{trait_snake}
     let ffi_prefix = "sample_crate";
     let trait_name = "PostProcessor";
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
@@ -45,7 +42,6 @@ fn test_unregister_function_name_format() {
 
 #[test]
 fn test_vtable_struct_name_multiple_traits() {
-    // Verify correct naming for multiple traits
     let test_cases = vec![
         ("sample_crate", "OcrBackend", "SAMPLE_CRATESampleCrateOcrBackendVTable"),
         (
@@ -146,8 +142,6 @@ fn gen_clear_fn_emits_wrapper_when_set() {
 fn substitute_excluded_types_replaces_excluded_named_with_json() {
     let mut excluded = HashSet::new();
     excluded.insert("InternalDocument");
-    // Excluded named type collapses to Json so the Go trait-bridge interface
-    // can fall back to `json.RawMessage`.
     let result = substitute_excluded_types(&TypeRef::Named("InternalDocument".to_string()), &excluded);
     assert!(matches!(result, TypeRef::Json), "expected Json, got {:?}", result);
 }
@@ -168,19 +162,16 @@ fn substitute_excluded_types_recurses_into_optional_vec_map() {
     excluded.insert("X");
     excluded.insert("Y");
     excluded.insert("Z");
-    // Optional<Named("X")> → Optional<Json>
     let opt = TypeRef::Optional(Box::new(TypeRef::Named("X".to_string())));
     match substitute_excluded_types(&opt, &excluded) {
         TypeRef::Optional(inner) => assert!(matches!(*inner, TypeRef::Json)),
         other => panic!("expected Optional<Json>, got {:?}", other),
     }
-    // Vec<Named("Y")> → Vec<Json>
     let v = TypeRef::Vec(Box::new(TypeRef::Named("Y".to_string())));
     match substitute_excluded_types(&v, &excluded) {
         TypeRef::Vec(inner) => assert!(matches!(*inner, TypeRef::Json)),
         other => panic!("expected Vec<Json>, got {:?}", other),
     }
-    // Map<String, Named("Z")> → Map<String, Json>
     let m = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("Z".to_string())));
     match substitute_excluded_types(&m, &excluded) {
         TypeRef::Map(k, v) => {
@@ -234,18 +225,14 @@ fn trampoline_bytes_param_includes_len_companion() {
     let mut out = String::new();
     gen_trampoline(&mut out, "Ingester", "Ingester", &method);
 
-    // The CGo trampoline must declare the length companion so the Go body can
-    // use unsafe.Slice(ptr, len) rather than C.GoString() which stops at 0x00.
     assert!(
         out.contains("payloadLen C.size_t"),
         "trampoline must include `payloadLen C.size_t` for Bytes param;\nactual:\n{out}"
     );
-    // The conversion body must use unsafe.Slice, not GoString (which NUL-truncates).
     assert!(
         out.contains("unsafe.Slice"),
         "trampoline conversion must use unsafe.Slice for Bytes param;\nactual:\n{out}"
     );
-    // Must NOT fall back to the old base64 roundtrip.
     assert!(
         !out.contains("base64"),
         "trampoline must not use base64 encoding for Bytes param;\nactual:\n{out}"
@@ -441,14 +428,10 @@ fn register_c_call_passes_vtable_by_value() {
         "backend",
     );
 
-    // The registration call must pass vtable by value, not by reference.
-    // The C header declares the parameter as `struct TestVTable vtable` (value type),
-    // so the Go call must use `vtable` not `&vtable`.
     assert!(
         out.contains("C.test_crate_register_backend(\n\t\tcName,\n\t\tvtable,"),
         "register_c_call must pass vtable by value (not &vtable);\nactual:\n{out}"
     );
-    // Ensure we're NOT passing a pointer
     assert!(
         !out.contains("&vtable,"),
         "register_c_call must not pass &vtable (pointer);\nactual:\n{out}"
@@ -457,10 +440,6 @@ fn register_c_call_passes_vtable_by_value() {
 
 #[test]
 fn text_processor_interface_and_bridge_wrapper_emitted() {
-    // Regression: the Go trait bridge must emit both an interface declaration
-    // (`type TextProcessor interface { ... }`) and a `TextProcessorBridge` struct
-    // that satisfies it through method delegation, so user types can implement
-    // the interface and be passed to `RegisterTextProcessor`.
     let trait_def = TypeDef {
         name: "TextProcessor".to_string(),
         rust_path: "sample_crate::TextProcessor".to_string(),
@@ -517,19 +496,16 @@ fn text_processor_interface_and_bridge_wrapper_emitted() {
         "text_processor",
     );
 
-    // Go uses structural typing: the interface declaration is the conformance contract.
     assert!(
         out.contains("type TextProcessor interface"),
         "Go trait bridge must emit interface declaration;\nactual:\n{out}"
     );
 
-    // A bridge wrapper struct that satisfies TextProcessor is also emitted.
     assert!(
         out.contains("type TextProcessorBridge struct"),
         "Go trait bridge must emit bridge wrapper struct;\nactual:\n{out}"
     );
 
-    // The registration function accepts TextProcessor (the interface), not a raw pointer.
     assert!(
         out.contains("func RegisterTextProcessor(impl TextProcessor)"),
         "RegisterTextProcessor must accept the TextProcessor interface;\nactual:\n{out}"

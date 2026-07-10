@@ -69,24 +69,6 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(&format!("{core_crate_dir}-ffi"), version, "2021", &meta, &ws);
 
-    // FFI Cargo.toml dependency policy:
-    // - `serde_json` and `tokio` are pinned to major versions; cargo will pick
-    //   the latest compatible release on `cargo update`.
-    // - `cbindgen` is pinned to a specific minor since header generation
-    //   output changes between minors and we want reproducible headers.
-    //   Bump intentionally and verify generated headers in CI when updating.
-    // - `[crate.extra_dependencies]` from alef.toml is merged in. Required for
-    //   projects whose public surface spans multiple workspace crates (e.g.
-    //   mylib-core, mylib-http, mylib-extra) — the FFI bindings codegen
-    //   emits qualified paths like `mylib_http::ServerConfig` and needs each
-    //   referenced crate as a direct dependency.
-    // `render_extra_deps` injects the resolved workspace version into path-only
-    // member tables (`{ path = "../<lib>-core", version = "X" }`) so the
-    // generated FFI/umbrella manifest publishes cleanly — `cargo publish`
-    // rejects path-only deps with "all dependencies must have a version
-    // requirement specified when publishing". External deps (e.g. `anyhow =
-    // "1.0"`) and already-versioned tables pass through unchanged. This mirrors
-    // how the core-crate dep and the swift/dart bridge crates are handled.
     let rendered_extra_deps = render_extra_deps(config, Language::Ffi);
     let mut extra_dep_lines: Vec<String> = if rendered_extra_deps.is_empty() {
         Vec::new()
@@ -104,10 +86,6 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     if has_streaming && !extra_dep_lines.iter().any(|l| l.starts_with("futures-util")) {
         extra_dep_lines.push("futures-util = \"0.3\"".to_string());
     }
-    // Inject the crate that provides each capsule type's `into_raw_type` pointee
-    // (e.g. `tree-sitter` for `tree_sitter::ffi::TSLanguage`). The capsule shim
-    // names that type directly, but the FFI crate only depends on it transitively
-    // via the core crate, so it is not in scope without a direct dependency.
     if let Some(ffi) = config.ffi.as_ref() {
         for capsule in ffi.capsule_types.values() {
             let (Some(package), Some(version)) = (capsule.package.as_ref(), capsule.package_version.as_ref()) else {
@@ -121,12 +99,6 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     }
     extra_dep_lines.sort();
 
-    // Build the cargo-machete ignored list. `serde_json` and `tokio` are
-    // always emitted unconditionally above so they are always ignored.
-    // Conditional deps (`async-trait` for trait bridges, `futures-util` for
-    // streaming) are appended only when the scaffold actually adds them to
-    // `[dependencies]`, so cargo-machete doesn't flap on umbrellas whose API
-    // surface doesn't exercise the trait-bridge / streaming codepath.
     let mut machete_ignored: Vec<&str> = vec!["ahash", "serde_json", "tokio"];
     if has_trait_bridges {
         machete_ignored.push("async-trait");
@@ -154,15 +126,11 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     );
 
     // FFI source uses `#[cfg(feature = "X")]` to gate code paths driven by core-crate
-    // features (metadata, visitor, inline-images, testkit, …). The cfg matches against
-    // THIS crate's feature flags, not the core dep's, so we must declare matching
-    // passthrough features here. Without them, `RUSTFLAGS="-D warnings"` fails CI Rust
-    // with `unexpected cfg condition value` errors on every gated function.
     let ffi_core_features = config.features_for_language(Language::Ffi);
     let passthrough_feature_names: Vec<&str> = ffi_core_features
         .iter()
         .map(|f| f.as_str())
-        .filter(|f| *f != "serde") // serde is not a core feature here; it's a passthrough already enabled elsewhere when needed
+        .filter(|f| *f != "serde")
         .collect();
     let core_features_default_list = passthrough_feature_names
         .iter()
@@ -178,12 +146,6 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
             .collect::<Vec<_>>()
             .join("\n")
     };
-    // Emit an `android-target` aggregate feature when the core crate defines one,
-    // so consumers can build the FFI crate for Android with
-    // `--no-default-features --features android-target` (ORT-free, libheif-free).
-    // It enables the core dep's `android-target` plus every binding passthrough
-    // feature that is a member of the core aggregate (the FFI exports are gated
-    // by the binding's own passthrough features, not the core dep's).
     if let Some(line) = crate::scaffold::android_target_feature_line(config, &passthrough_feature_names) {
         if core_features_passthrough_block.is_empty() {
             core_features_passthrough_block = line;
@@ -192,13 +154,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
             core_features_passthrough_block.push_str(&line);
         }
     }
-    // Declare any `extra_features` from [crates.ffi] as passthrough features that
-    // are NOT enabled by default. The FFI source may reference a non-default core
     // feature in a `#[cfg(feature = "X")]` gate (e.g. a `wasm-http` backend that is
-    // mutually exclusive with the default `native-http`); without a matching
-    // declaration, `RUSTFLAGS="-D warnings"` fails with `unexpected cfg condition
-    // value`. These are declared but excluded from `default` so the alternative
-    // never activates alongside the default backend.
     if let Some(extra) = config.ffi.as_ref().map(|c| c.extra_features.as_slice()) {
         for feat in extra {
             if feat.is_empty() || passthrough_feature_names.contains(&feat.as_str()) {
@@ -213,19 +169,12 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
             }
         }
     }
-    // Separate the main [dependencies] table from any per-target tables.
     let target_blocks_section = if target_blocks.is_empty() {
         String::new()
     } else {
         format!("\n{target_blocks}\n")
     };
 
-    // Build [dependencies] block, alphabetically sorted to match cargo-sort:
-    // ahash, async-trait?, futures-util?, <core-crate>, serde_json, tokio, …
-    // (cargo-sort orders dependencies by key name). core_dep_line is the
-    // core crate dependency, which is sorted with other deps by crate name.
-    // extra_dep_lines come from
-    // [crate.extra_dependencies] in alef.toml and are pre-sorted above.
     let mut dep_entries: Vec<String> = vec![
         "ahash = \"0.8\"".to_string(),
         "serde_json = \"1\"".to_string(),
@@ -458,17 +407,12 @@ mod tests {
     /// one of them, causing prek to oscillate on every run.
     #[test]
     fn ffi_cargo_toml_repository_line_has_no_double_blank_line() {
-        // Simulate the repository_line computation from scaffold_ffi to confirm
-        // the format string produces exactly one blank line between the
-        // repository entry and the cargo-machete comment.
         let repository = "https://github.com/example/my-lib";
         let repository_line = format!("\nrepository = \"{repository}\"");
         let pkg_header = "[package]\nname = \"my-lib-ffi\"\nversion = \"1.0.0\"";
 
-        // Reproduce the exact format pattern used in scaffold_ffi.
         let content = format!("{pkg_header}{repository_line}\n\n# comment\n");
 
-        // There must be exactly one blank line between repository and the comment.
         assert!(
             !content.contains("repository = \"https://github.com/example/my-lib\"\n\n\n"),
             "double blank line found after repository — cargo-sort will remove one, causing prek oscillation:\n{content}"

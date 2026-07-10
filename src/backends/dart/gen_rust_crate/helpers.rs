@@ -40,17 +40,12 @@ pub(crate) fn emit_cleaned_dartdoc(out: &mut String, doc: &str, indent: &str) {
 /// the real impl module lives. Whitespace-insensitive; leaves any other clause
 /// untouched.
 pub(crate) fn widen_opaque_wrapper_cfg(cfg: &str) -> String {
-    // The exclusion clause is emitted verbatim by the extractor with this exact
-    // spacing; match on the original string so the surrounding cfg keeps its
-    // canonical `feature = "x"` formatting (and any committed snapshots).
     const ANDROID_X86_64_EXCLUSION: &str = r#"not(all(target_os = "android", target_arch = "x86_64"))"#;
 
     if !cfg.contains(ANDROID_X86_64_EXCLUSION) {
         return cfg.to_string();
     }
 
-    // Remove the clause together with one adjacent comma+space so the enclosing
-    // `all(...)` stays well-formed regardless of where the clause sits.
     let with_leading = format!(", {ANDROID_X86_64_EXCLUSION}");
     let with_trailing = format!("{ANDROID_X86_64_EXCLUSION}, ");
     if cfg.contains(&with_leading) {
@@ -58,8 +53,6 @@ pub(crate) fn widen_opaque_wrapper_cfg(cfg: &str) -> String {
     } else if cfg.contains(&with_trailing) {
         cfg.replace(&with_trailing, "")
     } else {
-        // Sole clause inside `all(...)` (or standalone) — drop it; an empty
-        // `all()` is valid Rust cfg and is always true.
         cfg.replace(ANDROID_X86_64_EXCLUSION, "")
     }
 }

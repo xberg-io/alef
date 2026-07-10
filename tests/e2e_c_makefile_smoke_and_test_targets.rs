@@ -143,7 +143,6 @@ fn c_makefile_emits_smoke_and_test_targets() {
 
     assert_phony_declares(content, &["all", "build", "clean", "test", "smoke", "download_ffi"]);
 
-    // Verify smoke target is present and runs with --smoke flag
     assert!(
         content.contains("smoke: all"),
         "smoke target must be defined. Got:\n{content}"
@@ -153,13 +152,11 @@ fn c_makefile_emits_smoke_and_test_targets() {
         "smoke target must run test binary with --smoke flag. Got:\n{content}"
     );
 
-    // Verify test target is present
     assert!(
         content.contains("test: all"),
         "test target must be defined. Got:\n{content}"
     );
 
-    // Verify mock-server orchestration macro is defined
     assert!(
         content.contains("define run_with_mock_server"),
         "run_with_mock_server macro must be defined. Got:\n{content}"
@@ -169,13 +166,11 @@ fn c_makefile_emits_smoke_and_test_targets() {
         "run_with_mock_server macro must be closed with endef. Got:\n{content}"
     );
 
-    // Verify the macro uses TEST_CMD variable
     assert!(
         content.contains("$(TEST_CMD)"),
         "run_with_mock_server macro must reference $(TEST_CMD) variable. Got:\n{content}"
     );
 
-    // Verify both test and smoke invoke the macro with different TEST_CMD values
     assert!(
         content.contains("@TEST_CMD='./$(TARGET)' $(MAKE) -s run_with_mock_server"),
         "test target must invoke run_with_mock_server with full test command. Got:\n{content}"
@@ -185,7 +180,6 @@ fn c_makefile_emits_smoke_and_test_targets() {
         "smoke target must invoke run_with_mock_server with --smoke flag. Got:\n{content}"
     );
 
-    // Verify the run_with_mock_server target delegates to the macro
     assert!(
         content.contains("run_with_mock_server:"),
         "run_with_mock_server target must be defined. Got:\n{content}"
@@ -230,7 +224,6 @@ prefix = "htm"
     let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
 
-    // Fixture with no HTTP requirements (no mock server needed)
     let groups = vec![FixtureGroup {
         category: "smoke".to_string(),
         fixtures: vec![Fixture {
@@ -278,7 +271,6 @@ prefix = "htm"
     assert!(content.contains("test: all"), "test target must be defined");
     assert!(content.contains("smoke: all"), "smoke target must be defined");
 
-    // Simple targets without mock server orchestration
     let test_target_lines: Vec<&str> = content
         .lines()
         .skip_while(|l| !l.starts_with("test: "))
@@ -301,7 +293,6 @@ prefix = "htm"
         "smoke target must run ./$(TARGET) --smoke"
     );
 
-    // No macro should be emitted when mock server is not needed
     assert!(
         !content.contains("define run_with_mock_server"),
         "run_with_mock_server macro must not be emitted when mock server is not needed"

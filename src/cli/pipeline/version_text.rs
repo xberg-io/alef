@@ -16,29 +16,15 @@ use tracing::debug;
 /// Returns `Some(new_content)` when at least one substitution was made, `None` when the
 /// lockfile already contains the target version everywhere (idempotent).
 pub(super) fn sync_gemfile_lock(content: &str, new_ruby_version: &str) -> Option<String> {
-    // Build a regex that matches `<gem-name> (<any-version>)` on a word boundary
-    // so we never accidentally match a gem whose name is a prefix of another.
-    // The gem name is captured from the first occurrence we find in the file
-    // (the PATH > specs block always appears first).
     use std::sync::LazyLock;
-    static GEM_VERSION_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-        // Matches: optional leading whitespace + gem-name + space + (version)
-        // Capture group 1 = gem name, group 2 = version inside parens.
-        regex::Regex::new(r"(?m)^([ \t]*)([A-Za-z0-9_-]+) \(([^)]+)\)$").expect("valid regex")
-    });
+    static GEM_VERSION_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(?m)^([ \t]*)([A-Za-z0-9_-]+) \(([^)]+)\)$").expect("valid regex"));
 
-    // Collect the set of gem names that appear in the PATH block (path gems).
-    // PATH block starts with "^PATH" and ends at the next blank line or new section.
     let path_gem_names: std::collections::HashSet<String> = {
         let mut names = std::collections::HashSet::new();
         let mut in_specs = false;
         for line in content.lines() {
-            if line.trim_start().starts_with("specs:") {
-                // Only enter specs-tracking mode when we are in a PATH block, which
-                // always appears before GEM. A simple heuristic: the PATH section
-                // starts with "^PATH" (no indent). Track whether we saw PATH before
-                // seeing GEM.
-            }
+            line.trim_start().starts_with("specs:");
             if line == "PATH" {
                 in_specs = true;
                 continue;
@@ -47,7 +33,6 @@ pub(super) fn sync_gemfile_lock(content: &str, new_ruby_version: &str) -> Option
                 continue;
             }
             if in_specs && line.starts_with("    ") {
-                // Four-space indent — these are gem entries in the PATH specs block.
                 if let Some(caps) = GEM_VERSION_RE.captures(line) {
                     let indent = &caps[1];
                     let name = &caps[2];
@@ -57,14 +42,12 @@ pub(super) fn sync_gemfile_lock(content: &str, new_ruby_version: &str) -> Option
                 }
                 continue;
             }
-            // A line without four-space indent ends the PATH > specs block.
             if in_specs
                 && !line.starts_with("    ")
                 && !line.trim().is_empty()
                 && line != "PATH"
                 && !line.starts_with("  ")
             {
-                // Top-level section header — PATH block is done.
                 in_specs = false;
             }
         }
@@ -84,7 +67,6 @@ pub(super) fn sync_gemfile_lock(content: &str, new_ruby_version: &str) -> Option
                 let current_version = &caps[3];
                 if path_gem_names.contains(gem_name) && current_version != new_ruby_version {
                     changed = true;
-                    // Reconstruct the line with the new version, preserving indent.
                     let indent = &caps[1];
                     return format!("{indent}{gem_name} ({new_ruby_version})");
                 }
@@ -94,7 +76,6 @@ pub(super) fn sync_gemfile_lock(content: &str, new_ruby_version: &str) -> Option
         .collect::<Vec<_>>()
         .join("\n");
 
-    // Preserve trailing newline if the original had one.
     let new_content = if content.ends_with('\n') {
         format!("{new_content}\n")
     } else {
@@ -145,9 +126,6 @@ pub(super) fn sync_e2e_java_pom(content: &str, new_version: &str) -> Option<Stri
     let mut result = content.to_string();
     let mut changed = false;
 
-    // Collect ranges of <dependency> blocks that contain <systemPath>.
-    // We iterate over matches in the ORIGINAL content to get stable offsets,
-    // then apply replacements from back to front so earlier offsets stay valid.
     let dep_matches: Vec<(usize, usize, String)> = DEP_BLOCK_RE
         .find_iter(content)
         .filter_map(|m| {
@@ -155,13 +133,10 @@ pub(super) fn sync_e2e_java_pom(content: &str, new_version: &str) -> Option<Stri
             if !block.contains("<systemPath>") {
                 return None;
             }
-            // Rewrite <version> and <systemPath> within this block.
             let new_block = VERSION_TAG_RE
                 .replace(block, |caps: &regex::Captures<'_>| {
                     let ver = &caps[1];
                     if ver != new_version && !ver.contains('$') && !ver.contains('.') && ver.parse::<u64>().is_err() {
-                        // Only rewrite if it looks like a semver (has dots).
-                        // The check below handles that properly.
                         format!("<version>{ver}</version>")
                     } else if ver != new_version && ver.contains('.') && !ver.contains('$') {
                         format!("<version>{new_version}</version>")
@@ -183,7 +158,6 @@ pub(super) fn sync_e2e_java_pom(content: &str, new_version: &str) -> Option<Stri
         })
         .collect();
 
-    // Apply from back to front so offsets remain valid.
     for (start, end, new_block) in dep_matches.into_iter().rev() {
         result.replace_range(start..end, &new_block);
         changed = true;
@@ -211,9 +185,6 @@ pub(super) fn sync_e2e_java_pom(content: &str, new_version: &str) -> Option<Stri
 ///
 /// Returns `Some(new_content)` when a replacement was made, `None` otherwise.
 pub(super) fn sync_e2e_go_mod(content: &str, module_path_fragment: &str, new_version: &str) -> Option<String> {
-    // A local `replace <module> => <relative-path>` directive means the require
-    // version is a placeholder Go never resolves; skip bumping to stay byte-
-    // identical with the generate path (which emits `v0.0.0`).
     let has_local_replace = content.lines().any(|line| {
         let trimmed = line.trim_start();
         let trimmed = trimmed.strip_prefix("replace ").unwrap_or(trimmed);
@@ -235,12 +206,9 @@ pub(super) fn sync_e2e_go_mod(content: &str, module_path_fragment: &str, new_ver
         .lines()
         .map(|line| {
             let trimmed = line.trim();
-            // Match lines of the form `<module-path> v<version>` inside a require block.
             if trimmed.starts_with(module_path_fragment) || line.trim_start().starts_with(module_path_fragment) {
-                // The line is `\t<module> v<version>` or `    <module> v<version>`.
-                // Split on the version token (starts with 'v' followed by a digit).
                 if let Some(pos) = trimmed.rfind(" v") {
-                    let current_ver = &trimmed[pos + 2..]; // strip " v"
+                    let current_ver = &trimmed[pos + 2..];
                     if current_ver != new_version {
                         changed = true;
                         let indent = &line[..line.len() - line.trim_start().len()];
@@ -381,8 +349,6 @@ fn repo_url_matches(candidate: &str, target: &str) -> bool {
 ///
 /// Returns `Some(new_content)` when a replacement was made, `None` otherwise.
 pub(super) fn sync_e2e_dart_pubspec_lock(content: &str, new_version: &str) -> Option<String> {
-    // State machine: look for `  <name>:\n` (two-space indent, no further indent),
-    // then confirm `    source: path` within that block, then rewrite `    version:`.
     let lines: Vec<&str> = content.lines().collect();
     let n = lines.len();
     let mut result: Vec<String> = Vec::with_capacity(n);
@@ -391,9 +357,7 @@ pub(super) fn sync_e2e_dart_pubspec_lock(content: &str, new_version: &str) -> Op
 
     while i < n {
         let line = lines[i];
-        // Detect a top-level package entry: exactly 2-space-indented key ending with `:`.
         if line.starts_with("  ") && !line.starts_with("   ") && line.trim_end().ends_with(':') {
-            // Collect the block for this package entry (all lines with deeper indent).
             let block_start = i;
             i += 1;
             while i < n && (lines[i].starts_with("    ") || lines[i].trim().is_empty()) {
@@ -401,14 +365,11 @@ pub(super) fn sync_e2e_dart_pubspec_lock(content: &str, new_version: &str) -> Op
             }
             let block = &lines[block_start..i];
 
-            // Check if this block is a path-source package.
             let is_path_source = block.iter().any(|l| l.trim() == "source: path");
             if is_path_source {
-                // Rewrite the `    version: "..."` line in this block.
                 for &bline in block {
                     let trimmed = bline.trim();
                     if trimmed.starts_with("version:") {
-                        // Extract current version (may be quoted or unquoted).
                         let val = trimmed.trim_start_matches("version:").trim().trim_matches('"');
                         if val != new_version {
                             changed = true;
@@ -631,10 +592,6 @@ pub(super) fn replace_version_pattern(content: &str, pattern: &str, version: &st
     let regex = regex::Regex::new(pattern).ok()?;
     let captures = regex.captures(content)?;
     let matched = captures.get(0)?.as_str();
-    // Extract the version literal (text between the first pair of quotes or
-    // angle/colon delimiters) and short-circuit when it already equals the
-    // target. This way `VERSION = "x"` and `VERSION = 'x'` both count as
-    // "already in sync" when x matches, regardless of quote style.
     if matched_version_equals(matched, version) {
         return None;
     }
@@ -646,9 +603,6 @@ pub(super) fn replace_version_pattern(content: &str, pattern: &str, version: &st
         p if p.contains("\"version\"") && p.contains("\"") => format!(r#""version": "{version}""#),
         p if p.contains("spec") => format!("spec.version = \"{version}\""),
         p if p.contains("<version>") => format!("<version>{version}</version>"),
-        // C# `.csproj` `<InformationalVersion>`: distinct from `<Version>` and must
-        // be matched first, since the generic `<Version>` arm below would otherwise
-        // emit the wrong tag name for this pattern.
         p if p.contains("<InformationalVersion>") => {
             format!("<InformationalVersion>{version}</InformationalVersion>")
         }
@@ -659,11 +613,7 @@ pub(super) fn replace_version_pattern(content: &str, pattern: &str, version: &st
         p if p.contains("defaultFFIVersion") => format!(r#"defaultFFIVersion = "{version}""#),
         p if p.contains("moduleVersion") => format!(r#"moduleVersion = "{version}""#),
         p if p.contains("Version:") => format!("Version: {version}"),
-        // Swift Package.swift `.package(url:..., from: "X.Y.Z")` — keep the key,
-        // replace only the quoted version literal.
         p if p.contains("from:") => format!(r#"from: "{version}""#),
-        // Bash `VERSION="X.Y.Z"` (no spaces around `=`). Must come before the
-        // generic `VERSION` arm below so the no-space form is preserved verbatim.
         p if p.contains("VERSION=\"") => format!(r#"VERSION="{version}""#),
         p if p.contains("VERSION") => format!("VERSION = \"{version}\""),
         _ => return None,
@@ -700,11 +650,8 @@ pub(super) fn matched_version_equals(matched: &str, target: &str) -> bool {
 /// manifests without manual intervention.
 pub(super) fn restore_gleam_dep_ranges(content: &str) -> String {
     use crate::core::template_versions::hex;
-    static GLEAM_DEP_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-        // Match lines like:  `gleam_stdlib = "..."`  or  `gleeunit = "..."`
-        // Captures: 1=name, 2=value (between quotes).
-        regex::Regex::new(r#"(?m)^(gleam_stdlib|gleeunit)\s*=\s*"([^"]*)""#).expect("valid regex")
-    });
+    static GLEAM_DEP_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r#"(?m)^(gleam_stdlib|gleeunit)\s*=\s*"([^"]*)""#).expect("valid regex"));
 
     GLEAM_DEP_RE
         .replace_all(content, |caps: &regex::Captures<'_>| {
@@ -720,7 +667,6 @@ pub(super) fn restore_gleam_dep_ranges(content: &str) -> String {
 }
 
 fn extract_version_literal(matched: &str) -> Option<&str> {
-    // Try paired-quote form first ("..." or '...').
     if let Some(start) = matched.find(['"', '\'']) {
         let quote = matched.as_bytes()[start];
         let rest = &matched[start + 1..];
@@ -728,18 +674,15 @@ fn extract_version_literal(matched: &str) -> Option<&str> {
             return Some(&rest[..end]);
         }
     }
-    // Try angle-bracket form (<version>...</version> or <Version>...</Version>).
     if let Some(close) = matched.find('>') {
         let rest = &matched[close + 1..];
         if let Some(end) = rest.find('<') {
             return Some(&rest[..end]);
         }
     }
-    // Try colon-delimited form (`Version: 1.2.3`).
     if let Some(colon) = matched.find(':') {
         return Some(matched[colon + 1..].trim());
     }
-    // Try `=` delimited unquoted form.
     if let Some(eq) = matched.find('=') {
         return Some(matched[eq + 1..].trim());
     }
@@ -831,15 +774,9 @@ pub(super) fn sync_cargo_lock_path_versions(content: &str, new_version: &str) ->
     let mut out = String::with_capacity(content.len());
     let mut changed = false;
 
-    // Split into `[[package]]` blocks while preserving any preamble (the lock
-    // header + `version = 3`/`version = 4` format line) verbatim. We collect
-    // each block's lines, decide whether it is a local (sourceless) package, and
-    // only then rewrite its `version = "..."` line.
     let mut block: Vec<&str> = Vec::new();
     let mut in_package_block = false;
 
-    // Flush the buffered block to `out`, rewriting the version line only when the
-    // block is a `[[package]]` entry with no `source` key.
     let flush = |block: &mut Vec<&str>, out: &mut String, changed: &mut bool| {
         if block.is_empty() {
             return;
@@ -865,15 +802,12 @@ pub(super) fn sync_cargo_lock_path_versions(content: &str, new_version: &str) ->
 
     for line in content.lines() {
         if line.trim() == "[[package]]" {
-            // Starting a new package block: flush whatever came before (preamble
-            // or the previous block).
             flush(&mut block, &mut out, &mut changed);
             in_package_block = true;
             block.push(line);
         } else if in_package_block {
             block.push(line);
         } else {
-            // Preamble before the first `[[package]]`: emit verbatim.
             out.push_str(line);
             out.push('\n');
         }
@@ -883,9 +817,6 @@ pub(super) fn sync_cargo_lock_path_versions(content: &str, new_version: &str) ->
     if !changed {
         return None;
     }
-    // Preserve the original trailing-newline shape: `str::lines()` drops the
-    // final newline, and we re-add one per line above. If the source did not end
-    // in a newline, trim the extra one we appended.
     if !content.ends_with('\n') {
         out.pop();
     }

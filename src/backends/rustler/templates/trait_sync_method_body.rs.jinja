@@ -1,6 +1,7 @@
 let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
 TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);
+arm_trait_call_timeout(reply_id);
 
 let pid = self.inner;
 

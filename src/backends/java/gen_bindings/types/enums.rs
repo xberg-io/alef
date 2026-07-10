@@ -12,15 +12,10 @@ use crate::backends::java::gen_bindings::helpers::{
 pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str, text_types: &[String]) -> String {
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
-    // Tagged union: enum has a serde tag AND data variants → generate sealed interface hierarchy
     if enum_def.serde_tag.is_some() && has_data_variants {
         return gen_java_tagged_union(package, enum_def);
     }
 
-    // Untagged union with data variants (e.g. EmbeddingInput = String | Vec<String>):
-    // emit a transparent JsonNode-wrapper class. Jackson cannot dispatch between
-    // alternatives by name (variant identifiers don't appear in the wire JSON), so
-    // we hold the raw JsonNode and let serde on the Rust side resolve the variant.
     if enum_def.serde_untagged && has_data_variants {
         let emit_text = text_types.iter().any(|t| t == &enum_def.name);
         return gen_java_untagged_wrapper(package, enum_def, main_class, emit_text);
@@ -47,11 +42,7 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
     let mut variants_block = String::new();
     for (i, variant) in enum_def.variants.iter().enumerate() {
         let comma = if i < enum_def.variants.len() - 1 { "," } else { ";" };
-        // Use serde_rename if available, otherwise apply rename_all strategy.
         // When the Rust enum has no explicit #[serde(rename_all)], Serde uses the variant
-        // name unchanged (PascalCase), but Rust may have custom deserialization via a parse()
-        // function that expects lowercase. To match Rust's deserialization expectations, always
-        // apply lowercase normalization when rename_all is not explicitly set.
         let json_name = variant
             .serde_rename
             .clone()
@@ -70,7 +61,6 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
     }
     variants_block.push('\n');
 
-    // Collect excluded variant names to document in comments or emit validation logic
     let excluded_variant_json_names: Vec<String> = enum_def
         .excluded_variants
         .iter()
@@ -137,10 +127,6 @@ fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef, main_class: &str
 pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
-    // Collect variant names to detect Java type name conflicts.
-    // If a variant is named "List", "Map", or "Optional", using those type names
-    // inside the sealed interface would refer to the nested record, not java.util.*.
-    // We use fully qualified names in that case.
     let variant_names: std::collections::HashSet<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
     let optional_type = if variant_names.contains("Optional") {
         "java.util.Optional"
@@ -148,20 +134,16 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         "Optional"
     };
 
-    // @JsonProperty is only needed for variants with named (non-tuple) fields.
     let needs_json_property = enum_def
         .variants
         .iter()
         .any(|v| v.fields.iter().any(|f| !is_tuple_field_name(&f.name)));
 
-    // Check if any data variants exist (non-unit variants with tuple/newtype fields)
-    // to determine if we need the @Nullable import for accessor methods
     let has_data_variants = enum_def
         .variants
         .iter()
         .any(|v| !v.fields.is_empty() && is_tuple_field_name(&v.fields[0].name));
 
-    // Check if any field types need list/map/optional imports (only when not conflicting)
     let needs_list = !variant_names.contains("List")
         && enum_def
             .variants
@@ -174,9 +156,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
             .any(|v| v.fields.iter().any(|f| matches!(&f.ty, TypeRef::Map(_, _))));
     let needs_optional =
         !variant_names.contains("Optional") && enum_def.variants.iter().any(|v| v.fields.iter().any(|f| f.optional));
-    // Newtype/tuple variants (field name is a numeric index like "0") are flattened
-    // into the parent JSON object. We use a custom deserializer instead of @JsonUnwrapped
-    // because Jackson 2.18 doesn't support @JsonUnwrapped on record creator parameters.
     let needs_unwrapped = enum_def
         .variants
         .iter()
@@ -186,12 +165,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     if needs_json_property {
         imports.push("com.fasterxml.jackson.annotation.JsonProperty");
     }
-    // When a custom deserializer handles polymorphic dispatch (@JsonDeserialize with a
-    // *Deserializer class), @JsonTypeInfo + @JsonSubTypes are redundant and actively
-    // harmful: Jackson's AsPropertyTypeDeserializer strips the discriminator field
-    // (visible=false) before calling the custom deserializer, so the custom deserializer
-    // never sees it and throws "Missing discriminator field". Only emit @JsonTypeInfo /
-    // @JsonSubTypes when there is NO custom deserializer (simple polymorphic dispatch).
     if !needs_unwrapped {
         imports.push("com.fasterxml.jackson.annotation.JsonSubTypes");
         imports.push("com.fasterxml.jackson.annotation.JsonTypeInfo");
@@ -232,10 +205,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         enum_def.doc.clone()
     };
     emit_javadoc(&mut out, &tagged_union_doc, "");
-    // @JsonTypeInfo and @JsonSubTypes annotations — only when no custom deserializer.
-    // A custom *Deserializer reads the tag field itself; mixing @JsonTypeInfo (which
-    // strips the tag when visible=false) with a custom deserializer causes a NPE/missing-
-    // discriminator error because the tag is consumed before the deserializer sees it.
     if !needs_unwrapped {
         out.push_str("@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = \"");
         out.push_str(tag_field);
@@ -259,9 +228,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         }
         out.push_str("})\n");
     }
-    // Newtype variants with flattened fields cannot directly map to record fields.
-    // Allow unknown properties at the interface level so Jackson doesn't fail when
-    // encountering flattened inner-type fields.
     out.push_str("@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)\n");
     if needs_unwrapped {
         out.push_str("@JsonDeserialize(using = ");
@@ -275,17 +241,12 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
     out.push_str(&enum_def.name);
     out.push_str(" {\n");
 
-    // Nested records for each variant
     for variant in &enum_def.variants {
         out.push('\n');
-        // A single tuple field of type `()` (Rust unit) carries no data — emit a
-        // payload-less record so Java doesn't try to declare a `void value` field,
-        // which fails compilation with "void type not allowed here".
         let is_unit_tuple = variant.fields.len() == 1
             && is_tuple_field_name(&variant.fields[0].name)
             && matches!(&variant.fields[0].ty, TypeRef::Unit);
         if variant.fields.is_empty() || is_unit_tuple {
-            // Unit variant
             emit_javadoc(&mut out, &variant.doc, "    ");
             out.push_str("    record ");
             out.push_str(&variant.name);
@@ -294,7 +255,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
             out.push_str(" {\n");
             out.push_str("    }\n");
         } else {
-            // Build field list using fully qualified names where variant names shadow imports
             let field_parts: Vec<String> = variant
                 .fields
                 .iter()
@@ -302,9 +262,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                     let ftype = if f.optional {
                         let inner = java_boxed_type(&f.ty);
                         let inner_str = inner.as_ref();
-                        // Replace "List"/"Map" with fully qualified if conflicting. Use
-                        // `replace` (all occurrences) so nested `List<List<T>>` also resolves
-                        // the inner `List` to `java.util.List`, not the shadowing variant.
                         let mut inner_qualified = inner_str.to_string();
                         if variant_names.contains("List") {
                             inner_qualified = inner_qualified.replace("List<", "java.util.List<");
@@ -324,9 +281,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                         }
                         t_str
                     };
-                    // Tuple/newtype variants have numeric field names (e.g. "0", "_0").
-                    // These are not real JSON keys — serde flattens the inner type's fields
-                    // alongside the tag. The custom deserializer handles unwrapping.
                     if is_tuple_field_name(&f.name) {
                         format!("{ftype} value")
                     } else {
@@ -337,7 +291,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                 })
                 .collect();
 
-            // Join once; reuse for both the length probe and the single-line emit path.
             let fields_joined: String = field_parts.join(", ");
             let single_len = "    record ".len()
                 + variant.name.len()
@@ -375,14 +328,12 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         }
     }
 
-    // Add default accessor methods for each newtype/tuple data variant
     if has_data_variants {
         out.push('\n');
         for variant in &enum_def.variants {
             if variant.fields.is_empty() || !is_tuple_field_name(&variant.fields[0].name) {
                 continue;
             }
-            // Skip accessors for unit-tuple variants — there's no value to return.
             if matches!(&variant.fields[0].ty, TypeRef::Unit) {
                 continue;
             }
@@ -409,9 +360,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
 
     out.push_str("}\n");
 
-    // Generate custom deserializer + serializer for sealed interfaces with unwrapped
-    // variants. The serializer mirrors the deserializer's tag handling: it emits the
-    // tag field plus the inner record's fields flattened (e.g. {"role":"user","content":...}).
     if needs_unwrapped {
         out.push('\n');
         gen_sealed_union_deserializer(&mut out, package, enum_def, tag_field);

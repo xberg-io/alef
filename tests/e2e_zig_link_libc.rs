@@ -95,9 +95,6 @@ fn render_build_zig() -> String {
 fn build_zig_links_libc_on_every_test_module() {
     let content = render_build_zig();
 
-    // Each createModule block (per test file) must enable libc linking.
-    // We use the count of `b.createModule(.{` blocks as the lower bound and
-    // require at least that many `.link_libc = true` lines under those blocks.
     let create_module_count = content.matches("b.createModule(.{").count();
     let link_libc_count = content.matches(".link_libc = true,").count();
 
@@ -105,8 +102,6 @@ fn build_zig_links_libc_on_every_test_module() {
         create_module_count >= 1,
         "expected at least one createModule block in:\n{content}"
     );
-    // Shared module uses `b.addModule(...)` (not createModule) but also needs
-    // libc, so we require one more `.link_libc = true` than createModule blocks.
     assert!(
         link_libc_count > create_module_count,
         "expected `.link_libc = true,` on each createModule block plus the shared addModule, \
@@ -117,8 +112,6 @@ fn build_zig_links_libc_on_every_test_module() {
 #[test]
 fn build_zig_shared_binding_module_links_libc() {
     let content = render_build_zig();
-    // The shared binding module uses `b.addModule(...)` (named after the binding
-    // module). Confirm its block contains `.link_libc = true,`.
     let add_module_idx = content
         .find("b.addModule(")
         .expect("shared binding addModule call missing");

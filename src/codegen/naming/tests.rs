@@ -161,8 +161,6 @@ fn name_collision_detection_groups_distinct_originals() {
     );
 }
 
-// --- to_go_name (snake_case → Go PascalCase with initialism uppercasing) ---
-
 #[test]
 fn test_to_go_name_html_initialism() {
     assert_eq!(to_go_name("html"), "HTML");
@@ -193,8 +191,6 @@ fn test_to_go_name_request_url() {
     assert_eq!(to_go_name("request_url"), "RequestURL");
 }
 
-// --- Additional cases ---
-
 #[test]
 fn test_to_go_name_http_status() {
     assert_eq!(to_go_name("http_status"), "HTTPStatus");
@@ -204,8 +200,6 @@ fn test_to_go_name_http_status() {
 fn test_to_go_name_json_body() {
     assert_eq!(to_go_name("json_body"), "JSONBody");
 }
-
-// --- go_param_name (snake_case → Go lowerCamelCase with initialism uppercasing) ---
 
 #[test]
 fn test_go_param_name_base_url() {
@@ -226,8 +220,6 @@ fn test_go_param_name_api_key() {
 fn test_go_param_name_plain() {
     assert_eq!(go_param_name("json"), "json");
 }
-
-// --- pascal_to_snake ---
 
 #[test]
 fn pascal_to_snake_normal_case() {
@@ -279,8 +271,6 @@ fn pascal_to_snake_empty() {
     assert_eq!(pascal_to_snake(""), "");
 }
 
-// --- pascal_to_screaming_snake ---
-
 #[test]
 fn pascal_to_screaming_snake_rdfa() {
     assert_eq!(pascal_to_screaming_snake("Rdfa"), "RDFA");
@@ -296,8 +286,6 @@ fn pascal_to_screaming_snake_my_type() {
     assert_eq!(pascal_to_screaming_snake("MyType"), "MY_TYPE");
 }
 
-// --- to_csharp_name (snake_case → C# PascalCase with initialism uppercasing) ---
-
 #[test]
 fn test_to_csharp_name_graphql_route_config() {
     assert_eq!(to_csharp_name("graphql_route_config"), "GraphQLRouteConfig");
@@ -305,15 +293,11 @@ fn test_to_csharp_name_graphql_route_config() {
 
 #[test]
 fn test_to_csharp_name_http_status_no_acronym() {
-    // C# follows Microsoft style — 3+ letter initialisms use PascalCase ("Http"),
-    // not all-caps ("HTTP"). Only product names like GraphQL get all-caps.
     assert_eq!(to_csharp_name("http_status"), "HttpStatus");
 }
 
 #[test]
 fn test_to_csharp_name_to_json_no_acronym() {
-    // Keeps `to_json` → `ToJson` so it matches alef's hardcoded helper names
-    // (`{Type}ToJson`, `{Type}FromJson`) on the FFI declaration side.
     assert_eq!(to_csharp_name("to_json"), "ToJson");
 }
 
@@ -322,29 +306,23 @@ fn test_to_csharp_name_plain() {
     assert_eq!(to_csharp_name("my_field"), "MyField");
 }
 
-// --- csharp_type_name (PascalCase → C# PascalCase with initialism uppercasing) ---
-
 #[test]
 fn test_csharp_type_name_heck_corrupted() {
-    // heck produces "GraphQlRouteConfig" from "GraphQLRouteConfig" — we must restore it
     assert_eq!(csharp_type_name("GraphQlRouteConfig"), "GraphQLRouteConfig");
 }
 
 #[test]
 fn test_csharp_type_name_already_correct() {
-    // Input that already has the correct form is preserved idempotently
     assert_eq!(csharp_type_name("GraphQLRouteConfig"), "GraphQLRouteConfig");
 }
 
 #[test]
 fn test_csharp_type_name_http_status_no_acronym() {
-    // `Http` is intentionally not in CSHARP_INITIALISMS — Microsoft style prefers `Http`.
     assert_eq!(csharp_type_name("HttpStatus"), "HttpStatus");
 }
 
 #[test]
 fn test_csharp_type_name_three_letter_acronyms() {
-    // 3+ letter acronyms should NOT be uppercased (Uri not URI, Xml not XML, Json not JSON)
     assert_eq!(csharp_type_name("Uri"), "Uri");
     assert_eq!(csharp_type_name("URI"), "Uri");
     assert_eq!(csharp_type_name("Xml"), "Xml");

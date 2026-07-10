@@ -9,7 +9,6 @@ fn emit_client_shims(
     exclude_functions: &std::collections::HashSet<&str>,
     opaque_type_names: &std::collections::HashSet<&str>,
 ) {
-    // Instance method shims.
     for method in ty.methods.iter().filter(|m| !m.sanitized && !m.is_static) {
         if exclude_functions.contains(method.name.as_str()) {
             continue;
@@ -33,19 +32,16 @@ fn emit_client_shims(
         );
     }
 
-    // Destructor shim.
     let free_name = destructor_method_name(&ty.name);
     let free_symbol = jni_symbol(package, bridge, &free_name);
     emit_destructor_shim(out, &free_symbol, &ty.name);
 
-    // Constructor shim (when client_constructors config is present for this type).
     if let Some(ctor) = config.client_constructors.get(&ty.name) {
         let ctor_method_name = format!("nativeNew{}", &ty.name);
         let ctor_symbol = jni_symbol(package, bridge, &ctor_method_name);
         emit_constructor_shim(out, &ctor_symbol, ty, config, ctor);
     }
 
-    // Streaming adapter shims owned by this type.
     let streaming: Vec<_> = config
         .adapters
         .iter()
@@ -59,9 +55,5 @@ fn emit_client_shims(
         emit_streaming_shims(out, &start_sym, &next_sym, &free_sym, ty, adapter, api);
     }
 
-    let _ = api; // suppress unused warning if no streaming adapters
+    let _ = api;
 }
-
-// ---------------------------------------------------------------------------
-// Individual shim emitters
-// ---------------------------------------------------------------------------

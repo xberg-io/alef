@@ -21,22 +21,17 @@ pub(crate) fn unwrap_future_return(
         syn::ReturnType::Default => return None,
     };
 
-    // Check the outermost type name
     if let syn::Type::Path(type_path) = ty.as_ref() {
         if let Some(seg) = type_path.path.segments.last() {
             let ident = seg.ident.to_string();
             match ident.as_str() {
-                // BoxFuture<'_, T> or BoxStream<'_, T> → async returning T
                 "BoxFuture" | "BoxStream" => {
                     let result = extract_future_inner_type(seg)?;
-                    // If the alias wraps Result<T> internally and T isn't already Result,
-                    // mark as is_result with a generic error type.
                     if result.1.is_none() && result_wrapping_aliases.contains(&ident) {
                         return Some((result.0, Some("Error".to_string())));
                     }
                     return Some(result);
                 }
-                // Pin<Box<dyn Future<Output = T>>> → async returning T
                 "Pin" => {
                     return extract_pin_future_inner(seg);
                 }
@@ -66,7 +61,6 @@ fn resolve_possibly_result_type(ty: &syn::Type) -> (TypeRef, Option<String>) {
 /// Returns `(inner_type, error_type)` — `error_type` is `Some` when `T` is `Result<T, E>`.
 fn extract_future_inner_type(segment: &syn::PathSegment) -> Option<(TypeRef, Option<String>)> {
     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-        // BoxFuture has lifetime + type args. Find the type arg (skipping lifetimes).
         for arg in &args.args {
             if let syn::GenericArgument::Type(ty) = arg {
                 return Some(resolve_possibly_result_type(ty));
@@ -80,13 +74,11 @@ fn extract_future_inner_type(segment: &syn::PathSegment) -> Option<(TypeRef, Opt
 ///
 /// Returns `(inner_type, error_type)` — `error_type` is `Some` when `Output = Result<T, E>`.
 fn extract_pin_future_inner(segment: &syn::PathSegment) -> Option<(TypeRef, Option<String>)> {
-    // Pin<Box<dyn Future<Output = T>>>
     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
         for arg in &args.args {
             if let syn::GenericArgument::Type(syn::Type::Path(inner_path)) = arg {
                 if let Some(inner_seg) = inner_path.path.segments.last() {
                     if inner_seg.ident == "Box" {
-                        // Box<dyn Future<Output = T>>
                         if let syn::PathArguments::AngleBracketed(box_args) = &inner_seg.arguments {
                             for box_arg in &box_args.args {
                                 if let syn::GenericArgument::Type(syn::Type::TraitObject(trait_obj)) = box_arg {
@@ -110,7 +102,6 @@ fn extract_future_output_from_trait_obj(trait_obj: &syn::TypeTraitObject) -> Opt
         if let syn::TypeParamBound::Trait(trait_bound) = bound {
             if let Some(seg) = trait_bound.path.segments.last() {
                 if seg.ident == "Future" {
-                    // Look for Output = T in angle-bracketed args
                     if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
                         for arg in &args.args {
                             if let syn::GenericArgument::AssocType(assoc) = arg {
@@ -143,10 +134,7 @@ pub(crate) fn resolve_return_type(output: &syn::ReturnType) -> (TypeRef, Option<
             } else {
                 ty.as_ref()
             };
-            // Unwrap Box/Arc/Rc wrappers to check the actual inner type
             let unwrapped = unwrap_smart_pointer(inner_ty);
-            // Cow<'_, NamedType> returns also need special handling — treat as returns_ref
-            // so codegen can emit `.into_owned()` instead of direct `.into()`.
             let returns_ref = syn_type_contains_ref(unwrapped) || is_cow_named_return(inner_ty);
             let resolved = type_resolver::resolve_type(inner_ty);
             (resolved, error_type, returns_ref)
@@ -218,13 +206,11 @@ fn is_cow_named_return(ty: &syn::Type) -> bool {
                     for arg in &args.args {
                         if let syn::GenericArgument::Type(inner) = arg {
                             match inner {
-                                // Cow<'_, str> → maps to String naturally, not a "cow named return"
                                 syn::Type::Path(p) => {
                                     if let Some(seg) = p.path.segments.last() {
                                         return seg.ident != "str";
                                     }
                                 }
-                                // Cow<'_, [u8]> → maps to Bytes naturally
                                 syn::Type::Slice(_) => return false,
                                 _ => return true,
                             }

@@ -20,7 +20,6 @@ pub(crate) fn gen_facade_class(
 ) -> String {
     use crate::core::config::extras::AdapterPattern;
 
-    // Build per-function context objects for the facade_class template.
     let functions: Vec<minijinja::Value> = api
         .functions
         .iter()
@@ -40,12 +39,6 @@ pub(crate) fn gen_facade_class(
                 })
                 .collect();
 
-            // Host-native capsule (Language-passthrough): when the return type is a configured
-            // capsule type, the raw FFI class already constructs and returns the host runtime's
-            // `Language` (e.g. `io.github.treesitter.jtreesitter.Language`), not an opaque alef
-            // handle. The facade must declare that same host type or the delegating
-            // `return raw.method(...)` body fails to compile. `host_type` is fully qualified, so
-            // no import is required (matching how the raw FFI class annotates the return).
             let capsule_host_type = if let TypeRef::Named(name) = &func.return_type {
                 config
                     .java
@@ -65,18 +58,12 @@ pub(crate) fn gen_facade_class(
             let return_type = if let Some(host_type) = capsule_host_type {
                 host_type
             } else if let TypeRef::Optional(inner) = &func.return_type {
-                // Unwrap Optional<T> to @Nullable T for cleaner return types
                 let inner_type = java_boxed_type(inner);
                 render_nullable_type(&inner_type, true)
             } else {
                 java_return_type(&func.return_type).to_string()
             };
             let is_void = matches!(func.return_type, TypeRef::Unit);
-            // Whether the facade signature is `@Nullable T` while the bridge
-            // returns `Optional<T>` — in that case the facade must unwrap
-            // through `.orElse(null)` so the types line up.  Bytes are special:
-            // the raw class signature already returns `byte[]` (not
-            // `Optional<byte[]>`), so the unwrap would be a compile error.
             let needs_optional_unwrap =
                 matches!(&func.return_type, TypeRef::Optional(inner) if !matches!(inner.as_ref(), TypeRef::Bytes));
             let is_optional = matches!(func.return_type, TypeRef::Optional(_));
@@ -96,7 +83,6 @@ pub(crate) fn gen_facade_class(
                 })
                 .collect();
 
-            // Delegate to raw FFI class — bridge params stripped from raw class signature.
             let call_args: Vec<String> = func
                 .params
                 .iter()
@@ -122,7 +108,6 @@ pub(crate) fn gen_facade_class(
                 vec![]
             };
 
-            // Build call to raw class: bridge params excluded; optional params use defaults.
             let full_args: Vec<String> = if has_optional_overload {
                 func.params
                     .iter()
@@ -173,18 +158,8 @@ pub(crate) fn gen_facade_class(
         })
         .collect();
 
-    // Build the set of method names already emitted from api.functions so we
-    // can skip trait-bridge wrapper methods that would produce duplicates.
-    // When register_fn/unregister_fn/clear_fn are also declared as top-level
-    // Rust API functions they appear in both `api.functions` (emitted above via
-    // the facade_class template) AND in the trait_bridges config. Without this
-    // guard the facade class ends up with two identically-named static methods,
-    // which the Java compiler rejects.
     let api_function_names: HashSet<String> = api.functions.iter().map(|f| to_java_name(&f.name)).collect();
 
-    // Emit static facade methods for trait bridges (register/unregister/clear).
-    // These provide convenient access to trait bridge methods without requiring
-    // callers to reference the individual Bridge classes.
     let mut trait_bridge_wrappers = String::new();
     for bridge in &config.trait_bridges {
         if bridge
@@ -196,10 +171,8 @@ pub(crate) fn gen_facade_class(
         let trait_pascal = bridge.trait_name.as_str().to_string();
         let bridge_class = format!("{}Bridge", trait_pascal);
 
-        // register method
         if let Some(register_fn) = &bridge.register_fn {
             let java_register_fn = to_java_name(register_fn);
-            // Skip if already emitted as an api.functions delegate above.
             if !api_function_names.contains(&java_register_fn) {
                 let trait_ident = format!("I{}", trait_pascal);
                 let method_code = format!(
@@ -210,10 +183,8 @@ pub(crate) fn gen_facade_class(
             }
         }
 
-        // unregister method
         if let Some(unregister_fn) = &bridge.unregister_fn {
             let java_unregister_fn = to_java_name(unregister_fn);
-            // Skip if already emitted as an api.functions delegate above.
             if !api_function_names.contains(&java_unregister_fn) {
                 let method_code = format!(
                     "    public static void {}(final String name) throws {}Exception {{\n        try {{\n            {}.{}(name);\n        }} catch (Exception e) {{\n            throw new {}Exception(e.getMessage(), e);\n        }}\n    }}\n\n",
@@ -223,10 +194,8 @@ pub(crate) fn gen_facade_class(
             }
         }
 
-        // clear method
         if let Some(clear_fn) = &bridge.clear_fn {
             let java_clear_fn = to_java_name(clear_fn);
-            // Skip if already emitted as an api.functions delegate above.
             if !api_function_names.contains(&java_clear_fn) {
                 let method_code = format!(
                     "    public static void {}() throws {}Exception {{\n        try {{\n            {}.{}();\n        }} catch (Exception e) {{\n            throw new {}Exception(e.getMessage(), e);\n        }}\n    }}\n\n",
@@ -237,11 +206,6 @@ pub(crate) fn gen_facade_class(
         }
     }
 
-    // Emit static facade methods for streaming adapters with an owner_type.
-    // These wrap the instance methods on the owner handle, exposing a convenient
-    // module-level API (e.g., `SampleCrawler.crawlStream(engine, req)` instead of
-    // `engine.crawlStream(req)`). This matches the canonical surface exposed by
-    // other language backends (Go, Python, Ruby, etc.).
     let mut streaming_wrappers = String::new();
     for adapter in &config.adapters {
         if !matches!(adapter.pattern, AdapterPattern::Streaming) {
@@ -256,10 +220,8 @@ pub(crate) fn gen_facade_class(
         let owner_type = adapter.owner_type.as_deref().unwrap();
         let item_type = adapter.item_type.as_deref().unwrap();
 
-        // Extract short type name from fully-qualified path if needed
         let short_item_type = item_type.rsplit("::").next().unwrap_or(item_type);
 
-        // Build parameter list from adapter params (excluding the owner handle which comes first)
         let param_parts: Vec<String> = adapter
             .params
             .iter()
@@ -268,25 +230,14 @@ pub(crate) fn gen_facade_class(
                     "String" | "&str" | "&'static str" => "String",
                     "Vec<String>" => "List<String>",
                     "()" => "Void",
-                    other => {
-                        // Strip Rust path prefix (e.g., "crate::requests::CrawlStreamRequest" → "CrawlStreamRequest")
-                        other.rsplit("::").next().unwrap_or(other)
-                    }
+                    other => other.rsplit("::").next().unwrap_or(other),
                 };
                 let annotation = if p.optional { "@Nullable " } else { "" };
                 format!("final {}{} {}", annotation, java_type, to_java_name(&p.name))
             })
             .collect();
 
-        // Build the wrapper method: call the streaming instance method on the owner handle.
-        // The instance method (emitted by gen_bindings/types.rs via the
-        // `streaming_iterator_method.jinja` template) returns
-        // `java.util.stream.Stream<T>`, so the facade signature must match —
-        // `Stream<T>` does NOT implement `Iterable<T>` in the JDK, and the
-        // `return engine.<method>(...)` body would not compile against an
-        // `Iterable<T>` declared return type.
         let method_call = if param_parts.is_empty() {
-            // No additional params besides the owner handle
             format!(
                 "    public static java.util.stream.Stream<{short_item_type}> {java_name}(final {owner_type} engine) throws {raw_class}Exception {{\n        return engine.{java_name}();\n    }}\n"
             )

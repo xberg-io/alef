@@ -19,7 +19,6 @@ pub(super) fn rewrite_capsule_methods(
     let mut result = impl_block;
 
     for method in &typ.methods {
-        // Determine whether this method's return type is a capsule type.
         let capsule_ret_name: Option<&str> = match &method.return_type {
             TypeRef::Named(n) if capsule_types.contains_key(n.as_str()) => Some(n.as_str()),
             TypeRef::Optional(inner) => {
@@ -36,36 +35,27 @@ pub(super) fn rewrite_capsule_methods(
             _ => None,
         };
 
-        // Check if any parameter is a capsule type.
         let has_capsule_param = method
             .params
             .iter()
             .any(|p| matches!(&p.ty, TypeRef::Named(n) if capsule_types.contains_key(n.as_str())));
 
-        // Skip methods that don't involve capsules in parameters or return type.
         if capsule_ret_name.is_none() && !has_capsule_param {
             continue;
         }
 
-        // If we're only handling parameter extraction (no return capsule), emit a simpler body.
         let cfg = capsule_ret_name.map(|n| &capsule_types[n]);
 
-        // Build the old signature fragment that the generic generator emitted.
         let old_sig_search = if let Some(ret_name) = capsule_ret_name {
-            // Methods returning capsules: search for `-> PyResult<{CapsuleTypeName}>`
             format!("-> PyResult<{ret_name}>")
         } else {
-            // Methods only with capsule params: search for method name + opening paren.
-            // We'll match by method name pattern and update params + body.
             format!("pub fn {}(", method.name)
         };
 
-        // For methods returning capsules, verify the signature exists.
         if capsule_ret_name.is_some() && !result.contains(&old_sig_search) {
             continue;
         }
 
-        // Detect capsule-type parameters and prepare extraction code.
         let mut capsule_param_extract = String::new();
         let mut call_args_parts: Vec<String> = Vec::new();
 
@@ -74,7 +64,6 @@ pub(super) fn rewrite_capsule_methods(
 
             if param_is_capsule {
                 if let TypeRef::Named(capsule_name) = &p.ty {
-                    // Generate extraction code for this capsule parameter
                     capsule_param_extract.push_str(&crate::backends::pyo3::template_env::render(
                         "pyo3_capsule_param_extract.jinja",
                         minijinja::context! {
@@ -84,7 +73,6 @@ pub(super) fn rewrite_capsule_methods(
                     ));
                     call_args_parts.push(p.name.clone());
                 } else {
-                    // Fallback for non-Named types
                     call_args_parts.push(p.name.clone());
                 }
             } else {
@@ -98,12 +86,9 @@ pub(super) fn rewrite_capsule_methods(
         }
         let call_args_str = call_args_parts.join(", ");
 
-        // Build param list for the new signature.
-        // Always prepend `py: pyo3::Python<'_>` since we need it for PyCapsule_New / Python calls.
         let mapper = crate::backends::pyo3::type_map::Pyo3Mapper::new();
         let mut sig_params = vec!["&self".to_string(), "py: pyo3::Python<'_>".to_string()];
         for p in &method.params {
-            // Capsule-type parameters are accepted as Py<PyAny>, not as the Rust type
             let param_type = if matches!(&p.ty, TypeRef::Named(n) if capsule_types.contains_key(n.as_str())) {
                 "pyo3::Py<pyo3::PyAny>".to_string()
             } else {
@@ -125,10 +110,8 @@ pub(super) fn rewrite_capsule_methods(
             format!("    #[pyo3(signature = ({names}))]\n")
         };
 
-        // Build the inner core call (self.inner.method(args)).
         let core_call = format!("self.inner.{}({})", method.name, call_args_str);
 
-        // Build the `.map_err(…)?` suffix when the method is fallible.
         let err_map_suffix = if method.error_type.is_some() {
             let converter = method
                 .error_type
@@ -151,11 +134,7 @@ pub(super) fn rewrite_capsule_methods(
         let params_str = sig_params.join(", ");
         let method_name = &method.name;
 
-        // Generate the new method body based on capsule variant.
-        // For methods with only capsule params (no return capsule), emit a simple wrapper.
         let new_body = if cfg.is_none() {
-            // Method only has capsule params, no capsule return.
-            // Just rewrite to extract capsule params and call the inner method.
             let return_annotation = if matches!(method.return_type, TypeRef::Unit) {
                 "".to_string()
             } else {
@@ -168,13 +147,9 @@ pub(super) fn rewrite_capsule_methods(
     }}"#,
             )
         } else if let Some(cfg) = cfg {
-            // Method returns a capsule (and may also have capsule params).
             match cfg {
                 crate::core::config::CapsuleTypeConfig::Capsule(capsule_name_str) => {
                     let capsule_cstr = capsule_name_str.replace('.', "_").to_ascii_uppercase();
-                    // If capsule_name_str is dotted (e.g. "tree_sitter.Language"), also construct the
-                    // target Python type from the capsule so callers receive a real tree_sitter.Language,
-                    // not the bare PyCapsule.
                     let construct = match capsule_name_str.rsplit_once('.') {
                     Some((module_path, class_name)) => format!(
                         r#"        // SAFETY: capsule_ptr is a valid, non-null Python object pointer we just created above.
@@ -206,8 +181,6 @@ pub(super) fn rewrite_capsule_methods(
                     python_type,
                     construct_from,
                 } => {
-                    // For ConstructFrom: produce the dependency capsule by calling the matching
-                    // free function, then call the Python factory to construct the target type.
                     let dep_snake = construct_from.to_snake_case();
                     let first_str_param = method.params.iter().find(|p| matches!(p.ty, TypeRef::String));
                     let dep_expr = if let Some(sp) = first_str_param {
@@ -244,10 +217,6 @@ pub(super) fn rewrite_capsule_methods(
             unreachable!("Method capsule config should be present when cfg.is_none() is false.");
         };
 
-        // Find and replace the old method in the impl block.
-        // The method generator emits `pub fn {name}(` at the start of a line with no
-        // guaranteed leading indentation (the impl_block template wraps the content but
-        // doesn't add per-line indentation).  Search for the bare `pub fn {name}(`.
         let method_start_marker = format!("pub fn {method_name}(");
         if let Some(start_idx) = result.find(&method_start_marker) {
             let attr_start = find_method_attrs_start(&result, start_idx);
@@ -270,7 +239,7 @@ pub(super) fn rewrite_capsule_methods(
 fn is_method_attr_line(line: &str) -> bool {
     let mut rest = line.trim();
     if rest.is_empty() {
-        return false; // handled by the blank-line branch; don't treat blank as attr
+        return false;
     }
     loop {
         rest = rest.trim_start();
@@ -312,13 +281,11 @@ fn is_method_attr_line(line: &str) -> bool {
 /// first method-attribute line (or `fn_idx` when there are none).
 fn find_method_attrs_start(code: &str, fn_idx: usize) -> usize {
     let before = &code[..fn_idx];
-    // Collect line-start byte offsets so we can walk backward.
     let line_starts: Vec<usize> = std::iter::once(0)
         .chain(before.match_indices('\n').map(|(i, _)| i + 1))
         .collect();
 
     let mut attr_start_byte = fn_idx;
-    // Walk the line-start offsets in reverse (skip the last one — that is the `pub fn` line).
     for &line_byte_start in line_starts.iter().rev() {
         let line = &before[line_byte_start..before.len().min(attr_start_byte)];
         let trimmed = line.trim_end_matches('\n').trim();

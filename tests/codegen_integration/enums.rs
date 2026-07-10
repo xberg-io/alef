@@ -1,7 +1,6 @@
 use super::*;
 
 // ==============================================================================
-// Additional tests for enums.rs
 // ==============================================================================
 
 #[test]
@@ -228,7 +227,6 @@ fn test_gen_enum_discriminant_increments_correctly() {
 #[test]
 fn test_gen_enum_with_pyo3_pyclass_attr_emits_upper_snake_case_for_all_variants() {
     // Every variant in a pyo3 pyclass enum gets #[pyo3(name = "UPPER_SNAKE_CASE")] so that
-    // the Python-exposed name is PEP 8-compliant regardless of whether it is a keyword.
     let enum_def = EnumDef {
         name: "BatchStatus".to_string(),
         rust_path: "my_crate::BatchStatus".to_string(),
@@ -342,7 +340,7 @@ fn test_gen_enum_without_pyclass_does_not_rename_python_keywords() {
         excluded_variants: vec![],
         version: Default::default(),
     };
-    let cfg = default_cfg(); // no pyclass attr
+    let cfg = default_cfg();
 
     let result = gen_enum(&enum_def, &cfg);
 

@@ -1,7 +1,6 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
-// gen_sync_method_body
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -141,10 +140,6 @@ fn test_gen_sync_method_body_with_error_uses_map_err() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// gen_async_method_body
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_gen_async_method_body_uses_spawn_blocking() {
     let generator = make_bridge_generator("my_lib");
@@ -204,7 +199,6 @@ fn test_gen_async_method_body_clones_ref_params() {
     );
     let body = generator.gen_async_method_body(&method, &spec);
 
-    // owned params must be cloned before the blocking closure captures them
     assert!(
         body.contains("let data = data.clone()"),
         "owned params should be cloned before spawn_blocking capture"
@@ -240,17 +234,6 @@ fn test_gen_async_method_body_unit_return() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Native-object marshalling of struct callback params
-//
-// A trait-callback param that is a known serde struct must be handed to the host as the
-// binding's NATIVE Python object — constructed via the same `From<core::T>` conversion the
-// binding uses for return values — NOT serialized to a JSON string. Enum / opaque / unknown
-// params keep their prior representation. The positive allowlist is computed by the SHARED
-// classifier (`native_marshalled_struct_params`) and carried on the generator's
-// `struct_param_types`.
-// ---------------------------------------------------------------------------
-
 fn make_struct_aware_generator(core_import: &str, struct_params: &[&str]) -> Pyo3BridgeGenerator {
     Pyo3BridgeGenerator {
         core_import: core_import.to_string(),
@@ -278,7 +261,6 @@ fn struct_param_spec<'a>(trait_def: &'a TypeDef, bridge_cfg: &'a TraitBridgeConf
 
 #[test]
 fn test_sync_struct_param_passed_as_native_object_not_json_string() {
-    // `Greeter::greet(&self, opts: &Opts) -> Doc` — `Opts` is a known serde struct.
     let generator = make_struct_aware_generator("my_lib", &["Opts"]);
     let trait_def = make_trait_def("Greeter", "my_lib::Greeter", vec![]);
     let bridge_cfg = make_bridge_cfg("Greeter");
@@ -321,7 +303,6 @@ fn test_async_struct_param_passed_as_native_object_not_json_string() {
     );
     let body = generator.gen_async_method_body(&method, &spec);
 
-    // The cloning preamble owns the core value, and the call site builds the native object.
     assert!(
         body.contains("let opts_owned = opts.clone();"),
         "async preamble must clone the core struct value for native construction:\n{body}"
@@ -338,8 +319,6 @@ fn test_async_struct_param_passed_as_native_object_not_json_string() {
 
 #[test]
 fn test_enum_and_unknown_params_keep_json_string_representation() {
-    // `Mood` (enum) and `Widget` (unknown) are NOT in the struct allowlist, so they keep the
-    // prior JSON-string representation.
     let generator = make_struct_aware_generator("my_lib", &["Opts"]);
     let trait_def = make_trait_def("Greeter", "my_lib::Greeter", vec![]);
     let bridge_cfg = make_bridge_cfg("Greeter");
@@ -366,10 +345,6 @@ fn test_enum_and_unknown_params_keep_json_string_representation() {
         "non-struct Named params must NOT be constructed as native objects:\n{sync_body}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Defaulted-method forwarding
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_defaulted_method_forwarded_with_hasattr_guard_and_delegate() {
@@ -513,7 +488,6 @@ fn test_options_dataclass_param_lifted_before_host_call() {
         "options-dataclass params must be lifted via the generated converter:\n{body}"
     );
 
-    // Without the options classification the native object is passed directly.
     generator.options_dataclass_types.clear();
     let body = generator.gen_sync_method_body(&method, &spec);
     assert!(

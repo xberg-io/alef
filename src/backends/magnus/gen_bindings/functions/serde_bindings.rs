@@ -35,14 +35,12 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_call_args_wit
     _opaque_types: &AHashSet<String>,
     base_call_args: &str,
 ) -> String {
-    // If no AHashMap params, return as-is.
     if !params
         .iter()
         .any(|p| matches!(&p.ty, TypeRef::Map(_, _)) && p.map_is_ahash && p.map_key_is_cow)
     {
         return base_call_args.to_string();
     }
-    // Split the comma-separated call_args and zip with params to substitute.
     let terms: Vec<&str> = base_call_args.split(", ").collect();
     let result: Vec<String> = terms
         .into_iter()
@@ -84,16 +82,12 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_recover
         return false;
     }
     func.params.iter().all(|p| {
-        // Sanitized Vec<String> originally Vec<tuple>: recoverable via JSON-decode-each.
         if p.sanitized {
             return p.original_type.is_some()
                 && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
         }
         match &p.ty {
-            // Named non-opaque: serde JSON-roundtrip handles both ref and non-ref cases.
             TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => true,
-            // Otherwise must be plain delegatable (no Named ref blockers since they're handled
-            // above).
             _ => crate::codegen::shared::is_delegatable_param(&p.ty, opaque_types),
         }
     })
@@ -183,7 +177,6 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
             TypeRef::Vec(inner)
                 if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref && !p.sanitized =>
             {
-                // Non-sanitized Vec<String> passed by ref: core expects &[&str], so create refs vec.
                 if p.optional {
                     out.push(crate::backends::magnus::template_env::render(
                         "function_vec_refs_binding.rs.jinja",
@@ -226,9 +219,6 @@ pub(in crate::backends::magnus::gen_bindings::functions) fn magnus_serde_let_bin
                 }
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
-                // Generic Vec<T> where T is a struct type (e.g., Vec<BatchFileItem>):
-                // The parameter is already a typed Vec<wrapper>; convert each wrapper
-                // element into the core type via the generated `From<wrapper> for core` impl.
                 if let TypeRef::Named(name) = inner.as_ref() {
                     let core_inner_ty = format!("{core_import}::{name}");
                     let vec_ty = format!("Vec<{core_inner_ty}>");

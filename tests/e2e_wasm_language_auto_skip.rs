@@ -86,7 +86,6 @@ fn wasm_codegen_auto_skips_fixtures_outside_static_language_set() {
         "omitted abl fixture should not emit a skip reason, got:\n{body}"
     );
 
-    // The python fixture must render as a live `it(` test, not it.skip.
     let py_idx = body.find("smoke_python").expect("smoke_python present");
     let py_prefix = &body[..py_idx];
     let py_last_it = py_prefix.rfind("it(").unwrap_or(0);
@@ -99,8 +98,6 @@ fn wasm_codegen_auto_skips_fixtures_outside_static_language_set() {
 
 #[test]
 fn wasm_codegen_does_not_filter_when_languages_unset() {
-    // Sanity check: when [crates.wasm].languages is empty (i.e. omitted), the
-    // override must be inert and `smoke_abl` must render as a live test.
     let toml_src = r#"
 [workspace]
 languages = ["wasm"]

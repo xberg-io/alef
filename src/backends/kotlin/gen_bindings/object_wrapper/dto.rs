@@ -25,63 +25,26 @@ pub(crate) fn emit_type_with_imports(
         return;
     }
 
-    // Include all fields, including those marked as binding_excluded.
-    // binding_excluded fields are generated as nullable with null defaults so JSON
-    // deserialization tolerates missing fields (Rust carries Default::skip for them).
     let visible_fields: Vec<(usize, &crate::core::ir::FieldDef)> = ty.fields.iter().enumerate().collect();
 
-    // Pre-compute the per-field JsonSerialize annotation needed when the
-    // declared field type references a sealed class.  Jackson dispatches
-    // serializers by RUNTIME type, so a `data class Parent(val foo: Sealed)`
-    // would look up the serializer for the concrete variant (e.g.
-    // `Sealed.Variant`) — which carries `@JsonSerialize(using =
-    // JsonSerializer.None::class)` to break the deserializer recursion
-    // protection — and emit a default POJO instead of routing through the
-    // parent's custom `SealedSerializer`.  `@field:JsonSerialize(\`as\` = ...)`
-    // forces Jackson to use the DECLARED static type for serializer lookup,
-    // which carries the custom serializer.  For collections we use
-    // `contentAs` on the element type.
-    //
-    // The annotation must be attached to the underlying field (not the
-    // constructor parameter) because Kotlin defaults annotations on primary
-    // constructor parameters to the parameter use-site, but Jackson reads
-    // field-level annotations.  Hence the `@field:` site target.
-    // Only compute for visible fields.
     let field_sealed_annotations: Vec<Option<String>> = visible_fields
         .iter()
         .map(|(_, f)| sealed_class_field_annotation(&f.ty, sealed_class_names))
         .collect();
 
-    // Pre-build field strings so we can apply the ktfmt single-line heuristic
-    // before committing to an emission style. Field-level KDoc or @JsonProperty
-    // annotations force multi-line because they cannot be inlined inside a
-    // constructor parameter list.
     let has_field_docs = visible_fields.iter().any(|(_, f)| !f.doc.is_empty());
     let has_field_annotations = visible_fields.iter().any(|(_, f)| f.serde_rename.is_some())
         || field_sealed_annotations.iter().any(Option::is_some);
     // Detect `#[serde(flatten)]` fields. In Rust these collect all unknown
-    // wire fields into a value (often `serde_json::Value` or `HashMap`); Kotlin
-    // has no native equivalent. As a pragmatic mitigation, treat the flatten
-    // field as a nullable bag (default null) AND emit
-    // `@JsonIgnoreProperties(ignoreUnknown = true)` on the class so Jackson
-    // tolerates the unknown sibling keys that Rust would have absorbed.
-    // Note: this is lossy — the flatten contents aren't actually captured in
-    // the Kotlin struct, but the deserialiser no longer fails outright.
     let has_flatten_field = visible_fields.iter().any(|(_, f)| f.serde_flatten);
 
     let mut field_strings: Vec<String> = Vec::with_capacity(visible_fields.len());
     for (original_idx, field) in visible_fields.iter() {
         let ty_str = kotlin_type_with_string_imports(&field.ty, field.optional, imports);
         let name = kotlin_field_name(&field.name, *original_idx);
-        // Append a Kotlin default for fields whose underlying Rust type has a
-        // natural empty value. Rust serializers commonly skip Default-valued
         // collections (`#[serde(skip_serializing_if = "...")]`) or skip a
         // field entirely under a feature gate (`#[serde(skip)]`). Without a
-        // Kotlin-side default the Jackson Kotlin module fails the entire
-        // deserialization with `MissingKotlinParameterException` whenever the
-        // wire JSON omits the key — even if the Rust source carries `Default`.
         let (effective_ty_str, default_suffix) = if field.binding_excluded {
-            // binding_excluded fields must be nullable with null default so JSON
             // deserialization tolerates missing fields (Rust carries #[serde(skip)]).
             let nullable_ty = if ty_str.ends_with('?') {
                 ty_str.clone()
@@ -90,7 +53,6 @@ pub(crate) fn emit_type_with_imports(
             };
             (nullable_ty, " = null".to_string())
         } else if field.serde_flatten {
-            // Force `T?` + default null for flatten fields (see has_flatten_field above).
             let nullable_ty = if ty_str.ends_with('?') {
                 ty_str.clone()
             } else {
@@ -105,8 +67,6 @@ pub(crate) fn emit_type_with_imports(
                 enum_defaults,
                 default_constructible_types,
             );
-            // A `Duration` default is rendered with the `.milliseconds` extension
-            // property, which is not in scope without an explicit import.
             if default_suffix.contains(".milliseconds") {
                 imports.insert("import kotlin.time.Duration.Companion.milliseconds".to_string());
             }
@@ -115,11 +75,6 @@ pub(crate) fn emit_type_with_imports(
         field_strings.push(format!("val {name}: {effective_ty_str}{default_suffix}"));
     }
 
-    // Non-opaque data classes may carry inherent instance methods (e.g. `attributes()`,
-    // `intoOwned()`). Kotlin requires these to live inside a class body `{ ... }` appended
-    // after the primary constructor — emitting them after a bare `)` is a syntax error.
-    // Determine up front whether a body is needed so the constructor close and the single-line
-    // shortcut can account for it.
     use crate::codegen::shared::partition_methods;
     let (instance_methods, _) = partition_methods(&ty.methods);
     let instance_methods: Vec<_> = instance_methods.into_iter().filter(|m| !m.sanitized).collect();
@@ -154,7 +109,6 @@ pub(crate) fn emit_type_with_imports(
         for (idx, ((_, field), field_str)) in visible_fields.iter().zip(field_strings.iter()).enumerate() {
             emit_cleaned_kdoc(out, &field.doc, "    ");
             // Emit @JsonProperty when the Rust field carries #[serde(rename = "...")]
-            // so Jackson maps the wire key to the Kotlin camelCase property name.
             if let Some(rename) = &field.serde_rename {
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "json_property_annotation.jinja",
@@ -164,10 +118,6 @@ pub(crate) fn emit_type_with_imports(
                     },
                 ));
             }
-            // Emit @field:JsonSerialize(`as` = …) / (contentAs = …) when the
-            // field's declared type references a sealed class.  See the
-            // `field_sealed_annotations` precomputation above for the
-            // rationale.
             if let Some(annotation) = &field_sealed_annotations[idx] {
                 out.push_str("    ");
                 out.push_str(annotation);
@@ -185,22 +135,15 @@ pub(crate) fn emit_type_with_imports(
             "data_class_close.jinja",
             minijinja::context! {
                 indent => "",
-                // Open a class body when inherent instance methods follow, so they are
-                // emitted inside `data class Foo(...) { ... }` rather than after a bare `)`.
                 suffix => if has_instance_methods { " {" } else { "" },
             },
         ));
     }
 
-    // Emit inherent instance methods for non-opaque data classes.
-    // These are graceful stubs that throw UnsupportedOperationException since
-    // instance method bridging via JNI has not been implemented yet.
-    // They live inside the class body opened by the constructor close above.
     for method in &instance_methods {
         let method_name = heck::AsLowerCamelCase(method.name.as_str()).to_string();
         let return_type_str = kotlin_type_with_string_imports(&method.return_type, false, imports);
 
-        // Build parameter signature
         let params_sig: Vec<String> = method
             .params
             .iter()
@@ -226,7 +169,6 @@ pub(crate) fn emit_type_with_imports(
         out.push_str("    }\n");
     }
 
-    // Close the class body opened by the constructor `) {` when instance methods were emitted.
     if has_instance_methods {
         out.push_str("}\n");
     }

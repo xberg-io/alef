@@ -104,7 +104,6 @@ fn greater_than_negative_one_is_skipped() {
 
     let rendered = render_with_fixture(fixture);
 
-    // The assertion must not appear (it's a no-op sentinel).
     assert!(
         !rendered.contains("@as(usize, -1)"),
         "greater_than: -1 must not emit @as(usize, -1). Rendered:\n{rendered}"
@@ -213,7 +212,6 @@ fn greater_than_positive_value_is_emitted() {
 
     let rendered = render_with_fixture(fixture);
 
-    // The assertion must appear when the value is non-negative.
     assert!(
         rendered.contains("object.links.len > 0"),
         "greater_than: 0 must emit a valid assertion. Rendered:\n{rendered}"
@@ -263,7 +261,6 @@ fn less_than_negative_value_is_emitted() {
 
     let rendered = render_with_fixture(fixture);
 
-    // less_than comparisons are meaningful even with negative values (e.g., comparing signed ints).
     assert!(
         rendered.contains("result.len < -1"),
         "less_than: -1 must emit assertion. Rendered:\n{rendered}"

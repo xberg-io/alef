@@ -45,7 +45,7 @@ impl CustomModulesConfig {
             Language::Java => &self.java,
             Language::Csharp => &self.csharp,
             Language::R => &self.r,
-            Language::Rust => &[], // Rust doesn't need custom modules (no binding crate)
+            Language::Rust => &[],
             Language::Kotlin
             | Language::KotlinAndroid
             | Language::Swift

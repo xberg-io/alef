@@ -465,7 +465,6 @@ pub const KOTLIN_KEYWORDS: &[&str] = &[
     "var",
     "when",
     "while",
-    // Soft keywords commonly mistaken as identifiers
     "by",
     "init",
     "constructor",
@@ -686,14 +685,10 @@ pub const ZIG_KEYWORDS: &[&str] = &[
 /// function parameter or struct-literal field, it must be written as a raw identifier
 /// (`r#type`) to avoid a compile error.
 pub const RUST_KEYWORDS: &[&str] = &[
-    // Strict keywords
     "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
     "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super",
-    "trait", "true", "type", "unsafe", "use", "where", "while", // Edition-2018+ keywords
-    "async", "await", "dyn",
-    // Reserved keywords (may not be valid today but are reserved for future use)
-    "abstract", "become", "box", "do", "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield",
-    "try",
+    "trait", "true", "type", "unsafe", "use", "where", "while", "async", "await", "dyn", "abstract", "become", "box",
+    "do", "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
 ];
 
 /// Escape a name that is a Rust keyword by prepending the raw-identifier prefix (`r#`).

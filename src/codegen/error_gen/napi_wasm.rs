@@ -1,5 +1,4 @@
 pub fn gen_napi_error_types(error: &ErrorDef) -> String {
-    // Pre-compute (const_name, variant_name) pairs
     let mut variants = Vec::new();
     let error_screaming = to_screaming_snake(&error.name);
     for variant in &error.variants {
@@ -25,7 +24,6 @@ pub fn gen_napi_error_converter(error: &ErrorDef, core_import: &str) -> String {
 
     let fn_name = format!("{}_to_napi_err", to_snake_case(&error.name));
 
-    // Pre-compute (pattern, variant_name) pairs
     let mut variants = Vec::new();
     for variant in &error.variants {
         let pattern = error_variant_wildcard_pattern(&rust_path, variant);
@@ -47,10 +45,6 @@ pub fn napi_converter_fn_name(error: &ErrorDef) -> String {
     format!("{}_to_napi_err", to_snake_case(&error.name))
 }
 
-// ---------------------------------------------------------------------------
-// WASM (wasm-bindgen) error generation
-// ---------------------------------------------------------------------------
-
 /// Generate a converter function that maps a core error to a `JsValue` object
 /// with `code` (string) and `message` (string) fields, plus a private
 /// `error_code` helper that returns the variant code string.
@@ -61,8 +55,6 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
         error.rust_path.replace('-', "_")
     };
 
-    // Apply source_crate_remaps: if the path starts with a crate that's in the remap list,
-    // replace it with the core_import
     for (orig_crate, target_crate) in source_remaps {
         if rust_path.starts_with(&format!("{orig_crate}::")) {
             rust_path = rust_path.replacen(&format!("{orig_crate}::"), &format!("{target_crate}::"), 1);
@@ -73,7 +65,6 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
     let fn_name = format!("{}_to_js_value", to_snake_case(&error.name));
     let code_fn_name = format!("{}_error_code", to_snake_case(&error.name));
 
-    // Pre-compute variants for error_code helper: (pattern, code) pairs
     let mut code_variants = Vec::new();
     for variant in &error.variants {
         let pattern = error_variant_wildcard_pattern(&rust_path, variant);
@@ -133,8 +124,6 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: 
         error.rust_path.replace('-', "_")
     };
 
-    // The struct name mirrors the convention used for other WASM opaque handles:
-    // `{wasm_type_prefix}{ErrorName}` (e.g. prefix="Wasm", name="SampleLlmError" → "WasmSampleLlmError").
     let wasm_struct_name = format!("{wasm_prefix}{}", error.name);
 
     let struct_def = format!(
@@ -164,8 +153,6 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: 
                  self.inner.error_type().to_string()\n    }"
                 .to_string(),
             other => {
-                // Unrecognised whitelisted method — emit a dead-code stub so the binding
-                // still compiles and the method name remains visible to reviewers.
                 format!(
                     "    // Not emitted: binding for method `{other}` on `{wasm_struct_name}`\n    \
                      #[allow(dead_code)]\n    \
@@ -183,10 +170,6 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: 
 
     format!("{struct_def}\n\n{impl_block}")
 }
-
-// ---------------------------------------------------------------------------
-// PyO3 (Python) error methods — companion class
-// ---------------------------------------------------------------------------
 
 /// Generate a `#[pyclass]` companion struct for error introspection, exposing
 /// the whitelisted methods as `#[getter]` properties.
@@ -280,10 +263,6 @@ pub fn gen_napi_error_class(error: &ErrorDef, core_import: &str) -> String {
 
     format!("{struct_def}\n\n{from_fn}\n\n{impl_block}")
 }
-
-// ---------------------------------------------------------------------------
-// Magnus (Ruby) error methods struct
-// ---------------------------------------------------------------------------
 
 /// Generate a Magnus-wrapped Rust struct that stores the whitelisted error
 /// introspection method return values and exposes them as Ruby instance methods.

@@ -36,10 +36,8 @@ fn emit_trait_abstract_class(
 ) {
     let trait_name = &trait_def.name;
 
-    // Filter to own methods only (no inherited super-trait methods).
     let own_methods: Vec<&MethodDef> = trait_def.methods.iter().filter(|m| m.trait_source.is_none()).collect();
 
-    // Doc comment: registration pattern.
     out.push_str(&template_env::render(
         "abstract_class_doc_comment.jinja",
         minijinja::context! {
@@ -136,8 +134,6 @@ fn emit_abstract_method(
     let inner_ret =
         substitute_excluded_named_types(&dart_return_type_str(&method.return_type, imports), excluded_type_paths);
 
-    // All trait methods are bridged as async from the Dart side — they always
-    // use DartFnFuture on the Rust side, so we always emit `Future<T>`.
     let return_ty = if matches!(method.return_type, TypeRef::Unit) {
         "Future<void>".to_string()
     } else {

@@ -69,7 +69,6 @@ pub fn enum_default_variants_map_with_metadata(api: &ApiSurface) -> AHashMap<Str
     api.enums
         .iter()
         .filter_map(|enum_def| {
-            // Find the default variant or use the first variant
             let default_variant = enum_def
                 .variants
                 .iter()

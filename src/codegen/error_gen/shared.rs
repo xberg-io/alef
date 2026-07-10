@@ -70,7 +70,6 @@ pub fn python_exception_name(variant_name: &str, error_name: &str) -> String {
 
     if PYTHON_BUILTIN_EXCEPTIONS.contains(&candidate.as_str()) {
         let prefix = error_base_prefix(error_name);
-        // Avoid double-prefixing if the candidate already starts with the prefix
         if candidate.starts_with(prefix) {
             candidate
         } else {
@@ -141,7 +140,6 @@ const TECHNICAL_ACRONYMS: &[&str] = &[
 /// (Dart, Go, …) so the literal placeholder string never reaches
 /// the runtime.
 pub fn strip_thiserror_placeholders(template: &str) -> String {
-    // Remove every `{...}` segment.
     let mut without_placeholders = String::with_capacity(template.len());
     let mut depth = 0u32;
     for ch in template.chars() {
@@ -152,9 +150,6 @@ pub fn strip_thiserror_placeholders(template: &str) -> String {
             _ => {}
         }
     }
-    // Remove orphaned punctuation/whitespace immediately around the holes
-    // (collapse runs of whitespace, drop trailing `:`/quote runs, drop
-    // `(...)` shells that wrapped only placeholders).
     let mut compacted = String::with_capacity(without_placeholders.len());
     let mut last_was_space = false;
     for ch in without_placeholders.chars() {
@@ -168,13 +163,10 @@ pub fn strip_thiserror_placeholders(template: &str) -> String {
             last_was_space = false;
         }
     }
-    // Trim trailing punctuation that only made sense before a placeholder.
     let trimmed = compacted
         .trim()
         .trim_end_matches([':', ',', '-', ';', '(', '\'', '"', ' '])
         .trim();
-    // If we left e.g. `"limit: ms ms"` artefacts behind, collapse stray
-    // empty parens / paired quotes.
     let cleaned = trimmed
         .replace("()", "")
         .replace("''", "")
@@ -196,7 +188,6 @@ pub fn acronym_aware_snake_phrase(variant_name: &str) -> String {
     if variant_name.is_empty() {
         return String::new();
     }
-    // Split into PascalCase words (each word starts with an uppercase letter).
     let bytes = variant_name.as_bytes();
     let mut words: Vec<&str> = Vec::new();
     let mut start = 0usize;
@@ -230,10 +221,6 @@ pub(super) fn variant_display_message(variant: &ErrorVariant) -> String {
         if stripped.is_empty() {
             return acronym_aware_snake_phrase(&variant.name);
         }
-        // Preserve canonical acronyms but lowercase the first regular word so
-        // Go's `lowercase first char` convention does not corrupt `IO` → `iO`.
-        // Heuristic: if the first whitespace-delimited token is *not* already
-        // a known acronym, downcase its first character.
         let mut tokens = stripped.splitn(2, ' ');
         let head = tokens.next().unwrap_or("").to_string();
         let tail = tokens.next().unwrap_or("");

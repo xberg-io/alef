@@ -48,7 +48,6 @@ fn make_group(id: &str, input: serde_json::Value) -> FixtureGroup {
     }
 }
 
-// Configuration with bytes arg followed by int arg.
 const TOML: &str = r#"
 [workspace]
 languages = ["dart"]
@@ -107,7 +106,6 @@ fn bytes_and_int_args_both_emitted_positionally() {
         }),
     );
 
-    // Must contain the bytes argument (File read).
     assert!(
         rendered.contains("File('pdf/fake_memo.pdf').readAsBytesSync()"),
         "must emit the bytes argument. Rendered:\n{rendered}"

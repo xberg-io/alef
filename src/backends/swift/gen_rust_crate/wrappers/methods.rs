@@ -32,11 +32,6 @@ pub(crate) fn emit_type_method_shims(
 
     let mut out = String::new();
 
-    // Bring trait providers into scope so trait methods on `client.0` resolve.
-    // Methods from inherent impls have `trait_source: None`; methods from trait
-    // impls record the fully qualified trait path.
-    // Without these `use` statements rustc emits `no method named X found` for every
-    // trait-provided method.
     let mut trait_uses: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for method in &ty.methods {
         if method.sanitized {
@@ -62,22 +57,12 @@ pub(crate) fn emit_type_method_shims(
         if method.sanitized {
             continue;
         }
-        // Skip static/associated functions: the shim is `pub fn type_method(client: &T)`
-        // and the body uses `client.0.method()`. Static methods like `T::default()`
-        // need to be called as associated functions (`T::default()`), not via the
-        // receiver — calling `client.0.default()` trips E0599. We skip them rather
-        // than emitting a separate constructor surface; static constructors are
-        // exposed via `create_<T>` shims when an explicit client_constructor_body is
-        // configured, not via method shims.
         if method.is_static {
             continue;
         }
         let method_snake = method.name.to_snake_case();
         let fn_name = format!("{type_snake}_{method_snake}");
 
-        // Build param list: first param is `client: &TypeName` (or `&mut` for
-        // RefMut receivers so the inner `client.0.method()` borrow compiles), then
-        // method params.
         let client_receiver = if matches!(method.receiver, Some(ReceiverKind::RefMut)) {
             format!("client: &mut {type_name}")
         } else {
@@ -113,35 +98,16 @@ pub(crate) fn emit_type_method_shims(
             )
         };
 
-        // Build call args for each method param (excluding the receiver).
-        //
-        // - Enum             → deserialize from String (bridged as String)
-        // - Named newtype    → `arg.0` (unwrap to inner source-crate type)
-        // - Optional<Named>  → `arg.map(|v| v.0)` (preserve None, unwrap Some) [for structs only]
-        // - String           → `&arg` (the underlying trait method usually takes `&str`)
-        // - Path             → `PathBuf::from(arg)` (bridge delivers String; core takes PathBuf)
-        // - Bytes+is_ref     → `&arg` (bridge delivers Vec<u8>; core takes &[u8])
-        // - Vec<String>+is_ref → `&arg.iter().map(|s| s.as_str()).collect::<Vec<_>>()` (→ &[&str])
-        // - Named+is_ref     → `&arg.0` (borrow the unwrapped inner value) [for structs only]
-        // - JSON-bridged     → deserialize from the bridge String
-        // - Other primitives → pass through verbatim
         let call_args: Vec<String> = method
             .params
             .iter()
             .map(|p| {
                 let name = p.name.to_snake_case();
-                // Special case: TypeRef::Json params are bridged as String but the
-                // core method expects serde_json::Value. Convert here.
                 if matches!(&p.ty, TypeRef::Json) {
                     return format!(
                         "serde_json::from_str::<serde_json::Value>(&{name}).unwrap_or(serde_json::Value::Null)"
                     );
                 }
-                // Enum parameters: bridged as plain wire strings (e.g. "person"), NOT as
-                // JSON-encoded strings (e.g. "\"person\"").  serde_json::from_str fails on
-                // unquoted strings; use `From<String>` instead which every alef unit enum
-                // implements.  Vec<EnumType> params with is_ref=true must also be converted
-                // element-wise and then sliced to &[T].
                 if let TypeRef::Vec(vec_inner) = &p.ty {
                     if let TypeRef::Named(n) = vec_inner.as_ref() {
                         if unit_enum_names.contains(n.as_str()) {
@@ -159,8 +125,6 @@ pub(crate) fn emit_type_method_shims(
                                 source_enum_ty = source_enum_ty,
                             );
                             if p.is_ref {
-                                // Core expects `&[EnumType]`; coerce `&Vec<T>` to `&[T]`. The
-                                // temporary Vec lives for the enclosing call statement.
                                 return format!("&{map_expr}");
                             }
                             if p.optional {
@@ -181,7 +145,6 @@ pub(crate) fn emit_type_method_shims(
                 }
                 if let TypeRef::Named(n) = &p.ty {
                     if unit_enum_names.contains(n.as_str()) {
-                        // Single enum parameter: swift delivers a plain wire string.
                         let source_enum_ty = type_paths
                             .get(n.as_str())
                             .map(|p| p.replace('-', "_"))
@@ -193,8 +156,6 @@ pub(crate) fn emit_type_method_shims(
                             );
                         }
                         if p.is_ref {
-                            // Core takes `&EnumType`; borrow the converted value (lifetime
-                            // covers the surrounding call expression).
                             return format!("&{from_expr}");
                         }
                         return from_expr;
@@ -206,8 +167,6 @@ pub(crate) fn emit_type_method_shims(
                 }
                 if p.optional {
                     if let TypeRef::Named(n) = &p.ty {
-                        // Skip .0 access for enums (they're already JSON-deserialized above).
-                        // For struct wrappers, unwrap to inner type via .0.
                         if !unit_enum_names.contains(n.as_str()) {
                             return format!("{name}.map(|v| v.0)");
                         }
@@ -231,13 +190,9 @@ pub(crate) fn emit_type_method_shims(
                             && p.vec_inner_is_ref
                             && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String)) =>
                     {
-                        // Core takes `&[&str]`; swift-bridge delivers `Vec<String>`.
-                        // Borrow the temporary Vec<&str> into &[&str].
                         format!("&{name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
                     }
                     TypeRef::Vec(_) if p.is_ref => {
-                        // Core takes `&[T]`; swift-bridge delivers `Vec<T>`.
-                        // Coerce `&Vec<T>` to `&[T]`.
                         format!("&{name}")
                     }
                     _ => name,
@@ -246,11 +201,6 @@ pub(crate) fn emit_type_method_shims(
             .collect();
         let call_args_str = call_args.join(", ");
 
-        // Resolve the method call on the inner type.
-        // S5: when the inner method takes owned `self` (e.g. builder `build(self)`),
-        // we must clone because `client` is `&TypeName` — swift-bridge opaque types
-        // cannot be owned in the extern "Rust" declaration. Clone is cheap for builders
-        // (they hold plain config fields, no heap-heavy state).
         let is_owned_receiver = matches!(method.receiver.as_ref(), Some(ReceiverKind::Owned));
         let inner_access = if is_owned_receiver {
             "client.0.clone()"
@@ -259,10 +209,6 @@ pub(crate) fn emit_type_method_shims(
         };
         let method_call = format!("{inner_access}.{method_snake}({call_args_str})");
 
-        // Determine return wrapping: Named return types get wrapped in their newtype.
-        // Use the handle-aware variant so that Option<Named(T)> where T is an opaque
-        // handle type does NOT collapse to JSON String — the handle is returned directly
-        // as a swift-bridge opaque and requires no serde::Serialize impl.
         let json_wrap_ok = needs_json_bridge_with_handles(&method.return_type, handle_returned_types);
         let wrap_return = |source: String| -> String {
             if json_wrap_ok {
@@ -281,9 +227,6 @@ pub(crate) fn emit_type_method_shims(
                         source
                     }
                 }
-                // Trait methods that return `&[&str]` (Vec<String> + returns_ref)
-                // can't be bridged to swift's `Vec<String>` without copying each
-                // element to owned `String`.
                 TypeRef::Vec(inner) if method.returns_ref && matches!(inner.as_ref(), TypeRef::String) => {
                     format!("{source}.iter().map(|s| s.to_string()).collect()")
                 }
@@ -312,7 +255,6 @@ pub(crate) fn emit_type_method_shims(
                     match &method.return_type {
                         TypeRef::Named(t) => format!(".map({t})"),
                         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
-                            // Vec<Named> → Vec<Wrapper> via .map(|v| Wrapper(v))
                             if let TypeRef::Named(t) = inner.as_ref() {
                                 format!(".map(|vec| vec.into_iter().map({t}).collect())")
                             } else {
@@ -320,8 +262,6 @@ pub(crate) fn emit_type_method_shims(
                             }
                         }
                         TypeRef::String | TypeRef::Path => ".map(|s| s.to_string())".to_string(),
-                        // `bytes::Bytes` is bridged as `Vec<u8>` in the swift-bridge surface.
-                        // The trait method returns `Bytes`; convert via `.to_vec()`.
                         TypeRef::Bytes => ".map(|b| b.to_vec())".to_string(),
                         _ => String::new(),
                     }
@@ -330,8 +270,6 @@ pub(crate) fn emit_type_method_shims(
             } else {
                 wrap_return(format!("{method_call}.await"))
             };
-            // Share the process-wide tokio runtime — see shims.rs for the
-            // rationale (orphaned reqwest connection pools).
             format!("    crate::__alef_tokio_runtime().block_on(async {{ {chain} }})")
         } else if method.error_type.is_some() {
             let ok_wrap = if json_wrap_ok {
@@ -340,7 +278,6 @@ pub(crate) fn emit_type_method_shims(
                 match &method.return_type {
                     TypeRef::Named(t) => format!(".map({t})"),
                     TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
-                        // Vec<Named> → Vec<Wrapper> via .map(|v| Wrapper(v))
                         if let TypeRef::Named(t) = inner.as_ref() {
                             format!(".map(|vec| vec.into_iter().map({t}).collect())")
                         } else {
@@ -362,10 +299,6 @@ pub(crate) fn emit_type_method_shims(
         } else {
             format!(" -> {return_ty}")
         };
-        // Propagate the type-level cfg gate to each method shim so that when
-        // the feature gating the type is off, the shims (which reference the
-        // type) also vanish — preventing "no type named 'T' in module 'RustBridge'"
-        // compile errors.
         if let Some(cfg) = ty.cfg.as_deref() {
             out.push_str(&format!("#[cfg({cfg})]\n"));
         }
@@ -379,13 +312,6 @@ pub(crate) fn emit_type_method_shims(
             },
         ));
     }
-
-    // No-op shims for opaque types with no visible methods are NOT emitted here.
-    // `deferred_noop::emit_shims` (driven by `mod.rs`'s `noop_def_types`) is the single
-    // emitter for every `<type>_noop` definition — both deferred-handle types and own-block
-    // opaque types (`extern_block::type_needs_own_block_noop`, the same `is_opaque &&
-    // !has_visible_methods` condition this block used). Emitting here as well produced
-    // duplicate `pub fn <type>_noop` definitions (E0428) for own-block opaque types.
 
     out
 }
@@ -404,7 +330,6 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
     type_paths: &HashMap<String, String>,
     _unit_enum_names: &HashSet<&str>,
 ) -> String {
-    // Only emit for non-opaque types with instance methods
     if ty.is_opaque {
         return String::new();
     }
@@ -416,9 +341,6 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
 
     let type_name = &ty.name;
     let type_snake = type_name.to_snake_case();
-    // Deserialize `self` into the CORE type, not the swift-bridge wrapper newtype
-    // (which derives no serde impls) — mirrors the constructor converters, which
-    // deserialize into `<source_crate>::<TypeName>` before wrapping.
     let core_ty = type_paths
         .get(type_name.as_str())
         .map(|p| p.replace('-', "_"))
@@ -429,19 +351,14 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
         let method_snake = method.name.to_snake_case();
         let fn_name = format!("{type_snake}_{method_snake}_from_json");
 
-        // Function signature: takes JSON string of self + method params, returns Result<String, String>
         let mut params = vec!["json: String".to_string()];
         for p in &method.params {
             let base_ty = match &p.ty {
                 TypeRef::Primitive(prim) => format!("{:?}", prim).to_lowercase(),
                 TypeRef::String => "String".to_string(),
                 TypeRef::Named(n) => n.clone(),
-                _ => "String".to_string(), // Fallback
+                _ => "String".to_string(),
             };
-            // Optional params take `Option<T>` in the wrapper signature so the call
-            // site matches the core method's `Option<T>` parameter instead of a bare
-            // `T` (which tripped E0308 for e.g. `Response::set_cookie`'s `max_age`).
-            // Mirror the extern-block condition exactly (`!needs_json_bridge`) so the
             // `#[swift_bridge::bridge]` declaration and this impl stay in agreement.
             let ty_str = if p.optional && !needs_json_bridge(&p.ty) {
                 format!("Option<{base_ty}>")
@@ -456,8 +373,6 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
         out.push_str(&params.join(", "));
         out.push_str(") -> Result<String, String> {\n");
 
-        // Deserialize self from JSON. Only `&mut self` methods need a mutable
-        // binding; `&self`/owned-`self` methods would otherwise warn `unused_mut`.
         let self_binding = if matches!(method.receiver, Some(ReceiverKind::RefMut)) {
             "let mut __self"
         } else {
@@ -470,59 +385,45 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
             "        .map_err(|e| format!(\"Failed to deserialize {type_name}: {{}}\", e))?;\n"
         ));
 
-        // Build the method call. Borrow a param only when the core method takes it
-        // by reference (`is_ref`, set for `&T` and `Option<&T>` params); owned
-        // `String`/`Option<String>` params pass by value. Primitives pass through.
         let method_call_args: Vec<String> = method
             .params
             .iter()
             .map(|p| {
                 let name = p.name.to_snake_case();
                 match &p.ty {
-                    // Path params arrive as `String` from the bridge; core takes `PathBuf`/`&Path`.
                     TypeRef::Path if p.optional && p.is_ref => {
                         format!("{name}.as_ref().map(::std::path::Path::new)")
                     }
                     TypeRef::Path if p.optional => format!("{name}.map(::std::path::PathBuf::from)"),
                     TypeRef::Path if p.is_ref => format!("::std::path::Path::new(&{name})"),
                     TypeRef::Path => format!("::std::path::PathBuf::from({name})"),
-                    // core takes `Option<&str>` — borrow the inner str.
                     TypeRef::String if p.optional && p.is_ref => format!("{name}.as_deref()"),
-                    // core takes `&str` — `&String` coerces.
                     TypeRef::String if p.is_ref => format!("&{name}"),
-                    // core takes `Option<&T>` — borrow the inner value.
                     TypeRef::Named(_) if p.optional && p.is_ref => format!("{name}.as_ref()"),
-                    // core takes `&T`.
                     TypeRef::Named(_) if p.is_ref => format!("&{name}"),
-                    // Owned `String`/`Option<String>`/`T`/`Option<T>` and primitives: pass by value.
                     _ => name,
                 }
             })
             .collect();
         let __call = format!("__self.{}({})", method.name, method_call_args.join(", "));
 
-        // Handle the return value
         if method.error_type.is_some() {
             out.push_str(&format!("    let __result = {__call};\n"));
             if matches!(method.return_type, TypeRef::Unit) {
-                // Unit ok type: propagate the error but don't bind the `()` value
                 // (`let __value = ...` would trip clippy::let_unit_value).
                 out.push_str("    __result.map_err(|e| e.to_string())?;\n");
                 out.push_str("    Ok(\"{}\".to_string())\n");
             } else {
-                // Result type: serialize the Ok value.
                 out.push_str("    let __value = __result.map_err(|e| e.to_string())?;\n");
                 out.push_str("    serde_json::to_string(&__value)\n");
                 out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
-            // Unit return with no error: call as a statement (binding the `()`
             // value to `let __result` would trip clippy::let_unit_value).
             out.push_str(&format!("    {__call};\n"));
             out.push_str("    Ok(\"{}\".to_string())\n");
         } else {
             out.push_str(&format!("    let __result = {__call};\n"));
-            // Normal return: serialize it
             out.push_str("    serde_json::to_string(&__result)\n");
             out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
         }

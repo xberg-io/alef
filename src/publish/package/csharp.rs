@@ -31,10 +31,8 @@ pub fn package_csharp(
     let rid = csharp_rid(config, target);
     let namespace = config.csharp_namespace();
 
-    // Locate the built FFI library.
     let lib_src = crate::publish::package::find_built_artifact(workspace_root, target, &shared_lib)?;
 
-    // Stage: packages/csharp/{Namespace}/runtimes/{rid}/native/
     let pkg_dir_str = config.package_dir(crate::core::config::extras::Language::Csharp);
     let runtimes_dir = workspace_root
         .join(&pkg_dir_str)
@@ -47,25 +45,13 @@ pub fn package_csharp(
     let staged = runtimes_dir.join(&shared_lib);
     fs::copy(&lib_src, &staged).with_context(|| format!("staging {} to {}", lib_src.display(), staged.display()))?;
 
-    // Find the .csproj.
     let csproj = find_csproj(workspace_root, &pkg_dir_str, &namespace)?;
     let proj_dir = csproj.parent().context("csproj has no parent")?.to_path_buf();
 
-    // Regenerate the csproj from the scaffold template before packing.
-    //
-    // This ensures the <None Include="runtimes/**"> glob always points at the
-    // directory where we just staged the FFI library, regardless of what is
-    // committed on disk.  The render is idempotent — if the file already
-    // matches the template output, the write is a no-op from dotnet's
-    // perspective.
     let csproj_content = render_csharp_csproj(config, version);
     fs::write(&csproj, &csproj_content).with_context(|| format!("regenerating csproj at {}", csproj.display()))?;
     tracing::debug!(path = %csproj.display(), "regenerated csproj from scaffold template");
 
-    // Run dotnet pack from proj_dir.  Use only the filename (not a path) for
-    // the project arg so that MSBuild resolves it relative to the CWD we pass
-    // to the shell command.  Canonicalize output_dir so the relative
-    // workspace_root does not produce a doubly-relative path inside the shell.
     let csproj_name = csproj
         .file_name()
         .context("csproj has no file name")?
@@ -79,7 +65,6 @@ pub fn package_csharp(
     );
     crate::publish::run_shell_command_in(&cmd, &proj_dir)?;
 
-    // Find the produced .nupkg.
     let nupkg = find_nupkg(&abs_output_dir, &namespace, version)?;
     let nupkg_name = nupkg
         .file_name()
@@ -96,7 +81,6 @@ pub fn package_csharp(
 
 /// Return the NuGet RID for this target.
 fn csharp_rid(config: &ResolvedCrateConfig, target: &RustTarget) -> String {
-    // Check for override in publish config.
     if let Some(publish) = &config.publish {
         if let Some(lang_cfg) = publish.languages.get("csharp") {
             if let Some(override_rid) = &lang_cfg.csharp_rid {
@@ -108,7 +92,6 @@ fn csharp_rid(config: &ResolvedCrateConfig, target: &RustTarget) -> String {
 }
 
 fn find_csproj(workspace_root: &Path, pkg_dir: &str, namespace: &str) -> Result<PathBuf> {
-    // Try packages/csharp/{Namespace}/{Namespace}.csproj
     let candidate = workspace_root
         .join(pkg_dir)
         .join(namespace)
@@ -116,7 +99,6 @@ fn find_csproj(workspace_root: &Path, pkg_dir: &str, namespace: &str) -> Result<
     if candidate.exists() {
         return Ok(candidate);
     }
-    // Scan packages/csharp/ for any .csproj
     let scan_dir = workspace_root.join(pkg_dir);
     if scan_dir.exists() {
         for entry in fs::read_dir(&scan_dir)? {
@@ -144,7 +126,6 @@ fn find_nupkg(output_dir: &Path, namespace: &str, version: &str) -> Result<PathB
     if expected.exists() {
         return Ok(expected);
     }
-    // Scan for any .nupkg.
     let candidates: Vec<PathBuf> = fs::read_dir(output_dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())

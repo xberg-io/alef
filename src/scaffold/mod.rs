@@ -240,24 +240,12 @@ pub(crate) fn render_extra_deps(config: &ResolvedCrateConfig, lang: Language) ->
         .map(|(name, value)| match value {
             toml::Value::String(version) => format!("{name} = \"{version}\""),
             toml::Value::Table(table) => {
-                // Resolve `{ workspace = true }` to the concrete spec from the
-                // root `[workspace.dependencies]` so out-of-workspace binding
-                // crates (e.g. the R package at `packages/r/src/rust/`, which is
-                // excluded from the cargo workspace) build without a parent
-                // workspace — otherwise cargo fails with "failed to find a
-                // workspace root".
                 if table.get("workspace").and_then(|v| v.as_bool()) == Some(true) {
                     if let Some(concrete) = ws_dep_specs.get(name) {
                         return format!("{name} = {concrete}");
                     }
-                    // No workspace root resolvable, or the dep is absent from
-                    // [workspace.dependencies]: emit verbatim so cargo surfaces a
-                    // clear error rather than a silently-dropped dependency.
                     return format!("{name} = {value}");
                 }
-                // Inject the resolved workspace version into path-only member
-                // tables so cargo-package flows can resolve them from the
-                // registry. Leave non-members and already-versioned tables as-is.
                 let needs_version = table.contains_key("path") && !table.contains_key("version");
                 if let (true, Some(member_version)) = (needs_version, member_versions.get(name)) {
                     let mut injected = table.clone();
@@ -270,7 +258,6 @@ pub(crate) fn render_extra_deps(config: &ResolvedCrateConfig, lang: Language) ->
             other => format!("{name} = {other}"),
         })
         .collect();
-    // Sort for deterministic output.
     lines.sort();
     lines.join("\n")
 }
@@ -301,17 +288,11 @@ fn workspace_member_versions(config: &ResolvedCrateConfig) -> std::collections::
 /// map when no workspace root is configured, the root `Cargo.toml` is absent, or
 /// the TOML cannot be parsed.
 fn workspace_dep_specs(config: &ResolvedCrateConfig) -> std::collections::BTreeMap<String, toml::Value> {
-    // `workspace_root` is only populated for release flows; during `alef generate`
-    // it is None, so fall back to discovering the workspace manifest by walking up
-    // from the current directory (generation runs from the repo root) until a
-    // `Cargo.toml` containing a `[workspace]` table is found.
     let start = config.workspace_root.clone().or_else(|| std::env::current_dir().ok());
     let Some(mut dir) = start else {
         return std::collections::BTreeMap::new();
     };
 
-    // If dir is relative (e.g., "."), make it absolute so path operations work correctly
-    // in different process contexts.
     if !dir.is_absolute() {
         if let Ok(abs) = std::fs::canonicalize(&dir) {
             dir = abs;
@@ -321,25 +302,19 @@ fn workspace_dep_specs(config: &ResolvedCrateConfig) -> std::collections::BTreeM
     loop {
         let cargo_path = dir.join("Cargo.toml");
         if let Ok(contents) = std::fs::read_to_string(&cargo_path) {
-            // Parse with toml_edit which handles comments and whitespace better
             if let Ok(doc) = contents.parse::<toml_edit::DocumentMut>() {
                 if let Some(workspace) = doc.get("workspace") {
                     if let Some(dependencies) = workspace.get("dependencies") {
                         if let Some(table) = dependencies.as_table() {
                             let mut result = std::collections::BTreeMap::new();
                             for (key, value) in table.iter() {
-                                // Convert from toml_edit value to toml::Value
-                                // The value.to_string() just gives us the RHS, so we need to wrap it in a TOML doc
                                 let val_str = value.to_string().trim().to_string();
                                 let wrapped = format!("x = {}", val_str);
-                                match toml::from_str::<std::collections::HashMap<String, toml::Value>>(&wrapped) {
-                                    Ok(map) => {
-                                        if let Some(v) = map.get("x") {
-                                            result.insert(key.to_string(), v.clone());
-                                        }
-                                    }
-                                    Err(_) => {
-                                        // Silently skip on parse error
+                                if let Ok(map) =
+                                    toml::from_str::<std::collections::HashMap<String, toml::Value>>(&wrapped)
+                                {
+                                    if let Some(v) = map.get("x") {
+                                        result.insert(key.to_string(), v.clone());
                                     }
                                 }
                             }
@@ -379,8 +354,6 @@ pub(crate) fn core_dep_features(config: &ResolvedCrateConfig, lang: Language) ->
 fn core_crate_manifest_path(config: &ResolvedCrateConfig) -> Option<std::path::PathBuf> {
     let workspace_root = config.workspace_root.as_deref()?;
     let first_source = config.sources.first()?;
-    // Walk up from the source file to its enclosing crate directory (the parent
-    // of the `src/` directory), e.g. `crates/foo/src/lib.rs` -> `crates/foo`.
     let mut current = std::path::Path::new(first_source).parent();
     while let Some(dir) = current {
         if dir.file_name().is_some_and(|n| n == "src") {
@@ -419,8 +392,6 @@ fn resolve_core_aggregate_features(
         };
         for member in members {
             let Some(token) = member.as_str() else { continue };
-            // Skip `dep:foo` activations and `crate/feat` cross-crate forwards —
-            // neither is a binding-side passthrough feature name.
             if token.starts_with("dep:") || token.contains('/') {
                 continue;
             }
@@ -477,9 +448,6 @@ pub(crate) fn android_target_feature_line_for_dep(
     let features_table = doc.get("features")?.as_table()?;
     let aggregate_members = resolve_core_aggregate_features(features_table, "android-target")?;
 
-    // Intersect the binding's passthrough features with the core aggregate's
-    // reachable members. `full` is never a member (it is the umbrella the
-    // android target deliberately excludes) and is filtered defensively.
     let mut selected: Vec<&str> = passthrough_feature_names
         .iter()
         .copied()
@@ -503,18 +471,13 @@ pub fn scaffold(
     for &lang in languages {
         files.extend(scaffold_language(api, config, lang)?);
     }
-    // Project-level files that depend on the full set of configured languages.
-    // The repo-root poly.toml is the single config driving lint/format/hooks/
-    // commit; it replaces the former .pre-commit-config.yaml and per-tool configs.
     files.extend(scaffold_poly_config(config, languages));
 
     // LICENSE sync — copy the workspace-root LICENSE into every per-language
     // package directory so ecosystems like pub.dev (Dart) that require a LICENSE
-    // in the package root can publish successfully. Skips gracefully when no
     // LICENSE file is present at the workspace root.
     files.extend(scaffold_license_files(config, languages));
 
-    // rust-toolchain.toml — pin Rust version, include wasm32 target when wasm is configured
     if !std::path::Path::new("rust-toolchain.toml").exists() {
         let targets = if languages.contains(&Language::Wasm) {
             "\ntargets = [\"wasm32-unknown-unknown\"]\n"
@@ -530,19 +493,6 @@ pub fn scaffold(
         });
     }
 
-    // .cargo/config.toml
-    //
-    // Two modes, gated by `[scaffold.cargo]` in alef.toml:
-    //
-    //   * Opted in (`[scaffold.cargo]` present): alef writes the full canonical file
-    //     with hash-based drift detection. Includes macOS dynamic_lookup rustflag
-    //     (required for PyO3/ext-php-rs cdylibs to link on macOS), Windows MSVC
-    //     rust-lld, aarch64-linux-gnu cross-gcc, x86_64-linux-musl, and the wasm32
-    //     bulk-memory + getrandom_backend cfg. Per-target opt-out via
-    //     `[scaffold.cargo.targets]`; repo-specific `[env]` via `[scaffold.cargo.env]`.
-    //
-    //   * Legacy (no `[scaffold.cargo]`): create-if-missing, wasm32-only block. No
-    //     hash, no overwrite. Matches behavior prior to alef 0.13.6.
     if let Some(cargo) = config.scaffold.as_ref().and_then(|s| s.cargo.as_ref()) {
         files.push(GeneratedFile {
             path: std::path::PathBuf::from(".cargo/config.toml"),
@@ -557,13 +507,6 @@ pub fn scaffold(
         });
     }
 
-    // Spell-checking (typos) is driven by poly.toml — its excludes live in
-    // `[discovery] exclude` and project words in `[lint.<lang>.typos]`. No
-    // standalone .typos.toml is emitted.
-
-    // .gitattributes — mark all generated output directories as linguist-generated
-    // so GitHub collapses them in PR diffs. create-once seed; skipped if the file
-    // already exists so hand-added entries (e.g. `* text=auto`) are preserved.
     files.extend(scaffold_gitattributes(config, languages));
 
     Ok(files)
@@ -620,12 +563,6 @@ pub fn render_cargo_config(cargo: &ScaffoldCargo) -> String {
         out.push_str("\n[target.x86_64-unknown-linux-musl]\nlinker = \"musl-gcc\"\n");
     }
     if t.wasm32_unknown_unknown {
-        // `--allow-multiple-definition`: wasm32-unknown-unknown has no unified libc,
-        // so multiple C deps each ship their own libc stubs (e.g. tree-sitter's wasm
-        // shim defines `__assert_fail`, a WASI-built Tesseract bundles wasi-libc's
-        // `assert.o`/`atexit.o`). These are functionally-equivalent duplicates that
-        // wasm-ld rejects; first-definition-wins is the correct policy. rust-lld drives
-        // the wasm link directly, so the flag is passed bare (not `-Wl,`-wrapped).
         out.push_str(
             "\n[target.wasm32-unknown-unknown]\n\
              rustflags = [\"-C\", \"target-feature=+bulk-memory\", \"--cfg\", \"getrandom_backend=\\\"wasm_js\\\"\", \"-C\", \"link-arg=--allow-multiple-definition\"]\n",
@@ -790,14 +727,11 @@ fn scaffold_license_files(config: &ResolvedCrateConfig, languages: &[Language]) 
         }
     };
 
-    // Collect unique package directories from publishable languages.
-    // Languages without a real package output (Rust, C, FFI, JNI) are excluded.
     let mut seen = std::collections::BTreeSet::new();
     let mut files = vec![];
 
     for &lang in languages {
         match lang {
-            // These languages do not produce a standalone publishable package directory.
             Language::Rust | Language::C | Language::Ffi | Language::Jni => continue,
             _ => {}
         }
@@ -828,24 +762,17 @@ fn scaffold_license_files(config: &ResolvedCrateConfig, languages: &[Language]) 
 /// `overwrite=true` which DOES overwrite `generated_header: false` files — delete the
 /// file beforehand if you want a fresh regeneration without `--clean`.
 fn scaffold_gitattributes(config: &ResolvedCrateConfig, languages: &[Language]) -> Vec<GeneratedFile> {
-    // Use BTreeSet so the output is stable and alphabetically sorted.
     let mut dirs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     for &lang in languages {
         match lang {
-            // Rust and C are source languages, not binding output directories.
             Language::Rust | Language::C => {}
-            // FFI and JNI write only to their binding crates; package_dir() would return
-            // a non-existent `packages/ffi` or `packages/jni` placeholder, so handle
-            // them explicitly.
             Language::Ffi => {
                 dirs.insert(format!("crates/{}-ffi", config.name));
             }
             Language::Jni => {
                 dirs.insert(format!("crates/{}-jni", config.name));
             }
-            // Python and PHP each have a language-native package directory AND a
-            // separate Rust binding crate; include both.
             Language::Python => {
                 dirs.insert(config.package_dir(lang));
                 dirs.insert(format!("crates/{}-py", config.name));
@@ -854,12 +781,6 @@ fn scaffold_gitattributes(config: &ResolvedCrateConfig, languages: &[Language]) 
                 dirs.insert(config.package_dir(lang));
                 dirs.insert(format!("crates/{}-php", config.name));
             }
-            // Kotlin has three scaffold variants with distinct output directories:
-            //   - JVM (default): packages/kotlin/
-            //   - Native:        packages/kotlin-native/
-            //   - Multiplatform: packages/kotlin-mpp/
-            // package_dir() always returns packages/kotlin (JVM fallback), so we must
-            // resolve the actual output directory from the configured target here.
             Language::Kotlin => {
                 let dir = if let Some(k) = config.kotlin.as_ref() {
                     if k.mode.as_deref() == Some("kmp") || k.target == crate::core::config::KotlinTarget::Multiplatform
@@ -875,10 +796,6 @@ fn scaffold_gitattributes(config: &ResolvedCrateConfig, languages: &[Language]) 
                 };
                 dirs.insert(dir);
             }
-            // Node: package_dir() checks scaffold_output first, which is unrelated to where
-            // scaffold_node and the napi backend actually write files. Those always use the
-            // crate dir (crate_dir override or crates/{name}-node default). Bypass package_dir
-            // to avoid emitting a wrong path when scaffold_output is set.
             Language::Node => {
                 let dir = config
                     .node
@@ -888,20 +805,15 @@ fn scaffold_gitattributes(config: &ResolvedCrateConfig, languages: &[Language]) 
                     .unwrap_or_else(|| format!("crates/{}-node", config.name));
                 dirs.insert(dir);
             }
-            // Wasm: package_dir() uses only crate_dir/formula (no scaffold_output risk).
             _ => {
                 dirs.insert(config.package_dir(lang));
             }
         }
     }
 
-    // e2e output dir is configurable via [e2e] output = "..." (default "e2e").
     let e2e_dir = config.e2e.as_ref().map(|e| e.output.as_str()).unwrap_or("e2e");
     dirs.insert(e2e_dir.to_string());
 
-    // test_apps output dir is configurable via [e2e.registry] output = "..."
-    // (default "test_apps"). Registry-mode test_apps are emitted by
-    // `alef test-apps generate`, mirroring the e2e local-mode flow.
     let test_apps_dir = config
         .e2e
         .as_ref()
@@ -970,11 +882,9 @@ fn scaffold_language(
             files.extend(scaffold_r_cargo(api, config)?);
             Ok(files)
         }
-        Language::Rust | Language::C => Ok(vec![]), // Rust/C don't need scaffolded binding crates
+        Language::Rust | Language::C => Ok(vec![]),
         Language::Jni => scaffold_jni(api, config),
         Language::Kotlin => scaffold_kotlin(api, config),
-        // KotlinAndroid emission is fully handled by the dedicated backend
-        // crate (`alef-backend-kotlin-android`); no scaffold step needed.
         Language::KotlinAndroid => Ok(vec![]),
         Language::Gleam => scaffold_gleam(api, config),
         Language::Zig => scaffold_zig(api, config),

@@ -32,10 +32,8 @@ pub fn package_java(
     let shared_lib = target.shared_lib_name(&lib_name);
     let classifier = jni_classifier(config, target);
 
-    // Locate the built FFI library.
     let lib_src = crate::publish::package::find_built_artifact(workspace_root, target, &shared_lib)?;
 
-    // Stage: packages/java/src/main/resources/natives/{classifier}/
     let pkg_dir_str = config.package_dir(crate::core::config::extras::Language::Java);
     let natives_dir = workspace_root
         .join(&pkg_dir_str)
@@ -46,7 +44,6 @@ pub fn package_java(
     let staged = natives_dir.join(&shared_lib);
     fs::copy(&lib_src, &staged).with_context(|| format!("staging {} to {}", lib_src.display(), staged.display()))?;
 
-    // Invoke mvn package to produce a classified JAR.
     let jar_path = build_maven_jar(config, workspace_root, output_dir, version, &classifier)?;
 
     Ok(PackageArtifact {
@@ -64,7 +61,6 @@ pub fn package_java(
 ///
 /// Tries the per-language config override first, then derives from the target triple.
 fn jni_classifier(config: &ResolvedCrateConfig, target: &RustTarget) -> String {
-    // Check for override in publish config.
     if let Some(publish) = &config.publish {
         if let Some(lang_cfg) = publish.languages.get("java") {
             if let Some(override_cls) = &lang_cfg.jni_classifier {
@@ -88,7 +84,7 @@ pub fn derive_jni_classifier(target: &RustTarget) -> String {
     };
     let arch = match target.arch {
         Arch::X86_64 => "x86_64",
-        Arch::Aarch64 => "aarch_64", // JNI uses underscore, not "aarch64"
+        Arch::Aarch64 => "aarch_64",
         Arch::Arm => "arm",
         Arch::Wasm32 => "wasm32",
     };
@@ -112,7 +108,6 @@ fn build_maven_jar(
     let cmd = format!("mvn --batch-mode package -Dclassifier={classifier} -DskipTests");
     crate::publish::run_shell_command_in(&cmd, &pkg_dir)?;
 
-    // Find the produced JAR in target/.
     let jar = find_jar(&pkg_dir.join("target"), classifier)?;
     let jar_name = jar
         .file_name()

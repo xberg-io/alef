@@ -48,18 +48,14 @@ fn param_spec(ty: &TypeRef, camel: &str) -> ParamSpec {
             delegate_decl: format!("int {camel}"),
             call_arg: camel.to_string(),
         },
-        // usize/u64 visit params (e.g. blockquote depth) arrive pointer-width; the managed
-        // interface exposes `ulong`, so cast through.
         TypeRef::Primitive(PrimitiveType::Usize | PrimitiveType::U64) => ParamSpec {
             delegate_decl: format!("UIntPtr {camel}"),
             call_arg: format!("(ulong){camel}"),
         },
-        // Vec<String> (e.g. table-row cells) arrives as `char** + usize count`.
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => ParamSpec {
             delegate_decl: format!("IntPtr {camel}, UIntPtr {camel}Count"),
             call_arg: format!("DecodeStringArray({camel}, {camel}Count)"),
         },
-        // Fallback: treat as opaque pointer and pass through as a string.
         _ => ParamSpec {
             delegate_decl: format!("IntPtr {camel}"),
             call_arg: format!("Str({camel})"),
@@ -105,7 +101,6 @@ pub fn gen_visitor_bridge(out: &mut String, trait_name: &str, trait_def: &TypeDe
     let num_methods = trait_def.methods.len();
     let slot_count = num_methods + 1;
 
-    // Build per-method codegen fragments.
     let mut delegate_decls = String::new();
     let mut write_slots = String::new();
     let mut callbacks = String::new();
@@ -116,7 +111,6 @@ pub fn gen_visitor_bridge(out: &mut String, trait_name: &str, trait_def: &TypeDe
         let cb_name = format!("{pascal}Callback");
         let slot = idx + 1;
 
-        // params[0] is the context; the rest are visit-specific.
         let rest: Vec<&crate::core::ir::ParamDef> = method.params.iter().skip(1).collect();
 
         let mut delegate_params: Vec<String> = Vec::new();
@@ -128,7 +122,6 @@ pub fn gen_visitor_bridge(out: &mut String, trait_name: &str, trait_def: &TypeDe
             call_args.push(spec.call_arg);
         }
 
-        // Delegate signature: (IntPtr ctx, IntPtr userData, ...params..., IntPtr outCustom, IntPtr outLen).
         let mut sig_parts = vec!["IntPtr ctx".to_string(), "IntPtr userData".to_string()];
         sig_parts.extend(delegate_params.iter().cloned());
         sig_parts.push("IntPtr outCustom".to_string());
@@ -141,7 +134,6 @@ pub fn gen_visitor_bridge(out: &mut String, trait_name: &str, trait_def: &TypeDe
 
         write_slots.push_str(&format!("        WriteSlot({slot}, new {fn_name}({cb_name}));\n"));
 
-        // Callback method: same param list, body delegates through Dispatch.
         callbacks.push_str(&format!(
             "    private int {cb_name}({}) =>\n        Dispatch(userData, outCustom, outLen, v => v.{pascal}({}));\n",
             sig_parts.join(", "),

@@ -111,10 +111,6 @@ fn emit_static_methods(
     enum_names: &HashSet<String>,
     out: &mut String,
 ) {
-    // A static method returning a borrowed reference to its own opaque type (e.g.
-    // `Registry::global() -> &'static Registry`) has no FFI symbol — the FFI backend
-    // cannot box a borrow into an owned `*mut T` handle, so it skips the export. Mirror
-    // that omission here so the Zig wrapper does not call a missing C symbol.
     for method in ty
         .methods
         .iter()

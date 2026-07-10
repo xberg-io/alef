@@ -1,18 +1,6 @@
-# Pre-commit hooks shipped by alef.
-#
-# All hooks use `language: script` and dispatch through `hooks/alef_hook.py`,
-# which:
 #   1. Prefers a pre-installed `alef` binary on PATH whose version matches the
 #      hook's pinned `alef.toml` version (zero-cost when you've already done
-#      `cargo install --path .`).
-#   2. Falls back to the sha256-verified release tarball download under
 #      `~/.cache/alef-hooks/{version}/` (ideal for CI without a Rust
-#      toolchain).
-#
-# DO NOT override `entry:` on these hooks. `language: script` resolves the
-# entry as a path relative to the hook repo, so a consumer-side override like
-# `entry: alef verify` makes prek look for a file named `alef` inside the hook
-# repo and fail with "No such file or directory".
 
 - id: alef-verify
   name: alef verify
@@ -33,10 +21,6 @@
 - id: alef-sync-versions
   name: alef sync versions
   language: script
-  # `--no-regen` so the hook only writes version-stamped manifest files; without
-  # the flag, sync-versions also fires a full `alef generate` pass — desirable
-  # for `task set-version` but the wrong shape for a per-commit hook (slow, and
-  # any unrelated regen drift surfaces as "files modified" on every commit).
   entry: hooks/alef_hook.py sync-versions --no-regen
   files: 'Cargo\.toml$'
   pass_filenames: false

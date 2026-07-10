@@ -53,11 +53,6 @@ pub(super) fn sync_workspace_cargo_toml_versions(
         }
     }
 
-    // Patch [patch.crates-io] entry for the named crate so the version pin
-    // inside the patch block stays in sync with the workspace version.
-    // Path-only entries (no `version =` key) are left untouched.
-    // This runs unconditionally — the patch block exists independently of
-    // whether any workspace members are declared.
     match patch_cargo_crates_io_version("Cargo.toml", crate_name, version) {
         Ok(true) => {
             if !updated.contains(&"Cargo.toml".to_string()) {

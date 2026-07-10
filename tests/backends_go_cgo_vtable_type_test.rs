@@ -5,8 +5,6 @@
 
 #[test]
 fn cbindgen_toml_template_uses_global_style_both() {
-    // The template is in src/backends/ffi/templates/cbindgen_toml.jinja
-    // We test that it's been properly fixed by checking the source directly.
     let template_content = include_str!("../src/backends/ffi/templates/cbindgen_toml.jinja");
 
     assert!(
@@ -14,7 +12,6 @@ fn cbindgen_toml_template_uses_global_style_both() {
         "cbindgen_toml.jinja template missing global style = \"both\""
     );
 
-    // Verify [export] section exists
     assert!(
         template_content.contains("[export]"),
         "cbindgen_toml.jinja template missing [export] section"

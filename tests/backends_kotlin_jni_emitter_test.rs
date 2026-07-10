@@ -257,17 +257,14 @@ fn snapshot_jni_bridge_object() {
 
     let content = &bridge_file.content;
 
-    // System.loadLibrary is present in the init block.
     assert!(
         content.contains("System.loadLibrary("),
         "missing System.loadLibrary in JNI bridge: {content}"
     );
-    // Regular function external declaration.
     assert!(
         content.contains("external fun nativeFoo("),
         "missing nativeFoo external fun: {content}"
     );
-    // Streaming adapter external declarations.
     assert!(
         content.contains("external fun nativeDefaultClientStreamDataStart("),
         "missing nativeDefaultClientStreamDataStart: {content}"
@@ -280,20 +277,15 @@ fn snapshot_jni_bridge_object() {
         content.contains("external fun nativeDefaultClientStreamDataFree("),
         "missing nativeDefaultClientStreamDataFree: {content}"
     );
-    // @Throws must appear before every non-destructor external fun so that
-    // JNI exceptions (Rust Result::Err / panics) surface as typed exceptions
-    // rather than being swallowed or wrapped in UndeclaredThrowableException.
     assert!(
         content.contains("@Throws(DemoBridgeException::class)"),
         "@Throws annotation missing from Bridge.kt: {content}"
     );
-    // Destructors are infallible — they must NOT carry @Throws.
     let free_idx = content
         .find("nativeFreeDefaultClient")
         .expect("destructor must be present");
     let throws_before_free = content[..free_idx].rfind("@Throws");
     let external_before_free = content[..free_idx].rfind("external fun native");
-    // @Throws must not appear between the last non-destructor external fun and nativeFree.
     assert!(
         throws_before_free < external_before_free || external_before_free.is_none(),
         "destructor nativeFreeDefaultClient must not have a preceding @Throws: {content}"
@@ -363,17 +355,14 @@ fn snapshot_jni_default_client() {
 
     let content = &client_file.content;
 
-    // Class declaration: holds a Long handle and implements AutoCloseable.
     assert!(
         content.contains("class DefaultClient internal constructor(internal val handle: Long) : AutoCloseable"),
         "missing DefaultClient class with Long handle: {content}"
     );
-    // JSON marshalling (ObjectMapper) pattern.
     assert!(
         content.contains("ObjectMapper"),
         "missing ObjectMapper pattern in DefaultClient: {content}"
     );
-    // close() calls the free bridge method with the handle.
     assert!(
         content.contains("nativeFreeDefaultClient(handle)"),
         "missing nativeFreeDefaultClient(handle) in close(): {content}"
@@ -398,7 +387,6 @@ fn snapshot_jni_no_panama_imports() {
         );
     }
 
-    // Also verify flat-function-only JNI mode (no client types).
     let simple_api = make_simple_api();
     let simple_config = make_jni_config_no_streaming();
     let simple_files = KotlinBackend.generate_bindings(&simple_api, &simple_config).unwrap();
@@ -474,21 +462,15 @@ target = "jvm"
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
-    // Panama mode: Java Bridge import alias is emitted.
     assert!(
         content.contains("import dev.sample_crate.Demo as Bridge"),
         "Panama mode missing Java bridge import: {content}"
     );
-    // Panama mode: no `external fun` JNI declarations.
     assert!(
         !content.contains("external fun"),
         "Panama mode must not emit external fun declarations: {content}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// A2 snapshot tests: full surface, JSON marshalling, ByteArray, Unit returns
-// ---------------------------------------------------------------------------
 
 fn make_jni_config_full_surface() -> ResolvedCrateConfig {
     resolved_one(
@@ -764,7 +746,6 @@ fn snapshot_jni_byte_array_return() {
         client_content.contains("fun speech("),
         "missing speech method: {client_content}"
     );
-    // ByteArray pass-through: no readValue call.
     assert!(
         !client_content.contains("MAPPER.readValue"),
         "ByteArray return must not use MAPPER.readValue: {client_content}"
@@ -953,7 +934,6 @@ fn snapshot_jni_unit_return() {
         })
         .expect("DemoBridge.kt must be emitted");
     let bridge_content = &bridge_file.content;
-    // Unit return: no `: Unit` or `: <Type>` after the param list.
     assert!(
         bridge_content.contains("external fun nativeDefaultClientCancel(handle: Long, requestJson: String)"),
         "missing Unit-return external fun (no return type annotation): {bridge_content}"
@@ -978,7 +958,6 @@ fn snapshot_jni_unit_return() {
         client_content.contains("suspend fun cancel("),
         "missing suspend fun cancel: {client_content}"
     );
-    // Unit: no `return` or `readValue`.
     assert!(
         !client_content.contains("return withContext"),
         "Unit-return wrapper must not use `return withContext`: {client_content}"
@@ -991,10 +970,6 @@ fn snapshot_jni_unit_return() {
     insta::assert_snapshot!("snapshot_jni_unit_return_bridge", bridge_content);
     insta::assert_snapshot!("snapshot_jni_unit_return_client", client_content);
 }
-
-// ---------------------------------------------------------------------------
-// Pairing-drift sentinel
-// ---------------------------------------------------------------------------
 
 /// Build a config that both backends can consume:
 /// - `[crates.kotlin]` with `ffi_style = "jni"` → KotlinBackend emits Bridge.kt
@@ -1136,7 +1111,6 @@ fn snapshot_jni_opaque_client_methods_with_opaque_returns() {
     let config = make_jni_config_no_streaming();
     let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
 
-    // Find the DefaultClient class in the generated files
     let client_file = files
         .iter()
         .find(|f| {
@@ -1149,7 +1123,6 @@ fn snapshot_jni_opaque_client_methods_with_opaque_returns() {
 
     let content = &client_file.content;
 
-    // Verify that opaque return methods use handle constructor, not JSON deserialization
     assert!(
         content.contains("fun walk(): TreeCursor {"),
         "TreeWalker.walk() should have TreeCursor return type"
@@ -1163,7 +1136,6 @@ fn snapshot_jni_opaque_client_methods_with_opaque_returns() {
         "TreeWalker.walk() should construct TreeCursor from handle (not deserialize JSON): {content}"
     );
 
-    // Verify nullable opaque return method
     assert!(
         content.contains("fun walkOptional(): TreeCursor? {"),
         "TreeWalker.walkOptional() should have nullable TreeCursor return type"
@@ -1173,7 +1145,6 @@ fn snapshot_jni_opaque_client_methods_with_opaque_returns() {
         "TreeWalker.walkOptional() should check for null sentinel (0L) and construct TreeCursor: {content}"
     );
 
-    // Verify that the bridge signature uses Long, not String
     let bridge_file = files
         .iter()
         .find(|f| {

@@ -135,16 +135,6 @@ fn make_function(name: &str, return_type: TypeRef) -> FunctionDef {
 
 #[test]
 fn extendr_output_only_enum_gets_both_conversions() {
-    // Bug scenario: FormatMetadata is a flat data enum (has variants with single String fields)
-    // that only appears in return types, never as a function parameter.
-    //
-    // Current code (line 651 in mod.rs):
-    //   if input_types.contains(&e.name) && ... { emit binding→core }
-    //
-    // This would skip binding→core for output-only enums!
-    // But flat data enums already emit From<core> at line 630, so we also need From<binding>
-    // for round-trip safety.
-
     let format_enum = make_enum(
         "FormatMetadata",
         vec![
@@ -178,7 +168,6 @@ fn extendr_output_only_enum_gets_both_conversions() {
         .expect("generation succeeds");
     let content = &files[0].content;
 
-    // Flat data enum should get both directions of conversion
     let has_core_to_binding = content.contains("impl From<test_lib::FormatMetadata> for FormatMetadata");
     let has_binding_to_core = content.contains("impl From<FormatMetadata> for test_lib::FormatMetadata");
 
@@ -186,8 +175,6 @@ fn extendr_output_only_enum_gets_both_conversions() {
         has_core_to_binding,
         "FormatMetadata should have From<core::FormatMetadata> impl (output-only enum)"
     );
-    // This is the critical assertion — output-only enums should still get binding→core
-    // for round-trip safety even if they never appear as function parameters.
     assert!(
         has_binding_to_core,
         "FormatMetadata should have From<binding::FormatMetadata> impl (even output-only)"

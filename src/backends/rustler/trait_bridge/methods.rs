@@ -13,16 +13,12 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
-        // The exported-function set is supplied by the Elixir side at registration
-        // (the GenServer bridge knows its impl_module) and cached on the wrapper.
         self.forwardable_defaulted
             .contains(&method.name)
             .then(|| format!("self.implemented_methods.contains(\"{}\")", method.name))
     }
 
     fn extra_bridge_fields(&self, _spec: &TraitBridgeSpec) -> Vec<(String, String)> {
-        // Unconditional so every plugin bridge has the same constructor and
-        // registration arity, whether or not the trait has defaulted methods.
         vec![(
             "implemented_methods".to_string(),
             "std::collections::HashSet<String>".to_string(),
@@ -30,8 +26,6 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        // async_trait is needed because the trait impls may have async methods.
-        // We import the prelude to ensure the async_trait attribute is available.
         vec!["async_trait::async_trait".to_string()]
     }
 
@@ -87,7 +81,6 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
-        // Register in plugin registry, including any extra arguments (e.g., priority for PostProcessor)
         let extra_args = spec.bridge_config.register_extra_args.as_deref().unwrap_or_default();
 
         let ctx = minijinja::context! {

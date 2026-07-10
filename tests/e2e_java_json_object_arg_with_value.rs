@@ -128,13 +128,11 @@ fn render_java_test() -> String {
 fn json_object_arg_with_value_uses_from_json() {
     let rendered = render_java_test();
 
-    // The config should be constructed via JsonUtil.fromJson()
     assert!(
         rendered.contains("JsonUtil.fromJson(") && rendered.contains("ExtractionConfig.class"),
         "must use JsonUtil.fromJson(..., ExtractionConfig.class) to construct config from JSON fixture value. Rendered:\n{rendered}"
     );
 
-    // The variable should be passed to the function call, not null or raw JSON
     assert!(
         rendered.contains(".extractFileSync(java.nio.file.Path.of(\"pdf/test.pdf\"), null, config)"),
         "must pass the constructed config variable to the function. Rendered:\n{rendered}"

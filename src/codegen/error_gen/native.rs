@@ -103,10 +103,6 @@ pub fn magnus_error_methods_registrations(error: &ErrorDef) -> Vec<String> {
     lines
 }
 
-// ---------------------------------------------------------------------------
-// PHP (ext-php-rs) error generation
-// ---------------------------------------------------------------------------
-
 /// Generate a converter function that maps a core error to `PhpException`.
 pub fn gen_php_error_converter(error: &ErrorDef, core_import: &str) -> String {
     let rust_path = if error.rust_path.is_empty() {
@@ -117,7 +113,6 @@ pub fn gen_php_error_converter(error: &ErrorDef, core_import: &str) -> String {
 
     let fn_name = format!("{}_to_php_err", to_snake_case(&error.name));
 
-    // Pre-compute (pattern, variant_name) pairs
     let mut variants = Vec::new();
     for variant in &error.variants {
         let pattern = error_variant_wildcard_pattern(&rust_path, variant);
@@ -221,10 +216,6 @@ pub fn gen_php_error_methods_impl(error: &ErrorDef, core_import: &str) -> String
     format!("{struct_def}\n\n{from_fn}\n\n{impl_block}")
 }
 
-// ---------------------------------------------------------------------------
-// Magnus (Ruby) error generation
-// ---------------------------------------------------------------------------
-
 /// Generate a converter function that maps a core error to `magnus::Error`.
 pub fn gen_magnus_error_converter(error: &ErrorDef, core_import: &str) -> String {
     let rust_path = if error.rust_path.is_empty() {
@@ -248,10 +239,6 @@ pub fn gen_magnus_error_converter(error: &ErrorDef, core_import: &str) -> String
 pub fn magnus_converter_fn_name(error: &ErrorDef) -> String {
     format!("{}_to_magnus_err", to_snake_case(&error.name))
 }
-
-// ---------------------------------------------------------------------------
-// Rustler (Elixir) error generation
-// ---------------------------------------------------------------------------
 
 /// Generate a converter function that maps a core error to a Rustler error tuple `{:error, reason}`.
 pub fn gen_rustler_error_converter(error: &ErrorDef, core_import: &str) -> String {
@@ -277,10 +264,6 @@ pub fn rustler_converter_fn_name(error: &ErrorDef) -> String {
     format!("{}_to_rustler_err", to_snake_case(&error.name))
 }
 
-// ---------------------------------------------------------------------------
-// FFI (C) error code generation
-// ---------------------------------------------------------------------------
-
 /// Generate a C enum of error codes plus an error-message function declaration.
 ///
 /// Produces a `typedef enum` with `PREFIX_ERROR_NONE = 0` followed by one entry
@@ -289,7 +272,6 @@ pub fn gen_ffi_error_codes(error: &ErrorDef) -> String {
     let prefix = to_screaming_snake(&error.name);
     let prefix_lower = to_snake_case(&error.name);
 
-    // Pre-compute (variant_screaming, index) pairs
     let mut variant_variants = Vec::new();
     for (i, variant) in error.variants.iter().enumerate() {
         let variant_screaming = to_screaming_snake(&variant.name);
@@ -400,7 +382,6 @@ pub fn gen_ffi_error_methods(error: &ErrorDef, core_import: &str, api_prefix: &s
                 ));
             }
             other => {
-                // Unknown whitelisted method — emit a comment so it is visible in review.
                 items.push(format!(
                     "// Not emitted: FFI helper for method `{other}` on `{rust_path}`"
                 ));
@@ -410,10 +391,6 @@ pub fn gen_ffi_error_methods(error: &ErrorDef, core_import: &str, api_prefix: &s
 
     items.join("\n\n")
 }
-
-// ---------------------------------------------------------------------------
-// Go error type generation
-// ---------------------------------------------------------------------------
 
 /// Generate Go sentinel errors and a structured error type for an `ErrorDef`.
 ///

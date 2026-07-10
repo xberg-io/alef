@@ -9,11 +9,7 @@ pub(super) fn gen_function_stub(
     options_field_bridges: &OptionsFieldBridges<'_>,
     streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
 ) -> String {
-    // Emit params in declaration order, applying the same trailing-optional promotion the PyO3
     // `#[pyo3(signature = ...)]` (and the api.py wrapper) use: once any param is optional, every
-    // later param is promoted to `T | None = None`. Partitioning required-before-optional instead
-    // would reorder params away from the runtime signature AND drop `| None` from a promoted param
-    // (e.g. `resolve(preset, custom_schema=None, context=None)` where `context: Option<...>`).
     let mut params: Vec<String> = func
         .params
         .iter()
@@ -38,13 +34,6 @@ pub(super) fn gen_function_stub(
         })
         .collect();
 
-    // If any param's type is the options-type of an OptionsField trait bridge, the PyO3
-    // wrapper exposes an additional `{kwarg_name}: {trait_name} | None = None` kwarg.
-    // Surface it here so api.py callers type-check (the visitor field is cfg-gated and so
-    // does not appear directly on the IR struct, but the binding accepts it as a kwarg).
-    //
-    // Prefer the trait Protocol class name (e.g. `HtmlVisitor`) over the binding-internal
-    // `type_alias` (e.g. `VisitorHandle`) — see comment in `gen_type_init_stub`.
     let bridge_kwarg = func.params.iter().find_map(|p| {
         let type_name = match &p.ty {
             TypeRef::Named(n) => Some(n.as_str()),
@@ -58,19 +47,10 @@ pub(super) fn gen_function_stub(
         Some((*kwarg_name, *type_alias, *trait_name))
     });
     if let Some((kwarg_name, type_alias, trait_name)) = bridge_kwarg {
-        // Widen the kwarg type to accept any duck-typed object: the Rust dispatch checks
-        // each visit_* method via `hasattr()`, so all methods are runtime-optional. A strict
-        // Protocol-only annotation rejects classes that implement only the subset of
-        // methods they care about.
-        // Keep the Protocol name in the union so editors still suggest `HtmlVisitor` for
-        // callers who want autocomplete via explicit annotation.
         let visitor_type = trait_name.or(type_alias).unwrap_or("object");
         params.push(format!("{kwarg_name}: {visitor_type} | object | None = None"));
     }
 
-    // Check whether this function has a streaming adapter (free-function form: owner_type == None).
-    // When it does, override the return type with `AsyncIterator[ItemType]` so the stub matches
-    // the real async iterator emitted by the Rust shim rather than the buffered placeholder type.
     let streaming_key = (None::<String>, func.name.clone());
     let return_type = if let Some(item_type) = streaming_return_types.get(&streaming_key) {
         format!("AsyncIterator[{item_type}]")
@@ -78,9 +58,6 @@ pub(super) fn gen_function_stub(
         substitute_capsule_type(&python_type(&func.return_type), capsule_names)
     };
     let safe_name = python_safe_name(&func.name);
-    // pyo3 async functions return a Python awaitable (via `pyo3_async_runtimes::*::future_into_py`),
-    // not the bare value. The .pyi stub must reflect that with `async def` so callers using the
-    // generated `api.py` wrapper (which `await`s the underlying pyo3 call) type-check correctly.
     let def_kw = if func.is_async { "async def" } else { "def" };
 
     let has_builtin_param = params

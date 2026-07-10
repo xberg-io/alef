@@ -54,18 +54,13 @@ pub(crate) fn gen_async_function_as_static_method(
     let params = gen_php_function_params(&visible_params, mapper, type_sets.opaque, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
     let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
-    // For Bytes returns, convert Vec<u8> to String in the type annotation
     if matches!(&func.return_type, TypeRef::Bytes) {
         return_annotation = override_bytes_return_type(&return_annotation);
     }
 
     let mut out = String::new();
-    // Rust source: emit `///` line doc-comments, not PHPDoc `/** … */` (which would break
-    // compilation when doc text contains `/*`, e.g. `image/*`, because Rust block comments nest).
     doc_emission::emit_rustdoc(&mut out, &func.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
-    // The Rust fn ident stays snake_case; the PHP-facing name is camelCase so callers
-    // (userland facade, stubs) can invoke it via PSR-12 camelCase method names.
     let php_name = func.name.to_lower_camel_case();
     if params.is_empty() {
         out.push_str(&crate::backends::php::template_env::render(
@@ -163,7 +158,6 @@ fn gen_async_function_body(
             )
         }
     } else {
-        // Cannot auto-delegate and no serde recovery path — emit a safe stub.
         gen_stub_return(&func.return_type, func.error_type.is_some(), &func.name)
     }
 }
@@ -239,12 +233,9 @@ pub(crate) fn gen_async_instance_method(
             )
         }
     } else if is_opaque {
-        // Not auto-delegatable opaque async instance method — use let-binding conversion.
         let named_let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, enum_names, core_import);
         let call_args = gen_php_call_args_with_let_bindings(&method.params, opaque_types, mutex_types);
         let needs_lock = mutex_types.contains(type_name);
-        // For Arc<T> types: clone inner before the async block so we can move it in.
-        // For Arc<Mutex<T>> types: lock directly inside the async block.
         let (let_bindings, core_call) = if needs_lock {
             let core_call = format!("self.inner.lock().unwrap().{}({})", method.name, call_args);
             (named_let_bindings, core_call)
@@ -286,13 +277,10 @@ pub(crate) fn gen_async_instance_method(
             )
         }
     } else {
-        // Cannot auto-delegate — skip entirely.
         return String::new();
     };
 
     let mut out = String::new();
-    // Rust source: emit `///` line doc-comments, not PHPDoc `/** … */` (which would break
-    // compilation when doc text contains `/*`, e.g. `image/*`, because Rust block comments nest).
     doc_emission::emit_rustdoc(&mut out, &method.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
     out.push_str("    ");
@@ -325,6 +313,5 @@ pub(crate) fn gen_async_static_method(
     _mapper: &PhpMapper,
     _opaque_types: &AHashSet<String>,
 ) -> String {
-    // Async static methods are not auto-delegatable — skip entirely.
     String::new()
 }

@@ -67,11 +67,9 @@ fn test_renderer_bridge_register_returns_intptr() {
 
     let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-    // Verify that Register method exists and returns IntPtr, not void
     assert!(content.contains("public static IntPtr Register(IRenderer impl)"));
     assert!(!content.contains("public static void Register(IRenderer impl)"));
 
-    // Verify that the method returns userData
     assert!(content.contains("return userData;"));
 }
 
@@ -84,11 +82,9 @@ fn test_validator_bridge_register_returns_intptr() {
 
     let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-    // Verify that Register method exists and returns IntPtr, not void
     assert!(content.contains("public static IntPtr Register(IValidator impl)"));
     assert!(!content.contains("public static void Register(IValidator impl)"));
 
-    // Verify that the method returns userData
     assert!(content.contains("return userData;"));
 }
 
@@ -101,11 +97,9 @@ fn test_ocr_backend_bridge_register_returns_intptr() {
 
     let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-    // Verify that Register method exists and returns IntPtr
     assert!(content.contains("public static IntPtr Register(IOcrBackend impl)"));
     assert!(!content.contains("public static void Register(IOcrBackend impl)"));
 
-    // Verify that the method returns userData
     assert!(content.contains("return userData;"));
 }
 
@@ -118,10 +112,8 @@ fn test_register_without_super_trait_also_returns_intptr() {
 
     let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
-    // Verify that Register method exists and returns IntPtr, even without super_trait
     assert!(content.contains("public static IntPtr Register(IPostProcessor impl, string name)"));
     assert!(!content.contains("public static void Register(IPostProcessor impl, string name)"));
 
-    // Verify that the method returns userData
     assert!(content.contains("return userData;"));
 }

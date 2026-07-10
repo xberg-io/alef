@@ -68,7 +68,6 @@ pub fn swift_shim_param_decode(
     excluded_types: &std::collections::HashSet<String>,
 ) -> ParamDecode {
     match ty {
-        // Primitives and simple types pass through or have direct conversion.
         TypeRef::Primitive(PrimitiveType::Bool) => ParamDecode {
             setup: vec![],
             expr: param_name.to_string(),
@@ -90,22 +89,18 @@ pub fn swift_shim_param_decode(
             expr: param_name.to_string(),
             is_throwing: false,
         },
-        // String: convert RustString to Swift String
         TypeRef::String => ParamDecode {
             setup: vec![],
             expr: format!("{}.toString()", param_name),
             is_throwing: false,
         },
-        // Bytes: convert RustVec<UInt8> to Data
         TypeRef::Bytes => ParamDecode {
             setup: vec![],
             expr: format!("Data({})", param_name),
             is_throwing: false,
         },
-        // Vec<T>: special handling for Vec<String>, fallback to JSON for complex Vec types
         TypeRef::Vec(inner_ty) => {
             if matches!(inner_ty.as_ref(), TypeRef::String) {
-                // Vec<String>: iterate RustVec<RustString>, collect to [String]
                 ParamDecode {
                     setup: vec![format!(
                         "var {}_list: [String] = []\n\
@@ -130,7 +125,6 @@ pub fn swift_shim_param_decode(
                     is_throwing: false,
                 }
             } else {
-                // Vec<T> for non-String T: not expected in plugins, but fallback to JSON decode
                 ParamDecode {
                     setup: vec![],
                     expr: format!("{}.toString()", param_name),
@@ -138,10 +132,6 @@ pub fn swift_shim_param_decode(
                 }
             }
         }
-        // Named types (Codable structs, enums): JSON-decode from RustString — UNLESS the type
-        // is excluded from the binding surface (e.g. PrivatePayload, ParseResult). In that
-        // case the bridge protocol exposes it as `String` and the Box just passes the RustString
-        // through as a Swift String — no JSON decode.
         TypeRef::Named(type_name) => {
             if excluded_types.contains(type_name) {
                 ParamDecode {
@@ -161,37 +151,31 @@ pub fn swift_shim_param_decode(
                 }
             }
         }
-        // Character: convert to String and take first char (or empty)
         TypeRef::Char => ParamDecode {
             setup: vec![],
             expr: format!("Character({}.toString().first ?? \" \")", param_name),
             is_throwing: false,
         },
-        // Duration: already a Double (FFI type)
         TypeRef::Duration => ParamDecode {
             setup: vec![],
             expr: param_name.to_string(),
             is_throwing: false,
         },
-        // Unit: no conversion needed
         TypeRef::Unit => ParamDecode {
             setup: vec![],
             expr: "()".to_string(),
             is_throwing: false,
         },
-        // Optional<T>: recurse and apply optional chaining or try?
         TypeRef::Optional(inner) => {
             let inner_decode = swift_shim_param_decode(param_name, inner, false, excluded_types);
             if inner_decode.is_throwing {
-                // Optional of throwable: requires try? inside
                 let try_expr = format!("try? {}", inner_decode.expr);
                 ParamDecode {
                     setup: inner_decode.setup,
                     expr: try_expr,
-                    is_throwing: false, // Wrapping try? makes it non-throwing
+                    is_throwing: false,
                 }
             } else if inner_decode.expr.ends_with("()") {
-                // For methods like .toString(), apply optional chaining: param?.toString()
                 let expr = format!(
                     "{}?.{}",
                     param_name,
@@ -203,7 +187,6 @@ pub fn swift_shim_param_decode(
                     is_throwing: false,
                 }
             } else {
-                // Passthrough as-is for passthrough values (param_name or primitive names)
                 ParamDecode {
                     setup: inner_decode.setup,
                     expr: inner_decode.expr,
@@ -211,13 +194,11 @@ pub fn swift_shim_param_decode(
                 }
             }
         }
-        // Path: bridge protocol exposes as URL; FFI carries the path as RustString.
         TypeRef::Path => ParamDecode {
             setup: vec![],
             expr: format!("URL(fileURLWithPath: {}.toString())", param_name),
             is_throwing: false,
         },
-        // Fallback for unusual types (shouldn't occur in plugin contexts)
         TypeRef::Json | TypeRef::Map(_, _) => ParamDecode {
             setup: vec![],
             expr: format!("{}.toString()", param_name),
@@ -246,12 +227,10 @@ pub struct ParamDecode {
 /// - If method returns `Vec<String>` and no error: `"RustVec<RustString>"`.
 /// - If method returns [other complex] and no error: `"RustString"` (envelope).
 pub fn swift_shim_return_ffi_type(method: &MethodDef) -> String {
-    // If the method can throw, it always returns an envelope (String).
     if method.error_type.is_some() {
         return "String".to_string();
     }
 
-    // No error type: return the actual type mapped to FFI.
     match &method.return_type {
         TypeRef::Unit => "Void".to_string(),
         TypeRef::Primitive(PrimitiveType::Bool) => "Bool".to_string(),
@@ -268,7 +247,6 @@ pub fn swift_shim_return_ffi_type(method: &MethodDef) -> String {
         TypeRef::Primitive(PrimitiveType::F32) => "Float".to_string(),
         TypeRef::Primitive(PrimitiveType::F64) => "Double".to_string(),
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => "RustVec<RustString>".to_string(),
-        // Everything else (String, Named, complex Vec, etc.) becomes envelope
         _ => "RustString".to_string(),
     }
 }
@@ -287,7 +265,6 @@ pub fn swift_shim_return_ffi_type(method: &MethodDef) -> String {
 /// Returns lines to emit as the method body (from opening brace to closing brace).
 pub fn swift_shim_return_marshal(method: &MethodDef, bridge_call_expr: &str) -> Vec<String> {
     if method.error_type.is_some() {
-        // Throwing method: wrap in do/catch with JSON envelope
         match &method.return_type {
             TypeRef::Unit => vec![
                 "do {".to_string(),
@@ -296,7 +273,6 @@ pub fn swift_shim_return_marshal(method: &MethodDef, bridge_call_expr: &str) -> 
                 "} catch { return encodeErrEnvelope(\"\\(error)\") }".to_string(),
             ],
             _ => {
-                // Throwing method with non-unit return: encode the result in envelope
                 vec![
                     "do {".to_string(),
                     format!("  let result = try {}", bridge_call_expr),
@@ -306,18 +282,13 @@ pub fn swift_shim_return_marshal(method: &MethodDef, bridge_call_expr: &str) -> 
             }
         }
     } else {
-        // Non-throwing method: return result as-is (or build RustVec for Vec<String>)
         match &method.return_type {
             TypeRef::Unit => vec!["return ()".to_string()],
             TypeRef::String => {
-                // String return: wrap in RustString for FFI boundary
                 vec![format!("return RustString({})", bridge_call_expr)]
             }
-            // Named types are exposed as String at the protocol boundary (all Named are excluded
-            // from JSON encoding in trait bridges); wrap the bridge's String result in RustString.
             TypeRef::Named(_) => vec![format!("return RustString({})", bridge_call_expr)],
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
-                // Build RustVec<RustString> from [String]
                 vec![
                     format!("let strings = {}", bridge_call_expr),
                     "let vec = RustVec<RustString>()".to_string(),
@@ -325,8 +296,6 @@ pub fn swift_shim_return_marshal(method: &MethodDef, bridge_call_expr: &str) -> 
                     "return vec".to_string(),
                 ]
             }
-            // usize/isize: bridge protocol declares as Int (idiomatic Swift),
-            // but FFI shim expects UInt — cast at the boundary.
             TypeRef::Primitive(PrimitiveType::Usize) | TypeRef::Primitive(PrimitiveType::Isize) => {
                 vec![format!("return UInt({})", bridge_call_expr)]
             }
@@ -528,9 +497,8 @@ mod tests {
             &std::collections::HashSet::new(),
         );
         assert!(!decode.setup.is_empty());
-        // Optional of Codable: wrapped in try?
         assert!(decode.expr.contains("try?"));
-        assert!(!decode.is_throwing); // try? makes it non-throwing
+        assert!(!decode.is_throwing);
     }
 
     #[test]
@@ -571,7 +539,6 @@ mod tests {
 
     #[test]
     fn test_return_ffi_type_non_throwing_named() {
-        // Complex types without error always return envelope
         let method = make_method("process", vec![], TypeRef::Named("ParseResult".to_string()), None);
         assert_eq!(swift_shim_return_ffi_type(&method), "RustString");
     }
@@ -649,7 +616,6 @@ mod tests {
 
     #[test]
     fn test_return_marshal_vec_vec_f32_with_error() {
-        // Special case: Vec<Vec<f32>> (embedding result) with error
         let method = make_method(
             "embed",
             vec![],
@@ -657,7 +623,6 @@ mod tests {
             Some("Error".to_string()),
         );
         let lines = swift_shim_return_marshal(&method, "try inner.embed(texts)");
-        // Should wrap in envelope because method throws
         assert!(lines.join("\n").contains("encodeOkEnvelope"));
     }
 }

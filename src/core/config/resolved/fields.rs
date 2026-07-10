@@ -18,7 +18,6 @@ impl ResolvedCrateConfig {
     /// name can be used as-is. Call sites that always need a `String` should use
     /// `resolve_field_name(...).unwrap_or_else(|| field_name.to_string())`.
     pub fn resolve_field_name(&self, lang: Language, type_name: &str, field_name: &str) -> Option<String> {
-        // 1. Explicit per-language rename_fields entry.
         let explicit_key = format!("{type_name}.{field_name}");
         let explicit = match lang {
             Language::Python => self.python.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
@@ -50,12 +49,8 @@ impl ResolvedCrateConfig {
             return None;
         }
 
-        // 2. Automatic keyword escaping.
         match lang {
             Language::Python => crate::core::keywords::python_safe_name(field_name),
-            // Java and C# use PascalCase for field names — no conflict.
-            // Go uses PascalCase for exported fields — no conflict.
-            // JS/TS handles keyword escaping at the napi layer via js_name attributes.
             _ => None,
         }
     }
@@ -252,7 +247,6 @@ serde_rename_all = "camelCase"
     fn resolved_resolve_field_name_keyword_escapes_python() {
         use crate::core::keywords::python_safe_name;
         let r = minimal();
-        // "class" is a Python keyword, should be escaped
         let result = r.resolve_field_name(Language::Python, "MyType", "class");
         assert_eq!(result, python_safe_name("class"));
     }
@@ -296,7 +290,6 @@ sources = ["src/lib.rs"]
 path_mappings = { "foo::bar" = "baz::qux", "foo" = "zzz" }
 "#,
         );
-        // Longer prefix "foo::bar" wins over "foo"
         assert_eq!(r.rewrite_path("foo::bar::Struct"), "baz::qux::Struct");
         assert_eq!(r.rewrite_path("foo::Other"), "zzz::Other");
         assert_eq!(r.rewrite_path("unrelated"), "unrelated");

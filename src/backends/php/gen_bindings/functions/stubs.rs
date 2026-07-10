@@ -8,7 +8,6 @@ use minijinja::context;
 /// directly, so we emit a type-appropriate default value instead.
 pub(super) fn gen_stub_return(ty: &TypeRef, has_error: bool, func_name: &str) -> String {
     if has_error {
-        // Function signature is PhpResult<T> — return an error value.
         return crate::backends::php::template_env::render(
             "php_stub_error_body.jinja",
             context! {
@@ -17,7 +16,6 @@ pub(super) fn gen_stub_return(ty: &TypeRef, has_error: bool, func_name: &str) ->
         );
     }
 
-    // Function returns T directly — emit a type-appropriate default.
     match ty {
         TypeRef::Optional(_) => "None".to_string(),
         TypeRef::Vec(_) => "Vec::new()".to_string(),

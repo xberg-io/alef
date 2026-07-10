@@ -37,31 +37,25 @@ pub fn package_dart(
     }
     fs::create_dir_all(&staging)?;
 
-    // Copy the full dart package directory into staging.
     let pkg_src = workspace_root.join(&pkg_dir);
     if !pkg_src.exists() {
         anyhow::bail!("Dart package directory not found: {}", pkg_dir);
     }
     copy_dir_recursive(&pkg_src, &staging).context("copying Dart package directory")?;
 
-    // Stage prebuilt native libraries if available.
-    // This allows published packages to work without requiring consumers to build Rust code.
     let lib_stem = format!("{}_dart", pubspec_name.replace('-', "_"));
     stage_dart_native_libraries(workspace_root, &staging, &lib_stem)
         .context("staging native libraries for Dart package")?;
 
-    // Copy optional top-level docs into the staging root.
     for filename in ["README.md", "CHANGELOG.md", "LICENSE"] {
         copy_optional_file(workspace_root, filename, &staging)
             .with_context(|| format!("staging {filename} for Dart package"))?;
     }
 
-    // Create tarball.
     let archive_name = format!("{pkg_name}.tar.gz");
     let archive_path = output_dir.join(&archive_name);
     super::create_tar_gz(&staging, &archive_path)?;
 
-    // Clean up staging.
     fs::remove_dir_all(&staging).ok();
 
     Ok(PackageArtifact {
@@ -110,7 +104,6 @@ sources = []
         let config = minimal_config("my-lib");
         let tmp = tempfile::tempdir().expect("tempdir");
 
-        // Create a minimal packages/dart/ tree.
         let dart_pkg = tmp.path().join("packages/dart");
         fs::create_dir_all(dart_pkg.join("lib/src")).unwrap();
         fs::write(dart_pkg.join("pubspec.yaml"), "name: my_lib\nversion: 0.1.0\n").unwrap();

@@ -53,7 +53,7 @@ impl TypeMapper for GoMapper {
     }
 
     fn unit(&self) -> Cow<'static, str> {
-        Cow::Borrowed("") // void — no type in Go return position
+        Cow::Borrowed("")
     }
 
     fn duration(&self) -> Cow<'static, str> {
@@ -99,9 +99,7 @@ pub fn go_type(ty: &TypeRef) -> Cow<'static, str> {
 /// All other non-reference types are wrapped in a pointer: `*T`.
 pub fn go_optional_type(ty: &TypeRef) -> Cow<'static, str> {
     match ty {
-        // Already optional or reference types — use direct mapping
         TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes => go_type(ty),
-        // String types and all other types are wrapped in pointer for optionality
         TypeRef::String
         | TypeRef::Char
         | TypeRef::Path
@@ -126,7 +124,7 @@ pub fn go_zero_value(ty: &TypeRef) -> String {
         TypeRef::Primitive(PrimitiveType::Bool) => "false".to_string(),
         TypeRef::Primitive(_) | TypeRef::Duration => "0".to_string(),
         TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
-        TypeRef::Json => "nil".to_string(), // json.RawMessage zero is nil
+        TypeRef::Json => "nil".to_string(),
         TypeRef::Bytes
         | TypeRef::Vec(_)
         | TypeRef::Map(_, _)
@@ -221,33 +219,28 @@ mod tests {
 
     #[test]
     fn test_go_optional_type_already_optional() {
-        // Optional<String> → go_type gives "*string"; go_optional_type gives same
         let ty = TypeRef::Optional(Box::new(TypeRef::String));
         assert_eq!(go_optional_type(&ty), go_type(&ty));
     }
 
     #[test]
     fn test_go_optional_type_non_optional() {
-        // String when used in optional context (e.g., Optional<String>) becomes *string
         assert_eq!(go_optional_type(&TypeRef::String), "*string");
     }
 
     #[test]
     fn test_go_optional_type_vec_not_pointer() {
-        // Vec<T> is already a reference type in Go; do not wrap in *
         let ty = TypeRef::Vec(Box::new(TypeRef::String));
         assert_eq!(go_optional_type(&ty), "[]string");
     }
 
     #[test]
     fn test_go_optional_type_bytes_not_pointer() {
-        // []byte is already a reference type in Go; do not wrap in *
         assert_eq!(go_optional_type(&TypeRef::Bytes), "[]byte");
     }
 
     #[test]
     fn test_go_optional_type_map_not_pointer() {
-        // map[K]V is already a reference type in Go; do not wrap in *
         let ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
         assert_eq!(go_optional_type(&ty), "map[string]string");
     }

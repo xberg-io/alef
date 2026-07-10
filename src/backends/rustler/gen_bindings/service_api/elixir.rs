@@ -21,9 +21,6 @@ pub(super) fn gen_service_ex(api: &ApiSurface, module_prefix: &str) -> String {
 
     out.push_str("# This file is generated. Do not edit.\n\n");
 
-    // Emit error types (Phase C IR sections)
-
-    // Emit the request context struct for handler request data.
     emit_conn_struct(&mut out, module_prefix);
 
     for service in &api.services {
@@ -78,7 +75,6 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     for method in &service.configurators {
         all_fields.extend(method.params.iter().map(|p| p.name.clone()));
     }
-    // Format fields with proper commas for mix format
     let formatted_fields = all_fields
         .iter()
         .enumerate()
@@ -94,7 +90,6 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         },
     ));
 
-    // Constructor
     {
         let ctor = &service.constructor;
         let params = if ctor.params.is_empty() {
@@ -113,7 +108,6 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         }
 
         push_elixir_doc(out, &ctor.doc, "doc");
-        // Format field inits with proper commas for mix format
         let formatted_inits = field_inits
             .iter()
             .enumerate()
@@ -131,7 +125,6 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         ));
     }
 
-    // Configurator methods
     for method in &service.configurators {
         let method_name = &method.name;
         let mut params = vec!["self".to_owned()];
@@ -155,15 +148,12 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         ));
     }
 
-    // Registration methods as decorator-style helpers
     for reg in &service.registrations {
         gen_registration_method(out, reg, service, api, module_prefix);
     }
 
-    // GenServer module for dispatching trait_call messages
     gen_genserver_module(out, service, api);
 
-    // Entrypoint methods
     for ep in &service.entrypoints {
         let ep_name = &ep.method;
         let mut params = vec!["self".to_owned()];
@@ -206,8 +196,6 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
             }
         }
     }
-
-    // Emit lifecycle hooks inside the App module
 
     out.push_str("end\n\n");
 }

@@ -173,9 +173,6 @@ build = "cd packages/go && go build -tags dev ./..."
 
 #[test]
 fn new_alef_config_resolve_propagates_field_renames() {
-    // Per-language `rename_fields` declared on a `[crates.<lang>]` table must
-    // survive resolution intact — the resolver replaces the per-language
-    // config wholesale rather than merging field-by-field.
     let cfg: NewAlefConfig = toml::from_str(
         r#"
 [workspace]
@@ -241,7 +238,6 @@ check = "ruff check crates/sample_router-py/"
     let resolved = cfg.resolve().expect("resolve should succeed");
     let sample_router = &resolved[0];
 
-    // Per-crate python lint overrides workspace
     let py_lint = sample_router.lint.get("python").expect("python lint should be present");
     assert_eq!(
         py_lint.check.as_ref().unwrap().commands(),
@@ -249,7 +245,6 @@ check = "ruff check crates/sample_router-py/"
         "per-crate python lint should win over workspace default"
     );
 
-    // Workspace node lint is inherited (no per-crate override)
     let node_lint = sample_router.lint.get("node").expect("node lint should be present");
     assert_eq!(
         node_lint.check.as_ref().unwrap().commands(),
@@ -330,8 +325,6 @@ sources = ["src/lib.rs"]
 
 #[test]
 fn resolve_overlapping_output_path_errors() {
-    // Both crates have no template and identical names would collide; force
-    // a collision by using an explicit output path on both.
     let cfg: NewAlefConfig = toml::from_str(
         r#"
 [workspace]
@@ -499,8 +492,6 @@ python = "dataclass"
 
 #[test]
 fn resolve_per_crate_explicit_empty_languages_inherits_workspace() {
-    // Explicit `languages = []` per-crate falls back to workspace defaults
-    // (matches the behavior the resolver already implements).
     let cfg: NewAlefConfig = toml::from_str(
         r#"
 [workspace]
@@ -539,13 +530,8 @@ languages = []
     }
 }
 
-// --- deny_unknown_fields tests ---
-
 #[test]
 fn unknown_top_level_key_is_rejected() {
-    // A misspelled key must produce a parse error, not silently succeed with the
-    // field ignored.
-    // typos: ignore start
     let result: Result<NewAlefConfig, _> = toml::from_str(
         r#"
 wrkspace = "typo"
@@ -555,14 +541,11 @@ name = "sample_router"
 sources = ["src/lib.rs"]
 "#,
     );
-    // typos: ignore end
     assert!(
         result.is_err(),
         "unknown top-level key should be rejected by deny_unknown_fields"
     );
 }
-
-// --- new backfill tests ---
 
 #[test]
 fn new_alef_config_resolve_rejects_duplicate_crate_name() {

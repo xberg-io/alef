@@ -37,16 +37,11 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_async_function(
         })
     };
     let return_type = mapper.map_type(&func.return_type);
-    // Async functions always return Result because Runtime::new() can fail, even when the core
-    // function itself has no error type.
     let return_annotation = mapper.wrap_return(&return_type, true);
 
     let can_delegate = crate::codegen::shared::can_auto_delegate_function(func, opaque_types);
-    // Async wrappers always return Result (Runtime::new() can fail), so `?` in the serde preamble
-    // always compiles.
     let serde_recoverable = !can_delegate && magnus_serde_recoverable(func, opaque_types, true);
 
-    // Check if any param is a Vec<Named> that will need `{name}_core` rebinding.
     let needs_vec_named_let_binding = func.params.iter().any(|p| match &p.ty {
         TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(name) if !opaque_types.contains(name.as_str())),
         _ => false,
@@ -121,9 +116,6 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_async_function(
         }
     }
 
-    // AHashMap<Cow<'static, str>, Value> params: Ruby receives these as
-    // HashMap<String, String>. Emit pre-call `let __<name>_ahash` bindings so the
-    // call site can borrow a properly-typed AHashMap.
     let ahash_bindings = magnus_ahash_pre_call_bindings(&func.params);
     deser_lines.extend(ahash_bindings);
 

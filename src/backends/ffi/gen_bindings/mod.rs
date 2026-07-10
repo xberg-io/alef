@@ -59,8 +59,6 @@ impl Backend for FfiBackend {
             None
         };
 
-        // Capsule (Language-passthrough) types configured under `[crates.ffi.capsule_types]`.
-        // Drives both the cbindgen forward declarations and the opaque-handle suppression in lib.rs.
         let ffi_capsule_types: std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig> =
             config.ffi.as_ref().map(|c| c.capsule_types.clone()).unwrap_or_default();
         let cbindgen_exclude_types = cbindgen_exclude_type_names(api, config);
@@ -109,10 +107,6 @@ impl Backend for FfiBackend {
         })
     }
 }
-
-// ---------------------------------------------------------------------------
-// lib.rs generation
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests;

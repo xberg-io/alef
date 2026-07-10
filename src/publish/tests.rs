@@ -21,12 +21,11 @@ fn toml_path(path: &Path) -> String {
 }
 
 #[test]
-#[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
+#[cfg(not(target_os = "windows"))]
 fn test_run_publish_hooks_runs_before_only() {
     let (_temp_dir, marker) = make_temp_marker_file();
     let marker_str = marker.to_str().unwrap();
 
-    // Config with before hook only.
     let config = PublishLanguageConfig {
         before: Some(StringOrVec::Single(format!("echo 'before' > {marker_str}"))),
         ..Default::default()
@@ -43,18 +42,17 @@ fn test_run_publish_hooks_precondition_failure_skips() {
     let marker_str = marker.to_str().unwrap();
 
     let config = PublishLanguageConfig {
-        precondition: Some("false".to_string()), // Always fails
+        precondition: Some("false".to_string()),
         before: Some(StringOrVec::Single(format!("echo 'before' > {marker_str}"))),
         ..Default::default()
     };
 
     let result = run_publish_hooks(Language::Python, &config);
     assert!(result.is_ok());
-    // Precondition failed, so before hook should not run
     assert!(!marker.exists(), "before hook should not run when precondition fails");
 }
 
-#[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn test_run_publish_after_hooks_runs_after_only() {
     let (_temp_dir, marker) = make_temp_marker_file();
@@ -311,11 +309,10 @@ fn validate_dart_and_zig_check_central_metadata() {
 #[test]
 fn test_run_publish_after_hooks_no_after_is_noop() {
     let config = PublishLanguageConfig::default();
-    // Config has no after hook
     let result = run_publish_after_hooks(Language::Python, &config);
     assert!(result.is_ok(), "after hooks should succeed when not specified");
 }
-#[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn test_run_publish_after_hooks_multiple_commands() {
     let temp_dir = TempDir::new().unwrap();
@@ -342,7 +339,7 @@ fn test_run_publish_after_hooks_multiple_commands() {
 #[test]
 fn test_run_publish_after_hooks_failure_propagates_error() {
     let config = PublishLanguageConfig {
-        after: Some(StringOrVec::Single("false".to_string())), // Command fails
+        after: Some(StringOrVec::Single("false".to_string())),
         ..Default::default()
     };
 
@@ -350,7 +347,7 @@ fn test_run_publish_after_hooks_failure_propagates_error() {
     assert!(result.is_err(), "after hook failure should propagate error");
 }
 
-#[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn test_publish_hooks_full_lifecycle_success() {
     let temp_dir = TempDir::new().unwrap();
@@ -366,22 +363,14 @@ fn test_publish_hooks_full_lifecycle_success() {
         ..Default::default()
     };
 
-    // Simulate before hook
     let before_result = run_publish_hooks(Language::Python, &config);
     assert!(before_result.is_ok());
     assert!(before_marker.exists(), "before hook should run");
 
-    // Simulate successful operation (no actual work)
-
-    // Simulate after hook
     let after_result = run_publish_after_hooks(Language::Python, &config);
     assert!(after_result.is_ok());
     assert!(after_marker.exists(), "after hook should run on success");
 }
-
-// ---------------------------------------------------------------------
-// S4: Registry vendor mode wired into prepare()
-// ---------------------------------------------------------------------
 
 /// Build a temp workspace with a core crate `my-lib` and a Python binding
 /// crate `my-lib-py` whose manifest carries a workspace-member path dep.
@@ -403,7 +392,6 @@ version = "3.1.4"
     )
     .unwrap();
 
-    // Core member crate.
     std::fs::create_dir_all(root.join("crates/my-lib/src")).unwrap();
     std::fs::write(root.join("crates/my-lib/src/lib.rs"), "pub fn hi() {}").unwrap();
     std::fs::write(
@@ -412,7 +400,6 @@ version = "3.1.4"
     )
     .unwrap();
 
-    // Python binding crate with a workspace-member path dep + a registry dep.
     std::fs::create_dir_all(root.join("crates/my-lib-py/src")).unwrap();
     std::fs::write(root.join("crates/my-lib-py/src/lib.rs"), "pub fn hi() {}").unwrap();
     std::fs::write(
@@ -442,7 +429,6 @@ sources = ["crates/my-lib/src/lib.rs"]
     .unwrap();
     let mut config = cfg.resolve().unwrap().remove(0);
     config.workspace_root = Some(root.to_path_buf());
-    // resolved_version() reads version_from as a path; point it at the temp root.
     config.version_from = root.join("Cargo.toml").to_string_lossy().to_string();
 
     (tmp, config)
@@ -479,7 +465,6 @@ fn prepare_registry_rewrites_member_path_deps() {
     assert_eq!(my_lib.get("version").and_then(|v| v.as_str()), Some("3.1.4"));
     assert!(my_lib.get("path").is_none(), "path must be stripped");
     assert!(my_lib.get("features").is_some(), "features preserved");
-    // Registry dep untouched.
     assert_eq!(deps["anyhow"].as_str(), Some("1"));
 }
 
@@ -493,7 +478,6 @@ fn prepare_registry_dry_run_mutates_nothing() {
     let after = std::fs::read_to_string(root.join("crates/my-lib-py/Cargo.toml")).unwrap();
 
     assert_eq!(before, after, "dry-run must not modify the manifest");
-    // The path dep must still be present.
     let doc: toml_edit::DocumentMut = after.parse().unwrap();
     let my_lib = doc["dependencies"]["my-lib"].as_inline_table().unwrap();
     assert!(my_lib.get("path").is_some(), "dry-run leaves path intact");
@@ -506,11 +490,9 @@ fn assert_no_member_path_deps_detects_skipped_prepare() {
     let manifest = ws_root.join(resolve_binding_manifest(&config, Language::Python).unwrap());
     let members = workspace::workspace_member_crates(&ws_root).unwrap();
 
-    // Before prepare: the member path dep is present → must bail.
     let err = assert_no_member_path_deps(&manifest, &members, Language::Python).unwrap_err();
     assert!(err.to_string().contains("still has a `path`"), "got: {err}");
 
-    // After prepare: clean.
     vendor::rewrite_path_deps_to_registry(&manifest, &members, "3.1.4").unwrap();
     assert_no_member_path_deps(&manifest, &members, Language::Python).unwrap();
 }

@@ -29,7 +29,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                 if opaque_types.contains(n) {
                     return format!("{}: rustler::ResourceArc<{}>", p.name, n);
                 }
-                // Default (has_default) types are passed as JSON strings so that
                 // partial maps work — serde_json::from_str respects #[serde(default)].
                 if default_types.contains(n) {
                     return format!("{}: Option<String>", p.name);
@@ -38,8 +37,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     return format!("{}: Option<{}>", p.name, n);
                 }
             }
-            // Vec<Named> parameters (batch items like Vec<BatchBytesItem>) are marshalled via JSON
-            // to avoid Rustler's limitation on decoding complex struct lists.
             if let TypeRef::Vec(inner) = &p.ty {
                 if let TypeRef::Named(inner_name) = inner.as_ref() {
                     if !opaque_types.contains(inner_name.as_str()) {
@@ -47,8 +44,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     }
                 }
             }
-            // Rustler 0.37 cannot marshal Vec<u8> from Erlang binaries;
-            // use rustler::Binary for NIF function parameters.
             if matches!(&p.ty, TypeRef::Bytes) {
                 return if p.optional {
                     format!("{}: Option<rustler::Binary>", p.name)
@@ -70,9 +65,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
         crate::backends::rustler::gen_bindings::helpers::map_return_type(&func.return_type, mapper, opaque_types);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    // A function can be auto-delegated when all params (after JSON deserialization)
-    // map cleanly to core types.  We treat default-typed params and batch Vec params
-    // as delegatable by building the JSON deserialization preamble ourselves.
     let has_default_params = func
         .params
         .iter()
@@ -91,7 +83,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
         shared::can_auto_delegate_function(func, opaque_types) || has_default_params || has_batch_vec_params;
 
     let body = if can_delegate {
-        // Build per-param deserialization lines and call-arg expressions.
         let mut deser_lines: Vec<String> = Vec::new();
         let call_args: Vec<String> = func
             .params
@@ -100,45 +91,30 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                 if let TypeRef::Named(n) = &p.ty {
                     if default_types.contains(n) {
                         let core_ty = resolve_core_type_path(n, types_by_name, core_import);
-                        // Optional JSON string → Option<CoreType> via serde.
-                        // For Result-returning fns we use `?` to surface deser errors;
-                        // for non-Result fns (e.g. `from`/`default` static helpers) we
-                        // fall back to `.ok().flatten()` so a malformed JSON yields
-                        // None instead of an unrecoverable panic from `?`.
                         let deser_line = if func.error_type.is_some() {
                             render_deser_line("default_deser_with_error.rs.jinja", &p.name, &core_ty)
                         } else {
                             render_deser_line("default_deser_without_error.rs.jinja", &p.name, &core_ty)
                         };
                         deser_lines.push(deser_line);
-                        // Handle based on whether core function expects reference or option
                         if p.optional {
-                            // Core expects Option<T> → pass as-is
                             return format!("{}_core", p.name);
                         } else if p.is_ref && p.is_mut {
-                            // Core expects &mut T → bind a mutable local, then borrow it
                             let mut_name = format!("{}_mut", p.name);
                             deser_lines.push(format!("let mut {mut_name} = {}_core.unwrap_or_default();", p.name));
                             return format!("&mut {mut_name}");
                         } else if p.is_ref {
-                            // Core expects &T → use as_ref() to get Option<&T>, then unwrap
                             return format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name);
                         } else {
-                            // Core expects T → unwrap or use default
                             return format!("{}_core.unwrap_or_default()", p.name);
                         }
                     }
                 }
-                // Vec<Named> parameters (batch items): deserialize from JSON string.
-                // Batch functions receive Vec<BatchBytesItem> or Vec<BatchFileItem> as JSON strings
-                // to avoid Rustler's limitation on decoding complex struct lists.
                 if let TypeRef::Vec(inner) = &p.ty {
                     if let TypeRef::Named(inner_name) = inner.as_ref() {
                         if !opaque_types.contains(inner_name.as_str()) {
                             let inner_ty = resolve_core_type_path(inner_name, types_by_name, core_import);
                             let core_ty = format!("Vec<{}>", inner_ty);
-                            // Batch parameters are marshalled as Option<String> (from Rustler) but the core
-                            // expects Vec<T> (not optional). Deserialize and default to empty vec on None.
                             let deser_line = if func.error_type.is_some() {
                                 format!(
                                     "let {}_core: {} = {}.map(|s| serde_json::from_str::<{}>(&s).map_err(|e| e.to_string())).transpose()?.unwrap_or_default();",
@@ -151,7 +127,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                                 )
                             };
                             deser_lines.push(deser_line);
-                            // Batch parameters are always required (not optional); pass the deserialized vec
                             return if p.is_ref {
                                 format!("&{}_core", p.name)
                             } else {
@@ -160,10 +135,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                         }
                     }
                 }
-                // AHashMap<Cow<'static, str>, Value> params: Rustler receives these as
-                // HashMap<String, String> (BEAM maps decoded to Rust). We need a two-step conversion:
-                // (1) bind an owned AHashMap to a named `let` before the call so we can borrow it,
-                // (2) pass the reference in the call arg.
                 if let TypeRef::Map(_, _) = &p.ty {
                     if p.map_is_ahash && p.map_key_is_cow {
                         let bound_name = format!("__{}_ahash", p.name);
@@ -180,7 +151,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                         };
                     }
                 }
-                // Fall back to the standard call-arg logic for all other types.
                 match &p.ty {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                         format!("&{}.inner.read().unwrap_or_else(|e| e.into_inner()).clone()", p.name)
@@ -188,64 +158,47 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     TypeRef::Named(_) => {
                         if p.optional {
                             if p.is_ref {
-                                // Option<T> where core expects &T → use .as_ref()
                                 format!("{}.as_ref().map(Into::into)", p.name)
                             } else {
                                 format!("{}.map(Into::into)", p.name)
                             }
                         } else if p.is_ref {
-                            // T where core expects &T → take reference of converted value
                             format!("&{}.clone().into()", p.name)
                         } else {
                             format!("{}.into()", p.name)
                         }
                     }
-                    // String params: handle optional and reference cases.
                     TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
-                        // Option<String> where core expects Option<&str>
                         format!("{}.as_deref()", p.name)
                     }
-                    // Option<String> where core expects Option<Cow<'_, str>>: wrap each owned
-                    // String via Cow::Owned. Without this conversion, the binding's
-                    // Option<String> doesn't satisfy the core's Option<Cow<'_, str>>.
                     TypeRef::String | TypeRef::Char if p.optional && p.core_wrapper == CoreWrapper::Cow => {
                         format!("{}.map(std::borrow::Cow::Owned)", p.name)
                     }
                     TypeRef::String | TypeRef::Char if p.optional => {
-                        // Option<String> where core expects Option<String>
                         p.name.to_string()
                     }
                     TypeRef::String | TypeRef::Char if p.is_ref => {
-                        // String where core expects &str
                         format!("&{}", p.name)
                     }
-                    // String where core expects Cow<'_, str>: String implements
-                    // Into<Cow<'_, str>>, so `.into()` performs the coercion at the call site.
                     TypeRef::String | TypeRef::Char if p.core_wrapper == CoreWrapper::Cow => {
                         format!("{}.into()", p.name)
                     }
                     TypeRef::String | TypeRef::Char => {
-                        // String where core expects String
                         p.name.clone()
                     }
                     TypeRef::Path => {
                         if p.optional && p.is_ref {
-                            // Option<String> where core expects Option<&Path>
                             format!("{}.as_deref().map(std::path::Path::new)", p.name)
                         } else if p.optional {
-                            // Option<String> where core expects Option<PathBuf>
                             format!("{}.map(std::path::PathBuf::from)", p.name)
                         } else if p.is_ref {
-                            // &Path expected → pass reference to PathBuf
                             format!("&std::path::PathBuf::from({})", p.name)
                         } else {
-                            // PathBuf expected
                             format!("std::path::PathBuf::from({})", p.name)
                         }
                     }
                     TypeRef::Bytes => {
                         if p.optional {
-                            // Option<rustler::Binary> -> Option<&[u8]>
                             if p.is_ref {
                                 format!("{}.map(|b| b.as_slice())", p.name)
                             } else {
@@ -258,7 +211,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                         }
                     }
                     TypeRef::Json => {
-                        // Option<String> or String containing JSON -> serde_json::Value
                         if p.optional {
                             deser_lines.push(format!(
                                 "let {}_json: Option<serde_json::Value> = {}.map(|s| serde_json::from_str(&s)).transpose().map_err(|e| e.to_string())?;",
@@ -275,7 +227,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(inner) if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
-                        // Core expects &[&str]; Vec<String> does not coerce, so build an intermediate refs vec.
                         if p.optional {
                             deser_lines.push(render_named_deser_line("vec_str_refs_optional.rs.jinja", &p.name));
                         } else {
@@ -285,9 +236,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     }
                     TypeRef::Vec(_) => {
                         if p.is_ref {
-                            // &Vec<T> derefs to &[T] which matches sample_core core in all known sites.
-                            // If the param is optional, the deserialized value is Option<Vec<T>>, so we need
-                            // to unwrap or use as_ref() to get Option<&Vec<T>>.
                             if p.optional {
                                 format!("{}_core.as_ref().map(|v| v.as_slice()).unwrap_or(&[])", p.name)
                             } else {
@@ -297,11 +245,8 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                             p.name.to_string()
                         }
                     }
-                    // Map: when the core fn expects BTreeMap but the binding receives
-                    // HashMap (Rustler decodes BEAM maps as HashMap), collect into a BTreeMap.
                     TypeRef::Map(_, _) if p.map_is_btree => {
                         if p.is_ref {
-                            // Need to bind as a local, then take a reference
                             let bound_name = format!("__{}_btree", p.name);
                             deser_lines.push(format!(
                                 "let {bound_name} = {}.into_iter().collect::<std::collections::BTreeMap<_, _>>();",
@@ -336,11 +281,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
             render_wrapped_body(&preamble, &wrap)
         }
     } else if !func.sanitized && func.error_type.is_some() {
-        // Serde recovery path: the function cannot be auto-delegated (e.g. a Named param is
-        // passed by reference and has no From impl), but the function returns a Result so we
-        // can propagate deserialization errors.  We serialize each non-opaque, non-default
-        // Named binding param to JSON and deserialize directly into the matching core type.
-        // This works because binding structs derive Serialize and core types derive Deserialize.
         let mut deser_lines: Vec<String> = Vec::new();
         let call_args: Vec<String> = func
             .params
@@ -351,8 +291,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                         return format!("&{}.inner.read().unwrap_or_else(|e| e.into_inner()).clone()", p.name);
                     }
                     if default_types.contains(n) {
-                        // Default types already handled in the can_delegate branch above.
-                        // They cannot appear here, but guard for completeness.
                         let core_ty = resolve_core_type_path(n, types_by_name, core_import);
                         deser_lines.push(render_deser_line(
                             "default_deser_with_error.rs.jinja",
@@ -367,7 +305,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                             format!("{}_core.unwrap_or_default()", p.name)
                         };
                     }
-                    // Non-opaque Named param: round-trip via serde_json.
                     let core_ty = resolve_core_type_path(n, types_by_name, core_import);
                     deser_lines.push(render_named_deser_line("named_param_to_json.rs.jinja", &p.name));
                     deser_lines.push(render_deser_line("named_param_from_json.rs.jinja", &p.name, &core_ty));
@@ -377,7 +314,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                         format!("{}_core", p.name)
                     };
                 }
-                // Non-Named params: use the same expressions as the delegate path.
                 match &p.ty {
                     TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
                         format!("{}.as_deref()", p.name)
@@ -394,7 +330,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     }
                     TypeRef::Bytes => {
                         if p.optional {
-                            // Option<rustler::Binary> -> Option<&[u8]>
                             if p.is_ref {
                                 format!("{}.map(|b| b.as_slice())", p.name)
                             } else {
@@ -407,7 +342,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                         }
                     }
                     TypeRef::Json => {
-                        // Option<String> or String containing JSON -> serde_json::Value
                         if p.optional {
                             deser_lines.push(format!(
                                 "let {}_json: Option<serde_json::Value> = {}.map(|s| serde_json::from_str(&s)).transpose().map_err(|e| e.to_string())?;",
@@ -424,7 +358,6 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(inner) if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) => {
-                        // Core expects &[&str]; Vec<String> does not coerce, so build an intermediate refs vec.
                         if p.optional {
                             deser_lines.push(render_named_deser_line("vec_str_refs_optional.rs.jinja", &p.name));
                         } else {
@@ -434,18 +367,13 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     }
                     TypeRef::Vec(_) => {
                         if p.is_ref {
-                            // `&Vec<T>` derefs to `&[T]`, which is what sample_core core
-                            // takes for `&[String]` callers.
                             format!("&{}", p.name)
                         } else {
                             p.name.to_string()
                         }
                     }
-                    // Map: when the core fn expects BTreeMap but the binding receives
-                    // HashMap (Rustler decodes BEAM maps as HashMap), collect into a BTreeMap.
                     TypeRef::Map(_, _) if p.map_is_btree => {
                         if p.is_ref {
-                            // Need to bind as a local, then take a reference
                             let bound_name = format!("__{}_btree", p.name);
                             deser_lines.push(format!(
                                 "let {bound_name} = {}.into_iter().collect::<std::collections::BTreeMap<_, _>>();",

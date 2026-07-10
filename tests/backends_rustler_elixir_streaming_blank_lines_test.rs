@@ -86,8 +86,6 @@ fn streaming_wrappers_have_proper_blank_lines_before_doc_false() {
         .expect("generate_public_api must succeed");
     let content = find_module(&files, "test_crawl");
 
-    // After the public `crawl_stream` wrapper (ends with `end`), there must be
-    // a blank line before the next `@doc false` for the internal _start helper.
     let bad_pattern = "    end\n  end\n  @doc false\n  def crawlengine_batch_crawl_stream_start";
     assert!(
         !content.contains(bad_pattern),
@@ -96,7 +94,6 @@ fn streaming_wrappers_have_proper_blank_lines_before_doc_false() {
          Content:\n{content}"
     );
 
-    // Verify the correct pattern: blank line between the public wrapper's `end` and `@doc false`
     let correct_pattern = "    end\n  end\n\n  @doc false\n  def crawlengine_batch_crawl_stream_start";
     assert!(
         content.contains(correct_pattern),
@@ -104,7 +101,6 @@ fn streaming_wrappers_have_proper_blank_lines_before_doc_false() {
          Content:\n{content}"
     );
 
-    // Verify the second adapter also has proper spacing
     let second_adapter_bad = "    end\n  end\n  @doc false\n  def crawlengine_batch_crawl_stream_next";
     assert!(
         !content.contains(second_adapter_bad),
@@ -122,14 +118,11 @@ fn public_streaming_wrapper_function_ends_with_proper_spacing() {
         .expect("generate_public_api must succeed");
     let content = find_module(&files, "test_spacing");
 
-    // Check that the public `crawl_stream` function exists
     assert!(
         content.contains("def crawl_stream(client, request)"),
         "public crawl_stream wrapper must exist; content:\n{content}"
     );
 
-    // Check that the closing `end` of `crawl_stream` is followed by a blank line
-    // then the internal `@doc false` helpers
     assert!(
         content.contains("    end\n  end\n\n  @doc false\n  def crawlengine_"),
         "public wrapper function must have proper spacing (blank line) before next definition; \

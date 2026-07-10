@@ -3,7 +3,6 @@ use alef::core::config::TraitBridgeConfig;
 use alef::core::ir::*;
 
 // ---------------------------------------------------------------------------
-// Shared helpers
 // ---------------------------------------------------------------------------
 
 fn make_api() -> ApiSurface {
@@ -238,10 +237,6 @@ fn make_visitor_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Plugin bridge: wrapper struct
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_plugin_bridge_generates_wrapper_struct() {
     let trait_def = make_trait_def(
@@ -266,10 +261,6 @@ fn test_plugin_bridge_generates_wrapper_struct() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Plugin bridge: trait impl
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_plugin_bridge_generates_trait_impl() {
     let trait_def = make_trait_def(
@@ -291,10 +282,6 @@ fn test_plugin_bridge_generates_trait_impl() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Plugin bridge: sync method body uses OwnedEnv + map_get
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_plugin_bridge_sync_method_uses_owned_env_and_map_get() {
     let trait_def = make_trait_def("Analyzer", vec![make_method("analyze", TypeRef::String, true, false)]);
@@ -312,10 +299,6 @@ fn test_plugin_bridge_sync_method_uses_owned_env_and_map_get() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Plugin bridge: async method uses spawn_blocking
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_plugin_bridge_async_method_uses_spawn_blocking() {
     let trait_def = make_trait_def("Processor", vec![make_async_method("run")]);
@@ -332,10 +315,6 @@ fn test_plugin_bridge_async_method_uses_spawn_blocking() {
         "async method must be declared async"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Plugin bridge: registration function
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_plugin_bridge_generates_registration_fn() {
@@ -376,10 +355,6 @@ fn test_plugin_bridge_generates_registration_fn() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Plugin bridge: registration validates required methods
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_plugin_bridge_registration_validates_required_methods() {
     let trait_def = make_trait_def(
@@ -399,10 +374,6 @@ fn test_plugin_bridge_registration_validates_required_methods() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Plugin bridge: constructor caches name
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_plugin_bridge_constructor_caches_name() {
     let trait_def = make_trait_def("Worker", vec![make_method("work", TypeRef::Unit, false, false)]);
@@ -419,10 +390,6 @@ fn test_plugin_bridge_constructor_caches_name() {
         "constructor must accept a LocalPid and plugin_name for message passing"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Plugin bridge: super_trait generates Plugin impl
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
@@ -467,10 +434,6 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
         "Plugin impl must include shutdown()"
     );
 
-    // Regression: initialize()/shutdown() take no args, so the native args map is
-    // never mutated. Emitting `let mut args_map` triggers unused_mut warnings
-    // (clippy/rustc) in the generated NIF code. See
-    // packages/elixir/native/sample_crate_nif/src/lib.rs:5159/:5196 reproduction.
     assert!(
         !code.code.contains("let mut args_map = rustler::Term::map_new(env);"),
         "no-arg trait methods must emit `let args_map`, not `let mut args_map` (unused_mut)"
@@ -480,10 +443,6 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
         "no-arg trait methods must emit `let args_map = rustler::Term::map_new(env);`"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Visitor bridge
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_visitor_bridge_generates_elixir_bridge_struct() {
@@ -511,8 +470,6 @@ fn test_visitor_bridge_does_not_generate_registration_fn() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
         .expect("trait bridge generation should succeed");
 
-    // Visitor bridges do not generate a register_{trait} function, but may
-    // emit helper NIFs (e.g. visitor_reply). Verify no registration fn exists.
     assert!(
         !code.code.contains("pub fn register_"),
         "visitor bridge must not generate a register_ registration function"
@@ -556,10 +513,6 @@ fn test_visitor_bridge_holds_owned_env_and_saved_term() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Plugin bridge: Send + Sync compliance
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_plugin_bridge_struct_does_not_hold_owned_env() {
     let trait_def = make_trait_def(
@@ -570,8 +523,6 @@ fn test_plugin_bridge_struct_does_not_hold_owned_env() {
     let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
         .expect("trait bridge generation should succeed");
 
-    // The struct definition should NOT contain an 'env:' field that holds OwnedEnv.
-    // Only 'inner: SavedTerm' and 'cached_name: String', both of which are Send + Sync.
     let struct_section = output
         .code
         .split("pub struct RustlerTextBackendBridge")
@@ -579,7 +530,6 @@ fn test_plugin_bridge_struct_does_not_hold_owned_env() {
         .and_then(|s| s.split("}").next())
         .unwrap_or("");
 
-    // Check that there's no field named "env:" (but "rustler::env::" in the type is OK)
     let has_env_field = struct_section.lines().any(|line| line.trim().starts_with("env:"));
 
     assert!(
@@ -595,7 +545,6 @@ fn test_plugin_bridge_sync_method_creates_owned_env_locally() {
     let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
         .expect("trait bridge generation should succeed");
 
-    // Sync method body should create a fresh OwnedEnv locally, not access self.env.
     let method_impl = output.code.split("fn analyze(").nth(1).unwrap_or("");
     assert!(
         method_impl.contains("let mut env = rustler::OwnedEnv::new()"),
@@ -606,17 +555,6 @@ fn test_plugin_bridge_sync_method_creates_owned_env_locally() {
         "sync method must not use self.env (which doesn't exist)"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Native-term callback args
-// ---------------------------------------------------------------------------
-//
-// The plugin trait bridge sends callback args to the Elixir host as a NATIVE
-// Erlang term map carried in the `{:trait_call, method, args_map, reply_id}`
-// message — built inside `send_and_clear` via `rustler::Term::map_new` +
-// `map_put` per arg — NOT a JSON string. A serde-struct param is materialised
-// into the binding's `NifStruct` (via `From<core::T>`) and encoded as a native
-// term, so the host receives a native struct/map. The reply path stays JSON.
 
 fn make_struct_param_method(name: &str) -> MethodDef {
     let mut m = make_method(name, TypeRef::String, true, false);
@@ -636,7 +574,6 @@ fn test_plugin_bridge_struct_param_sent_as_native_term() {
     let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
         .expect("trait bridge generation should succeed");
 
-    // The native args map is built with map_new and the struct arg is map_put under its key.
     assert!(
         output.code.contains("rustler::Term::map_new(env)"),
         "args must be built as a native term map via map_new; got:\n{}",
@@ -647,7 +584,6 @@ fn test_plugin_bridge_struct_param_sent_as_native_term() {
         "struct param must be inserted into the native args map via map_put; got:\n{}",
         output.code
     );
-    // The owned struct binding is materialised before the dispatch closure and encoded natively.
     assert!(
         output
             .code
@@ -660,7 +596,6 @@ fn test_plugin_bridge_struct_param_sent_as_native_term() {
         "struct param must be encoded as a native term; got:\n{}",
         output.code
     );
-    // The native map (not a JSON string) is the trait_call payload.
     assert!(
         output.code.contains("method, args_map, reply_id"),
         "the native args map (not a JSON string) must be the trait_call payload; got:\n{}",
@@ -675,9 +610,6 @@ fn test_plugin_bridge_struct_param_sent_as_native_term() {
 
 #[test]
 fn test_plugin_bridge_enum_param_sent_as_native_term() {
-    // An enum param (WalkDecision lives in api.enums, never api.types) keeps the
-    // debug-string fallback, but it is now encoded as a native binary term in the
-    // args map rather than serialized into a JSON string.
     let mut m = make_method("decide", TypeRef::String, true, false);
     m.params = vec![ParamDef {
         name: "decision".to_string(),
@@ -704,19 +636,7 @@ fn test_plugin_bridge_enum_param_sent_as_native_term() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Visitor bridge: native-term callback args
-// ---------------------------------------------------------------------------
-//
-// Like the plugin path, a visitor callback now sends its args as a NATIVE Erlang
-// term map carried in `{:visitor_callback, ref_id, callback_name, args_map}` —
-// built inside the `visitor_send_and_wait` dispatch closure via
-// `rustler::Term::map_new` + `map_put` per arg — NOT a JSON string. A serde-struct
-// param is materialised into the binding's `NifStruct` (via `From<core::T>`) and
-// encoded as a native term. The reply/return path is unchanged.
-
 fn make_visitor_struct_param_method(name: &str) -> MethodDef {
-    // Visitor methods must have a default impl (that is what makes the bridge a visitor).
     let mut m = make_method(name, TypeRef::Named("WalkDecision".to_string()), false, true);
     m.params = vec![
         ParamDef {
@@ -742,7 +662,6 @@ fn test_visitor_bridge_struct_param_sent_as_native_term() {
     let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
         .expect("trait bridge generation should succeed");
 
-    // The native args map is built with map_new and each arg is map_put under its key.
     assert!(
         output.code.contains("rustler::Term::map_new(env)"),
         "visitor args must be built as a native term map via map_new; got:\n{}",
@@ -758,7 +677,6 @@ fn test_visitor_bridge_struct_param_sent_as_native_term() {
         "string param must be inserted into the native args map via map_put; got:\n{}",
         output.code
     );
-    // The owned struct binding is materialised before the dispatch and encoded natively.
     assert!(
         output
             .code
@@ -771,7 +689,6 @@ fn test_visitor_bridge_struct_param_sent_as_native_term() {
         "struct param must be encoded as a native term; got:\n{}",
         output.code
     );
-    // The callback dispatches through visitor_send_and_wait with a term-building closure.
     assert!(
         output
             .code
@@ -779,7 +696,6 @@ fn test_visitor_bridge_struct_param_sent_as_native_term() {
         "visitor callback must dispatch via visitor_send_and_wait with a term-building closure; got:\n{}",
         output.code
     );
-    // No JSON envelope: neither a serde_json::Map nor an args_json string.
     assert!(
         !output.code.contains("serde_json::Map::new()") && !output.code.contains("args_json"),
         "visitor args must not be marshalled through a JSON string; got:\n{}",

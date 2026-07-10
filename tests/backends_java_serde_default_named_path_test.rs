@@ -48,7 +48,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         has_stripped_cfg_fields: false,
         is_return_type: false,
         serde_rename_all: None,
-        has_serde: true, // required for builder generation
+        has_serde: true,
         super_traits: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
@@ -105,7 +105,7 @@ fn test_java_named_serde_default_does_not_leak_raw_attribute() {
     let field = make_field(
         "deny_private",
         TypeRef::Primitive(PrimitiveType::Bool),
-        false, // non-optional
+        false,
         Some("serde(default = \"default_deny_private\")".to_string()),
     );
     let files = generate(make_type("SsrfPolicy", vec![field]));
@@ -116,20 +116,16 @@ fn test_java_named_serde_default_does_not_leak_raw_attribute() {
         .expect("SsrfPolicy.java not generated");
     let content = &type_file.content;
 
-    // The raw serde attribute must never reach the generated Java source.
     assert!(
         !content.contains("serde(default"),
         "named serde-default attribute leaked into generated Java:\n{content}"
     );
 
-    // The field is boxed/nullable so `null` represents "not set", letting Rust's
-    // serde apply its own default (matches the bare-placeholder behaviour).
     assert!(
         content.contains("@Nullable private Boolean denyPrivate;"),
         "builder field should be a nullable boxed Boolean, but got:\n{content}"
     );
 
-    // It must NOT be emitted as a primitive with a raw initializer.
     assert!(
         !content.contains("private boolean denyPrivate ="),
         "builder field should not be a primitive boolean with an initializer, but got:\n{content}"

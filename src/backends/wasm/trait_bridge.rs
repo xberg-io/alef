@@ -29,7 +29,6 @@ pub fn find_options_field_binding<'a>(
         }
         if let Some(options_type) = &bridge.options_type {
             for (idx, param) in func.params.iter().enumerate() {
-                // Check if param type is Named(options_type) or Optional(Named(options_type))
                 let matches = match &param.ty {
                     crate::core::ir::TypeRef::Named(n) => n == options_type,
                     crate::core::ir::TypeRef::Optional(inner) => {
@@ -159,7 +158,6 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         // The #[async_trait] macro will wrap this body in a pinned future.
-        // Do NOT add Box::pin(async move { ... }) here — that causes double-boxing.
         let name = &method.name;
         let js_name = to_camel_case(name);
         let has_error = method.error_type.is_some();
@@ -316,13 +314,11 @@ impl WasmBridgeGenerator {
             TypeRef::Bytes => "Vec<u8>".into(),
             TypeRef::Vec(inner) => format!("Vec<{}>", self.extract_ty(inner)),
             TypeRef::Optional(inner) => format!("Option<{}>", self.extract_ty(inner)),
-            TypeRef::Named(name) => {
-                // Qualify Named types with core crate path if available in type_paths
-                self.type_paths
-                    .get(name.as_str())
-                    .map(|p| p.replace('-', "_"))
-                    .unwrap_or_else(|| format!("{}::{}", self.core_import, name))
-            }
+            TypeRef::Named(name) => self
+                .type_paths
+                .get(name.as_str())
+                .map(|p| p.replace('-', "_"))
+                .unwrap_or_else(|| format!("{}::{}", self.core_import, name)),
             TypeRef::Unit => "()".into(),
             TypeRef::Map(k, v) => format!(
                 "std::collections::HashMap<{}, {}>",
@@ -364,7 +360,6 @@ pub fn gen_trait_bridge(
     error_constructor: &str,
     api: &ApiSurface,
 ) -> anyhow::Result<BridgeOutput> {
-    // Build type name → rust_path lookup, converting to owned HashMap<String, String>
     let type_paths: HashMap<String, String> = api
         .types
         .iter()
@@ -374,8 +369,6 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods referencing them (for example, `&HiddenDoc`)
-        // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
                 .iter()
@@ -383,7 +376,6 @@ pub fn gen_trait_bridge(
         )
         .collect();
 
-    // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
     let is_visitor_bridge = bridge_cfg.type_alias.is_some()
         && bridge_cfg.register_fn.is_none()
         && bridge_cfg.super_trait.is_none()
@@ -408,10 +400,7 @@ pub fn gen_trait_bridge(
             code: out,
         }
     } else {
-        // Use the IR-driven TraitBridgeGenerator infrastructure for plugin pattern
         let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
-        // Rust-defaulted methods the bridge can forward to the host (host-defined
-        // implementations win; the Rust default runs otherwise).
         let forwardable_defaulted =
             crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
         let generator = WasmBridgeGenerator {
@@ -440,11 +429,7 @@ pub fn gen_trait_bridge(
         gen_bridge_all(&spec, &generator)
     };
 
-    // Gate the entire bridge on wasm32 target. The bridge implements traits that may use
     // `#[cfg_attr(not(target_arch = "wasm32"), async_trait)]`, so on host targets the
-    // trait would have async_trait-rewritten signatures while the impl uses bare `async fn`,
-    // producing E0195 lifetime mismatches. The bridge is also conceptually wasm-only:
-    // it wraps `wasm_bindgen::JsValue` and is invoked from the JS register_* entry point.
     let mod_name = wasm_bridge_module_name(bridge_cfg);
     let gated = format!(
         "#[cfg(target_arch = \"wasm32\")]\nmod {mod_name} {{\n    use super::*;\n\n{body}\n}}\n#[cfg(target_arch = \"wasm32\")]\npub use {mod_name}::*;",
@@ -573,8 +558,6 @@ fn build_wasm_arg(p: &crate::core::ir::ParamDef, bridge_cfg: &TraitBridgeConfig)
             return format!("nodecontext_to_js_value({}{})", if p.is_ref { "" } else { "&" }, p.name);
         }
     }
-    // Optional &str must be checked before non-optional &str — otherwise Option<&str>
-    // would be passed to JsValue::from_str which expects &str, causing a type error.
     if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
         return format!(
             "match {} {{ Some(s) => wasm_bindgen::JsValue::from_str(s), None => wasm_bindgen::JsValue::null() }}",
@@ -590,12 +573,10 @@ fn build_wasm_arg(p: &crate::core::ir::ParamDef, bridge_cfg: &TraitBridgeConfig)
     if matches!(&p.ty, TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)) {
         return format!("wasm_bindgen::JsValue::from_bool({})", p.name);
     }
-    // Handle byte slices: &[u8] or Vec<u8>
     if matches!(&p.ty, TypeRef::Bytes) {
         let deref = if p.is_ref { "" } else { ".as_slice()" };
         return format!("js_sys::Uint8Array::from({}{}).into()", p.name, deref);
     }
-    // For any remaining complex type (Named, Vec, Map, etc.), serialize with serde
     let borrow = if p.is_ref { "" } else { "&" };
     format!(
         "serde_wasm_bindgen::to_value({}{}).unwrap_or(wasm_bindgen::JsValue::NULL)",
@@ -624,7 +605,6 @@ pub fn gen_bridge_function(
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
-    // Build parameter list
     let mut sig_parts = Vec::new();
     for (idx, p) in func.params.iter().enumerate() {
         if idx == bridge_param_idx {
@@ -650,7 +630,6 @@ pub fn gen_bridge_function(
 
     let err_conv = ".map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))";
 
-    // Bridge wrapping code
     let bridge_wrap = if is_optional {
         format!(
             "let {param_name} = {param_name}.map(|v| {{\n        \
@@ -667,10 +646,6 @@ pub fn gen_bridge_function(
         )
     };
 
-    // From conversion let bindings for non-bridge Named params.
-    // Uses the generated From<WasmType> impl to convert binding types to core types,
-    // which avoids requiring serde::Serialize on WASM binding types (many contain JsValue
-    // which cannot be serialized).
     let serde_bindings: String = func
         .params
         .iter()
@@ -715,7 +690,6 @@ pub fn gen_bridge_function(
         })
         .collect();
 
-    // Build call args
     let call_args: Vec<String> = func
         .params
         .iter()
@@ -828,10 +802,8 @@ pub fn gen_options_field_bridge_function(
     let options_param = &func.params[options_param_idx];
     let options_name = &options_param.name;
 
-    // Whether the IR already marks the options param as Optional<T>.
     let ir_param_optional = matches!(&options_param.ty, TypeRef::Optional(_));
 
-    // Name of the visitor parameter that will be appended to the function signature.
     let visitor_kwarg = bridge_cfg.param_name.as_deref().unwrap_or("visitor");
     let field_name = bridge_cfg.resolved_options_field().unwrap_or(visitor_kwarg);
     let options_type = bridge_cfg
@@ -847,8 +819,6 @@ pub fn gen_options_field_bridge_function(
         });
     let options_path = format!("{core_import}::{options_type}");
 
-    // Build parameter list; force the options param to Option<T> if the IR didn't already,
-    // and append the visitor parameter.
     let params_str = {
         let mut sig_parts = vec![];
         for (i, p) in func.params.iter().enumerate() {
@@ -859,7 +829,6 @@ pub fn gen_options_field_bridge_function(
                 sig_parts.push(format!("{}: {ty}", p.name));
             }
         }
-        // Append visitor parameter (optional for WASM compatibility)
         sig_parts.push(format!("{visitor_kwarg}: Option<wasm_bindgen::JsValue>"));
         sig_parts.join(", ")
     };
@@ -869,7 +838,6 @@ pub fn gen_options_field_bridge_function(
 
     let err_conv = ".map_err(|e| wasm_bindgen::JsError::new(&e.to_string()).into())";
 
-    // Build call args, replacing options param with the _core version
     let call_args: String = func
         .params
         .iter()

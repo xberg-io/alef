@@ -172,10 +172,6 @@ pub(super) fn make_spec<'a>(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Mock backend
-// ---------------------------------------------------------------------------
-
 pub(super) struct MockBridgeGenerator;
 
 impl TraitBridgeGenerator for MockBridgeGenerator {

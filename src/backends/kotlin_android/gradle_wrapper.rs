@@ -11,8 +11,6 @@
 /// The wrapper JAR is forward-compatible and will bootstrap any Gradle version
 /// specified in gradle-wrapper.properties, including Gradle 9.6.0.
 pub(super) fn get_gradle_wrapper_jar_base64() -> String {
-    // Gradle 8.5 wrapper JAR (42KB) encoded as base64.
-    // Source: https://raw.githubusercontent.com/gradle/gradle/v8.5.0/gradle/wrapper/gradle-wrapper.jar
     include_str!("../../../assets/gradle-wrapper-8.5.jar.b64")
         .chars()
         .filter(|ch| !ch.is_ascii_whitespace())
@@ -402,14 +400,11 @@ mod tests {
     #[test]
     fn gradle_wrapper_jar_is_base64_encoded() {
         let jar_b64 = get_gradle_wrapper_jar_base64();
-        // Base64 content should start with the ZIP file magic bytes encoded as base64.
-        // ZIP files start with PK (0x504B), which encodes to "UEsD" in base64.
         assert!(
             jar_b64.starts_with("UEsD"),
             "gradle-wrapper.jar base64 must start with encoded ZIP magic bytes 'UEsD', got:\n{}",
             &jar_b64[..std::cmp::min(50, jar_b64.len())]
         );
-        // Base64 should be valid (no newlines in the embedded constant).
         assert!(
             !jar_b64.contains('\n'),
             "gradle-wrapper.jar base64 must not contain newlines"

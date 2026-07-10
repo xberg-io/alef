@@ -19,8 +19,6 @@ use crate::core::ir::{ApiSurface, HandlerContractDef, RegistrationDef, ServiceDe
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
-// ───────────────────────────────────────────────────────────────── helpers ──
-
 /// Find the `HandlerContractDef` by trait name in the surface.
 #[allow(dead_code)]
 fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a HandlerContractDef> {
@@ -51,7 +49,7 @@ fn typeref_to_go_type(ty: &TypeRef) -> String {
             }
         }
         TypeRef::Bytes => "[]byte".to_owned(),
-        TypeRef::Unit => "".to_owned(), // void in Go is implicit (no return)
+        TypeRef::Unit => "".to_owned(),
         TypeRef::Named(n) => n.clone(),
         TypeRef::Optional(inner) => format!("*{}", typeref_to_go_type(inner)),
         TypeRef::Vec(inner) => format!("[]{}", typeref_to_go_type(inner)),
@@ -75,8 +73,6 @@ fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &Ap
     }
 }
 
-// ──────────────────────────────────────────────────────────────── Go output ──
-
 /// Generate the Go service module (`service.go`).
 ///
 /// For each service this emits:
@@ -97,17 +93,14 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
         },
     ));
 
-    // Generate C function references (now more of a comment section, not real FFI decls)
     out.push_str("// ──────────────────────────────────────────── Service Definitions ──\n\n");
     for service in &api.services {
         gen_service_c_imports_comment(&mut out, service, api, ffi_prefix);
     }
 
-    // Generate the handler registry and trampoline
     out.push_str("// ──────────────────────────────────────────── Handler Registry ──\n\n");
     gen_handler_registry(&mut out);
 
-    // Generate Go service structs and methods
     out.push_str("// ──────────────────────────────────────────── Go Service API ──\n\n");
     for service in &api.services {
         gen_service_struct(&mut out, service, api, ffi_prefix, api);
@@ -241,13 +234,11 @@ fn service_c_arg_expr_with_marshal(
         TypeRef::Named(type_name) => {
             if let Some(typedef) = api.types.iter().find(|t| t.name == *type_name) {
                 if typedef.is_opaque {
-                    // Opaque type: access the .ptr field directly
                     (
                         String::new(),
                         format!("(*C.{upper_prefix}{type_name})(unsafe.Pointer({param_name}.ptr))"),
                     )
                 } else {
-                    // DTO: marshal to JSON, call _from_json, store in intermediate var
                     let var_name = format!("c_{param_name}");
                     let type_name_snake = type_name.to_snake_case();
                     let mut preprocessing = format!(
@@ -271,7 +262,6 @@ fn service_c_arg_expr_with_marshal(
                     (preprocessing, arg_expr)
                 }
             } else {
-                // Unknown named type - try to pass as is
                 (
                     String::new(),
                     format!("(*C.{upper_prefix}{type_name})(unsafe.Pointer({param_name}.ptr))"),
@@ -368,29 +358,24 @@ fn gen_service_struct(
         },
     ));
 
-    // Registration methods
     for reg in &service.registrations {
         gen_registration_method(out, service, reg, api, ffi_prefix);
     }
 
-    // Registration variant methods (e.g., Get, Post shortcuts)
     for reg in &service.registrations {
         for variant in &reg.variants {
             gen_registration_variant(out, service, reg, variant, api, ffi_prefix);
         }
     }
 
-    // Configurator methods
     for cfg in &service.configurators {
         gen_configurator_method(out, service, cfg, api, ffi_prefix);
     }
 
-    // Entrypoint methods
     for ep in &service.entrypoints {
         gen_entrypoint_method(out, service, ep, api_surface, ffi_prefix);
     }
 
-    // StartBackground convenience method for non-blocking server spawn
     gen_start_background_method(out, service, ffi_prefix);
 }
 
@@ -409,11 +394,9 @@ fn gen_registration_method(
     let method_name_pascal = method_name.to_upper_camel_case();
     let reg_method_snake = method_name.to_snake_case();
 
-    // Build method signature with metadata params
     let mut params = vec!["handler HandlerFunc".to_owned()];
     for meta_param in &reg.metadata_params {
         let mut go_type = typeref_to_go_type(&meta_param.ty);
-        // Opaque types (Named types that wrap FFI pointers) must be passed by pointer
         if let TypeRef::Named(type_name) = &meta_param.ty {
             if api.types.iter().any(|t| t.name == *type_name) {
                 go_type = format!("*{}", go_type);
@@ -461,12 +444,8 @@ fn gen_registration_method(
         },
     ));
 
-    // Register the handler in Go's registry
     out.push_str("\tctxID := registerHandler(handler)\n");
 
-    // Call C registration function.
-    // Pass the exported Go callback function's address as an opaque void* pointer.
-    // The FFI function will transmute it back to the proper function pointer type.
     let upper_prefix = ffi_prefix.to_uppercase();
     out.push_str(&crate::backends::go::template_env::render(
         "service_registration_call_header.jinja",
@@ -479,8 +458,6 @@ fn gen_registration_method(
         },
     ));
 
-    // Add metadata params as arguments, marshaling opaque types correctly. Go requires a trailing
-    // comma on every argument when the closing paren sits on its own line, so each line ends with `,`.
     for meta_param in &reg.metadata_params {
         let expr = service_c_arg_expr(&meta_param.name, &meta_param.ty, api, &upper_prefix);
         emit_service_call_arg(out, &expr);
@@ -510,7 +487,6 @@ fn gen_registration_variant(
     let variant_name_pascal = variant.name.to_upper_camel_case();
     let variant_name_snake = variant.name.to_snake_case();
 
-    // Build method signature with variant's signature_params + handler
     let mut params = vec!["handler HandlerFunc".to_owned()];
     for sig_param in &variant.signature_params {
         let go_type = typeref_to_go_type(&sig_param.ty);
@@ -556,14 +532,9 @@ fn gen_registration_variant(
         },
     ));
 
-    // Register the handler in Go's registry
     out.push_str("\tctxID := registerHandler(handler)\n");
 
-    // Call the C variant function with fixed overrides + free args
     let upper_prefix = ffi_prefix.to_uppercase();
-    // The FFI exports the variant symbol as `{prefix}_{service}_{variant}` —
-    // the registration method name is NOT included in the variant symbol name.
-    // Get the function pointer from a public C helper function.
     out.push_str(&crate::backends::go::template_env::render(
         "service_variant_call_header.jinja",
         minijinja::context! {
@@ -575,12 +546,6 @@ fn gen_registration_variant(
         },
     ));
 
-    // Emit the free args that follow the fixed trampoline args.
-    //
-    // When a wrapper_call is present the FFI function's extra args are the free
-    // constructor params in declaration order (fixed params are baked in).
-    // When there is no wrapper_call the extra args are the non-overridden base
-    // metadata params.
     if let Some(wc) = &variant.wrapper_call {
         for arg in &wc.args {
             if let WrapperConstructorArg::Free { param } = arg {
@@ -591,7 +556,6 @@ fn gen_registration_variant(
     } else {
         for base_param in &reg.metadata_params {
             if variant.overrides.iter().any(|o| o.param_name == base_param.name) {
-                // Fixed override — baked into the FFI function; do not re-emit.
             } else if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
                 let expr = service_c_arg_expr(&sig_param.name, &sig_param.ty, api, &upper_prefix);
                 emit_service_call_arg(out, &expr);
@@ -622,11 +586,9 @@ fn gen_configurator_method(
     let cfg_method_pascal = cfg.name.to_upper_camel_case();
     let cfg_method_snake = cfg.name.to_snake_case();
 
-    // Build method signature with configurator's params
     let mut params = Vec::new();
     for cfg_param in &cfg.params {
         let go_type = typeref_to_go_type(&cfg_param.ty);
-        // Opaque types must be passed by pointer
         let final_type = if let TypeRef::Named(type_name) = &cfg_param.ty {
             if api.types.iter().any(|t| t.name == *type_name) {
                 format!("*{}", go_type)
@@ -668,17 +630,13 @@ fn gen_configurator_method(
 
     let upper_prefix = ffi_prefix.to_uppercase();
 
-    // Build configurator call with all arguments (owner + config params) as a Jinja array
-    // to ensure commas are on the same line as their arguments, not orphaned.
     let mut cfg_args = Vec::new();
     let mut preprocessing = String::new();
 
-    // First argument: owner (always present)
     cfg_args.push(minijinja::context! {
         expr => format!("(*C.{upper_prefix}{service_name}Opaque)(s.owner)"),
     });
 
-    // Config parameters: collect preprocessing code and argument expressions
     for cfg_param in &cfg.params {
         let (pre, expr) =
             service_c_arg_expr_with_marshal(&cfg_param.name, &cfg_param.ty, api, &upper_prefix, ffi_prefix);
@@ -712,7 +670,6 @@ fn gen_entrypoint_method(
     api: &ApiSurface,
     ffi_prefix: &str,
 ) {
-    // Skip finalize entrypoints with non-representable return types (e.g., foreign framework routers).
     use crate::core::ir::EntrypointKind;
     if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
         return;
@@ -724,7 +681,6 @@ fn gen_entrypoint_method(
     let ep_method_pascal = ep_method.to_upper_camel_case();
     let ep_name_snake = ep_method.to_snake_case();
 
-    // Build method signature with entrypoint params
     let mut params = vec![];
     for ep_param in &ep.params {
         let go_type = typeref_to_go_type(&ep_param.ty);
@@ -736,11 +692,6 @@ fn gen_entrypoint_method(
         params.join(", ")
     };
 
-    // The C entrypoint returns either a `*mut T` opaque pointer (when this surface wraps the
-    // entrypoint's return type) or an `i32` status code (0 = ok). Mirror that ABI here: expose the
-    // opaque wrapper as a value; otherwise the call is status-only, reported through `error`. A
-    // value type the surface does not wrap (e.g. a foreign framework type) has no C return form, so
-    // it collapses to the status call rather than a bogus Go value.
     let upper_prefix = ffi_prefix.to_uppercase();
     let opaque_return = match &ep.return_type {
         TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => Some(n.clone()),
@@ -782,7 +733,6 @@ fn gen_entrypoint_method(
         },
     ));
 
-    // Call the C entrypoint, capturing its return when it carries a value or status.
     let capture = if opaque_return.is_some() || has_err {
         "ret := "
     } else {
@@ -837,8 +787,6 @@ fn gen_entrypoint_method(
     out.push_str("}\n\n");
 }
 
-// ──────────────────────────────────────────────────────────────── public entry point ──
-
 /// Generate all service-API files for the Go backend.
 ///
 /// Returns one `GeneratedFile` when services are present:
@@ -885,8 +833,6 @@ fn gen_start_background_method(out: &mut String, service: &ServiceDef, _ffi_pref
         },
     ));
 }
-
-// ───────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests;

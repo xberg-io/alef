@@ -9,13 +9,10 @@ pub fn gen_php_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) 
             let is_optional_field = field.optional || matches!(&field.ty, TypeRef::Optional(_));
 
             let assignment = if is_optional_field {
-                // Struct field is Option<T>, param is Option<T> — pass through directly
                 field.name.clone()
             } else if use_unwrap_or_default(field) {
-                // Struct field is T, param is Option<T> — unwrap with type's default
                 format!("{}.unwrap_or_default()", field.name)
             } else {
-                // Struct field is T, param is Option<T> — unwrap with explicit default
                 let default_str = default_value_for_field(field, "rust");
                 format!("{}.unwrap_or({})", field.name, default_str)
             };

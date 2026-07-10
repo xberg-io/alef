@@ -104,8 +104,7 @@ pub(super) fn gen_impl_methods(
             },
         ));
     }
-    // Close the impl block — caller opens it.
-    let _ = pascal_prefix; // used by caller
+    let _ = pascal_prefix;
     out
 }
 

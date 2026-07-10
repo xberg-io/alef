@@ -38,7 +38,6 @@ pub fn package_elixir(
     let lib_name = rustler_crate.replace('-', "_");
     let shared_lib = target.shared_lib_name(&lib_name);
 
-    // Locate the built NIF shared library.
     let lib_src = find_elixir_nif(workspace_root, target, &shared_lib)?;
 
     let ext = nif_extension(target);
@@ -51,8 +50,6 @@ pub fn package_elixir(
         );
         let tarball_path = output_dir.join(&tarball_name);
 
-        // Create a temporary staging dir with the .so/.dll renamed to the
-        // RustlerPrecompiled convention.
         let stage_dir = output_dir.join(format!("_stage_{lib_name}_{nif_version}"));
         if stage_dir.exists() {
             fs::remove_dir_all(&stage_dir)?;
@@ -62,7 +59,6 @@ pub fn package_elixir(
         let staged_name = format!("lib{lib_name}.{ext}");
         fs::copy(&lib_src, stage_dir.join(&staged_name))?;
 
-        // Pack as tar.gz.
         super::create_tar_gz(&stage_dir, &tarball_path)
             .with_context(|| format!("creating tarball {}", tarball_path.display()))?;
 
@@ -84,13 +80,11 @@ pub fn package_elixir(
 /// and writes an Elixir map literal compatible with RustlerPrecompiled.
 pub fn write_elixir_checksums(config: &ResolvedCrateConfig, output_dir: &Path) -> Result<PathBuf> {
     let app_name = config.elixir_app_name();
-    // Elixir module name convention: capitalise first letter.
     let module_name = {
         let mut chars = app_name.chars();
         chars.next().map(|c| c.to_uppercase().to_string()).unwrap_or_default() + chars.as_str()
     };
 
-    // Find all NIF tarballs.
     let mut checksums: BTreeMap<String, String> = BTreeMap::new();
     for entry in fs::read_dir(output_dir)? {
         let entry = entry?;
@@ -106,7 +100,6 @@ pub fn write_elixir_checksums(config: &ResolvedCrateConfig, output_dir: &Path) -
         checksums.insert(name.to_string(), format!("sha256:{digest}"));
     }
 
-    // Write checksum file.
     let pkg_dir = config.package_dir(crate::core::config::extras::Language::Elixir);
     let checksum_path = Path::new(&pkg_dir).join(format!("checksum-Elixir.{module_name}.Native.exs"));
     let mut content = String::from("%{\n");
@@ -144,7 +137,6 @@ fn resolve_nif_versions(config: &ResolvedCrateConfig) -> Vec<String> {
             }
         }
     }
-    // Sensible defaults matching typical RustlerPrecompiled setups.
     vec!["2.16".to_string(), "2.17".to_string()]
 }
 
@@ -201,7 +193,6 @@ impl Sha256 {
     }
 
     fn finalize_hex(mut self) -> String {
-        // Padding.
         let orig_len_bits = (self.buf.len() as u64) * 8;
         self.buf.push(0x80);
         while self.buf.len() % 64 != 56 {
@@ -209,7 +200,6 @@ impl Sha256 {
         }
         self.buf.extend_from_slice(&orig_len_bits.to_be_bytes());
 
-        // Process blocks.
         let k: [u32; 64] = SHA256_K;
         for block in self.buf.chunks_exact(64) {
             let mut w = [0u32; 64];
@@ -334,7 +324,6 @@ mod tests {
 
     #[test]
     fn sha256_known_vector() {
-        // SHA-256 of empty string.
         let mut h = Sha256::new();
         h.update(b"");
         let hex = h.finalize_hex();
@@ -357,8 +346,6 @@ mod tests {
 
     #[test]
     fn nif_extension_macos() {
-        // Darwin must use `so` (not `dylib`) because rustler_precompiled 0.9.0
-        // hardcodes `so` for every non-Windows consumer download URL.
         let t = RustTarget::parse("x86_64-apple-darwin").unwrap();
         assert_eq!(nif_extension(&t), "so");
     }
@@ -399,13 +386,11 @@ sources = ["src/lib.rs"]
 [crates.elixir]
 scaffold_output = "{pkg}"
 "#,
-            // Normalize backslashes to / so the path is a valid TOML basic string on Windows.
             pkg = tmp.path().display().to_string().replace('\\', "/")
         ))
         .unwrap();
         let config = cfg.resolve().unwrap().remove(0);
 
-        // Create a fake tarball.
         let tarball = tmp
             .path()
             .join("libmylib-v1.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz");

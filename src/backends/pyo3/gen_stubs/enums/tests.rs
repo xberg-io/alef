@@ -105,7 +105,6 @@ fn emits_staticmethod_constructor_per_struct_variant() {
         stub.contains("    @staticmethod\n    def rect(width: int, height: int) -> Shape: ..."),
         "{stub}"
     );
-    // Constructors precede the dunder stubs.
     let circle_at = stub.find("def circle").unwrap();
     let str_at = stub.find("def __str__").unwrap();
     assert!(circle_at < str_at, "constructors must precede dunders: {stub}");
@@ -131,9 +130,6 @@ fn maps_named_dto_field_to_its_type() {
 
 #[test]
 fn widens_dataclass_backed_config_dto_factory_param() {
-    // When the payload type is a dataclass-backed config DTO, the factory param must accept the
-    // public `options` dataclass or a dict (what the runtime coercion accepts) — not the compiled
-    // class the bare name resolves to. A primitive sibling param is unaffected.
     let def = enum_def(
         "EmbeddingModelType",
         vec![
@@ -159,10 +155,6 @@ fn widens_dataclass_backed_config_dto_factory_param() {
 
 #[test]
 fn qualifies_builtin_shadowed_by_a_variant_factory_name() {
-    // A `List` variant emits `def list(...)`, which shadows the builtin `list` within the class
-    // body — so a sibling factory annotated `list[MetadataEntry]` would resolve to the factory and
-    // mypy rejects it (`Function ... is not valid as a type`). The shadowed builtin container must be
-    // qualified as `builtins.list[...]` in the factory annotations.
     let def = enum_def(
         "NodeContent",
         vec![
@@ -239,9 +231,6 @@ fn optional_field_is_nilable_with_default() {
 
 #[test]
 fn param_after_optional_is_promoted_to_nilable() {
-    // `width` is not optional in the IR, but it follows the optional `radius`, so the runtime PyO3
-    // signature widens it to `Optional[int] = None`. The stub must match (no required param may
-    // follow a defaulted one).
     let def = enum_def(
         "Shape",
         vec![variant(

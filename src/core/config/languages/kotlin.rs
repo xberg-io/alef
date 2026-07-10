@@ -30,7 +30,6 @@ pub enum KotlinTarget {
     #[default]
     Jvm,
     Native,
-    // Multiplatform — Phase 3 KMP stage; placeholder so the enum is forward-compatible.
     Multiplatform,
 }
 

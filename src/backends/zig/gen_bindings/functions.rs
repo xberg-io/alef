@@ -54,7 +54,6 @@ fn get_opaque_named<'a>(
 /// Returns true if generating the param-conversion boilerplate for `p` will
 /// emit a `try` expression (heap allocation or fallible operation).
 fn needs_alloc_param(p: &ParamDef) -> bool {
-    // Inner type after stripping a single Optional layer.
     let inner = match &p.ty {
         TypeRef::Optional(t) => t.as_ref(),
         other => other,
@@ -80,7 +79,6 @@ fn return_type_can_be_null(ty: &TypeRef, struct_names: &std::collections::HashSe
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _) => true,
         TypeRef::Named(name) => struct_names.contains(name),
         TypeRef::Optional(_) => true,
-        // Primitives (bool, u64, i64, f32, etc.) and Unit cannot be null.
         _ => false,
     }
 }
@@ -96,9 +94,6 @@ pub(crate) fn emit_function(
     capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     out: &mut String,
 ) {
-    // Host-native capsule (Language) passthrough: construct the host runtime's `Language`
-    // from the raw C grammar pointer instead of an opaque handle. Only bare `Named` returns
-    // are passthrough-eligible.
     if let TypeRef::Named(name) = &f.return_type {
         if let Some(cap) = capsule_types.get(name.as_str()) {
             emit_capsule_function(f, prefix, struct_names, opaque_creator_map, cap, declared_errors, out);
@@ -108,8 +103,6 @@ pub(crate) fn emit_function(
 
     emit_cleaned_zig_doc(out, &f.doc, "");
 
-    // Rename param names that would shadow a top-level decl (Zig 0.16+ rejects
-    // shadowing of file-scope identifiers by function parameters).
     let renamed_params: Vec<ParamDef> = f
         .params
         .iter()
@@ -127,7 +120,6 @@ pub(crate) fn emit_function(
     };
     let f = &f_local;
 
-    // Build the wrapper-level parameter list (Zig-idiomatic types, not raw C types).
     let params: Vec<String> = f
         .params
         .iter()
@@ -139,11 +131,6 @@ pub(crate) fn emit_function(
         .as_ref()
         .map(|e| resolve_zig_error_type(e, declared_errors));
 
-    // The function body uses `try` (allocator calls) when any parameter requires
-    // a heap allocation (String/Path/Bytes/Vec/Map/Named struct) or when the
-    // return type requires heap-owned ownership of C-side data (String/Path/
-    // Json/Bytes/Vec/Map/Named struct). Such functions must be declared as
-    // returning an error union so `try` is legal.
     let body_needs_try = f.params.iter().any(needs_alloc_param)
         || matches!(
             &f.return_type,
@@ -156,9 +143,6 @@ pub(crate) fn emit_function(
         .any(|p| needs_from_json_param(p, struct_names, opaque_creator_map));
 
     let return_ty = if let Some(error_type) = &zig_error_type {
-        // OutOfMemory is already a member of every declared error set, so we can
-        // use the single error set directly instead of the verbose double union concat
-        // `(ErrorSet||error{OutOfMemory})!T`.
         format!("{}!{}", error_type, zig_return_type(&f.return_type, struct_names))
     } else if body_needs_try || body_needs_invalid_json {
         let err_set = if body_needs_invalid_json {
@@ -180,7 +164,6 @@ pub(crate) fn emit_function(
         },
     ));
 
-    // Emit allocation/conversion boilerplate for each parameter.
     let json_error_return = zig_error_type
         .as_ref()
         .map_or("return error.InvalidJson;".to_string(), |err| {
@@ -190,10 +173,6 @@ pub(crate) fn emit_function(
         emit_param_conversion(p, prefix, struct_names, opaque_creator_map, &json_error_return, out);
     }
 
-    // Detect Bytes return: the C FFI uses a multi-out-parameter convention
-    // (`uint8_t **out_ptr, uintptr_t *out_len, uintptr_t *out_cap`) and
-    // returns `int32_t` status. Declare locals for the out-params before
-    // building the C argument list.
     let returns_bytes = matches!(f.return_type, TypeRef::Bytes);
     if returns_bytes {
         out.push_str("    var _out_ptr: [*c]u8 = undefined;\n");
@@ -201,7 +180,6 @@ pub(crate) fn emit_function(
         out.push_str("    var _out_cap: usize = 0;\n");
     }
 
-    // Build the C argument list.
     let mut c_args: Vec<String> = f
         .params
         .iter()
@@ -213,12 +191,6 @@ pub(crate) fn emit_function(
         c_args.push("&_out_cap".to_string());
     }
     let c_call = format!("c.{prefix}_{}({})", f.name, c_args.join(", "));
-    // The alef-backend-ffi layer emits a `_len()` companion for every free
-    // function whose return type maps to `*mut c_char` (String/Path/Json and
-    // their Vec/Map JSON-serialized counterparts, plus the `Optional<>`
-    // variants).  We pair the primary call with the companion so the wrapper
-    // body can build an exact-length `[]const u8` slice via `ptr[0..len]` —
-    // no NUL-scan required.
     let returns_c_char_like = return_uses_len_companion(&f.return_type);
     let c_len_call = if returns_c_char_like {
         Some(format!("c.{prefix}_{}_len({})", f.name, c_args.join(", ")))
@@ -227,13 +199,6 @@ pub(crate) fn emit_function(
     };
 
     if let Some(error_type) = &zig_error_type {
-        // Fallible function: call C, then check failure. Zig requires `_`
-        // (single underscore) to discard a value; named locals must be used.
-        //
-        // For Unit/Bytes returns there is no `_result` pointer to inspect, so we
-        // consult `{prefix}_last_error_code()`. Pointer-returning calls also
-        // consult it before falling back to a null guard so FFI error state is
-        // not silently ignored.
         let result_is_pointer = !(matches!(f.return_type, TypeRef::Unit) || returns_bytes);
         let result_can_be_null = return_type_can_be_null(&f.return_type, struct_names);
         if !result_is_pointer {
@@ -265,8 +230,6 @@ pub(crate) fn emit_function(
                 },
             ));
             out.push_str("    }\n");
-            // Only emit null check for types that can actually be null (pointers, optionals).
-            // Primitives like u64, bool, etc. cannot be null and should not have a null check.
             if result_can_be_null {
                 out.push_str("    if (_result == null) {\n");
                 out.push_str(&crate::backends::zig::template_env::render(
@@ -301,12 +264,10 @@ pub(crate) fn emit_function(
             ));
         }
 
-        // Free owned C strings after the error check.
         for p in &f.params {
             emit_param_free(p, prefix, struct_names, opaque_creator_map, out);
         }
 
-        // Produce the Zig return value.
         if returns_bytes {
             out.push_str("    const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);\n");
             out.push_str(&crate::backends::zig::template_env::render(
@@ -334,7 +295,6 @@ pub(crate) fn emit_function(
             ));
         }
     } else {
-        // Infallible function: free params, return directly.
         for p in &f.params {
             emit_param_free(p, prefix, struct_names, opaque_creator_map, out);
         }
@@ -413,9 +373,7 @@ fn emit_capsule_function(
         .map(|p| format_param_wrapper(p, struct_names, opaque_creator_map))
         .collect();
 
-    // Wrappers that allocate C strings for params need `error{OutOfMemory}!T`.
     let body_needs_try = f.params.iter().any(needs_alloc_param);
-    // Require host_type — no tree-sitter default fallback.
     let host_type = match cap.required_host_type("Language", "zig") {
         Ok(t) => t.to_string(),
         Err(e) => {
@@ -423,9 +381,6 @@ fn emit_capsule_function(
             return;
         }
     };
-    // A fallible capsule function (Rust `Result`, e.g. `get_language`) surfaces the
-    // failure through the Zig error set — matching python (raises) / node (throws) and
-    // the e2e fixtures that assert an error for unknown/empty input.
     let zig_error_type = f
         .error_type
         .as_ref()
@@ -475,8 +430,6 @@ fn emit_capsule_function(
         emit_param_free(p, prefix, struct_names, opaque_creator_map, out);
     }
 
-    // For fallible capsule functions, surface any FFI error before guarding null
-    // (the FFI sets `{prefix}_last_error_code()` and returns null on failure).
     if let Some(error_type) = &zig_error_type {
         out.push_str(&crate::backends::zig::template_env::render(
             "function_error_check.jinja",
@@ -489,8 +442,6 @@ fn emit_capsule_function(
         out.push_str("    }\n");
     }
 
-    // Guard the null pointer (grammar not found) and construct the host Language.
-    // Require construct_expr — no tree-sitter default fallback.
     out.push_str("    if (_result == null) return null;\n");
     let construct = match cap.construct_required("_result", "Language", "zig") {
         Ok(c) => c,
@@ -528,7 +479,6 @@ fn zig_param_type(
     struct_names: &std::collections::HashSet<String>,
     opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
 ) -> String {
-    // Opaque handle types accept optional config JSON — always ?[]const u8.
     if get_opaque_named(ty, opaque_creator_map).is_some() {
         return "?[]const u8".to_string();
     }
@@ -567,8 +517,6 @@ fn emit_param_conversion(
 ) {
     let name = &p.name;
 
-    // Opaque handle: accept ?[]const u8 config JSON, create the handle internally.
-    // The creator function is looked up from opaque_creator_map.
     if let Some(opaque_name) = get_opaque_named(&p.ty, opaque_creator_map) {
         if let Some((creator_fn, config_snake)) = opaque_creator_map.get(opaque_name) {
             out.push_str(&crate::backends::zig::template_env::render(
@@ -589,12 +537,8 @@ fn emit_param_conversion(
     if let Some(inner_name) = struct_named_inner(&p.ty) {
         if struct_names.contains(inner_name) {
             let snake = c_symbol_component(inner_name);
-            // Determine if the wrapper-level type is optional (either the
-            // outer TypeRef is Optional, or the param itself is marked optional).
             let is_optional = p.optional || matches!(p.ty, TypeRef::Optional(_));
             if is_optional {
-                // Allocate `_z` only when caller passed a value, then convert to
-                // an opaque handle. When caller passed null, the C handle is null.
                 out.push_str(&crate::backends::zig::template_env::render(
                     "param_optional_string_alloc.jinja",
                     minijinja::context! { name => name },
@@ -630,10 +574,6 @@ fn emit_param_conversion(
             return;
         }
     }
-    // Optional `String`/`Path` parameters arrive as `?[]const u8` and cannot
-    // be passed straight to `allocPrintSentinel("{s}", ...)` (Zig's writer
-    // refuses to format an optional). Emit conditional allocation that maps
-    // `null` → `null` and a value → an owned sentinel-terminated copy.
     let is_optional_string = p.optional
         || matches!(
                 &p.ty,
@@ -663,7 +603,6 @@ fn emit_param_conversion(
             ));
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            // Caller supplies JSON bytes; we need a null-terminated C string copy.
             out.push_str("    // Vec/Map parameters are passed as JSON strings across the FFI boundary.\n");
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_string_line1.jinja",
@@ -678,9 +617,7 @@ fn emit_param_conversion(
                 },
             ));
         }
-        _ => {
-            // No conversion needed — Bytes uses .ptr/.len directly, primitives pass through.
-        }
+        _ => {}
     }
 }
 
@@ -738,7 +675,6 @@ fn emit_param_free(
 ) {
     let name = &p.name;
 
-    // Opaque handle: free config_z, config_handle, and the handle itself.
     if let Some(opaque_name) = get_opaque_named(&p.ty, opaque_creator_map) {
         if let Some((_, config_snake)) = opaque_creator_map.get(opaque_name) {
             let config_name = format!("{name}_config");
@@ -758,9 +694,6 @@ fn emit_param_free(
             let _ = inner_name;
         }
     }
-    // String/Path/Vec/Map and optional-String/Path are freed via `defer` emitted
-    // immediately after the allocPrintSentinel call in emit_param_conversion.
-    // No explicit free is needed here.
 }
 
 /// The C argument name(s) to use for a given wrapper parameter.
@@ -778,7 +711,6 @@ fn c_arg_names(
     struct_names: &std::collections::HashSet<String>,
     opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
 ) -> Vec<String> {
-    // Opaque handle: the C call gets the handle created in emit_param_conversion.
     if get_opaque_named(&p.ty, opaque_creator_map).is_some() {
         return vec![format!("{}_handle", p.name)];
     }
@@ -794,11 +726,6 @@ fn c_arg_names(
     if is_optional_string && matches!(unwrap_optional(&p.ty), TypeRef::String | TypeRef::Path) {
         return vec![format!("if ({0}_z) |z| z.ptr else null", p.name)];
     }
-    // Optional integer primitive: substitute the max-value sentinel for None.
-    // The Rust FFI layer uses `<Type>::MAX` as the sentinel for Option<T> on
-    // numeric primitives (e.g. `u64::MAX` represents `None` for `timeout_secs`).
-    // The IR may encode this as either TypeRef::Optional(Primitive) or
-    // TypeRef::Primitive with p.optional = true — handle both forms.
     {
         let prim_opt = match &p.ty {
             TypeRef::Optional(inner) => {
@@ -849,25 +776,8 @@ fn unwrap_return_expr(
     error_type: Option<&str>,
 ) -> String {
     match ty {
-        // The C ABI uses `int` (i32) for bool returns. Zig's type system is strict —
-        // assigning an i32 to a bool variable is a compile error. Emit `!= 0` to
-        // produce the required Zig bool from the C integer.
         TypeRef::Primitive(PrimitiveType::Bool) => format!("{raw} != 0"),
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            // Build an exact-length slice from the C string pointer using the byte
-            // length returned by the `_len()` companion (emitted by alef-backend-ffi
-            // commit 84d5eadf — see `returns_c_char` in
-            // crates/alef-backend-ffi/src/gen_bindings/functions.rs).  Avoids a
-            // NUL-scan and removes the dependency on the sentinel terminator.
-            //
-            // Defensive null check: the error-code probe above gates on the FFI
-            // `_<fn>` setting `sample_core_last_error_code()`, but the matching
-            // `_<fn>_len()` companion calls `clear_last_error()` on entry and
-            // some implementations forget to re-`set_last_error` on the error
-            // path (returning 0 silently). When that happens the error-code
-            // check passes through and we hit a null slice. Returning the first
-            // declared error variant matches the behaviour for the case where
-            // the error code IS propagated correctly.
             crate::backends::zig::template_env::render(
                 "return_owned_bytes_block.jinja",
                 minijinja::context! {
@@ -877,10 +787,6 @@ fn unwrap_return_expr(
             )
         }
         TypeRef::Named(name) if struct_names.contains(name) => {
-            // The C function returned an opaque handle (*SAMPLE_CRATEFoo). Serialize
-            // it to JSON via the FFI `<prefix>_<snake>_to_json` helper, copy the
-            // JSON string into a Zig-owned buffer, then free both the JSON string
-            // and the opaque handle. The wrapper returns `[]u8` (JSON).
             let snake = c_symbol_component(name);
             crate::backends::zig::template_env::render(
                 "return_named_json_block.jinja",
@@ -893,17 +799,9 @@ fn unwrap_return_expr(
             )
         }
         TypeRef::Named(name) => {
-            // Opaque handle type (no serde): unwrap the nullable C pointer (guaranteed
-            // non-null after the error-code check above) and wrap in the Zig struct.
             format!("{name}{{ ._handle = {raw}.? }}")
         }
         TypeRef::Optional(inner) => match inner.as_ref() {
-            // `?[]u8` returns: copy the C string into an owned Zig allocation when
-            // non-null; return `null` otherwise.  Used for nullable owned-string and
-            // nullable JSON returns.  The `_len()` companion (emitted by
-            // alef-backend-ffi for matching return types) returns 0 when the
-            // underlying value is None — but we gate on `raw != null` first to
-            // keep the null-branch zero-cost.
             TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 crate::backends::zig::template_env::render(
                     "return_optional_owned_bytes_block.jinja",
@@ -912,10 +810,6 @@ fn unwrap_return_expr(
                     },
                 )
             }
-            // `?[]u8` over an opaque struct: serialise the handle to JSON via the
-            // FFI `<prefix>_<snake>_to_json` helper, copy the JSON into a Zig-owned
-            // buffer, free the JSON string and the opaque handle.  When the C
-            // handle is null, return `null` directly.
             TypeRef::Named(name) if struct_names.contains(name) => {
                 let snake = c_symbol_component(name);
                 let inner_block = crate::backends::zig::template_env::render(
@@ -949,11 +843,6 @@ pub(crate) fn zig_return_type(ty: &TypeRef, struct_names: &std::collections::Has
             "[]u8".to_string()
         }
         TypeRef::Named(name) if struct_names.contains(name) => "[]u8".to_string(),
-        // `Optional<Named struct>` mirrors `Named struct` (JSON-serialised owned bytes)
-        // but exposes a nullable owned slice so callers can distinguish "preset not
-        // found" from a valid empty-string body. The C FFI returns a nullable
-        // opaque-handle pointer; the body translates null → `null` and a valid
-        // handle → JSON bytes copied into a Zig allocation.
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 "?[]u8".to_string()

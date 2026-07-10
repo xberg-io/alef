@@ -89,15 +89,8 @@ pub(crate) fn bridge_type_with_handles(ty: &TypeRef, handle_types: &HashSet<Stri
 /// All affected types are serialized to JSON (`String`) at the bridge boundary.
 pub(crate) fn needs_json_bridge(ty: &TypeRef) -> bool {
     match ty {
-        // HashMap is unsupported by swift-bridge regardless of nesting.
         TypeRef::Map(_, _) => true,
-        // Vec<T> is only safe when T is a "leaf" type (no angle brackets in its token form).
-        // Primitives, String, char, Named opaques, and Vec<u8> (Bytes) are all safe.
-        // Anything else (Vec<Option<..>>, Vec<Vec<..>>, Vec<Map<..>>) triggers the parser bug.
         TypeRef::Vec(inner) => !is_bridge_leaf(inner),
-        // Option<T> as a Result ok-type causes is_custom_result_type()=true and reaches
-        // an unimplemented path in to_alpha_numeric_underscore_name. JSON-bridge all Optional
-        // types to avoid this.
         TypeRef::Optional(_) => true,
         _ => false,
     }
@@ -114,11 +107,8 @@ pub(crate) fn is_bridge_leaf(ty: &TypeRef) -> bool {
         | TypeRef::Json
         | TypeRef::Unit
         | TypeRef::Duration => true,
-        // Bytes = Vec<u8> — swift-bridge supports this directly.
         TypeRef::Bytes => true,
-        // Named opaque types (wrapper newtypes) have no angle brackets.
         TypeRef::Named(_) => true,
-        // Everything else (Vec, Optional, Map) produces angle brackets in the token stream.
         _ => false,
     }
 }
@@ -132,8 +122,6 @@ pub(crate) fn bridge_type(ty: &TypeRef) -> String {
         return "String".to_string();
     }
     match ty {
-        // swift-bridge 0.1.59 has no built-in `char` primitive; map to String at the
-        // bridge boundary and convert at the shim layer (.chars().next() / .to_string()).
         TypeRef::Char => "String".to_string(),
         TypeRef::Optional(inner) => format!("Option<{}>", bridge_type(inner)),
         TypeRef::Vec(inner) => format!("Vec<{}>", bridge_type(inner)),
@@ -227,9 +215,6 @@ pub(crate) fn bridge_type_enum_and_serde_struct_aware(
             if let TypeRef::Named(n) = inner.as_ref() {
                 let is_enum = enum_names.contains(n.as_str());
                 let has_serde = !no_serde_names.contains(n.as_str());
-                // Vec<String> for Vec<Named(enum)> (Vectorizable broken) or, on a first-class
-                // parent, a serde-capable Vec<Named(struct)> the wrapper decodes from JSON.
-                // An opaque parent keeps the real Vec<Opaque> form (no Codable target).
                 if is_enum || (parent_first_class && has_serde) {
                     return "Vec<String>".to_string();
                 }

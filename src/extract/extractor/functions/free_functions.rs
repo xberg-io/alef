@@ -8,9 +8,6 @@ use super::returns::detect_cow_return;
 use super::{extract_params, resolve_return_type, unwrap_future_return};
 
 pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path: &str) -> Option<FunctionDef> {
-    // Skip private functions — they cannot be part of the public API surface.
-    // This is a defense-in-depth measure to prevent accidental inclusion of
-    // internal helper functions even if the visibility check at the call site fails.
     if !super::super::helpers::is_pub(&item.vis) {
         return None;
     }
@@ -29,13 +26,11 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
     let (mut return_type, mut error_type, returns_ref) = resolve_return_type(&item.sig.output);
     let returns_cow = detect_cow_return(&item.sig.output);
 
-    // Detect future-returning functions as async
     if !is_async {
         let empty = ahash::AHashSet::new();
         if let Some((inner, future_error_type)) = unwrap_future_return(&item.sig.output, &empty) {
             is_async = true;
             return_type = inner;
-            // If the future's output is Result<T, E>, propagate the error type.
             if future_error_type.is_some() {
                 error_type = future_error_type;
             }

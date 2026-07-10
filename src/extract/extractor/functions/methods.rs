@@ -22,24 +22,18 @@ pub(crate) fn extract_method(
 
     let (mut return_type, mut error_type, returns_ref) = resolve_return_type(&method.sig.output);
 
-    // Detect if the method returns Cow<'_, T> where T is a named type (not str/bytes).
-    // This is used by codegen to emit `.into_owned()` before type conversion.
     let returns_cow = detect_cow_return(&method.sig.output);
 
-    // Detect future-returning functions as async:
-    // BoxFuture<'_, T>, Pin<Box<dyn Future<Output = T>>>, etc.
     if !is_async {
         if let Some((inner, future_error_type)) = unwrap_future_return(&method.sig.output, result_wrapping_aliases) {
             is_async = true;
             return_type = inner;
-            // If the future's output is Result<T, E>, propagate the error type.
             if future_error_type.is_some() {
                 error_type = future_error_type;
             }
         }
     }
 
-    // Resolve `Self` → actual parent type name in return types and params
     resolve_self_refs(&mut return_type, parent_type_name);
 
     let (receiver, is_static) = detect_receiver(&method.sig.inputs);

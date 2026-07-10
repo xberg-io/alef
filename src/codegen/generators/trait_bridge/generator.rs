@@ -117,49 +117,38 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
     let imports = generator.bridge_imports();
     let mut out = String::with_capacity(4096);
 
-    // Wrapper struct
     out.push_str(&gen_bridge_wrapper_struct(spec, generator));
     out.push_str("\n\n");
 
-    // Debug impl (required by Plugin super-trait Debug bound)
     out.push_str(&gen_bridge_debug_impl(spec));
     out.push_str("\n\n");
 
-    // Constructor (impl block with new())
     out.push_str(&generator.gen_constructor(spec));
     out.push_str("\n\n");
 
-    // Plugin super-trait impl (if applicable)
     if let Some(plugin_impl) = gen_bridge_plugin_impl(spec, generator) {
         out.push_str(&plugin_impl);
         out.push_str("\n\n");
     }
 
-    // Trait impl
     out.push_str(&gen_bridge_trait_impl(spec, generator));
 
-    // Default delegates — only when the generator forwards defaulted methods
     let delegates = super::gen_bridge_default_delegates(spec, generator);
     if !delegates.is_empty() {
         out.push_str("\n\n");
         out.push_str(&delegates);
     }
 
-    // Registration function — only when register_fn is configured
     if let Some(reg_fn_code) = gen_bridge_registration_fn(spec, generator) {
         out.push_str("\n\n");
         out.push_str(&reg_fn_code);
     }
 
-    // Unregistration function — only when unregister_fn is configured AND
-    // the backend has opted in (non-empty body).
     if let Some(unreg_fn_code) = gen_bridge_unregistration_fn(spec, generator) {
         out.push_str("\n\n");
         out.push_str(&unreg_fn_code);
     }
 
-    // Clear-all function — only when clear_fn is configured AND the backend
-    // has opted in (non-empty body).
     if let Some(clear_fn_code) = gen_bridge_clear_fn(spec, generator) {
         out.push_str("\n\n");
         out.push_str(&clear_fn_code);

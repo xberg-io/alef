@@ -5,7 +5,7 @@ use crate::core::ir::{PrimitiveType, TypeRef};
 /// Map a `PrimitiveType` to its C-compatible Rust type name.
 pub(crate) fn prim_to_c(p: &PrimitiveType) -> &'static str {
     match p {
-        PrimitiveType::Bool => "i32", // C bool is int
+        PrimitiveType::Bool => "i32",
         PrimitiveType::U8 => "u8",
         PrimitiveType::U16 => "u16",
         PrimitiveType::U32 => "u32",

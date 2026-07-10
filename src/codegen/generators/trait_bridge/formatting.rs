@@ -54,7 +54,6 @@ pub fn format_return_type(
     returns_ref: bool,
 ) -> String {
     let inner = if returns_ref {
-        // Rewrite Vec<T> → &[elem_type] where elem_type is the ref-form of T.
         if let crate::core::ir::TypeRef::Vec(elem) = ty {
             let elem_str = match elem.as_ref() {
                 crate::core::ir::TypeRef::String => "&str".to_string(),
@@ -103,9 +102,6 @@ pub fn format_param_type(param: &ParamDef, type_paths: &HashMap<String, String>)
                 format!("&{mutability}{qualified}")
             }
             TypeRef::Optional(inner) => {
-                // Preserve the Option wrapper but apply the ref transformation to the inner type.
-                // e.g. Option<String> + is_ref → Option<&str>
-                //      Option<Vec<T>> + is_ref → Option<&[T]>
                 let inner_type_str = match inner.as_ref() {
                     TypeRef::String => format!("&{mutability}str"),
                     TypeRef::Bytes => format!("&{mutability}[u8]"),
@@ -115,22 +111,16 @@ pub fn format_param_type(param: &ParamDef, type_paths: &HashMap<String, String>)
                         let qualified = type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone());
                         format!("&{mutability}{qualified}")
                     }
-                    // Primitives and other Copy types: pass by value inside Option
                     other => format_type_ref(other, type_paths),
                 };
-                // Already wrapped in Option — return directly to avoid double-wrapping below.
                 return format!("Option<{inner_type_str}>");
             }
-            // All other types are Copy/small — pass by value even when is_ref is set
             other => format_type_ref(other, type_paths),
         }
     } else {
         format_type_ref(&param.ty, type_paths)
     };
 
-    // Wrap in Option<> when the parameter is optional (e.g. `title: Option<&str>`).
-    // The TypeRef::Optional arm above returns early, so this only fires for the
-    // `optional: true` IR flag pattern where ty is the unwrapped inner type.
     if param.optional {
         format!("Option<{base}>")
     } else {
@@ -160,8 +150,6 @@ pub fn format_param_type_with_lifetimes(
             TypeRef::Vec(inner) => format!("&{mutability}[{}]", format_type_ref(inner, type_paths)),
             TypeRef::Named(name) => {
                 let qualified = type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone());
-                // Append `<'_>` when the core type has a lifetime parameter so the impl
-                // signature matches the trait definition exactly.
                 let qualified = if lifetime_type_names.contains(name.as_str()) {
                     format!("{qualified}<'_>")
                 } else {
@@ -200,10 +188,6 @@ pub fn format_param_type_with_lifetimes(
         base
     }
 }
-
-// ---------------------------------------------------------------------------
-// Shared helpers — used by all backend trait_bridge modules.
-// ---------------------------------------------------------------------------
 
 /// Map a Rust primitive to its type string.
 pub fn prim(p: &PrimitiveType) -> &'static str {

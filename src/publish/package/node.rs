@@ -44,13 +44,11 @@ pub fn package_node(
 ) -> Result<PackageArtifact> {
     let platform = target.platform_for(crate::core::config::extras::Language::Node);
     let node_pkg_name = config.node_package_name();
-    // Derive the base npm package name (strip @scope/ prefix if present).
     let base_name = if let Some(slash_pos) = node_pkg_name.rfind('/') {
         &node_pkg_name[slash_pos + 1..]
     } else {
         node_pkg_name.as_str()
     };
-    // Scope, if any.
     let scope = if node_pkg_name.starts_with('@') {
         let at_end = node_pkg_name.find('/').map(|i| &node_pkg_name[..i]);
         at_end.map(|s| s.to_string())
@@ -58,7 +56,6 @@ pub fn package_node(
         None
     };
 
-    // Find the produced .node binary.
     let node_crate = crate::publish::crate_name_from_output(config, crate::core::config::extras::Language::Node)
         .unwrap_or_else(|| format!("{}-node", config.name));
     let node_lib_name = format!("{}.{}.node", base_name, platform);
@@ -66,19 +63,16 @@ pub fn package_node(
 
     let node_bin = find_node_binary(workspace_root, target, &node_crate, &node_lib_name, &node_lib_simple)?;
 
-    // Create staging dir: output_dir/npm/{platform}/
     let platform_dir = output_dir.join("npm").join(&platform);
     if platform_dir.exists() {
         fs::remove_dir_all(&platform_dir)?;
     }
     fs::create_dir_all(&platform_dir)?;
 
-    // Copy the .node binary.
     let dest_bin_name = format!("{base_name}.{platform}.node");
     fs::copy(&node_bin, platform_dir.join(&dest_bin_name))
         .with_context(|| format!("copying .node binary to {}", platform_dir.display()))?;
 
-    // Generate package.json for the sub-package.
     let sub_pkg_name = match &scope {
         Some(s) => format!("{s}/{base_name}-{platform}"),
         None => format!("{base_name}-{platform}"),
@@ -96,14 +90,11 @@ pub fn package_node(
     );
     fs::write(platform_dir.join("package.json"), pkg_json)?;
 
-    // Write a minimal README.
     let readme = format!("# {sub_pkg_name}\n\nNative binary for {platform}.\n");
     fs::write(platform_dir.join("README.md"), readme)?;
 
-    // Run npm pack.
     crate::publish::run_shell_command_in("npm pack", &platform_dir)?;
 
-    // Move the produced .tgz to output_dir.
     let tgz = find_tgz(&platform_dir).context("npm pack: no .tgz found")?;
     let tgz_name = tgz
         .file_name()
@@ -146,10 +137,7 @@ fn platform_to_os_cpu_libc(platform: &str) -> (&'static str, &'static str, Optio
         "win32-x64-msvc" => ("win32", "x64", None),
         "win32-arm64-msvc" => ("win32", "arm64", None),
         "linux-arm-gnueabihf" => ("linux", "arm", Some("glibc")),
-        _ => {
-            // Best-effort split on '-'
-            ("linux", "x64", None)
-        }
+        _ => ("linux", "x64", None),
     }
 }
 
@@ -228,7 +216,6 @@ fn find_node_binary(
     primary_name: &str,
     fallback_name: &str,
 ) -> Result<PathBuf> {
-    // Check cross path first.
     for name in &[primary_name, fallback_name] {
         let cross = workspace_root
             .join("target")
@@ -239,14 +226,12 @@ fn find_node_binary(
             return Ok(cross);
         }
     }
-    // Check native release path.
     for name in &[primary_name, fallback_name] {
         let native = workspace_root.join("target/release").join(name);
         if native.exists() {
             return Ok(native);
         }
     }
-    // Check crates/{node_crate}/ directly (napi can put binaries there).
     for name in &[primary_name, fallback_name] {
         let in_crate = workspace_root.join("crates").join(node_crate).join(name);
         if in_crate.exists() {
@@ -391,7 +376,6 @@ npm_subpackage_platforms = ["linux-x64-gnu", "darwin-arm64"]
         std::fs::create_dir_all(&bin_dir).unwrap();
         std::fs::write(bin_dir.join("my-lib.x64-linux-gnu.node"), b"fake").unwrap();
 
-        // Fallback name should also work.
         let fallback_dir = tmp.path().join("target/x86_64-unknown-linux-gnu/release");
         std::fs::write(fallback_dir.join("my_lib.node"), b"fake").unwrap();
 

@@ -25,9 +25,6 @@ pub(super) fn r_type_description(ty: &TypeRef) -> String {
         TypeRef::Optional(inner) => {
             let inner_desc = r_type_description(inner);
             let trimmed = inner_desc.trim_end_matches('.');
-            // Lower-case the first letter so "Character string" becomes "character string"
-            // after the "Optional " prefix — but only for natural-language descriptions.
-            // Named types (e.g. `ExtractionConfig object`) keep their proper-noun casing.
             let body = if matches!(**inner, TypeRef::Named(_)) {
                 trimmed.to_string()
             } else {
@@ -133,9 +130,6 @@ fn doc_type_name(ty: &TypeRef) -> String {
 pub(super) fn r_roxygen_block(func_name: &str, doc: &str, params: &[ParamDef], return_type: &TypeRef) -> String {
     let mut block = String::with_capacity(256);
     let trimmed_doc = doc.trim();
-    // Parse the rustdoc into sections so `# Arguments` / `# Returns` / `# Errors` /
-    // `# Example` are surfaced as native roxygen2 tags instead of being emitted as raw
-    // markdown headings in the description body.
     let sections = parse_rustdoc_sections(trimmed_doc);
     let summary = sections.summary.trim();
     let (title, description) = if summary.is_empty() {
@@ -163,8 +157,6 @@ pub(super) fn r_roxygen_block(func_name: &str, doc: &str, params: &[ParamDef], r
             }
         }
     }
-    // Build a name → description map from the `# Arguments` bullets, if any.
-    // Falls back to the type-based description when no entry is present.
     let mut param_docs: HashMap<String, String> = HashMap::new();
     if let Some(args_body) = sections.arguments.as_deref() {
         for (name, desc) in parse_arguments_bullets(args_body) {
@@ -235,14 +227,9 @@ pub(super) fn r_field_one_liner(field_name: &str, doc: &str) -> String {
         field_name.to_string()
     } else {
         let mut result = paragraph.join(" ");
-        // Enforce 120-char line limit for roxygen2. The format is:
-        // #' @field <field_name> <description>
-        // which is 10 + len(field_name) + 1 + len(description) = 120 max
-        // So description can be at most 109 - len(field_name).
         let max_desc_len = 109_usize.saturating_sub(field_name.len());
         if result.len() > max_desc_len {
             result.truncate(max_desc_len);
-            // Remove trailing partial words by finding the last space.
             if let Some(last_space) = result.rfind(' ') {
                 result.truncate(last_space);
             }
@@ -385,13 +372,8 @@ pub(super) fn gen_extendr_wrappers_r(
     ));
     out.push_str("NULL\n\n");
 
-    // Names emitted by the trait-bridge generator; skip them in the free-function
-    // pass so the wrapper file does not define the same R wrapper twice.
     let bridge_fn_names: ahash::AHashSet<&str> = trait_bridge_fns.iter().map(|tb| tb.name.as_str()).collect();
 
-    // Free functions. Only functions registered in `extendr_module!` get a `wrap__` symbol, so
-    // skip feature-gated wrappers that are not always compiled in the binding crate — otherwise the
-    // R wrapper would `.Call("wrap__X")` a symbol that does not exist (see `super::always_registered`).
     for func in &api.functions {
         if bridge_fn_names.contains(func.name.as_str()) {
             continue;
@@ -424,16 +406,6 @@ pub(super) fn gen_extendr_wrappers_r(
         ));
     }
 
-    // Trait-bridge functions (register_<trait> / unregister_<trait> / clear_<trait>).
-    // These are synthesised from `[trait_bridges]` in alef.toml rather than parsed from
-    // Rust source, so they are absent from `api.functions` but are still registered in
-    // `extendr_module!` (see `collect_trait_bridge_functions`). Without these R wrappers
-    // callers cannot reach the `wrap__register_<trait>` entry points.
-    //
-    // The R-side surface is intentionally minimal: `register_<trait>` accepts an R object
-    // (typically a named list of closures), `unregister_<trait>` accepts a name string,
-    // `clear_<trait>` accepts nothing. Type checking happens on the Rust side via extendr's
-    // `Robj` introspection — R's dynamic typing makes static signatures unnecessary.
     for bridge_fn in trait_bridge_fns {
         let params_sig = bridge_fn.params.join(", ");
         let mut call_args = vec![format!("\"wrap__{}\"", bridge_fn.name)];
@@ -443,8 +415,6 @@ pub(super) fn gen_extendr_wrappers_r(
         call_args.push(format!("PACKAGE = \"{package_name}\""));
         let call_args_str = call_args.join(", ");
 
-        // Hand-crafted roxygen block — we cannot reuse `r_roxygen_block` because
-        // trait-bridge functions are not represented as `FunctionDef` in the IR.
         let kind = if bridge_fn.name.starts_with("register_") {
             "register"
         } else if bridge_fn.name.starts_with("unregister_") {
@@ -454,12 +424,6 @@ pub(super) fn gen_extendr_wrappers_r(
         } else {
             ""
         };
-        // For `register_<trait>`, emit a typed host-interface contract: one doc line per
-        // callback method the host backend must implement, naming each param's struct type and
-        // the return type. This is R's equivalent of the typed plugin Protocol other bindings
-        // emit — it documents the shape the registered named list must satisfy. Params whose
-        // type is a native-marshalled struct are flagged so the host knows it receives a native
-        // binding object (external pointer) rather than a JSON string.
         let method_docs: Vec<String> = if kind == "register" {
             bridges
                 .iter()
@@ -500,8 +464,6 @@ pub(super) fn gen_extendr_wrappers_r(
         ));
     }
 
-    // Collect S3 method pairs once — used both for per-type forwarder emission below and
-    // for the trailing generic block at the end of the file.
     let s3_pairs = collect_s3_methods(api, trait_bridge_fns, bridges);
     let s3_pairs_by_type: ahash::AHashMap<String, Vec<String>> = {
         let mut map: ahash::AHashMap<String, Vec<String>> = ahash::AHashMap::new();
@@ -511,8 +473,6 @@ pub(super) fn gen_extendr_wrappers_r(
         map
     };
 
-    // Class env blocks. One per non-trait, non-extendr-incompatible type — matching the
-    // set registered in `extendr_module! { impl Type; ... }`.
     let excluded = collect_excluded_class_types(api, bridges);
     for typ in &api.types {
         if typ.is_trait || excluded.contains(&typ.name) {
@@ -528,8 +488,6 @@ pub(super) fn gen_extendr_wrappers_r(
             },
         ));
 
-        // Emit method bindings. Skip methods that are filtered out of the Rust impl
-        // block — they have no `wrap__Type__method` symbol.
         for method in &typ.methods {
             if method_is_excluded_from_impl(method, api, bridges) {
                 continue;
@@ -567,10 +525,6 @@ pub(super) fn gen_extendr_wrappers_r(
             ));
         }
 
-        // Synthetic from_json static factory: generated for every has_default non-opaque struct.
-        // The Rust impl block adds `pub fn from_json(json: String) -> Result<Self>` which extendr
-        // registers as `wrap__TypeName__from_json`. We emit the R wrapper here since from_json is
-        // not part of the IR and gen_extendr_wrappers_r would otherwise skip it.
         if typ.has_default && !typ.fields.is_empty() && input_type_names.contains(&typ.name) {
             out.push_str(&crate::backends::extendr::template_env::render(
                 "r_from_json_factory.jinja",
@@ -581,8 +535,6 @@ pub(super) fn gen_extendr_wrappers_r(
             ));
         }
 
-        // Dispatch operators: `instance$method` and `instance[["method"]]` resolve via
-        // the class env. The dispatcher captures `self` so instance methods see it.
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_dollar_dispatch.jinja",
             minijinja::context! { type_name => &typ.name },
@@ -592,9 +544,6 @@ pub(super) fn gen_extendr_wrappers_r(
             minijinja::context! { type_name => &typ.name },
         ));
 
-        // S3 method forwarders: `is_valid.HeaderMetadata <- function(x, ...) x$is_valid(...)`.
-        // Lets callers write `is_valid(meta)` instead of the env-class form `meta$is_valid()`,
-        // hiding the extendr implementation detail behind idiomatic R generic dispatch.
         if let Some(method_names) = s3_pairs_by_type.get(&typ.name) {
             for method_name in method_names {
                 out.push_str(&crate::backends::extendr::template_env::render(
@@ -605,9 +554,6 @@ pub(super) fn gen_extendr_wrappers_r(
         }
     }
 
-    // Flat data enum class env blocks — data enums are registered as structs in
-    // extendr_module! and therefore need the same dispatch operator setup so R can
-    // access fields via `instance$field_name`.
     for e in &api.enums {
         if !is_flat_data_enum(e) {
             continue;
@@ -631,14 +577,10 @@ pub(super) fn gen_extendr_wrappers_r(
         ));
     }
 
-    // Unit enum wrapper functions — simple enums with no data variants that are not
-    // registered as extendr classes. Emit a function that returns the default variant.
-    // R callers can write `ProcessingStage()` to get the default variant.
     for e in &api.enums {
         if is_flat_data_enum(e) || is_json_passthrough_data_enum(e) {
             continue;
         }
-        // Only emit for unit enums (no data in any variant)
         let is_unit_enum = e.variants.iter().all(|v| v.fields.is_empty());
         if !is_unit_enum {
             continue;
@@ -646,18 +588,12 @@ pub(super) fn gen_extendr_wrappers_r(
 
         let enum_name = &e.name;
 
-        // Emit a simple wrapper function that returns the default variant as a list with class attribute.
-        // This mirrors how structs are constructed via `TypeName$default()` in R.
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_unit_enum_wrapper.jinja",
             minijinja::context! { enum_name => enum_name },
         ));
     }
 
-    // JSON-passthrough data enum class env blocks — these enums are also
-    // registered as structs in extendr_module! with `default` and `from_json`
-    // static methods. Emit the class env + method bindings + dispatchers so R
-    // callers can write `EnumType$from_json("...")`.
     for e in &api.enums {
         if !is_json_passthrough_data_enum(e) {
             continue;
@@ -671,10 +607,7 @@ pub(super) fn gen_extendr_wrappers_r(
                 roxygen_block => enum_roxygen,
             },
         ));
-        // `default` and `from_json` are emitted by `gen_extendr_json_passthrough_enum_struct`
         // as `pub fn` items in the `#[extendr] impl` block, so extendr registers them as
-        // `wrap__<EnumType>__default` and `wrap__<EnumType>__from_json`. Bind them in R
-        // by name so callers can use `EnumType$default()` / `EnumType$from_json(json)`.
         for method_name in ["default", "from_json"] {
             let params_sig = if method_name == "from_json" { "json" } else { "" };
             let mut call_args = vec![format!("\"wrap__{type_name}__{method_name}\"")];
@@ -693,9 +626,6 @@ pub(super) fn gen_extendr_wrappers_r(
                 },
             ));
         }
-        // Per-variant constructors: `<Name>$<snake> <- function(<params>)
-        // .Call("wrap__<Name>___factory_<snake>", <params>, PACKAGE = ...)`. The Rust fn is
-        // `_factory_<snake>` (disambiguated like pyo3/magnus); R surfaces it under the snake name.
         for (r_name, rust_fn, param_names) in extendr_enum_variant_constructor_registrations(e) {
             let r_params: Vec<String> = param_names.iter().map(|p| sanitize_r_param_name(p)).collect();
             let params_sig = r_params.join(", ");
@@ -723,9 +653,6 @@ pub(super) fn gen_extendr_wrappers_r(
         ));
     }
 
-    // S3 generics: one `name <- function(x, ...) UseMethod("name")` per unique instance
-    // method name across every emitted class. Emit last so all class methods they dispatch
-    // over are already defined in source order.
     for generic_name in unique_s3_generic_names(&s3_pairs) {
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_s3_generic.jinja",
@@ -828,18 +755,12 @@ pub(super) fn gen_namespace(
 ) -> String {
     let mut out = String::with_capacity(2 * 1024);
     out.push_str("# Generated by alef — do not edit.\n\n");
-    // NAMESPACE requires the bare `useDynLib(...)` directive. The roxygen2 form
-    // (`#' @useDynLib ...`) only takes effect when present in `.R` source files
-    // processed by roxygen2 — emitting it directly into NAMESPACE leaves the
-    // shared library unloaded and every `.Call` site fails at runtime.
     out.push_str(&crate::backends::extendr::template_env::render(
         "r_namespace_use_dyn_lib.jinja",
         minijinja::context! { package_name => package_name },
     ));
     out.push('\n');
 
-    // Names emitted by the trait-bridge generator; skip them in the free-function
-    // export pass to avoid duplicate `export(...)` lines in NAMESPACE.
     let bridge_fn_names: ahash::AHashSet<&str> = trait_bridge_fns.iter().map(|tb| tb.name.as_str()).collect();
 
     for func in &api.functions {
@@ -849,8 +770,6 @@ pub(super) fn gen_namespace(
         if r_exclude_functions.contains(&func.name) {
             continue;
         }
-        // Skip feature-gated functions: their R wrapper is not emitted (no `wrap__` symbol), so an
-        // `export()` entry would reference an undefined function. Mirrors `gen_extendr_wrappers_r`.
         if !super::always_registered(func.cfg.as_deref()) {
             continue;
         }
@@ -860,9 +779,6 @@ pub(super) fn gen_namespace(
         ));
     }
 
-    // Trait-bridge functions need explicit NAMESPACE exports so that callers can use
-    // them directly (e.g. `sample_core::register_text_backend(...)`). Without an `export()`
-    // entry, R restricts the wrapper to internal-only visibility and `:: ` lookups fail.
     for bridge_fn in trait_bridge_fns {
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
@@ -870,7 +786,6 @@ pub(super) fn gen_namespace(
         ));
     }
 
-    // Export the options helper function if an options-like input type exists.
     if find_r_options_type_from_api(api).is_some() {
         out.push_str(&crate::backends::extendr::template_env::render(
             "r_namespace_export.jinja",
@@ -897,7 +812,6 @@ pub(super) fn gen_namespace(
         ));
     }
 
-    // Flat data enums are registered as classes in extendr_module! and need exports too.
     for e in &api.enums {
         if !is_flat_data_enum(e) {
             continue;
@@ -916,8 +830,6 @@ pub(super) fn gen_namespace(
         ));
     }
 
-    // JSON-passthrough data enums also need NAMESPACE exports for the class
-    // env and the `$`/`[[` dispatch operators.
     for e in &api.enums {
         if !is_json_passthrough_data_enum(e) {
             continue;
@@ -936,9 +848,6 @@ pub(super) fn gen_namespace(
         ));
     }
 
-    // S3 generics emitted in extendr-wrappers.R are exposed through the same NAMESPACE.
-    // Without `export(name)` + `S3method(name, Type)` entries R loads the wrappers but
-    // refuses to dispatch — `is_valid(meta)` raises `could not find function "is_valid"`.
     let s3_pairs = collect_s3_methods(api, trait_bridge_fns, bridges);
     for generic_name in unique_s3_generic_names(&s3_pairs) {
         out.push_str(&crate::backends::extendr::template_env::render(

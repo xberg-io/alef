@@ -10,10 +10,6 @@ use std::path::Path;
 
 use alef::core::config::{NewAlefConfig, detect_legacy_keys};
 
-// ---------------------------------------------------------------------------
-// Helper: write a file to a temp dir and return the path.
-// ---------------------------------------------------------------------------
-
 fn write_tmp(content: &str, filename: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let path = dir.path().join(filename);
@@ -35,10 +31,6 @@ fn load_via_public_api(
     Ok((cfg.workspace, resolved))
 }
 
-// ---------------------------------------------------------------------------
-// Test: legacy file returns legacy error
-// ---------------------------------------------------------------------------
-
 #[test]
 fn load_config_legacy_file_returns_legacy_error() {
     let toml = r#"
@@ -58,10 +50,6 @@ sources = ["src/lib.rs"]
     );
 }
 
-// ---------------------------------------------------------------------------
-// Test: new schema file resolves to a Vec<ResolvedCrateConfig>
-// ---------------------------------------------------------------------------
-
 #[test]
 fn load_config_new_schema_returns_resolved_vec() {
     let toml = r#"
@@ -79,10 +67,6 @@ sources = ["src/lib.rs"]
     assert!(workspace.languages.contains(&alef::core::config::Language::Python));
 }
 
-// ---------------------------------------------------------------------------
-// Test: missing file returns I/O error
-// ---------------------------------------------------------------------------
-
 #[test]
 fn load_config_missing_file_returns_io_error() {
     let path = std::path::Path::new("/nonexistent/path/alef.toml");
@@ -95,10 +79,6 @@ fn load_config_missing_file_returns_io_error() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Test: invalid TOML returns parse error
-// ---------------------------------------------------------------------------
-
 #[test]
 fn load_config_invalid_toml_returns_parse_error() {
     let toml = r#"
@@ -107,8 +87,7 @@ languages = ["python"]  # missing closing bracket
 "#;
     let (_dir, path) = write_tmp(toml, "alef.toml");
     let content = std::fs::read_to_string(&path).unwrap();
-    // Must not be a legacy error.
-    let _ = detect_legacy_keys(&content); // may or may not fire, doesn't matter.
+    let _ = detect_legacy_keys(&content);
     let result: Result<NewAlefConfig, _> = toml::from_str(&content);
     assert!(result.is_err(), "invalid TOML must fail to parse");
 }

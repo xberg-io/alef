@@ -38,8 +38,6 @@ highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"
 
-# hashbrown 0.16 (via referencing/jsonschema) and 0.17 (via indexmap/serde_yaml)
-# coexist as transitive deps — can't resolve without upstream changes.
 skip = [
     { crate = "hashbrown@0.16", reason = "transitive via referencing/jsonschema" },
     { crate = "getrandom@0.2", reason = "transitive via ring/rustls; getrandom 0.3 comes from ahash" },

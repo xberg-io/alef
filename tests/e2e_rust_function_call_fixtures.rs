@@ -138,9 +138,6 @@ fn rust_codegen_emits_real_call_for_function_fixture_without_http_or_mock() {
 
 #[test]
 fn rust_codegen_loads_bytes_arg_from_file_path_value() {
-    // Fixture has `input.data = "pdf/fake_memo.pdf"` and the call's `data` arg is
-    // declared as `type = "bytes"`. The codegen must read the file from
-    // test_documents instead of treating the path as inline bytes.
     let toml_src = r#"
 [workspace]
 languages = ["rust"]
@@ -230,9 +227,6 @@ result_is_simple = true
 
 #[test]
 fn rust_codegen_passes_owned_bytes_arg_by_value_not_reference() {
-    // When [e2e.calls.<n>.args] sets owned = true on a `bytes` arg whose value
-    // is a relative file path, the codegen must emit `let <name> = std::fs::read(...);`
-    // followed by passing `<name>` by value (not `&<name>`). Mirror for string args.
     let toml_src = r#"
 [workspace]
 languages = ["rust"]
@@ -317,8 +311,6 @@ result_is_simple = true
 
 #[test]
 fn rust_codegen_passes_owned_string_arg_by_value_not_reference() {
-    // detect_mime_type takes a `String` by value; with owned = true the codegen
-    // must call `.to_string()` on the literal and pass by value.
     let toml_src = r#"
 [workspace]
 languages = ["rust"]
@@ -401,9 +393,6 @@ result_is_simple = true
 
 #[test]
 fn rust_codegen_imports_function_for_non_mock_call_fixture() {
-    // Regression: imports were previously gated on mock_response; non-mock
-    // function-call fixtures rendered without their `use mylib::extract_file;`
-    // statement, producing E0425 "cannot find function".
     let (e2e, resolved) = build_config_with_default_call();
     let groups = vec![build_function_call_fixture("call_fixture")];
     let files = RustE2eCodegen
@@ -442,13 +431,7 @@ fn rust_codegen_still_stubs_when_no_callable_function_configured() {
 
 #[test]
 fn rust_codegen_honors_call_level_streaming_opt_out_for_chunks_field() {
-    // Regression: when a fixture asserts on a `chunks` field but the call config
-    // declares `streaming = false`, the rust backend used to ignore the opt-out
-    // (passed `None` to `resolve_is_streaming` instead of `call_config.streaming`)
-    // and emit stream-collection code: `let stream = ...; let chunks: Vec<_> =
     // tokio_stream::StreamExt::collect(...).await ...` inside a non-async `#[test]`
-    // function, producing E0728 (`.await` outside async) and E0425 (`result` not
-    // found, because assertions still referenced `result.*`).
     let toml_src = r#"
 [workspace]
 languages = ["rust"]

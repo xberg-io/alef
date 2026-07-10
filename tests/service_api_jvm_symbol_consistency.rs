@@ -35,7 +35,6 @@ fn make_test_surface() -> ApiSurface {
         version: Default::default(),
     };
 
-    // One registration with a metadata parameter
     let registration = RegistrationDef {
         method: "on_request".to_owned(),
         callback_param: "handler".to_owned(),
@@ -55,7 +54,6 @@ fn make_test_surface() -> ApiSurface {
         ..Default::default()
     };
 
-    // Run entrypoint
     let run_ep = EntrypointDef {
         method: "run".to_owned(),
         kind: EntrypointKind::Run,
@@ -72,7 +70,6 @@ fn make_test_surface() -> ApiSurface {
         doc: "Run service.".to_owned(),
     };
 
-    // Finalize entrypoint
     let finalize_ep = EntrypointDef {
         method: "shutdown".to_owned(),
         kind: EntrypointKind::Finalize,

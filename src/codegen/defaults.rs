@@ -49,7 +49,7 @@ pub fn language_defaults(language: &str) -> Box<dyn LanguageDefaults> {
         "zig" => Box::new(ZigDefaults),
         "dart" => Box::new(DartDefaults),
         "swift" => Box::new(SwiftDefaults),
-        _ => Box::new(RustDefaults), // fallback
+        _ => Box::new(RustDefaults),
     }
 }
 
@@ -106,7 +106,7 @@ impl LanguageDefaults for PythonDefaults {
             TypeRef::Named(name) => format!("{}()", name),
             TypeRef::Unit => "None".to_string(),
             TypeRef::Json => "{}".to_string(),
-            TypeRef::Duration => "0.0".to_string(), // seconds as float
+            TypeRef::Duration => "0.0".to_string(),
             TypeRef::Char => "\"\"".to_string(),
             TypeRef::Path => "None".to_string(),
         }
@@ -127,7 +127,7 @@ impl LanguageDefaults for TypeScriptDefaults {
             TypeRef::Named(name) => format!("new {}()", name),
             TypeRef::Unit => "null".to_string(),
             TypeRef::Json => "{}".to_string(),
-            TypeRef::Duration => "0".to_string(), // milliseconds as number
+            TypeRef::Duration => "0".to_string(),
             TypeRef::Char => "\"\"".to_string(),
             TypeRef::Path => "null".to_string(),
         }
@@ -142,18 +142,13 @@ impl LanguageDefaults for GoDefaults {
             TypeRef::Primitive(_) => "0".to_string(),
             TypeRef::String => "\"\"".to_string(),
             TypeRef::Bytes => "[]byte{}".to_string(),
-            // Typed nil slice — avoids the untyped `[]interface{}{}` which does
-            // not satisfy interfaces that declare typed slices like `[]string`.
             TypeRef::Vec(inner) => format!("([]{})(nil)", GoMapper.map_type(inner)),
             TypeRef::Map(..) => "nil".to_string(),
             TypeRef::Optional(_) => "nil".to_string(),
-            // Named types: value (not pointer) zero literal without &.
-            // Pointer syntax `&TypeName{}` is wrong when the interface return
-            // type is a value — use a value literal instead.
             TypeRef::Named(name) => format!("{}{{}}", name),
             TypeRef::Unit => "nil".to_string(),
             TypeRef::Json => "json.RawMessage(nil)".to_string(),
-            TypeRef::Duration => "0".to_string(), // nanoseconds as int64
+            TypeRef::Duration => "0".to_string(),
             TypeRef::Char => "rune(0)".to_string(),
             TypeRef::Path => "nil".to_string(),
         }
@@ -174,7 +169,7 @@ impl LanguageDefaults for JavaDefaults {
             TypeRef::Named(name) => format!("new {}()", name),
             TypeRef::Unit => "null".to_string(),
             TypeRef::Json => "new JSONObject()".to_string(),
-            TypeRef::Duration => "0".to_string(), // millis
+            TypeRef::Duration => "0".to_string(),
             TypeRef::Char => "'\\0'".to_string(),
             TypeRef::Path => "null".to_string(),
         }
@@ -210,13 +205,13 @@ impl LanguageDefaults for CSharpDefaults {
             TypeRef::Primitive(_) => "0".to_string(),
             TypeRef::String => "\"\"".to_string(),
             TypeRef::Bytes => "Array.Empty<byte>()".to_string(),
-            TypeRef::Vec(_) => "[]".to_string(), // collection initializer
+            TypeRef::Vec(_) => "[]".to_string(),
             TypeRef::Map(..) => "new Dictionary<string, object>()".to_string(),
             TypeRef::Optional(_) => "null".to_string(),
             TypeRef::Named(name) => format!("new {}()", name),
             TypeRef::Unit => "null".to_string(),
             TypeRef::Json => "new JObject()".to_string(),
-            TypeRef::Duration => "0".to_string(), // ticks
+            TypeRef::Duration => "0".to_string(),
             TypeRef::Char => "'\\0'".to_string(),
             TypeRef::Path => "null".to_string(),
         }
@@ -276,7 +271,7 @@ impl LanguageDefaults for ElixirDefaults {
             TypeRef::Vec(_) => "[]".to_string(),
             TypeRef::Map(..) => "%{}".to_string(),
             TypeRef::Optional(_) => "nil".to_string(),
-            TypeRef::Named(_name) => "%{}".to_string(), // struct literal pattern in Elixir
+            TypeRef::Named(_name) => "%{}".to_string(),
             TypeRef::Unit => "nil".to_string(),
             TypeRef::Json => "%{}".to_string(),
             TypeRef::Duration => "0".to_string(),
@@ -297,7 +292,7 @@ impl LanguageDefaults for GleamDefaults {
             TypeRef::Vec(_) => "[]".to_string(),
             TypeRef::Map(..) => "dict.new()".to_string(),
             TypeRef::Optional(_) => "Nil".to_string(),
-            TypeRef::Named(name) => name.clone(), // constructors without parens in Gleam
+            TypeRef::Named(name) => name.clone(),
             TypeRef::Unit => "Nil".to_string(),
             TypeRef::Json => "dict.new()".to_string(),
             TypeRef::Duration => "0".to_string(),
@@ -315,7 +310,7 @@ impl LanguageDefaults for RDefaults {
             TypeRef::Primitive(_) => "0L".to_string(),
             TypeRef::String => "\"\"".to_string(),
             TypeRef::Bytes => "raw(NULL)".to_string(),
-            TypeRef::Vec(_) => "c()".to_string(), // empty vector in R
+            TypeRef::Vec(_) => "c()".to_string(),
             TypeRef::Map(..) => "list()".to_string(),
             TypeRef::Optional(_) => "NULL".to_string(),
             TypeRef::Named(name) => format!("{}()", name),
@@ -357,10 +352,10 @@ impl LanguageDefaults for ZigDefaults {
             TypeRef::Primitive(_) => "0".to_string(),
             TypeRef::String => "\"\"".to_string(),
             TypeRef::Bytes => "\"\"".to_string(),
-            TypeRef::Vec(_) => "&.{}".to_string(), // empty array literal
+            TypeRef::Vec(_) => "&.{}".to_string(),
             TypeRef::Map(..) => ".{}".to_string(),
             TypeRef::Optional(_) => "null".to_string(),
-            TypeRef::Named(_name) => "undefined".to_string(), // Zig's undefined for stub testing
+            TypeRef::Named(_name) => "undefined".to_string(),
             TypeRef::Unit => "null".to_string(),
             TypeRef::Json => ".{}".to_string(),
             TypeRef::Duration => "0".to_string(),

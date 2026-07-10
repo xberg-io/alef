@@ -114,9 +114,6 @@ result_is_json_struct = true
 
     let rendered = render_zig_test(&toml, "parse_span_test", fixture);
 
-    // The Zig wrapper returns []u8 (owned slice), so _result_json is already a slice.
-    // It must be passed directly to parseFromSlice without std.mem.span wrapping.
-    // In zig 0.16+, std.mem.span on a slice is a compile error.
     assert!(
         !rendered.contains("std.mem.span(_result_json)"),
         "must NOT wrap _result_json with std.mem.span when it's already a []u8 slice. Rendered:\n{rendered}"
@@ -155,8 +152,6 @@ result_is_json_struct = true
 
     let rendered = render_zig_test(&toml, "interact_format_span_test", fixture);
 
-    // For interact(), the result gets wrapped in JSON format string with {s} specifier.
-    // The {s} format accepts []const u8 slices directly, so _result_json is passed as-is.
     assert!(
         !rendered.contains("std.mem.span(_result_json)"),
         "must NOT wrap _result_json with std.mem.span in format string. Rendered:\n{rendered}"
@@ -200,9 +195,6 @@ result_is_json_struct = true
 
     let rendered = render_zig_test(&toml, "extract_span_test", fixture);
 
-    // When result is JSON struct but no wrap_field, _result_json is already a []u8 slice,
-    // so it's passed directly to parseFromSlice without std.mem.span wrapping.
-    // This tests the else clause in the parse_json_var if statement (line 589 in test_file.rs)
     assert!(
         !rendered.contains("std.mem.span(_result_json)"),
         "must NOT wrap _result_json with std.mem.span when it's already a slice. Rendered:\n{rendered}"

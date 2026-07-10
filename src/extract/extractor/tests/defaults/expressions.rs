@@ -147,7 +147,6 @@ fn test_field_with_enum_variant_default() {
     "#;
 
     let surface = extract_from_source(source);
-    // Filter for Task type (Status is also extracted as an enum)
     let task = surface.types.iter().find(|t| t.name == "Task").unwrap();
     let status_field = &task.fields[0];
 
@@ -185,7 +184,6 @@ fn test_multiple_fields_with_different_defaults() {
 
     assert_eq!(config.fields.len(), 4);
 
-    // Check name field
     let name_field = &config.fields[0];
     assert_eq!(name_field.name, "name");
     assert_eq!(
@@ -193,7 +191,6 @@ fn test_multiple_fields_with_different_defaults() {
         Some(crate::core::ir::DefaultValue::StringLiteral("default".to_string()))
     );
 
-    // Check count field
     let count_field = &config.fields[1];
     assert_eq!(count_field.name, "count");
     assert_eq!(
@@ -201,7 +198,6 @@ fn test_multiple_fields_with_different_defaults() {
         Some(crate::core::ir::DefaultValue::IntLiteral(42))
     );
 
-    // Check enabled field
     let enabled_field = &config.fields[2];
     assert_eq!(enabled_field.name, "enabled");
     assert_eq!(
@@ -209,7 +205,6 @@ fn test_multiple_fields_with_different_defaults() {
         Some(crate::core::ir::DefaultValue::BoolLiteral(false))
     );
 
-    // Check threshold field
     let threshold_field = &config.fields[3];
     assert_eq!(threshold_field.name, "threshold");
     assert_eq!(
@@ -326,7 +321,6 @@ fn test_complex_expression_defaults_to_empty() {
 
 #[test]
 fn test_field_with_duration_from_secs_default() {
-    // Duration::from_secs(5) should extract as IntLiteral(5000) — milliseconds
     let source = r#"
         use std::time::Duration;
 
@@ -354,7 +348,6 @@ fn test_field_with_duration_from_secs_default() {
 
 #[test]
 fn test_field_with_duration_from_millis_default() {
-    // Duration::from_millis(250) should extract as IntLiteral(250)
     let source = r#"
         use std::time::Duration;
 
@@ -382,7 +375,6 @@ fn test_field_with_duration_from_millis_default() {
 
 #[test]
 fn test_field_with_vec_macro_default() {
-    // `vec![]` (empty token macro) should extract as Empty
     let source = r#"
         pub struct Pipeline {
             pub stages: Vec<String>,
@@ -408,7 +400,6 @@ fn test_field_with_vec_macro_default() {
 
 #[test]
 fn test_field_with_none_default() {
-    // Bare `None` should extract as DefaultValue::None
     let source = r#"
         pub struct Optional {
             pub value: Option<String>,
@@ -434,8 +425,6 @@ fn test_field_with_none_default() {
 
 #[test]
 fn test_unary_negation_on_non_numeric_falls_back_to_empty() {
-    // Negating something that isn't an int or float literal — should return Empty.
-    // We exercise this indirectly by using a call expression that itself returns Empty.
     let source = r#"
         pub struct Unusual {
             pub val: i32,

@@ -12,9 +12,6 @@ use std::collections::BTreeSet;
 /// is renamed to `{module_name}Error` (e.g. `SampleLanguagePackError`) to avoid the
 /// clash. The protocol reference is always qualified as `Swift.Error` for clarity.
 pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &SwiftMapper) {
-    // Rename bare `Error` to `{ModuleName}Error` to avoid the Swift parser ambiguity
-    // where `public enum Error: Error` is interpreted as a circular raw-type binding
-    // instead of protocol conformance.
     let name = if error.name == "Error" {
         format!("{module_name}Error")
     } else {
@@ -42,8 +39,6 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
             let mut seen_message = false;
             let mut labels: BTreeSet<String> = BTreeSet::new();
             for (idx, f) in variant.fields.iter().enumerate() {
-                // Honor field.optional (extractor-unwrapped form) in addition to
-                // TypeRef::Optional(inner) — both encode "nullable" in the IR.
                 let already_optional = matches!(&f.ty, TypeRef::Optional(_));
                 let ty_str = mapper.map_type(&f.ty);
                 let ty_with_opt = if f.optional && !already_optional {
@@ -52,7 +47,6 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
                     ty_str
                 };
                 let mut label = super::enums::swift_associated_label(&f.name, idx);
-                // Disambiguate duplicate labels by suffixing the index.
                 while labels.contains(&label) {
                     label = format!("{label}{idx}");
                 }
@@ -74,12 +68,6 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
             ));
         }
     }
-    // Append a synthetic `validation(message:source:)` case used by DTO
-    // first-class struct initializers (`dto.rs:675`) when a unit-serde-enum
-    // raw value from the Rust bridge cannot be mapped to a known Swift
-    // case. Without this the generated Swift refuses to compile against
-    // any Rust error type that doesn't already declare this exact variant.
-    // Skipped if the Rust error type already declares it.
     let has_validation_variant = error
         .variants
         .iter()
@@ -90,12 +78,6 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
         out.push_str("    case validation(message: String, source: String)\n");
     }
     out.push_str("}\n");
-    // Emit a public extension with computed properties for each whitelisted
-    // introspection method (e.g. `status_code`, `is_transient`, `error_type`).
-    // Each property switches over `self` and delegates to the per-variant
-    // associated values or returns a sensible default when the variant carries
-    // no such field.  Backends that wire a swift-bridge free function can
-    // replace these stubs in a subsequent code-generation pass.
     if !error.methods.is_empty() {
         out.push('\n');
         let mut properties = String::new();
@@ -106,12 +88,9 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
             let mut cases = String::new();
             for variant in &error.variants {
                 let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
-                // Check whether this variant carries an associated value whose
-                // name matches the method (e.g. `status_code` ↔ `status`).
                 let field_match = variant.fields.iter().find(|f| {
                     let camel = f.name.to_lower_camel_case();
                     let prop_snake = method.name.as_str();
-                    // Exact match or common abbreviation (status_code → status).
                     camel == prop_name
                         || f.name == prop_snake
                         || (prop_snake == "status_code" && (f.name == "status" || camel == "status"))
@@ -133,11 +112,6 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
                             format!("{label}: _")
                         })
                         .collect();
-                    // The case declaration above synthesizes a leading
-                    // `message: String` parameter when none of the original
-                    // fields is named `message`.  The switch pattern must
-                    // include the same synthetic label or the tuple lengths
-                    // will mismatch.
                     let has_message_field = variant.fields.iter().any(|f| f.name == "message");
                     if !has_message_field {
                         args.insert(0, "message: _".to_string());
@@ -158,9 +132,6 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
                     },
                 ));
             }
-            // Cover the synthetic `validation(message:source:)` case (appended
-            // above when not already declared by the user) so Swift's exhaustive
-            // switch is satisfied for every introspection-method property.
             if !has_validation_variant {
                 cases.push_str(&crate::backends::swift::template_env::render(
                     "swift_error_property_case.swift.jinja",

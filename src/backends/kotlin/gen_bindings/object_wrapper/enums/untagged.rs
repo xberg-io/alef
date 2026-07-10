@@ -31,18 +31,15 @@ pub(super) fn emit_kotlin_text_accessor(out: &mut String, en: &EnumDef) {
 
     for variant in &en.variants {
         if variant.fields.is_empty() {
-            // Unit variant: return empty string
             out.push_str("        is ");
             out.push_str(name);
             out.push('.');
             out.push_str(&variant.name);
             out.push_str(" -> \"\"\n");
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            // Newtype/tuple variant: check the inner type and handle accordingly
             let field = &variant.fields[0];
             match &field.ty {
                 TypeRef::String => {
-                    // String variant: return the string directly
                     out.push_str("        is ");
                     out.push_str(name);
                     out.push('.');
@@ -50,9 +47,7 @@ pub(super) fn emit_kotlin_text_accessor(out: &mut String, en: &EnumDef) {
                     out.push_str(" -> this.value\n");
                 }
                 TypeRef::Vec(elem_ty) => {
-                    // Vec variant: check if elements are objects with "type" and "text" fields
                     if let TypeRef::Named(_) | TypeRef::Json = **elem_ty {
-                        // For Vec<Object> or Vec<Json>, iterate and extract text parts
                         out.push_str("        is ");
                         out.push_str(name);
                         out.push('.');
@@ -82,7 +77,6 @@ pub(super) fn emit_kotlin_text_accessor(out: &mut String, en: &EnumDef) {
                         out.push_str("            sb.toString()\n");
                         out.push_str("        }\n");
                     } else {
-                        // Vec<primitive> or other: return empty string
                         out.push_str("        is ");
                         out.push_str(name);
                         out.push('.');
@@ -91,7 +85,6 @@ pub(super) fn emit_kotlin_text_accessor(out: &mut String, en: &EnumDef) {
                     }
                 }
                 _ => {
-                    // Other types (primitive, named, etc.): return empty string
                     out.push_str("        is ");
                     out.push_str(name);
                     out.push('.');
@@ -100,7 +93,6 @@ pub(super) fn emit_kotlin_text_accessor(out: &mut String, en: &EnumDef) {
                 }
             }
         } else {
-            // Struct variant with named fields: return empty string
             out.push_str("        is ");
             out.push_str(name);
             out.push('.');
@@ -124,9 +116,6 @@ pub(super) fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) 
     out.push_str(">(");
     out.push_str(name);
     out.push_str("::class.java) {\n");
-    // Suppress detekt LongMethod: the number of if-branches scales with the number
-    // of variants; for enums with many variants the function body will exceed detekt's
-    // 60-line default threshold.  The generated code is correct and intentionally long.
     out.push_str("    @Suppress(\"LongMethod\")\n");
     out.push_str("    override fun deserialize(\n");
     out.push_str("        parser: com.fasterxml.jackson.core.JsonParser,\n");
@@ -138,19 +127,14 @@ pub(super) fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) 
 
     for variant in &en.variants {
         if variant.fields.is_empty() {
-            // Unit variant in an untagged enum — skip shape-based dispatch; cannot match.
             continue;
         }
 
-        // Determine what JSON shape this variant expects based on its first field.
         let (condition, inner_expr) = if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            // Tuple/newtype variant — the JSON IS the inner value.
             let ty = &variant.fields[0].ty;
             match ty {
                 TypeRef::String => ("node.isTextual", format!("{name}.{}(node.asText())", variant.name)),
                 TypeRef::Vec(elem_ty) => {
-                    // Use JavaType to carry the generic element type so Jackson can
-                    // construct a properly-typed List<T> rather than a raw List<*>.
                     let elem_class = super::kotlin_class_name_for_type(elem_ty);
                     let expr = format!(
                         "run {{\n                val javaType = ctx.typeFactory.constructCollectionType(List::class.java, {elem_class}::class.java)\n                @Suppress(\"UNCHECKED_CAST\")\n                {name}.{}(ctx.readTreeAsValue<List<{elem_class}>>(node, javaType) as List<{elem_class}>)\n            }}",
@@ -168,20 +152,13 @@ pub(super) fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) 
                         ),
                     )
                 }
-                TypeRef::Named(n) => {
-                    // Named types can be either enums (stringify via @JsonValue + @JsonCreator)
-                    // or structs (objectify). Without enum type information in the backend,
-                    // we conservatively check node.isObject for struct variants and fall through
-                    // to a catch-all deserialization that handles both cases at the end.
-                    // For now, we'll check for both textual and object nodes to support both.
-                    (
-                        "true", // Try all Named types; let deserialization determine success
-                        format!(
-                            "try {{ {name}.{}(ctx.readTreeAsValue(node, {n}::class.java)) }} catch (_: com.fasterxml.jackson.databind.exc.MismatchedInputException) {{ null as? {name} }} catch (_: com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException) {{ null as? {name} }}",
-                            variant.name
-                        ),
-                    )
-                }
+                TypeRef::Named(n) => (
+                    "true",
+                    format!(
+                        "try {{ {name}.{}(ctx.readTreeAsValue(node, {n}::class.java)) }} catch (_: com.fasterxml.jackson.databind.exc.MismatchedInputException) {{ null as? {name} }} catch (_: com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException) {{ null as? {name} }}",
+                        variant.name
+                    ),
+                ),
                 _ => {
                     let class_name = super::kotlin_class_name_for_type(ty);
                     (
@@ -194,9 +171,6 @@ pub(super) fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) 
                 }
             }
         } else {
-            // Struct variant with named fields — JSON must be an object.
-            // `readTreeAsValue` returns the correct data class subtype directly;
-            // no variant-constructor wrapping needed.
             let struct_class = format!("{name}.{}", variant.name);
             (
                 "node.isObject",
@@ -208,7 +182,6 @@ pub(super) fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) 
         out.push_str(condition);
         out.push_str(") ");
         if condition == "true" && inner_expr.contains("try {") {
-            // For try-catch branches, only return if result is not null
             out.push_str("{\n");
             out.push_str("            val result = ");
             out.push_str(&inner_expr);
@@ -249,9 +222,6 @@ pub(super) fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
     out.push_str(">(");
     out.push_str(name);
     out.push_str("::class.java) {\n");
-    // Suppress detekt LongMethod: the number of branches scales with the number of
-    // variants; for enums with many variants the function body will exceed detekt's
-    // 60-line default threshold.  The generated code is correct and intentionally long.
     out.push_str("    @Suppress(\"LongMethod\")\n");
     out.push_str("    override fun serialize(\n");
     out.push_str("        value: ");
@@ -266,17 +236,12 @@ pub(super) fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
 
     for variant in &en.variants {
         if variant.fields.is_empty() {
-            // Unit variant in an untagged enum: emit null (safest fallback).
             out.push_str("            is ");
             out.push_str(name);
             out.push('.');
             out.push_str(&variant.name);
             out.push_str(" -> gen.writeNull()\n");
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            // Newtype/tuple variant: serialize the inner value directly
-            // (not wrapped in an object), matching serde's untagged behaviour.
-            // Use the same payload-derived field name that the data-class declaration
-            // uses (via kotlin_field_name_with_type), so `value.<field>` resolves.
             let field = &variant.fields[0];
             let field_name = kotlin_field_name_with_type(
                 &field.name,
@@ -290,11 +255,6 @@ pub(super) fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
                 &variant.name,
                 1,
             );
-            // When the inner type is Vec<SealedClass>, mapper.writeValue dispatches to
-            // each element's runtime-subtype serializer (which has @JsonSerialize reset
-            // to None), losing the sealed-class "type" discriminator. Use
-            // provider.findValueSerializer on the declared element type instead so the
-            // sealed-class serializer (which writes "type") is always called.
             if let TypeRef::Vec(inner) = &field.ty {
                 if let TypeRef::Named(elem_type) = inner.as_ref() {
                     out.push_str(&crate::backends::kotlin::template_env::render(
@@ -325,10 +285,6 @@ pub(super) fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
                 out.push_str(")\n");
             }
         } else {
-            // Named-field struct variant: cast to the concrete variant type before
-            // serializing so Jackson resolves the serializer against the variant
-            // class (which has @JsonSerialize reset to the default POJO serializer),
-            // not against the parent sealed class (which would recurse infinitely).
             out.push_str("            is ");
             out.push_str(name);
             out.push('.');

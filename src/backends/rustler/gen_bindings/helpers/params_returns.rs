@@ -70,9 +70,6 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_return_typespec(
     opaque_types: &AHashSet<String>,
     default_types: &AHashSet<String>,
 ) -> String {
-    // For Named types that belong to default_types: as input they are passed as JSON
-    // strings, but as return values the NIF always deserialises and returns the struct.
-    // Use `map()` instead of `String.t() | nil` to reflect the actual runtime shape.
     let base = match ty {
         TypeRef::Named(name) if default_types.contains(name) => "map()".to_string(),
         TypeRef::Optional(inner) => match inner.as_ref() {

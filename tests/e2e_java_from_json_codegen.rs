@@ -118,13 +118,10 @@ fn from_json_arg_emits_json_util_from_json() {
         rendered.contains("JsonUtil.fromJson("),
         "must use JsonUtil.fromJson(...) for deserialization. Rendered:\n{rendered}"
     );
-    // The per-DTO static form uses a capital type name directly (e.g. `ChatCompletionRequest.fromJson`).
-    // JsonUtil.fromJson is the correct centralized form — it must NOT appear as `TypeName.fromJson`.
     assert!(
         !rendered.contains("ChatCompletionRequest.fromJson("),
         "must NOT emit per-DTO ChatCompletionRequest.fromJson(...) calls. Rendered:\n{rendered}"
     );
-    // Verify the shape: JsonUtil.fromJson("<json>", ChatCompletionRequest.class)
     assert!(
         rendered.contains("ChatCompletionRequest.class"),
         "must pass the target class as the second argument. Rendered:\n{rendered}"

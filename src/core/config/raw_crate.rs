@@ -41,9 +41,6 @@ use super::trait_bridge::TraitBridgeConfig;
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RawCrateConfig {
-    // -----------------------------------------------------------------
-    // Identity and source crate
-    // -----------------------------------------------------------------
     /// Crate name (e.g. `"sample_project"`). Must be unique within the workspace.
     pub name: String,
 
@@ -112,17 +109,11 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub source_crates: Vec<SourceCrate>,
 
-    // -----------------------------------------------------------------
-    // Language selection
-    // -----------------------------------------------------------------
     /// Override of the workspace `languages` list for this crate.
     /// When `None`, this crate inherits the workspace default.
     #[serde(default)]
     pub languages: Option<Vec<Language>>,
 
-    // -----------------------------------------------------------------
-    // Per-language settings (was top-level [python], [node], …)
-    // -----------------------------------------------------------------
     #[serde(default)]
     pub python: Option<PythonConfig>,
     #[serde(default)]
@@ -160,9 +151,6 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub zig: Option<ZigConfig>,
 
-    // -----------------------------------------------------------------
-    // Filters and output paths
-    // -----------------------------------------------------------------
     #[serde(default)]
     pub exclude: ExcludeConfig,
     #[serde(default)]
@@ -173,9 +161,6 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub output: OutputConfig,
 
-    // -----------------------------------------------------------------
-    // Per-crate generation, formatting, and DTO overrides.
-    // -----------------------------------------------------------------
     /// Override the workspace default `generate` flags. When `Some`, replaces the
     /// workspace value wholesale. When `None`, the crate inherits `workspace.generate`.
     #[serde(default)]
@@ -193,9 +178,6 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub generate_overrides: HashMap<String, super::GenerateConfig>,
 
-    // -----------------------------------------------------------------
-    // Per-crate pipeline overrides — merged field-wise with workspace defaults.
-    // -----------------------------------------------------------------
     #[serde(default)]
     pub lint: HashMap<String, LintConfig>,
     #[serde(default)]
@@ -209,9 +191,6 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub build_commands: HashMap<String, BuildCommandConfig>,
 
-    // -----------------------------------------------------------------
-    // Packaging, e2e, extensibility
-    // -----------------------------------------------------------------
     #[serde(default)]
     pub publish: Option<PublishConfig>,
     #[serde(default)]

@@ -38,7 +38,6 @@ pub struct PublishLanguageConfig {
     pub pkg_config: Option<bool>,
     /// Generate a CMake find module (C FFI only).
     pub cmake_config: Option<bool>,
-    // --- New fields added in Phase 1 ---
     /// npm sub-package platform identifiers for Node.js NAPI builds.
     /// Each entry is a napi-rs platform string like `"linux-x64-gnu"`.
     /// Defaults to a standard set when absent.
@@ -166,7 +165,6 @@ archive_format = "zip"
 
     #[test]
     fn publish_config_in_new_alef_config() {
-        // Parse via NewAlefConfig (new schema) — publish lives on [[crates]].
         let toml_str = r#"
 [workspace]
 languages = ["python", "ruby"]

@@ -1,7 +1,6 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
-// render_python_fn_sig
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -55,10 +54,6 @@ fn test_render_python_fn_sig_complex_return_type() {
     let sig = render_python_fn_sig(&func, TEST_PREFIX);
     assert_eq!(sig, "def get_mapping() -> dict[str, int]");
 }
-
-// ---------------------------------------------------------------------------
-// render_rust_fn_sig
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_render_rust_fn_sig_basic() {
@@ -116,10 +111,6 @@ fn test_render_rust_fn_sig_error_type_unit_return() {
     assert_eq!(sig, "pub fn save() -> Result<(), IoError>");
 }
 
-// ---------------------------------------------------------------------------
-// render_go_fn_sig
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_render_go_fn_sig_basic() {
     let func = make_function(
@@ -173,10 +164,6 @@ fn test_render_go_fn_sig_error_type_unit_return() {
     assert_eq!(sig, "func Save() error");
 }
 
-// ---------------------------------------------------------------------------
-// render_java_fn_sig
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_render_java_fn_sig_basic() {
     let func = make_function(
@@ -222,10 +209,6 @@ fn test_render_java_fn_sig_error_type() {
     let sig = render_java_fn_sig(&func, TEST_PREFIX);
     assert_eq!(sig, "public static Ast parse(String source) throws ParseError");
 }
-
-// ---------------------------------------------------------------------------
-// render_csharp_fn_sig
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_render_csharp_fn_sig_basic() {
@@ -281,10 +264,6 @@ fn test_render_csharp_fn_sig_complex_return_type() {
     let sig = render_csharp_fn_sig(&func, TEST_PREFIX);
     assert_eq!(sig, "public static Dictionary<string, int> GetMapping()");
 }
-
-// ---------------------------------------------------------------------------
-// render_param_list via render_function_signature — parameter formatting
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_param_list_python_optional_uses_none_default() {
@@ -367,10 +346,6 @@ fn test_param_list_php_uses_dollar_prefix() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// render_kotlin_fn_sig (Kotlin / KotlinAndroid share the renderer)
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_render_kotlin_fn_sig_no_error_no_return() {
     let func = make_function(
@@ -415,10 +390,6 @@ fn test_render_kotlin_fn_sig_with_error_emits_throws_annotation() {
         "@Throws(ConversionError::class)\nfun convert(html: String): String"
     );
 }
-
-// ---------------------------------------------------------------------------
-// render_swift_fn_sig
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_render_swift_fn_sig_no_error_no_return() {
@@ -465,10 +436,6 @@ fn test_render_swift_fn_sig_with_error_emits_throws() {
     assert_eq!(sig, "public static func convert(html: String) throws -> String");
 }
 
-// ---------------------------------------------------------------------------
-// render_dart_fn_sig
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_render_dart_fn_sig_required_only() {
     let func = make_function(
@@ -497,10 +464,6 @@ fn test_render_dart_fn_sig_optional_param_uses_bracketed_positional() {
     let sig = render_dart_fn_sig(&func, TEST_PREFIX);
     assert_eq!(sig, "List<String> search(String query, [int? limit])");
 }
-
-// ---------------------------------------------------------------------------
-// render_zig_fn_sig
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_render_zig_fn_sig_no_error() {
@@ -540,10 +503,6 @@ fn test_render_zig_fn_sig_optional_param_prefixes_question_mark() {
     let sig = render_zig_fn_sig(&func, TEST_PREFIX);
     assert_eq!(sig, "pub fn search(limit: ?u32) void");
 }
-
-// ---------------------------------------------------------------------------
-// render_method_signature — Kotlin/Swift/Dart/Zig
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_render_method_signature_kotlin_static_emits_jvmstatic() {

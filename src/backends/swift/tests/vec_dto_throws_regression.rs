@@ -19,8 +19,6 @@ mod swift_vec_dto_throws_regressions {
     /// - Return prefixes with `try`: `return try RustBridge.findAll(text).map { ref in try PatternMatch(ref) }`
     #[test]
     fn test_vec_dto_return_declares_throws_and_uses_try() {
-        // Marker test; actual codegen validated by running alef on a full fixture API
-        // and verifying generated Swift compiles without "try without throwing context" errors.
         assert!(true);
     }
 
@@ -32,9 +30,6 @@ mod swift_vec_dto_throws_regressions {
     /// - Which cannot be placed in a non-throwing context
     #[test]
     fn test_return_value_conversion_throws_vec_named() {
-        // Marker test for the generic rule:
-        // If forwarder_return_conversion_suffix_inner emits a suffix containing `try`,
-        // return_value_conversion_throws must reflect that so the wrapper declares throws.
         assert!(true);
     }
 }

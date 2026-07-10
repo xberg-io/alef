@@ -7,7 +7,6 @@ pub(super) fn emit_error_helpers(
     out: &mut String,
 ) {
     use crate::backends::dart::template_env;
-    // free_string lookup
     out.push_str("/// Free a string allocated by the FFI layer.\n");
     out.push_str("/// The pointer must have been returned by a `");
     out.push_str(prefix);
@@ -22,7 +21,6 @@ pub(super) fn emit_error_helpers(
         },
     ));
 
-    // last_error_code lookup
     out.push_str("/// Check the last FFI error code (0 = success).\n");
     out.push_str("typedef _LastErrorCodeNative = Int32 Function();\n");
     out.push_str("typedef _LastErrorCodeDart = int Function();\n");
@@ -34,7 +32,6 @@ pub(super) fn emit_error_helpers(
         },
     ));
 
-    // last_error_context lookup
     out.push_str("/// Retrieve the last FFI error message, or null if none.\n");
     out.push_str("typedef _LastErrorContextNative = Pointer<Utf8> Function();\n");
     out.push_str("typedef _LastErrorContextDart = Pointer<Utf8> Function();\n");
@@ -46,7 +43,6 @@ pub(super) fn emit_error_helpers(
         },
     ));
 
-    // _checkError helper
     out.push_str("/// Throw a [StateError] if the last FFI call failed.\n");
     out.push_str("void _checkError() {\n");
     out.push_str("  final code = _lastErrorCode();\n");

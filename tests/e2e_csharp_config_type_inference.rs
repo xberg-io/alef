@@ -27,7 +27,6 @@ fn make_fixture_omit_config(id: &str) -> Fixture {
         call: Some("process_with_config".to_string()),
         input: serde_json::json!({
             "data": "test data"
-            // Deliberately omit the "config" field to trigger default construction
         }),
         mock_response: None,
         visitor: None,
@@ -96,10 +95,8 @@ fn csharp_config_type_inference_direct_match() {
         .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
 
-    // Verify that test code was generated
     assert!(!generated.is_empty(), "Should generate C# test code");
 
-    // Extract the test file content
     let test_code = generated
         .iter()
         .find(|f| f.path.to_string_lossy().contains("test"))
@@ -108,14 +105,5 @@ fn csharp_config_type_inference_direct_match() {
 
     assert!(!test_code.is_empty(), "Should generate test code");
 
-    // The critical check: when config parameter is null in the fixture,
-    // the codegen should NOT emit ", null" for required config parameters.
-    // Without the fix, the code would pass null and cause ArgumentNullException.
-    // With the fix, it either constructs a default instance or the test logic
-    // avoids triggering the null path.
-
-    // Key assertion: the test should be syntactically valid C# without null for required config.
-    // We verify this by checking that the generated code is not empty and
-    // can be parsed/compiled later.
     assert!(!test_code.is_empty(), "Generated C# test code should not be empty");
 }

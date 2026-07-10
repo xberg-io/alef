@@ -127,7 +127,6 @@ fn test_extract_since_v_prefix_is_stripped() {
         pub fn prefixed() {}
     "#;
     let surface = extract_from_source(source);
-    // Leading 'v' must be stripped so the template emits "v1.2.0" not "vv1.2.0".
     assert_eq!(surface.functions[0].version.since.as_deref(), Some("1.2.0"));
 }
 

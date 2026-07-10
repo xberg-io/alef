@@ -1,14 +1,12 @@
 use super::*;
 
 // ---------------------------------------------------------------------------
-// gen_registration_fn
 // ---------------------------------------------------------------------------
 
 #[test]
 fn test_gen_registration_fn_requires_register_fn_and_registry_getter() {
     let generator = make_bridge_generator("my_lib");
     let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
-    // Neither register_fn nor registry_getter: should produce empty string
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "MyTrait".to_string(),
         super_trait: None,
@@ -86,12 +84,10 @@ fn test_gen_registration_fn_validates_required_methods() {
 
     let out = generator.gen_registration_fn(&spec);
 
-    // The registration function must validate all required methods are present
     assert!(
         out.contains("\"process\""),
         "registration fn should validate required method 'process'"
     );
-    // Optional method should also appear in required_methods list (it's still listed)
     assert!(
         out.contains("PyAttributeError"),
         "registration fn should raise PyAttributeError for missing methods"

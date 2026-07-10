@@ -23,7 +23,6 @@ pub(in crate::backends::go::gen_bindings) fn is_tuple_field(field: &FieldDef) ->
 /// - `StringLiteral(s)` where !s.is_empty() — Rust default is s, Go zero is ""
 /// - `EnumVariant(_)` — Rust default is a specific variant, Go zero is ""
 pub(in crate::backends::go::gen_bindings) fn needs_omitempty_pointer(field: &FieldDef) -> bool {
-    // Duration fields always need pointer+omitempty: zero duration is invalid in Rust
     if matches!(field.ty, TypeRef::Duration) {
         return true;
     }
@@ -63,8 +62,6 @@ pub(in crate::backends::go::gen_bindings) fn gen_ptr_helper() -> String {
 
 /// Generate the lastError() helper function.
 pub(in crate::backends::go::gen_bindings) fn gen_last_error_helper(ffi_prefix: &str) -> String {
-    // Note: ctx is a borrowed pointer into thread-local storage, NOT a heap allocation.
-    // Do NOT call free_string on it — that causes a double-free crash on the next FFI call.
     crate::backends::go::template_env::render(
         "last_error_helper.jinja",
         context! {
@@ -114,8 +111,6 @@ pub(in crate::backends::go::gen_bindings) fn emit_type_doc(
     let sections = crate::codegen::doc_emission::parse_rustdoc_sections(doc);
     let summary = sections.summary.trim();
     if summary.is_empty() {
-        // No summary prose, only sections — synthesise a header line then
-        // append sections so the symbol still has a name-prefixed doc line.
         out.push_str(&crate::backends::go::template_env::render(
             "type_doc_header.jinja",
             context! {
@@ -137,10 +132,6 @@ pub(in crate::backends::go::gen_bindings) fn emit_type_doc(
 fn emit_godoc_summary(out: &mut String, symbol_name: &str, summary: &str) {
     let mut lines = summary.lines();
     let first = lines.next().unwrap_or("").trim();
-    // The template prepends `// {{ symbol_name }} `, so strip a leading
-    // occurrence of `{symbol_name}` (plus an optional separator space) from
-    // the rendered body — otherwise summaries that already start with the
-    // exported name produce `// Name Name does ...` double-prefixes.
     let body = if let Some(rest) = first.strip_prefix(symbol_name) {
         rest.trim_start().to_string()
     } else {
@@ -196,7 +187,6 @@ fn push_godoc_line(out: &mut String, text: &str) {
 /// Removes or translates patterns like .unwrap(), use statements, and Rust module syntax.
 fn sanitize_rust_code_for_go(line: &str) -> String {
     let mut result = line.to_string();
-    // Remove Rust use statements entirely.
     if result.trim().starts_with("use ") {
         return String::new();
     }
@@ -276,8 +266,6 @@ fn emit_godoc_sections(out: &mut String, sections: &crate::codegen::doc_emission
     if let Some(body) = sections.example.as_deref() {
         push_godoc_blank(out);
         push_godoc_line(out, "Example:");
-        // Godoc renders indented blocks as preformatted code. Strip a single
-        // ``` fence pair if present, sanitize Rust-specific syntax, then indent each line with two spaces.
         let mut in_fence = false;
         for line in body.lines() {
             let trimmed = line.trim_start();
@@ -289,7 +277,6 @@ fn emit_godoc_sections(out: &mut String, sections: &crate::codegen::doc_emission
                 out.push_str("//\n");
             } else {
                 let sanitized = sanitize_rust_code_for_go(line.trim_end());
-                // Skip empty lines that result from stripping use statements.
                 if !sanitized.trim().is_empty() {
                     out.push_str("//   ");
                     out.push_str(&sanitized);

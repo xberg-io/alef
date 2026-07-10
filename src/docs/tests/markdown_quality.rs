@@ -1,7 +1,6 @@
 use super::*;
 
 fn count_md_table_cells(row: &str) -> usize {
-    // Strip leading/trailing pipe and any surrounding whitespace.
     let trimmed = row.trim();
     let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let inner = inner.strip_suffix('|').unwrap_or(inner);
@@ -51,21 +50,14 @@ fn assert_no_md056_violations(content: &str) {
 
 #[test]
 fn test_count_md_table_cells_treats_escaped_pipes_as_literal() {
-    // Sanity check the helper used by the MD056 regression test.
     assert_eq!(count_md_table_cells("| a | b | c |"), 3);
     assert_eq!(count_md_table_cells("|---|---|---|"), 3);
-    // `\|` is a literal pipe inside one cell, so this row is still 3 cells.
     assert_eq!(count_md_table_cells("| `string \\| null` | `null` | desc |"), 3);
-    // An unescaped pipe inside a cell does split — that's the bug we're guarding against.
     assert_eq!(count_md_table_cells("| `string | null` | `null` | desc |"), 4);
 }
 
 #[test]
 fn test_generate_docs_typescript_optional_field_emits_consistent_table_cells() {
-    // Regression test for MD056: union types like `string | null` (TypeScript)
-    // or `String.t() | nil` (Elixir) contain a literal `|` which, if not
-    // escaped, splits a 4-column table row into 5 cells. The generator must
-    // escape pipes in every cell value.
     use crate::core::ir::{CoreWrapper, FieldDef};
     let api = ApiSurface {
         crate_name: "mylib".into(),
@@ -136,8 +128,6 @@ fn test_generate_docs_typescript_optional_field_emits_consistent_table_cells() {
         assert_no_md056_violations(&file.content);
     }
 
-    // Specifically confirm the TS page has an escaped pipe in the type column,
-    // not a stray extra cell.
     let ts_file = files
         .iter()
         .find(|f| f.path.to_str().unwrap().contains("api-typescript"))
@@ -151,7 +141,6 @@ fn test_generate_docs_typescript_optional_field_emits_consistent_table_cells() {
 
 #[test]
 fn test_generate_docs_post_processing_wraps_bare_urls() {
-    // A bare URL in a function doc string must be angle-bracket-wrapped in output
     let api = ApiSurface {
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),

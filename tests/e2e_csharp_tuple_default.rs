@@ -94,11 +94,8 @@ fn csharp_tuple_default_initializes_correctly() {
         .generate(&groups, &e2e, &_resolved, &[], &[])
         .expect("generation succeeds");
 
-    // The generated C# code should initialize ngram_range with [1, 3] not []
-    // when the Rust default is (1, 3).
     assert!(!generated.is_empty(), "Should generate C# test code");
 
-    // Verify that test code was generated
     let test_code = generated
         .iter()
         .find(|f| f.path.to_string_lossy().contains("test"))
@@ -106,6 +103,4 @@ fn csharp_tuple_default_initializes_correctly() {
         .unwrap_or_default();
 
     assert!(!test_code.is_empty(), "Should generate test code");
-    // The generated test should deserialize KeywordConfig correctly
-    // with ngram_range defaulting to [1, 3]
 }

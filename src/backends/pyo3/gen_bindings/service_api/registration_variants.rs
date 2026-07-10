@@ -14,12 +14,7 @@ fn build_wrapper_constructor_expr(variant: &crate::core::ir::RegistrationVariant
                 param_name: _,
                 value_expr,
             } => {
-                // Convert a Rust enum path like `my_crate::Method::Get` into the
-                // Python form `Method.GET`: take the last two `::` segments
-                // (the enum type name and the variant name) and apply the same
-                // SHOUTY_SNAKE_CASE rename the pyclass codegen emits via
                 // `#[pyo3(name = "…")]`. Non-`::` values pass through verbatim
-                // — the library author owns them.
                 let segments: Vec<&str> = value_expr.split("::").collect();
                 if segments.len() >= 2 {
                     let class = segments[segments.len() - 2];
@@ -35,10 +30,6 @@ fn build_wrapper_constructor_expr(variant: &crate::core::ir::RegistrationVariant
         }
     }
 
-    // PyO3 opaque wrappers expose a `new` classmethod (emitted by gen_bindings/types.rs)
-    // rather than a `__init__` constructor, so build `WrapperType.new(...)` when the IR
-    // names a constructor method. The bare `WrapperType(...)` form remains for backends
-    // that bind a true `__init__`.
     let call_expr = if wc.constructor_method.is_empty() || wc.constructor_method == "__init__" {
         format!("{}({})", wc.wrapper_type_name, call_args.join(", "))
     } else {
@@ -241,7 +232,6 @@ fn emit_decorator_overload(
         ));
     }
 
-    // Render the overload body: if handler is None, return decorator; else register + return self
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_decorator_overload_body.py.jinja",
         context! {
@@ -273,7 +263,6 @@ fn gen_registration_variant(
     _service: &ServiceDef,
     class_name: &str,
 ) {
-    // Build the free params (non-fixed) for the variant signature
     let mut free_params_sig = Vec::new();
     for param in &variant.signature_params {
         let annotation = python_type_annotation(&param.ty);
@@ -286,7 +275,6 @@ fn gen_registration_variant(
 
     let (_base_method, meta_tuple) = variant_meta_tuple(variant, base_reg);
 
-    // Resolve style (and handler_shape/method_prefix) for the Python backend.
     let resolved = variant.resolved_for("python", base_reg.handler_shape);
 
     match resolved.style {
@@ -297,10 +285,8 @@ fn gen_registration_variant(
             emit_decorator_factory(out, variant, base_reg, &free_params_sig, &meta_tuple);
         }
         RegistrationVariantStyle::Decorator => {
-            // Python-specific: overloaded method acts as both direct and decorator factory.
             emit_decorator_overload(out, variant, base_reg, class_name, &free_params_sig, &meta_tuple);
         }
-        // Attribute and Dsl are not applicable to Python; fall through to Hybrid.
         RegistrationVariantStyle::Hybrid | RegistrationVariantStyle::Attribute | RegistrationVariantStyle::Dsl => {
             emit_direct_method(out, variant, base_reg, class_name, &free_params_sig, &meta_tuple);
             emit_decorator_factory(out, variant, base_reg, &free_params_sig, &meta_tuple);
@@ -318,10 +304,8 @@ pub(super) fn gen_registration_method(
     let method_name = &reg.method;
     let class_name = &service.name;
 
-    // Find the contract to get wire-type doc info
     let _contract = find_contract(api, &reg.callback_contract);
 
-    // Build metadata param signature (excluding the callback param)
     let mut meta_params: Vec<String> = reg
         .metadata_params
         .iter()
@@ -336,10 +320,6 @@ pub(super) fn gen_registration_method(
         .collect();
     meta_params.insert(0, "self".to_owned());
 
-    // Decorator factory form: `def method(self, *meta_params) -> Callable`
-    // This lets the user write:
-    //   @app.register(meta1, meta2)
-    //   async def handler(request): ...
     let meta_sig = meta_params.join(", ");
 
     out.push_str(&crate::backends::pyo3::template_env::render(
@@ -350,7 +330,6 @@ pub(super) fn gen_registration_method(
         out.push_str(&format_docstring(&reg.doc, 8));
     }
 
-    // Collect metadata param names for the closure
     let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
     let meta_tuple = if meta_names.is_empty() {
         "()".to_owned()
@@ -360,18 +339,13 @@ pub(super) fn gen_registration_method(
         format!("({})", meta_names.join(", "))
     };
 
-    // PEP8 / ruff-format: nested function definitions inside a method body
-    // get a leading and trailing blank line so they read as a logical block.
     out.push_str(&crate::backends::pyo3::template_env::render(
         "service_api_py_decorator_body.py.jinja",
         context! { base_method => method_name, meta_tuple => meta_tuple },
     ));
 
-    // Also expose a plain (non-decorator) register variant for direct use:
-    // `app.register_handler(meta1, meta2, handler=fn)`
     let direct_name = format!("register_{method_name}");
     if direct_name != *method_name {
-        // Only add when the name differs (avoid collision if method is already named "register_*")
         out.push_str(&crate::backends::pyo3::template_env::render(
             "service_api_py_direct_registration.py.jinja",
             context! {
@@ -385,7 +359,6 @@ pub(super) fn gen_registration_method(
         ));
     }
 
-    // Emit registration variants (shortcuts for common patterns)
     for variant in &reg.variants {
         gen_registration_variant(out, variant, reg, service, class_name);
     }

@@ -1,7 +1,6 @@
 use super::*;
 
 // ==============================================================================
-// Tests for binding_helpers module
 // ==============================================================================
 
 #[test]
@@ -275,8 +274,6 @@ fn test_gen_call_args_non_opaque_param() {
 
 #[test]
 fn test_gen_call_args_optional_non_opaque_ref_param() {
-    // When a core function takes Option<&T> where T is a non-opaque type,
-    // we have Option<T> on the binding side and need to convert to Option<&T>.
     let opaque_types = AHashSet::new();
     let params = vec![ParamDef {
         name: "config".to_string(),
@@ -481,8 +478,6 @@ fn test_gen_named_let_bindings_non_opaque_param() {
 
 #[test]
 fn test_gen_named_let_bindings_optional_ref_param() {
-    // When a core function takes Option<&T> where T is a non-opaque type,
-    // we need to generate `let config_core = config.as_ref();`
     let opaque_types = AHashSet::new();
     let params = vec![ParamDef {
         name: "config".to_string(),
@@ -509,9 +504,6 @@ fn test_gen_named_let_bindings_optional_ref_param() {
 
 #[test]
 fn test_gen_call_args_with_let_bindings_optional_ref_param() {
-    // When a core function takes Option<&T> where T is a non-opaque type,
-    // and we have a let binding `let config_core = config.as_ref();` that creates Option<&T>,
-    // the call args should use `config_core` directly (NOT `&config_core`).
     let opaque_types = AHashSet::new();
     let params = vec![ParamDef {
         name: "config".to_string(),
@@ -532,15 +524,11 @@ fn test_gen_call_args_with_let_bindings_optional_ref_param() {
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
-    // The result should be `config_core` (Option<&Config>) not `&config_core` (&Option<&Config>)
     assert_eq!(result, "config_core");
 }
 
 #[test]
 fn test_gen_call_args_with_let_bindings_optional_ref_vec_named() {
-    // When a core function takes Option<&[T]> where T is a non-opaque type,
-    // and `optional=true, is_ref=true` for Vec<Named>, no let binding is generated.
-    // The call args should use `param.as_deref()` directly.
     let opaque_types = AHashSet::new();
     let params = vec![ParamDef {
         name: "items".to_string(),
@@ -561,7 +549,6 @@ fn test_gen_call_args_with_let_bindings_optional_ref_vec_named() {
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
-    // The result should use the _core let binding which was created by gen_named_let_bindings
     assert_eq!(result, "items_core.as_deref()");
 }
 

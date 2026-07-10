@@ -47,7 +47,6 @@ fn emits_constructor_per_struct_variant_building_core_then_into() {
     let methods = gen_extendr_enum_variant_constructors(&shape_enum(), &ExtendrBackend, core_path);
 
     let code = methods.join("\n");
-    // Wrapper-convert model: build the CORE variant then `.into()` the JSON-passthrough wrapper.
     assert!(code.contains("pub fn _factory_circle(radius: f64) -> Shape"), "{code}");
     assert!(code.contains("test_lib::Shape::Circle { radius }.into()"), "{code}");
     assert!(
@@ -62,7 +61,6 @@ fn emits_constructor_per_struct_variant_building_core_then_into() {
 
 #[test]
 fn casts_remapped_primitive_back_to_core() {
-    // extendr maps u64 → f64; the constructor must cast it back when building the core variant.
     let def = EnumDef {
         name: "Sized_".to_string(),
         rust_path: "test_lib::Sized_".to_string(),
@@ -85,10 +83,7 @@ fn casts_remapped_primitive_back_to_core() {
 #[test]
 fn skips_variant_constructor_with_named_dto_field() {
     // extendr derives `TryFrom<&Robj>` only for `&T` of #[extendr] types, never owned `T`, so a
-    // typed factory taking a non-opaque struct field by value fails to compile under the
     // `#[extendr]` proc-macro (`error[E0277]: T: TryFrom<&Robj> not satisfied`). Variants whose
-    // fields are Named DTOs are therefore omitted from the typed factories; callers construct them
-    // through the enum's `from_json` factory instead. Primitive/String variants are unaffected.
     let def = EnumDef {
         name: "Wrapper".to_string(),
         rust_path: "test_lib::Wrapper".to_string(),
@@ -113,8 +108,6 @@ fn skips_variant_constructor_with_named_dto_field() {
 
 #[test]
 fn skips_variant_constructor_when_any_field_is_unconstructible() {
-    // A variant mixing a Named DTO (or Vec<DTO>) field with primitives is skipped wholesale — the
-    // typed factory has no per-field JSON-marshalling path, and even one extendr-unconvertible
     // field by value breaks the whole `#[extendr]` constructor.
     let def = EnumDef {
         name: "Job".to_string(),
@@ -202,7 +195,6 @@ fn yields_to_hand_written_method() {
 #[test]
 fn struct_embeds_constructors_in_impl_block() {
     // End to end: the generated `#[extendr] impl` block carries default/from_json AND the
-    // per-variant constructors.
     let code = gen_extendr_json_passthrough_enum_struct(&shape_enum(), &ExtendrBackend, "test_lib");
     assert!(code.contains("pub fn default() -> Shape"), "{code}");
     assert!(code.contains("pub fn from_json(json: String)"), "{code}");
@@ -211,10 +203,6 @@ fn struct_embeds_constructors_in_impl_block() {
 
 #[test]
 fn casts_optional_remapped_primitive_back_to_core() {
-    // An `Option<u64>` field: extendr maps the inner to f64, so the cast helper emits
-    // `.map(|v| v as u64)` rather than a bare `as` cast.
-    // Canonical IR for an `Option<u64>` field: inner `ty` + `optional = true` (this is how
-    // `function_params` wraps the signature in `Option<...>`).
     let mut max_field = field("max", TypeRef::Primitive(PrimitiveType::U64));
     max_field.optional = true;
     let def = EnumDef {
@@ -260,9 +248,6 @@ fn registrations_pair_r_name_with_factory_fn() {
 fn r_wrapper_binds_variant_constructor_under_snake_name() {
     use crate::core::backend::Backend;
 
-    // End-to-end through generate_public_api: the R wrapper must bind `<Name>$<snake>` to the
-    // `wrap__<Name>___factory_<snake>` symbol (the `_factory_` Rust ident is hidden behind the
-    // bare snake R name).
     let backend = ExtendrBackend;
     let config = super::make_config();
     let mut api = super::make_api_surface();

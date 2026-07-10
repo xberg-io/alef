@@ -15,19 +15,14 @@ pub fn validate(config: &ResolvedCrateConfig, languages: &[Language]) -> Result<
     let workspace_root = resolve_workspace_root(config);
     let workspace_path = Path::new(&workspace_root);
 
-    // Check version is readable.
     if config.resolved_version().is_none() {
         issues.push(format!("cannot read version from {}", config.version_from));
     }
 
-    // Check package directories and key manifest files exist.
     for &lang in languages {
         let pkg_dir = config.package_dir(lang);
         let pkg_path = workspace_path.join(&pkg_dir);
 
-        // Skip languages that don't have standalone package dirs (Rust, FFI, JNI).
-        // JNI is a transitive language used by Java/Kotlin bindings — no separate
-        // publish artifact exists.
         if matches!(lang, Language::Rust | Language::Ffi | Language::Jni) {
             continue;
         }
@@ -37,16 +32,15 @@ pub fn validate(config: &ResolvedCrateConfig, languages: &[Language]) -> Result<
             continue;
         }
 
-        // Check for key manifest files per language.
         let expected_files: Vec<&str> = match lang {
             Language::Python => vec!["pyproject.toml"],
             Language::Node => vec!["package.json"],
-            Language::Ruby => vec![], // gemspec name varies
+            Language::Ruby => vec![],
             Language::Php => vec!["composer.json"],
             Language::Elixir => vec!["mix.exs"],
             Language::Go => vec!["go.mod"],
             Language::Java => vec!["pom.xml"],
-            Language::Csharp => vec![], // .csproj name varies
+            Language::Csharp => vec![],
             Language::Wasm => vec![],
             Language::R => vec!["DESCRIPTION"],
             Language::Kotlin => vec!["build.gradle.kts"],

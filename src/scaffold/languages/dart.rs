@@ -80,17 +80,12 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         .as_deref()
         .map(|repository| format!("repository: {repository}\n"))
         .unwrap_or_default();
-    // Only emit `homepage:` when it is non-empty to keep pubspec.yaml clean.
     let homepage_line = if meta.homepage.is_empty() {
         String::new()
     } else {
         format!("homepage: {}\n", meta.homepage)
     };
 
-    // Host-native capsule (Language) passthrough. Dart has no idiomatic high-level
-    // tree-sitter Language wrapper, so the binding returns the raw `Pointer<TSLanguage>`
-    // via dart:ffi and normally needs no extra package. A capsule entry with a non-empty
-    // `package` still injects a pub dependency line for consumers that wire their own wrapper.
     let capsule_dependency_lines: String = {
         let mut deps: Vec<(String, String)> = config
             .dart
@@ -176,11 +171,6 @@ linter:
 
     let gitignore = ".dart_tool/\nbuild/\npubspec.lock\n";
 
-    // Native binaries are fetched at install time by `bin/download_libs.dart` into
-    // `lib/src/native/`; none belong in the published pub archive. Besides that dir,
-    // the FRB build stages the compiled library (all platforms in CI) into
-    // `lib/src/<module>_bridge_generated/`, which pushed the archive to 269MB > pub.dev's
-    // 100MB cap. Ignore native library binaries by extension so no staging path leaks in.
     let pubignore = "android/\nios/\nblobs/\nlib/src/native/\nrust/\nexample/\ntest/\n*.so\n*.dylib\n*.dll\n";
 
     let test_dart = r#"import 'package:test/test.dart';
@@ -249,9 +239,6 @@ From the repository root:
 
     let editorconfig = "[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n\n[*.dart]\nindent_style = space\nindent_size = 2\n";
 
-    // pub.dev requires a CHANGELOG.md in the package root. Emit a minimal seed
-    // entry keyed to the current version. This file has generated_header: false
-    // so it is a create-once seed — users update it before publishing.
     let changelog = format!(
         "# Changelog\n\nAll notable changes to this package will be documented in this file.\n\n## {version}\n\n- Initial release.\n",
         version = version,

@@ -64,10 +64,6 @@ fn test_error_path() {
     assert_eq!(spec.error_path(), "mylib::MyError");
 }
 
-// ---------------------------------------------------------------------------
-// format_type_ref
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_format_type_ref_primitives() {
     let paths = HashMap::new();
@@ -201,10 +197,6 @@ fn test_format_type_ref_named_not_in_type_paths_falls_back_to_name() {
     assert_eq!(format_type_ref(&ty, &paths), "Unknown");
 }
 
-// ---------------------------------------------------------------------------
-// format_param_type
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_format_param_type_string_ref() {
     let param = make_param("input", TypeRef::String, true);
@@ -269,7 +261,6 @@ fn test_format_param_type_named_ref_without_type_paths() {
 
 #[test]
 fn test_format_param_type_primitive_ref_passes_by_value() {
-    // Copy types like u32 are passed by value even when is_ref is set
     let param = make_param("count", TypeRef::Primitive(PrimitiveType::U32), true);
     assert_eq!(format_param_type(&param, &HashMap::new()), "u32");
 }
@@ -279,10 +270,6 @@ fn test_format_param_type_unit_ref_passes_by_value() {
     let param = make_param("nothing", TypeRef::Unit, true);
     assert_eq!(format_param_type(&param, &HashMap::new()), "()");
 }
-
-// ---------------------------------------------------------------------------
-// format_return_type
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_format_return_type_without_error() {
@@ -322,23 +309,15 @@ fn test_format_return_type_named_with_type_paths_and_error() {
 
 #[test]
 fn test_format_return_type_vec_string_with_returns_ref() {
-    // `fn supported_mime_types(&self) -> &[&str]` is extracted as
-    // `return_type = Vec(String), returns_ref = true`.
-    // The generated impl signature must emit `&[&str]`, not `Vec<String>`.
     let result = format_return_type(&TypeRef::Vec(Box::new(TypeRef::String)), None, &HashMap::new(), true);
     assert_eq!(result, "&[&str]", "Vec<String> + returns_ref must yield &[&str]");
 }
 
 #[test]
 fn test_format_return_type_vec_no_returns_ref_unchanged() {
-    // Without returns_ref the type is unchanged.
     let result = format_return_type(&TypeRef::Vec(Box::new(TypeRef::String)), None, &HashMap::new(), false);
     assert_eq!(
         result, "Vec<String>",
         "Vec<String> without returns_ref must stay Vec<String>"
     );
 }
-
-// ---------------------------------------------------------------------------
-// gen_bridge_wrapper_struct
-// ---------------------------------------------------------------------------

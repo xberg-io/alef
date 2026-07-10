@@ -37,20 +37,14 @@ pub(crate) fn emit_default_construction_body(
         },
     ));
     for f in &ty.fields {
-        // Skip cfg-unsatisfied fields: they don't exist in the core type,
-        // so any assignment attempt will fail to compile.
         if !feature_gate::cfg_satisfied(f.cfg.as_deref(), configured_features) {
             continue;
         }
         let name = f.name.to_snake_case();
-        // Param name in the constructor signature is keyword-escaped (matches
-        // wrappers.rs / extern_block.rs). Field access on `__target` uses the
-        // unescaped Rust field name.
         let param = crate::core::keywords::swift_ident(&name);
         if f.binding_excluded {
             continue;
         }
-        // Explicitly excluded fields: leave at Default::default() silently.
         if is_explicitly_excluded(ty, f, exclude_fields) {
             out.push_str(&crate::backends::swift::template_env::render(
                 "default_field_excluded_comment.jinja",
@@ -60,7 +54,6 @@ pub(crate) fn emit_default_construction_body(
             ));
             continue;
         }
-        // Check if the inner Named type (if any) is excluded or lacks serde.
         let excluded_inner: Option<&str> = if needs_json_bridge(&f.ty) {
             match &f.ty {
                 TypeRef::Optional(inner) | TypeRef::Vec(inner) => match inner.as_ref() {
@@ -80,8 +73,6 @@ pub(crate) fn emit_default_construction_body(
             None
         };
         if excluded_inner.is_some() {
-            // The inner type is excluded (e.g. InternalDocument — no serde derive).
-            // Leave the field at its Default value; the serde bridge can't work.
             out.push_str(&crate::backends::swift::template_env::render(
                 "default_field_inner_excluded.jinja",
                 minijinja::context! {
@@ -89,8 +80,6 @@ pub(crate) fn emit_default_construction_body(
                 },
             ));
         } else if needs_json_bridge(&f.ty) {
-            // JSON-decode into a serde_json::Value, then assign as JSON-deserialized
-            // typed value via reinterpret.
             out.push_str(&crate::backends::swift::template_env::render(
                 "default_field_json_bridge_read.jinja",
                 minijinja::context! {
@@ -99,14 +88,8 @@ pub(crate) fn emit_default_construction_body(
                 },
             ));
         } else if let TypeRef::Named(n) = &f.ty {
-            // Enum wrappers only have From<SourceT> for BridgeT (not the reverse),
-            // so we cannot convert a bridge enum back to the source type via .into().
-            // For struct newtypes, use .0; for enums, leave at Default.
-            // The constructor param is still accepted (so the API is stable) but
-            // the value is dropped for enum fields. This is a known limitation.
             let is_enum = enum_names.contains(n.as_str());
             if is_enum {
-                // alef: enum fields in constructors are not converted back — leave at default
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_enum_assign.jinja",
                     minijinja::context! {
@@ -115,7 +98,6 @@ pub(crate) fn emit_default_construction_body(
                     },
                 ));
             } else if f.optional {
-                // Optional Named field; wrap in Some(w.0), Box::new, or Arc::new if needed.
                 if f.is_boxed {
                     out.push_str(&crate::backends::swift::template_env::render(
                         "default_field_optional_boxed_assign.jinja",
@@ -142,7 +124,6 @@ pub(crate) fn emit_default_construction_body(
                     ));
                 }
             } else if f.is_boxed {
-                // The source field is Box<T>; wrap in Box::new().
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_boxed_assign.jinja",
                     minijinja::context! {
@@ -151,7 +132,6 @@ pub(crate) fn emit_default_construction_body(
                     },
                 ));
             } else if matches!(f.core_wrapper, CoreWrapper::Arc) {
-                // The source field is Arc<T>; wrap in Arc::new().
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_arc_assign.jinja",
                     minijinja::context! {
@@ -169,8 +149,6 @@ pub(crate) fn emit_default_construction_body(
                 ));
             }
         } else if let TypeRef::Vec(inner) = &f.ty {
-            // Vec<Named> fields: unwrap bridge wrappers element-wise.
-            // Enum elements: same limitation as above — leave at default.
             if let TypeRef::Named(inner_n) = inner.as_ref() {
                 let is_enum = enum_names.contains(inner_n.as_str());
                 if is_enum {
@@ -182,7 +160,6 @@ pub(crate) fn emit_default_construction_body(
                         },
                     ));
                 } else {
-                    // When the source field is Vec<Arc<T>>, wrap each element in Arc::new().
                     let unwrap_expr = match f.vec_inner_core_wrapper {
                         CoreWrapper::Arc => "std::sync::Arc::new(w.0)".to_string(),
                         _ => "w.0".to_string(),
@@ -208,19 +185,6 @@ pub(crate) fn emit_default_construction_body(
                     }
                 }
             } else if ty.has_serde && !f.sanitized {
-                // Vec<non-Named> field in a serde struct. The IR may have mapped
-                // Vec<Paragraph> to Vec<String>, Vec<T> to Option<Vec<T>>, etc.
-                // Use serde JSON round-trip WITHOUT a type annotation so that the
-                // target field type is inferred from __target.{name}. This handles
-                // Vec→Option<Vec>, Vec<String>→Vec<OtherType>, etc. gracefully:
-                // the deserialized JSON is coerced to the source field type.
-                //
-                // Exception: sanitized fields (e.g. `Vec<InlineImage>` mapped to
-                // `Vec<String>` by the IR) must NOT use the serde round-trip because
-                // the actual source field type (`Vec<InlineImage>`) may not implement
-                // `serde::Deserialize` (e.g. when the `serde` feature is conditional).
-                // Attempting `from_value::<Vec<InlineImage>>(to_value(Vec<String>))`
-                // would fail to compile. Leave such fields at their Default value instead.
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_vec_serde_round_trip.jinja",
                     minijinja::context! {
@@ -229,18 +193,6 @@ pub(crate) fn emit_default_construction_body(
                     },
                 ));
             } else if matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes) {
-                // Vec<Primitive> or Vec<Bytes>: two sub-cases.
-                //
-                // (a) sanitized=true means the IR rewrote a Rust tuple (e.g. `(usize, usize)`)
-                //     to `Vec<Primitive>` via `parse_homogeneous_tuple`.  The bridge parameter
-                //     arrives as `Vec<ElemT>` but the source field is still a tuple — direct
-                //     assignment would produce a type-mismatch compile error.  When the struct
-                //     implements serde (which it always does for homogeneous-tuple fields in
-                //     practice), a JSON round-trip is the safest way to convert: serde serialises
-                //     `Vec<usize>` → `[1,3]` and deserialises `[1,3]` → `(usize,usize)` using
-                //     the target field's inferred type.
-                //
-                // (b) sanitized=false: types match (plain Vec<Primitive>); direct assignment.
                 if f.sanitized && ty.has_serde {
                     out.push_str(&crate::backends::swift::template_env::render(
                         "default_field_vec_serde_round_trip.jinja",
@@ -259,8 +211,6 @@ pub(crate) fn emit_default_construction_body(
                     ));
                 }
             } else {
-                // Vec<non-Primitive> in non-serde struct: actual type may differ from IR.
-                // Leave at Default to avoid type mismatches.
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_vec_non_primitive_comment.jinja",
                     minijinja::context! {
@@ -269,9 +219,6 @@ pub(crate) fn emit_default_construction_body(
                 ));
             }
         } else if matches!(f.ty, TypeRef::Char) {
-            // Char: bridge type is String; extract the first char at the shim boundary.
-            // The incoming String contains exactly the character (e.g. "*"); serde
-            // cannot round-trip String → char, so we use an explicit extraction instead.
             if !ty.has_serde {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_string_like_non_serde_comment.jinja",
@@ -295,11 +242,6 @@ pub(crate) fn emit_default_construction_body(
                 ));
             }
         } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json) {
-            // String-like fields may map to enum/Named types in the source struct
-            // (alef's IR uses String as a fallback when the actual type can't be
-            // resolved). When the struct lacks serde derives, the field type is
-            // likely a non-serde type — leave at default to avoid compile errors.
-            // Bytes (Vec<u8>) is excluded: bridges as Vec<u8> directly, not String.
             if !ty.has_serde {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_string_like_non_serde_comment.jinja",
@@ -317,13 +259,11 @@ pub(crate) fn emit_default_construction_body(
                 ));
             }
         } else if matches!(f.ty, TypeRef::Bytes) {
-            // bytes::Bytes != Vec<u8>; convert with .into() so the assignment compiles.
             out.push_str(&crate::backends::swift::template_env::render(
                 "default_field_bytes_assign.jinja",
                 minijinja::context! { name => &name },
             ));
         } else if matches!(f.ty, TypeRef::Duration) {
-            // Duration bridges as u64 (millis) but the field type is std::time::Duration.
             if f.optional {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "default_field_optional_duration_assign.jinja",
@@ -365,19 +305,15 @@ pub(crate) fn emit_direct_field_inits(
         .iter()
         .map(|f| {
             let name = f.name.to_snake_case();
-            // Skip cfg-unsatisfied fields: they don't exist in the source type,
-            // so any initializer referencing them will fail to compile.
             if !feature_gate::cfg_satisfied(f.cfg.as_deref(), configured_features) {
                 return format!("            {name}: ::std::default::Default::default()");
             }
             if f.binding_excluded {
                 return format!("            {name}: ::std::default::Default::default()");
             }
-            // Explicitly excluded fields: leave at Default::default().
             if is_explicitly_excluded(ty, f, exclude_fields) {
                 return format!("            {name}: ::std::default::Default::default()");
             }
-            // If the JSON-bridged field contains an excluded/no-serde Named type, skip it.
             let is_excluded_inner = needs_json_bridge(&f.ty) && {
                 match &f.ty {
                     TypeRef::Optional(inner) | TypeRef::Vec(inner) => matches!(inner.as_ref(),
@@ -388,8 +324,6 @@ pub(crate) fn emit_direct_field_inits(
                 }
             };
             if is_excluded_inner {
-                // Field type contains an excluded Named type that doesn't impl serde.
-                // Use Default::default() for the field rather than failing to compile.
                 format!("            {name}: ::std::default::Default::default()")
             } else if needs_json_bridge(&f.ty) {
                 let native_ty = swift_bridge_rust_type(&f.ty);
@@ -398,11 +332,8 @@ pub(crate) fn emit_direct_field_inits(
                     "            {name}: serde_json::from_str::<{opt_ty}>(&{name}).expect(\"valid JSON for {name}\")"
                 )
             } else if let TypeRef::Named(n) = &f.ty {
-                // Enum wrappers only have From<SourceT> for BridgeT (not the reverse).
-                // For struct newtypes use .0; for enum types leave at Default.
                 let is_enum = enum_names.contains(n.as_str());
                 if is_enum {
-                    // Enum fields can't be reverse-converted — use Default
                     format!("            {name}: ::std::default::Default::default()")
                 } else if f.optional {
                     if matches!(f.core_wrapper, CoreWrapper::Arc) {
@@ -416,11 +347,9 @@ pub(crate) fn emit_direct_field_inits(
                     format!("            {name}: {name}.0")
                 }
             } else if let TypeRef::Vec(inner) = &f.ty {
-                // Vec<Named> — unwrap bridge wrappers element-wise
                 if let TypeRef::Named(inner_n) = inner.as_ref() {
                     let is_enum = enum_names.contains(inner_n.as_str());
                     if is_enum {
-                        // Vec<EnumT> fields: enum reverse-conversion not generated — use Default
                         format!("            {name}: ::std::default::Default::default()")
                     } else {
                         let unwrap_expr = match f.vec_inner_core_wrapper {
@@ -434,12 +363,6 @@ pub(crate) fn emit_direct_field_inits(
                         }
                     }
                 } else if f.sanitized && ty.has_serde && matches!(inner.as_ref(), TypeRef::Primitive(_)) {
-                    // sanitized=true on a Vec<Primitive> field means the source Rust type is a
-                    // homogeneous tuple (e.g. `(usize, usize)`) rewritten by the IR sanitizer.
-                    // The bridge parameter is `Vec<ElemT>` but the target field is still a
-                    // tuple — direct assignment would be a type-mismatch compile error.
-                    // Use a serde JSON round-trip: Vec → JSON array → tuple, with the target
-                    // field type inferred by the compiler from `__target.{name}`.
                     if f.optional {
                         format!(
                             "            {name}: {name}.and_then(|v| ::serde_json::to_value(v).ok()).and_then(|j| ::serde_json::from_value(j).ok())"
@@ -453,8 +376,6 @@ pub(crate) fn emit_direct_field_inits(
                     format!("            {name}")
                 }
             } else if matches!(f.ty, TypeRef::Char) {
-                // Char: bridge type is String; extract the first char directly.
-                // serde cannot round-trip String → char, so use explicit extraction.
                 if !ty.has_serde {
                     format!("            {name}: ::std::default::Default::default()")
                 } else if f.optional {
@@ -463,12 +384,6 @@ pub(crate) fn emit_direct_field_inits(
                     format!("            {name}: {name}.chars().next().unwrap_or('\\0')")
                 }
             } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json) {
-                // String-like fields are serde-deserialized from the bridge String.
-                // Bytes (Vec<u8>) is excluded: it bridges as Vec<u8> directly, not as String.
-                // When the struct doesn't have serde derives, the source field
-                // might be a non-String type that was mapped to String by the IR
-                // (e.g. HeaderFooterType). Avoid serde-based deserialization for
-                // non-serde structs — leave the field at Default.
                 if !ty.has_serde {
                     format!("            {name}: ::std::default::Default::default()")
                 } else if f.optional {
@@ -481,10 +396,8 @@ pub(crate) fn emit_direct_field_inits(
                     )
                 }
             } else if matches!(f.ty, TypeRef::Bytes) {
-                // bytes::Bytes != Vec<u8>; convert with .into().
                 format!("            {name}: {name}.into()")
             } else if matches!(f.ty, TypeRef::Duration) {
-                // Duration bridges as u64 (millis); convert back to std::time::Duration.
                 if f.optional {
                     format!("            {name}: {name}.map(std::time::Duration::from_millis)")
                 } else {

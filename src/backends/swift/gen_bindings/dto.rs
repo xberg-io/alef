@@ -16,11 +16,6 @@ pub(super) fn can_emit_first_class_struct(
         && ty.has_serde
         && !ty.fields.is_empty()
         && binding_fields(&ty.fields).all(|field| first_class_field_supported(&field.ty, known_dto_names))
-        // Note: we no longer require emit_into_rust_direct_call to succeed.  Types whose
-        // fields include Vec<Named>, Named, or Map fall back to the JSON roundtrip path in
-        // intoRust() automatically (the same `{type_snake}_from_json` shim is emitted by
-        // the Rust crate side for all types where has_constructor_extern returns false).
-        // The exclude_fields parameter is retained in the signature for the intoRust emitter.
         && !ty.fields.iter().all(|f| f.binding_excluded)
 }
 
@@ -47,7 +42,6 @@ pub(super) fn first_class_field_supported(ty: &TypeRef, known_dto_names: &HashSe
         TypeRef::Named(name) => known_dto_names.contains(name),
         TypeRef::Vec(inner) => first_class_field_supported(inner, known_dto_names),
         TypeRef::Optional(inner) => first_class_field_supported(inner, known_dto_names),
-        // Map, Path, Bytes, Duration, Char, Json, Unit — not yet supported
         _ => false,
     }
 }
@@ -129,14 +123,6 @@ pub(super) fn emit_first_class_struct(
     let type_name = &ty.name;
     let type_snake = AsSnakeCase(type_name.as_str()).to_string();
 
-    // Emit `public let` stored properties.
-    // The extractor unwraps Option<T> into (ty: T, optional: true) -- check field.optional
-    // in addition to TypeRef::Optional to handle both IR representations correctly.
-    //
-    // Note: `swift_case_ident` is used here (and at every other site that emits a
-    // Swift-side identifier) so that fields named after Swift reserved keywords
-    // are wrapped in backticks (`` `default` ``) rather than escaped with a
-    // trailing underscore.
     let visible_fields: Vec<_> = binding_fields(&ty.fields).collect();
     let mut properties = String::new();
     for field in &visible_fields {
@@ -158,7 +144,6 @@ pub(super) fn emit_first_class_struct(
         ));
     }
 
-    // Memberwise init with default-nil for Optional fields.
     let params: Vec<String> = visible_fields
         .iter()
         .map(|field| {
@@ -187,9 +172,6 @@ pub(super) fn emit_first_class_struct(
         ));
     }
 
-    // CodingKeys: emit when at least one field's camelCase name differs from the
-    // serde wire key, OR when `ty.has_default` is true (the custom decoder below
-    // references `CodingKeys.<camel>` for every field).
     let needs_coding_keys = ty.has_default
         || visible_fields.iter().any(|field| {
             let camel = field.name.to_lower_camel_case();
@@ -211,60 +193,26 @@ pub(super) fn emit_first_class_struct(
     }
 
     // Custom `init(from decoder:)` when the Rust source has `#[derive(Default)]` or
-    // a manual `impl Default`. Swift's auto-synthesized Codable decoder rejects JSON
-    // that omits non-Optional declared properties; the custom init uses
-    // `decodeIfPresent + ?? <fallback>` so JSON inputs from Rust serializers using
     // `#[serde(default)]` / `#[serde(skip_serializing_if = ...)]` decode successfully.
     let mut decoder_init = String::new();
     if ty.has_default {
         emit_decoder_init(mapper, &visible_fields, &mut decoder_init);
     }
 
-    // init(_ rb: RustBridge.FooRef) throws
-    //
-    // Accept the `Ref` base class rather than the owned class so callers can
-    // pass either: an owned `RustBridge.Foo` (which is-a `RustBridge.FooRef`
-    // via swift-bridge's class hierarchy `Foo: FooRefMut: FooRef`) or a
-    // `FooRef` borrowed out of a `RustVec<Foo>` iteration. Without this, code
-    // like `try rb.layouts().map { try Layout($0) }` fails to compile with
-    // `cannot convert value of type 'LayoutRef' to expected argument type 'Layout'`.
-    //
-    // The Swift-side property name uses backtick escape (`swift_case_ident`),
-    // while the RustBridge accessor uses the trailing-underscore form
-    // (`swift_ident`) to match the swift-bridge-generated Rust method name —
-    // see `gen_rust_crate::extern_block::emit_extern_block_for_type`.
     let mut ffi_init_assignments = String::new();
     for field in &visible_fields {
         let swift_field = swift_case_ident(&field.name.to_lower_camel_case());
-        // The RustBridge accessor name now follows lowerCamelCase because the
-        // swift-bridge getter extern emits `swift_name = "<camel>"` (see
-        // `gen_rust_crate::extern_block::emit_extern_block_for_type`).
         let rust_accessor = swift_ident(&field.name.to_lower_camel_case());
         let is_optional = field.optional || matches!(&field.ty, TypeRef::Optional(_));
 
-        // If the wrapper-side getter is unbridgeable (skipped by
-        // `is_unbridgeable_getter`), the Rust crate emits no accessor at all —
-        // calling `rb.{field}()` would fail to compile. Fall back to a sensible
-        // default: nil for optional fields, JSONDecoder roundtrip of an empty
-        // value for required ones (the public struct still surfaces the field
-        // for direct construction / JSON decode paths).
         let expr = if is_field_unbridgeable_for_init(ty, field, exclude_fields, known_dto_names) {
             if is_optional {
                 "nil".to_string()
             } else {
-                // Fields here are non-optional and unbridgeable — extraordinarily rare
-                // in practice. Emit a JSONDecoder-of-default placeholder so the file
-                // compiles; the JSON path on `intoRust()` covers the round-trip.
                 let swift_ty = mapper.map_type(&field.ty);
                 format!("try JSONDecoder().decode({swift_ty}.self, from: Data(\"null\".utf8))")
             }
         } else if is_vec_of_serde_struct(&field.ty, serde_struct_names) {
-            // Vec<Struct> where Struct has serde: the Rust getter returns Vec<String> (JSON-encoded).
-            // swift-bridge marshals this as RustVec<RustString>. Decode each element via JSONDecoder.
-            //
-            // Optional<Vec<Struct>> (field.optional=true with TypeRef::Vec) is bridged as plain String
-            // (single JSON-encoded array, with "null" representing None).
-            // Decode the entire array via JSONDecoder with optional handling.
             let swift_ty = mapper.map_type(&field.ty);
             let swift_ty_with_opt = if is_optional && !matches!(&field.ty, TypeRef::Optional(_)) {
                 format!("{swift_ty}?")
@@ -272,11 +220,7 @@ pub(super) fn emit_first_class_struct(
                 swift_ty
             };
 
-            // The field is optional if the field flag is set OR the type itself is `Optional(...)`.
-            // `Option<Vec<Struct>>` reaches this arm in both shapes: `Vec` with the optional flag
-            // (how most DTOs model it) and an explicit `Optional(Vec<Struct>)` type.
             let field_is_optional = is_optional || matches!(&field.ty, TypeRef::Optional(_));
-            // The inner `Vec<Named>` struct name, reached through an optional wrapper if present.
             let inner_vec_named: Option<&str> = match &field.ty {
                 TypeRef::Vec(inner) => match inner.as_ref() {
                     TypeRef::Named(name) => Some(name.as_str()),
@@ -293,17 +237,12 @@ pub(super) fn emit_first_class_struct(
             };
 
             if field_is_optional {
-                // Optional<Vec<Struct>> is bridged as String (single JSON-encoded array or "null").
-                // The getter returns RustString (NOT optional), so no optional chaining on the getter.
-                // Decode the whole array via JSONDecoder, which handles the "null" JSON value as None.
                 let accessor_with_chain = format!("rb.{rust_accessor}().toString()");
                 format!(
                     "try JSONDecoder().decode({swift_ty_with_opt}.self, from: \
                      (({accessor_with_chain}).data(using: .utf8) ?? Data(\"null\".utf8)))"
                 )
             } else if let Some(inner_struct_name) = inner_vec_named {
-                // Vec<Struct> (non-optional) is bridged as Vec<String>, which marshals as RustVec<RustString>.
-                // Each element is a RustStringRef containing JSON, so decode each one.
                 format!(
                     "try rb.{rust_accessor}().map {{ (s: RustStringRef) -> {inner_struct_name} in \
                      let d = s.as_str().toString().data(using: .utf8) ?? Data(); \
@@ -314,16 +253,6 @@ pub(super) fn emit_first_class_struct(
             }
         } else if is_untagged_enum_type(&field.ty, untagged_enum_names) {
             // Untagged-enum field (`#[serde(untagged)]`): the swift-bridge accessor returns a
-            // `RustString` containing the JSON-serialized value rather than an opaque
-            // `RustBridge.{Name}Ref`. There is no `init(_ rb: RustBridge.{Name}Ref)` for
-            // untagged enums, so calling `try {Name}(rb.{field}())` produces a compile error
-            // ("missing argument label 'from:'" / "RustString does not conform to Decoder").
-            // Decode via JSONDecoder from the JSON payload instead.
-            //
-            // The accessor is `Optional<RustString>` only when the source field itself is
-            // `Option<T>` — for non-optional fields, the bridge returns plain `RustString`
-            // and applying `?.toString()` produces the inverse compile error
-            // ("cannot use optional chaining on non-optional value of type 'RustString'").
             let swift_ty = mapper.map_type(&field.ty);
             let swift_ty_with_opt = if is_optional && !matches!(&field.ty, TypeRef::Optional(_)) {
                 format!("{swift_ty}?")
@@ -340,16 +269,6 @@ pub(super) fn emit_first_class_struct(
                  (({accessor_with_chain}).data(using: .utf8) ?? Data(\"null\".utf8)))"
             )
         } else if needs_json_bridge_for_swift(&field.ty) {
-            // Field is bridged as a JSON string at the Rust boundary — the getter
-            // always returns a plain `RustString` whose contents are the JSON-encoded
-            // value (`"null"` when the source field was None). Decode through
-            // JSONDecoder so the Swift property receives the typed value.
-            //
-            // The accessor is plain `RustString` (NOT Optional) for JSON-bridged
-            // fields regardless of whether the source field is `Option<T>` —
-            // optionality is encoded as the JSON string "null". Applying `?.toString()`
-            // produces a compile error ("cannot use optional chaining on non-optional
-            // value of type 'RustString'").
             let swift_ty = mapper.map_type(&field.ty);
             let swift_ty_with_opt = if is_optional && !matches!(&field.ty, TypeRef::Optional(_)) {
                 format!("{swift_ty}?")
@@ -381,15 +300,7 @@ pub(super) fn emit_first_class_struct(
         ));
     }
 
-    // func intoRust() — prefer a direct `RustBridge.{Type}(...)` bulk-constructor call
     // when the swift-bridge `#[swift_bridge(init)] fn new(...)` extern is emitted for
-    // this type AND every constructor field can be converted to its bridge argument
-    // without a JSON detour. Falls back to the JSON roundtrip via the `{type}_from_json`
-    // shim otherwise (e.g. fields needing JSON bridge, types without a Default impl).
-    //
-    // The bulk path mirrors the symmetric direct-field-access pattern in
-    // `init(_ rb: RustBridge.{Type}) throws` above and avoids the JSONEncoder + Rust-side
-    // `serde_json::from_str` work for primitive-only DTOs.
     let mut into_rust_body = String::new();
     let direct_call = emit_into_rust_direct_call(ty, mapper, exclude_fields, type_name, configured_features);
     match direct_call {
@@ -407,7 +318,6 @@ pub(super) fn emit_first_class_struct(
         }
     }
 
-    // Emit public methods for inherent instance methods.
     let (instance_methods, _static_methods) = crate::codegen::shared::partition_methods(&ty.methods);
     let mut methods_source = String::new();
     for method in instance_methods {
@@ -448,8 +358,6 @@ pub(super) fn swift_typed_default_literal(dv: &DefaultValue) -> Option<String> {
             if f.is_nan() || f.is_infinite() {
                 None
             } else {
-                // Emit at least one decimal so the literal parses as a Swift
-                // floating-point literal rather than an integer literal.
                 let s = if f.fract() == 0.0 {
                     format!("{f:.1}")
                 } else {
@@ -459,8 +367,6 @@ pub(super) fn swift_typed_default_literal(dv: &DefaultValue) -> Option<String> {
             }
         }
         DefaultValue::StringLiteral(s) => {
-            // Conservative escape for Swift string literal: backslash, double quote,
-            // newline, carriage return, tab. Anything else passes through.
             let mut escaped = String::with_capacity(s.len() + 2);
             escaped.push('"');
             for ch in s.chars() {
@@ -476,9 +382,6 @@ pub(super) fn swift_typed_default_literal(dv: &DefaultValue) -> Option<String> {
             escaped.push('"');
             Some(escaped)
         }
-        // EnumVariant requires knowledge of the target enum's Swift case name and is
-        // not safely renderable from the variant string alone — fall back to a plain
-        // `decode(T.self, ...)` (no `??`).
         DefaultValue::EnumVariant(_) => None,
         DefaultValue::Empty | DefaultValue::None => None,
     }
@@ -511,9 +414,6 @@ pub(super) fn swift_type_based_default(ty: &TypeRef) -> Option<String> {
         TypeRef::Vec(_) => Some("[]".to_string()),
         TypeRef::Map(_, _) => Some("[:]".to_string()),
         TypeRef::Optional(_) => Some("nil".to_string()),
-        // Named: cannot synthesize a default value without knowing the target type.
-        // Bytes/Path/Duration/Json/Char/Unit are out of scope — caller falls through
-        // to a plain decode.
         _ => None,
     }
 }
@@ -533,10 +433,6 @@ pub(super) fn emit_decoder_init(mapper: &SwiftMapper, visible_fields: &[&FieldDe
         let swift_ty = mapper.map_type(&field.ty);
 
         if is_optional {
-            // Optional fields decode to nil when the key is missing OR when
-            // present-and-null. Strip a trailing `?` so the type passed to
-            // `decodeIfPresent` is the inner (non-optional) form —
-            // `decodeIfPresent(T.self, ...)` already returns `T?`.
             let inner_ty = swift_ty.strip_suffix('?').unwrap_or(&swift_ty);
             out.push_str(&crate::backends::swift::template_env::render(
                 "swift_decode_optional_assignment.swift.jinja",
@@ -548,12 +444,6 @@ pub(super) fn emit_decoder_init(mapper: &SwiftMapper, visible_fields: &[&FieldDe
             continue;
         }
 
-        // Non-Optional field: pick a fallback literal in this priority order:
-        //   1. Typed default literal (BoolLiteral / IntLiteral / FloatLiteral /
-        //      StringLiteral).
-        //   2. Type-based default for collections / primitives / strings:
-        //      `[]`, `[:]`, `false`, `0`, `""`.
-        //   3. None → emit plain `decode(T.self, ...)` with no fallback.
         let fallback = field
             .typed_default
             .as_ref()
@@ -613,17 +503,11 @@ pub(super) fn emit_into_rust_direct_call(
     }
 
     let ctor_fields = constructor_fields(ty, exclude_fields, configured_features);
-    // If any visible (binding-visible) field is dropped from the constructor — e.g.
-    // listed in `[crates.<crate>.swift] exclude_fields` — the bulk constructor would
-    // silently default that field while the JSON roundtrip preserves whatever serde
-    // encoded. Fall back to JSON in that case to avoid a behaviour change.
     let visible_count = ty.fields.iter().filter(|f| !f.binding_excluded).count();
     if ctor_fields.len() != visible_count {
         return None;
     }
 
-    // Build per-field conversion expressions. Bail to None (JSON fallback) on the first
-    // field type we don't yet support.
     let mut prelude = String::new();
     let mut args: Vec<String> = Vec::with_capacity(ctor_fields.len());
     for field in &ctor_fields {
@@ -639,8 +523,6 @@ pub(super) fn emit_into_rust_direct_call(
         }
     }
 
-    // Emit: `return RustBridge.{TypeName}(arg1, arg2, ...)` — swift-bridge's
-    // convenience init takes positional `_` parameters in field-declaration order.
     let mut body = String::new();
     body.push_str(&prelude);
     body.push_str(&crate::backends::swift::template_env::render(
@@ -673,41 +555,21 @@ pub(super) fn field_intorust_arg(
     self_property: &str,
     local: &str,
 ) -> Option<FieldArg> {
-    // Unwrap Optional(T) and merge with field.optional — both encode "nullable" in
-    // different parts of the IR.
     let (inner_ty, is_optional) = match ty {
         TypeRef::Optional(inner) => (inner.as_ref(), true),
         _ => (ty, field_optional),
     };
 
     match inner_ty {
-        // Primitives and bools pass straight through — Swift Int/UInt/Bool/Float/Double
-        // map directly onto swift-bridge's bridged Rust primitives, including the
-        // `Optional<T>` variants.
         TypeRef::Primitive(_) => Some(FieldArg::Direct(format!("self.{self_property}"))),
 
-        // String fields must be wrapped with `RustString(...)`. swift-bridge 0.1.59 emits
-        // the convenience init using a *single* `GenericIntoRustString: IntoRustString`
-        // type parameter shared across every String-like argument in the signature
-        // (including `RustVec<GenericIntoRustString>` for `Vec<String>` fields). When any
-        // field forces `RustString` (via the Vec path in `emit_vec_arg`), every other
-        // String arg must also be `RustString` — Swift `String` cannot unify with
-        // `RustString` under the shared generic. Wrapping unconditionally keeps the
-        // init linkable regardless of which other fields appear.
-        // Optional `String?` -> `self.foo.map(RustString.init)` — preserves nil.
         TypeRef::String if !is_optional => Some(FieldArg::Direct(format!("RustString(self.{self_property})"))),
         TypeRef::String => Some(FieldArg::Direct(format!("self.{self_property}.map(RustString.init)"))),
 
-        // Nested struct field: recurse via the symmetric `intoRust()` method on the
-        // first-class struct. swift-bridge takes the wrapper class (e.g. `RustBridge.Span`).
         TypeRef::Named(_) if !is_optional => Some(FieldArg::Direct(format!("try self.{self_property}.intoRust()"))),
 
-        // Vec<T>: build a `RustVec<U>` and push each converted element. The element
-        // converter is the inner type's own intoRust handling.
         TypeRef::Vec(elem) if !is_optional => emit_vec_arg(elem, self_property, local),
 
-        // Other forms (Map, Path, Bytes, Duration, Char, Json, Optional<Vec>,
-        // Optional<Named>, Vec<Vec<…>>) take the JSON fallback for now.
         _ => None,
     }
 }
@@ -723,18 +585,11 @@ pub(super) fn emit_vec_arg(elem: &TypeRef, self_property: &str, local: &str) -> 
             let swift_prim = SwiftMapper.primitive(prim).into_owned();
             (swift_prim, "__elem".to_string())
         }
-        // swift-bridge: `RustVec<T>` requires `T: Vectorizable`. Only `RustString` satisfies
-        // that for textual data — bare Swift `String` does not. Wrap each element with
-        // `RustString(__elem)` so the resulting `RustVec<RustString>` matches the Rust
-        // `Vec<String>` ABI expected by the bridge.
         TypeRef::String => ("RustString".to_string(), "RustString(__elem)".to_string()),
         TypeRef::Named(name) => (format!("RustBridge.{name}"), "try __elem.intoRust()".to_string()),
         _ => return None,
     };
 
-    // RustVec.push(value:) consumes one element at a time. The literal Swift array
-    // (`self.{prop}`) iterates fine in a `for`-loop. The Rust-side extern takes
-    // ownership of the resulting RustVec, so we don't need any extra cleanup.
     let prelude = format!(
         "        let {local} = RustVec<{rust_vec_param}>()\n        \
          for __elem in self.{self_property} {{ {local}.push(value: {elem_expr}) }}\n",
@@ -768,29 +623,16 @@ pub(super) fn swift_ffi_read_expr(
     untagged_enum_names: &HashSet<String>,
     error_type_name: &str,
 ) -> String {
-    // When the field is optional in the extractor-unwrapped IR form (field.optional == true
-    // but TypeRef is NOT Optional), the swift-bridge getter returns `T?` natively.
-    // We compose the same `?`-chain logic as for TypeRef::Optional.
     let opt = field_optional && !matches!(ty, TypeRef::Optional(_));
 
     match ty {
-        // String fields: getter returns RustString; call .toString().
         TypeRef::String if opt => format!("rb.{accessor}()?.toString()"),
         TypeRef::String => format!("rb.{accessor}().toString()"),
 
-        // Named(S) where S is a unit serde enum: getter returns String (serde-serialized).
-        // Convert via raw value init (`:String, Codable` enum).
-        // When optional: `rb.field().flatMap { S(rawValue: $0.toString()) }`
-        // The `flatMap` is called on the bridge `Optional<RustString>` directly so
-        // Swift picks `Optional.flatMap` instead of `Sequence.flatMap` (String is a
-        // Sequence with `Character` elements — chaining `?.toString().flatMap`
-        // would dispatch to the Sequence variant and break compilation).
-        // When required: `S(rawValue: rb.field().toString())` (force-safe: serde guarantees valid value)
         TypeRef::Named(name) if unit_enum_names.contains(name) && opt => {
             format!("rb.{accessor}().flatMap {{ {name}(rawValue: $0.toString()) }}")
         }
         TypeRef::Named(name) if unit_enum_names.contains(name) => {
-            // Throw proper error instead of crashing on unknown variants.
             format!(
                 "try {{ let rawValue = rb.{accessor}().toString(); \
                  guard let value = {name}(rawValue: rawValue) else {{ \
@@ -799,11 +641,6 @@ pub(super) fn swift_ffi_read_expr(
             )
         }
 
-        // Named(S) where S is a first-class struct: getter returns RustBridge.S (or S?).
-        // Convert with the symmetric `init(_ rb:) throws` on the first-class struct.
-        // Note: untagged enums are excluded here because they are in `known_dto_names` but
-        // bridge as RustString — those cases are handled at the call site before reaching
-        // this function (via `is_untagged_enum_type` check in the field init loop).
         TypeRef::Named(name) if known_dto_names.contains(name) && !untagged_enum_names.contains(name) && opt => {
             format!("try rb.{accessor}().map {{ try {name}($0) }}")
         }
@@ -811,37 +648,27 @@ pub(super) fn swift_ffi_read_expr(
             format!("try {name}(rb.{accessor}())")
         }
 
-        // Vec<T>: getter returns RustVec<T> (a Swift Collection/Sequence).
-        TypeRef::Vec(inner) if opt => {
-            // The getter return type for optional Vec is RustVec<T>? when the field is
-            // declared optional via `field.optional` (not TypeRef::Optional).
-            // Use `?.map` for the optional chain.
-            match inner.as_ref() {
-                TypeRef::Primitive(_) => format!("rb.{accessor}().map {{ Array($0) }}"),
-                TypeRef::String => format!("rb.{accessor}()?.map {{ $0.as_str().toString() }}"),
-                // Vec<UntaggedEnum>: each element is a JSON-encoded RustString.
-                // Decode each element via JSONDecoder in the map closure.
-                TypeRef::Named(name) if untagged_enum_names.contains(name) => {
-                    format!(
-                        "try rb.{accessor}()?.map {{ (s: RustStringRef) -> {name} in \
+        TypeRef::Vec(inner) if opt => match inner.as_ref() {
+            TypeRef::Primitive(_) => format!("rb.{accessor}().map {{ Array($0) }}"),
+            TypeRef::String => format!("rb.{accessor}()?.map {{ $0.as_str().toString() }}"),
+            TypeRef::Named(name) if untagged_enum_names.contains(name) => {
+                format!(
+                    "try rb.{accessor}()?.map {{ (s: RustStringRef) -> {name} in \
                          let d = s.as_str().toString().data(using: .utf8) ?? Data(); \
                          return try JSONDecoder().decode({name}.self, from: d) }}"
-                    )
-                }
-                TypeRef::Named(name) if known_dto_names.contains(name) => {
-                    format!("try rb.{accessor}()?.map {{ try {name}($0) }}")
-                }
-                _ => {
-                    let map_expr = vec_elem_convert_expr(inner, known_dto_names);
-                    format!("rb.{accessor}()?.map {{ {map_expr} }}")
-                }
+                )
             }
-        }
+            TypeRef::Named(name) if known_dto_names.contains(name) => {
+                format!("try rb.{accessor}()?.map {{ try {name}($0) }}")
+            }
+            _ => {
+                let map_expr = vec_elem_convert_expr(inner, known_dto_names);
+                format!("rb.{accessor}()?.map {{ {map_expr} }}")
+            }
+        },
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Primitive(_) => format!("Array(rb.{accessor}())"),
             TypeRef::String => format!("rb.{accessor}().map {{ $0.as_str().toString() }}"),
-            // Vec<UntaggedEnum>: each element is a JSON-encoded RustString.
-            // Decode each element via JSONDecoder in the map closure.
             TypeRef::Named(name) if untagged_enum_names.contains(name) => {
                 format!(
                     "try rb.{accessor}().map {{ (s: RustStringRef) -> {name} in \
@@ -855,10 +682,6 @@ pub(super) fn swift_ffi_read_expr(
             _ => format!("rb.{accessor}()"),
         },
 
-        // TypeRef::Optional(inner) — the extractor-wrapped nullable form.
-        // For Optional<Named(unit_enum)>: getter returns Option<String> (serde-serialized).
-        // Note: Optional<Named(untagged_enum)> is handled at the call site via
-        // `is_untagged_enum_type` before reaching this function.
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String => format!("rb.{accessor}()?.toString()"),
             TypeRef::Named(name) if unit_enum_names.contains(name) => {
@@ -878,7 +701,6 @@ pub(super) fn swift_ffi_read_expr(
             _ => format!("rb.{accessor}()"),
         },
 
-        // Primitives, and anything else the bridge passes through directly.
         _ => format!("rb.{accessor}()"),
     }
 }
@@ -887,9 +709,6 @@ pub(super) fn swift_ffi_read_expr(
 /// converting a `RustVec<T>` element to its first-class Swift equivalent.
 pub(super) fn vec_elem_convert_expr(inner: &TypeRef, known_dto_names: &HashSet<String>) -> String {
     match inner {
-        // RustVec<RustString> iteration yields RustStringRef — see RustStringRef
-        // shim comment in `forwarder_return_conversion_suffix_inner` for why we use
-        // `as_str().toString()` instead of `toString()` directly.
         TypeRef::String => "$0.as_str().toString()".to_string(),
         TypeRef::Named(name) if known_dto_names.contains(name) => format!("try {name}($0)"),
         TypeRef::Primitive(_) => "$0".to_string(),
@@ -939,12 +758,7 @@ fn needs_json_bridge_for_swift(ty: &TypeRef) -> bool {
     }
     match ty {
         TypeRef::Map(_, _) => true,
-        // Vec is JSON-bridged only when the inner type is not a "leaf" (Vec<Vec<…>>,
-        // Vec<Option<…>>, Vec<Map<…>>). Plain Vec<T> for leaf T crosses as RustVec<T>.
         TypeRef::Vec(inner) => !is_leaf(inner),
-        // Plain Optional<T> for primitives/strings crosses natively (`Option<T>`),
-        // so it is NOT JSON-bridged. Only Optional wrapping a JSON-bridged inner
-        // (Optional<Vec<Vec<…>>>, Optional<Map<…>>) needs JSON decoding.
         TypeRef::Optional(inner) => needs_json_bridge_for_swift(inner),
         _ => false,
     }
@@ -961,21 +775,18 @@ fn is_field_unbridgeable_for_init(
     if field.binding_excluded || exclude_fields.contains(&field_key) {
         return true;
     }
-    // Sanitized Vec field whose inner is not a primitive/bytes — wrapper skips emit.
     if let TypeRef::Vec(inner) = &field.ty
         && field.sanitized
         && !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes)
     {
         return true;
     }
-    // Vec<Named> on non-serde struct — wrapper skips emit.
     if !ty.has_serde
         && let TypeRef::Vec(inner) = &field.ty
         && !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes)
     {
         return true;
     }
-    // JSON-bridge with inner Named where the wrapper does not exist.
     if needs_json_bridge_for_swift(&field.ty) {
         let inner_named = match &field.ty {
             TypeRef::Optional(inner) | TypeRef::Vec(inner) => match inner.as_ref() {
@@ -1004,15 +815,9 @@ fn emit_instance_method_for_first_class_struct(
     mapper: &SwiftMapper,
     out: &mut String,
 ) {
-    // Skip static/associated functions; only emit instance methods with a receiver.
     if method.is_static {
         return;
     }
-
-    // Instance methods on first-class Swift value types are bridged by:
-    // 1. Serializing self to JSON
-    // 2. Calling a Rust wrapper extern that takes JSON, deserializes, calls the method, serializes result
-    // 3. Deserializing the result back to the expected Swift type
 
     let method_swift_name = swift_case_ident(&method.name.to_lower_camel_case());
     let method_snake = method.name.to_snake_case();
@@ -1020,7 +825,6 @@ fn emit_instance_method_for_first_class_struct(
     let extern_fn_name = format!("{type_snake}_{method_snake}_from_json");
     let extern_swift_name = swift_ident(&extern_fn_name.to_lower_camel_case());
 
-    // Build parameter list
     let mut param_decls = Vec::new();
     let mut param_names = Vec::new();
     for param in &method.params {
@@ -1038,39 +842,27 @@ fn emit_instance_method_for_first_class_struct(
     }
     let params_signature = param_decls.join(", ");
 
-    // Determine the Swift return type. The Rust wrapper extern returns
-    // `Result<String, String>`, which swift-bridge maps to a THROWING call that
-    // yields the ok `String` — a method's own error and any JSON failure both
-    // surface as a thrown error. So the Swift method always `throws` and returns
-    // the plain ok type (never a `Result`), matching the parity bindings.
     let return_swift_type = if matches!(method.return_type, TypeRef::Unit) {
         "Void".to_string()
     } else {
         mapper.map_type(&method.return_type)
     };
 
-    // Build method signature
     let return_clause = if return_swift_type == "Void" {
         String::new()
     } else {
         format!(" -> {return_swift_type}")
     };
 
-    // Methods with errors or needing JSON serialization must throw
     let throws_clause = "throws ";
 
     out.push_str(&format!(
         "    public func {method_swift_name}({params_signature}) {throws_clause}{return_clause} {{\n",
     ));
 
-    // Method body
-    // 1. Serialize self to JSON
     out.push_str("        let jsonSelf = try JSONEncoder().encode(self)\n");
     out.push_str("        let selfString = String(data: jsonSelf, encoding: .utf8) ?? \"{}\"\n");
 
-    // 2. Call the Rust extern. swift-bridge generates the function with UNLABELED params
-    //    (`_ json`, `_ param`) and a `RustString` return (it unwraps the Rust `Result`,
-    //    throwing on error), so the call uses no argument labels.
     let call_args = if param_names.is_empty() {
         "selfString".to_string()
     } else {
@@ -1078,14 +870,10 @@ fn emit_instance_method_for_first_class_struct(
     };
 
     if matches!(method.return_type, TypeRef::Unit) {
-        // Void: invoke for its effect and error propagation; nothing to decode.
         out.push_str(&format!(
             "        _ = try RustBridge.{extern_swift_name}({call_args})\n"
         ));
     } else {
-        // 3. Convert the returned `RustString` to a Swift `String`, then decode the JSON
-        //    payload the wrapper serialized (every non-unit return — including `String` —
-        //    is a serde_json document) into the Swift ok type.
         out.push_str(&format!(
             "        let resultJson = try RustBridge.{extern_swift_name}({call_args}).toString()\n"
         ));

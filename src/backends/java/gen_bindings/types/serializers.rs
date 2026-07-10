@@ -24,8 +24,6 @@ pub(crate) fn gen_byte_array_serializer(package: &str) -> String {
 }
 
 pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, enum_def: &EnumDef, tag_field: &str) {
-    // Generate the deserializer class inline in the same file
-    // Start indentation at class level (not nested in the interface)
     out.push_str("/** Custom deserializer for sealed interface with unwrapped variants. */\n");
     out.push_str("class ");
     out.push_str(&enum_def.name);
@@ -58,24 +56,18 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
     out.push_str("\");\n");
     out.push_str("    }\n");
     out.push_str("    final String tagValue = tagNode.asText();\n");
-    // Remove the discriminator field before deserialising the inner type so that
-    // the target builder (e.g. TextMetadataBuilder) does not encounter an
-    // unrecognised property and throw UnrecognizedPropertyException.
     out.push_str("    node.remove(\"");
     out.push_str(tag_field);
     out.push_str("\");\n\n");
 
-    // Generate a switch/case based on the tag value
     out.push_str("    return switch (tagValue) {\n");
     for variant in &enum_def.variants {
-        // Skip excluded variants from the deserializer switch arms
         if variant.binding_excluded {
             continue;
         }
 
         let discriminator = variant.serde_rename.clone().unwrap_or_else(|| {
             let name = &variant.name;
-            // Apply the same naming convention as the Rust enum
             enum_def
                 .serde_rename_all
                 .as_deref()
@@ -87,20 +79,16 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
         out.push_str(&discriminator);
         out.push_str("\" -> ");
 
-        // Single tuple field of type `()` is treated as a unit variant in the
-        // Java record (no constructor args) — emit as unit here too.
         let is_unit_tuple = variant.fields.len() == 1
             && is_tuple_field_name(&variant.fields[0].name)
             && matches!(&variant.fields[0].ty, crate::core::ir::TypeRef::Unit);
         if variant.fields.is_empty() || is_unit_tuple {
-            // Unit variant
             out.push_str("new ");
             out.push_str(&enum_def.name);
             out.push('.');
             out.push_str(&variant.name);
             out.push_str("();\n");
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            // Newtype/tuple variant - deserialize the inner type from the whole object
             let field = &variant.fields[0];
             let inner_type = java_type(&field.ty);
             out.push_str("new ");
@@ -108,7 +96,6 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
             out.push('.');
             out.push_str(&variant.name);
             out.push('(');
-            // For String inner types, convert the entire node to JSON string
             if inner_type.as_ref() == "String" {
                 out.push_str("node.toString()");
             } else {
@@ -118,7 +105,6 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
             }
             out.push_str(");\n");
         } else {
-            // Named field variant - deserialize using Jackson's normal deserialization
             out.push_str("ctx.readTreeAsValue(node, ");
             out.push_str(&enum_def.name);
             out.push('.');
@@ -127,8 +113,6 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
         }
     }
 
-    // Check for excluded variants in the default case.
-    // enum_def.excluded_variants contains all variants marked with alef(skip) or other binding exclusions.
     let excluded_variants: Vec<String> = enum_def
         .excluded_variants
         .iter()
@@ -193,8 +177,6 @@ pub(super) fn gen_sealed_union_serializer(out: &mut String, _package: &str, enum
                     .map(|strategy| java_apply_rename_all(name, Some(strategy)))
                     .unwrap_or_else(|| java_apply_rename_all(name, None))
             });
-            // Single tuple field of type `()` is a unit variant in the Java
-            // record (no constructor args, no `value()` accessor).
             let is_unit_tuple = v.fields.len() == 1
                 && is_tuple_field_name(&v.fields[0].name)
                 && matches!(&v.fields[0].ty, crate::core::ir::TypeRef::Unit);

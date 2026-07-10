@@ -331,7 +331,6 @@ fn rust_output_contains_gvl_handling() {
     let surface = make_fixture_surface();
     let config = make_test_config();
     let output = gen_service_rs(&surface, &config);
-    // Check for Ruby::get() in both contexts
     let ruby_get_count = output.matches("Ruby::get()").count();
     assert!(
         ruby_get_count >= 2,
@@ -339,7 +338,6 @@ fn rust_output_contains_gvl_handling() {
         ruby_get_count,
         output
     );
-    // Check for rb_sys in the handler bridge (runs from async context)
     assert!(
         output.contains("rb_sys::rb_thread_call_with_gvl"),
         "expected `rb_sys::rb_thread_call_with_gvl` for handler bridge GVL:\n{output}"
@@ -425,8 +423,6 @@ fn generate_returns_empty_for_no_services() {
     let files = generate(&surface, &config).expect("generate should not fail");
     assert!(files.is_empty(), "expected no files for surface without services");
 }
-
-// ── helpers ──────────────────────────────────────────────────────────────
 
 fn make_test_config() -> ResolvedCrateConfig {
     use crate::core::config::resolved::ResolvedCrateConfig;

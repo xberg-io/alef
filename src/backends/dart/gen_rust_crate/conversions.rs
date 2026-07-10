@@ -7,13 +7,6 @@ use crate::core::ir::{ParamDef, PrimitiveType, TypeRef};
 /// because Dart's native `int` is 64-bit signed. Producers of u64-bearing APIs
 /// who need the full range should pre-truncate or document the contract.
 pub(crate) fn frb_rust_type(ty: &TypeRef, optional: bool) -> String {
-    // FRB rejects nested optionals (panics during codegen with "Nested optionals without
-    // indirection are not supported"). When a field is `Option<Option<T>>` in core, the
-    // IR carries it as `optional=true` + `ty=Optional(T)`. Render the mirror field as
-    // a single `Option<T>` and let the conversion helpers (`field_from_expr` /
-    // `field_from_expr_to_core`) inject `.flatten()` and `.map(Some)` to bridge the
-    // shape gap. The semantic loss: callers can no longer distinguish "no change" from
-    // "explicit clear" on the dart side — both collapse to None.
     let effective_ty = unwrap_nested_optional(ty, optional);
     let inner = frb_rust_type_inner(effective_ty);
     if optional { format!("Option<{inner}>") } else { inner }
@@ -61,7 +54,6 @@ pub(crate) fn frb_rust_type_inner_excluded_aware(
         TypeRef::Primitive(p) => match p {
             PrimitiveType::Bool => "bool".to_string(),
             PrimitiveType::F32 | PrimitiveType::F64 => "f64".to_string(),
-            // All integer widths → i64 (Dart int ↔ Rust i64 FRB primitive ABI)
             _ => "i64".to_string(),
         },
         TypeRef::String | TypeRef::Char => "String".to_string(),
@@ -162,23 +154,17 @@ pub(crate) fn frb_rust_type_inner_with_source(
 pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
     let name = &p.name;
     let original = p.original_type.as_deref().unwrap_or("");
-    // Strip outer `&`, `&mut`, leading whitespace.
     let stripped_orig = original
         .trim()
         .trim_start_matches('&')
         .trim_start_matches("mut ")
         .trim();
 
-    // Tuple parameters: the IR flattens `Vec<(A, B, ...)>` to `Vec<String>`,
-    // losing the structural shape. Use `original_type` to spot these and emit
-    // adapter logic that reconstructs a sensible default tuple. The IR stores
-    // `original_type` as Rust Debug syntax (e.g.
-    // `Vec(Named("(PathBuf, Option<Config>)"))`).
     if !stripped_orig.is_empty() && stripped_orig.starts_with("Vec(") && stripped_orig.contains("Named(\"(") {
         let tuple_inner = stripped_orig
             .find("Named(\"(")
             .and_then(|start| {
-                let rest = &stripped_orig[start + 8..]; // past `Named("(`
+                let rest = &stripped_orig[start + 8..];
                 rest.find(")\")")
                     .map(|end| rest[..end].trim_end_matches(')').to_string())
             })
@@ -186,9 +172,6 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
         if tuple_inner.starts_with("PathBuf,") || tuple_inner.starts_with("PathBuf ,") {
             return format!("{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()");
         }
-        // Vec<(Vec<u8>, …)> cannot be losslessly round-tripped through the FRB bridge.
-        // Bridge emission filters these functions out; keep this as a compile-time
-        // diagnostic for any unconditional call path that reaches conversion.
         if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
             return format!(
                 "{{ let _ = {name}; compile_error!(\"alef cannot bridge Vec<(Vec<u8>, ...)> through Dart FRB; configure dart.exclude_functions for this item\") }}"
@@ -196,8 +179,6 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
         }
     }
 
-    // Path: FRB sends String; the source likely wants &Path, PathBuf, or
-    // Option<PathBuf>. Emit the conversion that matches `is_ref` and `optional`.
     if matches!(p.ty, TypeRef::Path) {
         if p.optional {
             if p.is_ref {
@@ -211,8 +192,6 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
         return format!("std::path::PathBuf::from({name})");
     }
 
-    // Primitives: FRB widens all integer params to i64 and floats to f64. Cast
-    // back to the actual primitive width before forwarding to the source fn.
     if let TypeRef::Primitive(prim) = &p.ty {
         let target = primitive_name(prim);
         if target != "i64" && target != "f64" && target != "bool" {
@@ -227,8 +206,6 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
         }
     }
 
-    // Inner-Vec primitive cast: FRB widens Vec<f32> → Vec<f64>; if the source
-    // takes &[f32] we need to materialize a temporary cast Vec.
     if let TypeRef::Vec(inner) = &p.ty {
         if let TypeRef::Primitive(prim) = inner.as_ref() {
             let target = primitive_name(prim);
@@ -249,8 +226,6 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
         }
     }
 
-    // Vec<String> → &[&str]: FRB delivers Vec<String>; core takes &[&str].
-    // Materialize temporary Vec<&str> and borrow it.
     if p.is_ref
         && p.vec_inner_is_ref
         && matches!(p.ty, TypeRef::Vec(ref inner) if matches!(inner.as_ref(), TypeRef::String))

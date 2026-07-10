@@ -1,7 +1,6 @@
 use super::*;
 
 // ==============================================================================
-// Additional tests for functions.rs
 // ==============================================================================
 
 #[test]
@@ -316,7 +315,6 @@ fn test_collect_trait_imports_deduplicates_by_trait_name() {
 
     let result = collect_trait_imports(&api);
 
-    // Should deduplicate to one entry
     assert_eq!(result.len(), 1, "should deduplicate same trait path");
     assert_eq!(result[0], "my_crate::Executor");
 }

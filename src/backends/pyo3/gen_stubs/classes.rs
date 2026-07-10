@@ -94,8 +94,6 @@ pub(super) fn gen_opaque_type_stub(
 
     lines.push(format!("class {}:", typ.name));
 
-    // Emit __init__ stub when the type has a client constructor so mypy
-    // recognises `TypeName(params...)` construction call sites.
     if let Some(ctor) = ctor {
         let mut params: Vec<String> = ctor
             .params
@@ -121,7 +119,6 @@ pub(super) fn gen_opaque_type_stub(
         }
     }
 
-    // Instance methods
     for method in &typ.methods {
         if !method.is_static {
             lines.push(gen_method_stub(
@@ -134,7 +131,6 @@ pub(super) fn gen_opaque_type_stub(
         }
     }
 
-    // Static methods
     for method in &typ.methods {
         if method.is_static {
             lines.push(gen_method_stub(
@@ -147,7 +143,6 @@ pub(super) fn gen_opaque_type_stub(
         }
     }
 
-    // If no methods and no constructor, emit as a one-liner.
     if typ.methods.is_empty() && ctor.is_none() {
         return format!("class {}: ...", typ.name);
     }
@@ -169,30 +164,18 @@ pub(super) fn gen_type_stub(
 
     lines.push(format!("class {}:", typ.name));
 
-    // Class-level docstring from Rust doc comment — gated behind emit_docstrings (ruff PYI021).
     if emit_docstrings {
         if let Some(docstring) = pyi_docstring(&typ.doc, "    ") {
             lines.push(docstring);
         }
     }
 
-    // Add field type annotations.
-    // When a field name shadows a builtin type (e.g. a field `bytes`), annotations that use that
-    // builtin must be qualified as `builtins.<name>` (see `shadowed_builtins`).
     let shadowed = shadowed_builtins(typ, config);
-    // Field names that are Python reserved keywords are shown with their escaped name
-    // (e.g. `class_`) because that is the attribute name callers must use in Python.
     // The underlying `#[pyo3(get, name = "class")]` attribute on the Rust struct exposes
-    // it as `obj.class_` (the escaped name), NOT as `obj.class`, because `class` is a
-    // syntax error in a Python attribute access expression.  The stub must match.
     for field in binding_fields(&typ.fields) {
-        // Check if this field is a trait bridge marker (e.g., visitor field on ConversionOptions).
-        // When it is, prefer the trait Protocol class name (e.g., HtmlVisitor) over the
-        // binding-internal opaque handle (e.g., VisitorHandle), matching the __init__ signature logic.
         let type_str = if let Some((_, type_alias, trait_name)) = options_field_bridges.get(typ.name.as_str()) {
             if let Some(alias) = type_alias {
                 if field.name == *alias {
-                    // This field is the bridge marker; use the trait Protocol name if available
                     trait_name.or(*type_alias).unwrap_or("object").to_string()
                 } else {
                     python_type(&field.ty)
@@ -203,7 +186,6 @@ pub(super) fn gen_type_stub(
         } else {
             python_type(&field.ty)
         };
-        // Duration fields on has_default types are Option<u64> in PyO3, so annotate as int | None
         let is_optional_duration = typ.has_default && matches!(field.ty, TypeRef::Duration) && !field.optional;
         let field_type = if (is_optional_duration || field.optional) && !type_str.contains("| None") {
             format!("{} | None", type_str)
@@ -211,13 +193,10 @@ pub(super) fn gen_type_stub(
             type_str
         };
         let field_type = qualify_shadowed_builtins(&field_type, &shadowed);
-        // Resolve the field name: use config-driven rename if available, otherwise apply
-        // automatic keyword escaping via python_safe_name.
         let stub_field_name = config
             .resolve_field_name(Language::Python, &typ.name, &field.name)
             .unwrap_or_else(|| field.name.clone());
         lines.push(format!("    {stub_field_name}: {field_type}"));
-        // Field-level docstring follows the type annotation (PEP-style) — gated behind emit_docstrings.
         if emit_docstrings {
             if let Some(docstring) = pyi_docstring(&field.doc, "    ") {
                 lines.push(docstring);
@@ -225,10 +204,8 @@ pub(super) fn gen_type_stub(
         }
     }
 
-    // Add __init__ signature
     lines.push(gen_type_init_stub(typ, api, config, options_field_bridges));
 
-    // Add instance methods
     for method in &typ.methods {
         if !method.is_static {
             lines.push(gen_method_stub(
@@ -241,7 +218,6 @@ pub(super) fn gen_type_stub(
         }
     }
 
-    // Add static methods
     for method in &typ.methods {
         if method.is_static {
             lines.push(gen_method_stub(
@@ -264,35 +240,21 @@ fn gen_type_init_stub(
     config: &ResolvedCrateConfig,
     options_field_bridges: &OptionsFieldBridges<'_>,
 ) -> String {
-    // Partition fields into required (non-optional) and optional.
-    //
-    // When `typ.has_default` is true, the Rust binding uses
-    // `config_constructor_parts_with_options` which wraps ALL fields in `Option<T>` with
     // `=None` defaults in the `#[pyo3(signature = (...))]` macro.  The `.pyi` stub must
-    // match this, so every field is treated as optional.
-    //
-    // For non-has_default types, only fields explicitly marked `optional` (or Duration
-    // fields on has_default types) go into the optional partition.
-    // Exclude the OptionsField trait-bridge field: it is emitted below as the dedicated
     // bridge kwarg (mirroring the `#[new]` constructor, which also filters it out), so
-    // emitting it here too would duplicate the parameter in the `__init__` stub.
     let bridge_field_name = options_field_bridges.get(typ.name.as_str()).map(|(kwarg, _, _)| *kwarg);
     let (required, optional): (Vec<_>, Vec<_>) = binding_fields(&typ.fields)
         .filter(|f| f.cfg.as_deref().is_none_or(cfg_present_for_pyo3_stub))
         .filter(|f| bridge_field_name != Some(f.name.as_str()))
         .partition(|f| {
             if typ.has_default {
-                // All fields are optional in the Rust signature — nothing is required.
                 return false;
             }
             let is_optional_duration = matches!(f.ty, TypeRef::Duration) && !f.optional;
             !f.optional && !is_optional_duration
         });
 
-    // Per-language `rename_fields` map, keyed by Rust field name. Combined with each field's
     // `serde_rename` by the shared `resolve_param_ident` — the SAME resolver the `#[new]`
-    // constructor uses — so the stub param names cannot drift from the runtime constructor (the
-    // constructor deliberately prefers serde-rename wire names for cross-binding API parity).
     let py_field_renames: std::collections::HashMap<String, String> = typ
         .fields
         .iter()
@@ -308,14 +270,8 @@ fn gen_type_init_stub(
         Some(&py_field_renames)
     };
 
-    // Annotations that use a builtin shadowed by a sibling field name must be qualified as
-    // `builtins.<name>` — the same rule the field annotations above apply.
     let shadowed = shadowed_builtins(typ, config);
 
-    // Generate required params first, then optional params.
-    // For constructor params, use str instead of enum types (PyO3 accepts any string).
-    // Field names that are Python reserved keywords are emitted with their escaped name
-    // (e.g. `class_`) so the generated `__init__` signature is valid Python syntax.
     let mut params: Vec<String> = required
         .iter()
         .map(|f| {
@@ -325,8 +281,6 @@ fn gen_type_init_stub(
                 f.serde_rename.as_ref(),
                 renames_ref,
             );
-            // PyO3 exposes a raw-ident param (`r#type`) to Python as `type`; the stub must
-            // match the runtime kwarg, so strip the Rust raw-identifier prefix here.
             let param_name = param_name.strip_prefix("r#").map(str::to_owned).unwrap_or(param_name);
             format!("{param_name}: {param_type}")
         })
@@ -344,31 +298,17 @@ fn gen_type_init_stub(
             f.serde_rename.as_ref(),
             renames_ref,
         );
-        // PyO3 exposes a raw-ident param (`r#type`) to Python as `type`; the stub must
-        // match the runtime kwarg, so strip the Rust raw-identifier prefix here.
         let param_name = param_name.strip_prefix("r#").map(str::to_owned).unwrap_or(param_name);
         format!("{param_name}: {param_type} = None")
     }));
 
-    // When this struct is the options-type of a trait bridge with `bind_via=OptionsField`,
     // the PyO3 `#[new]` constructor accepts an additional `{kwarg_name}: {trait_name} = None`
-    // kwarg (e.g. `visitor: HtmlVisitor | object | None = None`). The bridge field is cfg-gated in
-    // the IR, so the partition above strips it, but the PyO3 macro keeps it via
-    // `never_skip_cfg_field_names`. Surface it here so api.py callers type-check.
-    //
-    // Prefer the trait's Protocol class name (e.g. `HtmlVisitor`) over the binding-internal
-    // `type_alias` (e.g. `VisitorHandle`) because the runtime bridge wraps any object that
-    // implements the protocol methods — callers should pass an `HtmlVisitor`, not a handle.
     if let Some((kwarg_name, type_alias, trait_name)) = options_field_bridges.get(typ.name.as_str()) {
-        // Widen the constructor kwarg to accept any duck-typed object — see the matching
-        // comment in `functions.rs` for the runtime dispatch behavior.
         let visitor_type = trait_name.or(*type_alias).unwrap_or("object");
         params.push(format!("{kwarg_name}: {visitor_type} | object | None = None"));
     }
 
-    // If any parameter shadows a Python builtin we must use the multi-line form so we can
     // append `# noqa: A002` on those lines. The noqa suppression is not valid on a single-line
-    // def, so force wrapping whenever a builtin-shadowing param is present.
     let has_builtin_param = params
         .iter()
         .any(|p| is_python_builtin_name(p.split(':').next().unwrap_or("").trim()));
@@ -376,7 +316,6 @@ fn gen_type_init_stub(
     if single_line.len() <= 100 && !has_builtin_param {
         single_line
     } else {
-        // Wrap parameters across multiple lines to stay within 100 chars.
         // For params that shadow Python builtins, append `# noqa: A002` AFTER the comma.
         let mut wrapped = String::from("    def __init__(\n");
         wrapped.push_str("        self,\n");
@@ -424,10 +363,8 @@ fn gen_method_stub(
     owner_type: Option<&str>,
     streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
 ) -> String {
-    // Partition params into required (non-optional) and optional
     let (required, optional): (Vec<_>, Vec<_>) = method.params.iter().partition(|p| !p.optional);
 
-    // Generate required params first, then optional params
     let mut params: Vec<String> = required
         .iter()
         .map(|p| {
@@ -446,9 +383,6 @@ fn gen_method_stub(
         format!("{}: {} = None", p.name, param_type)
     }));
 
-    // Check whether this method has a streaming adapter. When it does, override the
-    // return type with `AsyncIterator[ItemType]` so the stub matches the real async
-    // iterator emitted by the Rust shim rather than the buffered placeholder type.
     let streaming_key = (owner_type.map(str::to_string), method.name.clone());
     let return_type = if let Some(item_type) = streaming_return_types.get(&streaming_key) {
         format!("AsyncIterator[{item_type}]")
@@ -457,12 +391,8 @@ fn gen_method_stub(
     };
     let indent = "    ";
     let safe_name = python_safe_name(&method.name);
-    // pyo3 async methods return a Python awaitable (via `pyo3_async_runtimes::*::future_into_py`).
-    // Emit `async def` in the .pyi stub so the `await _rust.method(...)` calls in the generated
-    // `api.py` wrapper type-check correctly.
     let def_kw = if method.is_async { "async def" } else { "def" };
 
-    // Force multi-line wrapping whenever a param shadows a Python builtin so we can
     // append `# noqa: A002` on those lines (the suppression is invalid on a single-line def).
     let has_builtin_param = params
         .iter()
@@ -497,7 +427,6 @@ fn gen_method_stub(
         } else {
             let prefix = format!("{}@staticmethod\n{}{} {}(", indent, indent, def_kw, safe_name);
             let suffix = format!("{}) -> {}: ...", indent, return_type);
-            // Check the def line (second line) for length
             let def_line = format!(
                 "{}{} {}({}) -> {}: ...",
                 indent,

@@ -126,7 +126,6 @@ fn bridge_class_has_register_helper_and_registry() {
     let trait_def = make_trait("OcrBackend", vec![]);
     let visible = all_named_visible(&trait_def.methods);
     let excluded = HashSet::new();
-    // No unregister/clear configured: neither method should appear
     let files = gen_trait_bridge_files(
         &trait_def,
         "krz",
@@ -542,12 +541,10 @@ fn bridge_handler_bytes_param_includes_len_companion_and_bounded_reinterpret() {
     );
     let body = files.bridge_content.as_str();
 
-    // The handler method signature must carry the length companion.
     assert!(
         body.contains("long payloadLen"),
         "handler signature must include `long payloadLen` for Bytes param;\nactual:\n{body}"
     );
-    // The unmarshal must use the bounded reinterpret(payloadLen), never Long.MAX_VALUE.
     assert!(
         body.contains("reinterpret(payloadLen)"),
         "Bytes unmarshal must use `reinterpret(payloadLen)`;\nactual:\n{body}"
@@ -617,7 +614,6 @@ fn bridge_handler_emits_primitive_param_as_java_primitive_not_memory_segment() {
         &[],
     );
     let body = files.bridge_content.as_str();
-    // The handler signature should have `byte level`, not `MemorySegment level_in`
     assert!(body.contains(
         "private int handleLog(MemorySegment userData, byte level, MemorySegment msg_in, MemorySegment outError)"
     ));
@@ -625,8 +621,6 @@ fn bridge_handler_emits_primitive_param_as_java_primitive_not_memory_segment() {
 
 #[test]
 fn adapter_bridge_implements_hand_authored_interface_for_text_processor() {
-    // Regression: `TextProcessorAdapter` must declare `implements ITextProcessor` so
-    // consumer code can pass the adapter where the hand-authored interface is expected.
     let trait_def = make_trait("TextProcessor", vec![]);
     let visible = all_named_visible(&trait_def.methods);
     let excluded = HashSet::new();
@@ -640,7 +634,6 @@ fn adapter_bridge_implements_hand_authored_interface_for_text_processor() {
 
 #[test]
 fn adapter_bridge_implements_hand_authored_interface_for_asset_loader() {
-    // AssetLoader adapter must declare `implements IAssetLoader`.
     let trait_def = make_trait("AssetLoader", vec![]);
     let visible = all_named_visible(&trait_def.methods);
     let excluded = HashSet::new();
@@ -651,12 +644,6 @@ fn adapter_bridge_implements_hand_authored_interface_for_asset_loader() {
         "adapter must declare `implements IAssetLoader`;\nactual:\n{content}"
     );
 }
-
-// -----------------------------------------------------------------------------
-// Fix 1 (imports): rendered-body-then-scan-imports — no false positives, no
-// false negatives. Regression guard for checkstyle UnusedImports on
-// `IPostProcessor.java` and the trait-bridge classes.
-// -----------------------------------------------------------------------------
 
 /// `String -> String` method must NOT pull in `java.util.List` or `java.util.Map`.
 #[test]
@@ -719,7 +706,6 @@ fn interface_vec_return_emits_list_import_only() {
         !interface.contains("import java.util.Map;"),
         "Vec-only return must not import java.util.Map;\nactual:\n{interface}"
     );
-    // Ensure exactly one List import line.
     assert_eq!(
         interface.matches("import java.util.List;").count(),
         1,
@@ -803,11 +789,6 @@ fn bridge_vec_param_emits_list_import() {
     );
 }
 
-// -----------------------------------------------------------------------------
-// Fix 2 (initializeStubs split): per-stub helper methods keep every method
-// under checkstyle's MethodLength=150 cap, even when the trait has many stubs.
-// -----------------------------------------------------------------------------
-
 /// Helper: count how many lines (newline-separated) the longest Java method in
 /// `body` spans, scanning between `private void initStub*` headers and the next
 /// dedented `}` at column 4 (typical of the trait_bridge.jinja indentation).
@@ -837,7 +818,6 @@ fn make_void_method(name: &str) -> MethodDef {
 }
 
 fn assert_dispatcher_calls_every_init_stub_helper(body: &str, stub_pascals: &[&str]) {
-    // The dispatcher `initializeStubs` body must reference every helper exactly once.
     let dispatcher_start = body.find("private void initializeStubs()").expect("dispatcher present");
     let dispatcher_end = body[dispatcher_start..]
         .find("\n    }")

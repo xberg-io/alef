@@ -38,17 +38,6 @@ pub(crate) fn emit_inbound_wrapper(
     };
     let mut out = String::new();
 
-    // No module-scope phantom impl for the inbound (Swift-side) trait: the matching
-    // `extern "Rust" { fn alef_phantom_vec_swift_{trait}() -> Vec<Swift{Trait}Box>; }`
-    // inside the bridge module is enough to force swift-bridge-build to emit the
-    // Vec accessor C symbols. `Swift{Trait}Box` is an `extern "Swift" type`, not a
-    // Rust-side type, so a module-level `pub fn ... -> Vec<Swift{Trait}Box>` would
-    // not compile ("cannot find type … in this scope"). The outbound Rust trait's
-    // phantom_impl (in trait_bridge.rs) is unaffected since `{Trait}Box` is a real
-    // Rust struct there.
-
-    // 1. Wrapper struct with name cache + Send/Sync.
-    // The name_cache field is only needed for Plugin super-trait (which returns &str from name()).
     if emit_plugin {
         out.push_str(&crate::backends::swift::template_env::render(
             "inbound_wrapper_struct.rs.jinja",
@@ -59,7 +48,6 @@ pub(crate) fn emit_inbound_wrapper(
             },
         ));
     } else {
-        // Non-Plugin trait: emit a simpler wrapper struct without name_cache.
         out.push_str(&crate::backends::swift::template_env::render(
             "inbound_plain_wrapper_struct.rs.jinja",
             minijinja::context! {
@@ -68,9 +56,6 @@ pub(crate) fn emit_inbound_wrapper(
                 box_name => &box_name,
             },
         ));
-        // Emit `Debug` when the trait's supertrait list includes it. The opaque swift-bridge
-        // handle does not derive Debug, so we write a manual impl that identifies the wrapper
-        // by name only — sufficient for trait satisfaction.
         if trait_def
             .super_traits
             .iter()
@@ -85,7 +70,6 @@ pub(crate) fn emit_inbound_wrapper(
         }
     }
 
-    // 2. Plugin super-trait impl — only when the trait declares Plugin as a super-trait.
     if emit_plugin {
         if let Some(plugin_path) = plugin_path.as_deref() {
             out.push_str(&crate::backends::swift::template_env::render(
@@ -107,7 +91,6 @@ pub(crate) fn emit_inbound_wrapper(
     }
     let _ = trait_snake;
 
-    // 3. Trait impl.
     let has_async = trait_def.methods.iter().any(|m| m.is_async);
     out.push_str(&crate::backends::swift::template_env::render(
         "inbound_trait_impl_open.rs.jinja",
@@ -138,7 +121,6 @@ pub(crate) fn emit_inbound_wrapper(
     }
     out.push_str("}\n\n");
 
-    // 4. Registration entry points.
     if let Some(register_fn) = bridge_config.register_fn.as_deref() {
         if let Some(registry_getter) = bridge_config.registry_getter.as_deref() {
             let extra_args = bridge_config

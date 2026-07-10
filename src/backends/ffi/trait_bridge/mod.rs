@@ -27,10 +27,6 @@ use std::collections::{HashMap, HashSet};
 
 use helpers::prim_to_c;
 
-// ---------------------------------------------------------------------------
-// FfiBridgeGenerator — implements TraitBridgeGenerator for the vtable ABI
-// ---------------------------------------------------------------------------
-
 /// FFI-specific trait bridge generator.
 ///
 /// Produces vtable structs and bridge structs that implement Rust traits by
@@ -83,17 +79,11 @@ impl FfiBridgeGenerator {
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "*const std::ffi::c_char".to_string(),
             TypeRef::Bytes => "*const u8".to_string(),
             TypeRef::Primitive(p) => prim_to_c(p).to_string(),
-            TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                // Complex types go over the wire as JSON strings
-                "*const std::ffi::c_char".to_string()
-            }
-            TypeRef::Optional(inner) => {
-                // Optional string/named → nullable pointer; optional primitive → primitive (0 = None)
-                match inner.as_ref() {
-                    TypeRef::Primitive(p) => prim_to_c(p).to_string(),
-                    _ => "*const std::ffi::c_char".to_string(),
-                }
-            }
+            TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => "*const std::ffi::c_char".to_string(),
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::Primitive(p) => prim_to_c(p).to_string(),
+                _ => "*const std::ffi::c_char".to_string(),
+            },
             TypeRef::Unit => "()".to_string(),
             TypeRef::Duration => "u64".to_string(),
         }
@@ -105,8 +95,6 @@ impl FfiBridgeGenerator {
     /// - A list of additional out-parameters to append to the function signature.
     /// - The C return type (`i32` for fallible, or the direct primitive for infallible simple types).
     pub(super) fn c_return_convention(ty: &TypeRef, has_error: bool) -> (Vec<String>, String) {
-        // For complex return types (Named, Vec, Map, String), always include out_error
-        // even for infallible methods, to maintain stack alignment and C# FFI compatibility
         let needs_out_error = matches!(
             ty,
             TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::String | TypeRef::Json
@@ -128,7 +116,6 @@ impl FfiBridgeGenerator {
                 v
             }
             TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                // Complex return: JSON-encode into an out_result string
                 let mut v = vec!["out_result: *mut *mut std::ffi::c_char".to_string()];
                 if needs_out_error {
                     v.push("out_error: *mut *mut std::ffi::c_char".to_string());
@@ -153,7 +140,7 @@ impl FfiBridgeGenerator {
                 TypeRef::Duration => "u64".to_string(),
                 TypeRef::Optional(inner) => match inner.as_ref() {
                     TypeRef::Primitive(p) => prim_to_c(p).to_string(),
-                    _ => "i32".to_string(), // nullable pointer returns 0/1 via out_result
+                    _ => "i32".to_string(),
                 },
                 _ => "i32".to_string(),
             }
@@ -162,10 +149,6 @@ impl FfiBridgeGenerator {
         (out_params, ret)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Public entry points
-// ---------------------------------------------------------------------------
 
 /// Generate the shared FFI error-setting helper function (once per module).
 pub fn gen_ffi_set_out_error_helper() -> String {
@@ -199,8 +182,6 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods that reference them (for example, `&HiddenDoc`)
-        // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
                 .iter()
@@ -225,8 +206,6 @@ pub fn gen_trait_bridge(
     };
 
     let wrapper_prefix = to_class_name(prefix);
-    // Re-derive lifetime_type_names for the shared spec (the generator holds its own copy,
-    // but TraitBridgeSpec also needs it so gen_bridge_trait_impl can emit `<'_>` in sigs).
     let spec_lifetime_type_names: HashSet<String> = api
         .types
         .iter()
@@ -246,47 +225,31 @@ pub fn gen_trait_bridge(
 
     let mut out = String::with_capacity(4096);
 
-    // Note: imports (c_void, c_char, CStr, CString, Arc) are emitted by the caller
-    // via builder.add_import() to avoid duplicates with the main gen_lib_rs imports.
-    // ffi_set_out_error is also emitted once by the caller (gen_lib_rs) for all trait bridges
-
-    // VTable struct
     out.push_str(&generator.gen_vtable_struct(&spec));
     out.push('\n');
 
-    // Bridge struct (custom layout: vtable + user_data + cached_name)
     out.push_str(&generator.gen_bridge_struct(&spec));
     out.push('\n');
 
-    // Drop impl
     out.push_str(&generator.gen_bridge_drop(&spec));
     out.push('\n');
 
-    // Constructor
     out.push_str(&generator.gen_constructor_impl(&spec));
     out.push('\n');
 
-    // Plugin / super-trait impl (custom FFI version; do NOT use gen_bridge_plugin_impl
-    // because that generates PyO3-style delegation through generator.gen_sync_method_body
-    // which references `self.inner`, but our bridge uses `self.vtable` directly)
     if let Some(plugin_impl) = generator.gen_ffi_plugin_impl(&spec) {
         out.push_str(&plugin_impl);
         out.push('\n');
     } else {
-        // Try the shared gen_bridge_plugin_impl as a fallback (no super_trait configured)
         if let Some(plugin_impl) = gen_bridge_plugin_impl(&spec, &generator) {
             out.push_str(&plugin_impl);
             out.push('\n');
         }
     }
 
-    // Trait impl — generate for FFI, including methods with default impls (which the vtable
-    // must forward through). Unlike most bindings, FFI bridges must implement ALL methods
-    // because the vtable pattern requires forwarding even methods with defaults.
     out.push_str(&generator.gen_ffi_trait_impl(&spec));
     out.push('\n');
 
-    // Registration + unregistration functions
     if spec.bridge_config.register_fn.is_some() {
         out.push('\n');
         out.push_str(&generator.gen_registration_fn_impl(&spec));
@@ -317,7 +280,6 @@ pub fn gen_bridge_new_free(prefix: &str, pascal_prefix: &str, trait_name: &str) 
     let bridge_name = format!("{pascal_prefix}{trait_name}Bridge");
     let vtable_name = format!("{pascal_prefix}{trait_name}VTable");
 
-    // snake_case: e.g. "DemoXmlWalkerBridge" -> "demo_xml_walker_bridge"
     let bridge_snake = ffi_symbol_component(&bridge_name);
     let fn_new = format!("{prefix}_{bridge_snake}_new");
     let fn_free = format!("{prefix}_{bridge_snake}_free");

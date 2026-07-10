@@ -7,8 +7,6 @@ use alef::core::ir::{
 };
 
 // ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
@@ -154,10 +152,6 @@ target = "native"
     ))
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 /// Native target emits three files: .kt, .def, and build.gradle.kts.
 #[test]
 fn native_emits_three_files() {
@@ -225,7 +219,6 @@ fn native_struct_emits_data_class() {
         content.contains("val maxWidth: Int"),
         "missing maxWidth field: {content}"
     );
-    // Path → String in Native mode (no java.nio.file.Path).
     assert!(
         content.contains("val outputPath: String"),
         "Path field should be String in native: {content}"
@@ -342,7 +335,6 @@ fn native_function_uses_mem_scoped() {
     assert!(content.contains("fun convertHtml("), "missing function: {content}");
     assert!(content.contains("memScoped {"), "missing memScoped: {content}");
     assert!(content.contains("demo_convert_html("), "missing C call: {content}");
-    // String param must be converted to a C string pointer.
     assert!(content.contains("inputC"), "missing string C conversion: {content}");
 }
 

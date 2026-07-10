@@ -66,7 +66,6 @@ fn normalize_whitespace_with_policy(content: &str, is_markdown: bool) -> String 
             result.push('\n');
         }
     }
-    // Ensure exactly one trailing newline
     while result.ends_with("\n\n") {
         result.pop();
     }
@@ -80,7 +79,6 @@ fn normalize_whitespace_with_policy(content: &str, is_markdown: bool) -> String 
 /// `[package] edition = "YYYY"` value.  Returns `"2024"` if no `Cargo.toml`
 /// is found or the edition field is absent.
 pub(super) fn detect_crate_edition(path: &Path) -> String {
-    // Start from the file's parent directory (or the path itself if it is a dir).
     let start = if path.is_dir() {
         path
     } else {
@@ -99,7 +97,6 @@ pub(super) fn detect_crate_edition(path: &Path) -> String {
                     return edition;
                 }
             }
-            // Found Cargo.toml but no edition — use default.
             return "2024".to_string();
         }
         match current.parent() {
@@ -117,14 +114,12 @@ pub(super) fn parse_package_edition(toml_text: &str) -> Option<String> {
     for line in toml_text.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
-            // Check if we're entering [package]; exit if we leave it.
             in_package = trimmed == "[package]";
             continue;
         }
         if !in_package {
             continue;
         }
-        // Match: edition = "2021" (or 2024, etc.)
         if let Some(rest) = trimmed.strip_prefix("edition") {
             let rest = rest.trim_start();
             if let Some(rest) = rest.strip_prefix('=') {

@@ -16,11 +16,7 @@ pub fn gen_enum(enum_def: &EnumDef) -> String {
         .map(|v| v.name.as_str())
         .unwrap_or(first_variant);
 
-    // Compute the field-defaults suffix for the *default* variant (not the first
     // variant). When `#[default]` selects a unit variant (e.g. `PageAction::Scrape`)
-    // while the first variant carries fields (e.g. `Click { selector }`), using
-    // the first variant's field shape on the default variant emits
-    // `Self::Scrape { selector: Default::default() }` and fails with E0559.
     let first_variant_default = if has_data {
         let default = enum_def
             .variants
@@ -44,7 +40,6 @@ pub fn gen_enum(enum_def: &EnumDef) -> String {
         String::new()
     };
 
-    // Build variant list with snake_case names for unit enums
     let variants: Vec<minijinja::Value> = enum_def
         .variants
         .iter()
@@ -109,12 +104,8 @@ fn field_type_for_serde_inner(ty: &TypeRef) -> String {
         TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
         TypeRef::Duration => "u64".to_string(),
         TypeRef::Bytes => "Vec<u8>".to_string(),
-        // Named types serde-derive in the generated module — emit by name so JSON
-        // arrays/objects deserialize directly via serde.
         TypeRef::Named(n) => n.clone(),
-        // Recurse for Vec so Vec<Item> / Vec<String> round-trip as actual JSON arrays.
         TypeRef::Vec(inner) => format!("Vec<{}>", field_type_for_serde_inner(inner)),
-        // Map keys/values may be opaque or non-serde; collapse to String and round-trip via serde_json.
         TypeRef::Map(_, _) => "String".to_string(),
         TypeRef::Optional(inner) => format!("Option<{}>", field_type_for_serde_inner(inner)),
         _ => "String".to_string(),
@@ -162,9 +153,6 @@ pub fn gen_data_enum_variant_constructors(enum_def: &EnumDef) -> String {
                 .map(|p| format!("{}: {}", p.name, serde_field_type(&p.ty, p.optional)))
                 .collect::<Vec<_>>()
                 .join(", ");
-            // The serde-shaped enum is binding-shaped, so each field is assigned by its own name
-            // (struct-literal shorthand) with no conversion. Constructors only exist for variants
-            // with fields, so the field list is never empty.
             let field_inits = ctor
                 .params
                 .iter()

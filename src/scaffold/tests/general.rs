@@ -83,18 +83,14 @@ fn test_scaffold_multiple() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // Python: 3 files; Node: 11 files (parent manifest, loader, platform manifests, Cargo.toml).
     assert_eq!(files.len(), 14);
 }
 
 #[test]
 fn test_scaffold_gitattributes_covers_all_generated_dirs() {
-    // Test that .gitattributes is emitted and covers: language package dirs,
-    // binding crate dirs (py/php/ffi/jni are separate from package_dir), and e2e/.
     let config = test_config();
     let api = test_api();
 
-    // Python + Node: the default test_config languages.
     let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
     let ga = all_files
         .iter()
@@ -107,14 +103,10 @@ fn test_scaffold_gitattributes_covers_all_generated_dirs() {
     );
 
     let content = &ga.content;
-    // Package directories
     assert!(content.contains("packages/python/**"), "must cover Python package dir");
     assert!(content.contains("crates/my-lib-node/**"), "must cover Node crate dir");
-    // Binding crate separate from package_dir
     assert!(content.contains("crates/my-lib-py/**"), "must cover PyO3 binding crate");
-    // e2e is always included regardless of language selection
     assert!(content.contains("e2e/**"), "must cover e2e test output");
-    // All entries carry the linguist attribute
     for line in content.lines().filter(|l| !l.starts_with('#') && !l.is_empty()) {
         assert!(
             line.ends_with("linguist-generated=true"),
@@ -125,7 +117,6 @@ fn test_scaffold_gitattributes_covers_all_generated_dirs() {
 
 #[test]
 fn test_scaffold_gitattributes_ffi_and_jni_use_crate_dirs() {
-    // FFI and JNI don't have packages/ dirs — their output is the binding crate itself.
     let config = test_config();
     let api = test_api();
 
@@ -232,7 +223,6 @@ mode = "kmp"
 
 #[test]
 fn test_scaffold_gitattributes_kotlin_multiplatform_target_uses_kotlin_mpp_dir() {
-    // target = "multiplatform" (no mode) must also resolve to packages/kotlin-mpp/
     use crate::core::config::NewAlefConfig;
 
     let cfg: NewAlefConfig = toml::from_str(
@@ -290,7 +280,6 @@ fn test_scaffold_gitattributes_kotlin_android_uses_kotlin_android_dir() {
 
 #[test]
 fn wasm_package_name_strips_node_suffix_from_scoped_package() {
-    // @scope/foo-node  →  @scope/foo-wasm  (not @scope/foo-node-wasm)
     let config = test_config_from_toml(
         r#"
 [crates.node]
@@ -317,7 +306,6 @@ package_name = "@scope/foo-node"
 
 #[test]
 fn wasm_package_name_strips_node_suffix_from_unscoped_package() {
-    // foo-node  →  foo-wasm  (not foo-node-wasm)
     let config = test_config_from_toml(
         r#"
 [crates.node]
@@ -339,7 +327,6 @@ package_name = "foo-node"
 
 #[test]
 fn wasm_package_name_fallback_when_no_node_suffix() {
-    // foo  →  foo-wasm  (no -node suffix present, no stripping)
     let config = test_config();
     let api = test_api();
     let files = scaffold(&api, &config, &[Language::Wasm]).unwrap();
@@ -347,8 +334,6 @@ fn wasm_package_name_fallback_when_no_node_suffix() {
         .iter()
         .find(|f| f.path.ends_with("package.json"))
         .expect("wasm scaffold must emit package.json");
-    // Default node_package_name for crate "my-lib" is "my-lib" (no -node suffix).
-    // Stripping "-node" is a no-op → wasm name is "my-lib-wasm".
     assert!(
         pkg_json.content.contains("\"my-lib-wasm\""),
         "expected my-lib-wasm, got:\n{}",
@@ -456,8 +441,6 @@ authors = ["Ada Lovelace <ada@example.com>"]
         "R Cargo.toml must forward `heuristics` to the core dep; content:\n{}",
         cargo.content
     );
-    // All cfg-forwarded features must be enabled by default so the gated wrappers
-    // compile without explicit activation.
     let default_line = cargo
         .content
         .lines()
@@ -554,9 +537,6 @@ authors = ["Ada Lovelace <ada@example.com>"]
 
 #[test]
 fn test_scaffold_r_cargo_no_workspace_inheritance() {
-    // The R crate at `packages/r/src/rust/Cargo.toml` is excluded from the workspace,
-    // so it must NOT use workspace inheritance for package fields like version or license.
-    // It should have concrete values instead.
     let config = test_config_from_toml(
         r#"
 [crates.package_metadata]
@@ -571,7 +551,6 @@ authors = ["Ada Lovelace <ada@example.com>"]
         .find(|f| f.path.ends_with("packages/r/src/rust/Cargo.toml"))
         .expect("R rust crate Cargo.toml must be emitted");
 
-    // R crate should NOT use workspace inheritance for version or license
     assert!(
         !cargo.content.contains("version.workspace"),
         "R Cargo.toml must NOT use workspace inheritance for version (excluded from workspace); content:\n{}",
@@ -583,13 +562,11 @@ authors = ["Ada Lovelace <ada@example.com>"]
         cargo.content
     );
 
-    // Should have concrete values instead
     assert!(
         cargo.content.contains(r#"version = "0.1.0""#),
         "R Cargo.toml must have concrete version field; content:\n{}",
         cargo.content
     );
 
-    // Validate it's valid TOML
     toml::from_str::<toml::Value>(&cargo.content).expect("generated R Cargo.toml must be valid TOML");
 }

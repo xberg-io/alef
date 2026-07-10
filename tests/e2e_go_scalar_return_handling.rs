@@ -136,8 +136,6 @@ fn test_go_bool_return_not_treated_as_error() {
         .generate(&groups, &e2e_config, &config, &[], &[])
         .expect("code generation should succeed");
 
-    // Find the file holding the test body. main_test.go / helpers_test.go also
-    // end in `_test.go` but carry no test function — match on the call site.
     let test_file = generated
         .iter()
         .find(|f| f.path.to_string_lossy().contains("_test.go") && f.content.contains("HasLanguage"))
@@ -145,14 +143,12 @@ fn test_go_bool_return_not_treated_as_error() {
 
     let content = &test_file.content;
 
-    // The test should NOT emit `err :=` — it should emit `result :=`
     assert!(
         !content.contains("err := pkg.HasLanguage"),
         "Boolean return should not be assigned to `err` variable. Generated code:\n{}",
         content
     );
 
-    // The test should NOT have error checking with `if err != nil`
     let has_error_check = content.contains("if err != nil") && content.contains("HasLanguage");
     assert!(
         !has_error_check,
@@ -171,7 +167,6 @@ fn test_go_uint_return_not_treated_as_error() {
         .generate(&groups, &e2e_config, &config, &[], &[])
         .expect("code generation should succeed");
 
-    // Find the file holding the test body (see the bool test for the rationale).
     let test_file = generated
         .iter()
         .find(|f| f.path.to_string_lossy().contains("_test.go") && f.content.contains("LanguageCount"))
@@ -179,7 +174,6 @@ fn test_go_uint_return_not_treated_as_error() {
 
     let content = &test_file.content;
 
-    // The test should NOT emit `err :=`
     assert!(
         !content.contains("err := pkg.LanguageCount"),
         "Uint return should not be assigned to `err` variable. Generated code:\n{}",

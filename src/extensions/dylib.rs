@@ -61,16 +61,11 @@ pub fn load_dylib_extensions(blocks: &[DylibBlock]) -> Result<Vec<Box<dyn Extens
 
     for block in blocks {
         // SAFETY: loading arbitrary dylibs is inherently unsafe. The caller opts
-        // into this feature with an explicit path in alef.toml, and errors are
-        // surfaced with the path that failed to load.
         let library = unsafe { libloading::Library::new(&block.path) }
             .with_context(|| format!("failed to load extension dylib {}", block.path.display()))?;
 
         let extension = {
             // SAFETY: dynamic extensions must export the documented
-            // `alef_extension_factory` symbol with the exact C ABI and return
-            // type. A mismatched library is rejected by symbol lookup or is a
-            // caller-side ABI violation.
             let factory: libloading::Symbol<'_, ExtensionFactory> = unsafe { library.get(b"alef_extension_factory") }
                 .with_context(|| {
                 format!(
@@ -83,8 +78,6 @@ pub fn load_dylib_extensions(blocks: &[DylibBlock]) -> Result<Vec<Box<dyn Extens
             unsafe { factory() }
         };
 
-        // The returned trait object's vtable points into the dynamic library.
-        // Keep the library loaded for the rest of this process.
         Box::leak(Box::new(library));
         extensions.push(extension);
     }

@@ -10,7 +10,6 @@ pub(super) fn apply_core_wrapper_from_core(
     vec_inner_core_wrapper: &CoreWrapper,
     optional: bool,
 ) -> String {
-    // Handle Vec<Arc<T>>: unwrap Arc elements
     if *vec_inner_core_wrapper == CoreWrapper::Arc {
         return conversion
             .replace(".map(Into::into).collect()", ".map(|v| (*v).clone().into()).collect()")
@@ -23,11 +22,6 @@ pub(super) fn apply_core_wrapper_from_core(
     match core_wrapper {
         CoreWrapper::None => conversion.to_string(),
         CoreWrapper::Cow | CoreWrapper::Box => {
-            // Cow<str> / Box<str> → String: core val.name is `Cow<'static, str>` or
-            // `Box<str>`; binding needs `String`. Both wrappers deref to `&str`, so
-            // `to_string()` covers both. When the binding has been optionalized
-            // (e.g. NAPI default-optional fields), the upstream pass already wrapped
-            // the conversion in Some(...) — preserve that wrap.
             let prefix = format!("{name}: ");
             let already_some_wrapped = conversion
                 .strip_prefix(&prefix)
@@ -41,14 +35,6 @@ pub(super) fn apply_core_wrapper_from_core(
             }
         }
         CoreWrapper::Arc => {
-            // Arc<T> → T: unwrap via clone.
-            //
-            // Special case: opaque Named types build the binding wrapper with
-            // `{ inner: Arc::new(v) }` in the base conversion, but when the core
-            // field is `Arc<T>`, `v` IS already the `Arc<T>` — wrapping it again
-            // with `Arc::new` produces `Arc<Arc<T>>`.  Detect this pattern and
-            // replace `Arc::new(v)` with `v`, and `Arc::new(val.{name})` with
-            // `val.{name}`, then return without adding an extra unwrap chain.
             if conversion.contains("{ inner: Arc::new(") {
                 return conversion.replace("{ inner: Arc::new(v) }", "{ inner: v }").replace(
                     &format!("{{ inner: Arc::new(val.{name}) }}"),
@@ -57,14 +43,6 @@ pub(super) fn apply_core_wrapper_from_core(
             }
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                 if optional {
-                    // When the base conversion is the simple passthrough `val.{name}`,
-                    // the Option carries Arc<T> elements; deref-clone each.
-                    // When the base is already a complex expression (e.g.
-                    // `val.{name}.as_ref().map(ToString::to_string)` for Json fields),
-                    // the Arc is transparently handled via Display/Deref coercion;
-                    // chaining another `.map(|v| (*v).clone().into())` would operate
-                    // on the already-converted value (e.g. String) and emit invalid
-                    // codegen such as `(*String).clone()` (since str: !Clone).
                     let simple_passthrough = format!("val.{name}");
                     if expr == simple_passthrough {
                         format!("{name}: val.{name}.map(|v| (*v).clone().into())")
@@ -89,10 +67,6 @@ pub(super) fn apply_core_wrapper_from_core(
             }
         }
         CoreWrapper::Bytes => {
-            // Bytes → Vec<u8> (or napi Buffer via From<Vec<u8>>): .to_vec().into()
-            // The TypeRef::Bytes field_conversion already emits the correct expression
-            // (`.to_vec().into()` non-optional, `.map(|v| v.to_vec().into())` optional).
-            // Detect those forms and pass through unchanged to avoid double conversion.
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                 let already_converted_non_opt = expr == format!("val.{name}.to_vec().into()");
                 let already_converted_opt = expr == format!("val.{name}.map(|v| v.to_vec().into())");
@@ -110,7 +84,6 @@ pub(super) fn apply_core_wrapper_from_core(
             }
         }
         CoreWrapper::ArcMutex => {
-            // Arc<Mutex<T>> → T: lock and clone
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
                 if optional {
                     let string_passthrough = format!("val.{name}.map(|v| v.to_string())");

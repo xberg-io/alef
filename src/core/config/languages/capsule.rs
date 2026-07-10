@@ -104,11 +104,7 @@ impl HostCapsuleTypeConfig {
 /// Returns `None` when the host_type contains no dotted qualified name (e.g. a
 /// bare type with no module prefix).
 pub fn zig_capsule_import_name(host_type: &str) -> Option<&str> {
-    // Find the first whitespace-separated token that contains a dot (e.g. `my_mod.Language`).
-    // This skips leading sigil tokens like `?`, `*`, `?*const`, etc.
-    // e.g. `"?*const my_mod.Language"` → token `"my_mod.Language"` → `"my_mod"`.
     let qualified = host_type.split_whitespace().find(|token| token.contains('.'))?;
-    // Strip any leading `?` or `*` sigils from the token itself.
     let qualified = qualified.trim_start_matches(['?', '*']);
     if qualified.is_empty() || !qualified.contains('.') {
         return None;

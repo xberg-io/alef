@@ -165,7 +165,6 @@ fn capsule_forwarder_emits_opaque_pointer_reconstruction() {
     };
     let mut out = String::new();
     emit_capsule_free_function_forwarder(&func, "GetLanguage", &cfg, &mut out);
-    // Should reconstruct OpaquePointer via bitPattern and check for 0
     assert!(
         out.contains("OpaquePointer(bitPattern:"),
         "capsule forwarder must reconstruct OpaquePointer via bitPattern. Got:\n{out}"
@@ -183,7 +182,7 @@ fn capsule_forwarder_errors_when_construct_expr_empty() {
         host_type: "MyLib.Language".to_string(),
         package: String::new(),
         package_version: String::new(),
-        construct_expr: String::new(), // missing — must produce ALEF ERROR
+        construct_expr: String::new(),
     };
     let mut out = String::new();
     emit_capsule_free_function_forwarder(&func, "GetLanguage", &cfg, &mut out);
@@ -201,7 +200,7 @@ fn capsule_forwarder_errors_when_construct_expr_empty() {
 fn capsule_forwarder_errors_when_host_type_empty() {
     let func = make_capsule_fn();
     let cfg = crate::core::config::HostCapsuleTypeConfig {
-        host_type: String::new(), // missing — must produce ALEF ERROR
+        host_type: String::new(),
         package: String::new(),
         package_version: String::new(),
         construct_expr: "MyLib.Language({ptr})".to_string(),

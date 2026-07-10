@@ -57,34 +57,21 @@ pub(crate) fn emit_type_wrapper(
             },
         ));
 
-        // Constructor — params use bridge types (String for JSON-bridged fields)
-        // and Option<bridge_ty> when the field is optional.
-        // Excluded fields (via exclude_fields config) and cfg-unsatisfied fields
-        // are omitted from params and left at Default::default() in the field initializers.
         let constructor_fields = constructor_fields(ty, exclude_fields, configured_features);
         let params: Vec<String> = constructor_fields
             .iter()
             .map(|f| {
                 let bridge_ty = bridge_type(&f.ty);
                 let bridge_ty = if f.optional && !needs_json_bridge(&f.ty) {
-                    // Optional fields are JSON-bridged so this branch is rarely hit;
-                    // when it is (a primitive Option), wrap in Option<>.
                     format!("Option<{bridge_ty}>")
                 } else {
                     bridge_ty
                 };
-                // Escape Swift keywords so the param name in `pub fn new()` matches
-                // the extern declaration (which also escapes via swift_ident).
                 let name = swift_ident(&f.name.to_snake_case());
                 format!("{name}: {bridge_ty}")
             })
             .collect();
 
-        // Determine construction strategy (see default_construction.rs for details):
-        // when any field requires Default-based assignment, we cannot emit a direct struct literal.
-        // Primitive-only DTOs always get a direct struct-literal constructor regardless
-        // of `Default` impl or serde derive — must stay in lockstep with
-        // `extern_block::has_constructor_extern`'s matching fast path.
         let all_primitive_fields = constructor_fields.iter().all(|f| matches!(f.ty, TypeRef::Primitive(_)));
         let has_vec_non_primitive = constructor_fields.iter().any(|f| {
             matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes))
@@ -103,15 +90,7 @@ pub(crate) fn emit_type_wrapper(
                     .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_))));
 
         if needs_default_construction && !ty.has_default {
-            // The struct needs mutable-default construction but doesn't impl Default.
-            // Omit the constructor entirely — swift-bridge will not expose `init()` for
-            // this type, which is correct: the host language can't construct it anyway.
         } else {
-            // The direct struct literal below ends with `..Default::default()`
-            // when the core type impls Default, so an additive core field falls
-            // back to its default instead of failing E0063 until the bindings
-            // are regenerated. Clippy flags the spread on a fully-mirrored
-            // literal as needless_update — allow it on the constructor.
             if !needs_default_construction && ty.has_default {
                 out.push_str("    #[allow(clippy::needless_update)]\n");
             }
@@ -160,9 +139,8 @@ pub(crate) fn emit_type_wrapper(
                 out.push_str("        })\n");
             }
             out.push_str("    }\n");
-        } // end else (constructor emitted)
+        }
 
-        // Getters — return bridge types (String for JSON-bridged, wrappers for Named).
         emit_getters(
             ty,
             type_paths,
@@ -311,7 +289,6 @@ mod tests {
         let exclude_fields = std::collections::HashSet::new();
         let mut configured_features = std::collections::HashSet::new();
         configured_features.insert("pdf");
-        // Note: "heuristics" is NOT in configured_features
 
         let output = emit_type_wrapper(
             &ty,
@@ -325,11 +302,8 @@ mod tests {
             &configured_features,
         );
 
-        // The wrapper output should include the newtype and impl block
         assert!(output.contains("pub struct TestType"));
-        // The constructor should NOT include field_b (cfg-gated with heuristics)
         assert!(!output.contains("field_b: String"));
-        // The constructor SHOULD include field_a
         assert!(output.contains("field_a: u32"));
     }
 

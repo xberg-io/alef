@@ -1,5 +1,4 @@
 pub fn gen_pyo3_error_types(error: &ErrorDef, module_name: &str, seen_exceptions: &mut AHashSet<String>) -> String {
-    // Pre-compute variant names that haven't been seen yet
     let mut variant_names = Vec::new();
     for variant in &error.variants {
         let variant_name = python_exception_name(&variant.name, &error.name);
@@ -8,7 +7,6 @@ pub fn gen_pyo3_error_types(error: &ErrorDef, module_name: &str, seen_exceptions
         }
     }
 
-    // Check if base error hasn't been seen
     let include_base = seen_exceptions.insert(error.name.clone());
 
     crate::codegen::template_env::render(
@@ -33,9 +31,6 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
         format!("{core_import}::{}", error.name)
     } else {
         let normalized = error.rust_path.replace('-', "_");
-        // Paths with more than 2 segments (e.g. `mylib_core::di::error::DependencyError`)
-        // reference private internal modules that are not accessible from generated binding code.
-        // Fall back to the public re-export form `{crate}::{ErrorName}` (2 segments).
         let segments: Vec<&str> = normalized.split("::").collect();
         if segments.len() > 2 {
             let crate_name = segments[0];
@@ -49,7 +44,6 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
     let fn_name = format!("{}_to_py_err", to_snake_case(&error.name));
     let has_methods = !error.methods.is_empty();
 
-    // Pre-compute variants as (pattern, exc_name) tuples
     let mut variants = Vec::new();
     for variant in &error.variants {
         let pattern = error_variant_wildcard_pattern(&rust_path, variant);
@@ -85,7 +79,6 @@ pub fn gen_pyo3_error_registration(error: &ErrorDef, seen_registrations: &mut AH
         }
     }
 
-    // Base exception
     if seen_registrations.insert(error.name.clone()) {
         registrations.push(format!(
             "    m.add(\"{}\", m.py().get_type::<{}>())?;",
@@ -156,7 +149,6 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
             .to_string(),
         );
     }
-    // Emit unsupported stubs for any other whitelisted methods.
     for method in &error.methods {
         match method.name.as_str() {
             "status_code" | "is_transient" | "error_type" => {}
@@ -166,8 +158,6 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
         }
     }
 
-    // The converter stores (msg, status_code, is_transient, error_type) at args indices 0-3.
-    // We extract via getattr("args") which returns Option<Bound<PyAny>>.
     let mut ctor_fields = Vec::new();
     if has_status_code {
         ctor_fields.push(
@@ -238,10 +228,6 @@ pub fn pyo3_error_info_struct_name(error: &ErrorDef) -> String {
 pub fn pyo3_error_info_fn_name(error: &ErrorDef) -> String {
     format!("{}_info", to_snake_case(&error.name))
 }
-
-// ---------------------------------------------------------------------------
-// NAPI (Node.js) error methods class
-// ---------------------------------------------------------------------------
 
 use crate::core::ir::ErrorDef;
 /// Generate a `#[napi]` class struct for the error type that stores the

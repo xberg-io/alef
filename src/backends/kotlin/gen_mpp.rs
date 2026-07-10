@@ -86,10 +86,6 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     ])
 }
 
-// ---------------------------------------------------------------------------
-// commonMain — shared DTOs + expect object declarations
-// ---------------------------------------------------------------------------
-
 fn emit_common(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let package = config.kotlin_package();
     let module_name = to_pascal_case(&config.name);
@@ -108,7 +104,6 @@ fn emit_common(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();
 
-    // DTOs (data classes), enums, and error hierarchies are pure Kotlin — shared in commonMain.
     for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
         emit_type_pub(ty, &mut body, &mut imports);
         body.push('\n');
@@ -131,7 +126,6 @@ fn emit_common(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
         .filter(|f| !exclude_functions.contains(f.name.as_str()))
         .collect();
 
-    // Functions: emit `expect object` with only signatures (no bodies).
     if !visible_functions.is_empty() {
         body.push_str(&crate::backends::kotlin::template_env::render(
             "expect_object_declaration.jinja",
@@ -175,10 +169,6 @@ fn emit_expect_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSe
         },
     ));
 }
-
-// ---------------------------------------------------------------------------
-// jvmMain — actual object delegating to the JVM Bridge facade
-// ---------------------------------------------------------------------------
 
 fn emit_jvm_actual(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let package = config.kotlin_package();
@@ -224,10 +214,6 @@ fn emit_jvm_actual(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     render_kt_file(&package, &imports, &body)
 }
 
-// ---------------------------------------------------------------------------
-// nativeMain — actual object using kotlinx.cinterop
-// ---------------------------------------------------------------------------
-
 fn emit_native_actual(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let package = config.kotlin_package();
     let module_name = to_pascal_case(&config.name);
@@ -269,10 +255,6 @@ fn emit_native_actual(api: &ApiSurface, config: &ResolvedCrateConfig) -> String 
     render_kt_file(&package, &imports, &body)
 }
 
-// ---------------------------------------------------------------------------
-// cinterop .def file (same as Native target)
-// ---------------------------------------------------------------------------
-
 fn emit_def_file(config: &ResolvedCrateConfig) -> String {
     let header = config.ffi_header_name();
     let lib_name = config.ffi_lib_name();
@@ -280,10 +262,6 @@ fn emit_def_file(config: &ResolvedCrateConfig) -> String {
 
     format!("headers = {header}\nheaderFilter = {prefix}_*\nlinkerOpts = -L../../../target/release -l{lib_name}\n")
 }
-
-// ---------------------------------------------------------------------------
-// build.gradle.kts — KMP project
-// ---------------------------------------------------------------------------
 
 fn emit_gradle_build(config: &ResolvedCrateConfig) -> String {
     let crate_name = &config.name;
@@ -397,10 +375,6 @@ kotlin {{
 "#
     )
 }
-
-// ---------------------------------------------------------------------------
-// Shared rendering helper
-// ---------------------------------------------------------------------------
 
 fn render_kt_file(package: &str, imports: &BTreeSet<String>, body: &str) -> String {
     let mut content = String::new();

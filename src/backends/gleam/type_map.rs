@@ -20,7 +20,7 @@ impl TypeMapper for GleamMapper {
         match prim {
             PrimitiveType::Bool => Cow::Borrowed("Bool"),
             PrimitiveType::F32 | PrimitiveType::F64 => Cow::Borrowed("Float"),
-            _ => Cow::Borrowed("Int"), // All integer types map to Int
+            _ => Cow::Borrowed("Int"),
         }
     }
 

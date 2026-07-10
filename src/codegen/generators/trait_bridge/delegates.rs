@@ -70,9 +70,6 @@ pub fn gen_bridge_default_delegates(spec: &TraitBridgeSpec, generator: &dyn Trai
             out.push_str("\n\n");
         }
 
-        // Forward every own method except the delegated one. Methods the bridge does
-        // not emit at all (non-forwarded defaulted methods) are also skipped — the
-        // delegate inherits their default bodies the same way the bridge does.
         let bridge_emitted: Vec<&&MethodDef> = own_methods
             .iter()
             .filter(|m| m.name != defaulted.name && (!m.has_default_impl || forwarded.iter().any(|f| f.name == m.name)))

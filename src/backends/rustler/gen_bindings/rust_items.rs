@@ -42,7 +42,6 @@ pub(super) fn gen_nif_init(
 ) -> String {
     let mut exports = vec![];
 
-    // Custom NIF function registrations (before generated ones)
     if let Some(reg) = config.custom_registrations.for_language(Language::Elixir) {
         for func in &reg.functions {
             exports.push(func.clone());
@@ -86,10 +85,6 @@ pub(super) fn gen_nif_init(
         }
     }
 
-    // Add trait-bridge support NIFs (emitted by trait_support_nifs.rs.jinja).
-    // These two are needed whenever any trait bridge is active for elixir/rustler:
-    // they let the Elixir GenServer reply through the oneshot stored in
-    // TRAIT_REPLY_CHANNELS. Without them every bridge method call hangs forever.
     let has_trait_bridges = config
         .trait_bridges
         .iter()
@@ -99,11 +94,7 @@ pub(super) fn gen_nif_init(
         exports.push("fail_trait_call".to_string());
     }
 
-    // Add service NIFs (emitted by service_api.rs)
     if !api.services.is_empty() {
-        // `complete_trait_call` is also re-used by services; emit only if not already
-        // pushed by the trait-bridge branch above (the dedup pass at the bottom of
-        // this function would handle a double-push, but keep the intent explicit).
         if !has_trait_bridges {
             exports.push("complete_trait_call".to_string());
         }
@@ -116,11 +107,8 @@ pub(super) fn gen_nif_init(
         }
     }
 
-    // Deduplicate and sort for deterministic output
     exports.sort();
     exports.dedup();
-    // The NIF module name must match the `defmodule` in native.ex, which is
-    // `{AppModule}.Native` (e.g., `SampleMarkdown.Native`).
     let module = config
         .elixir
         .as_ref()
@@ -132,10 +120,6 @@ pub(super) fn gen_nif_init(
             )
         })
         .unwrap_or_else(|| "Elixir.NativeModule.Native".to_string());
-    // Check if any opaque types need Resource registration via on_load
-    // Exclude trait types (they shouldn't be registered as Rustler resources)
-    // Also exclude types in exclude_types (e.g. VisitorHandle, ParseOptionsBuilder)
-    // which are omitted from the binding layer because they hold !Send+!Sync core types.
     let opaque_types: Vec<&str> = api
         .types
         .iter()
@@ -143,9 +127,6 @@ pub(super) fn gen_nif_init(
         .map(|t| t.name.as_str())
         .collect();
 
-    // Streaming-adapter handle resources (e.g. `DefaultClientChatStreamHandle`).
-    // These are not IR types — they are emitted by the streaming adapter — so we
-    // explicitly register them here.
     let streaming_handle_types: Vec<String> = config
         .adapters
         .iter()
@@ -237,13 +218,10 @@ pub(super) fn patch_streaming_default_param(
     }
     let param_name = first_param.name.as_str();
 
-    // 1. Replace the typed param with `Option<String>`.
     let typed_param = format!("{param_name}: {core_ty},");
     let json_param = format!("{param_name}: Option<String>,");
     let mut patched = code.replace(&typed_param, &json_param);
 
-    // 2. Replace the existing `let core_{name}: ... = {name}.into();` binding with a
-    //    JSON deserialization line.
     let old_binding = format!("let core_{param_name}: {core_import}::{core_ty} = {param_name}.into();");
     let new_binding = template_env::render(
         "streaming_default_deser_binding.rs.jinja",

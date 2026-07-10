@@ -43,9 +43,6 @@ pub fn rewrite_frb_sealed_variants(source: &str) -> String {
 fn variant_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        // The frb output can wrap before the `=` or before the `_Variant`
-        // identifier. Use `(?s)` so `.` matches newlines inside the param block
-        // and the inter-token whitespace.
         Regex::new(
             r"(?s)(?P<prefix>const\s+factory\s+[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\s*\(\s*\{)(?P<params>[^{}]*)(?P<suffix>\}\s*\)\s*=\s*[A-Za-z_][A-Za-z0-9_]*_(?P<variant>[A-Za-z][A-Za-z0-9]*)\s*;)",
         )
@@ -61,9 +58,6 @@ fn variant_regex() -> &'static Regex {
 fn rewrite_param_list(params: &str, variant_pascal: &str) -> String {
     let param_re = param_regex();
 
-    // Collect each `required <type> field<N>` match so we know `total_fields`
-    // before deriving names (the payload-derived algorithm differs for
-    // single-field vs multi-field variants).
     let matches: Vec<regex::Captures<'_>> = param_re.captures_iter(params).collect();
     let total_fields = matches
         .iter()
@@ -85,9 +79,6 @@ fn rewrite_param_list(params: &str, variant_pascal: &str) -> String {
         let name_match = caps.name("name").expect("name capture is required");
         let raw_name = name_match.as_str();
 
-        // Preserve everything between the previous match end and the start of
-        // this `field<N>` ident untouched (whitespace, commas, the `required`
-        // keyword, and the type).
         out.push_str(&params[cursor..name_match.start()]);
 
         if let Some(field_idx) = field_index(raw_name) {
@@ -95,14 +86,11 @@ fn rewrite_param_list(params: &str, variant_pascal: &str) -> String {
             let new_name = payload_param_name(type_name, variant_pascal, field_idx, total_fields);
             out.push_str(&new_name);
         } else {
-            // Already a named parameter; leave it alone.
             out.push_str(raw_name);
         }
 
         cursor = name_match.end();
-        // Continue from the end of the ident; the rest of `whole` (if any) is
-        // accounted for by the next iteration's prefix slice.
-        let _ = whole; // silence unused warning when no debug
+        let _ = whole;
     }
 
     out.push_str(&params[cursor..]);
@@ -149,17 +137,6 @@ fn is_positional_field(name: &str) -> bool {
 /// - Multi-field variant → `value0`, `value1`, ... (uses `field_idx`).
 /// - Otherwise (single-field with no inferable prefix) → `value`.
 fn payload_param_name(type_name: &str, variant_pascal: &str, field_idx: usize, total_fields: usize) -> String {
-    // Disabled: renaming `field<N>` in the factory in lib.dart creates a
-    // signature mismatch with the underlying `<Variant>_<Sub>` class in
-    // lib.freezed.dart (which freezed's build_runner emits with the original
-    // `field<N>` names, since we run build_runner before — not after — the
-    // alef post-build rewrite). The mismatch surfaces at every test compile
-    // as "constructor function type … isn't a subtype of …", blocking the
-    // entire dart e2e suite. Until alef re-runs build_runner after the
-    // rewrite (or the rewrite also patches lib.freezed.dart), keep the
-    // factory params as the canonical `field<N>` so the two files stay in
-    // sync. Callers retain the variant_pascal/type_name parameters for the
-    // future fix.
     let _ = (type_name, variant_pascal, total_fields);
     format!("field{field_idx}")
 }

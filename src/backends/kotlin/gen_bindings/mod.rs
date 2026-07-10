@@ -21,11 +21,8 @@ use crate::core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, Par
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-// Re-export shared utilities used by gen_native, gen_mpp, and the sibling
-// alef-backend-kotlin-android crate.
 pub use shared::{kotlin_field_name, to_lower_camel, to_pascal_case, to_screaming_snake};
 
-// Re-export emitters used by gen_mpp and alef-backend-kotlin-android.
 pub fn emit_type_pub(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
     object_wrapper::emit_type_with_imports(
         ty,
@@ -133,28 +130,11 @@ fn effective_kotlin_exclude_types(config: &ResolvedCrateConfig, api: &ApiSurface
     if let Some(kotlin) = &config.kotlin {
         exclude_types.extend(kotlin.exclude_types.iter().cloned());
     }
-    // In JVM mode the Kotlin wrapper classes delegate to the sibling Java facade
-    // (`dev.<pkg>.<ClassName>`). Any type excluded by the Java backend is therefore
-    // un-referenceable from Kotlin — emitting a wrapper for it would compile to a
-    // dangling `dev.<pkg>.Router` import. Mirror Java's exclude list here so the
-    // two backends stay in lockstep without per-binding TOML duplication.
     if let Some(java) = &config.java {
         exclude_types.extend(java.exclude_types.iter().cloned());
     }
-    // Honor the crate-level `[crates.exclude].types` too. Those types are not generated as Java
-    // facade classes, so a Kotlin coroutine-wrapper referencing `dev.<pkg>.<Type>` would dangle —
-    // e.g. `RequestContext`, a Rust-side handler wrapper pulled into the surface only because the
-    // service owner lives in the same module. Mirroring it keeps Kotlin in lockstep with the other
-    // backends without per-binding TOML duplication.
     exclude_types.extend(config.exclude.types.iter().cloned());
-    // Exclude service-owner and handler-contract types flagged `binding_excluded` by the
-    // service extraction pass. Those are emitted through the service-API path; also wrapping
-    // them as plain opaque client classes here would create symbol collisions.
     exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
-    // Mirror the FFI backend's `contains('<')` filter for workspace-declared opaque types
-    // with generic-parameter rust_paths — the FFI backend skips `_new`/`_free` symbols for
-    // them, so Kotlin JNI external-fun declarations against those symbols would throw
-    // `UnsatisfiedLinkError`.
     exclude_types.extend(
         config
             .opaque_types
@@ -257,13 +237,6 @@ pub fn emit_jvm_client_class_with_package(
     config: &ResolvedCrateConfig,
     kotlin_package_override: Option<&str>,
 ) -> Vec<GeneratedFile> {
-    // A type qualifies for a coroutine-friendly wrapper class only when:
-    //   * it is opaque-handle (constructed via a factory and freed via close),
-    //   * AND it is not a trait (trait types are not emitted as concrete
-    //     Java classes — referencing them would dangle),
-    //   * AND it has at least one non-sanitized, non-static instance method.
-    // Non-opaque value types (e.g. sample_core `ExtractionConfig` with a
-    // `default()` static) keep flowing through the Java typealias as before.
     let exclude_types = effective_kotlin_exclude_types(config, api);
     let is_client_type = |t: &&TypeDef| {
         t.is_opaque
@@ -295,7 +268,6 @@ pub fn emit_jvm_client_class_with_package(
     let kotlin_root_path = std::path::PathBuf::from(&kotlin_root);
     let package_path = package.replace('.', "/");
 
-    // All streaming adapters (for any owner type).
     let streaming_adapters: Vec<&crate::core::config::AdapterConfig> = config
         .adapters
         .iter()
@@ -346,7 +318,6 @@ fn emit_client_type_file(
         imports.insert("import kotlinx.coroutines.withContext".to_string());
     }
 
-    // Streaming adapters owned by THIS client type.
     let owned_streaming_adapters: Vec<&crate::core::config::AdapterConfig> = streaming_adapters
         .iter()
         .copied()
@@ -360,7 +331,6 @@ fn emit_client_type_file(
         imports.insert("import kotlinx.coroutines.channels.awaitClose".to_string());
     }
 
-    // Pre-scan return + param types so we collect every import the body needs.
     let mut scan_imports: BTreeSet<String> = BTreeSet::new();
     for m in ty
         .methods
@@ -374,11 +344,6 @@ fn emit_client_type_file(
     }
     imports.extend(scan_imports);
 
-    // Emit per-user-type imports for the Java DTO package when the Kotlin
-    // file lives in a different package. Kotlin does NOT inherit symbols
-    // from the parent package, so bare references to DTO types
-    // (`ChatCompletionRequest`, `CrawlConfig`, …) would be unresolved
-    // without these imports.
     if needs_java_pkg_imports {
         let mut user_types: BTreeSet<String> = BTreeSet::new();
         for m in ty
@@ -407,10 +372,8 @@ fn emit_client_type_file(
         }
     }
 
-    // Build body separately before assembling the file.
     let mut body = String::new();
 
-    // Emit the wrapper class.
     let java_fqn = format!("{java_package}.{class_name}");
     body.push_str(&template_env::render(
         "client_class_header.jinja",
@@ -420,8 +383,6 @@ fn emit_client_type_file(
         },
     ));
 
-    // When any wrapped method takes a raw-JSON (`Any`) param, the body serializes
-    // it to the JSON `String` the Java facade expects via a shared Jackson mapper.
     let needs_mapper = ty
         .methods
         .iter()
@@ -493,9 +454,6 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
     let async_kw = if m.is_async { "suspend " } else { "" };
 
     let params_with_types: Vec<String> = m.params.iter().map(|p| format_param_pub(p, imports)).collect();
-    // Raw-JSON params map to `Any` in the Kotlin wrapper for ergonomics, but the
-    // Java facade method accepts the serialized JSON `String`. Serialize such
-    // params via the shared Jackson `MAPPER` before delegating.
     let call_args: String = m
         .params
         .iter()
@@ -596,16 +554,12 @@ fn emit_streaming_client_method(
 ) {
     let method_name = to_lower_camel(&adapter.name);
     let item_type = adapter.item_type.as_deref().unwrap_or("Any");
-    // Derive the JNI method name prefix from owner + adapter names.
-    // E.g. owner="DefaultClient", adapter="chat_stream" →
-    //   nativeDefaultClientChatStreamStart
     let owner_pascal = to_pascal_case(class_name);
     let adapter_pascal = to_pascal_case(&adapter.name);
     let jni_start = format!("native{owner_pascal}{adapter_pascal}Start");
     let jni_next = format!("native{owner_pascal}{adapter_pascal}Next");
     let jni_free = format!("native{owner_pascal}{adapter_pascal}Free");
 
-    // Build Kotlin parameter list — strip Rust module paths from type names.
     let params: Vec<String> = adapter
         .params
         .iter()
@@ -616,7 +570,6 @@ fn emit_streaming_client_method(
         })
         .collect();
 
-    // Arguments to serialize as the request JSON (first param only for streaming).
     let first_param_name = adapter
         .params
         .first()
@@ -625,10 +578,6 @@ fn emit_streaming_client_method(
 
     let java_fqn_inner = format!("{java_package}.{class_name}");
 
-    // Capture inner locally so the lambda can reference it without capturing `this`.
-    // Start the native stream on the IO dispatcher. The ObjectMapper is
-    // allocated per-call here; a shared instance is not accessible from
-    // the Java facade because the generated MAPPER field is private.
     out.push_str(&template_env::render(
         "kotlin_streaming_client_method.jinja",
         minijinja::context! {
@@ -644,10 +593,6 @@ fn emit_streaming_client_method(
         },
     ));
 }
-
-// ---------------------------------------------------------------------------
-// KotlinBackend
-// ---------------------------------------------------------------------------
 
 const BRIDGE_ALIAS: &str = "Bridge";
 
@@ -676,9 +621,6 @@ impl Backend for KotlinBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        // `mode = "android"` was the legacy in-band Android emission path. It has
-        // been removed in alef 0.16 in favour of the dedicated
-        // `alef-backend-kotlin-android` crate exposed as `Language::KotlinAndroid`.
         let mode = config.kotlin.as_ref().and_then(|k| k.mode.as_deref());
         if mode == Some("android") {
             anyhow::bail!(
@@ -687,19 +629,16 @@ impl Backend for KotlinBackend {
                  `alef-backend-kotlin-android` crate instead."
             );
         }
-        // "kmp" mode forces Multiplatform emission.
         if mode == Some("kmp") {
             let mut files = crate::backends::kotlin::gen_mpp::emit(api, config)?;
             post_process_kotlin_files(&mut files);
             return Ok(files);
         }
-        // Dispatch by FFI style first; JNI mode is independent of target.
         if config.kotlin_ffi_style() == KotlinFfiStyle::Jni {
             let mut files = generate_jni(api, config)?;
             post_process_kotlin_files(&mut files);
             return Ok(files);
         }
-        // Default: dispatch by `target` (preserves existing behaviour).
         let mut files = match kotlin_target(config) {
             KotlinTarget::Jvm => generate_jvm(api, config)?,
             KotlinTarget::Native => crate::backends::kotlin::gen_native::emit(api, config)?,
@@ -727,17 +666,9 @@ impl Backend for KotlinBackend {
     }
 }
 
-// ---------------------------------------------------------------------------
-// JVM code generation
-// ---------------------------------------------------------------------------
-
 fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let java_package = config.java_package();
     let module_name = to_pascal_case(&config.name);
-    // If the user's Kotlin and Java packages collide on the same FQN as the
-    // generated module, the Kotlin object would shadow the Java facade class
-    // (both compile to `<package>/<module>.class`). Push the Kotlin code into
-    // a `.kt` sub-package in that case so the Java class remains importable.
     let configured_kotlin_package = config.kotlin_package();
     let package = if configured_kotlin_package == java_package {
         format!("{configured_kotlin_package}.kt")
@@ -748,13 +679,6 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let exclude_functions = effective_kotlin_exclude_functions(config);
     let mut exclude_types = effective_kotlin_exclude_types(config, api);
 
-    // Types qualifying for a hand-written Kotlin wrapper class (see
-    // `emit_jvm_client_class`) are opaque handles with at least one
-    // non-sanitized, non-static instance method. Skip emitting a Java→Kotlin
-    // typealias for them — the wrapper class would otherwise collide with the
-    // alias in the same package and `compileKotlin` would fail with
-    // `Redeclaration: DefaultClient`. Non-opaque value types (e.g. `Config`
-    // structs with only a `default()` static) keep flowing through the alias.
     let client_type_names: std::collections::HashSet<String> = api
         .types
         .iter()
@@ -789,10 +713,6 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         &mut body,
     );
 
-    // Functions whose signature involves a trait type are excluded — the Java
-    // facade handles trait registration via a separate trait-bridge interface
-    // that we don't expose through the Kotlin wrapper. Trait registry helpers
-    // (register_*, unregister_*, list_*, clear_*) follow the same pattern.
     let trait_type_names: std::collections::HashSet<&str> = api
         .types
         .iter()
@@ -800,11 +720,6 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         .map(|t| t.name.as_str())
         .collect();
     let function_uses_trait = |f: &FunctionDef| -> bool {
-        // Only skip functions that take a trait type as a parameter (those
-        // need the Java facade's trait-bridge wrapper, which can't be reached
-        // via a typealias-only Kotlin shim). Functions returning trait types
-        // or trait registry helpers (register_*, list_*, clear_*) flow through
-        // the Java facade unchanged.
         f.params
             .iter()
             .any(|p| traits::type_ref_uses_named(&p.ty, &trait_type_names))
@@ -821,8 +736,6 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         .collect();
 
     if !visible_functions.is_empty() {
-        // Import the Java facade class with an alias so it does not collide with the
-        // Kotlin object that wraps it (both share the PascalCase crate name).
         imports.insert(format!("import {java_package}.{module_name} as {BRIDGE_ALIAS}"));
         if visible_functions.iter().any(|f| f.is_async) {
             imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
@@ -892,10 +805,6 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| "packages/kotlin".to_string());
     let kotlin_root_path = PathBuf::from(&kotlin_root);
-    // Explicit `[crates.output] kotlin = "..."` is treated as the final
-    // package directory. Without an override the backend constructs the
-    // canonical Maven-style `src/main/kotlin/<package>/` layout under the
-    // template-derived base.
     let path = if config.explicit_output.kotlin.is_some() {
         kotlin_root_path.join(format!("{module_name}.kt"))
     } else {
@@ -911,24 +820,16 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         generated_header: false,
     }];
 
-    // Emit one `<ClassName>.kt` file per opaque client type with instance methods.
     files.extend(emit_jvm_client_class(api, config));
 
     Ok(files)
 }
-
-// ---------------------------------------------------------------------------
-// JNI code generation
-// ---------------------------------------------------------------------------
 
 fn generate_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = vec![jni_emitter::emit_jni_bridge_object(api, config)];
     if let Some(client_file) = jni_emitter::emit_jni_client_class(api, config, None) {
         files.push(client_file);
     }
-    // The Bridge object's `nativeRegister*` externs are typed against the
-    // generated `<Trait>JniDispatcher`, so every configured plugin bridge needs
-    // its dispatcher emitted alongside (shared with the kotlin-android backend).
     let package = jni_emitter::jni_kotlin_package(config);
     for bridge_cfg in &config.trait_bridges {
         if bridge_cfg.exclude_languages.iter().any(|l| l == "kotlin") || bridge_cfg.register_fn.is_none() {
@@ -952,10 +853,6 @@ fn generate_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     }
     Ok(files)
 }
-
-// ---------------------------------------------------------------------------
-// Post-processing
-// ---------------------------------------------------------------------------
 
 /// Apply post-processing fixes to generated Kotlin files.
 fn post_process_kotlin_files(files: &mut [GeneratedFile]) {

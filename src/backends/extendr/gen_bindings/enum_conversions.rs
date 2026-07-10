@@ -86,9 +86,6 @@ pub(super) fn gen_from_core_to_binding(
 }
 
 fn catch_all(enum_def: &EnumDef) -> bool {
-    // Always emit catch-all for binding→core conversion to handle forward compatibility
-    // and cfg-gated variants. For core→binding, this ensures robustness against future
-    // enum extensions.
     let has_excluded_variants = !enum_def.excluded_variants.is_empty();
     let core_has_struct_variants = enum_def
         .variants
@@ -96,7 +93,6 @@ fn catch_all(enum_def: &EnumDef) -> bool {
         .any(|variant| !variant.fields.is_empty() && !variant.is_tuple);
     let has_any_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
-    // Add catch-all if: excluded variants, struct variants, or any data variants at all
     has_excluded_variants || core_has_struct_variants || has_any_data_variants
 }
 

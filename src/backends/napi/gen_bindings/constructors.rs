@@ -21,24 +21,17 @@ pub(super) fn napi_variant_wrapper_constructor(
     let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
     let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
 
-    // Build call_args with type conversions where needed.
-    // If the mapped type (NAPI) differs from the core type name, apply .into().
-    // This handles cases like JsMethod -> Method where a From<JsMethod> impl exists.
     let call_args = ctor
         .params
         .iter()
         .map(|p| {
             let mapped_type = map_fn(&p.ty);
 
-            // Get the core type name. For TypeRef::Named, it's just the name.
-            // For other types, the mapped type should match the core type.
             let core_type_name = match &p.ty {
                 crate::core::ir::TypeRef::Named(name) => name.as_str(),
                 _ => "",
             };
 
-            // If NAPI added a prefix (e.g., "JsMethod" != "Method"), we need to convert.
-            // This happens when a custom type is mapped with the prefix.
             let needs_conversion =
                 !core_type_name.is_empty() && mapped_type.starts_with(&mapper.prefix) && !mapped_type.contains("::");
 
@@ -53,9 +46,6 @@ pub(super) fn napi_variant_wrapper_constructor(
 
     let struct_name = format!("{prefix}{}", typ.name);
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
-    // Mirror the wrapper struct's `inner` field type: a type with `&mut self`
-    // methods is stored as `Arc<Mutex<T>>`, so the constructor must `Mutex::new`-wrap
-    // too — otherwise `Arc::new(T)` mismatches the `Arc<Mutex<T>>` field (E0308).
     let new_call = if call_args.is_empty() {
         format!("{core_path}::new()")
     } else {
@@ -88,14 +78,12 @@ pub(super) fn napi_default_constructor(
     core_import: &str,
     prefix: &str,
 ) -> Option<String> {
-    // Only emit constructor if type has a parameterless `new()` method.
     typ.methods
         .iter()
         .find(|m| m.name == "new" && m.receiver.is_none() && m.params.is_empty())?;
 
     let struct_name = format!("{prefix}{}", typ.name);
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
-    // See napi_variant_wrapper_constructor: Mutex-wrap when the field is Arc<Mutex<T>>.
     let inner_expr = if crate::codegen::generators::type_needs_mutex(typ) {
         format!("std::sync::Arc::new(std::sync::Mutex::new({core_path}::new()))")
     } else {

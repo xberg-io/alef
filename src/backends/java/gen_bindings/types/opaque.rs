@@ -24,8 +24,6 @@ pub(crate) fn gen_opaque_handle_class(
     let type_snake = class_name.to_snake_case();
     let header = hash::header(CommentStyle::DoubleSlash);
 
-    // Detect streaming adapters owned by this opaque type. When present we need
-    // additional imports (Iterator, NoSuchElementException, ObjectMapper).
     let streaming_adapters: Vec<&AdapterConfig> = adapters
         .iter()
         .filter(|a| {
@@ -38,8 +36,6 @@ pub(crate) fn gen_opaque_handle_class(
         .collect();
     let has_streaming = !streaming_adapters.is_empty();
 
-    // Instance methods on this opaque handle (skip static and any method whose name
-    // collides with a streaming adapter — those are emitted by the streaming codegen).
     let streaming_method_names: AHashSet<String> = streaming_adapters.iter().map(|a| a.name.to_snake_case()).collect();
     let instance_methods: Vec<&MethodDef> = typ
         .methods
@@ -47,33 +43,17 @@ pub(crate) fn gen_opaque_handle_class(
         .filter(|m| !m.is_static)
         .filter(|m| !streaming_method_names.contains(&m.name.to_snake_case()))
         .collect();
-    // Static factory methods: receiver is None (no &self). These are constructors /
-    // preset factories (e.g. `Parser::default()`, `LanguageRegistry::default()`,
-    // `DownloadManager::new(version)`) that return a new instance of the type.
-    // The FFI backend never exports `_default` / `_to_json` / `_from_json` for opaque
-    // types — those C functions only exist for non-opaque, serde-derivable, non-Update
-    // value types. `gen_native_lib` already skips emitting the matching MethodHandle
-    // constants; skip the static-factory wrappers here too so we don't reference
-    // missing `NativeLib.<PREFIX>_<TYPE>_DEFAULT` constants from `defaultInstance()`.
     let static_factory_methods: Vec<&MethodDef> = typ
         .methods
         .iter()
         .filter(|m| m.receiver.is_none())
         .filter(|m| !matches!(m.name.as_str(), "default" | "to_json" | "from_json"))
-        // A static method returning a borrowed reference to its own opaque type (e.g.
-        // `Registry::global() -> &'static Registry`) has no FFI symbol — the FFI backend
-        // cannot box a borrow into an owned handle. Skip the wrapper so it does not
-        // reference the missing `NativeLib.<PREFIX>_<TYPE>_<METHOD>` MethodHandle.
         .filter(|m| !m.returns_ref_to_owner(&typ.name))
         .collect();
     let has_instance_methods = !instance_methods.is_empty();
     let has_static_factories = !static_factory_methods.is_empty();
     let needs_helpers = has_streaming || has_instance_methods;
 
-    // Build the class body first so we can compute imports from actual usage —
-    // Checkstyle's UnusedImports rule fails if we declare an import that
-    // never appears in the file body (e.g. when every instance method body
-    // is a `Unsupported return shape` stub).
     let mut body = String::new();
 
     emit_javadoc(&mut body, &typ.doc, "");
@@ -82,12 +62,10 @@ pub(crate) fn gen_opaque_handle_class(
         minijinja::context! { class_name => class_name },
     ));
 
-    // Emit streaming iterator methods (e.g. chatStream(req) -> Iterator<ChatCompletionChunk>).
     for adapter in &streaming_adapters {
         gen_streaming_method(&mut body, adapter, prefix, &type_snake, main_class, to_json_type_names);
     }
 
-    // Emit non-streaming instance methods (chat, embed, moderate, …).
     for method in &instance_methods {
         gen_instance_method(
             &mut body,
@@ -100,9 +78,6 @@ pub(crate) fn gen_opaque_handle_class(
         );
     }
 
-    // Emit static factory methods (constructors / preset factories with no receiver).
-    // These give callers a clean `Parser.ofDefault()`, `LanguageRegistry.ofDefault()`,
-    // `DownloadManager.create(version)` API without exposing the raw FFI handle.
     if has_static_factories {
         for method in &static_factory_methods {
             gen_static_factory_method(
@@ -134,33 +109,20 @@ pub(crate) fn gen_opaque_handle_class(
 
     let mut imports: Vec<&str> = vec!["java.lang.foreign.MemorySegment"];
     if needs_helpers || has_static_factories {
-        // `Arena.ofShared()` is only referenced when method bodies actually use it
-        // (e.g., string parameters that allocate via Arena).
         if body.contains("Arena") {
             imports.push("java.lang.foreign.Arena");
         }
-        // `ValueLayout` only appears when an instance method, streaming helper, or static
-        // factory actually marshals memory; stub methods never reference it.
         if body.contains("ValueLayout") {
             imports.push("java.lang.foreign.ValueLayout");
         }
-        // Same reasoning for ObjectMapper — STREAM_MAPPER references it, but
-        // not all paths reach STREAM_MAPPER.
         if body.contains("ObjectMapper") {
             imports.push("com.fasterxml.jackson.databind.ObjectMapper");
         }
-        // JsonNode is needed when method parameters or returns use it (e.g., requestSchemaJson(JsonNode)).
         if body.contains("JsonNode") {
             imports.push("com.fasterxml.jackson.databind.JsonNode");
         }
     }
-    // Streaming method bodies reference java.util.stream.Stream<T> and
-    // java.util.stream.StreamSupport via fully-qualified names in the template,
-    // so no short-form import is needed. Adding one would trigger Checkstyle's
-    // UnusedImports rule (confirmed in sample_crate DefaultClient.java:12).
     let _ = has_streaming;
-    // Import collection types from actual body usage (params AND returns), not just return types —
-    // e.g. a builder method taking `List<String>` needs the import even with no List return.
     if body.contains("List<") {
         imports.push("java.util.List");
     }
@@ -230,9 +192,6 @@ fn gen_instance_method(
         java_return_type(&method.return_type).to_string()
     };
 
-    // Emit Javadoc derived from the IR method.doc above the method declaration
-    // so opaque-handle instance methods carry their source-level rustdoc into
-    // the generated Java surface.
     emit_javadoc(out, &method.doc, "    ");
     out.push_str("    public ");
     out.push_str(&return_type_java);
@@ -242,9 +201,6 @@ fn gen_instance_method(
     out.push_str(&params_sig.join(", "));
     out.push(')');
 
-    // Methods named "clone" cannot declare throws because they override Object.clone()
-    // which only throws CloneNotSupportedException. All other methods on opaque types
-    // may call FFI functions that fail, so they declare throws.
     if method.name != "clone" {
         out.push_str(" throws ");
         out.push_str(&exception_class);
@@ -262,7 +218,6 @@ fn gen_instance_method(
         }
     }
 
-    // Check if any parameters require Arena allocation (String, Path, Named types, etc.)
     let needs_arena = method.params.iter().any(|p| match &p.ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path => true,
         TypeRef::Named(_) => true,
@@ -277,12 +232,6 @@ fn gen_instance_method(
         _ => false,
     });
 
-    // Open the arena as a try-with-resources resource so it is always closed
-    // (its C-string allocations are freed) when the method returns. The native
-    // call copies the inputs and the returned handle is an owned native pointer,
-    // so closing the arena afterwards is safe; leaving it unclosed leaks the
-    // shared arena and, on Windows/JDK 25, lets the GC reclaim its off-heap
-    // region around the native call (see #146).
     if needs_arena {
         out.push_str("        try (Arena arena = Arena.ofShared()) {\n");
     } else {
@@ -304,13 +253,9 @@ fn gen_instance_method(
                 call_args.push(cname);
             }
             TypeRef::Json => {
-                // Object (polymorphic JSON) passed directly without marshalling.
                 call_args.push(pname);
             }
             TypeRef::Path => {
-                // Path → C string requires `.toString()` because Java's SegmentAllocator.allocateFrom
-                // accepts String, not java.nio.file.Path. Reuse marshal_path.jinja which already
-                // emits the conversion.
                 out.push_str(&crate::backends::java::template_env::render(
                     "marshal_path.jinja",
                     minijinja::context! { cname => &cname, name => pname },
@@ -325,12 +270,9 @@ fn gen_instance_method(
                 call_args.push(cname);
             }
             TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json) => {
-                // Optional<Object> (polymorphic JSON) passed directly without marshalling.
                 call_args.push(pname);
             }
             TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
-                // Optional Path also needs `.toString()` because SegmentAllocator.allocateFrom
-                // accepts String, not java.nio.file.Path.
                 out.push_str(&crate::backends::java::template_env::render(
                     "marshal_optional_path.jinja",
                     minijinja::context! { cname => &cname, name => pname },
@@ -343,12 +285,6 @@ fn gen_instance_method(
                 let from_json = format!("NativeLib.{prefix_upper}_{req_upper}_FROM_JSON");
                 let req_free = format!("NativeLib.{prefix_upper}_{req_upper}_FREE");
                 if p.optional {
-                    // Optional Named param (e.g. `query: Option<&BatchListQuery>` in Rust
-                    // surfaces as `TypeRef::Named` + `optional: true` in the IR after the
-                    // FFI extraction strips the `Option`). Pass MemorySegment.NULL when
-                    // the Java arg is null instead of serializing `null` and feeding it
-                    // to <Type>_from_json which then errors with "invalid type: null,
-                    // expected struct <Type>".
                     out.push_str(&crate::backends::java::template_env::render(
                         "stream_method_optional_named_param.jinja",
                         minijinja::context! {
@@ -461,15 +397,8 @@ fn gen_instance_method(
             _ => unreachable!(),
         };
 
-        // Check if the return type is opaque or lacks _to_json in the FFI
         if opaque_type_names.contains(&return_type_name) || !to_json_type_names.contains(&return_type_name) {
-            // For opaque types, wrap the pointer in a new instance of the return type.
-            // For value types without _to_json (shouldn't happen but be defensive), stub the method.
             if opaque_type_names.contains(&return_type_name) {
-                // Wrap pointer in new instance: `return new TypeName(resultPtr);`
-                // The new wrapper owns the handle and frees it in close(); the
-                // method must NOT free resultPtr here (see issue #146 — doing so
-                // returned a wrapper around an already-freed handle -> UAF crash).
                 let empty_return = if is_optional_return {
                     "java.util.Optional.empty()".to_string()
                 } else {
@@ -491,7 +420,6 @@ fn gen_instance_method(
                     },
                 ));
             } else {
-                // Value type without _to_json (defensive stub)
                 out.push_str(&crate::backends::java::template_env::render(
                     "stream_method_unsupported_return.jinja",
                     minijinja::context! {
@@ -502,16 +430,10 @@ fn gen_instance_method(
                 ));
             }
         } else {
-            // Normal value type with _to_json — deserialize from JSON
             let ret_snake = return_type_name.to_snake_case();
             let ret_upper = ret_snake.to_uppercase();
             let ret_free = format!("NativeLib.{prefix_upper}_{ret_upper}_FREE");
             let ret_to_json = format!("NativeLib.{prefix_upper}_{ret_upper}_TO_JSON");
-            // When the declared return is `Optional<NamedDto>`, the method signature
-            // is `Optional<NamedDto>` (from `java_return_type`) but the body builds
-            // a bare `NamedDto`; wrap each return site through `Optional.of` /
-            // `Optional.empty` so the body matches the signature.  Non-optional
-            // named returns keep the historical bare-return shape.
             let (empty_return, success_return) = if is_optional_return {
                 (
                     "java.util.Optional.empty()".to_string(),
@@ -593,9 +515,6 @@ fn gen_instance_method(
         ));
     }
 
-    // For clone() methods, wrap exceptions in RuntimeException since the method
-    // cannot declare throws (it overrides Object.clone() which only throws
-    // CloneNotSupportedException). All other methods can declare throws.
     let catch_template = if method.name == "clone" {
         "stream_method_catch_unchecked.jinja"
     } else {
@@ -659,7 +578,6 @@ fn gen_static_factory_method(
     out.push_str(&exception_class);
     out.push_str(" {\n");
 
-    // Null checks for non-optional reference params.
     for p in &method.params {
         if !p.optional && param_needs_null_check(&p.ty) {
             let pname = p.name.to_lower_camel_case();
@@ -670,7 +588,6 @@ fn gen_static_factory_method(
         }
     }
 
-    // Check if any parameters require Arena allocation (String, Path, Named types, etc.)
     let needs_arena = method.params.iter().any(|p| match &p.ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path => true,
         TypeRef::Named(_) => true,
@@ -685,9 +602,6 @@ fn gen_static_factory_method(
         _ => false,
     });
 
-    // Open the arena as a try-with-resources resource so it is always closed when
-    // the method returns (see #146 — an unclosed shared arena leaks and can be
-    // GC-reclaimed around the native call on Windows/JDK 25).
     if needs_arena {
         out.push_str("        try (Arena arena = Arena.ofShared()) {\n");
     } else {
@@ -697,7 +611,6 @@ fn gen_static_factory_method(
     let mut named_ptr_frees: Vec<(String, String)> = Vec::new();
     let mut call_args: Vec<String> = Vec::new();
 
-    // Marshal parameters (same logic as gen_instance_method but no receiver in call_args).
     for p in &method.params {
         let pname = p.name.to_lower_camel_case();
         let cname = format!("c{}", to_class_name(&p.name));
@@ -710,7 +623,6 @@ fn gen_static_factory_method(
                 call_args.push(cname);
             }
             TypeRef::Json => {
-                // Object (polymorphic JSON) passed directly without marshalling.
                 call_args.push(pname);
             }
             TypeRef::Path => {
@@ -728,10 +640,7 @@ fn gen_static_factory_method(
                 call_args.push(cname);
             }
             TypeRef::Named(type_name) => {
-                // Check if this is an enum type (Wave 2 FFI backend emits enums as i32 discriminants)
                 if enum_names.contains(type_name.as_str()) {
-                    // Enum parameter: convert to ordinal/discriminant value
-                    // For Method enum: method.ordinal() gives the i32 discriminant
                     let enum_expr = if p.optional {
                         format!("{pname} != null ? {pname}.ordinal() : -1")
                     } else {
@@ -746,7 +655,6 @@ fn gen_static_factory_method(
                     ));
                     call_args.push(cname);
                 } else {
-                    // Struct/record parameter: JSON-serialize via _from_json
                     let req_snake = type_name.to_snake_case();
                     let req_upper = req_snake.to_uppercase();
                     let from_json = format!("NativeLib.{prefix_upper}_{req_upper}_FROM_JSON");
@@ -782,7 +690,6 @@ fn gen_static_factory_method(
                 call_args.push(pname);
             }
             _ => {
-                // Unsupported param type for static factory — emit stub that throws.
                 out.push_str(&crate::backends::java::template_env::render(
                     "stream_method_unsupported_param.jinja",
                     minijinja::context! {
@@ -813,8 +720,6 @@ fn gen_static_factory_method(
 
     let args_joined = call_args.join(", ");
 
-    // The return type for a static factory is always Self (the class being constructed).
-    // Emit: call FFI → check non-null → wrap in new ClassName(handle).
     let named_frees_str = render_named_frees("            ");
     out.push_str(&crate::backends::java::template_env::render(
         "static_factory_return_handle.jinja",
@@ -867,7 +772,6 @@ fn gen_streaming_method(
     let method_name = adapter.name.to_lower_camel_case();
     let item_type = adapter.item_type.as_deref().unwrap_or("Object");
     let request_type_full = adapter.params[0].ty.as_str();
-    // Strip any leading module path (e.g. `sample_llm::ChatCompletionRequest` → `ChatCompletionRequest`).
     let request_type = request_type_full.rsplit("::").next().unwrap_or(request_type_full);
     let request_snake = request_type.to_snake_case();
     let prefix_upper = prefix.to_uppercase();
@@ -890,9 +794,6 @@ fn gen_streaming_method(
     let free_handle = format!("{prefix_upper}_{owner_upper}_{adapter_upper}_FREE");
     let req_from_json = format!("{prefix_upper}_{request_upper}_FROM_JSON");
     let req_free = format!("{prefix_upper}_{request_upper}_FREE");
-    // For streaming item types, always derive the to_json symbol from the item type name.
-    // Streaming items must have serde derives (checked at adapter validation time);
-    // if the FFI symbol is missing, that's a C FFI generation issue, not Java codegen.
     let item_to_json = format!("{prefix_upper}_{item_upper}_TO_JSON");
     let item_free = format!("{prefix_upper}_{item_upper}_FREE");
 

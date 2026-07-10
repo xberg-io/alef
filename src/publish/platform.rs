@@ -146,7 +146,6 @@ impl RustTarget {
             Os::Windows => "windows",
             Os::Unknown => "unknown",
         };
-        // Go uses arm64, not aarch64 for macOS ARM
         let arch = match (self.os, self.arch) {
             (Os::MacOs, Arch::Aarch64) => "arm64",
             (_, Arch::X86_64) => "x86_64",
@@ -220,7 +219,6 @@ impl RustTarget {
             Os::Windows => "mingw-ucrt",
             Os::Unknown => "unknown",
         };
-        // Ruby uses arm64-darwin instead of aarch64-darwin
         let arch_display = if self.arch == Arch::Aarch64 && self.os == Os::MacOs {
             "arm64"
         } else {
@@ -375,8 +373,6 @@ mod tests {
         assert!(RustTarget::parse("invalid").is_err());
     }
 
-    // Platform mapping tests
-
     #[test]
     fn go_java_platform_linux_x86() {
         let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
@@ -476,8 +472,6 @@ mod tests {
         assert_eq!(t.platform_for(Language::Ffi), "aarch64-apple-darwin");
     }
 
-    // Library naming tests
-
     #[test]
     fn shared_lib_linux() {
         let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
@@ -532,8 +526,6 @@ mod tests {
         assert_eq!(t.binary_ext(), ".exe");
     }
 
-    // PIE helper tests
-
     #[test]
     fn pie_os_family_linux() {
         let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
@@ -560,7 +552,6 @@ mod tests {
 
     #[test]
     fn pie_arch_aarch64_linux_maps_to_arm64() {
-        // Explicit divergence from go_java_platform: Aarch64 → arm64 on Linux too.
         let t = RustTarget::parse("aarch64-unknown-linux-gnu").unwrap();
         assert_eq!(t.pie_arch().unwrap(), "arm64");
     }

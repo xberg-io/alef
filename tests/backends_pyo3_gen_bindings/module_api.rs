@@ -4,7 +4,6 @@ use super::*;
 fn test_empty_api_surface() {
     let backend = Pyo3Backend;
 
-    // Empty API surface
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -29,14 +28,12 @@ fn test_empty_api_surface() {
 
     let content = &files[0].content;
 
-    // Even empty API should have module init
     assert!(content.contains("#[pymodule]"), "Should contain #[pymodule] macro");
     assert!(
         content.contains("pub fn _test_lib"),
         "Should contain module init function"
     );
 
-    // Should have PyO3 imports
     assert!(content.contains("use pyo3::prelude::*"), "Should import pyo3 prelude");
 }
 
@@ -138,7 +135,6 @@ fn test_module_registration() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Check that module init registers all types and functions
     assert!(
         content.contains("m.add_class::<MyType>"),
         "Module should register MyType class"
@@ -181,7 +177,6 @@ fn test_language_and_name() {
 fn test_async_function() {
     let backend = Pyo3Backend;
 
-    // FunctionDef with is_async: true
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -247,13 +242,11 @@ fn test_async_function() {
     );
     assert!(content.contains("fn fetch_data"), "Should generate fetch_data function");
 
-    // Assert async imports are present (needed for async functions)
     assert!(
         content.contains("pyo3_async_runtimes"),
         "Should import pyo3_async_runtimes for async support"
     );
 
-    // Assert async runtime initialization
     assert!(
         content.contains("_tokio_runtime") || content.contains("async_runtime"),
         "Should have async runtime initialization code"
@@ -264,7 +257,6 @@ fn test_async_function() {
 fn test_async_function_with_error() {
     let backend = Pyo3Backend;
 
-    // FunctionDef with is_async: true and error_type
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -305,13 +297,11 @@ fn test_async_function_with_error() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Check that PyRuntimeError import is present for error handling
     assert!(
         content.contains("PyRuntimeError"),
         "Should import PyRuntimeError for async error handling"
     );
 
-    // Check that the function is generated
     assert!(
         content.contains("fn process_async"),
         "Should generate process_async function"
@@ -322,7 +312,6 @@ fn test_async_function_with_error() {
 fn test_methods_generation() {
     let backend = Pyo3Backend;
 
-    // TypeDef with methods
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -432,11 +421,9 @@ fn test_methods_generation() {
         "Should contain #[pymethods] for Processor methods"
     );
 
-    // Assert method definitions are present
     assert!(content.contains("fn process"), "Should define process method");
     assert!(content.contains("fn reset"), "Should define reset method");
 
-    // Assert struct definition with pyclass macro
     assert!(content.contains("struct Processor"), "Should define Processor struct");
     assert!(
         content.contains("#[pyclass"),
@@ -448,8 +435,6 @@ fn test_methods_generation() {
 fn test_async_method() {
     let backend = Pyo3Backend;
 
-    // TypeDef with async method - must be opaque or have proper delegation setup
-    // Use an opaque type so async method generation doesn't require complex conversion
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -477,7 +462,7 @@ fn test_async_method() {
                 binding_exclusion_reason: None,
                 version: Default::default(),
             }],
-            is_opaque: true, // Make it opaque so async delegation works
+            is_opaque: true,
             is_clone: true,
             is_copy: false,
             is_trait: false,
@@ -514,16 +499,13 @@ fn test_async_method() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Check that async method is defined
     assert!(content.contains("fn handle_async"), "Should define async method");
 
-    // Check async runtime imports
     assert!(
         content.contains("pyo3_async_runtimes"),
         "Should import pyo3_async_runtimes for async methods"
     );
 
-    // Check that future_into_py is used for async handling
     assert!(
         content.contains("future_into_py"),
         "Should use future_into_py for async methods"
@@ -534,7 +516,6 @@ fn test_async_method() {
 fn test_error_types() {
     let backend = Pyo3Backend;
 
-    // API surface with ErrorDef
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -588,13 +569,11 @@ fn test_error_types() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Assert error creation code (create_exception! macros)
     assert!(
         content.contains("create_exception!"),
         "Should generate create_exception! macros for error types"
     );
 
-    // Assert that specific error variants are created
     assert!(
         content.contains("NotFoundError"),
         "Should create NotFoundError exception"
@@ -608,7 +587,6 @@ fn test_error_types() {
         "Should create ProcessError base exception"
     );
 
-    // Assert error converter function is generated
     assert!(
         content.contains("process_error_to_py_err") || content.contains("_to_py_err"),
         "Should generate error converter function"
@@ -619,7 +597,6 @@ fn test_error_types() {
 fn test_opaque_type() {
     let backend = Pyo3Backend;
 
-    // TypeDef with is_opaque: true
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -666,7 +643,6 @@ fn test_opaque_type() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Assert opaque struct is generated with Arc<inner>
     assert!(
         content.contains("struct OpaqueHandle"),
         "Should define OpaqueHandle struct"
@@ -674,10 +650,8 @@ fn test_opaque_type() {
     assert!(content.contains("Arc<"), "Opaque type should use Arc wrapper");
     assert!(content.contains("inner:"), "Opaque type should have inner field");
 
-    // Assert Arc import is present
     assert!(content.contains("std::sync::Arc"), "Should import Arc for opaque types");
 
-    // Assert pyclass macro is present
     assert!(
         content.contains("#[pyclass"),
         "Opaque type should have #[pyclass] macro"
@@ -688,7 +662,6 @@ fn test_opaque_type() {
 fn test_optional_and_vec_fields() {
     let backend = Pyo3Backend;
 
-    // TypeDef with Optional and Vec fields
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -743,10 +716,8 @@ fn test_optional_and_vec_fields() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Assert struct is defined
     assert!(content.contains("struct Container"), "Should define Container struct");
 
-    // Assert field names are present
     assert!(content.contains("optional_text:"), "Should have optional_text field");
     assert!(content.contains("items:"), "Should have items field");
     assert!(
@@ -754,10 +725,8 @@ fn test_optional_and_vec_fields() {
         "Should have optional_numbers field"
     );
 
-    // Assert pyclass macro
     assert!(content.contains("#[pyclass"), "Type should have #[pyclass] macro");
 
-    // Assert Vec conversion code or container types are present
     assert!(
         content.contains("Vec") || content.contains("From") || content.contains("Into"),
         "Should handle Vec and Option conversions"
@@ -768,7 +737,6 @@ fn test_optional_and_vec_fields() {
 fn test_static_method() {
     let backend = Pyo3Backend;
 
-    // TypeDef with static method
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -833,7 +801,6 @@ fn test_static_method() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Assert static method is defined
     assert!(content.contains("fn create_default"), "Should define static method");
 
     // Assert #[pymethods] block is present
@@ -842,7 +809,6 @@ fn test_static_method() {
         "Should contain #[pymethods] for static methods"
     );
 
-    // Assert staticmethod attribute (part of PyO3 static method binding)
     assert!(
         content.contains("staticmethod") || content.contains("create_default"),
         "Should mark method as static or generate appropriately"
@@ -853,8 +819,6 @@ fn test_static_method() {
 fn test_exceptions_py_reexports_native_classes() {
     let backend = Pyo3Backend;
 
-    // exceptions.py re-exports the native exception classes (so the class users catch is the
-    // one the native code raises — tslp issue #147), rather than defining duplicate classes.
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -913,7 +877,6 @@ fn test_exceptions_py_reexports_native_classes() {
 
     let content = &exceptions_file.content;
 
-    // exceptions.py must RE-EXPORT from the native module, never define duplicate classes.
     assert!(
         content.contains("from .") && content.contains("import "),
         "exceptions.py should re-export from the native module:\n{content}"
@@ -923,7 +886,6 @@ fn test_exceptions_py_reexports_native_classes() {
         "exceptions.py must not define duplicate exception classes:\n{content}"
     );
 
-    // The base error and both variants must be re-exported (and listed in __all__).
     for name in ["SampleLlmError", "AuthenticationError", "RateLimitedError"] {
         assert!(content.contains(name), "{name} should be re-exported:\n{content}");
     }

@@ -49,24 +49,20 @@ pub(super) fn emit_native_type(ty: &TypeDef, out: &mut String) {
         ));
     }
 
-    // Emit inherent instance methods for Kotlin/Native data classes
     use crate::codegen::shared::partition_methods;
     let (instance_methods, _) = partition_methods(&ty.methods);
 
     if !instance_methods.is_empty() {
-        // Complete the data class constructor without closing braces yet
         out.push_str(") {\n");
 
-        // Emit instance methods inside the class body
         for method in instance_methods {
             if method.sanitized {
-                continue; // Skip sanitized methods
+                continue;
             }
 
             let method_name = heck::AsLowerCamelCase(method.name.as_str()).to_string();
             let return_type_str = native_type_str(&method.return_type, false);
 
-            // Build parameter signature
             let params_sig: Vec<String> = method
                 .params
                 .iter()
@@ -95,10 +91,8 @@ pub(super) fn emit_native_type(ty: &TypeDef, out: &mut String) {
             out.push_str(")\n");
         }
 
-        // Close the data class body
         out.push_str("}\n");
     } else {
-        // No methods - just close the constructor
         out.push_str(")\n");
     }
 }
