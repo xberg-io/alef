@@ -65,7 +65,11 @@ pub(super) fn render_test_file(
                             }
                         }
                         let elixir_nif_module = format!("{module_path}.Native");
-                        let emission = emit_test_backend(trait_bridge, &methods, fixture, &elixir_nif_module);
+                        // This pass only harvests module-level defs (module_defs_str below) for
+                        // file-level emission; teardown_block is consumed separately in
+                        // args.rs/test_case.rs where the per-test setup is rendered, so the
+                        // facade_module argument here is inert (pass "" to skip building it twice).
+                        let emission = emit_test_backend(trait_bridge, &methods, fixture, &elixir_nif_module, "");
 
                         // Extract module defs from the combined setup_block
                         if let Some(pos) = emission.setup_block.find("__TRAIT_BRIDGE_MODULE_DEFS_END__") {

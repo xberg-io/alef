@@ -23,11 +23,19 @@ pub(super) fn elixir_stub_default(
 /// `nif_module` is the Elixir module that exposes `complete_trait_call/2` and
 /// `fail_trait_call/2` NIFs (e.g. `"MyApp.Native"` for a crate named `my_app`).
 /// Pass an empty string to use the conventional `Native` fallback.
+///
+/// `facade_module` is the public Elixir module (e.g. `"Xberg"`) that exposes the
+/// `register_fn`/`unregister_fn` facade functions used by callers. It is used to
+/// build the teardown call — the facade normalizes arguments (e.g. accepting
+/// `name_or_opts`) where the raw NIF in `nif_module` does not. Pass an empty
+/// string to skip teardown emission for callers that don't need it (e.g. the
+/// unit tests below).
 pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
     nif_module: &str,
+    facade_module: &str,
 ) -> crate::e2e::codegen::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use heck::ToUpperCamelCase;
@@ -183,11 +191,39 @@ pub fn emit_test_backend(
     combined_setup.push_str("\n__TRAIT_BRIDGE_MODULE_DEFS_END__\n");
     combined_setup.push_str(&test_setup);
 
+    // ExUnit runs the whole suite in a single BEAM VM, and the Rust-side plugin
+    // registry (register_fn/unregister_fn) is process-global state shared across
+    // every test in the run — the same hazard python/php/java/etc. guard against
+    // via `TestBackendEmission::teardown_block` (see its doc comment). Register
+    // an `on_exit` callback right after starting the GenServer so the plugin is
+    // unregistered even if the test body raises or an assertion fails partway
+    // through: a plain trailing statement would not run in that case, but
+    // `on_exit/1` always fires. Without this, a register_X_trait_bridge fixture
+    // permanently leaks a plugin entry backed by a dead PID (the GenServer, tied
+    // to the ExUnit test process, exits with it) into the shared registry, and
+    // any later test that dispatches through that plugin blocks for the full
+    // 10s trait-call watchdog timeout before failing.
+    //
+    // Call through `facade_module` (e.g. `Xberg.unregister_ocr_backend/1`), not
+    // the raw NIF in `nif_module` — the facade normalizes the `name_or_opts` arg
+    // the same way the generated `unregister_*_after_register` fixtures already
+    // do (`Xberg.unregister_post_processor("test-processor")`), so this teardown
+    // matches the calling convention the rest of the generated suite uses.
+    let teardown_block = if facade_module.is_empty() {
+        String::new()
+    } else {
+        trait_bridge
+            .unregister_fn
+            .as_deref()
+            .map(|unregister_fn| format!("on_exit(fn -> {facade_module}.{unregister_fn}(\"{plugin_name}\") end)\n"))
+            .unwrap_or_default()
+    };
+
     crate::e2e::codegen::TestBackendEmission {
         setup_block: combined_setup,
         arg_expr: pid_var,
         type_imports: Vec::new(),
-        teardown_block: String::new(),
+        teardown_block,
     }
 }
 
@@ -259,7 +295,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
 
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
@@ -294,7 +330,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(
@@ -320,7 +356,7 @@ mod test_backend_tests {
         let mut fixture = make_fixture("my_fixture_id");
         fixture.input = serde_json::json!({ "backend": { "name": "my-backend-name" } });
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
         let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
         assert!(
@@ -338,7 +374,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
 
         assert!(
             emission.setup_block.contains("E2e.TestStubs."),
@@ -356,7 +392,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
 
         assert!(
             emission.setup_block.contains("defmodule") && emission.setup_block.contains("GenServer"),
@@ -412,7 +448,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
 
         assert!(
             emission
@@ -432,7 +468,7 @@ mod test_backend_tests {
         let methods = [&required_method];
         let fixture = make_fixture("my_test_fixture");
 
-        let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+        let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
 
         // arg_expr should be a lowercase variable name like "my_test_fixture_pid", not a module atom
         assert!(

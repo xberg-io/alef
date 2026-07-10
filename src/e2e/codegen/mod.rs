@@ -420,7 +420,7 @@ pub fn emit_test_backend(
         "csharp" => csharp::emit_test_backend(trait_bridge, methods, fixture),
         "php" => php::emit_test_backend(trait_bridge, methods, fixture),
         "ruby" => ruby::emit_test_backend(trait_bridge, methods, fixture),
-        "elixir" => elixir::emit_test_backend(trait_bridge, methods, fixture, ""),
+        "elixir" => elixir::emit_test_backend(trait_bridge, methods, fixture, "", ""),
         "gleam" => gleam::emit_test_backend(trait_bridge, methods, fixture),
         "r" => r::emit_test_backend(trait_bridge, methods, fixture),
         "c" => c::emit_test_backend(trait_bridge, methods, fixture),

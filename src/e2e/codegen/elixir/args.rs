@@ -10,7 +10,10 @@ use super::values::json_to_elixir;
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
-/// Returns `(setup_lines, args_string)`.
+/// Returns `(setup_lines, args_string, teardown_block)`. `teardown_block` is
+/// non-empty only for `test_backend` args backed by a trait bridge with an
+/// `unregister_fn` — see `emit_test_backend`'s doc comment for why ExUnit
+/// needs this teardown.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_args_and_setup(
     input: &serde_json::Value,
@@ -28,7 +31,7 @@ pub(super) fn build_args_and_setup(
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
     force_keyword_args: bool,
-) -> (Vec<String>, String) {
+) -> (Vec<String>, String, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
         // No args config: pass the whole input only when it's non-empty AND not just the harness setup dict.
@@ -49,13 +52,14 @@ pub(super) fn build_args_and_setup(
         };
         let is_empty_input = matches!(cleaned_input, serde_json::Value::Null);
         if is_empty_input {
-            return (Vec::new(), String::new());
+            return (Vec::new(), String::new(), String::new());
         }
-        return (Vec::new(), json_to_elixir(&cleaned_input));
+        return (Vec::new(), json_to_elixir(&cleaned_input), String::new());
     }
 
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
+    let mut teardown_block = String::new();
 
     // NOTE: Elixir requires all positional args before keyword args. To avoid syntax errors,
     // count how many optional args will be rendered as keywords upfront, then decide
@@ -184,7 +188,8 @@ pub(super) fn build_args_and_setup(
                     // Derive the NIF module from the test module path: the NIF module
                     // follows the "{AppModule}.Native" convention used by the Elixir scaffold.
                     let elixir_nif_module = format!("{module_path}.Native");
-                    let emission = emit_test_backend(trait_bridge, &methods, fixture, &elixir_nif_module);
+                    let emission = emit_test_backend(trait_bridge, &methods, fixture, &elixir_nif_module, module_path);
+                    teardown_block.push_str(&emission.teardown_block);
 
                     // Extract only the test-level setup part (after the marker).
                     // Module-level defs are emitted at file level by render_test_file, not here.
@@ -475,7 +480,7 @@ pub(super) fn build_args_and_setup(
             })
             .collect::<Vec<_>>()
             .join(", ");
-        return (setup_lines, args_string);
+        return (setup_lines, args_string, teardown_block);
     }
 
     let mut positional_args = Vec::new();
@@ -493,7 +498,7 @@ pub(super) fn build_args_and_setup(
     let mut final_args = positional_args;
     final_args.extend(keyword_args);
 
-    (setup_lines, final_args.join(", "))
+    (setup_lines, final_args.join(", "), teardown_block)
 }
 
 /// Apply a serde `rename_all` strategy to a PascalCase variant name to derive

@@ -66,7 +66,7 @@ fn elixir_stub_emits_super_trait_name_and_initialize() {
     let methods = vec![&extract_method];
     let fixture = make_fixture("my_extractor", json!({ "extractor": { "name": "test-extractor" } }));
 
-    let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+    let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
     assert!(
@@ -93,7 +93,7 @@ fn elixir_stub_emits_integer_methods_as_one() {
     let methods = vec![&dimensions_method, &embed_method];
     let fixture = make_fixture("my_backend", json!({ "backend": { "name": "test-vector-backend" } }));
 
-    let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+    let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
     assert!(
@@ -121,7 +121,7 @@ fn elixir_stub_emits_all_required_trait_methods() {
     let methods = vec![&process_image, &supports_language, &backend_type];
     let fixture = make_fixture("my_image_backend", json!({ "backend": { "name": "test-backend" } }));
 
-    let emission = emit_test_backend(&bridge, &methods, &fixture, "");
+    let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
 
     assert!(
@@ -141,5 +141,64 @@ fn elixir_stub_emits_all_required_trait_methods() {
     assert!(
         output.contains("def initialize, do:"),
         "must emit initialize(), got:\n{output}"
+    );
+}
+
+#[test]
+fn elixir_stub_emits_on_exit_teardown_when_facade_and_unregister_fn_present() {
+    let mut bridge = make_trait_bridge("OcrBackend", Some("Plugin"));
+    bridge.unregister_fn = Some("unregister_ocr_backend".to_string());
+    let process_image = make_method("process_image", TypeRef::Named("OcrResult".to_string()), false);
+    let methods = vec![&process_image];
+    let fixture = make_fixture(
+        "register_ocr_backend_trait_bridge",
+        json!({ "backend": { "name": "test-backend" } }),
+    );
+
+    let emission = emit_test_backend(&bridge, &methods, &fixture, "", "Xberg");
+
+    assert!(
+        emission
+            .teardown_block
+            .contains("on_exit(fn -> Xberg.unregister_ocr_backend(\"test-backend\") end)"),
+        "must emit on_exit teardown calling the facade's unregister_fn with the fixture's \
+         plugin name, got teardown_block:\n{}",
+        emission.teardown_block
+    );
+}
+
+#[test]
+fn elixir_stub_emits_no_teardown_when_facade_module_empty() {
+    let mut bridge = make_trait_bridge("OcrBackend", Some("Plugin"));
+    bridge.unregister_fn = Some("unregister_ocr_backend".to_string());
+    let process_image = make_method("process_image", TypeRef::Named("OcrResult".to_string()), false);
+    let methods = vec![&process_image];
+    let fixture = make_fixture(
+        "register_ocr_backend_trait_bridge",
+        json!({ "backend": { "name": "test-backend" } }),
+    );
+
+    let emission = emit_test_backend(&bridge, &methods, &fixture, "", "");
+
+    assert!(
+        emission.teardown_block.is_empty(),
+        "must not emit teardown when facade_module is empty (opt-out), got:\n{}",
+        emission.teardown_block
+    );
+}
+
+#[test]
+fn elixir_stub_emits_no_teardown_when_trait_bridge_has_no_unregister_fn() {
+    let bridge = make_trait_bridge("DocumentExtractor", Some("Plugin")); // unregister_fn defaults to None
+    let extract_method = make_method("extract_bytes", TypeRef::Named("ProcessingResult".to_string()), false);
+    let methods = vec![&extract_method];
+    let fixture = make_fixture("my_extractor", json!({ "extractor": { "name": "test-extractor" } }));
+
+    let emission = emit_test_backend(&bridge, &methods, &fixture, "", "Xberg");
+
+    assert!(
+        emission.teardown_block.is_empty(),
+        "must not emit a call to a nonexistent unregister function, got:\n{}",
+        emission.teardown_block
     );
 }
