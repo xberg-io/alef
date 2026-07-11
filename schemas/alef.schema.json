@@ -5349,6 +5349,14 @@
           ],
           "default": null
         },
+        "targets": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "default": {},
+          "description": "Per-target build opt-out toggles for this crate, overriding the\nworkspace `[targets]` table per key. Keys are canonical target families\n(see [`crate::publish::platform::CANONICAL_TARGET_KEYS`]); setting a key\nto `false` drops every matching target triple from this crate's generated\ntarget lists. Absent keys inherit the workspace value (default enabled).",
+          "type": "object"
+        },
         "test": {
           "additionalProperties": {
             "$ref": "#/$defs/TestConfig"
@@ -7314,6 +7322,14 @@
           "default": null,
           "description": "Workspace-wide version sync rules. A per-crate publish step still runs\nindependently per crate; sync rules in this section apply globally."
         },
+        "targets": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "default": {},
+          "description": "Per-target build opt-out toggles, shared across all crates.\n\nKeys are canonical target families — `linux_x64`, `linux_arm64`,\n`linux_x64_musl`, `linux_arm64_musl`, `mac_intel`, `mac_arm`,\n`windows_x64`, `windows_arm64` (see\n[`crate::publish::platform::CANONICAL_TARGET_KEYS`]). Setting a key to\n`false` drops every matching target triple from every language's\ngenerated target list (napi platforms, elixir nif targets, C# RIDs,\nruby cross-platforms, dart native RIDs). Absent keys default to enabled,\nso an empty table leaves generated output unchanged. A per-crate\n`[[crates]] targets` table overrides individual keys.",
+          "type": "object"
+        },
         "test": {
           "additionalProperties": {
             "$ref": "#/$defs/TestConfig"
@@ -7452,7 +7468,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.34.12/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.35.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7551,6 +7567,7 @@
         "setup": {},
         "swift": null,
         "sync": null,
+        "targets": {},
         "test": {},
         "tools": {
           "node_package_manager": null,
@@ -7569,6 +7586,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.34.12",
-  "x-alef-version": "0.34.12"
+  "version": "0.35.0",
+  "x-alef-version": "0.35.0"
 }
