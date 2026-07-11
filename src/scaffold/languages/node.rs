@@ -523,6 +523,36 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     } else {
         "[\"index.js\", \"index.d.ts\", \"*.node\"]".to_string()
     };
+    // When a service API is present, `service.cjs` is a real module (the low-level
+    // service `App`); expose it as a `./service` subpath so consumers can
+    // `import ... from '<pkg>/service'`. Without this the subpath is unresolvable
+    // under the `exports` map even though the file ships in `files`.
+    let exports_map = if has_service_api {
+        format!(
+            r#"{{
+    ".": {{
+      "types": "./index.d.ts",
+      "require": "./{entrypoint}",
+      "default": "./{entrypoint}"
+    }},
+    "./service": {{
+      "types": "./index.d.ts",
+      "require": "./service.cjs",
+      "default": "./service.cjs"
+    }}
+  }}"#
+        )
+    } else {
+        format!(
+            r#"{{
+    ".": {{
+      "types": "./index.d.ts",
+      "require": "./{entrypoint}",
+      "default": "./{entrypoint}"
+    }}
+  }}"#
+        )
+    };
 
     let crate_pkg = format!(
         r#"{{
@@ -531,13 +561,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   "description": "{description}"{license_block}{repository_block},
   "main": "{entrypoint}",
   "types": "index.d.ts",
-  "exports": {{
-    ".": {{
-      "types": "./index.d.ts",
-      "require": "./{entrypoint}",
-      "default": "./{entrypoint}"
-    }}
-  }},
+  "exports": {exports_map},
   "files": {files_list},
   "optionalDependencies": {{
 {optional_dependencies}
@@ -565,6 +589,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         license_block = license_block,
         repository_block = repository_block,
         crate_dir = crate_dir,
+        exports_map = exports_map,
         files_list = files_list,
         optional_dependencies = optional_dependencies,
         targets = targets,
