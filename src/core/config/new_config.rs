@@ -217,6 +217,20 @@ impl NewAlefConfig {
 
         let source_crates = resolve_source_crates(&krate.source_crates, krate.workspace_root.as_deref())?;
 
+        // Per-target toggles: workspace defaults, overridden per key by the crate.
+        let mut targets = ws.targets.clone();
+        targets.extend(krate.targets.iter().map(|(k, v)| (k.clone(), *v)));
+        for key in targets.keys() {
+            if !crate::publish::platform::CANONICAL_TARGET_KEYS.contains(&key.as_str()) {
+                return Err(ResolveError::InvalidConfig(format!(
+                    "crate `{}`: unknown target key `{}` in `[targets]`; valid keys are: {}",
+                    krate.name,
+                    key,
+                    crate::publish::platform::CANONICAL_TARGET_KEYS.join(", ")
+                )));
+            }
+        }
+
         Ok(ResolvedCrateConfig {
             name: krate.name.clone(),
             sources: krate.sources.clone(),
@@ -232,6 +246,7 @@ impl NewAlefConfig {
             extra_dependencies: krate.extra_dependencies.clone(),
             auto_path_mappings: krate.auto_path_mappings.unwrap_or(true),
             languages,
+            targets,
             python: krate.python.clone().or_else(|| ws.python.clone()),
             node: krate.node.clone().or_else(|| ws.node.clone()),
             ruby: krate.ruby.clone().or_else(|| ws.ruby.clone()),

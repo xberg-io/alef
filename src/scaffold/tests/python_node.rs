@@ -473,6 +473,89 @@ exclude_platforms = ["linux-x64-musl", "linux-arm64-musl"]
 }
 
 #[test]
+fn test_scaffold_node_targets_toggle_drops_mac_intel() {
+    // The systematic `[targets]` opt-out drops a target across the whole binding,
+    // just like the node-specific `exclude_platforms`.
+    let config = test_config_from_toml(
+        r#"
+[crates.targets]
+mac_intel = false
+"#,
+    );
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Node]).unwrap();
+
+    let parent = files
+        .iter()
+        .find(|f| f.path == Path::new("crates/my-lib-node/package.json"))
+        .expect("parent package.json must be emitted");
+    let parsed: serde_json::Value = serde_json::from_str(&parent.content).expect("valid parent package.json");
+
+    let optional_deps = parsed["optionalDependencies"]
+        .as_object()
+        .expect("optionalDependencies must be an object");
+    assert!(
+        !optional_deps.contains_key("my-lib-darwin-x64"),
+        "darwin-x64 must be excluded via mac_intel = false"
+    );
+    assert!(
+        optional_deps.contains_key("my-lib-darwin-arm64"),
+        "darwin-arm64 must still be present"
+    );
+
+    let targets = parsed["napi"]["targets"]
+        .as_array()
+        .expect("napi.targets must be an array");
+    assert!(
+        !targets.iter().any(|t| t == "x86_64-apple-darwin"),
+        "x86_64-apple-darwin must be excluded from napi.targets"
+    );
+    assert!(
+        targets.iter().any(|t| t == "aarch64-apple-darwin"),
+        "aarch64-apple-darwin must still be present"
+    );
+
+    assert!(
+        !files
+            .iter()
+            .any(|f| f.path == Path::new("crates/my-lib-node/npm/darwin-x64/package.json")),
+        "darwin-x64 per-platform stub must not be emitted"
+    );
+
+    let index_js = files
+        .iter()
+        .find(|f| f.path == Path::new("crates/my-lib-node/index.js"))
+        .expect("index.js must be emitted");
+    assert!(
+        !index_js.content.contains("darwin-x64"),
+        "index.js dispatch table must not reference darwin-x64"
+    );
+}
+
+#[test]
+fn test_scaffold_targets_toggle_rejects_unknown_key() {
+    // An unknown `[targets]` key must fail resolution, not silently no-op.
+    let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["node"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.targets]
+mac_intle = false
+"#,
+    )
+    .expect("valid toml");
+    let err = cfg.resolve().expect_err("unknown target key must error");
+    let msg = err.to_string();
+    assert!(msg.contains("mac_intle"), "error must name the bad key: {msg}");
+    assert!(msg.contains("valid keys"), "error must list valid keys: {msg}");
+}
+
+#[test]
 fn test_scaffold_node_index_js_re_exports_service_api() {
     let config = test_config();
 

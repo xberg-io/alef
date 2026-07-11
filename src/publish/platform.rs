@@ -309,6 +309,60 @@ impl RustTarget {
             Os::Unknown => bail!("unsupported OS for PIE libc: {}", self.triple),
         }
     }
+
+    /// The canonical `[targets]` opt-out key for this triple, if it belongs to a
+    /// toggleable target family.
+    ///
+    /// Windows matches by `(arch, os)` regardless of ABI, so `windows_x64` covers
+    /// the msvc / gnu / mingw variants alike; Linux distinguishes musl from glibc.
+    /// Returns `None` for `arm` / `wasm32` / unknown targets, which are never
+    /// filtered by the toggle.
+    pub fn canonical_target_key(&self) -> Option<&'static str> {
+        match (self.arch, self.os, self.env) {
+            (Arch::X86_64, Os::MacOs, _) => Some("mac_intel"),
+            (Arch::Aarch64, Os::MacOs, _) => Some("mac_arm"),
+            (Arch::X86_64, Os::Linux, Env::Musl) => Some("linux_x64_musl"),
+            (Arch::Aarch64, Os::Linux, Env::Musl) => Some("linux_arm64_musl"),
+            (Arch::X86_64, Os::Linux, _) => Some("linux_x64"),
+            (Arch::Aarch64, Os::Linux, _) => Some("linux_arm64"),
+            (Arch::X86_64, Os::Windows, _) => Some("windows_x64"),
+            (Arch::Aarch64, Os::Windows, _) => Some("windows_arm64"),
+            _ => None,
+        }
+    }
+}
+
+/// Canonical friendly keys accepted in the workspace `[targets]` opt-out table.
+///
+/// Each key selects a family of build targets by `(arch, os, libc)`; setting a
+/// key to `false` drops every matching triple from every language's generated
+/// target list (napi platforms, nif targets, C# RIDs, ruby cross-platforms,
+/// dart native RIDs). Keys default to enabled, so an absent or empty table
+/// leaves generated output byte-identical.
+pub const CANONICAL_TARGET_KEYS: &[&str] = &[
+    "linux_x64",
+    "linux_arm64",
+    "linux_x64_musl",
+    "linux_arm64_musl",
+    "mac_intel",
+    "mac_arm",
+    "windows_x64",
+    "windows_arm64",
+];
+
+/// Whether a target triple is enabled given the resolved `[targets]` toggle map.
+///
+/// A triple is disabled only when its [`RustTarget::canonical_target_key`] is
+/// present in `toggles` with an explicit `false`. Triples with no canonical key
+/// (arm/wasm32) and keys absent from the map are always enabled.
+pub fn target_triple_enabled(toggles: &std::collections::BTreeMap<String, bool>, triple: &str) -> bool {
+    if toggles.is_empty() {
+        return true;
+    }
+    match RustTarget::parse(triple).ok().and_then(|t| t.canonical_target_key()) {
+        Some(key) => *toggles.get(key).unwrap_or(&true),
+        None => true,
+    }
 }
 
 impl fmt::Display for RustTarget {
@@ -590,5 +644,88 @@ mod tests {
     fn pie_libc_windows_errors() {
         let t = RustTarget::parse("x86_64-pc-windows-msvc").unwrap();
         assert!(t.pie_libc().is_err());
+    }
+
+    fn key_of(triple: &str) -> Option<&'static str> {
+        RustTarget::parse(triple).unwrap().canonical_target_key()
+    }
+
+    #[test]
+    fn canonical_target_key_maps_each_family() {
+        assert_eq!(key_of("x86_64-apple-darwin"), Some("mac_intel"));
+        assert_eq!(key_of("aarch64-apple-darwin"), Some("mac_arm"));
+        assert_eq!(key_of("x86_64-unknown-linux-gnu"), Some("linux_x64"));
+        assert_eq!(key_of("aarch64-unknown-linux-gnu"), Some("linux_arm64"));
+        assert_eq!(key_of("x86_64-unknown-linux-musl"), Some("linux_x64_musl"));
+        assert_eq!(key_of("aarch64-unknown-linux-musl"), Some("linux_arm64_musl"));
+    }
+
+    #[test]
+    fn canonical_target_key_windows_ignores_abi() {
+        // msvc, gnu, and mingw windows-x64 all fold under one key.
+        assert_eq!(key_of("x86_64-pc-windows-msvc"), Some("windows_x64"));
+        assert_eq!(key_of("x86_64-pc-windows-gnu"), Some("windows_x64"));
+        assert_eq!(key_of("aarch64-pc-windows-msvc"), Some("windows_arm64"));
+    }
+
+    #[test]
+    fn canonical_target_key_none_for_untoggleable() {
+        assert_eq!(key_of("arm-unknown-linux-gnueabihf"), None);
+        assert_eq!(key_of("wasm32-unknown-unknown"), None);
+    }
+
+    #[test]
+    fn every_canonical_key_is_reachable() {
+        // Guard against a key in CANONICAL_TARGET_KEYS that no triple maps to.
+        let reachable: std::collections::BTreeSet<&str> = [
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin",
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-unknown-linux-musl",
+            "aarch64-unknown-linux-musl",
+            "x86_64-pc-windows-msvc",
+            "aarch64-pc-windows-msvc",
+        ]
+        .iter()
+        .filter_map(|t| key_of(t))
+        .collect();
+        for key in CANONICAL_TARGET_KEYS {
+            assert!(reachable.contains(key), "no triple maps to canonical key `{key}`");
+        }
+    }
+
+    #[test]
+    fn target_triple_enabled_empty_map_is_all_on() {
+        let toggles = std::collections::BTreeMap::new();
+        assert!(target_triple_enabled(&toggles, "x86_64-apple-darwin"));
+        assert!(target_triple_enabled(&toggles, "aarch64-unknown-linux-gnu"));
+    }
+
+    #[test]
+    fn target_triple_enabled_disables_only_matching_family() {
+        let mut toggles = std::collections::BTreeMap::new();
+        toggles.insert("mac_intel".to_string(), false);
+        assert!(!target_triple_enabled(&toggles, "x86_64-apple-darwin"));
+        // Sibling families stay enabled.
+        assert!(target_triple_enabled(&toggles, "aarch64-apple-darwin"));
+        assert!(target_triple_enabled(&toggles, "x86_64-unknown-linux-gnu"));
+        // Untoggleable triples stay enabled.
+        assert!(target_triple_enabled(&toggles, "wasm32-unknown-unknown"));
+    }
+
+    #[test]
+    fn target_triple_enabled_windows_toggle_covers_all_abis() {
+        let mut toggles = std::collections::BTreeMap::new();
+        toggles.insert("windows_x64".to_string(), false);
+        assert!(!target_triple_enabled(&toggles, "x86_64-pc-windows-msvc"));
+        assert!(!target_triple_enabled(&toggles, "x86_64-pc-windows-gnu"));
+    }
+
+    #[test]
+    fn target_triple_enabled_explicit_true_is_on() {
+        let mut toggles = std::collections::BTreeMap::new();
+        toggles.insert("mac_intel".to_string(), true);
+        assert!(target_triple_enabled(&toggles, "x86_64-apple-darwin"));
     }
 }

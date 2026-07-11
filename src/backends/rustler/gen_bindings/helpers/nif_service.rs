@@ -29,10 +29,17 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         "x86_64-unknown-linux-gnu",
         "x86_64-pc-windows-gnu",
     ];
-    let nif_targets = match config.elixir.as_ref() {
-        Some(elixir) if !elixir.nif_targets.is_empty() => elixir.nif_targets.join(" "),
-        _ => default_nif_targets.join(" "),
+    let nif_targets_list: Vec<String> = match config.elixir.as_ref() {
+        Some(elixir) if !elixir.nif_targets.is_empty() => elixir.nif_targets.clone(),
+        _ => default_nif_targets.iter().map(|s| (*s).to_string()).collect(),
     };
+    // Drop any triple disabled via the workspace `[targets]` opt-out table.
+    let nif_targets = nif_targets_list
+        .iter()
+        .filter(|t| config.target_enabled(t))
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ");
 
     let default_nif_versions: &[&str] = &["2.16", "2.17"];
     let nif_versions: Vec<String> = config

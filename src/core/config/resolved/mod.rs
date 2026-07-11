@@ -70,6 +70,11 @@ pub struct ResolvedCrateConfig {
 
     pub languages: Vec<Language>,
 
+    /// Resolved per-target opt-out toggles: workspace `[targets]` defaults with
+    /// per-crate `[[crates]] targets` overrides merged in. Empty means every
+    /// target is enabled (the default). Consumed via [`Self::target_enabled`].
+    pub targets: std::collections::BTreeMap<String, bool>,
+
     pub python: Option<PythonConfig>,
     pub node: Option<NodeConfig>,
     pub ruby: Option<RubyConfig>,
@@ -179,5 +184,16 @@ impl ResolvedCrateConfig {
     /// Whether this crate targets the given language.
     pub fn targets(&self, lang: Language) -> bool {
         self.languages.contains(&lang)
+    }
+
+    /// Whether the given Rust target triple is enabled for this crate's
+    /// generated target lists, per the resolved `[targets]` opt-out table.
+    ///
+    /// Returns `true` unless the triple's canonical target key is present with
+    /// an explicit `false`. Triples with no canonical key (arm/wasm32) are
+    /// always enabled.
+    #[must_use]
+    pub fn target_enabled(&self, triple: &str) -> bool {
+        crate::publish::platform::target_triple_enabled(&self.targets, triple)
     }
 }

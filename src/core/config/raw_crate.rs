@@ -84,6 +84,14 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub features: Vec<String>,
 
+    /// Per-target build opt-out toggles for this crate, overriding the
+    /// workspace `[targets]` table per key. Keys are canonical target families
+    /// (see [`crate::publish::platform::CANONICAL_TARGET_KEYS`]); setting a key
+    /// to `false` drops every matching target triple from this crate's generated
+    /// target lists. Absent keys inherit the workspace value (default enabled).
+    #[serde(default)]
+    pub targets: std::collections::BTreeMap<String, bool>,
+
     /// Maps extracted rust_path prefixes to actual import paths in binding crates.
     #[serde(default)]
     pub path_mappings: HashMap<String, String>,

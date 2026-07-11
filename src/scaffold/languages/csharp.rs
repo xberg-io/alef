@@ -6,21 +6,23 @@ use crate::scaffold::naming::csharp_package_id;
 use crate::{scaffold::scaffold_meta, scaffold::xml_escape};
 use std::path::PathBuf;
 
-/// Runtime Identifiers (RIDs) advertised by the binding NuGet package.
+/// Runtime Identifiers (RIDs) advertised by the binding NuGet package, each
+/// paired with the Rust target triple that produces its native asset.
 ///
-/// All six platforms must appear in `<RuntimeIdentifiers>` so the SDK packs
-/// every `runtimes/<rid>/native/` payload into the NuGet artifact and consumers
-/// on each supported platform resolve a matching native asset at restore time.
-/// Mismatches surface to consumers as `warning CS8012: ... targets a different
-/// processor` followed by `FileNotFoundException` at runtime — the exact
-/// failure mode observed on tslp v1.9.0-rc.48.
-pub(crate) const PUBLISHED_RUNTIME_IDENTIFIERS: &[&str] = &[
-    "win-x64",
-    "win-arm64",
-    "linux-x64",
-    "linux-arm64",
-    "osx-x64",
-    "osx-arm64",
+/// Every enabled platform must appear in `<RuntimeIdentifiers>` so the SDK packs
+/// its `runtimes/<rid>/native/` payload into the NuGet artifact and consumers
+/// resolve a matching native asset at restore time. Mismatches surface to
+/// consumers as `warning CS8012: ... targets a different processor` followed by
+/// `FileNotFoundException` at runtime — the exact failure mode observed on tslp
+/// v1.9.0-rc.48. A RID whose triple is disabled via the workspace `[targets]`
+/// opt-out table is dropped from the list.
+pub(crate) const PUBLISHED_RUNTIME_IDENTIFIERS: &[(&str, &str)] = &[
+    ("win-x64", "x86_64-pc-windows-msvc"),
+    ("win-arm64", "aarch64-pc-windows-msvc"),
+    ("linux-x64", "x86_64-unknown-linux-gnu"),
+    ("linux-arm64", "aarch64-unknown-linux-gnu"),
+    ("osx-x64", "x86_64-apple-darwin"),
+    ("osx-arm64", "aarch64-apple-darwin"),
 ];
 
 /// Render just the `.csproj` XML content for the given config and version string.
@@ -58,7 +60,12 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
         .unwrap_or_default();
 
     let assembly_version = to_dotnet_assembly_version(version);
-    let runtime_identifiers = PUBLISHED_RUNTIME_IDENTIFIERS.join(";");
+    let runtime_identifiers = PUBLISHED_RUNTIME_IDENTIFIERS
+        .iter()
+        .filter(|(_, triple)| config.target_enabled(triple))
+        .map(|(rid, _)| *rid)
+        .collect::<Vec<_>>()
+        .join(";");
 
     format!(
         r#"<Project Sdk="Microsoft.NET.Sdk">

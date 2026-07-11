@@ -283,6 +283,23 @@ RSpec/NestedGroups:
 "#
     .to_string();
 
+    // Ruby cross-compile platforms, each paired with the Rust target triple that
+    // backs it. A platform whose triple is disabled via the workspace `[targets]`
+    // opt-out table is dropped from the generated `CROSS_PLATFORMS` list.
+    const RUBY_CROSS_PLATFORMS: &[(&str, &str)] = &[
+        ("x86_64-linux", "x86_64-unknown-linux-gnu"),
+        ("aarch64-linux", "aarch64-unknown-linux-gnu"),
+        ("arm64-darwin", "aarch64-apple-darwin"),
+        ("x86_64-darwin", "x86_64-apple-darwin"),
+        ("x64-mingw-ucrt", "x86_64-pc-windows-msvc"),
+    ];
+    let cross_platforms = RUBY_CROSS_PLATFORMS
+        .iter()
+        .filter(|(_, triple)| config.target_enabled(triple))
+        .map(|(platform, _)| format!("  {platform}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     let rakefile_content = format!(
         r#"# frozen_string_literal: true
 
@@ -302,11 +319,7 @@ GEMSPEC = Gem::Specification.load(File.expand_path("{gem_name_snake}.gemspec", G
 # that produce platform-specific prebuilt gems published alongside the source
 # gem on RubyGems.
 CROSS_PLATFORMS = %w[
-  x86_64-linux
-  aarch64-linux
-  arm64-darwin
-  x86_64-darwin
-  x64-mingw-ucrt
+{cross_platforms}
 ].freeze
 
 # rb_sys 0.9.x's Cargo::Metadata runs `cargo metadata` without `--manifest-path`,
@@ -377,6 +390,7 @@ task default: :spec
         gem_name_snake = gem_name_snake,
         cargo_pkg_name = cargo_pkg_name,
         ext_name = ext_name,
+        cross_platforms = cross_platforms,
     );
 
     let extconf_content = format!(

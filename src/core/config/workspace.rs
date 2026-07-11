@@ -86,6 +86,20 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub languages: Vec<Language>,
 
+    /// Per-target build opt-out toggles, shared across all crates.
+    ///
+    /// Keys are canonical target families — `linux_x64`, `linux_arm64`,
+    /// `linux_x64_musl`, `linux_arm64_musl`, `mac_intel`, `mac_arm`,
+    /// `windows_x64`, `windows_arm64` (see
+    /// [`crate::publish::platform::CANONICAL_TARGET_KEYS`]). Setting a key to
+    /// `false` drops every matching target triple from every language's
+    /// generated target list (napi platforms, elixir nif targets, C# RIDs,
+    /// ruby cross-platforms, dart native RIDs). Absent keys default to enabled,
+    /// so an empty table leaves generated output unchanged. A per-crate
+    /// `[[crates]] targets` table overrides individual keys.
+    #[serde(default)]
+    pub targets: std::collections::BTreeMap<String, bool>,
+
     /// Default Python backend settings.
     #[serde(default)]
     pub python: Option<PythonConfig>,

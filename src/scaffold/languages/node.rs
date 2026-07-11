@@ -48,11 +48,20 @@ const NAPI_DISPATCH_ROWS: &[(&str, &str, &str, Option<&str>)] = &[
 ];
 
 fn excluded_node_platforms(config: &ResolvedCrateConfig) -> Vec<String> {
-    config
+    let mut excluded = config
         .node
         .as_ref()
         .map(|c| c.exclude_platforms.clone())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Also drop any napi platform whose target triple is disabled via the
+    // workspace `[targets]` opt-out table, so a single toggle stays consistent
+    // with the language-specific `exclude_platforms` list.
+    for (platform, triple) in NAPI_PLATFORMS.iter().zip(NAPI_TARGETS.iter()) {
+        if !config.target_enabled(triple) && !excluded.iter().any(|e| e == platform) {
+            excluded.push((*platform).to_string());
+        }
+    }
+    excluded
 }
 
 fn napi_platforms_filtered(excluded: &[String]) -> Vec<(&'static str, &'static str)> {
