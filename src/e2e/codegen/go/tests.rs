@@ -795,6 +795,33 @@ fn render_go_mod_without_extras() {
 }
 
 #[test]
+fn render_go_mod_registry_mode_uses_sibling_module_path() {
+    // Registry mode (no replace): the main module must NOT be a subpath of the
+    // module under test, or Go ignores the `require` directive and resolves a
+    // stray upstream tag instead of the pinned version.
+    let out = render_go_mod("github.com/example/mylib", None, "v1.0.0", None);
+    assert!(
+        out.contains("module github.com/example/mylib-e2e"),
+        "registry-mode main module must be a sibling path, got: {out}"
+    );
+    assert!(
+        !out.contains("module github.com/example/mylib/e2e"),
+        "registry-mode main module must not shadow the module under test, got: {out}"
+    );
+}
+
+#[test]
+fn render_go_mod_local_mode_uses_nested_module_path() {
+    // Local mode (replace present): a nested `/e2e` main module resolves via the
+    // replace directive, so keep the historical nested path.
+    let out = render_go_mod("github.com/example/mylib", Some("../../packages/go"), "v0.0.0", None);
+    assert!(
+        out.contains("module github.com/example/mylib/e2e"),
+        "local-mode main module should stay nested, got: {out}"
+    );
+}
+
+#[test]
 fn render_go_mod_with_extras_includes_requires() {
     use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
     let mut extras = ManifestExtras::default();

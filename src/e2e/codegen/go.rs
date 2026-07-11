@@ -345,7 +345,20 @@ fn render_go_mod(
     extras: Option<&crate::core::config::manifest_extras::ManifestExtras>,
 ) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "module {go_module_path}/e2e");
+    // The generated test module must not be a subpath of the module under test.
+    // In local mode a `replace` directive redirects the required module to a local
+    // path, so a nested `{path}/e2e` main module resolves fine. In registry mode the
+    // required module is fetched from the proxy; a nested `{path}/e2e` main module
+    // shadows it — Go treats that path as owned by the main module, ignores the
+    // `require`, and "finds" a stray upstream tag (e.g. `v4.9.9+incompatible`)
+    // instead of the pinned version. Use a sibling `{path}-e2e` path in registry
+    // mode so the `require` directive is authoritative.
+    let main_module = if replace_path.is_some() {
+        format!("{go_module_path}/e2e")
+    } else {
+        format!("{go_module_path}-e2e")
+    };
+    let _ = writeln!(out, "module {main_module}");
     let _ = writeln!(out);
     let _ = writeln!(out, "go 1.26");
     let _ = writeln!(out);
