@@ -24,7 +24,7 @@ pub(super) fn elixir_stub_default(
 /// `fail_trait_call/2` NIFs (e.g. `"MyApp.Native"` for a crate named `my_app`).
 /// Pass an empty string to use the conventional `Native` fallback.
 ///
-/// `facade_module` is the public Elixir module (e.g. `"Xberg"`) that exposes the
+/// `facade_module` is the public Elixir module (e.g. `"MyApp"`) that exposes the
 /// `register_fn`/`unregister_fn` facade functions used by callers. It is used to
 /// build the teardown call — the facade normalizes arguments (e.g. accepting
 /// `name_or_opts`) where the raw NIF in `nif_module` does not. Pass an empty
@@ -204,10 +204,10 @@ pub fn emit_test_backend(
     // any later test that dispatches through that plugin blocks for the full
     // 10s trait-call watchdog timeout before failing.
     //
-    // Call through `facade_module` (e.g. `Xberg.unregister_ocr_backend/1`), not
+    // Call through `facade_module` (e.g. `MyApp.unregister_ocr_backend/1`), not
     // the raw NIF in `nif_module` — the facade normalizes the `name_or_opts` arg
     // the same way the generated `unregister_*_after_register` fixtures already
-    // do (`Xberg.unregister_post_processor("test-processor")`), so this teardown
+    // do (`MyApp.unregister_post_processor("test-processor")`), so this teardown
     // matches the calling convention the rest of the generated suite uses.
     let teardown_block = if facade_module.is_empty() {
         String::new()
