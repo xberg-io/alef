@@ -319,6 +319,10 @@ pub struct HttpMiddleware {
     pub rate_limit: Option<serde_json::Value>,
     #[serde(default)]
     pub request_timeout: Option<serde_json::Value>,
+    /// Maximum request-body size policy (e.g. `{"max_bytes": 1024}`). Passed
+    /// through opaquely so backends can wire it to their body-limit middleware.
+    #[serde(default)]
+    pub body_limit: Option<serde_json::Value>,
     #[serde(default)]
     pub request_id: Option<serde_json::Value>,
     /// CORS policy to apply via tower-http `CorsLayer`.
@@ -327,6 +331,11 @@ pub struct HttpMiddleware {
     /// Static-files configuration to serve via tower-http `ServeDir`.
     #[serde(default)]
     pub static_files: Option<Vec<StaticFilesConfig>>,
+    /// GraphQL route configuration (e.g. `{"schema": "...", "response_data": {...}}`).
+    /// Passed through opaquely so backends can register a GraphQL endpoint rather
+    /// than the generic route+handler pattern used by the other middleware fields.
+    #[serde(default)]
+    pub graphql: Option<serde_json::Value>,
 }
 
 const ORIGIN_ROOT_ROUTE_PREFIXES: [&str; 2] = ["/robots", "/sitemap"];
