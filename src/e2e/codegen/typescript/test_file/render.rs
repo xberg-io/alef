@@ -139,7 +139,16 @@ pub fn render_test_file(
                     && let Some(element_type) = &arg.element_type
                     && !is_typescript_primitive_element_type(element_type)
                 {
-                    all_options_types.insert(canonical_ts_type_name(lang, element_type, config));
+                    // Prefix bare wasm-wrapped element types so the import and
+                    // the constructor reference agree (`ExtractInput` ->
+                    // `WasmExtractInput`). See `wasm_prefixed_wrapped_type`.
+                    all_options_types.insert(wasm_prefixed_wrapped_type(
+                        lang,
+                        &canonical_ts_type_name(lang, element_type, config),
+                        type_defs,
+                        enums,
+                        wasm_type_prefix,
+                    ));
                 }
             }
         }
@@ -277,8 +286,13 @@ pub fn render_test_file(
             );
             for arg in &cc.args {
                 if let Some(elem_type) = &arg.element_type {
-                    if !is_typescript_primitive_element_type(elem_type) && !imports.contains(elem_type) {
-                        imports.push(elem_type.clone());
+                    // Prefix bare wasm-wrapped element types (e.g. `ExtractInput` ->
+                    // `WasmExtractInput`) so the import matches the constructor
+                    // reference emitted by `build_args_and_setup`. Non-wasm langs
+                    // and primitives / host types pass through unchanged.
+                    let elem_type = wasm_prefixed_wrapped_type(lang, elem_type, type_defs, enums, wasm_type_prefix);
+                    if !is_typescript_primitive_element_type(&elem_type) && !imports.contains(&elem_type) {
+                        imports.push(elem_type);
                     }
                 }
                 if lang == "node" && arg.arg_type == "json_object" {

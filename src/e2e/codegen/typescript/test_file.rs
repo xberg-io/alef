@@ -44,5 +44,5 @@ pub(in crate::e2e::codegen::typescript::test_file) use visitor::{
     apply_wasm_visitor_arg, node_visitor_args, wasm_visitor_binding,
 };
 pub(in crate::e2e::codegen::typescript::test_file) use wasm::{
-    collect_transitive_nested_types_for_wasm, derive_nested_types_for_wasm, wasm_class_name,
+    collect_transitive_nested_types_for_wasm, derive_nested_types_for_wasm, wasm_class_name, wasm_prefixed_wrapped_type,
 };

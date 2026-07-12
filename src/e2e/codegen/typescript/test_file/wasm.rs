@@ -86,6 +86,39 @@ pub(in crate::e2e::codegen::typescript::test_file) fn derive_nested_types_for_wa
     map
 }
 
+/// Prefix a bare IR type name with `wasm_type_prefix` when it names a
+/// wasm-wrapped struct or enum, leaving primitives / host types untouched.
+///
+/// The wasm-bindgen backend exposes every wrapped Rust struct/enum under the
+/// `wasm_type_prefix` (e.g. `ExtractInput` -> `WasmExtractInput`). Config
+/// option types are already prefixed via per-language `options_type`
+/// overrides in `alef.toml`, but a bare `element_type` on a `json_object`
+/// arg (e.g. the `extract` call's `ExtractInput` input) is not. Both the
+/// generated constructor call (`WasmExtractInput.default()`) and the import
+/// statement must reference the prefixed name, or the test throws
+/// `ReferenceError: WasmExtractInput is not defined` at runtime.
+///
+/// Returns `type_name` unchanged when it is already prefixed, when it is not
+/// a known wrapped type (TS primitives, `Uint8Array`, ...), or when `lang`
+/// is not `"wasm"`.
+pub(in crate::e2e::codegen::typescript::test_file) fn wasm_prefixed_wrapped_type(
+    lang: &str,
+    type_name: &str,
+    type_defs: &[TypeDef],
+    enums: &[EnumDef],
+    wasm_type_prefix: &str,
+) -> String {
+    if lang != "wasm" || type_name.starts_with(wasm_type_prefix) {
+        return type_name.to_string();
+    }
+    let is_wrapped = type_defs.iter().any(|t| t.name == type_name) || enums.iter().any(|e| e.name == type_name);
+    if is_wrapped {
+        format!("{wasm_type_prefix}{type_name}")
+    } else {
+        type_name.to_string()
+    }
+}
+
 /// Recursively inspect a `TypeRef` to find the innermost named type, if any.
 ///
 /// Returns the IR type name (without the `Wasm` prefix) when the type

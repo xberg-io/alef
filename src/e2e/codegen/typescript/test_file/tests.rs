@@ -329,6 +329,64 @@ fn wasm_imports_nested_types_from_json_object_element_types() {
         output.contains("WasmFileExtractionConfig"),
         "WASM imports must include nested DTOs reached through json_object element types;\n{output}"
     );
+
+    // The bare `element_type = "ExtractInput"` names a wasm-wrapped struct, so
+    // the constructor reference is prefixed (`WasmExtractInput.default()`). The
+    // import statement must reference the same prefixed name or the test throws
+    // `ReferenceError: WasmExtractInput is not defined` at runtime.
+    let import_line = output
+        .lines()
+        .find(|l| l.starts_with("import") && l.contains("@test/wasm"))
+        .expect("wasm test file must have a binding import line");
+    assert!(
+        import_line.contains("WasmExtractInput"),
+        "import line must reference the prefixed input class;\n{import_line}"
+    );
+    assert!(
+        !import_line.split([',', '{', '}', ' ']).any(|tok| tok == "ExtractInput"),
+        "import line must NOT reference the bare, unprefixed input class;\n{import_line}"
+    );
+    assert!(
+        output.contains("WasmExtractInput.default()"),
+        "constructor reference must use the prefixed input class;\n{output}"
+    );
+}
+
+#[test]
+fn wasm_prefixed_wrapped_type_prefixes_known_structs_and_enums() {
+    let struct_def = make_type("ExtractInput", vec![]);
+    let enum_def = crate::core::ir::EnumDef {
+        name: "OutputFormat".to_string(),
+        ..Default::default()
+    };
+    let type_defs = [struct_def];
+    let enums = [enum_def];
+
+    // Known wrapped struct → prefixed.
+    assert_eq!(
+        wasm_prefixed_wrapped_type("wasm", "ExtractInput", &type_defs, &enums, "Wasm"),
+        "WasmExtractInput"
+    );
+    // Known wrapped enum → prefixed.
+    assert_eq!(
+        wasm_prefixed_wrapped_type("wasm", "OutputFormat", &type_defs, &enums, "Wasm"),
+        "WasmOutputFormat"
+    );
+    // Already prefixed → unchanged (no double prefix).
+    assert_eq!(
+        wasm_prefixed_wrapped_type("wasm", "WasmExtractInput", &type_defs, &enums, "Wasm"),
+        "WasmExtractInput"
+    );
+    // Unknown / host type → unchanged.
+    assert_eq!(
+        wasm_prefixed_wrapped_type("wasm", "Uint8Array", &type_defs, &enums, "Wasm"),
+        "Uint8Array"
+    );
+    // Non-wasm language → never prefixed, even for a known struct.
+    assert_eq!(
+        wasm_prefixed_wrapped_type("node", "ExtractInput", &type_defs, &enums, "Wasm"),
+        "ExtractInput"
+    );
 }
 
 #[test]

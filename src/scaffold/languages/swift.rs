@@ -135,6 +135,13 @@ let package = Package(
         ]),
         .linkedLibrary("{binding_underscore}"),
         .linkedLibrary("{ffi_lib_name}"),
+        // The Rust staticlib records native-library dependencies (e.g. `lzma-sys`
+        // via the archive/`xz2` path emits `cargo:rustc-link-lib`) that cargo would
+        // resolve when it drives the final link, but a `staticlib` `.a` does not
+        // embed them and SwiftPM does not read cargo's link metadata, so undefined
+        // symbols like `_lzma_stream_decoder` surface at the swift link step. Link
+        // the system library here. `liblzma` ships in the macOS SDK and on Linux.
+        .linkedLibrary("lzma"),
         .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
         .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
         .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
@@ -298,9 +305,13 @@ let package = Package(
       path: "packages/swift/Sources/RustBridge",
       // The pre-built static library inside RustBridgeBinary references Apple
       // system frameworks (e.g. reqwest's proxy detection pulls in the Rust
-      // `system_configuration` crate → `SC*` symbols). The artifactbundle ships
-      // only the `.a`, so these frameworks must be linked by the consumer.
+      // `system_configuration` crate → `SC*` symbols) and native system
+      // libraries (e.g. the archive/`xz2` path pulls in `lzma-sys` →
+      // `_lzma_stream_decoder`). The artifactbundle ships only the `.a`, so these
+      // must be linked by the consumer. `liblzma` ships in the macOS SDK and on
+      // Linux.
       linkerSettings: [
+        .linkedLibrary("lzma"),
         .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
         .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
         .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),

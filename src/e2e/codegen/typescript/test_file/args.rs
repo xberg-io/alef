@@ -305,7 +305,21 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                     } else if let Some(raw_type) =
                         crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, v)
                     {
-                        let opts_type = canonical_ts_type_name(lang, raw_type, config);
+                        // The wasm binding exposes every wrapped struct/enum under the
+                        // `wasm_type_prefix` (e.g. `ExtractInput` -> `WasmExtractInput`).
+                        // Config option types already arrive prefixed via the
+                        // `options_type` override, but a bare input-builder type
+                        // (`ExtractInput`) does not, so `new ExtractInput()` throws
+                        // "not a constructor" at runtime. The import statement is
+                        // prefixed with the same helper in `render_test_file`, so the
+                        // constructor reference and its import stay in sync.
+                        let opts_type = wasm_prefixed_wrapped_type(
+                            lang,
+                            &canonical_ts_type_name(lang, raw_type, config),
+                            type_defs,
+                            enums,
+                            wasm_type_prefix,
+                        );
                         // Object value with known options type — construct properly for wasm-bindgen.
                         if v.is_object() && v.as_object().is_some_and(|o| o.is_empty()) {
                             // Empty options: pass undefined so wasm-bindgen's instanceof

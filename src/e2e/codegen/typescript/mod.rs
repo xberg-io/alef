@@ -148,10 +148,38 @@ impl E2eCodegen for TypeScriptCodegen {
         // emissions lacked the generated header.
         let workspace_yaml_path = output_base.join("pnpm-workspace.yaml");
         if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
-            // Registry mode: emit with generated header for proper cleanup tracking
+            // Registry mode: emit with generated header for proper cleanup tracking.
+            //
+            // Also emit `minimumReleaseAgeExclude` pinning the just-published
+            // package version so pnpm 11.3+'s supply-chain freshness gate does
+            // not reject installation of the package under test. The gate
+            // rejects packages younger than the configured minimum release age
+            // (default 24h); the sealed `packages: []` workspace root does not
+            // inherit any outer `minimumReleaseAge: 0` override, so without this
+            // allowlist `pnpm install` fails with a policy rejection on freshly
+            // published `@xberg-io/*` releases. Symmetric with the wasm codegen.
+            let workspace_yaml_content = {
+                let mut content = String::from("packages: []\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n");
+                use std::fmt::Write as _;
+                // A napi binding fans out into per-platform optionalDependencies
+                // (`<pkg>-darwin-arm64`, `<pkg>-linux-x64-gnu`, ...), each
+                // published in the same release burst as the main package, so
+                // pinning a single `pkg@version` is insufficient — every sibling
+                // platform package would still trip the freshness gate. Exempt
+                // the whole first-party scope (`@scope/*`) instead, which covers
+                // the main package and all its platform siblings while keeping
+                // the freshness gate active for every third-party dependency.
+                // Fall back to the exact package name when it is unscoped.
+                let exclude_pattern = match pkg_name.split_once('/') {
+                    Some((scope, _)) if scope.starts_with('@') => format!("{scope}/*"),
+                    _ => pkg_name.clone(),
+                };
+                let _ = write!(content, "minimumReleaseAgeExclude:\n  - '{exclude_pattern}'\n");
+                content
+            };
             files.push(GeneratedFile {
                 path: workspace_yaml_path.clone(),
-                content: "packages: []\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n".to_string(),
+                content: workspace_yaml_content,
                 generated_header: true,
             });
         } else {
