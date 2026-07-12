@@ -39,6 +39,76 @@ fn test_scaffold_wasm_omits_repository_when_unconfigured() {
     assert_eq!(parsed["engines"]["node"], ">= 22");
 }
 
+fn wasm_package_json(toml: &str) -> serde_json::Value {
+    let config = minimal_config_from_toml(toml);
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Wasm]).unwrap();
+    let files = language_files(&all_files);
+    let package_json = files
+        .iter()
+        .find(|f| f.path == Path::new("crates/my-lib-wasm/package.json"))
+        .expect("WASM package.json must be emitted");
+    serde_json::from_str(&package_json.content).expect("emitted package.json must be valid JSON")
+}
+
+#[test]
+fn wasm_targets_default_to_all_four_wasm_pack_targets() {
+    let parsed = wasm_package_json("");
+    // Default: every wasm-pack target ships, broad file glob, nodejs entry points.
+    assert_eq!(
+        parsed["files"],
+        serde_json::json!(["pkg", "*.wasm", "*.d.ts", "README.md"])
+    );
+    assert_eq!(parsed["main"], "pkg/nodejs/my_lib_wasm.js");
+    assert_eq!(parsed["module"], "pkg/web/my_lib_wasm.js");
+    assert_eq!(parsed["types"], "pkg/nodejs/my_lib_wasm.d.ts");
+    let scripts = &parsed["scripts"];
+    for t in ["web", "bundler", "nodejs", "deno"] {
+        assert!(
+            scripts.get(format!("build:wasm:{t}")).is_some(),
+            "missing build:wasm:{t}"
+        );
+    }
+    assert_eq!(
+        scripts["build:all"],
+        "npm run build:wasm:web && npm run build:wasm:bundler && npm run build:wasm:nodejs && npm run build:wasm:deno && find pkg -name .gitignore -delete"
+    );
+}
+
+#[test]
+fn wasm_targets_web_only_ships_single_target() {
+    let parsed = wasm_package_json("[crates.wasm]\ntargets = [\"web\"]\n");
+    // Single target: publish only pkg/web, entry points and build all point at web.
+    assert_eq!(parsed["files"], serde_json::json!(["pkg/web", "README.md"]));
+    assert_eq!(parsed["main"], "pkg/web/my_lib_wasm.js");
+    assert_eq!(parsed["module"], "pkg/web/my_lib_wasm.js");
+    assert_eq!(parsed["types"], "pkg/web/my_lib_wasm.d.ts");
+    let scripts = &parsed["scripts"];
+    assert!(scripts.get("build:wasm:web").is_some());
+    for t in ["bundler", "nodejs", "deno"] {
+        assert!(
+            scripts.get(format!("build:wasm:{t}")).is_none(),
+            "unexpected build:wasm:{t}"
+        );
+    }
+    assert_eq!(
+        scripts["build:all"],
+        "npm run build:wasm:web && find pkg -name .gitignore -delete"
+    );
+    assert_eq!(scripts["build"], "wasm-pack build --target web --out-dir pkg/web");
+}
+
+#[test]
+fn wasm_targets_rejects_unknown_target() {
+    let config = minimal_config_from_toml("[crates.wasm]\ntargets = [\"webxr\"]\n");
+    let api = test_api();
+    let err = scaffold(&api, &config, &[Language::Wasm]).expect_err("unknown wasm target must error");
+    assert!(
+        err.to_string().contains("unknown target 'webxr'"),
+        "unexpected error: {err}"
+    );
+}
+
 #[test]
 fn test_scaffold_java_requires_publish_metadata() {
     let config = minimal_config_from_toml("");

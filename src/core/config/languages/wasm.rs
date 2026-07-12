@@ -90,4 +90,24 @@ pub struct WasmConfig {
     /// Defaults to empty (all languages assumed supported).
     #[serde(default)]
     pub languages: Vec<String>,
+    /// wasm-pack build targets to generate and publish. Each entry produces a
+    /// `pkg/<target>` build plus a `build:wasm:<target>` script; `build:all`
+    /// builds exactly this set, and `files`/`main`/`module`/`types` are derived
+    /// from it. Every target embeds its own full copy of the wasm binary, so
+    /// restricting this to a single target (e.g. `["web"]`) keeps the published
+    /// npm package small — the `web` ES module is consumed by browsers, CDNs,
+    /// bundlers, Deno (`npm:`), and Node 22+. Valid entries: `web`, `bundler`,
+    /// `nodejs`, `deno`. Defaults to all four for backward compatibility.
+    #[serde(default = "default_wasm_targets")]
+    pub targets: Vec<String>,
+}
+
+/// The default wasm-pack target set: every target wasm-pack supports.
+pub fn default_wasm_targets() -> Vec<String> {
+    vec![
+        "web".to_string(),
+        "bundler".to_string(),
+        "nodejs".to_string(),
+        "deno".to_string(),
+    ]
 }

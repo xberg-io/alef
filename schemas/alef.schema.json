@@ -6888,6 +6888,19 @@
           },
           "type": "array"
         },
+        "targets": {
+          "default": [
+            "web",
+            "bundler",
+            "nodejs",
+            "deno"
+          ],
+          "description": "wasm-pack build targets to generate and publish. Each entry produces a\n`pkg/<target>` build plus a `build:wasm:<target>` script; `build:all`\nbuilds exactly this set, and `files`/`main`/`module`/`types` are derived\nfrom it. Every target embeds its own full copy of the wasm binary, so\nrestricting this to a single target (e.g. `[\"web\"]`) keeps the published\nnpm package small — the `web` ES module is consumed by browsers, CDNs,\nbundlers, Deno (`npm:`), and Node 22+. Valid entries: `web`, `bundler`,\n`nodejs`, `deno`. Defaults to all four for backward compatibility.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "type_overrides": {
           "additionalProperties": {
             "type": "string"
@@ -7468,7 +7481,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.35.0/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.36.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7586,6 +7599,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.35.0",
-  "x-alef-version": "0.35.0"
+  "version": "0.36.0",
+  "x-alef-version": "0.36.0"
 }

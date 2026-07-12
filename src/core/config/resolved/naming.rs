@@ -34,6 +34,15 @@ impl ResolvedCrateConfig {
             })
     }
 
+    /// Get the wasm-pack targets to build and publish for the WASM package.
+    /// Defaults to every wasm-pack target when unset.
+    pub fn wasm_targets(&self) -> Vec<String> {
+        self.wasm
+            .as_ref()
+            .map(|w| w.targets.clone())
+            .unwrap_or_else(crate::core::config::languages::default_wasm_targets)
+    }
+
     /// Get the Ruby gem name.
     pub fn ruby_gem_name(&self) -> String {
         self.ruby
