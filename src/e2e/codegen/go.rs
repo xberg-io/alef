@@ -383,6 +383,19 @@ fn render_go_mod(
 
     let _ = writeln!(out, ")");
 
+    // Emit testify's transitive dependencies as an explicit `// indirect` require
+    // block. Without them `go test` / `go mod download` abort with
+    // "updates to go.mod needed; to update it: go mod tidy" because the generated
+    // go.mod would be an incomplete dependency graph. Listing them here makes the
+    // published test_app build without a manual `go mod tidy` (and offline). These
+    // are the pinned transitive deps of `github.com/stretchr/testify v1.11.1`.
+    let _ = writeln!(out);
+    let _ = writeln!(out, "require (");
+    for (module_path, module_version) in TESTIFY_INDIRECT_DEPS {
+        let _ = writeln!(out, "\t{module_path} {module_version} // indirect");
+    }
+    let _ = writeln!(out, ")");
+
     if let Some(path) = replace_path {
         let _ = writeln!(out);
         let _ = writeln!(out, "replace {go_module_path} => {path}");
@@ -390,6 +403,16 @@ fn render_go_mod(
 
     out
 }
+
+/// Transitive (indirect) dependencies of `github.com/stretchr/testify v1.11.1`,
+/// pinned to the versions its own `go.mod` selects. These must appear in the
+/// generated test_app's go.mod (as `// indirect`) so `go test` builds without a
+/// manual `go mod tidy` — otherwise Go reports the go.mod as incomplete.
+const TESTIFY_INDIRECT_DEPS: &[(&str, &str)] = &[
+    ("github.com/davecgh/go-spew", "v1.1.1"),
+    ("github.com/pmezard/go-difflib", "v1.0.0"),
+    ("gopkg.in/yaml.v3", "v3.0.1"),
+];
 
 /// Emit environment variable setup code for the TestMain function.
 /// Returns a Go code snippet that calls os.Setenv for each env var in the config,

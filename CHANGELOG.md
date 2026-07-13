@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.2] - 2026-07-13
+
+### Fixed
+
+- **Generated test apps had four runtime-breaking defects when run against published packages**:
+  - **C# registry test app referenced the wrong NuGet id**: `render_csproj` emitted
+    `<PackageReference Include="{project_name}">` (the C# assembly/namespace, e.g. `Xberg`) instead
+    of the published NuGet id from `[crates.csharp].package_id` (e.g. `XbergIo.Xberg`), so
+    `dotnet restore` failed with `NU1101: Unable to find package`. The registry-mode reference now
+    resolves `package_id` → namespace → project name.
+  - **Go test app's `go.mod` was an incomplete dependency graph**: only `github.com/stretchr/testify`
+    was required, with none of its transitive deps, so `go test` aborted demanding `go mod tidy`.
+    `render_go_mod` now emits testify's pinned indirect deps (`go-spew`, `go-difflib`, `yaml.v3`) as
+    an `// indirect` block so the app builds offline without a manual tidy.
+  - **Dart test app never fetched its native library**: the `download_libs` invocation had been
+    dropped on the false premise that natives ship via pub.dev (they exceed pub.dev's 100 MB cap and
+    are fetched from the GitHub release). Restored: the run config derives the under-test package name
+    and runs `dart run <pkg>:download_libs` between `pub get` and `dart test`, so `RustLib.init()`
+    finds the native.
+  - **WASM/node test apps shipped a stale JS lockfile across `--clean`**: `pnpm-lock.yaml` pinned an
+    older version than `package.json` wanted, tripping pnpm's `minimumReleaseAge` supply-chain gate.
+    JS lockfiles (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`) are no longer preserved across
+    `--clean` for `node`/`wasm`, so the post-generate `pnpm install --lockfile-only` regenerates them
+    fresh; non-JS locks are still preserved.
+
 ## [0.36.1] - 2026-07-13
 
 ### Fixed

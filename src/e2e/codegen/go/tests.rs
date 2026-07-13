@@ -795,6 +795,25 @@ fn render_go_mod_without_extras() {
 }
 
 #[test]
+fn render_go_mod_includes_testify_indirect_deps() {
+    // A go.mod that lists testify but omits its transitive deps makes `go test`
+    // abort with "updates to go.mod needed; ... go mod tidy". The generated
+    // test_app must carry a complete dependency graph so it builds without a
+    // manual tidy (and offline).
+    let out = render_go_mod("github.com/example/mylib", None, "v1.0.0", None);
+    for indirect in [
+        "github.com/davecgh/go-spew v1.1.1 // indirect",
+        "github.com/pmezard/go-difflib v1.0.0 // indirect",
+        "gopkg.in/yaml.v3 v3.0.1 // indirect",
+    ] {
+        assert!(
+            out.contains(indirect),
+            "go.mod must contain testify indirect dep `{indirect}`, got:\n{out}"
+        );
+    }
+}
+
+#[test]
 fn render_go_mod_registry_mode_uses_sibling_module_path() {
     // Registry mode (no replace): the main module must NOT be a subpath of the
     // module under test, or Go ignores the `require` directive and resolves a

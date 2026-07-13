@@ -267,19 +267,30 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             let lock_files = [
                                 "go.sum",
                                 "go.mod",
-                                "package-lock.json",
-                                "pnpm-lock.yaml",
-                                "yarn.lock",
                                 "Gemfile.lock",
                                 "composer.lock",
                                 "uv.lock",
                                 "pubspec.lock",
                             ];
+                            // JS lockfiles are deliberately NOT preserved across --clean for the
+                            // node/wasm test apps. A committed lockfile that pins an older version
+                            // than package.json wants (e.g. `pnpm-lock.yaml` stuck at rc.25 while
+                            // package.json wants ^rc.26) makes pnpm's `minimumReleaseAge`
+                            // supply-chain gate reject the install
+                            // (ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION). Dropping the stale lock lets
+                            // the post-generate `pnpm install --lockfile-only` regenerate it fresh
+                            // against the current package.json — and if that step is unavailable, no
+                            // stale lock ships and smoke-time `pnpm install` resolves cleanly.
+                            let js_lock_files = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"];
                             for lang_name in &langs_to_clean {
+                                let preserve_js_locks = lang_name != "node" && lang_name != "wasm";
                                 let lang_dir = output_root.join(lang_name);
                                 if lang_dir.exists() {
                                     let mut saved_locks = std::collections::HashMap::new();
-                                    for lock_file in &lock_files {
+                                    let lock_files_iter = lock_files
+                                        .iter()
+                                        .chain(js_lock_files.iter().filter(|_| preserve_js_locks));
+                                    for lock_file in lock_files_iter {
                                         let lock_path = lang_dir.join(lock_file);
                                         if lock_path.exists() {
                                             if let Ok(content) = std::fs::read(&lock_path) {

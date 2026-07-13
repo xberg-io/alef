@@ -8,6 +8,7 @@ use std::fmt::Write as FmtWrite;
 
 pub(super) fn render_csproj(
     pkg_name: &str,
+    nuget_package_id: &str,
     pkg_path: &str,
     pkg_version: &str,
     dep_mode: crate::e2e::config::DependencyMode,
@@ -15,7 +16,9 @@ pub(super) fn render_csproj(
 ) -> String {
     let pkg_ref = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            format!("    <PackageReference Include=\"{pkg_name}\" Version=\"{pkg_version}\" />")
+            // Reference the published NuGet id (which can differ from the C# namespace /
+            // local project name) so `dotnet restore` finds the package on nuget.org.
+            format!("    <PackageReference Include=\"{nuget_package_id}\" Version=\"{pkg_version}\" />")
         }
         crate::e2e::config::DependencyMode::Local => {
             format!("    <ProjectReference Include=\"{pkg_path}\" />")
@@ -234,6 +237,7 @@ mod tests {
 
         let output = render_csproj(
             "MyLib",
+            "MyLib",
             "../../packages/csharp/MyLib/MyLib.csproj",
             "0.1.0",
             crate::e2e::config::DependencyMode::Local,
@@ -264,6 +268,7 @@ mod tests {
 
         let output = render_csproj(
             "MyLib",
+            "MyLib",
             "../../packages/csharp/MyLib/MyLib.csproj",
             "0.1.0",
             crate::e2e::config::DependencyMode::Local,
@@ -293,6 +298,7 @@ mod tests {
 
         let output = render_csproj(
             "MyLib",
+            "MyLib",
             "../../packages/csharp/MyLib/MyLib.csproj",
             "0.1.0",
             crate::e2e::config::DependencyMode::Local,
@@ -307,6 +313,7 @@ mod tests {
     #[test]
     fn test_render_csproj_without_extras() {
         let output = render_csproj(
+            "MyLib",
             "MyLib",
             "../../packages/csharp/MyLib/MyLib.csproj",
             "0.1.0",
@@ -327,6 +334,7 @@ mod tests {
         let extras = ManifestExtras::default(); // Empty: no dependencies or dev_dependencies
 
         let output = render_csproj(
+            "MyLib",
             "MyLib",
             "../../packages/csharp/MyLib/MyLib.csproj",
             "0.1.0",
@@ -351,16 +359,47 @@ mod tests {
 
         let output = render_csproj(
             "MyLib",
+            "Vendor.MyLib",
             "../../packages/csharp/MyLib/MyLib.csproj",
             "0.1.0",
             crate::e2e::config::DependencyMode::Registry,
             Some(&extras),
         );
 
-        // Registry mode should NOT include extras; template may still process empty extras_block
-        // but the real filtering happens at the call site. Verify the baseline works.
-        assert!(output.contains("<PackageReference Include=\"MyLib\" Version=\"0.1.0\" />"));
+        // Registry mode references the published NuGet id (which can differ from the local
+        // project/namespace name), not the on-disk project name. Extras are filtered at the
+        // call site, so verify the baseline PackageReference uses the NuGet id.
+        assert!(output.contains("<PackageReference Include=\"Vendor.MyLib\" Version=\"0.1.0\" />"));
+        assert!(
+            !output.contains("<PackageReference Include=\"MyLib\" Version=\"0.1.0\" />"),
+            "registry mode must not reference the local project name, only the NuGet id"
+        );
         assert!(output.contains("Microsoft.NET.Test.Sdk"));
+    }
+
+    #[test]
+    fn test_render_csproj_registry_mode_uses_nuget_id_over_project_name() {
+        // When the published NuGet id differs from the C# project/namespace name, the
+        // registry-mode PackageReference must use the NuGet id so `dotnet restore` resolves
+        // the package on nuget.org (regression: previously used the project name and hit
+        // NU1101 "Unable to find package").
+        let output = render_csproj(
+            "Xberg",
+            "XbergIo.Xberg",
+            "../../packages/csharp/Xberg/Xberg.csproj",
+            "1.0.0-rc.26",
+            crate::e2e::config::DependencyMode::Registry,
+            None,
+        );
+
+        assert!(
+            output.contains("<PackageReference Include=\"XbergIo.Xberg\" Version=\"1.0.0-rc.26\" />"),
+            "registry PackageReference must use the NuGet id, got: {output}"
+        );
+        assert!(
+            !output.contains("Include=\"Xberg\" Version="),
+            "registry mode must not reference the bare project name, got: {output}"
+        );
     }
 
     #[test]
@@ -377,6 +416,7 @@ mod tests {
             .insert("Moq".to_string(), ExtraDepSpec::Simple("4.16.0".to_string()));
 
         let output = render_csproj(
+            "MyLib",
             "MyLib",
             "../../packages/csharp/MyLib/MyLib.csproj",
             "0.1.0",
@@ -429,6 +469,7 @@ mod tests {
 
         let output1 = render_csproj(
             "MyLib",
+            "MyLib",
             "../../packages/csharp/MyLib/MyLib.csproj",
             "0.1.0",
             crate::e2e::config::DependencyMode::Local,
@@ -436,6 +477,7 @@ mod tests {
         );
 
         let output2 = render_csproj(
+            "MyLib",
             "MyLib",
             "../../packages/csharp/MyLib/MyLib.csproj",
             "0.1.0",

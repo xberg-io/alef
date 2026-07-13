@@ -95,6 +95,17 @@ impl E2eCodegen for CSharpCodegen {
             .and_then(|p| p.path.as_ref())
             .cloned()
             .unwrap_or_else(|| format!("../../packages/csharp/{pkg_name}/{pkg_name}.csproj"));
+        // The published NuGet id can differ from the C# namespace / on-disk project name
+        // (e.g. a vendor-prefixed id like `XbergIo.Xberg` when the unprefixed name is taken on
+        // nuget.org). Registry-mode test apps must reference the package by its published id,
+        // so resolve `[crates.csharp].package_id` here, falling back to the namespace and then
+        // to `pkg_name` (the local project/assembly name used everywhere else in this csproj).
+        let nuget_package_id = config
+            .csharp
+            .as_ref()
+            .and_then(|cs| cs.package_id.clone())
+            .or_else(|| config.csharp.as_ref().and_then(|cs| cs.namespace.clone()))
+            .unwrap_or_else(|| pkg_name.clone());
         let pkg_version = cs_pkg
             .as_ref()
             .and_then(|p| p.version.as_ref())
@@ -109,6 +120,7 @@ impl E2eCodegen for CSharpCodegen {
             path: output_base.join(&csproj_name),
             content: render_csproj(
                 &pkg_name,
+                &nuget_package_id,
                 &pkg_path,
                 &pkg_version,
                 e2e_config.dep_mode,
