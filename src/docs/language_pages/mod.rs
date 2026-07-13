@@ -5,12 +5,14 @@ mod function_render;
 mod streaming;
 mod type_render;
 
+use crate::codegen::cfg::collect_cfg_features;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, TypeDef};
 use crate::docs::naming::{lang_display_name, lang_slug};
 use crate::docs::sorting::{is_update_type, type_sort_key};
 use crate::docs::template_env;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use enum_render::render_enum;
@@ -26,6 +28,15 @@ pub(super) fn generate_lang_doc(
     output_dir: &str,
     ffi_prefix: &str,
 ) -> anyhow::Result<GeneratedFile> {
+    // Filter the surface to what this binding actually compiles: items (and
+    // their fields/variants) gated behind a `#[cfg(feature = "...")]` the
+    // binding does not enable are compiled out of the real binding, so they
+    // must not appear in its reference docs.
+    let effective_features = effective_docs_features(api, config, lang);
+    let enabled_features: HashSet<&str> = effective_features.iter().map(String::as_str).collect();
+    let filtered_api = api.with_cfg_filtered_deep(&enabled_features);
+    let api = &filtered_api;
+
     let lang_display = lang_display_name(lang);
     let version = &api.version;
     let lang_slug = lang_slug(lang);
@@ -109,4 +120,42 @@ pub(super) fn generate_lang_doc(
         content: out,
         generated_header: false,
     })
+}
+
+/// Compute the feature set a language's binding actually compiles, for the
+/// purpose of cfg-filtering the reference docs.
+///
+/// This must mirror how each backend resolves the feature set that lands in its
+/// generated Cargo.toml, otherwise the docs diverge from the real binding
+/// surface:
+///
+/// - Swift and Dart force-enable *every* feature referenced by any `#[cfg]` in
+///   the surface (so all conditionally-compiled items build), minus the
+///   features listed in `excluded_default_features`. Their generated
+///   `[features] default = [...]` is exactly that set (see the swift/dart
+///   `gen_rust_crate` cargo emitters), so docs must use the same set — using
+///   only the configured `features` list would wrongly drop items gated behind
+///   features that are implicitly enabled.
+/// - Every other language uses its configured feature list directly (an
+///   umbrella feature such as `full`, `wasm-target`, or an explicit list). For
+///   those, `features_for_language` already reflects what the binding compiles.
+fn effective_docs_features(api: &ApiSurface, config: &ResolvedCrateConfig, lang: Language) -> Vec<String> {
+    let mut features: HashSet<String> = config.features_for_language(lang).iter().cloned().collect();
+
+    let excluded_default: Option<&[String]> = match lang {
+        Language::Swift => config.swift.as_ref().map(|c| c.excluded_default_features.as_slice()),
+        Language::Dart => config.dart.as_ref().map(|c| c.excluded_default_features.as_slice()),
+        _ => None,
+    };
+
+    if let Some(excluded) = excluded_default {
+        let excluded: HashSet<&str> = excluded.iter().map(String::as_str).collect();
+        for feature in collect_cfg_features(api) {
+            if !excluded.contains(feature.as_str()) {
+                features.insert(feature);
+            }
+        }
+    }
+
+    features.into_iter().collect()
 }

@@ -1,6 +1,204 @@
 use super::*;
 use crate::core::ir::{DeprecationInfo, VersionAnnotation};
 
+/// Config with two bindings whose feature sets differ: `wasm` disables the
+/// `tree-sitter` feature (its feature set is `["wasm-target"]`) while the
+/// default (used by `python`) enables `full`. Mirrors the xberg layout where
+/// `#[cfg(feature = "tree-sitter")]` items compile out of the wasm binding.
+fn cfg_gating_config() -> ResolvedCrateConfig {
+    config_from_toml(
+        r#"
+[workspace]
+languages = ["python", "wasm"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+features = ["full"]
+
+[crates.wasm]
+features = ["wasm-target"]
+"#,
+    )
+}
+
+fn gated_type(name: &str, cfg: Option<&str>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("mylib::{name}"),
+        cfg: cfg.map(str::to_string),
+        doc: format!("Doc for {name}."),
+        ..TypeDef::default()
+    }
+}
+
+#[test]
+fn cfg_gated_type_excluded_when_feature_off_included_when_on() {
+    use crate::core::ir::{CoreWrapper, FieldDef};
+
+    let extraction_config = TypeDef {
+        name: "ExtractionConfig".to_string(),
+        rust_path: "mylib::ExtractionConfig".to_string(),
+        doc: "Extraction configuration.".to_string(),
+        fields: vec![
+            FieldDef {
+                name: "use_cache".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::Bool),
+                doc: "Whether to cache.".to_string(),
+                cfg: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                ..FieldDef::default()
+            },
+            FieldDef {
+                name: "tree_sitter".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Named("TreeSitterConfig".to_string()))),
+                optional: true,
+                doc: "Tree-sitter config.".to_string(),
+                cfg: Some("feature = \"tree-sitter\"".to_string()),
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                ..FieldDef::default()
+            },
+        ],
+        ..TypeDef::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            gated_type("TreeSitterConfig", Some("feature = \"tree-sitter\"")),
+            extraction_config,
+        ],
+        ..ApiSurface::default()
+    };
+    let config = cfg_gating_config();
+    let files = generate_docs(&api, &config, &[Language::Python, Language::Wasm], "out").unwrap();
+
+    let wasm = &files
+        .iter()
+        .find(|f| f.path.to_str().unwrap().contains("api-wasm"))
+        .unwrap()
+        .content;
+    assert!(
+        !wasm.contains("TreeSitterConfig"),
+        "cfg-gated type must be omitted from wasm docs; got:\n{wasm}"
+    );
+    assert!(
+        !wasm.contains("tree_sitter"),
+        "cfg-gated field must be omitted from wasm docs; got:\n{wasm}"
+    );
+    assert!(
+        wasm.contains("ExtractionConfig") && wasm.contains("useCache"),
+        "ungated type/field must remain in wasm docs; got:\n{wasm}"
+    );
+
+    let python = &files
+        .iter()
+        .find(|f| f.path.to_str().unwrap().contains("api-python"))
+        .unwrap()
+        .content;
+    assert!(
+        python.contains("TreeSitterConfig"),
+        "cfg-gated type must remain in python docs (full feature set); got:\n{python}"
+    );
+    assert!(
+        python.contains("tree_sitter"),
+        "cfg-gated field must remain in python docs; got:\n{python}"
+    );
+}
+
+#[test]
+fn cfg_gated_enum_variant_and_function_respect_feature_set() {
+    use crate::core::ir::EnumVariant;
+
+    let content_mode = EnumDef {
+        name: "CodeContentMode".to_string(),
+        rust_path: "mylib::CodeContentMode".to_string(),
+        cfg: Some("feature = \"tree-sitter\"".to_string()),
+        doc: "Code content mode.".to_string(),
+        variants: vec![EnumVariant {
+            name: "Full".to_string(),
+            doc: "Full content.".to_string(),
+            ..EnumVariant::default()
+        }],
+        ..EnumDef::default()
+    };
+    let output_format = EnumDef {
+        name: "OutputFormat".to_string(),
+        rust_path: "mylib::OutputFormat".to_string(),
+        cfg: None,
+        doc: "Output format.".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Markdown".to_string(),
+                doc: "Markdown.".to_string(),
+                ..EnumVariant::default()
+            },
+            EnumVariant {
+                name: "CodeAst".to_string(),
+                doc: "Code AST output.".to_string(),
+                cfg: Some("feature = \"tree-sitter\"".to_string()),
+                ..EnumVariant::default()
+            },
+        ],
+        ..EnumDef::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "0.1.0".to_string(),
+        enums: vec![content_mode, output_format],
+        functions: vec![FunctionDef {
+            name: "extract_code_intelligence".to_string(),
+            rust_path: "mylib::extract_code_intelligence".to_string(),
+            cfg: Some("feature = \"tree-sitter\"".to_string()),
+            return_type: TypeRef::String,
+            ..FunctionDef::default()
+        }],
+        ..ApiSurface::default()
+    };
+    let config = cfg_gating_config();
+    let files = generate_docs(&api, &config, &[Language::Python, Language::Wasm], "out").unwrap();
+
+    let wasm = &files
+        .iter()
+        .find(|f| f.path.to_str().unwrap().contains("api-wasm"))
+        .unwrap()
+        .content;
+    assert!(
+        !wasm.contains("CodeContentMode"),
+        "cfg-gated enum must be omitted from wasm docs; got:\n{wasm}"
+    );
+    assert!(
+        !wasm.contains("extract_code_intelligence"),
+        "cfg-gated function must be omitted from wasm docs; got:\n{wasm}"
+    );
+    assert!(
+        !wasm.contains("CodeAst") && !wasm.contains("CODE_AST"),
+        "cfg-gated enum variant must be omitted from wasm docs; got:\n{wasm}"
+    );
+    assert!(
+        wasm.contains("OutputFormat"),
+        "ungated enum must remain in wasm docs; got:\n{wasm}"
+    );
+
+    let python = &files
+        .iter()
+        .find(|f| f.path.to_str().unwrap().contains("api-python"))
+        .unwrap()
+        .content;
+    assert!(
+        python.contains("CodeContentMode") && python.contains("extract_code_intelligence"),
+        "cfg-gated items must remain in python docs; got:\n{python}"
+    );
+    assert!(
+        python.contains("CODE_AST"),
+        "cfg-gated enum variant must remain in python docs; got:\n{python}"
+    );
+}
+
 #[test]
 fn test_generate_docs_with_function_renders_signature_and_params() {
     let api = ApiSurface {

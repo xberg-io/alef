@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-07-13
+
+### Fixed
+
+- **`alef docs` over-documented `#[cfg(feature = "…")]`-gated items for feature-restricted bindings**:
+  the reference-docs generator rendered the full extracted API surface without evaluating each
+  binding's effective feature set, so a binding whose feature set excludes a gate (e.g. the wasm
+  binding — `wasm-target`, which does not enable `tree-sitter`) still documented the gated types,
+  struct fields, enum variants, and functions, diverging from the surface the binding actually
+  compiles. `generate_lang_doc` now filters the surface through the new
+  `ApiSurface::with_cfg_filtered_deep` — which drops cfg-gated *members* (fields, enum variants,
+  variant fields), not just top-level items — using each backend's real effective feature set
+  (Swift/Dart force-enable every cfg-referenced feature minus `excluded_default_features`; other
+  backends use their configured feature list). `cfg_feature_satisfied` gains three-valued (Kleene)
+  evaluation with full `all`/`any`/`not` and nested-predicate support, and keeps any item whose gate
+  depends on an unresolved non-feature leaf (e.g. `target_arch`), so target-conditional items are
+  never wrongly dropped.
+
+## [0.34.7] - 2026-07-10
+
 ### Fixed
 
 - **dart native loader emitted unparseable Dart (`\${...}` instead of `${...}`)**: the
@@ -1065,7 +1085,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **extendr (R): skip per-variant factory constructors whose fields cannot cross the extendr input boundary.**
   A tagged data enum (e.g. `NodeContent`) generates a `_factory_<variant>` `#[extendr]` constructor per
   struct variant. When a variant field was a Named DTO (`grid: TableGrid`) or `Vec<DTO>`
-  (`entries: Vec<MetadataEntry>`), the constructor took it _by value_, which the `#[extendr]` proc-macro
+  (`entries: Vec<MetadataEntry>`), the constructor took it *by value*, which the `#[extendr]` proc-macro
   cannot accept (`error[E0277]: T: TryFrom<&Robj> not satisfied`) — extendr derives `TryFrom<&Robj>` only
   for `&T`, never owned `T`, and has no R-list conversion for `Vec<DTO>`. `gen_extendr_enum_variant_constructors`
   and `extendr_enum_variant_constructor_registrations` now skip such variants (predicate
