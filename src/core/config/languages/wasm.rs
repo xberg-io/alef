@@ -31,6 +31,13 @@ pub struct WasmConfig {
     #[serde(default)]
     #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
+    /// Additional `[dev-dependencies]` entries for the generated WASM binding
+    /// crate's Cargo.toml. Declares test-only dependencies for hand-written
+    /// test files (e.g. `wasm-bindgen-test` for in-crate `#[wasm_bindgen_test]`
+    /// suites) without hand-editing the generated manifest.
+    #[serde(default)]
+    #[schemars(with = "HashMap<String, serde_json::Value>")]
+    pub extra_dev_dependencies: HashMap<String, toml::Value>,
     /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
