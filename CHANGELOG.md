@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.2] - 2026-07-19
+
+### Fixed
+
+- **Swift e2e `.length`/`.count` assertions on JSON-bridged collections no longer emit
+  uncompilable `.count`**: a length/count/size assertion whose collection leaf is a swift-bridge
+  scalar `RustString` getter — an `Option<Vec<T>>`, `Map`, or `Vec<Vec<_>>` field, which bridges
+  to a single JSON string with no `.count` — generated `<collection>()?.count`, which does not
+  compile. Such assertions are now skipped with a "not available on result type" comment,
+  matching the go/csharp/java backends. Countable `RustVec` getters (plain `Vec<T>`) are
+  unaffected and still emit `.count`.
+
 ## [0.37.1] - 2026-07-19
 
 ### Fixed
