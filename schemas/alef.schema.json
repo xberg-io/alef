@@ -6822,6 +6822,12 @@
           "description": "Additional Cargo dependencies for the WASM binding crate only.",
           "type": "object"
         },
+        "extra_dev_dependencies": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Additional `[dev-dependencies]` entries for the generated WASM binding\ncrate's Cargo.toml. Declares test-only dependencies for hand-written\ntest files (e.g. `wasm-bindgen-test` for in-crate `#[wasm_bindgen_test]`\nsuites) without hand-editing the generated manifest.",
+          "type": "object"
+        },
         "extra_lint_paths": {
           "default": [],
           "description": "Extra paths to append to default lint commands (format, check, typecheck).",
@@ -7481,7 +7487,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.36.2/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.37.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7599,6 +7605,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.36.2",
-  "x-alef-version": "0.36.2"
+  "version": "0.37.0",
+  "x-alef-version": "0.37.0"
 }

@@ -12,13 +12,13 @@ pub mod npm {
 
     pub const NAPI_RS_CLI_DEVDEPS: &str = "^3.0.0";
 
-    pub const NAPI_RS_CLI_CRATE: &str = "^3.6.2";
+    pub const NAPI_RS_CLI_CRATE: &str = "^3.7.3";
 
     pub const TYPESCRIPT: &str = "^6.0.3";
 
-    pub const VITEST: &str = "^4.1.5";
+    pub const VITEST: &str = "^4.1.10";
 
-    pub const TYPES_NODE: &str = "^22.10.2";
+    pub const TYPES_NODE: &str = "^26.0.0";
 
     pub const ROLLUP: &str = "^4.53.3";
 
@@ -287,7 +287,7 @@ pub mod cran {
 }
 
 pub mod precommit {
-    pub const ALEF_REV: &str = "v0.36.2";
+    pub const ALEF_REV: &str = "v0.37.0";
 
     /// Codegen format version — bumped only when output-affecting codegen
     /// changes require all generated files to be re-stamped. Unlike

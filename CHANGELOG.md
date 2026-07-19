@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-07-19
+
+### Added
+
+- **`custom_modules` entries for backends that ignore them are now flagged** (#183): `alef generate`
+  emits a warning when `[custom_modules].<lang>` carries entries for a language whose backend never
+  consumes them (`node`, `wasm`, `go`, `java`, `csharp`). Only pyo3, ffi, php, magnus, rustler, and
+  extendr read `custom_modules`; entries elsewhere silently did nothing. The warning names the
+  language and, for wasm, points at `[crates.wasm].custom_rust_modules` — the knob that actually
+  declares hand-written Rust modules. The misleading `custom_rust_modules` doc comment (which
+  claimed `[custom_modules].wasm` adds TypeScript re-exports) is corrected.
+- **`alef verify` flags hash-inconsistent trees** (#184): verify now reports when the generated tree
+  carries more distinct `alef:hash` values than there are generating crates — the signature of a
+  partial regeneration where some files were regenerated and others left with an older hash. The
+  check is host-independent (it never recomputes the inputs hash), so partial regens are caught at
+  commit time regardless of environment. Surfaces under `--exit-code`.
+
+### Changed (BREAKING)
+
+- **Generation fails fast when a required formatter is missing** (#184): `alef generate` and
+  `alef all` now abort up front if `rustfmt`, `poly`, or (for languages with a cargo-sort residual:
+  wasm/ffi/ruby/elixir/r) `cargo-sort` is not on `PATH`, instead of warning and emitting
+  differently-formatted, host-dependent output. The error names each missing tool and how to install
+  it. This makes generation deterministic modulo the config; install the listed tools to proceed.
+- **Generated node/e2e dependency bumps**: `@napi-rs/cli` `^3.6.2` → `^3.7.3` (devDependency and the
+  default build command), `@types/node` `^22.10.2` → `^26.0.0`, and `vitest` `^4.1.5` → `^4.1.10`.
+
+### Fixed
+
+- **`alef generate --lang <one>` no longer deletes other languages' output** (#178): the orphan
+  sweep computed its keep set from the filtered language but widened its roots unconditionally
+  (always including `packages/wasm` and `packages/typescript`), so a filtered run deleted every other
+  binding's still-valid generated files. Filtered runs now scope the sweep roots to the requested
+  languages' own directories; unfiltered `alef all` behavior is unchanged.
+- **`alef all` no longer deletes the generated docs reference tree based on host state** (#184): the
+  set of reference pages `generate_docs_stage` emits varies with the host (CLI/MCP source presence,
+  doc-language subset), so a host that regenerated fewer pages let orphan cleanup delete the
+  committed pages it did not produce. Committed pages under `[docs].reference_output` are now
+  protected from orphan cleanup.
+
 ## [0.36.2] - 2026-07-13
 
 ### Fixed
