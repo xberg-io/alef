@@ -10,14 +10,15 @@ pub(crate) fn detect_receiver(
 ) -> (Option<ReceiverKind>, bool) {
     for input in inputs {
         if let syn::FnArg::Receiver(recv) = input {
-            let kind = if recv.reference.is_some() {
-                if recv.mutability.is_some() {
-                    ReceiverKind::RefMut
-                } else {
-                    ReceiverKind::Ref
+            let kind = match &recv.kind {
+                syn::ReceiverKind::Reference(_, _, mutability) => {
+                    if mutability.is_some() {
+                        ReceiverKind::RefMut
+                    } else {
+                        ReceiverKind::Ref
+                    }
                 }
-            } else {
-                ReceiverKind::Owned
+                _ => ReceiverKind::Owned,
             };
             return (Some(kind), false);
         }

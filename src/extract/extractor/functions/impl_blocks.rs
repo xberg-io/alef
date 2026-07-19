@@ -221,7 +221,7 @@ fn extract_trait_impl_methods(
     let Some(type_name) = type_name else { return };
 
     let Some(&idx) = type_index.get(&type_name) else {
-        if let Some((_, path, _)) = &item.trait_ {
+        if let Some((path, _)) = &item.trait_ {
             if path.segments.last().is_some_and(|s| s.ident == "Default") {
                 if let Some(enum_def) = surface.enums.iter_mut().find(|e| e.name == type_name) {
                     enum_def.has_default = true;
@@ -268,7 +268,7 @@ fn extract_trait_impl_methods(
         "Serialize",
         "Deserialize",
     ];
-    let trait_source = item.trait_.as_ref().and_then(|(_, path, _)| {
+    let trait_source = item.trait_.as_ref().and_then(|(path, _)| {
         let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
         let trait_name = segments.last().map(|s| s.as_str()).unwrap_or("");
         if STD_TRAITS.contains(&trait_name) {
@@ -288,14 +288,14 @@ fn extract_trait_impl_methods(
 
     let type_def = &mut surface.types[idx];
 
-    if let Some((_, path, _)) = &item.trait_ {
+    if let Some((path, _)) = &item.trait_ {
         if path.segments.last().is_some_and(|s| s.ident == "Default") {
             type_def.has_default = true;
             extract_default_values(item, &mut type_def.fields);
         }
     }
 
-    let is_conversion_trait = item.trait_.as_ref().is_some_and(|(_, path, _)| {
+    let is_conversion_trait = item.trait_.as_ref().is_some_and(|(path, _)| {
         path.segments
             .last()
             .is_some_and(|s| matches!(s.ident.to_string().as_str(), "From" | "Into" | "TryFrom" | "TryInto"))
@@ -304,7 +304,7 @@ fn extract_trait_impl_methods(
         return;
     }
 
-    let is_std_trait_impl = item.trait_.as_ref().is_some_and(|(_, path, _)| {
+    let is_std_trait_impl = item.trait_.as_ref().is_some_and(|(path, _)| {
         path.segments
             .last()
             .is_some_and(|s| STD_TRAITS.contains(&s.ident.to_string().as_str()))

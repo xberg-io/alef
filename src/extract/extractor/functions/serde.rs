@@ -17,7 +17,7 @@ pub(crate) fn collect_manual_serde_type_names(items: &[syn::Item]) -> ahash::AHa
 
     for item in items {
         if let syn::Item::Impl(item_impl) = item {
-            let Some((_, trait_path, _)) = &item_impl.trait_ else {
+            let Some((trait_path, _)) = &item_impl.trait_ else {
                 continue;
             };
             let type_name = match &*item_impl.self_ty {

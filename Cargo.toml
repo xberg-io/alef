@@ -42,7 +42,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
 glob = "0.3"
 heck = "0.5"
-jsonschema = { version = "0.46", default-features = false, features = ["resolve-file"] }
+jsonschema = { version = "0.48", default-features = false, features = ["resolve-file"] }
 libloading = { version = "0.8", optional = true }
 minijinja = "2"
 quote = "1"
@@ -55,7 +55,7 @@ serde_json = "1"
 serde_yaml = "0.9"
 sha2 = "0.11"
 similar = "3"
-syn = { version = "2", features = ["full", "parsing", "visit"] }
+syn = { version = "3", features = ["full", "parsing", "visit"] }
 tempfile = "3"
 thiserror = "2"
 toml = "1.1"
