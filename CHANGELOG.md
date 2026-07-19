@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Generated Rust e2e test code is now clippy-clean under `--all-targets`**: the `min_length`
+  assertion emitted `x.len() >= 1`, which trips `clippy::len_zero`; for `n == 1` it now emits
+  `!x.is_empty()` (matching the existing `assertion_helpers` behaviour) and keeps `len() >= n`
+  for `n > 1`. The generated mock-server `Child` — a per-test-process singleton kept alive via
+  leaked stdin and reaped by the OS at exit — is annotated `#[allow(clippy::zombie_processes)]`
+  so it no longer trips that lint.
+
 ## [0.37.2] - 2026-07-19
 
 ### Fixed
