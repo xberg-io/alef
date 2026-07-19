@@ -384,20 +384,20 @@ mod tests {
         // the package on nuget.org (regression: previously used the project name and hit
         // NU1101 "Unable to find package").
         let output = render_csproj(
-            "Xberg",
-            "XbergIo.Xberg",
-            "../../packages/csharp/Xberg/Xberg.csproj",
+            "MyLib",
+            "MyOrg.MyLib",
+            "../../packages/csharp/MyLib/MyLib.csproj",
             "1.0.0-rc.26",
             crate::e2e::config::DependencyMode::Registry,
             None,
         );
 
         assert!(
-            output.contains("<PackageReference Include=\"XbergIo.Xberg\" Version=\"1.0.0-rc.26\" />"),
+            output.contains("<PackageReference Include=\"MyOrg.MyLib\" Version=\"1.0.0-rc.26\" />"),
             "registry PackageReference must use the NuGet id, got: {output}"
         );
         assert!(
-            !output.contains("Include=\"Xberg\" Version="),
+            !output.contains("Include=\"MyLib\" Version="),
             "registry mode must not reference the bare project name, got: {output}"
         );
     }

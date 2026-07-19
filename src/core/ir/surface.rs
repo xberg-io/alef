@@ -328,16 +328,15 @@ mod tests {
 
     #[test]
     fn cfg_feature_satisfied_keeps_items_gated_on_target_predicates() {
-        // The real `RegionKind` gate: kept on any non-wasm native binding that ~keep
-        // enables liter-llm, because the target-arch leaf is indeterminate at ~keep
-        // generation time and must not cause a drop. ~keep
-        let enabled = features(&["liter-llm"]);
+        // A feature gate kept on any non-wasm native binding: the feature leaf is enabled and ~keep
+        // the target-arch leaf is indeterminate at generation time, so it must not cause a drop. ~keep
+        let enabled = features(&["native"]);
         assert!(cfg_feature_satisfied(
-            Some("all (feature = \"liter-llm\" , not (target_arch = \"wasm32\"))"),
+            Some("all (feature = \"native\" , not (target_arch = \"wasm32\"))"),
             &enabled
         ));
         assert!(!cfg_feature_satisfied(
-            Some("all (feature = \"liter-llm\" , not (target_arch = \"wasm32\"))"),
+            Some("all (feature = \"native\" , not (target_arch = \"wasm32\"))"),
             &features(&["pdf"])
         ));
         assert!(cfg_feature_satisfied(

@@ -96,7 +96,7 @@ impl E2eCodegen for CSharpCodegen {
             .cloned()
             .unwrap_or_else(|| format!("../../packages/csharp/{pkg_name}/{pkg_name}.csproj"));
         // The published NuGet id can differ from the C# namespace / on-disk project name
-        // (e.g. a vendor-prefixed id like `XbergIo.Xberg` when the unprefixed name is taken on
+        // (e.g. a vendor-prefixed id like `MyOrg.MyLib` when the unprefixed name is taken on
         // nuget.org). Registry-mode test apps must reference the package by its published id,
         // so resolve `[crates.csharp].package_id` here, falling back to the namespace and then
         // to `pkg_name` (the local project/assembly name used everywhere else in this csproj).
