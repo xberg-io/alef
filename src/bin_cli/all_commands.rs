@@ -382,10 +382,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     eprintln!("Formatting generated files...");
                     let mut files_to_format = bindings.clone();
                     files_to_format.extend(stubs.clone());
-                    // On a full (`--clean`) run, format the whole base_dir (`None`) rather than only
-                    // the per-language package dirs: root-level generated files (`poly.toml`,
-                    // `.cargo/config.toml`, docs/skills) live outside every package dir and would
-                    // otherwise never be poly-formatted, leaving them dirty under `poly fmt --check`.
                     let only_languages = if clean { None } else { Some(&changed_languages) };
                     pipeline::format_generated(&files_to_format, resolved_cfg, &base_dir, only_languages);
                 }

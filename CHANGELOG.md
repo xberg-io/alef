@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.2] - 2026-07-19
+
+### Added
+
+- **Multipart request-body synthesis for TestClient-driven languages**: the shared `http_call`
+  driver (Go, Zig, Gleam) now synthesizes a `multipart/form-data` request body from the handler's
+  object body schema when a fixture declares that content type but carries no explicit body —
+  matching the Python/Ruby/TypeScript generators. Previously these languages emitted an empty
+  request body, so the core rejected multipart upload fixtures with 422 before the handler ran.
+
 ## [0.38.1] - 2026-07-19
 
 ### Fixed

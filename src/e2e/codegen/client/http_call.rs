@@ -61,14 +61,27 @@ pub fn render_http_test<R: TestClientRenderer + ?Sized>(out: &mut String, render
     let request_path = &http.request.path;
     let namespaced_path = format!("/fixtures/{}{}", fixture.id, request_path);
     let req = &http.request;
+
+    // Synthesize a multipart/form-data body when the fixture declares that
+    // content type but carries no explicit request body, mirroring the
+    // python/ruby/typescript generators. Without this the TestClient-driven
+    // request goes out empty and the core rejects it with 422 (required binary
+    // field missing) before the handler is reached. The synthesized body is a
+    // raw string; each renderer's `render_call` escapes it for its language.
+    let synthesized_multipart = synthesize_multipart_request(http);
+    let (synth_body, synth_ct) = match &synthesized_multipart {
+        Some(body) => (Some(body), Some("multipart/form-data; boundary=alef-boundary")),
+        None => (None, None),
+    };
+
     let ctx = CallCtx {
         method: req.method.as_str(),
         path: &namespaced_path,
         headers: &req.headers,
         query_params: &req.query_params,
         cookies: &req.cookies,
-        body: req.body.as_ref(),
-        content_type: req.content_type.as_deref(),
+        body: req.body.as_ref().or(synth_body),
+        content_type: synth_ct.or(req.content_type.as_deref()),
         response_var,
     };
     renderer.render_call(out, &ctx);
@@ -107,6 +120,69 @@ pub fn render_http_test<R: TestClientRenderer + ?Sized>(out: &mut String, render
 
     renderer.render_test_close(out);
     true
+}
+
+/// Boundary marker shared by every synthesized multipart body.
+const MULTIPART_BOUNDARY: &str = "alef-boundary";
+
+/// Synthesize a `multipart/form-data` request body from the handler's body
+/// schema when the fixture declares that content type but carries no explicit
+/// body. Returns the raw body as a JSON string value (each renderer escapes it
+/// for its own language), or `None` when synthesis does not apply.
+fn synthesize_multipart_request(http: &crate::e2e::fixture::HttpFixture) -> Option<serde_json::Value> {
+    if http.request.body.is_some() {
+        return None;
+    }
+
+    let content_type = http
+        .request
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        .map(|(_, v)| v.to_ascii_lowercase())
+        .or_else(|| http.request.content_type.as_ref().map(|c| c.to_ascii_lowercase()))
+        .unwrap_or_default();
+    let is_multipart = content_type
+        .split(';')
+        .next()
+        .map(str::trim)
+        .is_some_and(|t| t.eq_ignore_ascii_case("multipart/form-data"));
+    if !is_multipart {
+        return None;
+    }
+
+    let schema = http.handler.body_schema.as_ref()?;
+    if schema.get("type").and_then(|t| t.as_str()) != Some("object") {
+        return None;
+    }
+    let props = schema.get("properties").and_then(|p| p.as_object())?;
+    Some(serde_json::Value::String(synthesize_multipart_body_raw(props)))
+}
+
+/// Build the raw multipart body: one part per schema property, with a filename
+/// and `text/plain` part for `format: binary` fields and a plain value
+/// otherwise.
+fn synthesize_multipart_body_raw(props: &serde_json::Map<String, serde_json::Value>) -> String {
+    let mut body = String::new();
+    for (prop_name, prop_schema) in props {
+        let is_binary = prop_schema
+            .get("format")
+            .and_then(|f| f.as_str())
+            .is_some_and(|f| f == "binary");
+        body.push_str(&format!(
+            "--{MULTIPART_BOUNDARY}\r\nContent-Disposition: form-data; name=\"{prop_name}\""
+        ));
+        if is_binary {
+            body.push_str(&format!(
+                "; filename=\"{prop_name}.txt\"\r\nContent-Type: text/plain\r\n\r\nplaceholder content"
+            ));
+        } else {
+            body.push_str("\r\n\r\nsample");
+        }
+        body.push_str("\r\n");
+    }
+    body.push_str(&format!("--{MULTIPART_BOUNDARY}--\r\n"));
+    body
 }
 
 #[cfg(test)]
@@ -314,5 +390,55 @@ mod tests {
         let mut out = String::new();
         render_http_test(&mut out, &TagRenderer, &fixture);
         assert!(!out.contains("VALIDATION"));
+    }
+
+    #[test]
+    fn synthesizes_multipart_body_for_schema_only_fixture() {
+        let mut fixture = http_fixture("upload", empty_expected(200));
+        {
+            let http = fixture.http.as_mut().unwrap();
+            http.request.content_type = Some("multipart/form-data".into());
+            http.handler.body_schema = Some(serde_json::json!({
+                "type": "object",
+                "properties": { "file": { "type": "string", "format": "binary" } },
+                "required": ["file"],
+            }));
+        }
+        let body = super::synthesize_multipart_request(fixture.http.as_ref().unwrap())
+            .expect("multipart body should be synthesized");
+        let raw = body.as_str().unwrap();
+        assert!(raw.contains("--alef-boundary"));
+        assert!(raw.contains("name=\"file\""));
+        assert!(raw.contains("filename=\"file.txt\""));
+        assert!(raw.contains("placeholder content"));
+        assert!(raw.ends_with("--alef-boundary--\r\n"));
+    }
+
+    #[test]
+    fn no_multipart_synthesis_when_body_present_or_not_multipart() {
+        // An explicit request body is used verbatim — never overridden.
+        let mut with_body = http_fixture("explicit", empty_expected(200));
+        {
+            let http = with_body.http.as_mut().unwrap();
+            http.request.content_type = Some("multipart/form-data".into());
+            http.request.body = Some(serde_json::json!("verbatim"));
+            http.handler.body_schema = Some(serde_json::json!({
+                "type": "object",
+                "properties": { "f": { "type": "string", "format": "binary" } },
+            }));
+        }
+        assert!(super::synthesize_multipart_request(with_body.http.as_ref().unwrap()).is_none());
+
+        // A non-multipart content type is left alone.
+        let mut json_req = http_fixture("json", empty_expected(200));
+        {
+            let http = json_req.http.as_mut().unwrap();
+            http.request.content_type = Some("application/json".into());
+            http.handler.body_schema = Some(serde_json::json!({
+                "type": "object",
+                "properties": { "f": { "type": "string" } },
+            }));
+        }
+        assert!(super::synthesize_multipart_request(json_req.http.as_ref().unwrap()).is_none());
     }
 }

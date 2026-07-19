@@ -403,7 +403,6 @@ fn test_scaffold_ruby_production_features() {
     let files = language_files(&all_files);
     assert_eq!(files.len(), 7);
     let content = &files[0].content;
-    // Default drops the `< 4.0` upper bound so the gem installs on Ruby 4.x.
     assert!(content.contains(r#"spec.required_ruby_version = ">= 3.2.0""#));
     assert!(!content.contains("< 4.0"));
     assert!(content.contains("spec.extensions"));

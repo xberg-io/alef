@@ -80,10 +80,6 @@ pub(in crate::backends::rustler::gen_bindings) fn nif_arg(
             format!("Jason.encode!({helper}({param}))")
         }
     } else if json_encode_params.contains(&index) {
-        // Forward nil as-is (default config; encoding yields "null" which serde rejects),
-        // pass a pre-encoded JSON string straight through (documented Jason.encode!(%Struct{})
-        // form; re-encoding yields a string literal serde rejects), encode native map/term.
-        // Mirrors the is_binary guard the keyword-arg path gets in public_api.rs.
         format!("(cond do is_nil({param}) -> nil; is_binary({param}) -> {param}; true -> Jason.encode!({param}) end)")
     } else {
         param.to_string()
