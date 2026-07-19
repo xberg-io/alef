@@ -12,6 +12,75 @@ struct ResidualStep {
     work_dir: PathBuf,
 }
 
+/// A code formatter that shapes generated output and must be present for a run.
+#[derive(Clone, Copy)]
+struct RequiredFormatter {
+    tool: &'static str,
+    install_hint: &'static str,
+}
+
+/// The formatters whose presence is required for deterministic generation of
+/// `languages`.
+///
+/// `rustfmt` and `poly` are always required: every binding emits a Rust glue
+/// crate that rustfmt reflows, and poly formats each language's emitted package.
+/// `cargo-sort` is required only when a language whose residual pass runs
+/// `cargo sort` is generated (wasm, ffi, ruby, elixir, r).
+fn required_formatters(languages: &[Language]) -> Vec<RequiredFormatter> {
+    let mut required = vec![
+        RequiredFormatter {
+            tool: "rustfmt",
+            install_hint: "rustup component add rustfmt",
+        },
+        RequiredFormatter {
+            tool: "poly",
+            install_hint: "install polylint (`poly`) and put it on PATH",
+        },
+    ];
+    let needs_cargo_sort = languages.iter().any(|language| {
+        matches!(
+            language,
+            Language::Wasm | Language::Ffi | Language::Ruby | Language::Elixir | Language::R
+        )
+    });
+    if needs_cargo_sort {
+        required.push(RequiredFormatter {
+            tool: "cargo-sort",
+            install_hint: "cargo install cargo-sort",
+        });
+    }
+    required
+}
+
+/// Fail generation up front when a formatter that shapes generated output is
+/// missing from PATH.
+///
+/// Generation is deterministic only when the tools that reformat its output are
+/// present: with `rustfmt` absent the raw un-reflowed codegen is written, with
+/// `poly` absent per-language formatting is skipped, and with `cargo-sort`
+/// absent generated `Cargo.toml` dependency ordering drifts — each producing
+/// host-dependent output that breaks the freshness check (#184). Rather than
+/// silently emit differently-formatted files, abort with an actionable message
+/// naming every missing tool and how to install it.
+pub fn ensure_required_formatters(languages: &[Language]) -> anyhow::Result<()> {
+    let missing: Vec<RequiredFormatter> = required_formatters(languages)
+        .into_iter()
+        .filter(|formatter| !is_tool_available(formatter.tool))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let details = missing
+        .iter()
+        .map(|formatter| format!("  - {}: {}", formatter.tool, formatter.install_hint))
+        .collect::<Vec<_>>()
+        .join("\n");
+    anyhow::bail!(
+        "required code formatter(s) not found on PATH; aborting generation to avoid emitting \
+         differently-formatted, host-dependent output (#184). Install the missing tool(s):\n{details}"
+    );
+}
+
 /// Run language-native formatters on emitted packages after generation.
 ///
 /// Formatting is always delegated to the `poly` (polylint) CLI — a single

@@ -71,6 +71,22 @@ pub fn generate_docs(
 
 /// Generate the complete docs stage: API reference, optional CLI/MCP reference,
 /// optional template-rendered llms.txt and skills, and configured snippet checks.
+/// The reference-docs output directory for `config` — `[docs].reference_output`
+/// or the `docs/reference` default. Relative to the workspace root; callers join
+/// it under the base directory.
+///
+/// Exposed so the generate pipeline can protect committed reference pages from
+/// orphan cleanup: the page set `generate_docs_stage` emits depends on host
+/// state (CLI/MCP source presence, doc languages), so a host that produces fewer
+/// pages must not delete the committed ones it simply did not regenerate (#184).
+pub fn reference_output_dir(config: &ResolvedCrateConfig) -> PathBuf {
+    config
+        .docs
+        .as_ref()
+        .and_then(|docs| docs.reference_output.clone())
+        .unwrap_or_else(|| PathBuf::from("docs/reference"))
+}
+
 pub fn generate_docs_stage(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -80,8 +96,7 @@ pub fn generate_docs_stage(
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let reference_output = output_override
         .map(PathBuf::from)
-        .or_else(|| config.docs.as_ref().and_then(|docs| docs.reference_output.clone()))
-        .unwrap_or_else(|| PathBuf::from("docs/reference"));
+        .unwrap_or_else(|| reference_output_dir(config));
     let reference_output_str = reference_output.to_string_lossy().to_string();
 
     let mut files = generate_docs(api, config, languages, &reference_output_str)?;

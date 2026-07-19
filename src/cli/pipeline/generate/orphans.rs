@@ -1,4 +1,52 @@
+use crate::core::config::{Language, ResolvedCrateConfig};
+use std::path::{Path, PathBuf};
 use tracing::{debug, info};
+
+/// Conventional package roots that hold TypeScript-facing output for the
+/// wasm/node targets but are not returned by `package_dir` (which resolves to
+/// each target's Rust crate directory). They are swept only on unfiltered runs
+/// so orphaned TS artifacts are reclaimed without a per-target directory.
+const UNFILTERED_TS_ROOTS: [&str; 2] = ["packages/wasm", "packages/typescript"];
+
+/// Candidate roots for `sweep_orphans` in a `generate` / `all` run.
+///
+/// The returned paths are candidates only — callers filter out non-existent
+/// directories before sweeping (kept out of this function so it stays pure and
+/// unit-testable).
+///
+/// Unfiltered runs (`filtered == false`, i.e. no `--lang`) sweep every
+/// configured language's output directory plus the conventional
+/// wasm/typescript package roots, so orphans anywhere in the binding tree are
+/// reclaimed. The keep set then contains every language's files, so nothing
+/// valid is deleted.
+///
+/// Filtered runs (`--lang <subset>`) must NOT touch output belonging to
+/// languages outside the subset. On a filtered run the keep set only contains
+/// the requested languages' files, so sweeping another language's root would
+/// delete its still-valid generated output (the data-loss bug in #178).
+/// Filtered runs therefore restrict roots to the requested languages' own
+/// directories and skip the unconditional wasm/typescript roots. Orphans in an
+/// unrequested language's tree are reclaimed on the next unfiltered run.
+pub fn generate_sweep_roots(
+    languages: &[Language],
+    filtered: bool,
+    config: &ResolvedCrateConfig,
+    base_dir: &Path,
+) -> Vec<PathBuf> {
+    let mut roots: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
+    for &lang in languages {
+        roots.insert(base_dir.join(config.package_dir(lang)));
+        if let Some(out) = config.output_for(&lang.to_string()) {
+            roots.insert(base_dir.join(out));
+        }
+    }
+    if !filtered {
+        for root in UNFILTERED_TS_ROOTS {
+            roots.insert(base_dir.join(root));
+        }
+    }
+    roots.into_iter().collect()
+}
 
 /// Delete alef-generated files under `roots` whose absolute path is not
 /// present in `keep`. A file is considered alef-owned only when its first
@@ -148,4 +196,60 @@ pub fn collect_alef_headered_paths(root: &std::path::Path) -> std::collections::
         }
     }
     paths
+}
+
+#[cfg(test)]
+mod sweep_roots_tests {
+    use super::*;
+
+    fn config() -> ResolvedCrateConfig {
+        ResolvedCrateConfig {
+            name: "sample".to_string(),
+            ..ResolvedCrateConfig::default()
+        }
+    }
+
+    /// Regression for #178: a filtered `generate --lang python` must not return
+    /// any other language's directory, nor the unconditional wasm/typescript
+    /// roots. Sweeping them with a python-only keep set was deleting every other
+    /// binding's still-valid output.
+    #[test]
+    fn filtered_run_excludes_other_languages_and_ts_fallback_roots() {
+        let base = Path::new("/base");
+        let roots = generate_sweep_roots(&[Language::Python], true, &config(), base);
+
+        assert!(
+            roots.contains(&base.join("packages/python")),
+            "must keep the requested language"
+        );
+        assert!(
+            !roots.contains(&base.join("packages/ruby")),
+            "must not touch an unrequested language"
+        );
+        assert!(
+            !roots.contains(&base.join("packages/wasm")),
+            "must not add the wasm fallback root on a filtered run"
+        );
+        assert!(
+            !roots.contains(&base.join("packages/typescript")),
+            "must not add the typescript fallback root on a filtered run"
+        );
+    }
+
+    #[test]
+    fn unfiltered_run_includes_all_languages_and_ts_fallback_roots() {
+        let base = Path::new("/base");
+        let roots = generate_sweep_roots(&[Language::Python, Language::Ruby], false, &config(), base);
+
+        assert!(roots.contains(&base.join("packages/python")));
+        assert!(roots.contains(&base.join("packages/ruby")));
+        assert!(
+            roots.contains(&base.join("packages/wasm")),
+            "unfiltered run keeps the wasm fallback root"
+        );
+        assert!(
+            roots.contains(&base.join("packages/typescript")),
+            "unfiltered run keeps the typescript fallback root"
+        );
+    }
 }

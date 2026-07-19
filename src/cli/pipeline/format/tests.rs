@@ -17,6 +17,31 @@ sources = ["src/lib.rs"]
 }
 
 #[test]
+fn required_formatters_always_include_rustfmt_and_poly() {
+    let tools: Vec<&str> = required_formatters(&[Language::Python])
+        .iter()
+        .map(|f| f.tool)
+        .collect();
+    assert!(tools.contains(&"rustfmt"));
+    assert!(tools.contains(&"poly"));
+    assert!(!tools.contains(&"cargo-sort"), "python has no cargo-sort residual");
+}
+
+#[test]
+fn required_formatters_add_cargo_sort_for_residual_languages() {
+    for language in [
+        Language::Wasm,
+        Language::Ffi,
+        Language::Ruby,
+        Language::Elixir,
+        Language::R,
+    ] {
+        let tools: Vec<&str> = required_formatters(&[language]).iter().map(|f| f.tool).collect();
+        assert!(tools.contains(&"cargo-sort"), "{language} runs a cargo-sort residual");
+    }
+}
+
+#[test]
 fn formatter_error_includes_stdout_and_stderr() {
     let err = run_formatter(
         "sh",

@@ -48,6 +48,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_languages(resolved_cfg, None)?;
+                pipeline::ensure_required_formatters(&languages)?;
                 if multi {
                     eprintln!(
                         "[{}] Running all for: {}",
@@ -346,6 +347,15 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     current_gen_paths.insert(base_dir.join(&file.path));
                 }
 
+                // Protect committed reference-doc pages from host-dependent deletion (#184): ~keep
+                // the pages `generate_docs_stage` emits vary with host state (CLI/MCP source ~keep
+                // presence, doc languages), so a host that regenerates fewer pages must not let ~keep
+                // orphan cleanup delete the committed pages it simply did not produce this run. ~keep
+                let docs_reference_dir = base_dir.join(crate::docs::reference_output_dir(resolved_cfg));
+                for path in pipeline::collect_alef_headered_paths(&docs_reference_dir) {
+                    current_gen_paths.insert(path);
+                }
+
                 if let Ok(removed) = pipeline::cleanup_orphaned_files(&current_gen_paths) {
                     if removed > 0 {
                         eprintln!("Removed {removed} stale alef-generated file(s)");
@@ -353,18 +363,14 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 }
 
                 {
-                    let mut sweep_roots: std::collections::HashSet<std::path::PathBuf> =
-                        std::collections::HashSet::new();
-                    for &lang in &languages {
-                        let pkg = base_dir.join(resolved_cfg.package_dir(lang));
-                        sweep_roots.insert(pkg);
-                        if let Some(out) = resolved_cfg.output_for(&lang.to_string()) {
-                            sweep_roots.insert(base_dir.join(out));
-                        }
-                    }
-                    sweep_roots.insert(base_dir.join("packages/wasm"));
-                    sweep_roots.insert(base_dir.join("packages/typescript"));
-                    let roots: Vec<std::path::PathBuf> = sweep_roots.into_iter().filter(|d| d.exists()).collect();
+                    // `alef all` always processes the full language set (no `--lang` ~keep
+                    // filter), so the sweep is unfiltered and reclaims orphans across the ~keep
+                    // whole binding tree, including the conventional wasm/typescript roots. ~keep
+                    let roots: Vec<std::path::PathBuf> =
+                        pipeline::generate_sweep_roots(&languages, false, resolved_cfg, &base_dir)
+                            .into_iter()
+                            .filter(|d| d.exists())
+                            .collect();
                     if let Ok(removed) = pipeline::sweep_orphans(&roots, &current_gen_paths) {
                         if removed > 0 {
                             eprintln!("Removed {removed} stale alef-generated file(s)");

@@ -67,6 +67,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let mut grand_total_written: usize = 0;
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
+                pipeline::ensure_required_formatters(&languages)?;
                 if multi {
                     eprintln!(
                         "[{}] Generating bindings for: {}",
@@ -234,18 +235,11 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 }
 
                 {
-                    let mut sweep_roots: std::collections::HashSet<std::path::PathBuf> =
-                        std::collections::HashSet::new();
-                    for &lang in &languages {
-                        let pkg = base_dir.join(resolved_cfg.package_dir(lang));
-                        sweep_roots.insert(pkg);
-                        if let Some(out) = resolved_cfg.output_for(&lang.to_string()) {
-                            sweep_roots.insert(base_dir.join(out));
-                        }
-                    }
-                    sweep_roots.insert(base_dir.join("packages/wasm"));
-                    sweep_roots.insert(base_dir.join("packages/typescript"));
-                    let roots: Vec<std::path::PathBuf> = sweep_roots.into_iter().filter(|d| d.exists()).collect();
+                    let roots: Vec<std::path::PathBuf> =
+                        pipeline::generate_sweep_roots(&languages, lang.is_some(), resolved_cfg, &base_dir)
+                            .into_iter()
+                            .filter(|d| d.exists())
+                            .collect();
                     if let Ok(removed) = pipeline::sweep_orphans(&roots, &current_gen_paths) {
                         if removed > 0 {
                             eprintln!("Removed {removed} stale alef-generated file(s)");
@@ -685,6 +679,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 .collect();
 
             let stale = verify_walk_multi(&base_dir, &all_inputs_hashes)?;
+            let hash_inconsistency = detect_hash_inconsistency(&base_dir, crates_to_process.len());
 
             let mut all_version_mismatches: Vec<String> = Vec::new();
             for resolved_cfg in &crates_to_process {
@@ -699,9 +694,25 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 }
             }
 
-            if stale.is_empty() && !has_version_issues {
+            if stale.is_empty() && !has_version_issues && hash_inconsistency.is_none() {
                 println!("All bindings and versions are up to date.");
             } else {
+                if let Some(inconsistency) = &hash_inconsistency {
+                    println!(
+                        "Hash-inconsistent tree: {} distinct alef:hash values across {} crate(s) — partial regeneration detected:",
+                        inconsistency.groups.len(),
+                        inconsistency.crate_count
+                    );
+                    for (hash, paths) in &inconsistency.groups {
+                        println!("  {hash}  ({} file(s))", paths.len());
+                        if context.verbose > 0 {
+                            for path in paths {
+                                println!("    {path}");
+                            }
+                        }
+                    }
+                    println!("Regenerate the whole workspace (e.g. `alef all --clean`) so every file shares one hash.");
+                }
                 if !stale.is_empty() {
                     println!("Stale bindings detected:");
                     for s in &stale {
