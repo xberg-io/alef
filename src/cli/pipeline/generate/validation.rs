@@ -77,7 +77,48 @@ fn language_backend_readiness_diagnostics(
     let mut diagnostics = Vec::new();
     diagnostics.extend(service_api_capability_diagnostics(api, config, languages));
     diagnostics.extend(ffi_json_return_diagnostics(api, config, languages));
+    diagnostics.extend(unconsumed_custom_modules_diagnostics(config));
     diagnostics
+}
+
+/// Languages that accept a `[custom_modules].<lang>` list in config but whose
+/// backend never reads it, so any entries silently do nothing. Only pyo3
+/// (python), ffi, php, magnus (ruby), rustler (elixir), and extendr (r) consume
+/// `custom_modules`; the entries below parse cleanly and are dead config (#183).
+const UNCONSUMED_CUSTOM_MODULE_LANGUAGES: [Language; 5] = [
+    Language::Node,
+    Language::Wasm,
+    Language::Go,
+    Language::Java,
+    Language::Csharp,
+];
+
+/// Warn when `[custom_modules].<lang>` carries entries for a language whose
+/// backend does not consume them. Keyed off what the user actually wrote in
+/// config (not the current run's language set), so a stray `[custom_modules].wasm`
+/// is flagged even when wasm is not part of this generation run.
+fn unconsumed_custom_modules_diagnostics(config: &ResolvedCrateConfig) -> Vec<ValidationDiagnostic> {
+    UNCONSUMED_CUSTOM_MODULE_LANGUAGES
+        .into_iter()
+        .filter(|&language| !config.custom_modules.for_language(language).is_empty())
+        .map(|language| {
+            let suggested_fix = if language == Language::Wasm {
+                "remove the entries; for hand-written Rust modules under wasm use `[crates.wasm].custom_rust_modules` instead".to_string()
+            } else {
+                format!("remove the `[custom_modules].{language}` entries; no backend consumes them")
+            };
+            ValidationDiagnostic::warning(
+                ValidationCode::UnconsumedConfig,
+                config.name.clone(),
+                Some(language),
+                Some("custom_modules".to_string()),
+                format!(
+                    "`[custom_modules].{language}` has entries but the {language} backend does not consume `custom_modules`, so they have no effect"
+                ),
+                suggested_fix,
+            )
+        })
+        .collect()
 }
 
 fn service_api_capability_diagnostics(
@@ -315,6 +356,48 @@ mod validation_tests {
         assert!(
             error.to_string().contains("backend_stub_path") && error.to_string().contains("function list_payloads"),
             "expected FFI backend-readiness error, got {error}"
+        );
+    }
+
+    #[test]
+    fn unconsumed_custom_modules_for_wasm_warns_and_points_at_custom_rust_modules() {
+        let config = ResolvedCrateConfig {
+            name: "sample-lib".to_string(),
+            custom_modules: crate::core::config::CustomModulesConfig {
+                wasm: vec!["bridge".to_string(), "engine".to_string()],
+                ..Default::default()
+            },
+            ..ResolvedCrateConfig::default()
+        };
+
+        let diagnostics = unconsumed_custom_modules_diagnostics(&config);
+
+        assert_eq!(diagnostics.len(), 1, "exactly one unconsumed-language warning");
+        let diagnostic = &diagnostics[0];
+        assert_eq!(diagnostic.severity, ValidationSeverity::Warning);
+        assert_eq!(diagnostic.code, ValidationCode::UnconsumedConfig);
+        assert_eq!(diagnostic.language, Some(Language::Wasm));
+        assert!(
+            diagnostic.suggested_fix.contains("custom_rust_modules"),
+            "wasm fix must point at custom_rust_modules, got {}",
+            diagnostic.suggested_fix
+        );
+    }
+
+    #[test]
+    fn consumed_custom_modules_for_python_produce_no_warning() {
+        let config = ResolvedCrateConfig {
+            name: "sample-lib".to_string(),
+            custom_modules: crate::core::config::CustomModulesConfig {
+                python: vec!["helpers".to_string()],
+                ..Default::default()
+            },
+            ..ResolvedCrateConfig::default()
+        };
+
+        assert!(
+            unconsumed_custom_modules_diagnostics(&config).is_empty(),
+            "python custom_modules are consumed by pyo3, so no warning"
         );
     }
 

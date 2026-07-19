@@ -43,6 +43,7 @@ pub enum ValidationCode {
     SerdeMetadataIncomplete,
     JsonValueResolutionAmbiguous,
     BackendStubPath,
+    UnconsumedConfig,
 }
 
 /// Diagnostics that are never safe to suppress globally.
@@ -73,6 +74,7 @@ impl fmt::Display for ValidationCode {
             Self::SerdeMetadataIncomplete => f.write_str("serde_metadata_incomplete"),
             Self::JsonValueResolutionAmbiguous => f.write_str("json_value_resolution_ambiguous"),
             Self::BackendStubPath => f.write_str("backend_stub_path"),
+            Self::UnconsumedConfig => f.write_str("unconsumed_config"),
         }
     }
 }

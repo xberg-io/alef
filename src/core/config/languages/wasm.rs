@@ -68,8 +68,9 @@ pub struct WasmConfig {
     #[serde(default)]
     pub exclude_extra_dependencies: Vec<String>,
     /// Hand-written Rust modules to declare in the generated lib.rs with `pub mod <name>;`
-    /// and re-export with `pub use <name>::*;`. Separate from `[custom_modules].wasm` which
-    /// only adds TypeScript `export *` re-exports. Use this for Rust-side dispatch/glue modules.
+    /// and re-export with `pub use <name>::*;`. This is the knob for Rust-side dispatch/glue
+    /// modules under wasm. Note that `[custom_modules].wasm` is NOT consumed by the wasm
+    /// backend (no code path reads it) — use this field instead.
     #[serde(default)]
     pub custom_rust_modules: Vec<String>,
     /// Per-type field exclusions for the generated From impls and binding struct.
