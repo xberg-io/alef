@@ -3050,6 +3050,38 @@
       ],
       "type": "object"
     },
+    "HookSource": {
+      "additionalProperties": false,
+      "description": "A single external git hook source, rendered as a `[[hooks.sources]]` block in the\ngenerated `poly.toml` (e.g. an `ai-rulez` validation hook pinned by revision).",
+      "properties": {
+        "git": {
+          "description": "Git repository URL providing the hook.",
+          "type": "string"
+        },
+        "hooks": {
+          "default": [],
+          "description": "Hook names from the source to enable.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "Stable identifier for the hook source (e.g. `\"ai-rulez\"`).",
+          "type": "string"
+        },
+        "revision": {
+          "description": "Pinned git revision (tag, branch, or commit SHA).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "git",
+        "revision"
+      ],
+      "type": "object"
+    },
     "HostCapsuleTypeConfig": {
       "description": "Host-native capsule config for a single type in one C-ABI family backend.\n\nTOML form (Go example):\n```toml\n[crates.go.capsule_types.Language]\nhost_type = \"*my_pkg.Language\"\npackage = \"github.com/example/go-my-lib\"\npackage_version = \"v1.0.0\"\nconstruct_expr = \"my_pkg.NewLanguage(unsafe.Pointer({ptr}))\"\n```",
       "properties": {
@@ -4364,6 +4396,14 @@
           },
           "type": "array"
         },
+        "hooks-sources": {
+          "default": [],
+          "description": "External git-sourced pre-commit hook sources, emitted as `[[hooks.sources]]`\nblocks in the generated `poly.toml`. Each entry pins a hook repository (e.g.\nan `ai-rulez` validation hook) by git URL + revision.\n\nEmpty (the default) emits no `[[hooks.sources]]` blocks, leaving the output\nbyte-identical to the pre-feature default.",
+          "items": {
+            "$ref": "#/$defs/HookSource"
+          },
+          "type": "array"
+        },
         "per-file-ignores": {
           "additionalProperties": {
             "items": {
@@ -5658,6 +5698,14 @@
           "default": {},
           "description": "Per-field name remapping for this language. Key is `TypeName.field_name`, value is the\ndesired binding field name. Applied after automatic keyword escaping.",
           "type": "object"
+        },
+        "required_ruby_version": {
+          "default": null,
+          "description": "Override the `required_ruby_version` constraint emitted into the gemspec. A single\nRubyGems requirement string (e.g. `\">= 3.2.0\"`). When unset, defaults to `\">= 3.2.0\"`\n(no upper bound, so the gem installs on Ruby 4.x).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "run_wrapper": {
           "default": null,
@@ -7251,6 +7299,7 @@
           "default": {
             "exclude": [],
             "file-safety-exclude": [],
+            "hooks-sources": [],
             "per-file-ignores": {},
             "pyrefly-sub-configs": {},
             "typos": {
@@ -7487,7 +7536,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.37.2/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.38.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7571,6 +7620,7 @@
         "poly": {
           "exclude": [],
           "file-safety-exclude": [],
+          "hooks-sources": [],
           "per-file-ignores": {},
           "pyrefly-sub-configs": {},
           "typos": {
@@ -7605,6 +7655,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.37.2",
-  "x-alef-version": "0.37.2"
+  "version": "0.38.0",
+  "x-alef-version": "0.38.0"
 }

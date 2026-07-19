@@ -336,8 +336,11 @@ fn test_default_typed_named_param_is_json_encoded_in_public_wrapper() {
     let body = &wrapper.content;
 
     assert!(
-        body.contains("MyLib.Native.extract(Jason.encode!(input))"),
-        "default-typed Named params must be JSON-encoded before the NIF call; body:\n{body}"
+        body.contains(
+            "MyLib.Native.extract((cond do is_nil(input) -> nil; is_binary(input) -> input; true -> Jason.encode!(input) end))"
+        ),
+        "default-typed Named params must forward nil and pre-encoded strings as-is and JSON-encode \
+         native terms before the NIF call; body:\n{body}"
     );
 }
 

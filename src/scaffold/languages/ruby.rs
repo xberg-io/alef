@@ -152,6 +152,11 @@ pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let ext_name = format!("{}_rb", core_crate_dir.replace('-', "_"));
     let cargo_pkg_name = format!("{}-rb", core_crate_dir);
     let version = crate::core::version::to_rubygems_prerelease(&api.version);
+    let required_ruby_version = config
+        .ruby
+        .as_ref()
+        .and_then(|c| c.required_ruby_version.clone())
+        .unwrap_or_else(|| ">= 3.2.0".to_string());
 
     let authors_ruby = if meta.authors.is_empty() {
         "[]".to_string()
@@ -197,7 +202,7 @@ Gem::Specification.new do |spec|
   spec.description   = "{description}"
 {homepage}
 {license}
-  spec.required_ruby_version = [">= 3.2.0", "< 4.0"]
+  spec.required_ruby_version = "{required_ruby_version}"
 {metadata}  spec.metadata["rubygems_mfa_required"] = "true"
 
   candidate_files    = Dir.glob(%w[README* LICENSE* lib/**/* ext/**/* sig/**/* Steepfile]).select {{ |f| File.file?(f) }}
@@ -212,6 +217,7 @@ end
         gem_name = gem_name,
         ext_name = ext_name,
         version = version,
+        required_ruby_version = required_ruby_version,
         authors = authors_ruby,
         description = meta.description,
         homepage = homepage_ruby,

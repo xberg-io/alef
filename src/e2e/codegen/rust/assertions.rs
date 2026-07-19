@@ -581,10 +581,18 @@ pub fn render_assertion_with_streaming(
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    assert!({field_access}.len() >= {n}, \"expected length >= {n}, got {{}}\", {field_access}.len());"
-                    );
+                    if n == 1 {
+                        // Clippy prefers !is_empty() over len() >= 1 for collections.
+                        let _ = writeln!(
+                            out,
+                            "    assert!(!{field_access}.is_empty(), \"expected length >= 1, got {{}}\", {field_access}.len());"
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({field_access}.len() >= {n}, \"expected length >= {n}, got {{}}\", {field_access}.len());"
+                        );
+                    }
                 }
             }
         }
@@ -730,5 +738,63 @@ mod tests {
             None,
         );
         assert!(out.contains("is_empty()"), "got: {out}");
+    }
+
+    #[test]
+    fn render_assertion_min_length_one_uses_is_empty_not_len_ge_one() {
+        let resolver = empty_resolver();
+        let assertion = make_assertion("min_length", Some("content"), Some(serde_json::Value::from(1u64)));
+        let mut out = String::new();
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            "my_mod",
+            "dep",
+            false,
+            &[],
+            &resolver,
+            false,
+            false,
+            false,
+            false,
+            false,
+            None,
+        );
+        assert!(
+            out.contains("is_empty()"),
+            "min_length 1 should use !is_empty(); got: {out}"
+        );
+        assert!(
+            !out.contains("len() >= 1"),
+            "min_length 1 must not emit len() >= 1 (clippy::len_zero); got: {out}"
+        );
+    }
+
+    #[test]
+    fn render_assertion_min_length_two_still_uses_len_ge() {
+        let resolver = empty_resolver();
+        let assertion = make_assertion("min_length", Some("content"), Some(serde_json::Value::from(2u64)));
+        let mut out = String::new();
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            "my_mod",
+            "dep",
+            false,
+            &[],
+            &resolver,
+            false,
+            false,
+            false,
+            false,
+            false,
+            None,
+        );
+        assert!(
+            out.contains("len() >= 2"),
+            "min_length 2 should emit len() >= 2; got: {out}"
+        );
     }
 }

@@ -273,6 +273,17 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
         ));
     }
 
+    for source in &config.poly.hooks_sources {
+        let hook_refs: Vec<&str> = source.hooks.iter().map(String::as_str).collect();
+        out.push_str(&format!(
+            "\n[[hooks.sources]]\nid = \"{}\"\ngit = \"{}\"\nrevision = \"{}\"\nhooks = {}\n",
+            source.id,
+            source.git,
+            source.revision,
+            toml_array(&hook_refs),
+        ));
+    }
+
     vec![
         GeneratedFile {
             path: PathBuf::from("poly.toml"),

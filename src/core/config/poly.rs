@@ -229,6 +229,31 @@ pub struct PolyConfig {
     /// is emitted with poly-default values filled in.
     #[serde(default)]
     pub uncomment: Option<UncommentConfig>,
+
+    /// External git-sourced pre-commit hook sources, emitted as `[[hooks.sources]]`
+    /// blocks in the generated `poly.toml`. Each entry pins a hook repository (e.g.
+    /// an `ai-rulez` validation hook) by git URL + revision.
+    ///
+    /// Empty (the default) emits no `[[hooks.sources]]` blocks, leaving the output
+    /// byte-identical to the pre-feature default.
+    #[serde(default)]
+    pub hooks_sources: Vec<HookSource>,
+}
+
+/// A single external git hook source, rendered as a `[[hooks.sources]]` block in the
+/// generated `poly.toml` (e.g. an `ai-rulez` validation hook pinned by revision).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct HookSource {
+    /// Stable identifier for the hook source (e.g. `"ai-rulez"`).
+    pub id: String,
+    /// Git repository URL providing the hook.
+    pub git: String,
+    /// Pinned git revision (tag, branch, or commit SHA).
+    pub revision: String,
+    /// Hook names from the source to enable.
+    #[serde(default)]
+    pub hooks: Vec<String>,
 }
 
 #[cfg(test)]

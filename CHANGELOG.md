@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-07-19
+
+### Added
+
+- **`[crates.ruby] required-ruby-version` config**: the scaffolded gemspec's
+  `required_ruby_version` constraint is now configurable per repo. Unset, it defaults to
+  `">= 3.2.0"` (see Fixed).
+- **`[[workspace.poly.hooks-sources]]` passthrough**: external git-sourced pre-commit hook
+  sources (e.g. an `ai-rulez` validation hook pinned by `git` + `revision`) are now modeled in
+  `[workspace.poly]` and rendered as `[[hooks.sources]]` blocks in the generated `poly.toml`, so
+  consumers relying on such hooks no longer have to hand-edit the generated file (which regen
+  would clobber). Empty by default — output stays byte-identical when unused.
+
+### Fixed
+
+- **Ruby gemspec no longer pins `< 4.0`**: the scaffolded gemspec hardcoded
+  `required_ruby_version = [">= 3.2.0", "< 4.0"]`, blocking `gem install` on Ruby 4.x. It now
+  defaults to `">= 3.2.0"` (no upper bound). Affects every repo with a Ruby binding.
+- **Elixir positional JSON-encoded NIF args now handle `nil` and pre-encoded strings**: the
+  positional constructor arg (e.g. `create_engine/1`) unconditionally re-encoded via
+  `Jason.encode!`, so a `nil` default config encoded to `"null"` and a pre-encoded JSON string
+  (the documented `Jason.encode!(%Struct{})` form) double-encoded — both rejected by serde at the
+  NIF boundary. The generated wrapper now forwards `nil` and binaries as-is and encodes native
+  terms, mirroring the keyword-arg path. Affects all rustler bindings.
+- **Generated Rust e2e test code is now clippy-clean under `--all-targets`**: the `min_length`
+  assertion emitted `x.len() >= 1` (trips `clippy::len_zero`); for `n == 1` it now emits
+  `!x.is_empty()` and keeps `len() >= n` for `n > 1`. The generated mock-server `Child` singleton
+  is annotated `#[allow(clippy::zombie_processes)]`.
+
+### Changed
+
+- **Dependencies bumped to latest**: `syn` `2` → `3` and `jsonschema` `0.46` → `0.48`. The `syn` 3
+  upgrade restructured `ItemImpl.trait_` (3-tuple → `(Path, For)`) and `Receiver` (`reference`/
+  `mutability` → `kind: ReceiverKind`); the Rust-source extractor was adapted accordingly. No
+  change to generated output.
+
 ## [0.37.2] - 2026-07-19
 
 ### Fixed
