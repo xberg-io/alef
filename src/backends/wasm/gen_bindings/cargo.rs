@@ -129,6 +129,29 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         .collect::<Vec<_>>()
         .join("\n");
 
+    // Hand-written test files in the binding crate (e.g. `#[wasm_bindgen_test]`
+    // suites) need test-only dependencies the generated manifest must carry.
+    let mut dev_dep_lines: Vec<String> = config
+        .wasm
+        .as_ref()
+        .map(|c| c.extra_dev_dependencies.iter().collect::<Vec<_>>())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(name, value)| {
+            if let Some(v) = value.as_str() {
+                format!("{name} = \"{v}\"")
+            } else {
+                format!("{name} = {value}")
+            }
+        })
+        .collect();
+    dev_dep_lines.sort();
+    let dev_deps_section = if dev_dep_lines.is_empty() {
+        String::new()
+    } else {
+        format!("\n[dev-dependencies]\n{}\n", dev_dep_lines.join("\n"))
+    };
+
     format!(
         r#"{header}
 [package]
@@ -157,7 +180,7 @@ crate-type = ["cdylib"]
 
 {features_table}[dependencies]
 {deps_block}
-
+{dev_deps_section}
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = {{ version = "0.4", features = ["wasm_js"] }}
 getrandom_02 = {{ package = "getrandom", version = "0.2", features = ["js"] }}
@@ -171,6 +194,7 @@ getrandom_03 = {{ package = "getrandom", version = "0.3", features = ["wasm_js"]
         repository = repository,
         keywords_toml = keywords_toml,
         deps_block = deps_block,
+        dev_deps_section = dev_deps_section,
         features_table = features_table,
     )
 }

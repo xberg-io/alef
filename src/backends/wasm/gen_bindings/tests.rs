@@ -269,3 +269,58 @@ fn test_visitor_field_substitution_in_post_process() {
         "Unreplaced visitor: Default::default() with 12 spaces still present"
     );
 }
+
+#[test]
+fn cargo_toml_emits_extra_dev_dependencies() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["wasm"]
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+[crates.wasm]
+[crates.wasm.extra_dev_dependencies]
+wasm-bindgen-test = "0.3"
+serde_json = { version = "1", features = ["preserve_order"] }
+"#,
+    )
+    .unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let cargo_toml = gen_cargo_toml(&api, &config);
+
+    assert!(
+        cargo_toml.contains("[dev-dependencies]"),
+        "expected a [dev-dependencies] section in:\n{cargo_toml}"
+    );
+    assert!(
+        cargo_toml.contains(r#"wasm-bindgen-test = "0.3""#),
+        "expected the string-valued dev dependency in:\n{cargo_toml}"
+    );
+    let parsed: toml::Value = toml::from_str(&cargo_toml).expect("generated Cargo.toml must be valid TOML");
+    let dev = parsed
+        .get("dev-dependencies")
+        .expect("dev-dependencies table must exist");
+    assert!(dev.get("serde_json").and_then(|v| v.get("features")).is_some());
+
+    // Without the config key, no section is emitted.
+    let plain = gen_cargo_toml(&api, &make_config());
+    assert!(
+        !plain.contains("[dev-dependencies]"),
+        "unexpected dev-deps in:\n{plain}"
+    );
+}
