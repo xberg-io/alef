@@ -53,9 +53,9 @@ fn excluded_node_platforms(config: &ResolvedCrateConfig) -> Vec<String> {
         .as_ref()
         .map(|c| c.exclude_platforms.clone())
         .unwrap_or_default();
-    // Also drop any napi platform whose target triple is disabled via the
-    // workspace `[targets]` opt-out table, so a single toggle stays consistent
-    // with the language-specific `exclude_platforms` list.
+    // Also drop any napi platform whose target triple is disabled via the ~keep
+    // workspace `[targets]` opt-out table, so a single toggle stays consistent ~keep
+    // with the language-specific `exclude_platforms` list. ~keep
     for (platform, triple) in NAPI_PLATFORMS.iter().zip(NAPI_TARGETS.iter()) {
         if !config.target_enabled(triple) && !excluded.iter().any(|e| e == platform) {
             excluded.push((*platform).to_string());
@@ -532,10 +532,10 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     } else {
         "[\"index.js\", \"index.d.ts\", \"*.node\"]".to_string()
     };
-    // When a service API is present, `service.cjs` is a real module (the low-level
-    // service `App`); expose it as a `./service` subpath so consumers can
-    // `import ... from '<pkg>/service'`. Without this the subpath is unresolvable
-    // under the `exports` map even though the file ships in `files`.
+    // When a service API is present, `service.cjs` is a real module (the low-level ~keep
+    // service `App`); expose it as a `./service` subpath so consumers can ~keep
+    // `import ... from '<pkg>/service'`. Without this the subpath is unresolvable ~keep
+    // under the `exports` map even though the file ships in `files`. ~keep
     let exports_map = if has_service_api {
         format!(
             r#"{{

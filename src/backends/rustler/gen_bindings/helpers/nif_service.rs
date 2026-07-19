@@ -33,7 +33,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         Some(elixir) if !elixir.nif_targets.is_empty() => elixir.nif_targets.clone(),
         _ => default_nif_targets.iter().map(|s| (*s).to_string()).collect(),
     };
-    // Drop any triple disabled via the workspace `[targets]` opt-out table.
+    // Drop any triple disabled via the workspace `[targets]` opt-out table. ~keep
     let nif_targets = nif_targets_list
         .iter()
         .filter(|t| config.target_enabled(t))

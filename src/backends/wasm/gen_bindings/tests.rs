@@ -317,7 +317,6 @@ serde_json = { version = "1", features = ["preserve_order"] }
         .expect("dev-dependencies table must exist");
     assert!(dev.get("serde_json").and_then(|v| v.get("features")).is_some());
 
-    // Without the config key, no section is emitted.
     let plain = gen_cargo_toml(&api, &make_config());
     assert!(
         !plain.contains("[dev-dependencies]"),

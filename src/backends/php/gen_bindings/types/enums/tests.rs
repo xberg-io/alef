@@ -152,9 +152,9 @@ mod variant_constructor_tests {
         };
         let code = run(&def, &mapper());
         assert!(code.contains("pub fn _factory_doc(body: String) -> Self"), "{code}");
-        // JSON fields deserialize inline from the incoming string param; there is no separate
-        // `body_json` let-binding (emitting a bare `body_json` reference without a binding was the
-        // old behaviour that produced `cannot find value` errors — E0425).
+        // JSON fields deserialize inline from the incoming string param; there is no separate ~keep
+        // `body_json` let-binding (emitting a bare `body_json` reference without a binding was the ~keep
+        // old behaviour that produced `cannot find value` errors — E0425). ~keep
         assert!(
             code.contains("test_lib::Payload::Doc { body: serde_json::from_str(&body).unwrap_or_default() }.into()"),
             "{code}"

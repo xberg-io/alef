@@ -54,7 +54,6 @@ fn wasm_package_json(toml: &str) -> serde_json::Value {
 #[test]
 fn wasm_targets_default_to_all_four_wasm_pack_targets() {
     let parsed = wasm_package_json("");
-    // Default: every wasm-pack target ships, broad file glob, nodejs entry points.
     assert_eq!(
         parsed["files"],
         serde_json::json!(["pkg", "*.wasm", "*.d.ts", "README.md"])
@@ -78,7 +77,6 @@ fn wasm_targets_default_to_all_four_wasm_pack_targets() {
 #[test]
 fn wasm_targets_web_only_ships_single_target() {
     let parsed = wasm_package_json("[crates.wasm]\ntargets = [\"web\"]\n");
-    // Single target: publish only pkg/web, entry points and build all point at web.
     assert_eq!(parsed["files"], serde_json::json!(["pkg/web", "README.md"]));
     assert_eq!(parsed["main"], "pkg/web/my_lib_wasm.js");
     assert_eq!(parsed["module"], "pkg/web/my_lib_wasm.js");

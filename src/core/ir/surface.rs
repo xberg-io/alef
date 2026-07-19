@@ -36,7 +36,7 @@ pub fn cfg_feature_satisfied(cfg: Option<&str>, enabled_features: &HashSet<&str>
         return true;
     }
 
-    // Indeterminate (target predicate) => keep the item.
+    // Indeterminate (target predicate) => keep the item. ~keep
     cfg_expr_satisfied(cfg_str, enabled_features).unwrap_or(true)
 }
 
@@ -86,7 +86,7 @@ fn cfg_expr_satisfied(cfg_str: &str, enabled_features: &HashSet<&str>) -> Option
         return cfg_expr_satisfied(inner.trim(), enabled_features).map(|value| !value);
     }
 
-    // Unrecognised leaf (e.g. `target_arch = "..."`): indeterminate.
+    // Unrecognised leaf (e.g. `target_arch = "..."`): indeterminate. ~keep
     None
 }
 
@@ -294,18 +294,15 @@ mod tests {
     #[test]
     fn cfg_feature_satisfied_handles_all_and_not_gates() {
         let enabled = features(&["layout-types"]);
-        // all(...) requires every operand
         assert!(cfg_feature_satisfied(
             Some("all(feature = \"layout-types\", not(feature = \"wasm-target\"))"),
             &enabled
         ));
-        // not(...) inverts
         assert!(!cfg_feature_satisfied(
             Some("not(feature = \"layout-types\")"),
             &enabled
         ));
         assert!(cfg_feature_satisfied(Some("not(feature = \"wasm-target\")"), &enabled));
-        // all(...) fails when one operand is unsatisfied
         assert!(!cfg_feature_satisfied(
             Some("all(feature = \"layout-types\", feature = \"wasm-target\")"),
             &enabled
@@ -331,21 +328,18 @@ mod tests {
 
     #[test]
     fn cfg_feature_satisfied_keeps_items_gated_on_target_predicates() {
-        // The real `RegionKind` gate: kept on any non-wasm native binding that
-        // enables liter-llm, because the target-arch leaf is indeterminate at
-        // generation time and must not cause a drop.
+        // The real `RegionKind` gate: kept on any non-wasm native binding that ~keep
+        // enables liter-llm, because the target-arch leaf is indeterminate at ~keep
+        // generation time and must not cause a drop. ~keep
         let enabled = features(&["liter-llm"]);
         assert!(cfg_feature_satisfied(
             Some("all (feature = \"liter-llm\" , not (target_arch = \"wasm32\"))"),
             &enabled
         ));
-        // But a decisive feature mismatch still drops, even mixed with a target
-        // predicate: liter-llm off short-circuits the `all(...)` to false.
         assert!(!cfg_feature_satisfied(
             Some("all (feature = \"liter-llm\" , not (target_arch = \"wasm32\"))"),
             &features(&["pdf"])
         ));
-        // A bare target predicate is always kept.
         assert!(cfg_feature_satisfied(
             Some("not (target_arch = \"wasm32\")"),
             &features(&["pdf"])
@@ -416,13 +410,10 @@ mod tests {
 
         let filtered = surface.with_cfg_filtered_deep(&features(&["pdf"]));
 
-        // Gated top-level type dropped.
         let type_names: Vec<&str> = filtered.types.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(type_names, vec!["ExtractionConfig"]);
-        // Gated field dropped, ungated field kept.
         let field_names: Vec<&str> = filtered.types[0].fields.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(field_names, vec!["use_cache"]);
-        // Gated variant dropped, ungated variant kept.
         let variant_names: Vec<&str> = filtered.enums[0].variants.iter().map(|v| v.name.as_str()).collect();
         assert_eq!(variant_names, vec!["Markdown"]);
     }

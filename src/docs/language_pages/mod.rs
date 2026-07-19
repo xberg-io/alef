@@ -28,10 +28,10 @@ pub(super) fn generate_lang_doc(
     output_dir: &str,
     ffi_prefix: &str,
 ) -> anyhow::Result<GeneratedFile> {
-    // Filter the surface to what this binding actually compiles: items (and
-    // their fields/variants) gated behind a `#[cfg(feature = "...")]` the
-    // binding does not enable are compiled out of the real binding, so they
-    // must not appear in its reference docs.
+    // Filter the surface to what this binding actually compiles: items (and ~keep
+    // their fields/variants) gated behind a `#[cfg(feature = "...")]` the ~keep
+    // binding does not enable are compiled out of the real binding, so they ~keep
+    // must not appear in its reference docs. ~keep
     let effective_features = effective_docs_features(api, config, lang);
     let enabled_features: HashSet<&str> = effective_features.iter().map(String::as_str).collect();
     let filtered_api = api.with_cfg_filtered_deep(&enabled_features);

@@ -217,7 +217,7 @@ impl NewAlefConfig {
 
         let source_crates = resolve_source_crates(&krate.source_crates, krate.workspace_root.as_deref())?;
 
-        // Per-target toggles: workspace defaults, overridden per key by the crate.
+        // Per-target toggles: workspace defaults, overridden per key by the crate. ~keep
         let mut targets = ws.targets.clone();
         targets.extend(krate.targets.iter().map(|(k, v)| (k.clone(), *v)));
         for key in targets.keys() {

@@ -283,9 +283,9 @@ RSpec/NestedGroups:
 "#
     .to_string();
 
-    // Ruby cross-compile platforms, each paired with the Rust target triple that
-    // backs it. A platform whose triple is disabled via the workspace `[targets]`
-    // opt-out table is dropped from the generated `CROSS_PLATFORMS` list.
+    // Ruby cross-compile platforms, each paired with the Rust target triple that ~keep
+    // backs it. A platform whose triple is disabled via the workspace `[targets]` ~keep
+    // opt-out table is dropped from the generated `CROSS_PLATFORMS` list. ~keep
     const RUBY_CROSS_PLATFORMS: &[(&str, &str)] = &[
         ("x86_64-linux", "x86_64-unknown-linux-gnu"),
         ("aarch64-linux", "aarch64-unknown-linux-gnu"),

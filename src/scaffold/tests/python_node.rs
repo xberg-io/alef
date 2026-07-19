@@ -474,8 +474,8 @@ exclude_platforms = ["linux-x64-musl", "linux-arm64-musl"]
 
 #[test]
 fn test_scaffold_node_targets_toggle_drops_mac_intel() {
-    // The systematic `[targets]` opt-out drops a target across the whole binding,
-    // just like the node-specific `exclude_platforms`.
+    // The systematic `[targets]` opt-out drops a target across the whole binding, ~keep
+    // just like the node-specific `exclude_platforms`. ~keep
     let config = test_config_from_toml(
         r#"
 [crates.targets]
@@ -534,7 +534,7 @@ mac_intel = false
 
 #[test]
 fn test_scaffold_targets_toggle_rejects_unknown_key() {
-    // An unknown `[targets]` key must fail resolution, not silently no-op.
+    // An unknown `[targets]` key must fail resolution, not silently no-op. ~keep
     let cfg: crate::core::config::NewAlefConfig = toml::from_str(
         r#"
 [workspace]

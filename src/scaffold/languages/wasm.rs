@@ -35,9 +35,9 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         .map(|license| format!(",\n  \"license\": \"{license}\""))
         .unwrap_or_default();
 
-    // wasm-pack build targets that ship in this package. Each target embeds a
-    // full copy of the wasm binary, so a single-target set keeps the published
-    // package small. Derives `files`, entry points, and the build scripts.
+    // wasm-pack build targets that ship in this package. Each target embeds a ~keep
+    // full copy of the wasm binary, so a single-target set keeps the published ~keep
+    // package small. Derives `files`, entry points, and the build scripts. ~keep
     let targets = config.wasm_targets();
     const VALID_TARGETS: &[&str] = &["web", "bundler", "nodejs", "deno"];
     if targets.is_empty() {
@@ -49,14 +49,14 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         }
     }
     let has = |t: &str| targets.iter().any(|x| x == t);
-    // `main`/`types` prefer the CommonJS-friendly nodejs build; `module` prefers
-    // the browser ES module. When a preferred target isn't built, fall back to
-    // the first configured target.
+    // `main`/`types` prefer the CommonJS-friendly nodejs build; `module` prefers ~keep
+    // the browser ES module. When a preferred target isn't built, fall back to ~keep
+    // the first configured target. ~keep
     let node_target = if has("nodejs") { "nodejs" } else { targets[0].as_str() };
     let web_target = if has("web") { "web" } else { targets[0].as_str() };
 
-    // A single-target package publishes just that target's dir; a multi-target
-    // package keeps the broad glob for backward compatibility.
+    // A single-target package publishes just that target's dir; a multi-target ~keep
+    // package keeps the broad glob for backward compatibility. ~keep
     let files_block = if targets.len() == 1 {
         format!("[\n    \"pkg/{}\",\n    \"README.md\"\n  ]", targets[0])
     } else {

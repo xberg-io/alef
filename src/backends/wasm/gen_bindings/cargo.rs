@@ -129,8 +129,8 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         .collect::<Vec<_>>()
         .join("\n");
 
-    // Hand-written test files in the binding crate (e.g. `#[wasm_bindgen_test]`
-    // suites) need test-only dependencies the generated manifest must carry.
+    // Hand-written test files in the binding crate (e.g. `#[wasm_bindgen_test]` ~keep
+    // suites) need test-only dependencies the generated manifest must carry. ~keep
     let mut dev_dep_lines: Vec<String> = config
         .wasm
         .as_ref()

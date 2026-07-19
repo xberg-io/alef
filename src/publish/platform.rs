@@ -662,7 +662,6 @@ mod tests {
 
     #[test]
     fn canonical_target_key_windows_ignores_abi() {
-        // msvc, gnu, and mingw windows-x64 all fold under one key.
         assert_eq!(key_of("x86_64-pc-windows-msvc"), Some("windows_x64"));
         assert_eq!(key_of("x86_64-pc-windows-gnu"), Some("windows_x64"));
         assert_eq!(key_of("aarch64-pc-windows-msvc"), Some("windows_arm64"));
@@ -676,7 +675,7 @@ mod tests {
 
     #[test]
     fn every_canonical_key_is_reachable() {
-        // Guard against a key in CANONICAL_TARGET_KEYS that no triple maps to.
+        // Guard against a key in CANONICAL_TARGET_KEYS that no triple maps to. ~keep
         let reachable: std::collections::BTreeSet<&str> = [
             "x86_64-apple-darwin",
             "aarch64-apple-darwin",
@@ -707,10 +706,8 @@ mod tests {
         let mut toggles = std::collections::BTreeMap::new();
         toggles.insert("mac_intel".to_string(), false);
         assert!(!target_triple_enabled(&toggles, "x86_64-apple-darwin"));
-        // Sibling families stay enabled.
         assert!(target_triple_enabled(&toggles, "aarch64-apple-darwin"));
         assert!(target_triple_enabled(&toggles, "x86_64-unknown-linux-gnu"));
-        // Untoggleable triples stay enabled.
         assert!(target_triple_enabled(&toggles, "wasm32-unknown-unknown"));
     }
 

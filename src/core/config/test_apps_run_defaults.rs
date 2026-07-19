@@ -159,21 +159,21 @@ pub fn default_test_apps_run_config(
             ))),
         },
         Language::Dart => TestAppRunConfig {
-            // Pub.dev cannot ship the native libraries inside the Dart package — the full
-            // per-platform native set exceeds pub.dev's 100 MB tarball cap — so the published
-            // package ships a `bin/download_libs.dart` helper (exposed as an `executables:`
-            // entry in its pubspec.yaml) that fetches the platform-specific dylib/so/dll from
-            // the GitHub release into the pub-cache's `lib/src/native/<rid>/` directory, where
-            // the FRB loader resolves it. Without invoking that executable between `pub get`
-            // and `dart test`, `RustLib.init()` fails in `setUpAll` with
-            // "Native library for <pkg> (<os>-<arch>) was not found ... Download it with
-            // `dart run <pkg>:download_libs`".
-            //
-            // Extract the under-test package name (the first `dependencies:` entry in the
-            // test_app pubspec.yaml, per alef's test_apps codegen convention) and invoke
-            // `dart run <pkg>:download_libs`. Keep stderr attached so a real failure
-            // (HTTP 404, network, asset-name mismatch) surfaces here rather than as a
-            // confusing `dlopen` rejection inside `dart test`.
+            // Pub.dev cannot ship the native libraries inside the Dart package — the full ~keep
+            // per-platform native set exceeds pub.dev's 100 MB tarball cap — so the published ~keep
+            // package ships a `bin/download_libs.dart` helper (exposed as an `executables:` ~keep
+            // entry in its pubspec.yaml) that fetches the platform-specific dylib/so/dll from ~keep
+            // the GitHub release into the pub-cache's `lib/src/native/<rid>/` directory, where ~keep
+            // the FRB loader resolves it. Without invoking that executable between `pub get` ~keep
+            // and `dart test`, `RustLib.init()` fails in `setUpAll` with ~keep
+            // "Native library for <pkg> (<os>-<arch>) was not found ... Download it with ~keep
+            // `dart run <pkg>:download_libs`". ~keep
+            // ~keep
+            // Extract the under-test package name (the first `dependencies:` entry in the ~keep
+            // test_app pubspec.yaml, per alef's test_apps codegen convention) and invoke ~keep
+            // `dart run <pkg>:download_libs`. Keep stderr attached so a real failure ~keep
+            // (HTTP 404, network, asset-name mismatch) surfaces here rather than as a ~keep
+            // confusing `dlopen` rejection inside `dart test`. ~keep
             precondition: Some(require_tool("dart")),
             before: None,
             run: Some(StringOrVec::Single(format!(
@@ -590,11 +590,11 @@ mod tests {
 
     #[test]
     fn dart_run_invokes_download_libs_before_test() {
-        // Pub.dev cannot bundle the full per-platform native set (exceeds the 100 MB tarball
-        // cap), so the published package ships a `download_libs` executable that fetches the
-        // native from the GitHub release. Without invoking it between `pub get` and `dart test`,
-        // `RustLib.init()` fails in setUpAll with "Native library ... was not found". The
-        // default command must derive the package name and run `dart run <pkg>:download_libs`.
+        // Pub.dev cannot bundle the full per-platform native set (exceeds the 100 MB tarball ~keep
+        // cap), so the published package ships a `download_libs` executable that fetches the ~keep
+        // native from the GitHub release. Without invoking it between `pub get` and `dart test`, ~keep
+        // `RustLib.init()` fails in setUpAll with "Native library ... was not found". The ~keep
+        // default command must derive the package name and run `dart run <pkg>:download_libs`. ~keep
         let c = cfg(Language::Dart, "test_apps");
         let run = c.run.expect("dart should have a run command").commands().join(" ");
         assert_eq!(c.precondition.as_deref(), Some("command -v dart >/dev/null 2>&1"));
@@ -609,7 +609,7 @@ mod tests {
             run.contains("DART_PKG"),
             "dart run must derive the under-test package name for the download_libs call; got: {run}"
         );
-        // download_libs must run before `dart test` so the native is present at init time.
+        // download_libs must run before `dart test` so the native is present at init time. ~keep
         let dl = run.find("download_libs").expect("download_libs present");
         let test = run.rfind("dart test").expect("dart test present");
         assert!(dl < test, "download_libs must run before dart test; got: {run}");

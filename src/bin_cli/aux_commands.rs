@@ -272,15 +272,15 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                 "uv.lock",
                                 "pubspec.lock",
                             ];
-                            // JS lockfiles are deliberately NOT preserved across --clean for the
-                            // node/wasm test apps. A committed lockfile that pins an older version
-                            // than package.json wants (e.g. `pnpm-lock.yaml` stuck at rc.25 while
-                            // package.json wants ^rc.26) makes pnpm's `minimumReleaseAge`
-                            // supply-chain gate reject the install
-                            // (ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION). Dropping the stale lock lets
-                            // the post-generate `pnpm install --lockfile-only` regenerate it fresh
-                            // against the current package.json — and if that step is unavailable, no
-                            // stale lock ships and smoke-time `pnpm install` resolves cleanly.
+                            // JS lockfiles are deliberately NOT preserved across --clean for the ~keep
+                            // node/wasm test apps. A committed lockfile that pins an older version ~keep
+                            // than package.json wants (e.g. `pnpm-lock.yaml` stuck at rc.25 while ~keep
+                            // package.json wants ^rc.26) makes pnpm's `minimumReleaseAge` ~keep
+                            // supply-chain gate reject the install ~keep
+                            // (ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION). Dropping the stale lock lets ~keep
+                            // the post-generate `pnpm install --lockfile-only` regenerate it fresh ~keep
+                            // against the current package.json — and if that step is unavailable, no ~keep
+                            // stale lock ships and smoke-time `pnpm install` resolves cleanly. ~keep
                             let js_lock_files = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"];
                             for lang_name in &langs_to_clean {
                                 let preserve_js_locks = lang_name != "node" && lang_name != "wasm";
