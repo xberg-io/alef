@@ -35,10 +35,10 @@ pub(crate) fn default_build_config(
             precondition: Some(require_tool("npm")),
             before: None,
             build: Some(StringOrVec::Single(format!(
-                "npx --yes -p @napi-rs/cli@3.6.2 napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node"
+                "npx --yes -p @napi-rs/cli@3.7.3 napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node"
             ))),
             build_release: Some(StringOrVec::Single(format!(
-                "npx --yes -p @napi-rs/cli@3.6.2 napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node --release"
+                "npx --yes -p @napi-rs/cli@3.7.3 napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node --release"
             ))),
         },
         Language::Wasm => BuildCommandConfig {
@@ -299,7 +299,7 @@ mod tests {
         let c = cfg(Language::Node, "packages/node", "my-lib");
         let build = c.build.unwrap().commands().join(" ");
         let release = c.build_release.unwrap().commands().join(" ");
-        assert!(build.contains("npx --yes -p @napi-rs/cli@3.6.2 napi"));
+        assert!(build.contains("npx --yes -p @napi-rs/cli@3.7.3 napi"));
         assert!(build.contains("build --manifest-path"));
         assert!(build.contains("my-lib-node"));
         assert!(release.contains("--release"));
