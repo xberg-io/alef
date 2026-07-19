@@ -135,7 +135,8 @@ pub(crate) fn emit_extern_block_for_type(
             bridge_type_enum_and_serde_struct_aware(&field.ty, &enum_set, no_serde_names, parent_first_class);
         let bridge_ty = if field.optional && !needs_json_bridge(&field.ty) {
             if is_vec_of_enum(&field.ty, &enum_set)
-                || (matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !no_serde_names.contains(n.as_str())))
+                || (parent_first_class
+                    && matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !no_serde_names.contains(n.as_str())))
                     && !matches!(&field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if enum_set.contains(n.as_str()))))
             {
                 "String".to_string()

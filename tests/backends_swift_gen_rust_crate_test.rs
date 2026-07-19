@@ -835,6 +835,64 @@ fn lib_rs_struct_with_tagged_enum_field_serializes_to_json() {
     );
 }
 
+/// Regression: an `Option<Vec<serde-struct>>` getter on an OPAQUE (non-first-class) parent must ~keep
+/// return a real `Option<Vec<Elem>>`, matching the constructor param and the opaque element ~keep
+/// accessors — not collapse the whole vec to a JSON `String`. The JSON degradation is correct only ~keep
+/// for first-class Codable parents; here `Article` is opaque (a `Map` field forces it), so ~keep
+/// `sections()` must expose the vec. ~keep
+#[test]
+fn optional_vec_of_serde_struct_getter_on_opaque_parent_returns_vec_not_string() {
+    let section = {
+        let mut t = make_type("Section", vec![make_field("text", TypeRef::String)]);
+        t.has_serde = true;
+        t
+    };
+    let article = {
+        let sections = FieldDef {
+            optional: true,
+            ..make_field(
+                "sections",
+                TypeRef::Vec(Box::new(TypeRef::Named("Section".to_string()))),
+            )
+        };
+        // A Map field forces Article out of the first-class set, so it renders opaque. ~keep
+        let raw = make_field(
+            "raw",
+            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+        );
+        let mut t = make_type("Article", vec![sections, raw]);
+        t.has_serde = true;
+        t
+    };
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![section, article],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content.contains("fn sections(&self) -> Option<Vec<Section>>;"),
+        "opaque-parent optional vec-of-serde-struct getter must declare Option<Vec<Section>>: {}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("fn sections(&self) -> String;"),
+        "opaque-parent getter must not JSON-degrade the vec to String: {}",
+        lib.content
+    );
+}
+
 fn make_method(
     name: &str,
     params: Vec<ParamDef>,

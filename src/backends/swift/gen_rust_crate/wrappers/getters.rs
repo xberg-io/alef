@@ -482,7 +482,7 @@ fn emit_vec_getter(
     if let TypeRef::Named(wrapper) = inner {
         let is_enum = enum_names.contains(wrapper.as_str());
         let has_serde = !no_serde_names.contains(wrapper.as_str());
-        if !is_enum && has_serde && (field.optional || parent_first_class) {
+        if !is_enum && has_serde && parent_first_class {
             emit_vec_struct_serde_getter(field, ctx, out);
         } else {
             let elem_expr = match field.vec_inner_core_wrapper {
