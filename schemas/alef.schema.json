@@ -6769,7 +6769,7 @@
         },
         "custom_rust_modules": {
           "default": [],
-          "description": "Hand-written Rust modules to declare in the generated lib.rs with `pub mod <name>;`\nand re-export with `pub use <name>::*;`. Separate from `[custom_modules].wasm` which\nonly adds TypeScript `export *` re-exports. Use this for Rust-side dispatch/glue modules.",
+          "description": "Hand-written Rust modules to declare in the generated lib.rs with `pub mod <name>;`\nand re-export with `pub use <name>::*;`. This is the knob for Rust-side dispatch/glue\nmodules under wasm. Note that `[custom_modules].wasm` is NOT consumed by the wasm\nbackend (no code path reads it) — use this field instead.",
           "items": {
             "type": "string"
           },
@@ -7487,7 +7487,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.37.0/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.37.1/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7605,6 +7605,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.37.0",
-  "x-alef-version": "0.37.0"
+  "version": "0.37.1",
+  "x-alef-version": "0.37.1"
 }

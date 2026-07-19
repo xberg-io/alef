@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-07-19
+
+### Fixed
+
+- **Elixir streaming NIFs now compile**: the generated Rustler streaming start NIF
+  (`crawl_stream`/`batch_crawl_stream`-style methods on an opaque resource) cloned the
+  `Arc<RwLock<Handle>>` and called the core stream method on it, which does not exist
+  (`E0599`). Streaming codegen now read-locks and clones the inner handle first, matching the
+  non-streaming opaque method path.
+- **Swift `Option<Vec<serde-struct>>` getters on opaque parents no longer collapse to `String`**:
+  an optional `Vec` of a serde-deriving struct on an opaque (non-first-class) parent was
+  JSON-degraded to a single `RustString` getter while the constructor kept a real
+  `Optional<RustVec<T>>`, so `.field()?.count` did not compile. The getter now returns
+  `Option<Vec<T>>` (matching the constructor and the opaque element accessors); the JSON
+  degradation is retained only for first-class Codable parents whose Swift decoder needs it.
+- **Project-agnostic fixtures**: renamed real downstream project names used as sample fixtures in
+  `src/core/ir/surface.rs` and the C# e2e test-app generator to neutral names, restoring the
+  project-mention guard to green.
+
 ## [0.37.0] - 2026-07-19
 
 ### Added
