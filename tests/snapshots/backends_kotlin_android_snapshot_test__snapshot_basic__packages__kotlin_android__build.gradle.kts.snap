@@ -158,6 +158,23 @@ tasks.register("validateJniLibsForRelease") {
                     "Aborting to prevent shipping a jni-less AAR to Maven Central."
                 )
             }
+            // Every ABI directory must also contain the JNI crate's own library.
+            // A non-empty jniLibs holding a differently-named .so (e.g. the C-FFI
+            // lib*_ffi.so instead of libdemo_jni.so) passes the emptiness
+            // check above but fails at runtime with UnsatisfiedLinkError, because
+            // System.loadLibrary("demo_jni") needs the JNI entry points.
+            val expectedJniLib = "libdemo_jni.so"
+            val abisMissingJniLib = (jniLibsDir.listFiles()?.filter { it.isDirectory } ?: emptyList())
+                .filter { abiDir -> !abiDir.resolve(expectedJniLib).exists() }
+            if (abisMissingJniLib.isNotEmpty()) {
+                throw GradleException(
+                    "FATAL: " + expectedJniLib + " is missing from jniLibs ABI dir(s): " +
+                    abisMissingJniLib.joinToString(", ") { it.name } + ". " +
+                    "A differently-named native library (e.g. the C-FFI lib*_ffi.so) does not " +
+                    "export the JNI symbols System.loadLibrary(\"demo_jni\") requires and " +
+                    "fails at runtime. Aborting to prevent shipping a broken AAR to Maven Central."
+                )
+            }
         }
     }
 }

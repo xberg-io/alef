@@ -282,6 +282,23 @@ tasks.register("validateJniLibsForRelease") {{
                     "Aborting to prevent shipping a jni-less AAR to Maven Central."
                 )
             }}
+            // Every ABI directory must also contain the JNI crate's own library.
+            // A non-empty jniLibs holding a differently-named .so (e.g. the C-FFI
+            // lib*_ffi.so instead of lib{jni_lib_name}.so) passes the emptiness
+            // check above but fails at runtime with UnsatisfiedLinkError, because
+            // System.loadLibrary("{jni_lib_name}") needs the JNI entry points.
+            val expectedJniLib = "lib{jni_lib_name}.so"
+            val abisMissingJniLib = (jniLibsDir.listFiles()?.filter {{ it.isDirectory }} ?: emptyList())
+                .filter {{ abiDir -> !abiDir.resolve(expectedJniLib).exists() }}
+            if (abisMissingJniLib.isNotEmpty()) {{
+                throw GradleException(
+                    "FATAL: " + expectedJniLib + " is missing from jniLibs ABI dir(s): " +
+                    abisMissingJniLib.joinToString(", ") {{ it.name }} + ". " +
+                    "A differently-named native library (e.g. the C-FFI lib*_ffi.so) does not " +
+                    "export the JNI symbols System.loadLibrary(\"{jni_lib_name}\") requires and " +
+                    "fails at runtime. Aborting to prevent shipping a broken AAR to Maven Central."
+                )
+            }}
         }}
     }}
 }}
@@ -384,6 +401,53 @@ description = "Test library"
         assert!(
             gradle.contains("alef.skipHostJni"),
             "Gradle should mention alef.skipHostJni opt-out"
+        );
+    }
+
+    #[test]
+    fn build_gradle_validates_jni_lib_present_per_abi() {
+        use crate::core::config::new_config::NewAlefConfig;
+
+        let toml_str = r#"
+[workspace]
+languages = ["kotlin_android"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.kotlin_android]
+package = "dev.example"
+
+[crates.jni]
+
+[crates.scaffold]
+repository = "https://github.com/example/test-lib"
+license = "MIT"
+description = "Test library"
+"#;
+
+        let cfg: NewAlefConfig = toml::from_str(toml_str).unwrap();
+        let resolved = cfg.resolve().unwrap();
+        let config = &resolved[0];
+        let jni_lib_name = config.jni_lib_name();
+
+        let gradle = emit(config);
+
+        // The release guard must assert the correctly-named JNI library is present in ~keep
+        // each ABI dir, not merely that jniLibs is non-empty (which a stray C-FFI ~keep
+        // lib*_ffi.so would satisfy while failing at runtime with UnsatisfiedLinkError). ~keep
+        assert!(
+            gradle.contains(&format!("val expectedJniLib = \"lib{jni_lib_name}.so\"")),
+            "guard must check for the JNI-named library per ABI"
+        );
+        assert!(
+            gradle.contains("abisMissingJniLib"),
+            "guard must collect ABI dirs missing the JNI library"
+        );
+        assert!(
+            gradle.contains("is missing from jniLibs ABI dir(s)"),
+            "guard must fail with an actionable message naming the missing ABI dirs"
         );
     }
 }
