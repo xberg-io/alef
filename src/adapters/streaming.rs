@@ -415,7 +415,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
                      .build()\n            \
                      .map_err(|e| e.to_string())?,\n    \
              );\n    \
-             let inner = resource.inner.clone();\n    \
+             let inner = resource.inner.read().unwrap_or_else(|e| e.into_inner()).clone();\n    \
              let stream = runtime\n        \
                  .block_on(async move {{ inner.{core_path}({call_str}).await }})\n        \
                  .map_err(|e| e.to_string())?;\n    \

@@ -1202,6 +1202,29 @@ fn test_two_streaming_adapters_share_owner_elixir_emits_distinct_handles() {
     );
 }
 
+/// Regression: the Elixir streaming start NIF must read-lock and clone the inner
+/// handle out of `Arc<RwLock<_>>` before calling the core stream method, mirroring
+/// the non-streaming opaque path. Cloning the `Arc<RwLock<_>>` directly compiled to
+/// `E0599: no method named <stream_fn> on Arc<RwLock<Handle>>` (surfaced by a downstream
+/// streaming e2e).
+#[test]
+fn should_lock_and_clone_handle_in_elixir_streaming_start_nif() {
+    let mut config = make_config(vec![Language::Elixir]);
+    config.adapters = two_streaming_adapters_on_one_owner();
+
+    let bodies = build_adapter_bodies(&config, Language::Elixir).expect("build failed");
+    let struct_crawl = &bodies["CrawlEngineHandle.crawl_stream.__stream_struct__"];
+
+    assert!(
+        struct_crawl.contains("resource.inner.read().unwrap_or_else(|e| e.into_inner()).clone()"),
+        "streaming start NIF must read-lock+clone the handle before the core call. Got: {struct_crawl}"
+    );
+    assert!(
+        !struct_crawl.contains("let inner = resource.inner.clone();"),
+        "streaming start NIF must not clone the Arc<RwLock<_>> directly (E0599). Got: {struct_crawl}"
+    );
+}
+
 /// When an adapter has `skip_languages = ["wasm"]` the WASM backend must not
 /// receive any body entries for that adapter.
 #[test]
