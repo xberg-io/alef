@@ -121,6 +121,25 @@ pub(super) fn render_assertion(
         }
     }
 
+    // Skip length/count assertions whose collection leaf is bridged to a scalar
+    // `RustString` rather than a countable `RustVec`. swift-bridge JSON-bridges
+    // `Option<Vec<T>>`, `Vec<Vec<_>>`, and `Map` getters to a single `RustString`,
+    // which has no `.count` — so the naive `<collection>().count` the renderer
+    // emits for a trailing `.length`/`.count`/`.size` segment does not compile.
+    // The renderer cannot see the leaf's swift-bridge kind, so guard here and
+    // skip, matching the go/csharp/java backends (which also skip these).
+    if let Some(f) = &assertion.field {
+        if let Some(collection) = ["length", "count", "size"]
+            .iter()
+            .find_map(|suffix| f.strip_suffix(&format!(".{suffix}")))
+            && !collection.is_empty()
+            && !field_resolver.leaf_is_vec_via_swift_map(field_resolver.resolve(collection))
+        {
+            let _ = writeln!(out, "        // skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
     // Skip assertions that traverse a tagged-union variant boundary.
     // In Swift, FormatMetadata and similar enum-backed opaque types are exposed as
     // plain classes by swift-bridge — variant accessor methods (e.g., `.excel()`)
