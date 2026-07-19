@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-07-19
+
+### Fixed
+
+- **`alef all --clean` now poly-formats root-level generated files**: the full-regen format pass
+  only ran `poly fmt --fix` over each language's package directory, so generated files that live
+  outside every package dir — `poly.toml`, `.cargo/config.toml`, and the docs/skills output — were
+  never formatted and failed `poly fmt --check` in consuming repos (0.38.0 regression). A `--clean`
+  run now formats the whole base directory.
+
 ## [0.38.0] - 2026-07-19
 
 ### Added
