@@ -6969,6 +6969,14 @@
             "string",
             "null"
           ]
+        },
+        "wasm_opt": {
+          "default": [],
+          "description": "`wasm-opt` pass arguments, emitted as\n`[package.metadata.wasm-pack.profile.release] wasm-opt = [...]`. When set to\na non-empty list, wasm-pack runs `wasm-opt` with these flags (e.g. `[\"-Oz\"]`\nto minimize binary size, keeping large builds under a CDN per-file cap).\nDefaults to empty, which emits `wasm-opt = false` so wasm-pack skips the pass\n(the historical default; unchanged for consumers that don't set it).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "type": "object"
@@ -7536,7 +7544,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.38.4/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.39.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7655,6 +7663,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.38.4",
-  "x-alef-version": "0.38.4"
+  "version": "0.39.0",
+  "x-alef-version": "0.39.0"
 }

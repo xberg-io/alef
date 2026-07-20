@@ -87,6 +87,19 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         format!("[features]\n{}\n\n", lines.join("\n"))
     };
 
+    // `[package.metadata.wasm-pack.profile.release] wasm-opt`: emit the configured
+    // pass args (e.g. `["-Oz"]`) when set, else `false` (wasm-pack skips wasm-opt).
+    let wasm_opt_line = config
+        .wasm
+        .as_ref()
+        .map(|c| c.wasm_opt.as_slice())
+        .filter(|args| !args.is_empty())
+        .map(|args| {
+            let quoted: Vec<String> = args.iter().map(|a| format!("\"{a}\"")).collect();
+            format!("wasm-opt = [{}]", quoted.join(", "))
+        })
+        .unwrap_or_else(|| "wasm-opt = false".to_string());
+
     let header = hash::header(CommentStyle::Hash);
 
     let mut deps: Vec<(String, String)> = vec![
@@ -173,7 +186,7 @@ ignored = [
 ]
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = false
+{wasm_opt_line}
 
 [lib]
 crate-type = ["cdylib"]
@@ -193,6 +206,7 @@ getrandom_03 = {{ package = "getrandom", version = "0.3", features = ["wasm_js"]
         description = description,
         repository = repository,
         keywords_toml = keywords_toml,
+        wasm_opt_line = wasm_opt_line,
         deps_block = deps_block,
         dev_deps_section = dev_deps_section,
         features_table = features_table,

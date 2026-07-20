@@ -108,6 +108,14 @@ pub struct WasmConfig {
     /// `nodejs`, `deno`. Defaults to all four for backward compatibility.
     #[serde(default = "default_wasm_targets")]
     pub targets: Vec<String>,
+    /// `wasm-opt` pass arguments, emitted as
+    /// `[package.metadata.wasm-pack.profile.release] wasm-opt = [...]`. When set to
+    /// a non-empty list, wasm-pack runs `wasm-opt` with these flags (e.g. `["-Oz"]`
+    /// to minimize binary size, keeping large builds under a CDN per-file cap).
+    /// Defaults to empty, which emits `wasm-opt = false` so wasm-pack skips the pass
+    /// (the historical default; unchanged for consumers that don't set it).
+    #[serde(default)]
+    pub wasm_opt: Vec<String>,
 }
 
 /// The default wasm-pack target set: every target wasm-pack supports.

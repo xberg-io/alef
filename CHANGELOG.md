@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-07-20
+
+### Added
+
+- **WASM: configurable `wasm-opt` pass via `[crates.wasm].wasm_opt`**: the generated wasm binding
+  `Cargo.toml` hard-coded `[package.metadata.wasm-pack.profile.release] wasm-opt = false`, so
+  wasm-pack always skipped the size-optimization pass. A new `wasm_opt` field (a list of `wasm-opt`
+  flags, e.g. `["-Oz"]`) is now emitted as `wasm-opt = [...]` when set, letting large wasm builds
+  stay under CDN per-file size caps. Defaults to empty, which still emits `wasm-opt = false` — the
+  historical behavior is unchanged for consumers that don't set it.
+
 ## [0.38.4] - 2026-07-20
 
 ### Fixed
