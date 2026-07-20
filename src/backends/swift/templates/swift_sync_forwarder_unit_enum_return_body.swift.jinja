@@ -1,0 +1,6 @@
+    let _rb = {{ bridge_call_try }}RustBridge.{{ function_name }}({{ args }})
+    let _rbRawValue = _rb.to_string().toString()
+    guard let _rbValue = {{ enum_name }}(rawValue: _rbRawValue) else {
+        throw {{ error_type_name }}.validation(message: "Unknown {{ enum_name }} variant", source: _rbRawValue)
+    }
+    return _rbValue

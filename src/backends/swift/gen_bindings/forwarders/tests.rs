@@ -196,6 +196,99 @@ fn capsule_forwarder_errors_when_construct_expr_empty() {
     );
 }
 
+fn make_async_enum_return_fn() -> FunctionDef {
+    let mut func = make_function(
+        "refresh_catalog",
+        vec![("config", TypeRef::Named("CatalogRefreshConfig".to_string()))],
+        TypeRef::Named("RefreshOutcome".to_string()),
+    );
+    func.is_async = true;
+    func.error_type = Some("String".to_string());
+    func
+}
+
+/// Regression test: a service function returning a `String`-backed enum (e.g. serde
+/// `RefreshOutcome`) must not be constructed via the struct positional-init pattern
+/// `EnumName(_rb_obj)` — enums only synthesize `init(from: Decoder)`, so that call fails
+/// to compile. The async forwarder must decode via the enum's `RawValue` initializer
+/// instead.
+#[test]
+fn async_forwarder_decodes_unit_enum_return_via_raw_value_not_positional_init() {
+    let func = make_async_enum_return_fn();
+    let mut known_dto_names: HashSet<String> = HashSet::new();
+    // `known_dto_names` mirrors `compute_first_class_dto_names`, which intentionally ~keep
+    // includes unit-serde enum names alongside true struct DTOs. ~keep
+    known_dto_names.insert("RefreshOutcome".to_string());
+    let enum_names: HashSet<String> = known_dto_names.clone();
+    let unit_enum_names: HashSet<String> = known_dto_names.clone();
+
+    let mut out = String::new();
+    emit_async_free_function_forwarder(
+        &func,
+        "refreshCatalog",
+        &known_dto_names,
+        &enum_names,
+        &unit_enum_names,
+        "LiterLlmError",
+        &mut out,
+    );
+
+    assert!(
+        !out.contains("RefreshOutcome(_rb_obj)"),
+        "must not emit the struct-init pattern for an enum return. Got:\n{out}"
+    );
+    assert!(
+        out.contains("RefreshOutcome(rawValue:"),
+        "must decode the enum via its RawValue initializer. Got:\n{out}"
+    );
+    assert!(
+        out.contains("LiterLlmError.validation(message: \"Unknown RefreshOutcome variant\""),
+        "must throw a validation error naming the enum on an unrecognized raw value. Got:\n{out}"
+    );
+}
+
+fn make_sync_enum_return_fn() -> FunctionDef {
+    let mut func = make_function("current_outcome", vec![], TypeRef::Named("RefreshOutcome".to_string()));
+    func.error_type = Some("String".to_string());
+    func
+}
+
+/// Same regression as the async case, but for the synchronous free-function forwarder
+/// path (`emit_single_free_function_forwarder`), which shares the same
+/// `known_dto_names`-conflates-structs-and-enums root cause.
+#[test]
+fn sync_forwarder_decodes_unit_enum_return_via_raw_value_not_positional_init() {
+    let func = make_sync_enum_return_fn();
+    let mut known_dto_names: HashSet<String> = HashSet::new();
+    known_dto_names.insert("RefreshOutcome".to_string());
+    let unit_enum_names: HashSet<String> = known_dto_names.clone();
+    let client_class_names: HashSet<String> = HashSet::new();
+
+    let mut out = String::new();
+    emit_single_free_function_forwarder(
+        &func,
+        "currentOutcome",
+        &known_dto_names,
+        &unit_enum_names,
+        "LiterLlmError",
+        &client_class_names,
+        &mut out,
+    );
+
+    assert!(
+        !out.contains("RefreshOutcome(_rb)"),
+        "must not emit the struct-init pattern for an enum return. Got:\n{out}"
+    );
+    assert!(
+        out.contains("RefreshOutcome(rawValue:"),
+        "must decode the enum via its RawValue initializer. Got:\n{out}"
+    );
+    assert!(
+        out.contains("LiterLlmError.validation(message: \"Unknown RefreshOutcome variant\""),
+        "must throw a validation error naming the enum on an unrecognized raw value. Got:\n{out}"
+    );
+}
+
 #[test]
 fn capsule_forwarder_errors_when_host_type_empty() {
     let func = make_capsule_fn();

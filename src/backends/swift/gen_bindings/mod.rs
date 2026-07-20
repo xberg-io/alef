@@ -353,11 +353,34 @@ impl Backend for SwiftBackend {
             .chain(untagged_enum_names.iter())
             .cloned()
             .collect();
+        // Mirrors the fallback used above for first-class struct emission: prefer the ~keep
+        // crate's declared error type, falling back to `{module_name}Error` when the IR ~keep
+        // uses the generic placeholder name `Error`. ~keep
+        let forwarder_error_type_name = api
+            .errors
+            .first()
+            .map(|e| {
+                if e.name == "Error" {
+                    format!("{module_name}Error")
+                } else {
+                    e.name.clone()
+                }
+            })
+            .unwrap_or_else(|| {
+                let raw = config.error_type_name();
+                if raw == "Error" {
+                    format!("{module_name}Error")
+                } else {
+                    raw
+                }
+            });
         forwarders::emit_free_function_forwarders(
             api,
             config,
             &known_dto_names,
             &all_enum_names,
+            &unit_serde_enum_names,
+            &forwarder_error_type_name,
             &client_class_names,
             &exclude_types,
             &mut body,

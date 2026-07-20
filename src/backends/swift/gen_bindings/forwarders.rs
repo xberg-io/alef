@@ -229,11 +229,14 @@ pub(super) fn function_references_excluded_type(func: &FunctionDef, exclude_type
     referenced.iter().any(|name| exclude_types.contains(name))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_free_function_forwarders(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     known_dto_names: &HashSet<String>,
     enum_names: &HashSet<String>,
+    unit_enum_names: &HashSet<String>,
+    error_type_name: &str,
     client_class_names: &HashSet<String>,
     exclude_types: &HashSet<String>,
     out: &mut String,
@@ -293,9 +296,25 @@ pub(super) fn emit_free_function_forwarders(
             continue;
         }
         if func.is_async {
-            emit_async_free_function_forwarder(func, &swift_name, known_dto_names, enum_names, out);
+            emit_async_free_function_forwarder(
+                func,
+                &swift_name,
+                known_dto_names,
+                enum_names,
+                unit_enum_names,
+                error_type_name,
+                out,
+            );
         } else {
-            emit_single_free_function_forwarder(func, &swift_name, known_dto_names, client_class_names, out);
+            emit_single_free_function_forwarder(
+                func,
+                &swift_name,
+                known_dto_names,
+                unit_enum_names,
+                error_type_name,
+                client_class_names,
+                out,
+            );
         }
     }
 }
@@ -304,6 +323,8 @@ pub(super) fn emit_single_free_function_forwarder(
     func: &FunctionDef,
     swift_name: &str,
     known_dto_names: &HashSet<String>,
+    unit_enum_names: &HashSet<String>,
+    error_type_name: &str,
     client_class_names: &HashSet<String>,
     out: &mut String,
 ) {
@@ -393,6 +414,25 @@ pub(super) fn emit_single_free_function_forwarder(
                 class_name => &class_name,
             },
         )
+    } else if matches!(&func.return_type, TypeRef::Named(name) if unit_enum_names.contains(name)) {
+        // `known_dto_names` (used by `bare_named_dto_return` below) intentionally also ~keep
+        // contains String-backed unit enums, since they are Codable first-class types. ~keep
+        // Those enums have no positional `init(_ rb:)` — only the synthesized ~keep
+        // `init(from: Decoder)` — so they cannot use the struct-return template. Decode ~keep
+        // via the enum's `RawValue` initializer instead, matching the pattern already ~keep
+        // used for enum-typed DTO fields (see `dto::swift_ffi_read_expr`). ~keep
+        let bridge_call_try = if func.error_type.is_some() { "try " } else { "" };
+        let enum_name = swift_type_name(&func.return_type);
+        crate::backends::swift::template_env::render(
+            "swift_sync_forwarder_unit_enum_return_body.swift.jinja",
+            minijinja::context! {
+                bridge_call_try => bridge_call_try,
+                function_name => swift_name,
+                args => &args,
+                enum_name => &enum_name,
+                error_type_name => error_type_name,
+            },
+        )
     } else if bare_named_dto_return(&func.return_type, known_dto_names) {
         let bridge_call_try = if func.error_type.is_some() { "try " } else { "" };
         let dto_name = swift_type_name(&func.return_type);
@@ -434,6 +474,8 @@ pub(super) fn emit_async_free_function_forwarder(
     swift_name: &str,
     known_dto_names: &HashSet<String>,
     enum_names: &HashSet<String>,
+    unit_enum_names: &HashSet<String>,
+    error_type_name: &str,
     out: &mut String,
 ) {
     let return_conversion_throws = return_value_conversion_throws(&func.return_type, known_dto_names);
@@ -494,6 +536,21 @@ pub(super) fn emit_async_free_function_forwarder(
     };
 
     let (bridge_call, return_stmt) = match &func.return_type {
+        TypeRef::Named(name) if unit_enum_names.contains(name) => {
+            // `known_dto_names` (checked below) intentionally also contains String-backed ~keep
+            // unit enums, since they are Codable first-class types. Those enums have no ~keep
+            // positional `init(_ rb:)` — only the synthesized `init(from: Decoder)` — so ~keep
+            // they cannot use the struct-return path. Decode via the enum's `RawValue` ~keep
+            // initializer instead, matching the pattern already used for enum-typed DTO ~keep
+            // fields (see `dto::swift_ffi_read_expr`). ~keep
+            let enum_name = swift_ident(name);
+            (
+                format!("try RustBridge.{swift_name}({args})"),
+                format!(
+                    "        let _rbRawValue = _rb_obj.to_string().toString()\n        guard let _rbValue = {enum_name}(rawValue: _rbRawValue) else {{\n            throw {error_type_name}.validation(message: \"Unknown {enum_name} variant\", source: _rbRawValue)\n        }}\n        return _rbValue"
+                ),
+            )
+        }
         TypeRef::Named(name) if known_dto_names.contains(name) => {
             let struct_name = swift_ident(name);
             (

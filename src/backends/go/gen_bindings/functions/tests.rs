@@ -186,6 +186,7 @@ fn test_gen_function_wrapper_bytes_result_emits_out_params() {
     let value_only_types: HashSet<String> = HashSet::new();
     let enum_names: HashSet<String> = HashSet::new();
     let ffi_param_enum_names: HashSet<String> = HashSet::new();
+    let reserved_type_names: HashSet<String> = HashSet::new();
     let out = gen_function_wrapper(
         &func,
         "krz",
@@ -195,6 +196,7 @@ fn test_gen_function_wrapper_bytes_result_emits_out_params() {
         &value_only_types,
         &enum_names,
         &ffi_param_enum_names,
+        &reserved_type_names,
     );
     assert!(out.contains("([]byte, error)"), "missing bytes return type in:\n{out}");
     assert!(out.contains("var outPtr"), "missing outPtr in:\n{out}");
@@ -247,7 +249,7 @@ fn test_capsule_fallible_returns_error_tuple_and_checks_last_error() {
     let func = make_capsule_func("get_language", true);
     let empty: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg());
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg(), &empty_s);
     assert!(
         out.contains("(*my_pkg.Language, error)"),
         "fallible capsule must return (host, error):\n{out}"
@@ -267,7 +269,7 @@ fn test_capsule_infallible_returns_bare_host_type() {
     let func = make_capsule_func("builtin_language", false);
     let empty: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg());
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg(), &empty_s);
     assert!(
         !out.contains(", error)"),
         "infallible capsule must not return an error:\n{out}"
@@ -289,7 +291,7 @@ fn test_capsule_errors_when_construct_expr_empty() {
         package_version: String::new(),
         construct_expr: String::new(),
     };
-    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &cfg);
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &cfg, &empty_s);
     assert!(
         out.contains("ALEF ERROR"),
         "empty construct_expr must produce an ALEF ERROR comment. Got:\n{out}"
@@ -311,7 +313,7 @@ fn test_capsule_errors_when_host_type_empty() {
         package_version: String::new(),
         construct_expr: "my_pkg.NewLanguage(unsafe.Pointer({ptr}))".to_string(),
     };
-    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &cfg);
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &cfg, &empty_s);
     assert!(
         out.contains("ALEF ERROR"),
         "empty host_type must produce an ALEF ERROR comment. Got:\n{out}"

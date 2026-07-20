@@ -226,6 +226,14 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             }
         }
     }
+    if config.map_flatten_to_string {
+        if let TypeRef::Map(_, _) = ty {
+            if optional {
+                return format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())");
+            }
+            return format!("{name}: serde_json::from_str(&val.{name}).unwrap_or_default()");
+        }
+    }
     if config.map_as_string && matches!(ty, TypeRef::Map(_, _)) {
         return format!("{name}: Default::default()");
     }
@@ -365,6 +373,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         && !config.json_to_string
         && !config.vec_named_to_string
         && !config.map_as_string
+        && !config.map_flatten_to_string
         && config.from_binding_skip_types.is_empty()
     {
         return field_conversion_to_core(name, ty, optional);

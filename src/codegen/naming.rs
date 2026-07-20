@@ -578,6 +578,24 @@ pub fn to_go_name(name: &str) -> String {
     apply_go_acronyms(&name.to_pascal_case())
 }
 
+/// Convert a Rust free-function name to its Go wrapper identifier, disambiguating it from a
+/// generated Go type of the same name.
+///
+/// A Rust crate can expose both a free function (e.g. `model_info`) and a struct (e.g.
+/// `ModelInfo`) that map to the same Go PascalCase identifier, which the Go compiler rejects as
+/// a redeclaration. Go struct/opaque/enum type names are never disambiguated (types are the
+/// canonical identifier host consumers reach for), so on collision the function is renamed by
+/// prefixing `Get`. `reserved_type_names` must contain every Go type identifier the backend will
+/// emit (already passed through [`go_type_name`]).
+pub fn go_free_function_name(func_name: &str, reserved_type_names: &HashSet<String>) -> String {
+    let go_name = to_go_name(func_name);
+    if reserved_type_names.contains(&go_name) {
+        format!("Get{go_name}")
+    } else {
+        go_name
+    }
+}
+
 /// Apply Go acronym uppercasing to a name that is already in PascalCase (e.g. an IR type name).
 ///
 /// IR type names come directly from Rust PascalCase (e.g. `ImageUrl`, `JsonSchemaFormat`).

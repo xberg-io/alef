@@ -7,6 +7,7 @@ use super::types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
     gen_ptr_helper, gen_struct_type, gen_unmarshal_bytes_helper, is_passthrough_raw_message_enum, is_tuple_field,
 };
+use crate::codegen::naming::go_type_name;
 use crate::core::config::{AdapterPattern, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, TypeRef};
@@ -230,6 +231,20 @@ pub(super) fn gen_go_file(
         std::collections::HashSet::new()
     };
 
+    // Go type identifiers the loop below emits; disambiguates collisions via `go_free_function_name`. ~keep
+    let reserved_type_names: HashSet<String> = api
+        .types
+        .iter()
+        .filter(|typ| !typ.is_trait && !visitor_types.contains(typ.name.as_str()) && !exclude_types.contains(&typ.name))
+        .map(|typ| go_type_name(&typ.name))
+        .chain(
+            api.enums
+                .iter()
+                .filter(|e| !visitor_types.contains(e.name.as_str()) && !exclude_types.contains(&e.name))
+                .map(|e| go_type_name(&e.name)),
+        )
+        .collect();
+
     let unit_enum_names: std::collections::HashSet<&str> = api
         .enums
         .iter()
@@ -366,6 +381,7 @@ pub(super) fn gen_go_file(
                 &ffi_enum_names,
                 &ffi_param_enum_names,
                 capsule_cfg,
+                &reserved_type_names,
             ));
             body.push_str("\n\n");
             continue;
@@ -377,6 +393,7 @@ pub(super) fn gen_go_file(
                 &opaque_names,
                 value_only_types,
                 visitor_bridge_cfg.expect("checked above"),
+                &reserved_type_names,
             ));
             body.push_str("\n\n");
         } else {
@@ -389,6 +406,7 @@ pub(super) fn gen_go_file(
                 value_only_types,
                 &ffi_enum_names,
                 &ffi_param_enum_names,
+                &reserved_type_names,
             ));
             body.push_str("\n\n");
         }

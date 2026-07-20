@@ -1,7 +1,7 @@
 use super::methods::gen_param_to_c;
 use super::types::{emit_type_doc, go_return_expr};
 use crate::backends::go::type_map::{go_optional_type, go_type};
-use crate::codegen::naming::{go_param_name, pascal_to_snake, to_go_name};
+use crate::codegen::naming::{go_free_function_name, go_param_name, pascal_to_snake, to_go_name};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToSnakeCase;
@@ -67,10 +67,11 @@ pub(super) fn gen_function_wrapper(
     value_only_types: &std::collections::HashSet<String>,
     enum_names: &std::collections::HashSet<String>,
     ffi_param_enum_names: &std::collections::HashSet<String>,
+    reserved_type_names: &HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
-    let func_go_name = to_go_name(&func.name);
+    let func_go_name = go_free_function_name(&func.name, reserved_type_names);
 
     emit_type_doc(&mut out, &func_go_name, &func.doc, "calls the FFI function.");
 
@@ -453,10 +454,11 @@ pub(super) fn gen_capsule_function_wrapper(
     enum_names: &std::collections::HashSet<String>,
     ffi_param_enum_names: &std::collections::HashSet<String>,
     cfg: &crate::core::config::HostCapsuleTypeConfig,
+    reserved_type_names: &HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(1024);
 
-    let func_go_name = to_go_name(&func.name);
+    let func_go_name = go_free_function_name(&func.name, reserved_type_names);
     emit_type_doc(&mut out, &func_go_name, &func.doc, "calls the FFI function.");
 
     let mut param_strs: Vec<String> = Vec::new();
@@ -541,10 +543,11 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     opaque_names: &std::collections::HashSet<&str>,
     _value_only_types: &std::collections::HashSet<String>,
     bridge_cfg: &TraitBridgeConfig,
+    reserved_type_names: &HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
-    let func_go_name = to_go_name(&func.name);
+    let func_go_name = go_free_function_name(&func.name, reserved_type_names);
     emit_type_doc(&mut out, &func_go_name, &func.doc, "runs the generated conversion.");
 
     let options_type = bridge_cfg

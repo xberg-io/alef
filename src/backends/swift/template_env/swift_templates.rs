@@ -176,6 +176,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/swift_sync_forwarder_dto_return_body.swift.jinja"),
     ),
     (
+        "swift_sync_forwarder_unit_enum_return_body.swift.jinja",
+        include_str!("../templates/swift_sync_forwarder_unit_enum_return_body.swift.jinja"),
+    ),
+    (
         "swift_sync_forwarder_result_return_body.swift.jinja",
         include_str!("../templates/swift_sync_forwarder_result_return_body.swift.jinja"),
     ),

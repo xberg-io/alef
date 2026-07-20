@@ -279,3 +279,133 @@ fn capsule_function_constructs_host_language_and_imports_package() {
         "binding.go must import the configured capsule package"
     );
 }
+
+/// A free function whose Go PascalCase name collides with a struct type of the same name
+/// (e.g. Rust's `fn model_info(...)` and `struct ModelInfo`) must not produce two `ModelInfo`
+/// package-level declarations. The type keeps the plain name; the function is renamed
+/// `GetModelInfo`. A non-colliding function in the same package is unaffected.
+#[test]
+fn free_function_colliding_with_type_name_is_renamed_get_prefixed() {
+    use crate::core::ir::*;
+
+    let config = make_config();
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ModelInfo".to_string(),
+            rust_path: "test_lib::ModelInfo".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: true,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: "Model metadata.".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            has_private_fields: false,
+            version: Default::default(),
+        }],
+        functions: vec![
+            FunctionDef {
+                name: "model_info".to_string(),
+                rust_path: "test_lib::model_info".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "model".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: crate::core::ir::CoreWrapper::None,
+                }],
+                return_type: TypeRef::Optional(Box::new(TypeRef::Named("ModelInfo".to_string()))),
+                is_async: false,
+                error_type: None,
+                doc: "Look up model metadata by name.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            },
+            FunctionDef {
+                name: "list_models".to_string(),
+                rust_path: "test_lib::list_models".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: "List known model names.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = GoBackend.generate_bindings(&api, &config).unwrap();
+    let binding = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
+        .expect("binding.go present");
+
+    assert!(
+        binding.content.contains("type ModelInfo struct"),
+        "struct type must keep its plain name. Got:\n{}",
+        binding.content
+    );
+    assert!(
+        binding.content.contains("func GetModelInfo(model string)"),
+        "colliding free function must be renamed to GetModelInfo. Got:\n{}",
+        binding.content
+    );
+    assert!(
+        !binding.content.contains("func ModelInfo("),
+        "colliding free function must not keep the bare type name. Got:\n{}",
+        binding.content
+    );
+    assert!(
+        binding.content.contains("func ListModels()"),
+        "non-colliding function must be unaffected. Got:\n{}",
+        binding.content
+    );
+}

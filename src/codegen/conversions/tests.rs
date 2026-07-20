@@ -812,3 +812,157 @@ fn test_arc_mutex_string_field_transparent() {
         "expected Arc::new(Mutex::new(...)) construction for Arc<Mutex<String>>, got: {to_core}"
     );
 }
+
+/// Regression: an enum data-variant field whose core type is `Map(String, String)` but whose
+/// binding-layer DTO field is a flattened `String` (e.g. Magnus/Ruby, which collapses `Map`
+/// fields on enum variants to JSON-string via `field_type_for_serde`'s catch-all arm — see
+/// `liter_llm::tower::cache::CacheBackend::OpenDal { scheme: String, config: HashMap<String,
+/// String> }`). With `map_flatten_to_string` set, both directions must use a `serde_json`
+/// round trip (`from_str`/`to_string`) instead of the `.into_iter().map(|(k, v)| ...)` map
+/// template, which does not compile against a `String` field (E0599 / E0277).
+fn cache_backend_like_enum() -> EnumDef {
+    EnumDef {
+        name: "CacheBackend".to_string(),
+        rust_path: "my_crate::CacheBackend".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Memory".into(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            },
+            EnumVariant {
+                name: "OpenDal".into(),
+                fields: vec![
+                    FieldDef {
+                        name: "scheme".into(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    },
+                    FieldDef {
+                        name: "config".into(),
+                        ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    },
+                ],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            },
+        ],
+        methods: vec![],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: Some("type".to_string()),
+        serde_untagged: false,
+        serde_rename_all: Some("snake_case".to_string()),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+        has_default: true,
+    }
+}
+
+#[test]
+fn test_enum_map_field_flattened_to_string_binding_to_core_uses_json_round_trip() {
+    let enum_def = cache_backend_like_enum();
+    let config = ConversionConfig {
+        binding_enums_have_data: true,
+        map_flatten_to_string: true,
+        ..ConversionConfig::default()
+    };
+    let result = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
+    assert!(
+        result.contains("serde_json::from_str(&config).unwrap_or_default()")
+            || result.contains("config: serde_json::from_str(&config).unwrap_or_default()"),
+        "expected a serde_json::from_str round trip for the flattened `config` field, got: {result}"
+    );
+    assert!(
+        !result.contains(".into_iter().map(|(k, v)|"),
+        "must NOT emit the map-iterator template for a String-flattened field, got: {result}"
+    );
+}
+
+#[test]
+fn test_enum_map_field_flattened_to_string_core_to_binding_uses_json_round_trip() {
+    let enum_def = cache_backend_like_enum();
+    let config = ConversionConfig {
+        binding_enums_have_data: true,
+        map_flatten_to_string: true,
+        ..ConversionConfig::default()
+    };
+    let result = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
+    assert!(
+        result.contains("serde_json::to_string(&config).unwrap_or_default()"),
+        "expected a serde_json::to_string round trip for the flattened `config` field, got: {result}"
+    );
+    assert!(
+        !result.contains(".into_iter().map(|(k, v)|"),
+        "must NOT emit the map-iterator template for a String-flattened field, got: {result}"
+    );
+}
+
+/// Sanity check: without `map_flatten_to_string`, the pre-existing map-iterator template is
+/// still emitted (this is correct for backends like Rustler/Elixir, whose enum-variant `Map`
+/// fields stay as a native `HashMap` in the binding struct rather than a flattened `String`).
+#[test]
+fn test_enum_map_field_without_flatten_flag_keeps_iterator_template() {
+    let enum_def = cache_backend_like_enum();
+    let config = ConversionConfig {
+        binding_enums_have_data: true,
+        map_flatten_to_string: false,
+        ..ConversionConfig::default()
+    };
+    let result = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
+    assert!(
+        result.contains(".into_iter().map(|(k, v)|"),
+        "expected the map-iterator template when map_flatten_to_string is off, got: {result}"
+    );
+}

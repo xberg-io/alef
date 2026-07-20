@@ -55,6 +55,15 @@ pub struct ConversionConfig<'a> {
     /// Core→binding uses `format!("{:?}", val.field)`, binding→core uses `Default::default()` (lossy).
     /// Used by Rustler (Elixir NIFs) where `HashMap` cannot cross the NIF boundary directly.
     pub map_as_string: bool,
+    /// When true, `Map(K, V)` fields are stored as JSON strings in the binding layer.
+    /// Core→binding uses `serde_json::to_string`, binding→core uses `serde_json::from_str`
+    /// (a lossless round trip, unlike `map_as_string`'s lossy `Debug`/`Default` handling).
+    /// Used by Magnus (Ruby) enum data-variant fields: `Map` fields on enum variants cannot
+    /// cross the FFI boundary directly and are collapsed to `String` by the catch-all arm of
+    /// `backends::magnus::gen_bindings::classes::gen_enum::field_type_for_serde_inner`. Regular
+    /// struct `Map` fields are unaffected — Magnus keeps those as native `HashMap`, so this flag
+    /// must only be set on the `ConversionConfig` used for enum conversions, not struct ones.
+    pub map_flatten_to_string: bool,
     /// Set of opaque type names in the binding layer.
     /// When a field has `CoreWrapper::Arc` and its type is an opaque Named type,
     /// the binding wrapper holds `inner: Arc<CoreT>` and the conversion must extract

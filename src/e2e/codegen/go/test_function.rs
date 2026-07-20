@@ -1,6 +1,6 @@
 //! Go per-fixture test rendering.
 
-use crate::codegen::naming::{go_param_name, to_go_name};
+use crate::codegen::naming::{go_free_function_name, go_param_name, go_type_name, to_go_name};
 use crate::e2e::escape::go_string_literal;
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::Fixture;
@@ -142,7 +142,14 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
     let base_function_name = overrides
         .and_then(|o| o.function.as_deref())
         .unwrap_or(&call_config.function);
-    let function_name = to_go_name(base_function_name);
+    // Best-effort mirror of `gen_go_file`'s `reserved_type_names`; ignores exclude_types. ~keep
+    let reserved_type_names: std::collections::HashSet<String> = type_defs
+        .iter()
+        .filter(|t| !t.is_trait)
+        .map(|t| go_type_name(&t.name))
+        .chain(enums.iter().map(|e| go_type_name(&e.name)))
+        .collect();
+    let function_name = go_free_function_name(base_function_name, &reserved_type_names);
     let result_var = &call_config.result_var;
     let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
     let args = recipe.args;

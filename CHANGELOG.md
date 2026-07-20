@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.38.2] - 2026-07-19
+## [0.38.3] - 2026-07-20
+
+### Fixed
+
+- **Go: free-function name no longer collides with a same-named type**: when a Rust crate exposed
+  both a free function and a struct that mapped to the same Go PascalCase identifier (e.g.
+  `model_info` / `ModelInfo`), the Go backend emitted both `func ModelInfo(...)` and
+  `type ModelInfo struct`, which the Go compiler rejects as a redeclaration. Free functions whose
+  Go name collides with a generated type name are now `Get`-prefixed (`GetModelInfo`); the type name
+  and the underlying C FFI symbol are unchanged.
+- **Ruby (Magnus): enum data-variant `Map` fields flattened to `String` now round-trip via JSON**:
+  Magnus collapses a `Map` field on an enum data-variant to a JSON `String` DTO field, but the
+  generated `From` impls still emitted the `HashMap::into_iter().map(...).collect()` template,
+  producing uncompilable Rust (`into_iter` on `String`). Such fields now round-trip via
+  `serde_json`. Struct `Map` fields (which Magnus keeps as native `HashMap`) are unaffected.
+- **Swift: free functions returning a `String`-backed enum no longer emit an invalid initializer**:
+  the forwarder used the struct positional-init template (`EnumType(_rb_obj)`) for enum returns,
+  but a `String`-backed enum only synthesizes `init(from:)`. Enum returns now decode via the enum's
+  `RawValue` initializer, matching the existing enum-typed DTO-field pattern.
 
 ### Added
 

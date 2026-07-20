@@ -388,6 +388,14 @@ pub fn field_conversion_from_core_cfg(
         }
     }
 
+    if config.map_flatten_to_string {
+        if let TypeRef::Map(_, _) = ty {
+            if optional {
+                return format!("{name}: val.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok())");
+            }
+            return format!("{name}: serde_json::to_string(&val.{name}).unwrap_or_default()");
+        }
+    }
     if config.map_as_string && matches!(ty, TypeRef::Map(_, _)) {
         if optional {
             return format!("{name}: val.{name}.as_ref().map(|m| format!(\"{{m:?}}\"))");
