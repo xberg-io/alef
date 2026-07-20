@@ -1,4 +1,4 @@
-use crate::backends::swift::gen_rust_crate::type_bridge::needs_json_bridge;
+use crate::backends::swift::gen_bindings::dto::needs_json_bridge_for_swift;
 use crate::core::config::{AdapterPattern, ResolvedCrateConfig};
 use crate::e2e::escape::escape_java as escape_swift_str;
 use crate::e2e::field_access::SwiftFirstClassMap;
@@ -324,20 +324,26 @@ pub(super) fn build_swift_first_class_map(
                 td_field_types.insert(f.name.clone(), named);
             }
             // Record a Vec field as countable only when its getter is a real
-            // `RustVec` (which has `.count`). A field the swift-bridge layer
-            // JSON-bridges — `Option<Vec<T>>`, `Vec<Vec<..>>`, `Map<..>`, etc.
-            // (see `needs_json_bridge`) — returns a plain `RustString` instead,
-            // which has no `.count`. e.g. `elements: Option<Vec<Element>>`
-            // becomes `elements() -> RustString`; recording it as countable
-            // makes the e2e emit `elements()?.count` and fail to compile.
-            // Non-optional `Vec<Named>`/`Vec<primitive>` (e.g. `nodes`, `tables`)
-            // stay `RustVec<T>` and remain countable.
+            // `RustVec` (which has `.count`, or `Optional<RustVec<T>>` which
+            // has `?.count`). A field that structurally JSON-bridges —
+            // `Vec<Vec<..>>`, `Map<..>`, etc. — returns a plain `RustString`
+            // instead, which has no `.count`; recording such a field as
+            // countable would make the e2e emit `.count` on a `RustString`
+            // and fail to compile.
+            //
+            // `needs_json_bridge_for_swift` is the exact predicate the Swift
+            // binding generator (`gen_bindings::dto`) uses to decide a
+            // getter's return type, so classification here matches the real
+            // getter shape. In particular `Option<Vec<T>>` (e.g.
+            // `elements: Option<Vec<Element>>`) is NOT JSON-bridged —
+            // swift-bridge natively exposes it as `Optional<RustVec<T>>`,
+            // which is countable via `?.count`. Optionality is handled
+            // separately by the field-resolver's chain-optional tracking
+            // (see `swift_array_count_expr` in `accessors.rs`, which already
+            // emits `(expr?.count ?? 0)` for optional Vec leaves), so it must
+            // NOT also disqualify the field from being counted here.
             if is_vec_ty(&f.ty) {
-                // An optional vec (`f.optional`, i.e. `Option<Vec<T>>`) or a
-                // structurally json-bridged vec both yield a `RustString`
-                // getter, not a countable `RustVec`. Optionality is tracked on
-                // `f.optional` separately from `f.ty`, so check both.
-                if f.optional || needs_json_bridge(&f.ty) {
+                if needs_json_bridge_for_swift(&f.ty) {
                     json_bridged_vec_names.insert(f.name.clone());
                 } else {
                     vec_field_names.insert(f.name.clone());

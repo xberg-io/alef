@@ -1021,6 +1021,115 @@ fn test_opaque_type() {
     );
 }
 
+/// Regression: a `&mut self` method on an opaque type must be registered (it delegates through the
+/// `Arc<Mutex<T>>` wrapper), and a `Bytes` param must decode from a Ruby `String` (matching the
+/// `.rbs` contract) via `magnus::RString` + an `as_slice().to_vec()` preamble — not the default
+/// `Vec<u8>` (Ruby Array). Covers tslp `Parser::parse_bytes(&mut self, &[u8])`.
+#[test]
+fn test_opaque_ref_mut_bytes_param_binds_and_decodes_string() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Parser".to_string(),
+            rust_path: "test_lib::Parser".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "parse_bytes".to_string(),
+                params: vec![ParamDef {
+                    name: "source".to_string(),
+                    ty: TypeRef::Bytes,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
+                }],
+                return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: "Parse bytes".to_string(),
+                receiver: Some(ReceiverKind::RefMut),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            }],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Opaque parser type".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            has_private_fields: false,
+            version: Default::default(),
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok());
+
+    let files = result.unwrap();
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_file.content;
+
+    assert!(
+        content.contains(r#"method!(Parser::parse_bytes"#),
+        "opaque `&mut self` method must be registered:\n{content}"
+    );
+    assert!(
+        content.contains("fn parse_bytes(&self, source: magnus::RString)"),
+        "Bytes param must take `magnus::RString`:\n{content}"
+    );
+    assert!(
+        content.contains("let source = unsafe { source.as_slice().to_vec() };"),
+        "Bytes param must be copied into a `Vec<u8>` before the core call:\n{content}"
+    );
+    assert!(
+        !content.contains("fn parse_bytes(&self, source: Vec<u8>)"),
+        "Bytes param must not be emitted as `Vec<u8>` (Ruby Array):\n{content}"
+    );
+}
+
 #[test]
 fn test_default_config() {
     let backend = MagnusBackend;

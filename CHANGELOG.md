@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.4] - 2026-07-20
+
+### Fixed
+
+- **Ruby (Magnus): `&mut self` methods on opaque types are now bound**: the module-init
+  registration loop unconditionally skipped every `RefMut`-receiver method, so an opaque type whose
+  methods all take `&mut self` (e.g. a tree-sitter `Parser` with `set_language`/`parse`/`parse_bytes`/
+  `reset`) was exposed to Ruby with zero callable methods. Opaque wrappers are `Arc<Mutex<T>>` and
+  their instance methods already delegate through the lock, so these methods now register. The gate
+  stays scoped to opaque types — non-opaque by-value DTOs have no delegating wrapper and are
+  unchanged.
+- **Ruby (Magnus): a `Bytes` parameter now decodes from a Ruby `String`**: the generated `.rbs`
+  advertised `String` but the wrapper took `Vec<u8>` (a Ruby `Array`), so a `bytes` argument such as
+  `parse_bytes(source)` could not be called with a String. Magnus `Bytes` params now take
+  `magnus::RString` and copy into a `Vec<u8>` before the core call, matching the advertised contract.
+- **Swift: `count_min`/`count_equals` assertions on an opaque-parent `Optional<RustVec<T>>` field**
+  now count the decoded array directly instead of `.toString().count`, which counted characters of a
+  JSON string rather than elements.
+- **Swift: DTO `CodingKeys` now honor serde `rename`/`rename_all`**: a discriminant field renamed at
+  the serde layer (e.g. `call_type` serialized as the wire key `type` on a tool-call variant) is now
+  decoded from its wire key instead of throwing `keyNotFound` on a key the payload never contains.
+- **Swift: `Optional<Vec<struct/tagged-enum>>` accessors no longer double-encode**: the
+  `getter_vec_enum_string_optional` template encoded each element to a JSON string and collected an
+  array of JSON strings, which Swift's strongly-typed `[T]?` `init(from:)` rejected with a
+  `typeMismatch` (expected object, found string). The accessor now serializes the field directly via
+  `serde_json`. The non-optional `Vec<String>` path (which strips quotes element-wise) is unchanged.
+- **Elixir: the e2e generator no longer appends an `_async` suffix to streaming entry points**
+  (e.g. `chat_stream`), which produced calls to a nonexistent `chat_stream_async/2`
+  (`UndefinedFunctionError`). The binding was always correct; only the generated e2e was wrong.
+- **Internal: removed downstream project-name references from enforced source files** (a Swift
+  forwarder test's error-type fixture and a conversions doc-comment example) so the
+  project-agnostic guard passes.
+
 ## [0.38.3] - 2026-07-20
 
 ### Fixed

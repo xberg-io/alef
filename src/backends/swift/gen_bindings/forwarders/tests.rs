@@ -229,7 +229,7 @@ fn async_forwarder_decodes_unit_enum_return_via_raw_value_not_positional_init() 
         &known_dto_names,
         &enum_names,
         &unit_enum_names,
-        "LiterLlmError",
+        "MyLibError",
         &mut out,
     );
 
@@ -242,7 +242,7 @@ fn async_forwarder_decodes_unit_enum_return_via_raw_value_not_positional_init() 
         "must decode the enum via its RawValue initializer. Got:\n{out}"
     );
     assert!(
-        out.contains("LiterLlmError.validation(message: \"Unknown RefreshOutcome variant\""),
+        out.contains("MyLibError.validation(message: \"Unknown RefreshOutcome variant\""),
         "must throw a validation error naming the enum on an unrecognized raw value. Got:\n{out}"
     );
 }
@@ -270,7 +270,7 @@ fn sync_forwarder_decodes_unit_enum_return_via_raw_value_not_positional_init() {
         "currentOutcome",
         &known_dto_names,
         &unit_enum_names,
-        "LiterLlmError",
+        "MyLibError",
         &client_class_names,
         &mut out,
     );
@@ -284,7 +284,7 @@ fn sync_forwarder_decodes_unit_enum_return_via_raw_value_not_positional_init() {
         "must decode the enum via its RawValue initializer. Got:\n{out}"
     );
     assert!(
-        out.contains("LiterLlmError.validation(message: \"Unknown RefreshOutcome variant\""),
+        out.contains("MyLibError.validation(message: \"Unknown RefreshOutcome variant\""),
         "must throw a validation error naming the enum on an unrecognized raw value. Got:\n{out}"
     );
 }

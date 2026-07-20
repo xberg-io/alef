@@ -175,13 +175,19 @@ pub(super) fn emit_first_class_struct(
     let needs_coding_keys = ty.has_default
         || visible_fields.iter().any(|field| {
             let camel = field.name.to_lower_camel_case();
-            camel != field.name
+            // `#[serde(rename)]` / `#[serde(rename_all)]`, even if the camelCased identifier matches.
+            camel != field.name || field.serde_rename.is_some() || ty.serde_rename_all.is_some()
         });
     let mut coding_keys = String::new();
     if needs_coding_keys {
         for field in &visible_fields {
             let camel = swift_case_ident(&field.name.to_lower_camel_case());
-            let wire_key = &field.name;
+            // `call_type` with `#[serde(rename = "type")]` must decode from `"type"`, not `"call_type"`).
+            let wire_key = crate::codegen::naming::wire_field_name(
+                &field.name,
+                field.serde_rename.as_deref(),
+                ty.serde_rename_all.as_deref(),
+            );
             coding_keys.push_str(&crate::backends::swift::template_env::render(
                 "swift_coding_key.swift.jinja",
                 minijinja::context! {
@@ -741,7 +747,7 @@ fn is_vec_of_serde_struct(ty: &TypeRef, serde_struct_names: &HashSet<String>) ->
     }
 }
 
-fn needs_json_bridge_for_swift(ty: &TypeRef) -> bool {
+pub(crate) fn needs_json_bridge_for_swift(ty: &TypeRef) -> bool {
     fn is_leaf(ty: &TypeRef) -> bool {
         matches!(
             ty,

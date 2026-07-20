@@ -286,6 +286,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/method_string_vec_ref_preamble.rs.jinja"),
     ),
     (
+        "method_bytes_ref_preamble.rs.jinja",
+        include_str!("templates/method_bytes_ref_preamble.rs.jinja"),
+    ),
+    (
         "method_optional_string_vec_ref_preamble.rs.jinja",
         include_str!("templates/method_optional_string_vec_ref_preamble.rs.jinja"),
     ),

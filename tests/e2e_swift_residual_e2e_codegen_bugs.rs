@@ -476,3 +476,71 @@ type = "string"
          Rendered:\n{rendered}"
     );
 }
+
+/// Regression for the ci-e2e swift failure (`ContractTests.swift`): an opaque-parent
+/// `Option<Vec<T>>` field (e.g. `elements: Option<Vec<Element>>`) is natively bridged by
+/// swift-bridge as `Optional<RustVec<Element>>`, NOT as a JSON-string `RustString`. The e2e
+/// classifier previously treated `f.optional` on a Vec field as disqualifying it from being
+/// countable, which routed it into the JSON-bridged bucket and made `count_min` fall back to
+/// `.toString().count` — a compile error on `Optional<RustVec<T>>`, which has no `.toString()`.
+/// The fix must emit `?.count ?? 0` on the native `RustVec` handle instead.
+#[test]
+fn count_min_on_optional_vec_of_named_uses_native_optional_count() {
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "sample_pack"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+fields_optional = ["elements"]
+
+[crates.e2e.call]
+function = "extract_text"
+module = "SampleLanguagePack"
+result_var = "result"
+
+[[crates.e2e.call.args]]
+name = "document"
+field = "input"
+type = "string"
+"#;
+    let fixture = make_fixture(
+        "extract_text_optional_vec_count_min",
+        Assertion {
+            assertion_type: "count_min".to_string(),
+            field: Some("elements".to_string()),
+            value: Some(serde_json::json!(1)),
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        },
+    );
+    let mut elements_field = make_field(
+        "elements",
+        TypeRef::Vec(Box::new(TypeRef::Named("Element".to_string()))),
+    );
+    elements_field.optional = true;
+    let result_ir = vec![
+        make_type("TextResult", vec![elements_field]),
+        make_type("Element", vec![make_field("text", TypeRef::String)]),
+    ];
+    let rendered = render_with_config(toml, fixture, result_ir);
+
+    assert!(
+        rendered.contains("elements()?.count ?? 0"),
+        "count_min on an Optional<RustVec<T>> field must unwrap with `?.count ?? 0` \
+         on the native RustVec handle. Rendered:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("elements().toString()"),
+        "must not fall back to `.toString()` on a native Optional<RustVec<T>> handle, \
+         which has no `.toString()` method. Rendered:\n{rendered}"
+    );
+}

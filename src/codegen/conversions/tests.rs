@@ -816,7 +816,7 @@ fn test_arc_mutex_string_field_transparent() {
 /// Regression: an enum data-variant field whose core type is `Map(String, String)` but whose
 /// binding-layer DTO field is a flattened `String` (e.g. Magnus/Ruby, which collapses `Map`
 /// fields on enum variants to JSON-string via `field_type_for_serde`'s catch-all arm — see
-/// `liter_llm::tower::cache::CacheBackend::OpenDal { scheme: String, config: HashMap<String,
+/// `my_crate::cache::CacheBackend::OpenDal { scheme: String, config: HashMap<String,
 /// String> }`). With `map_flatten_to_string` set, both directions must use a `serde_json`
 /// round trip (`from_str`/`to_string`) instead of the `.into_iter().map(|(k, v)| ...)` map
 /// template, which does not compile against a `String` field (E0599 / E0277).

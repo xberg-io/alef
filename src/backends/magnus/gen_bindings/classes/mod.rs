@@ -100,6 +100,17 @@ pub(super) fn gen_opaque_struct_methods(
     impl_builder.build()
 }
 
+/// Map a param type for a Magnus wrapper-fn signature. A `TypeRef::Bytes` param must decode from a
+/// Ruby `String` to honor the `.rbs` contract (`rbs_type` maps `Bytes` -> `String`), so the wrapper
+/// takes a `magnus::RString`; `build_method_preamble` then copies it into a `Vec<u8>` before the core
+/// call. Every other type uses the default Rust mapping.
+fn magnus_param_signature_type(ty: &TypeRef, mapper: &MagnusMapper) -> String {
+    match ty {
+        TypeRef::Bytes => "magnus::RString".to_string(),
+        _ => mapper.map_type(ty),
+    }
+}
+
 /// Build let-binding preamble for non-opaque Named ref params and Vec<String> ref params.
 /// Emits `let {name}_core: core::Type = {name}.into();` for Named non-opaque is_ref params,
 /// and `let {name}_refs: Vec<&str> = ...;` for Vec<String>/Vec<Char> is_ref params.
@@ -180,6 +191,15 @@ fn build_method_preamble(
                     out.push_str("        ");
                 }
             }
+            TypeRef::Bytes if !p.optional => {
+                out.push_str(&crate::backends::magnus::template_env::render(
+                    "method_bytes_ref_preamble.rs.jinja",
+                    minijinja::context! {
+                        param_name => &p.name,
+                    },
+                ));
+                out.push_str("        ");
+            }
             _ => {}
         }
     }
@@ -199,7 +219,7 @@ fn gen_opaque_instance_method(
     needs_mutex: bool,
 ) -> String {
     use crate::codegen::shared;
-    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let params = function_params(&method.params, &|ty| magnus_param_signature_type(ty, mapper));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
@@ -295,7 +315,7 @@ fn gen_opaque_async_instance_method(
     needs_mutex: bool,
 ) -> String {
     use crate::codegen::shared;
-    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let params = function_params(&method.params, &|ty| magnus_param_signature_type(ty, mapper));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
@@ -527,7 +547,7 @@ fn gen_instance_method(
     core_import: &str,
 ) -> String {
     use crate::codegen::shared;
-    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let params = function_params(&method.params, &|ty| magnus_param_signature_type(ty, mapper));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
@@ -586,7 +606,7 @@ fn gen_async_instance_method(
     core_import: &str,
 ) -> String {
     use crate::codegen::shared;
-    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let params = function_params(&method.params, &|ty| magnus_param_signature_type(ty, mapper));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 

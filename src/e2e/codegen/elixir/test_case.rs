@@ -219,7 +219,14 @@ pub(super) fn render_test_case(
             .get("elixir")
             .and_then(|o| o.client_factory.as_deref())
     });
-    let function_name = if call_config.r#async && client_factory.is_some() && !base_fn.ends_with("_async") {
+    // Streaming entry points (e.g. `chat_stream`) drive the FFI iterator handle and are not
+    // async-callable in the OpenAI sense — the binding exposes them under their base name, so the
+    // e2e must not append `_async`. Mirrors the guard at src/e2e/codegen/elixir.rs.
+    let function_name = if call_config.r#async
+        && client_factory.is_some()
+        && !base_fn.ends_with("_async")
+        && !base_fn.ends_with("_stream")
+    {
         format!("{base_fn}_async")
     } else {
         base_fn

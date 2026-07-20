@@ -145,7 +145,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                     continue;
                 }
 
-                if matches!(method.receiver, Some(ReceiverKind::RefMut)) {
+                if matches!(method.receiver, Some(ReceiverKind::RefMut)) && !typ.is_opaque {
                     continue;
                 }
 
