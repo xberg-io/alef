@@ -485,6 +485,61 @@ fn merge_external_type_roots_rejects_same_name_host_conflict() {
 }
 
 #[test]
+fn merge_external_type_roots_excluded_field_prunes_colliding_foreign_type() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("external.rs");
+    std::fs::write(
+        &source,
+        r#"
+pub struct ExternalConfig {
+    pub kept: KeptType,
+    pub dropped: CollidingType,
+}
+
+pub struct KeptType {
+    pub value: String,
+}
+
+pub struct CollidingType {
+    pub value: String,
+}
+"#,
+    )
+    .unwrap();
+
+    let mut surface = surface_with(vec![make_typedef("CollidingType")], vec![]);
+    let config = ResolvedCrateConfig {
+        source_crates: vec![SourceCrate {
+            name: "external-core".to_string(),
+            sources: vec![source],
+            roots: vec!["ExternalConfig".to_string()],
+            from_registry: false,
+        }],
+        exclude: crate::core::config::ExcludeConfig {
+            fields: vec!["ExternalConfig.dropped".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    merge_external_type_roots(&mut surface, &config)
+        .expect("excluded field must prune the colliding foreign type instead of rejecting");
+
+    let type_names: AHashSet<_> = surface.types.iter().map(|typ| typ.name.as_str()).collect();
+    assert!(type_names.contains("ExternalConfig"));
+    assert!(
+        type_names.contains("KeptType"),
+        "non-excluded field type must still be merged"
+    );
+    let colliding: Vec<_> = surface.types.iter().filter(|typ| typ.name == "CollidingType").collect();
+    assert_eq!(colliding.len(), 1, "no duplicate/foreign CollidingType");
+    assert_eq!(
+        colliding[0].rust_path, "my_crate::CollidingType",
+        "host CollidingType is untouched"
+    );
+}
+
+#[test]
 fn merge_external_type_roots_validates_qualified_roots_by_rust_path() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("external.rs");

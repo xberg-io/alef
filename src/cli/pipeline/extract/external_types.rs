@@ -20,8 +20,10 @@ pub(super) fn merge_external_type_roots(api: &mut ApiSurface, config: &ResolvedC
     for source_crate in external_type_crates {
         let crate_name = source_crate.name.replace('-', "_");
         let sources: Vec<&Path> = source_crate.sources.iter().map(std::path::PathBuf::as_path).collect();
-        let external_api = crate::extract::extractor::extract(&sources, &crate_name, &version, workspace_root)
+        let mut external_api = crate::extract::extractor::extract(&sources, &crate_name, &version, workspace_root)
             .with_context(|| format!("failed to extract external type roots from crate {crate_name}"))?;
+
+        super::filtering::apply_exclude_fields(&mut external_api, &config.exclude.fields);
 
         let root_names = resolve_root_names(&external_api, &source_crate.roots, &crate_name)?;
 

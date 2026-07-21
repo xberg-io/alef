@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`[crates.exclude].fields` now applies to external type roots**: fields hidden globally were only
+  pruned from the primary crate's surface, so a field on an externally-extracted DTO root could pull
+  in a colliding foreign type and fail merge with a same-name host conflict. Excluded fields are now
+  applied to each external type root before its DTO roots are expanded, matching the behavior on the
+  primary surface.
+
 ## [0.39.0] - 2026-07-20
 
 ### Added
