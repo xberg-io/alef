@@ -210,7 +210,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
 
         for field in &typ.fields {
-            if !field.sanitized {
+            if !field.sanitized && !field.binding_excluded {
                 builder.add_item(&gen_field_accessor(
                     typ,
                     field,
@@ -331,6 +331,9 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 }
             }
             for field in &typ.fields {
+                if field.binding_excluded {
+                    continue;
+                }
                 let field_named = match &field.ty {
                     crate::core::ir::TypeRef::Named(n) => Some(n.clone()),
                     crate::core::ir::TypeRef::Optional(inner) => {

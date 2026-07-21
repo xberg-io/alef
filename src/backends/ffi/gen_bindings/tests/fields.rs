@@ -470,3 +470,47 @@ options_field = "renderer"
         "must not leak conversion-shaped type names in generic wrapper"
     );
 }
+
+/// Regression: a field marked `binding_excluded` (e.g. a global `[crates.exclude].fields`
+/// entry hiding a pipeline-invariant field of a foreign `source_crate` type) must NOT get a
+/// generated FFI accessor. Previously the FFI backend filtered only on `sanitized`, so an
+/// excluded field still emitted a getter — and a name-colliding foreign type (h2m
+/// `OutputFormat` vs host `OutputFormat`) made that getter fail to compile.
+#[test]
+fn test_binding_excluded_field_emits_no_accessor() {
+    let backend = FfiBackend;
+    let config = sample_config();
+
+    let baseline = backend
+        .generate_bindings(&sample_api(), &config)
+        .unwrap()
+        .into_iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .unwrap()
+        .content;
+    assert!(
+        baseline.contains("_verbose("),
+        "baseline should emit a `verbose` accessor"
+    );
+
+    let mut api = sample_api();
+    let verbose = api.types[0].fields.iter_mut().find(|f| f.name == "verbose").unwrap();
+    verbose.binding_excluded = true;
+    verbose.binding_exclusion_reason = Some("exclude.fields".to_string());
+
+    let excluded = backend
+        .generate_bindings(&api, &config)
+        .unwrap()
+        .into_iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .unwrap()
+        .content;
+    assert!(
+        !excluded.contains("_verbose("),
+        "excluded field must not emit an accessor, got:\n{excluded}"
+    );
+    assert!(
+        excluded.contains("_name("),
+        "sibling non-excluded fields must still emit accessors"
+    );
+}

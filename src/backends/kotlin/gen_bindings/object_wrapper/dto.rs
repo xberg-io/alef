@@ -25,7 +25,16 @@ pub(crate) fn emit_type_with_imports(
         return;
     }
 
-    let visible_fields: Vec<(usize, &crate::core::ir::FieldDef)> = ty.fields.iter().enumerate().collect();
+    // Enumerate before filtering so `original_idx` stays stable for field naming, then drop
+    // `binding_excluded` fields entirely — matching every other backend. Keeping them (as the
+    // legacy nullable `= null` branch did) leaks force-controlled / internal knobs into the public
+    // DTO; a `[crates.exclude].fields` entry must remove the field, not just null its type.
+    let visible_fields: Vec<(usize, &crate::core::ir::FieldDef)> = ty
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.binding_excluded)
+        .collect();
 
     let field_sealed_annotations: Vec<Option<String>> = visible_fields
         .iter()
@@ -44,15 +53,7 @@ pub(crate) fn emit_type_with_imports(
         let name = kotlin_field_name(&field.name, *original_idx);
         // collections (`#[serde(skip_serializing_if = "...")]`) or skip a
         // field entirely under a feature gate (`#[serde(skip)]`). Without a
-        let (effective_ty_str, default_suffix) = if field.binding_excluded {
-            // deserialization tolerates missing fields (Rust carries #[serde(skip)]).
-            let nullable_ty = if ty_str.ends_with('?') {
-                ty_str.clone()
-            } else {
-                format!("{ty_str}?")
-            };
-            (nullable_ty, " = null".to_string())
-        } else if field.serde_flatten {
+        let (effective_ty_str, default_suffix) = if field.serde_flatten {
             let nullable_ty = if ty_str.ends_with('?') {
                 ty_str.clone()
             } else {

@@ -707,3 +707,43 @@ fn untagged_union_without_text_types_config_no_accessor() {
         "Text variant must still be emitted; got:\n{out}",
     );
 }
+
+/// Regression: a field marked `binding_excluded` (e.g. a global `[crates.exclude].fields`
+/// entry hiding a force-controlled field of a foreign `source_crate` type) must be OMITTED from
+/// the emitted Kotlin data class — not kept as a nullable `= null` property. Previously the DTO
+/// emitter special-cased `binding_excluded` into a nullable field, leaking the knob into the
+/// public constructor.
+#[test]
+fn binding_excluded_field_is_omitted_from_dto() {
+    let mut hidden = make_field("tier_strategy", TypeRef::String);
+    hidden.binding_excluded = true;
+    hidden.binding_exclusion_reason = Some("exclude.fields".to_string());
+
+    let ty = crate::core::ir::TypeDef {
+        name: "ConversionOptions".to_string(),
+        rust_path: "crate::ConversionOptions".to_string(),
+        fields: vec![make_field("heading_style", TypeRef::String), hidden],
+        has_serde: true,
+        ..Default::default()
+    };
+
+    let mut out = String::new();
+    let mut imports = std::collections::BTreeSet::new();
+    emit_type_with_imports(
+        &ty,
+        &mut out,
+        &mut imports,
+        &std::collections::HashMap::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+    );
+
+    assert!(
+        out.contains("headingStyle"),
+        "non-excluded field must be present; got:\n{out}",
+    );
+    assert!(
+        !out.contains("tierStrategy") && !out.contains("tier_strategy"),
+        "binding_excluded field must be omitted entirely; got:\n{out}",
+    );
+}

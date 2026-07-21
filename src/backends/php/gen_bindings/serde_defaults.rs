@@ -82,7 +82,11 @@ fn typed_default_fn(default: &DefaultValue, ty: &TypeRef) -> Option<(&'static st
 pub(super) fn gen_serde_defaults_module(api: &ApiSurface) -> Option<String> {
     let mut functions = Vec::new();
     for typ in api.types.iter().filter(|typ| typ.has_default) {
-        for field in typ.fields.iter().filter(|field| !field.optional) {
+        for field in typ
+            .fields
+            .iter()
+            .filter(|field| !field.optional && !field.binding_excluded)
+        {
             let fn_name = serde_default_fn_name(&typ.name, &field.name);
 
             if let Some((return_type, body)) = function_path_default_fn(field, api) {
