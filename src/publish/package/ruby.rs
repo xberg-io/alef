@@ -241,7 +241,7 @@ fn find_gem_file(dir: &Path, gem_name: &str, version: &str, platform: &str) -> R
 
 fn ruby_abi_for_packaging() -> Result<String> {
     if let Ok(abi) = std::env::var("RUBY_ABI") {
-        if !abi.is_empty() {
+        if let Some(abi) = normalize_ruby_abi_override(&abi) {
             return Ok(abi);
         }
     }
@@ -254,9 +254,16 @@ fn ruby_abi_for_packaging() -> Result<String> {
         .context("failed to execute `ruby` to read RbConfig['ruby_version']")?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stderr_detail = if stderr.is_empty() {
+            String::new()
+        } else {
+            format!(": {stderr}")
+        };
         anyhow::bail!(
-            "`ruby -rrbconfig -e 'print RbConfig::CONFIG.fetch(\"ruby_version\")' failed with {}",
-            output.status
+            "`ruby -rrbconfig -e 'print RbConfig::CONFIG.fetch(\"ruby_version\")' failed with {}{}",
+            output.status,
+            stderr_detail
         );
     }
 
@@ -270,6 +277,11 @@ fn ruby_abi_for_packaging() -> Result<String> {
     }
 
     Ok(abi)
+}
+
+fn normalize_ruby_abi_override(abi: &str) -> Option<String> {
+    let abi = abi.trim();
+    if abi.is_empty() { None } else { Some(abi.to_string()) }
 }
 
 #[cfg(test)]
@@ -407,5 +419,11 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let result = find_gem_file(tmp.path(), "mygem", "1.0.0", "x86_64-linux");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn normalize_ruby_abi_override_trims_and_rejects_empty_values() {
+        assert_eq!(normalize_ruby_abi_override("  3.4.0\n"), Some("3.4.0".to_string()));
+        assert_eq!(normalize_ruby_abi_override(" \t\n"), None);
     }
 }
