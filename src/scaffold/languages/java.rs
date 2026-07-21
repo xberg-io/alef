@@ -763,6 +763,7 @@ mod tests {
     use super::*;
     use crate::core::config::NewAlefConfig;
     use crate::core::ir::ApiSurface;
+    use std::path::Path;
 
     fn resolve_config(toml_text: &str) -> ResolvedCrateConfig {
         let cfg: NewAlefConfig = toml::from_str(toml_text).expect("valid config");
@@ -791,7 +792,7 @@ description = "A test library"
         let files = scaffold_java(&api, &config).expect("scaffold_java succeeds");
         let pom = files
             .iter()
-            .find(|f| f.path == *"packages/java/pom.xml")
+            .find(|f| f.path == Path::new("packages/java/pom.xml"))
             .expect("pom.xml present");
         assert!(
             pom.content.contains("<cpd.skip>true</cpd.skip>"),
