@@ -54,15 +54,15 @@ pub fn collect_cfg_feature_names(cfg_str: &str, out: &mut BTreeSet<String>) {
 /// across regenerations.
 pub fn collect_cfg_features(api: &ApiSurface) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
-    // Forwarding features (`<feat> = ["<core>/<feat>"]`) are only valid for the HOST crate's own
-    // features. Types merged from `[[crates.source_crates]]` carry the foreign crate's cfg gates
-    // (e.g. a variant gated on a feature only the source crate defines); forwarding those to the
-    // core dep references a feature the core crate does not define and breaks `cargo` resolution.
-    // Skip any type/enum whose rust_path is not owned by the host crate.
+    // Forwarding features (`<feat> = ["<core>/<feat>"]`) are only valid for the HOST crate's own ~keep
+    // features. Types merged from `[[crates.source_crates]]` carry the foreign crate's cfg gates ~keep
+    // (e.g. a variant gated on a feature only the source crate defines); forwarding those to the ~keep
+    // core dep references a feature the core crate does not define and breaks `cargo` resolution. ~keep
+    // Skip any type/enum whose rust_path is not owned by the host crate. ~keep
     let host_crate = api.crate_name.replace('-', "_");
     let is_host = |rust_path: &str| -> bool {
-        // Unknown host (empty crate name) or an unqualified path → keep the old, permissive
-        // behavior; only skip a type whose leading path segment names a *different* crate.
+        // Unknown host (empty crate name) or an unqualified path → keep the old, permissive ~keep
+        // behavior; only skip a type whose leading path segment names a *different* crate. ~keep
         if host_crate.is_empty() {
             return true;
         }
@@ -233,9 +233,9 @@ mod tests {
 
     #[test]
     fn collect_cfg_features_excludes_external_source_crate_cfgs() {
-        // A type/enum merged from `[[crates.source_crates]]` carries the foreign crate's rust_path
-        // and cfg gates. Its features must NOT be forwarded to the host crate (they'd map to
-        // `<host>/<feat>` for a feature the host does not define, breaking cargo resolution).
+        // A type/enum merged from `[[crates.source_crates]]` carries the foreign crate's rust_path ~keep
+        // and cfg gates. Its features must NOT be forwarded to the host crate (they'd map to ~keep
+        // `<host>/<feat>` for a feature the host does not define, breaking cargo resolution). ~keep
         let api = ApiSurface {
             crate_name: "hostlib".to_string(),
             types: vec![TypeDef {
