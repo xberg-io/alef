@@ -54,7 +54,27 @@ pub fn collect_cfg_feature_names(cfg_str: &str, out: &mut BTreeSet<String>) {
 /// across regenerations.
 pub fn collect_cfg_features(api: &ApiSurface) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
+    // Forwarding features (`<feat> = ["<core>/<feat>"]`) are only valid for the HOST crate's own
+    // features. Types merged from `[[crates.source_crates]]` carry the foreign crate's cfg gates
+    // (e.g. a variant gated on a feature only the source crate defines); forwarding those to the
+    // core dep references a feature the core crate does not define and breaks `cargo` resolution.
+    // Skip any type/enum whose rust_path is not owned by the host crate.
+    let host_crate = api.crate_name.replace('-', "_");
+    let is_host = |rust_path: &str| -> bool {
+        // Unknown host (empty crate name) or an unqualified path → keep the old, permissive
+        // behavior; only skip a type whose leading path segment names a *different* crate.
+        if host_crate.is_empty() {
+            return true;
+        }
+        match rust_path.split("::").next() {
+            Some(first) if !first.is_empty() => first == host_crate,
+            _ => true,
+        }
+    };
     for typ in &api.types {
+        if !is_host(&typ.rust_path) {
+            continue;
+        }
         if let Some(cfg) = &typ.cfg {
             collect_cfg_feature_names(cfg, &mut out);
         }
@@ -65,6 +85,9 @@ pub fn collect_cfg_features(api: &ApiSurface) -> BTreeSet<String> {
         }
     }
     for enum_def in &api.enums {
+        if !is_host(&enum_def.rust_path) {
+            continue;
+        }
         if let Some(cfg) = &enum_def.cfg {
             collect_cfg_feature_names(cfg, &mut out);
         }
@@ -206,5 +229,45 @@ mod tests {
         let features = collect_cfg_features(&api);
         let want: BTreeSet<String> = ["heic", "pdf"].into_iter().map(String::from).collect();
         assert_eq!(features, want);
+    }
+
+    #[test]
+    fn collect_cfg_features_excludes_external_source_crate_cfgs() {
+        // A type/enum merged from `[[crates.source_crates]]` carries the foreign crate's rust_path
+        // and cfg gates. Its features must NOT be forwarded to the host crate (they'd map to
+        // `<host>/<feat>` for a feature the host does not define, breaking cargo resolution).
+        let api = ApiSurface {
+            crate_name: "hostlib".to_string(),
+            types: vec![TypeDef {
+                name: "HostDoc".to_string(),
+                rust_path: "hostlib::HostDoc".to_string(),
+                cfg: Some(r#"feature = "pdf""#.to_string()),
+                ..Default::default()
+            }],
+            enums: vec![EnumDef {
+                name: "Strategy".to_string(),
+                rust_path: "otherlib::Strategy".to_string(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Auto".to_string(),
+                        cfg: None,
+                        ..Default::default()
+                    },
+                    EnumVariant {
+                        name: "Advanced".to_string(),
+                        cfg: Some(r#"any(test, feature = "foreign-only")"#.to_string()),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let features = collect_cfg_features(&api);
+        assert_eq!(
+            features,
+            BTreeSet::from(["pdf".to_string()]),
+            "host `pdf` must forward; the foreign `foreign-only` feature must not leak into host passthrough"
+        );
     }
 }
