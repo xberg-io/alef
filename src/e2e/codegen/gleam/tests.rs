@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::args::build_args_and_setup;
 use super::constructors::render_gleam_element_constructor;
 use crate::core::config::{GleamElementConstructor, GleamElementField};

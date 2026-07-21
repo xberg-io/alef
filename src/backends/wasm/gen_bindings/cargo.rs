@@ -87,8 +87,6 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         format!("[features]\n{}\n\n", lines.join("\n"))
     };
 
-    // `[package.metadata.wasm-pack.profile.release] wasm-opt`: emit the configured
-    // pass args (e.g. `["-Oz"]`) when set, else `false` (wasm-pack skips wasm-opt).
     let wasm_opt_line = config
         .wasm
         .as_ref()

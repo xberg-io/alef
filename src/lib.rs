@@ -17,7 +17,12 @@
 //! ```
 
 #![allow(missing_docs)]
-#![allow(clippy::if_same_then_else, clippy::match_like_matches_macro)]
+#![allow(
+    clippy::collapsible_else_if,
+    clippy::if_same_then_else,
+    clippy::match_like_matches_macro,
+    clippy::only_used_in_recursion
+)]
 
 pub mod adapters;
 pub mod backends;
