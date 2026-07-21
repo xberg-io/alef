@@ -1135,3 +1135,60 @@ fn dedup_collapses_same_named_functions_with_identical_cfg() {
     assert_eq!(entries.len(), 1, "identical-cfg duplicates must collapse to one");
     assert_eq!(entries[0].rust_path, "my_crate::clean_text", "shortest rust_path wins");
 }
+
+/// A field listed in `[crates.exclude].fields` as `"TypeName.field_name"` must be marked
+/// `binding_excluded` on the matching struct field — the same central IR flag that
+/// `#[cfg_attr(alef, alef(skip))]` sets — so it disappears from every binding uniformly
+/// without any backend-specific handling. Sibling fields on the same type must be
+/// unaffected.
+#[test]
+fn apply_filters_marks_field_binding_excluded_when_listed_in_exclude_fields() {
+    let mut foo = make_typedef("Foo");
+    foo.fields = vec![
+        crate::core::ir::FieldDef {
+            name: "bar".to_string(),
+            ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::I32),
+            ..crate::core::ir::FieldDef::default()
+        },
+        crate::core::ir::FieldDef {
+            name: "baz".to_string(),
+            ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::I32),
+            ..crate::core::ir::FieldDef::default()
+        },
+    ];
+    let surface = surface_with(vec![foo], vec![]);
+
+    let mut config = ResolvedCrateConfig::default();
+    config.exclude.fields = vec!["Foo.bar".to_string()];
+
+    let result = apply_filters(surface, &config);
+
+    let typ = result
+        .types
+        .iter()
+        .find(|t| t.name == "Foo")
+        .expect("Foo must survive filtering");
+    let bar = typ
+        .fields
+        .iter()
+        .find(|f| f.name == "bar")
+        .expect("bar field must survive filtering");
+    assert!(
+        bar.binding_excluded,
+        "Foo.bar listed in exclude.fields must be binding_excluded"
+    );
+    assert!(
+        bar.binding_exclusion_reason.is_some(),
+        "binding_excluded field must carry a diagnostic reason"
+    );
+
+    let baz = typ
+        .fields
+        .iter()
+        .find(|f| f.name == "baz")
+        .expect("baz field must survive filtering");
+    assert!(
+        !baz.binding_excluded,
+        "Foo.baz not listed in exclude.fields must remain included"
+    );
+}

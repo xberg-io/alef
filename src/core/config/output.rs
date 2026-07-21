@@ -13,6 +13,9 @@ pub struct ExcludeConfig {
     /// Exclude specific methods: "TypeName.method_name"
     #[serde(default)]
     pub methods: Vec<String>,
+    /// Exclude specific struct fields from ALL bindings: "TypeName.field_name".
+    #[serde(default)]
+    pub fields: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]

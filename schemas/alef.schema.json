@@ -2254,6 +2254,14 @@
     },
     "ExcludeConfig": {
       "properties": {
+        "fields": {
+          "default": [],
+          "description": "Exclude specific struct fields from ALL bindings: \"TypeName.field_name\".",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "functions": {
           "default": [],
           "items": {
@@ -5053,6 +5061,7 @@
         "exclude": {
           "$ref": "#/$defs/ExcludeConfig",
           "default": {
+            "fields": [],
             "functions": [],
             "methods": [],
             "types": []

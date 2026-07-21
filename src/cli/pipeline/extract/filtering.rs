@@ -13,6 +13,66 @@ pub(super) fn is_type_excluded(name: &str, rust_path: &str, exclude_list: &[Stri
     })
 }
 
+/// Reason recorded on `binding_excluded` fields matched via `[crates.exclude].fields`,
+/// mirroring the reason strings `alef(skip)`/`doc(hidden)` record for attribute-based exclusion.
+const EXCLUDE_FIELDS_REASON: &str = "exclude.fields config";
+
+/// Apply `[crates.exclude].fields` (`"TypeName.field_name"` entries) by marking matching
+/// fields `binding_excluded`, using the exact same IR flag that `#[cfg_attr(alef, alef(skip))]`
+/// sets on struct fields — every backend already filters on `binding_excluded`, so this makes
+/// a globally-excluded field disappear from all bindings for free, without touching any
+/// backend/language generator.
+///
+/// Matches both struct fields (`api.types`) and named enum variant fields (`api.enums`),
+/// since attribute-based `alef(skip)` already supports exclusion on both (see
+/// `extract_field` used by both `extract_field` call sites for struct and named-variant
+/// fields). Malformed entries (not exactly one `.` splitting a non-empty type and field
+/// name) are logged and skipped rather than panicking.
+pub(super) fn apply_exclude_fields(api: &mut ApiSurface, fields: &[String]) {
+    for entry in fields {
+        let Some((type_name, field_name)) = entry.rsplit_once('.') else {
+            tracing::warn!(entry = %entry, "exclude.fields entry must be \"TypeName.field_name\"; skipping");
+            continue;
+        };
+        if type_name.is_empty() || field_name.is_empty() {
+            tracing::warn!(entry = %entry, "exclude.fields entry must be \"TypeName.field_name\"; skipping");
+            continue;
+        }
+
+        let mut matched = false;
+        for typ in &mut api.types {
+            if typ.name != type_name {
+                continue;
+            }
+            for field in &mut typ.fields {
+                if field.name == field_name {
+                    field.binding_excluded = true;
+                    field.binding_exclusion_reason = Some(EXCLUDE_FIELDS_REASON.to_string());
+                    matched = true;
+                }
+            }
+        }
+        for enm in &mut api.enums {
+            if enm.name != type_name {
+                continue;
+            }
+            for variant in &mut enm.variants {
+                for field in &mut variant.fields {
+                    if field.name == field_name {
+                        field.binding_excluded = true;
+                        field.binding_exclusion_reason = Some(EXCLUDE_FIELDS_REASON.to_string());
+                        matched = true;
+                    }
+                }
+            }
+        }
+
+        if !matched {
+            tracing::warn!(entry = %entry, "exclude.fields entry did not match any known type field");
+        }
+    }
+}
+
 pub(super) fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurface {
     let exclude = &config.exclude;
     let include = &config.include;
@@ -97,6 +157,10 @@ pub(super) fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -
                 !exclude.methods.contains(&key)
             });
         }
+    }
+
+    if !exclude.fields.is_empty() {
+        apply_exclude_fields(&mut api, &exclude.fields);
     }
 
     api
