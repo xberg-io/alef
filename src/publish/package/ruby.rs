@@ -16,6 +16,7 @@ use crate::publish::platform::RustTarget;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Package a Ruby native gem for the given target.
 ///
@@ -41,7 +42,10 @@ pub fn package_ruby(
     let lib_filename = target.shared_lib_name(&rb_crate.replace('-', "_"));
     let native_lib = find_ruby_native_lib(workspace_root, target, &rb_crate, &lib_filename)?;
 
-    let lib_dest_dir = pkg_dir.join("lib").join(&gem_name);
+    let ruby_abi = ruby_abi_for_packaging()?;
+    let ext_name = rb_crate.replace('-', "_");
+
+    let lib_dest_dir = pkg_dir.join("lib").join(&ext_name).join(&ruby_abi);
     fs::create_dir_all(&lib_dest_dir).with_context(|| format!("creating {}", lib_dest_dir.display()))?;
     let lib_dest = lib_dest_dir.join(&lib_filename);
     fs::copy(&native_lib, &lib_dest).with_context(|| format!("copying native lib to {}", lib_dest.display()))?;
@@ -52,7 +56,7 @@ pub fn package_ruby(
         .filter_map(|p| p.strip_prefix(&pkg_dir).ok().map(|r| r.to_string_lossy().into_owned()))
         .collect();
     rb_files.sort();
-    let native_lib_path = format!("lib/{gem_name}/{lib_filename}");
+    let native_lib_path = format!("lib/{ext_name}/{ruby_abi}/{lib_filename}");
     if !rb_files.contains(&native_lib_path) {
         rb_files.push(native_lib_path);
     }
@@ -233,6 +237,39 @@ fn find_gem_file(dir: &Path, gem_name: &str, version: &str, platform: &str) -> R
         .into_iter()
         .next()
         .with_context(|| format!("no .gem file for {gem_name}-{version} found in {}", dir.display()))
+}
+
+fn ruby_abi_for_packaging() -> Result<String> {
+    if let Ok(abi) = std::env::var("RUBY_ABI") {
+        if !abi.is_empty() {
+            return Ok(abi);
+        }
+    }
+
+    let output = Command::new("ruby")
+        .arg("-rrbconfig")
+        .arg("-e")
+        .arg("print RbConfig::CONFIG.fetch(\"ruby_version\")")
+        .output()
+        .context("failed to execute `ruby` to read RbConfig['ruby_version']")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "`ruby -rrbconfig -e 'print RbConfig::CONFIG.fetch(\"ruby_version\")' failed with {}",
+            output.status
+        );
+    }
+
+    let abi = String::from_utf8(output.stdout)
+        .context("ruby output for RbConfig['ruby_version'] was not valid UTF-8")?
+        .trim()
+        .to_string();
+
+    if abi.is_empty() {
+        anyhow::bail!("ruby ABI is empty from `RbConfig['ruby_version']`")
+    }
+
+    Ok(abi)
 }
 
 #[cfg(test)]
