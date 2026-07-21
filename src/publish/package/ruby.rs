@@ -240,10 +240,8 @@ fn find_gem_file(dir: &Path, gem_name: &str, version: &str, platform: &str) -> R
 }
 
 fn ruby_abi_for_packaging() -> Result<String> {
-    if let Ok(abi) = std::env::var("RUBY_ABI") {
-        if !abi.is_empty() {
-            return Ok(abi);
-        }
+    if let Some(abi) = ruby_abi_override(std::env::var("RUBY_ABI").ok()) {
+        return Ok(abi);
     }
 
     let output = Command::new("ruby")
@@ -254,9 +252,11 @@ fn ruby_abi_for_packaging() -> Result<String> {
         .context("failed to execute `ruby` to read RbConfig['ruby_version']")?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!(
-            "`ruby -rrbconfig -e 'print RbConfig::CONFIG.fetch(\"ruby_version\")' failed with {}",
-            output.status
+            "`ruby -rrbconfig -e 'print RbConfig::CONFIG.fetch(\"ruby_version\")' failed with {}: {}",
+            output.status,
+            stderr.trim()
         );
     }
 
@@ -272,9 +272,28 @@ fn ruby_abi_for_packaging() -> Result<String> {
     Ok(abi)
 }
 
+/// Normalize a `RUBY_ABI` override value: trim surrounding whitespace (common in CI env
+/// injection) and treat an unset or blank value as "no override".
+fn ruby_abi_override(raw: Option<String>) -> Option<String> {
+    raw.map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ruby_abi_override_trims_and_rejects_blank() {
+        assert_eq!(ruby_abi_override(Some("3.4.0".to_string())), Some("3.4.0".to_string()));
+        assert_eq!(
+            ruby_abi_override(Some("  3.4.0 \n".to_string())),
+            Some("3.4.0".to_string())
+        );
+        assert_eq!(ruby_abi_override(Some("   ".to_string())), None);
+        assert_eq!(ruby_abi_override(Some(String::new())), None);
+        assert_eq!(ruby_abi_override(None), None);
+    }
 
     #[test]
     fn generate_platform_gemspec_includes_native_and_wrapper_files() {

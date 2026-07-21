@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Ruby (Magnus): ABI-aware native extension loading and staging**: the generated `native.rb`
+  wrapper now resolves the compiled extension through `RbConfig` — searching ABI-specific candidates
+  (`lib/<ext>/<ruby_version>/...`) across `DLEXT`/`DLEXT2`, with the legacy flat path as a fallback —
+  and raises a `LoadError` listing every expanded candidate when none match. The Ruby packager stages
+  native libraries under `lib/<ext_name>/<ruby_abi>/...`, deriving the ABI from `RbConfig`'s
+  `ruby_version` unless `RUBY_ABI` is set. This makes alef the canonical place for multi-ABI Ruby
+  distribution. A `RUBY_ABI` override is now trimmed and rejected when blank, and a failing `ruby`
+  invocation surfaces its stderr for diagnosability.
+
 ### Fixed
 
 - **`[crates.exclude].fields` now applies to external type roots**: fields hidden globally were only
