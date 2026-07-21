@@ -2,7 +2,34 @@
 
 require "json"
 require "sorbet-runtime"
-require "{{ ext_name }}"
+require "rbconfig"
+
+extension_name = "{{ ext_name }}"
+# Ruby may expose more than one shared-library extension via DLEXT/DLEXT2.
+dlexts = [RbConfig::CONFIG["DLEXT"], RbConfig::CONFIG["DLEXT2"]].compact.uniq
+ruby_abi = RbConfig::CONFIG.fetch("ruby_version")
+
+library_candidates = dlexts.flat_map do |dlext|
+  [
+    File.join(__dir__, "..", extension_name, ruby_abi, "#{extension_name}.#{dlext}"),
+    File.join(__dir__, "..", extension_name, ruby_abi, "lib#{extension_name}.#{dlext}"),
+    File.join(__dir__, "..", "#{extension_name}.#{dlext}"),
+    File.join(__dir__, "..", "lib#{extension_name}.#{dlext}"),
+  ]
+end
+
+expanded_candidates = library_candidates.map { |path| File.expand_path(path) }
+native_extension = expanded_candidates.find { |path| File.file?(path) }
+
+unless native_extension
+  raise(
+    LoadError,
+    "cannot find #{extension_name} native extension for Ruby ABI #{ruby_abi}; " \
+      "searched: #{expanded_candidates.join(", ")}"
+  )
+end
+
+require native_extension
 {% if module_name != native_module_name %}
 module {{ module_name }}
   # Re-export public types from the native extension (curated list, excludes Update/Builder types)
