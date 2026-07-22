@@ -37,7 +37,24 @@ impl<'a> client::TestClientRenderer for ElixirTestClientRenderer<'a> {
     /// ExUnit skips it; the shared driver short-circuits before emitting any
     /// assertions and then calls `render_test_close` for symmetry.
     fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
-        let escaped_description = description.replace('"', "\\\"");
+        // ExUnit raises SystemLimitError when a computed test name (its type plus
+        // the enclosing describe plus the test name) reaches 255 characters. The
+        // computed name here is `test {fn_name} {description}`, so bound the
+        // description to keep the whole name under the limit, truncating on a UTF-8
+        // char boundary. Each describe wraps a single test, so names stay unique.
+        const EXUNIT_NAME_LIMIT: usize = 255;
+        // "test " (5) + fn_name + " " (1) + description, with an 8-char safety margin.
+        let budget = EXUNIT_NAME_LIMIT.saturating_sub(5 + fn_name.len() + 1 + 8);
+        let bounded = if description.len() > budget {
+            let mut end = budget;
+            while end > 0 && !description.is_char_boundary(end) {
+                end -= 1;
+            }
+            format!("{}…", &description[..end])
+        } else {
+            description.to_string()
+        };
+        let escaped_description = bounded.replace('"', "\\\"");
         let _ = writeln!(out, "  describe \"{fn_name}\" do");
         if skip_reason.is_some() {
             let _ = writeln!(out, "    @tag :skip");
