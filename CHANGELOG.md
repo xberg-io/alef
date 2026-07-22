@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-07-22
+
 ### Added
+
+- **Node (NAPI): the ergonomic `/service` module re-exports the native value types it wraps**: the
+  generated `service.ts` exported only the service class, so consumers (and e2e harnesses) importing
+  from `<pkg>/service` could not reach the `Method` enum or `RouteBuilder` the service API expects —
+  a `Method`-is-`undefined` `TypeError` at runtime. The service module now also re-exports the native
+  value types referenced by the service surface, skipping its internal aliased self-import.
 
 - **Ruby (Magnus): ABI-aware native extension loading and staging**: the generated `native.rb`
   wrapper now resolves the compiled extension through `RbConfig` — searching ABI-specific candidates
@@ -19,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   invocation surfaces its stderr for diagnosability.
 
 ### Fixed
+
+- **Elixir e2e: ExUnit test names are bounded to stay under the 255-character limit**: a fixture with
+  a long description produced a computed test name (`test {describe} {description}`) of 255+ characters,
+  which ExUnit rejects with `SystemLimitError`, failing the whole suite at compile time. The description
+  portion of the test name is now truncated on a UTF-8 char boundary to keep the full name under the
+  limit; each describe wraps a single test, so names remain unique.
 
 - **`[crates.exclude].fields` now applies to external type roots**: fields hidden globally were only
   pruned from the primary crate's surface, so a field on an externally-extracted DTO root could pull
