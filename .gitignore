@@ -49,10 +49,11 @@ rust_out.*
 # polylint result cache (per-developer)
 .polylint/
 
+poly.local.toml
+
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .claude/
 .codex/
 AGENTS.md
 CLAUDE.md
 # END ai-rulez
-poly.local.toml
