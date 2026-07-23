@@ -25,6 +25,11 @@ match result {
             let json_str = val.string().unwrap_or_default();
             serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})
         }
+{%- elif native_decodable %}
+        // The return type is php-native (String/primitive/Vec of those, recursively) — decode
+        // the PHP array/scalar directly via `FromZval`, no JSON round-trip needed (#1304).
+        <{{ return_type }} as ext_php_rs::convert::FromZval>::from_zval(&val)
+            .ok_or_else(|| {{ native_decode_error_expr }})
 {%- else %}
         let json_str = val.string().unwrap_or_default();
         serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})
@@ -67,6 +72,16 @@ match result {
                     eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned a non-string value; returning default");
                     Default::default()
                 }
+            }
+        }
+{%- elif native_decodable %}
+        // The return type is php-native (String/primitive/Vec of those, recursively) — decode
+        // the PHP array/scalar directly via `FromZval`, no JSON round-trip needed (#1304).
+        match <{{ return_type }} as ext_php_rs::convert::FromZval>::from_zval(&val) {
+            Some(v) => v,
+            None => {
+                eprintln!("[{{ wrapper }}] host '{{ method_name }}' returned an undecodable value; returning default");
+                Default::default()
             }
         }
 {%- else %}

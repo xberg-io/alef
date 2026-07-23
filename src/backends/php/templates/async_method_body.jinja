@@ -19,6 +19,11 @@ if let Ok(handle) = tokio::runtime::Handle::try_current() {
                         let json_str = val.string().unwrap_or_default();
                         serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})
                     }
+{%- elif native_decodable %}
+                    // The return type is php-native (String/primitive/Vec of those, recursively) —
+                    // decode the PHP array/scalar directly via `FromZval`, no JSON round-trip (#1304).
+                    <{{ return_type }} as ext_php_rs::convert::FromZval>::from_zval(&val)
+                        .ok_or_else(|| {{ native_decode_error_expr }})
 {%- else %}
                     let json_str = val.string().unwrap_or_default();
                     serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})
@@ -43,6 +48,11 @@ if let Ok(handle) = tokio::runtime::Handle::try_current() {
                     let json_str = val.string().unwrap_or_default();
                     serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})
                 }
+{%- elif native_decodable %}
+                // The return type is php-native (String/primitive/Vec of those, recursively) —
+                // decode the PHP array/scalar directly via `FromZval`, no JSON round-trip (#1304).
+                <{{ return_type }} as ext_php_rs::convert::FromZval>::from_zval(&val)
+                    .ok_or_else(|| {{ native_decode_error_expr }})
 {%- else %}
                 let json_str = val.string().unwrap_or_default();
                 serde_json::from_str(&json_str).map_err(|e| {{ deserialize_error_expr }})

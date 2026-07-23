@@ -40,6 +40,28 @@ pub struct PhpBridgeGenerator {
     pub forwardable_defaulted: std::collections::HashSet<String>,
 }
 
+/// Returns true if a `Zval` for `ty` can be produced directly via `IntoZval` (Rust -> PHP),
+/// recursing into `Vec`. Used to decide when a trait-bridge callback argument can be passed as a
+/// native PHP array/scalar instead of a Debug-string encoded one (#1304).
+pub(super) fn is_php_encodable(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::String => true,
+        TypeRef::Primitive(_) => true,
+        TypeRef::Vec(inner) => is_php_encodable(inner),
+        _ => false,
+    }
+}
+
+/// Returns true if a `Zval` for `ty` can be decoded directly via `FromZval` (PHP -> Rust),
+/// recursing into `Vec`. Unlike napi-rs (which lacks `FromNapiValue for f32`), ext-php-rs
+/// 0.15.15 implements `FromZval` for every `PrimitiveType` variant including `f32`
+/// (`impl FromZval<'_> for f32` in `types/mod.rs`, converting the PHP `double` zval via
+/// `zval.double().map(|v| v as f32)`), so no primitive needs to be excluded here — this
+/// classifier is intentionally identical to [`is_php_encodable`].
+pub(super) fn is_php_decodable(ty: &TypeRef) -> bool {
+    is_php_encodable(ty)
+}
+
 impl PhpBridgeGenerator {
     /// Binding `#[php_class]` name to extract for a native-object return, when the return is a bare
     /// `Named` struct on the (conversion-gated) native-marshalled return allowlist. The bridge tries
@@ -88,6 +110,16 @@ impl PhpBridgeGenerator {
             ),
             TypeRef::Primitive(_) => {
                 format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name)
+            }
+            // `Vec<T>` of a php-native `T` (String/primitive, recursively) is `IntoZval` in
+            // ext-php-rs — pass it as a native PHP array instead of a Debug string (#1304).
+            TypeRef::Vec(inner) if is_php_encodable(inner) => {
+                let owned = if p.is_ref {
+                    format!("{}.to_vec()", p.name)
+                } else {
+                    format!("{}.clone()", p.name)
+                };
+                format!("ext_php_rs::convert::IntoZval::into_zval({owned}, false).unwrap_or_default()")
             }
             _ => format!(
                 "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
@@ -155,6 +187,13 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         let deserialize_error_expr = spec.make_error("format!(\"Deserialize error: {}\", e)");
         let call_error_expr = spec.make_error("e.to_string()");
+        // Native decode only applies to the generic (non-primitive, non-native-struct) branch:
+        // `is_primitive_return` already decodes primitives directly via `val.long()`/`val.bool()`,
+        // and `native_return_binding` already covers known serde structs.
+        let native_decodable = !is_primitive_return && is_php_decodable(&method.return_type);
+        let native_decode_error_expr = spec.make_error(&format!(
+            "\"Failed to decode native PHP return value for method '{name}'\".to_string()"
+        ));
 
         crate::backends::php::template_env::render(
             "sync_method_body.jinja",
@@ -167,6 +206,8 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                 is_primitive_return => is_primitive_return,
                 return_type => return_type,
                 native_return_binding => self.native_struct_return(&method.return_type),
+                native_decodable => native_decodable,
+                native_decode_error_expr => native_decode_error_expr,
                 deserialize_error_expr => deserialize_error_expr,
                 call_error_expr => call_error_expr,
             },
@@ -186,9 +227,24 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let args_expr = self.args_expr(method);
 
         let is_result_type = method.error_type.is_some();
+        let is_primitive_return = matches!(&method.return_type, TypeRef::Primitive(_));
+        // Native decode only applies to the generic (non-primitive, non-native-struct) branch —
+        // see the matching comment in `gen_sync_method_body`.
+        let native_decodable = !is_primitive_return && is_php_decodable(&method.return_type);
+        let return_type = match &method.return_type {
+            TypeRef::Named(n) => self
+                .type_paths
+                .get(n.as_str())
+                .map(|p| p.replace('-', "_"))
+                .unwrap_or_else(|| n.clone()),
+            other => crate::codegen::generators::trait_bridge::format_type_ref(other, &self.type_paths),
+        };
         let deserialize_error_expr = spec.make_error("format!(\"Deserialize error: {}\", e)");
         let call_error_expr = spec.make_error(&format!(
             "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"
+        ));
+        let native_decode_error_expr = spec.make_error(&format!(
+            "format!(\"Plugin '{{}}' failed to decode native PHP return value for method '{name}'\", cached_name)"
         ));
 
         crate::backends::php::template_env::render(
@@ -198,7 +254,10 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                 args_expr => args_expr,
                 string_params => string_params,
                 is_result_type => is_result_type,
+                return_type => return_type,
                 native_return_binding => self.native_struct_return(&method.return_type),
+                native_decodable => native_decodable,
+                native_decode_error_expr => native_decode_error_expr,
                 deserialize_error_expr => deserialize_error_expr,
                 call_error_expr => call_error_expr,
             },

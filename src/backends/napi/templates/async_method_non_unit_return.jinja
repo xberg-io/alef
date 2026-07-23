@@ -23,6 +23,25 @@ let result = func.call(napi::bindgen_prelude::FnArgs::from({{ tuple_args }}));
 
 match result {
     Err(e) => Err({{ error_call }}),
+{% if native_return %}
+{% if f32_bridge %}
+    Ok(val) => {
+        // napi-rs has no `FromNapiValue for f32`; decode into the f64 analog (every JS
+        // number already round-trips through f64) and cast element-wise back to f32.
+        let __decoded: {{ f64_bridge_type }} =
+            unsafe { napi::bindgen_prelude::FromNapiValue::from_napi_value(self.env().raw(), val.raw()) }
+                .map_err(|e| {{ error_coercion }})?;
+        Ok({{ f32_cast_expr }})
+    }
+{% else %}
+    Ok(val) => {
+        // Decode the JS value directly into the native Rust type — the return type
+        // is napi-native (String/primitive/Vec of those), so no JSON round-trip is needed.
+        unsafe { napi::bindgen_prelude::FromNapiValue::from_napi_value(self.env().raw(), val.raw()) }
+            .map_err(|e| {{ error_coercion }})
+    }
+{% endif %}
+{% else %}
     Ok(val) => {
         // Convert JS value to Rust type via string coercion
         let s = val.coerce_to_string()
@@ -38,4 +57,5 @@ match result {
             _ => serde_json::from_str::<_>(&s).map_err(|_| {{ error_parse }})
         }
     }
+{% endif %}
 }

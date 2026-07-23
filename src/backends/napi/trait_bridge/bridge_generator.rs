@@ -1,4 +1,6 @@
-use super::visitor_bridge::{build_napi_args, unknown_tuple_type};
+use super::visitor_bridge::{
+    build_napi_args, f32_bridge_cast_expr, f32_bridge_target, is_napi_decodable, unknown_tuple_type,
+};
 use crate::codegen::generators::trait_bridge::{
     TraitBridgeGenerator, TraitBridgeSpec, host_function_path, to_camel_case,
 };
@@ -186,6 +188,22 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
                 },
             )
         } else {
+            // `f32` has no `FromNapiValue` in napi-rs; a return type whose only non-native
+            // leaf is `f32` (e.g. `Vec<Vec<f32>>`) still decodes natively via the f64 analog
+            // (JS numbers are `f64`) plus an element-wise `as f32` cast — see
+            // `f32_bridge_target`/`f32_bridge_cast_expr`. Anything else non-decodable (structs,
+            // maps, bytes, ...) keeps the JSON `coerce_to_string`/`serde_json` fallback.
+            let f32_bridge_ty = f32_bridge_target(&method.return_type);
+            let is_plain_native = is_napi_decodable(&method.return_type);
+            let f32_bridge = f32_bridge_ty.is_some();
+            let native_return = is_plain_native || f32_bridge;
+            let f64_bridge_type = f32_bridge_ty
+                .as_ref()
+                .map(|t| crate::codegen::generators::trait_bridge::format_type_ref(t, &HashMap::new()));
+            let f32_cast_expr = f32_bridge_ty
+                .as_ref()
+                .map(|_| f32_bridge_cast_expr(&method.return_type, "__decoded"));
+
             crate::backends::napi::template_env::render(
                 "async_method_non_unit_return.jinja",
                 minijinja::context! {
@@ -198,6 +216,10 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
                     error_call => error_call,
                     error_coercion => error_coercion,
                     error_parse => error_parse,
+                    native_return => native_return,
+                    f32_bridge => f32_bridge,
+                    f64_bridge_type => f64_bridge_type,
+                    f32_cast_expr => f32_cast_expr,
                 },
             )
         }

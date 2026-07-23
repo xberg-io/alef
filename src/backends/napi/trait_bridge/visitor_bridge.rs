@@ -131,6 +131,63 @@ fn gen_visitor_method_napi(
     ));
 }
 
+/// Returns true if a napi value for `ty` can be produced directly via `ToNapiValue`
+/// (Rust -> JS), recursing into `Vec`. Used to decide when a trait-bridge callback
+/// argument can be passed as a native JS value instead of a Debug-string encoded one.
+pub(super) fn is_napi_encodable(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::String => true,
+        TypeRef::Primitive(_) => true,
+        TypeRef::Vec(inner) => is_napi_encodable(inner),
+        _ => false,
+    }
+}
+
+/// Returns true if a napi value for `ty` can be decoded directly via `FromNapiValue`
+/// (JS -> Rust), recursing into `Vec`. Unlike [`is_napi_encodable`], `f32` is excluded:
+/// napi-rs implements `ToNapiValue` for `f32` but not `FromNapiValue` (JS numbers decode
+/// as `f64`), so a `Vec<f32>` / `Vec<Vec<f32>>` return type cannot be decoded natively.
+pub(super) fn is_napi_decodable(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::String => true,
+        TypeRef::Primitive(p) => !matches!(p, crate::core::ir::PrimitiveType::F32),
+        TypeRef::Vec(inner) => is_napi_decodable(inner),
+        _ => false,
+    }
+}
+
+/// Returns the "f64 analog" of `ty` if `ty` is a (possibly `Vec`-nested) `f32` — i.e. the
+/// only reason [`is_napi_decodable`] rejects it is the `f32` leaf. napi-rs has no
+/// `FromNapiValue for f32`, but every JS number already round-trips losslessly through
+/// `f64` (which does implement `FromNapiValue`), so such a return type can still decode
+/// natively: decode into this f64 analog, then cast element-wise back to `f32` (see
+/// [`f32_bridge_cast_expr`]).
+///
+/// Returns `None` for anything else: already-decodable types (no bridging needed) and
+/// genuinely non-native leaves (`Named`/`Bytes`/`Map`/...), which keep the JSON fallback.
+pub(super) fn f32_bridge_target(ty: &TypeRef) -> Option<TypeRef> {
+    match ty {
+        TypeRef::Primitive(crate::core::ir::PrimitiveType::F32) => {
+            Some(TypeRef::Primitive(crate::core::ir::PrimitiveType::F64))
+        }
+        TypeRef::Vec(inner) => f32_bridge_target(inner).map(|t| TypeRef::Vec(Box::new(t))),
+        _ => None,
+    }
+}
+
+/// Build the Rust expression that element-wise casts a decoded f64-analog value bound to
+/// `var` back into the original `f32`-leaved shape described by `ty`. Mirrors `ty`'s `Vec`
+/// nesting with `.into_iter().map(|v| ...).collect()`, bottoming out in `as f32`.
+pub(super) fn f32_bridge_cast_expr(ty: &TypeRef, var: &str) -> String {
+    match ty {
+        TypeRef::Vec(inner) => {
+            let inner_expr = f32_bridge_cast_expr(inner, "v");
+            format!("{var}.into_iter().map(|v| {inner_expr}).collect()")
+        }
+        _ => format!("{var} as f32"),
+    }
+}
+
 /// Build NAPI argument expressions for a visitor method.
 ///
 /// Returns one expression per parameter, each producing a `napi::bindgen_prelude::Unknown`.
@@ -233,6 +290,17 @@ pub(super) fn build_napi_args(
                     name = p.name
                 );
             }
+            if let TypeRef::Vec(inner) = &p.ty {
+                if is_napi_encodable(inner) {
+                    let owned = if p.is_ref { format!("{}.to_vec()", p.name) } else { format!("{}.clone()", p.name) };
+                    return format!(
+                        "unsafe {{ \
+                         let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), {owned}).unwrap_or(std::ptr::null_mut()); \
+                         napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}",
+                    );
+                }
+            }
+
             format!(
                 "match self.env().create_string(&format!(\"{{:?}}\", {name})) {{ Ok(s) => s.to_unknown(), Err(_) => unsafe {{ \
                  let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
