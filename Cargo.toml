@@ -36,7 +36,7 @@ dylib-loader = ["dep:libloading"]
 [dependencies]
 ahash = "0.8"
 anyhow = "1"
-base64 = "0.22"
+base64 = "0.23"
 blake3 = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
