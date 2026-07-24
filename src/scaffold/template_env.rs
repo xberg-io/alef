@@ -1,4 +1,4 @@
-use minijinja::Environment;
+use minijinja::{AutoEscape, Environment};
 
 static TEMPLATES: &[(&str, &str)] = &[
     ("cargo_env_plain.jinja", include_str!("templates/cargo_env_plain.jinja")),
@@ -6,6 +6,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "cargo_env_structured.jinja",
         include_str!("templates/cargo_env_structured.jinja"),
     ),
+    ("java_pom.xml.jinja", include_str!("templates/java_pom.xml.jinja")),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
@@ -13,6 +14,7 @@ pub(crate) fn make_env() -> Environment<'static> {
     env.set_trim_blocks(true);
     env.set_lstrip_blocks(true);
     env.set_keep_trailing_newline(true);
+    env.set_auto_escape_callback(|_name| AutoEscape::None);
     for (name, src) in TEMPLATES {
         env.add_template(name, src).expect("built-in template is valid");
     }

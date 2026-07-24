@@ -1,6 +1,7 @@
 //! Python conftest.py and pyproject.toml rendering.
 
 use crate::core::hash::{self, CommentStyle};
+use crate::core::template_versions as tv;
 use crate::core::version::to_pep440;
 use crate::e2e::config::{DependencyMode, E2eConfig};
 use crate::e2e::fixture::FixtureGroup;
@@ -49,18 +50,18 @@ pub(super) fn render_pyproject(pkg_name: &str, pkg_path: &str, pkg_version: &str
             let normalized_version = normalize_python_version(pkg_version);
             let entries = vec![
                 format!("\"{pkg_name}{normalized_version}\""),
-                "\"pytest>=7.4\"".to_string(),
-                "\"pytest-asyncio>=0.23\"".to_string(),
-                "\"pytest-timeout>=2.1\"".to_string(),
+                format!("\"pytest{}\"", tv::pypi::PYTEST),
+                format!("\"pytest-asyncio{}\"", tv::pypi::PYTEST_ASYNCIO),
+                format!("\"pytest-timeout{}\"", tv::pypi::PYTEST_TIMEOUT),
             ];
             (format!("dependencies = {}", format_toml_array(&entries)), String::new())
         }
         DependencyMode::Local => {
             let entries = vec![
                 format!("\"{pkg_name}\""),
-                "\"pytest>=7.4\"".to_string(),
-                "\"pytest-asyncio>=0.23\"".to_string(),
-                "\"pytest-timeout>=2.1\"".to_string(),
+                format!("\"pytest{}\"", tv::pypi::PYTEST),
+                format!("\"pytest-asyncio{}\"", tv::pypi::PYTEST_ASYNCIO),
+                format!("\"pytest-timeout{}\"", tv::pypi::PYTEST_TIMEOUT),
             ];
             (
                 format!("dependencies = {}", format_toml_array(&entries)),
@@ -72,7 +73,10 @@ pub(super) fn render_pyproject(pkg_name: &str, pkg_path: &str, pkg_version: &str
         }
     };
 
-    let requires_array = format_toml_array(&["\"setuptools>=68\"".to_string(), "\"wheel\"".to_string()]);
+    let requires_array = format_toml_array(&[
+        format!("\"setuptools{}\"", tv::pypi::SETUPTOOLS),
+        "\"wheel\"".to_string(),
+    ]);
     let ruff_ignore_array = format_toml_array(&["\"PLR2004\"".to_string()]);
     let ruff_tests_array = format_toml_array(&[
         "\"B017\"".to_string(),

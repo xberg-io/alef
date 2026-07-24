@@ -130,6 +130,8 @@ pub(super) fn render_pom_xml(
             jackson_version => tv::maven::JACKSON_E2E,
             build_helper_version => tv::maven::BUILD_HELPER_MAVEN_PLUGIN,
             maven_surefire_version => tv::maven::MAVEN_SUREFIRE_PLUGIN_E2E,
+            jetbrains_annotations_version => tv::maven::JETBRAINS_ANNOTATIONS,
+            maven_antrun_version => tv::maven::MAVEN_ANTRUN_PLUGIN,
             test_documents_path => e2e_config.test_documents_relative_from(0),
             include_native_lib_path => include_native_lib_path,
             ffi_lib_name => ffi_lib_name,

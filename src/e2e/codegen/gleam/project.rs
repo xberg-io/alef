@@ -7,6 +7,7 @@ pub(super) fn render_gleam_toml(
     let stdlib = hex::GLEAM_STDLIB_VERSION_RANGE;
     let gleeunit = hex::GLEEUNIT_VERSION_RANGE;
     let gleam_httpc = hex::GLEAM_HTTPC_VERSION_RANGE;
+    let gleam_http = hex::GLEAM_HTTPC_VERSION_RANGE;
     let envoy = hex::ENVOY_VERSION_RANGE;
     let deps = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
@@ -15,7 +16,7 @@ pub(super) fn render_gleam_toml(
 gleam_stdlib = "{stdlib}"
 gleeunit = "{gleeunit}"
 gleam_httpc = "{gleam_httpc}"
-gleam_http = ">= 4.0.0 and < 5.0.0"
+gleam_http = "{gleam_http}"
 envoy = "{envoy}""#
             )
         }
@@ -25,7 +26,7 @@ envoy = "{envoy}""#
 gleam_stdlib = "{stdlib}"
 gleeunit = "{gleeunit}"
 gleam_httpc = "{gleam_httpc}"
-gleam_http = ">= 4.0.0 and < 5.0.0"
+gleam_http = "{gleam_http}"
 envoy = "{envoy}""#
             )
         }

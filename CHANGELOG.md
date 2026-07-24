@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Renovate now actually maintains the generated dependency version pins**: the `renovate.json`
+  regex customManager targeted a stale path (`crates/alef-core/src/template_versions.rs`, gone
+  since the crate went root-flat in 0.18.0) and required `// renovate:` marker comments that no
+  const carried, so it bumped nothing. The path is corrected to `src/core/template_versions.rs`
+  and every auto-bumpable const now carries a `datasource`/`depName` marker. An explicit top-level
+  `"enabled": true` re-enables the repo (a closed onboarding PR had left it flagged disabled). Pins
+  no longer drift stale, which is what was driving Dependabot churn (jackson, guzzle, junit, …) in
+  the generated `/packages/*` and `/e2e/*` directories of consumer repos.
+
+- **Generated dependency versions are fully centralized in `template_versions.rs`**: several
+  versions were hardcoded outside the registry and had drifted. The Java scaffold `pom.xml` (a raw
+  `format!` string, also a jinja-templates rule violation) is converted to a Minijinja template and
+  sources every version from `template_versions::maven`/`toolchain` (fixing stale jackson `2.21.2`,
+  junit `5.11.4`, and six maven-plugin pins). The Java e2e pom template (`org.jetbrains:annotations`,
+  `maven-antrun-plugin`), Python e2e (`pytest`/`pytest-asyncio`/`pytest-timeout`/`setuptools`), Gleam
+  e2e (`gleam_http` range), Dart scaffold (`http`, `crypto`), and Rust e2e (`serde`/`serde_json`/
+  `tokio`) now all draw from the central consts.
+
 ## [0.42.1] - 2026-07-22
 
 ### Added

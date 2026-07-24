@@ -23,6 +23,8 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let build_runner = pub_dev::BUILD_RUNNER;
     let json_serializable = pub_dev::JSON_SERIALIZABLE;
     let native_assets_cli = pub_dev::NATIVE_ASSETS_CLI;
+    let http_package = pub_dev::HTTP_PACKAGE;
+    let crypto_package = pub_dev::CRYPTO;
     let style = dart_style(config);
 
     let dependency_block = match style {
@@ -119,9 +121,9 @@ version: {version}
 executables:
   download_libs:
 dependencies:
-  http: '^1.1.0'
+  http: '{http_package}'
   # SHA-256 verification of downloaded native-library release assets.
-  crypto: '^3.0.0'
+  crypto: '{crypto_package}'
 {capsule_dependency_lines}{dependency_block}dev_dependencies:
   test: '{test_package}'
   lints: '{lints}'
@@ -132,6 +134,8 @@ dependencies:
         repository_line = repository_line,
         homepage_line = homepage_line,
         capsule_dependency_lines = capsule_dependency_lines,
+        http_package = http_package,
+        crypto_package = crypto_package,
     );
 
     let generated_dir = format!("lib/src/{module_name}_bridge_generated/**");
