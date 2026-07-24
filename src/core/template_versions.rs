@@ -203,13 +203,13 @@ pub mod packagist {
 
 pub mod maven {
     // renovate: datasource=maven depName=org.junit:junit-bom
-    pub const JUNIT: &str = "6.1.0";
+    pub const JUNIT: &str = "6.1.2";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-compiler-plugin
     pub const MAVEN_COMPILER_PLUGIN: &str = "3.15.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-surefire-plugin
-    pub const MAVEN_SUREFIRE_PLUGIN: &str = "3.5.5";
+    pub const MAVEN_SUREFIRE_PLUGIN: &str = "3.5.6";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-surefire-plugin
     pub const MAVEN_SUREFIRE_PLUGIN_E2E: &str = "3.5.2";
@@ -236,7 +236,7 @@ pub mod maven {
     pub const MAVEN_RESOURCES_PLUGIN: &str = "3.5.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-jar-plugin
-    pub const MAVEN_JAR_PLUGIN: &str = "3.5.0";
+    pub const MAVEN_JAR_PLUGIN: &str = "3.5.1";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-install-plugin
     pub const MAVEN_INSTALL_PLUGIN: &str = "3.1.4";
@@ -248,7 +248,7 @@ pub mod maven {
     pub const MAVEN_SITE_PLUGIN: &str = "4.0.0-M16";
 
     // renovate: datasource=maven depName=org.sonatype.central:central-publishing-maven-plugin
-    pub const CENTRAL_PUBLISHING_PLUGIN: &str = "0.10.0";
+    pub const CENTRAL_PUBLISHING_PLUGIN: &str = "0.11.0";
 
     // renovate: datasource=maven depName=org.codehaus.mojo:versions-maven-plugin
     pub const VERSIONS_MAVEN_PLUGIN: &str = "2.21.0";
@@ -257,22 +257,22 @@ pub mod maven {
     pub const MAVEN_ENFORCER_PLUGIN: &str = "3.6.3";
 
     // renovate: datasource=maven depName=org.jacoco:jacoco-maven-plugin
-    pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.14";
+    pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.15";
 
     // renovate: datasource=maven depName=com.puppycrawl.tools:checkstyle
-    pub const CHECKSTYLE: &str = "13.4.2";
+    pub const CHECKSTYLE: &str = "13.8.0";
 
     // renovate: datasource=maven depName=net.sourceforge.pmd:pmd-java
-    pub const PMD: &str = "7.17.0";
+    pub const PMD: &str = "7.26.0";
 
     // renovate: datasource=maven depName=org.jspecify:jspecify
     pub const JSPECIFY: &str = "1.0.0";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
-    pub const JACKSON: &str = "2.19.0";
+    pub const JACKSON: &str = "2.22.1";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-annotations
-    pub const JACKSON_ANNOTATIONS: &str = "2.19.0";
+    pub const JACKSON_ANNOTATIONS: &str = "2.22";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
     pub const JACKSON_E2E: &str = "2.19.0";
@@ -284,7 +284,7 @@ pub mod maven {
     pub const BUILD_HELPER_MAVEN_PLUGIN: &str = "3.6.1";
 
     // renovate: datasource=maven depName=org.jetbrains.kotlin:kotlin-gradle-plugin
-    pub const KOTLIN_JVM_PLUGIN: &str = "2.4.0";
+    pub const KOTLIN_JVM_PLUGIN: &str = "2.4.10";
 
     // Android Gradle plugin — hosted on Google's Maven repo, not Maven Central; tracked manually.
     pub const ANDROID_GRADLE_PLUGIN: &str = "9.2.1";
@@ -302,7 +302,7 @@ pub mod maven {
     pub const KOTLINX_COROUTINES_CORE: &str = "1.11.0";
 
     // renovate: datasource=maven depName=net.java.dev.jna:jna
-    pub const JNA: &str = "5.18.1";
+    pub const JNA: &str = "5.19.1";
 
     // renovate: datasource=maven depName=junit:junit
     pub const JUNIT_LEGACY: &str = "4.13.2";
@@ -318,13 +318,13 @@ pub mod maven {
 
     // Maven core runtime required by the enforcer plugin (requireMavenVersion).
     // renovate: datasource=maven depName=org.apache.maven:maven-core
-    pub const MAVEN_CORE: &str = "3.9.11";
+    pub const MAVEN_CORE: &str = "3.9.16";
 
     // renovate: datasource=maven depName=org.jetbrains:annotations
     pub const JETBRAINS_ANNOTATIONS: &str = "24.1.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-antrun-plugin
-    pub const MAVEN_ANTRUN_PLUGIN: &str = "3.1.0";
+    pub const MAVEN_ANTRUN_PLUGIN: &str = "3.2.0";
 }
 
 pub mod nuget {
