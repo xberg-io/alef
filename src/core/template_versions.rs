@@ -194,7 +194,7 @@ pub mod packagist {
     pub const PHPUNIT: &str = "^13.1";
 
     // renovate: datasource=packagist depName=guzzlehttp/guzzle
-    pub const GUZZLE: &str = "^7.0";
+    pub const GUZZLE: &str = "^8.0";
 }
 
 pub mod maven {
