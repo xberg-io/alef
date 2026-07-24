@@ -403,7 +403,7 @@ pub mod pub_dev {
     pub const JSON_SERIALIZABLE: &str = "^6.13.2";
 
     // renovate: datasource=dart depName=native_assets_cli
-    pub const NATIVE_ASSETS_CLI: &str = "^0.13.0";
+    pub const NATIVE_ASSETS_CLI: &str = "^0.18.0";
 }
 
 /// Platform / toolchain pins. None of these auto-bump; track manually.
