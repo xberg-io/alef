@@ -108,7 +108,7 @@ pub mod cargo {
     pub const WALKDIR: &str = "2";
 
     // renovate: datasource=crate depName=tower-http
-    pub const TOWER_HTTP: &str = "0.6";
+    pub const TOWER_HTTP: &str = "0.7";
 
     // renovate: datasource=crate depName=serde
     pub const SERDE: &str = "1";
