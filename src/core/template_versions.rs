@@ -340,7 +340,7 @@ pub mod nuget {
 
 pub mod hex {
     // renovate: datasource=hex depName=rustler
-    pub const RUSTLER: &str = "~> 0.37";
+    pub const RUSTLER: &str = "~> 0.38";
 
     // renovate: datasource=hex depName=rustler_precompiled
     pub const RUSTLER_PRECOMPILED: &str = "~> 0.9";
@@ -352,10 +352,10 @@ pub mod hex {
     pub const EX_DOC: &str = "~> 0.40";
 
     // renovate: datasource=hex depName=finch
-    pub const FINCH: &str = "~> 0.18";
+    pub const FINCH: &str = "~> 0.23";
 
     // renovate: datasource=hex depName=req
-    pub const REQ: &str = "~> 0.5";
+    pub const REQ: &str = "~> 0.6";
 
     // renovate: datasource=hex depName=jason
     pub const JASON: &str = "~> 1.4";
