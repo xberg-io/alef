@@ -25,7 +25,7 @@ pub mod npm {
     pub const NAPI_RS_CLI_CRATE: &str = "^3.7.3";
 
     // renovate: datasource=npm depName=typescript
-    pub const TYPESCRIPT: &str = "^6.0.3";
+    pub const TYPESCRIPT: &str = "^7.0.0";
 
     // renovate: datasource=npm depName=vitest
     pub const VITEST: &str = "^4.1.10";
