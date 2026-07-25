@@ -986,9 +986,9 @@ dependencies = [
 
 [[package]]
 name = "jsonschema"
-version = "0.49.0"
+version = "0.49.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9eb9cf6891f8d15a89f7bcf8e812a62efef1fd8d9e7e4522f455875a1224875a"
+checksum = "9cc9116a0f75b7336e55eb2a2a0ddef86c37cadf02924a571751aa123d5a0290"
 dependencies = [
  "ahash",
  "bytecount",
@@ -1015,18 +1015,18 @@ dependencies = [
 
 [[package]]
 name = "jsonschema-regex"
-version = "0.49.0"
+version = "0.49.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b70811da032e736899c5045ee30f069ba241676739e6ed042c1f9ddd3ad47cde"
+checksum = "628a1f02bda4651d9a6088ee6386a92f0ee96255b0c99e9dfe1be91bf83bd838"
 dependencies = [
  "regex-syntax",
 ]
 
 [[package]]
 name = "jsonschema-value"
-version = "0.49.0"
+version = "0.49.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ceacf7ad8e9a1f6229a1354dc0ab238855623d219b6abf0a001c138241ec530"
+checksum = "75d94a372f8d81d070fd405065c6b1168d8248d1d6adad073ac708de254698c6"
 dependencies = [
  "ahash",
  "bytecount",
@@ -1466,9 +1466,9 @@ dependencies = [
 
 [[package]]
 name = "referencing"
-version = "0.49.0"
+version = "0.49.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cbded44c4882a15738bd1bba376609f679292d758c0b3c389a2ef4a0ea6ce9b7"
+checksum = "978badf4419c9d0e1bc6e7466e99277f829d768257670c46d88121ca75e34bf7"
 dependencies = [
  "ahash",
  "fluent-uri",
