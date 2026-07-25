@@ -317,7 +317,7 @@ pub mod maven {
     pub const MAVEN_CORE: &str = "3.9.16";
 
     // renovate: datasource=maven depName=org.jetbrains:annotations
-    pub const JETBRAINS_ANNOTATIONS: &str = "24.1.0";
+    pub const JETBRAINS_ANNOTATIONS: &str = "26.1.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-antrun-plugin
     pub const MAVEN_ANTRUN_PLUGIN: &str = "3.2.0";
