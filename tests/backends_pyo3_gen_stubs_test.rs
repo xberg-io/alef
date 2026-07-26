@@ -2223,3 +2223,94 @@ fn test_pyi_plugin_protocol_types_config_params_as_options_dataclass() {
         "plugin Protocol must type options-dataclass config params as options.X:\n{content}"
     );
 }
+
+#[test]
+fn test_pyi_plugin_protocol_widens_sequence_returns_but_not_params() {
+    let backend = Pyo3Backend;
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "Embedder".to_string(),
+        register_fn: Some("register_embedder".to_string()),
+        registry_getter: Some("test_lib::registry::get".to_string()),
+        super_trait: Some("Plugin".to_string()),
+        bind_via: alef::core::config::BridgeBinding::FunctionParam,
+        ..Default::default()
+    }];
+
+    let embedder = TypeDef {
+        name: "Embedder".to_string(),
+        rust_path: "test_lib::Embedder".to_string(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![
+            MethodDef {
+                name: "embed".to_string(),
+                params: vec![ParamDef {
+                    name: "texts".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                    ..Default::default()
+                }],
+                return_type: TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F32))))),
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            },
+            MethodDef {
+                name: "scores".to_string(),
+                params: vec![],
+                return_type: TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F32))),
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            },
+            MethodDef {
+                name: "supported_mime_types".to_string(),
+                params: vec![],
+                return_type: TypeRef::Vec(Box::new(TypeRef::String)),
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            },
+            MethodDef {
+                name: "dimensions".to_string(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::Usize),
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![embedder],
+        ..Default::default()
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    // The bridge extracts this value via PyO3, which accepts any `PySequence` — annotating it
+    // `list[list[float]]` would reject NumPy-array backends the boundary handles fine.
+    assert!(
+        content.contains("def embed(self, texts: list[str]) -> Iterable[Iterable[float]]: ..."),
+        "nested numeric return must widen to Iterable while the param stays list:\n{content}"
+    );
+    assert!(
+        content.contains("def scores(self) -> Iterable[float]: ..."),
+        "flat numeric return must widen to Iterable:\n{content}"
+    );
+    assert!(
+        content.contains("from typing import") && content.contains("Iterable"),
+        "widened return must pull in the Iterable import:\n{content}"
+    );
+    // `str` satisfies `Iterable[str]` but PyO3 rejects it ("Can't extract `str` to `Vec`"), so
+    // widening a string sequence would delete a static check instead of relaxing a false one.
+    assert!(
+        content.contains("def supported_mime_types(self) -> list[str]: ..."),
+        "string sequence return must NOT widen:\n{content}"
+    );
+    // Scalars are unaffected — widening applies only to numeric sequences.
+    assert!(
+        content.contains("def dimensions(self) -> int: ..."),
+        "non-sequence returns must keep their precise type:\n{content}"
+    );
+}

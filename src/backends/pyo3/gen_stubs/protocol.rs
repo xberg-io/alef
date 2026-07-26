@@ -1,5 +1,5 @@
 use super::{pyi_docstring, python_safe_name, substitute_capsule_type};
-use crate::backends::pyo3::type_map::python_type;
+use crate::backends::pyo3::type_map::{python_callback_return_type, python_type};
 use crate::codegen::shared::substitute_excluded_types;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::ApiSurface;
@@ -86,8 +86,10 @@ pub(super) fn gen_visitor_protocol_stub(
             };
             params.push(format!("{}: {}", p.name, param_type));
         }
+        // Return position: the host produces this value and the bridge extracts it, so it takes
+        // the widest annotation the extraction accepts. Parameters above stay on `python_type`.
         let return_type = substitute_capsule_type(
-            &python_type(&substitute_excluded_types(&method.return_type, &excluded)),
+            &python_callback_return_type(&substitute_excluded_types(&method.return_type, &excluded)),
             capsule_names,
         );
         let safe_name = python_safe_name(&method.name);

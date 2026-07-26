@@ -331,11 +331,19 @@ pub fn gen_stubs(
     }
 
     let body_joined = body_lines.join("\n");
-    let used_typing: Vec<&str> = ["Any", "AsyncIterator", "Literal", "Protocol", "TypeAlias", "TypedDict"]
-        .iter()
-        .copied()
-        .filter(|name| contains_word(&body_joined, name))
-        .collect();
+    let used_typing: Vec<&str> = [
+        "Any",
+        "AsyncIterator",
+        "Iterable",
+        "Literal",
+        "Protocol",
+        "TypeAlias",
+        "TypedDict",
+    ]
+    .iter()
+    .copied()
+    .filter(|name| contains_word(&body_joined, name))
+    .collect();
     let mut lines = header_lines;
     if contains_word(&body_joined, "builtins") {
         lines.push("import builtins".to_string());
