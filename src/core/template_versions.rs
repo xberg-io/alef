@@ -346,7 +346,7 @@ pub mod hex {
     pub const FINCH: &str = "~> 0.23";
 
     // renovate: datasource=hex depName=req
-    pub const REQ: &str = "~> 0.6";
+    pub const REQ: &str = "~> 0.7";
 
     // renovate: datasource=hex depName=jason
     pub const JASON: &str = "~> 1.4";
