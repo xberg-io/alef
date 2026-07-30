@@ -253,7 +253,7 @@ pub mod maven {
     pub const CHECKSTYLE: &str = "13.9.0";
 
     // renovate: datasource=maven depName=org.jspecify:jspecify
-    pub const JSPECIFY: &str = "1.0.0";
+    pub const JSPECIFY: &str = "1.0.1";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
     pub const JACKSON: &str = "2.22.1";
