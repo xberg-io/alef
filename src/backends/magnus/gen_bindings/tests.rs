@@ -149,6 +149,23 @@ fn generate_public_api_emits_gem_files() {
 }
 
 #[test]
+fn ruby_public_wrapper_keeps_generated_constants_namespaced() {
+    let backend = MagnusBackend;
+    let config = make_config();
+    let api = make_api_surface();
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let main_file = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("test_lib.rb"))
+        .expect("main Ruby wrapper must exist");
+
+    assert!(
+        !main_file.content.contains("::Object.const_set"),
+        "the generated Ruby wrapper must not export constants globally"
+    );
+}
+
+#[test]
 fn output_path_defaults_to_packages_ruby() {
     let backend = MagnusBackend;
     let config = make_config();
