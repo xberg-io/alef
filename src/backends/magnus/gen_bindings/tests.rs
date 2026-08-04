@@ -160,7 +160,7 @@ fn ruby_public_wrapper_keeps_generated_constants_namespaced() {
         .expect("main Ruby wrapper must exist");
 
     assert!(
-        !main_file.content.contains("::Object.const_set"),
+        !main_file.content.contains("Object.const_set"),
         "the generated Ruby wrapper must not export constants globally"
     );
 }
