@@ -1,6 +1,12 @@
 //! NAPI-RS tagged-enum From-impl code generation (binding ↔ core conversions).
 
-use crate::core::ir::EnumDef;
+use crate::{
+    codegen::{
+        conversions::{field_conversion_from_core, helpers::sanitized_vec_field_to_core_expr},
+        naming::wire_variant_value,
+    },
+    core::ir::{EnumDef, TypeRef},
+};
 
 use super::enums::{
     tagged_enum_binding_struct_fields, tagged_enum_field_is_tuple, tagged_enum_field_name,
@@ -15,7 +21,6 @@ pub(super) fn gen_tagged_enum_binding_to_core(
     prefix: &str,
     struct_names: &ahash::AHashSet<String>,
 ) -> String {
-    use crate::core::ir::TypeRef;
     let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
@@ -27,8 +32,11 @@ pub(super) fn gen_tagged_enum_binding_to_core(
         .variants
         .iter()
         .map(|variant| {
-            let default_tag = variant.name.to_lowercase();
-            let tag_value = variant.serde_rename.as_deref().unwrap_or(&default_tag);
+            let tag_value = wire_variant_value(
+                &variant.name,
+                variant.serde_rename.as_deref(),
+                enum_def.serde_rename_all.as_deref(),
+            );
             let is_tuple = crate::codegen::conversions::is_tuple_variant(&variant.fields);
             let is_empty = variant.fields.is_empty();
 
@@ -82,7 +90,14 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                                 }
                             }
                         } else if f.sanitized {
-                            let expr = "Default::default()".to_string();
+                            let expr = if matches!(&f.ty, TypeRef::Vec(_)) {
+                                sanitized_vec_field_to_core_expr(
+                                    &format!("val.{binding_field_name}.as_deref().unwrap_or_default()"),
+                                    &f.ty,
+                                )
+                            } else {
+                                "Default::default()".to_string()
+                            };
                             if f.is_boxed { format!("Box::new({expr})") } else { expr }
                         } else {
                             let expr = match &f.ty {
@@ -131,7 +146,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
 
                 minijinja::context! {
                     name => variant.name.clone(),
-                    tag_value => tag_value.to_string(),
+                    tag_value => tag_value,
                     is_empty => false,
                     is_tuple => is_tuple,
                     field_exprs => field_exprs,
@@ -218,8 +233,11 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         .variants
         .iter()
         .map(|variant| {
-            let default_tag = variant.name.to_lowercase();
-            let tag_value = variant.serde_rename.as_deref().unwrap_or(&default_tag);
+            let tag_value = wire_variant_value(
+                &variant.name,
+                variant.serde_rename.as_deref(),
+                enum_def.serde_rename_all.as_deref(),
+            );
             let this_synth_field = if variant.fields.len() == 1 {
                 let field = &variant.fields[0];
                 if tagged_enum_field_is_tuple(field) && matches!(&field.ty, crate::core::ir::TypeRef::Named(_)) {
@@ -256,7 +274,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                     .iter()
                     .map(|f| {
                         let binding_field_name = tagged_enum_field_name(variant, f);
-                        if f.sanitized {
+                        if f.sanitized && !matches!(&f.ty, TypeRef::Vec(_)) {
                             if is_tuple {
                                 format!("_{binding_field_name}")
                             } else {
@@ -292,7 +310,26 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                                     _ => format!("{f}: {f}"),
                                 }
                             } else if field.sanitized {
-                                format!("{f}: None")
+                                if matches!(&field.ty, TypeRef::Vec(_)) {
+                                    let conversion = field_conversion_from_core(
+                                        f,
+                                        &field.ty,
+                                        field.optional,
+                                        true,
+                                        &ahash::AHashSet::new(),
+                                    );
+                                    let expression = conversion
+                                        .strip_prefix(&format!("{f}: "))
+                                        .unwrap_or(&conversion)
+                                        .replace(&format!("val.{f}"), f);
+                                    if field.optional {
+                                        format!("{f}: {expression}")
+                                    } else {
+                                        format!("{f}: Some({expression})")
+                                    }
+                                } else {
+                                    format!("{f}: None")
+                                }
                             } else {
                                 match &field.ty {
                                     TypeRef::Named(_) if is_mixed => {
@@ -338,7 +375,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
 
                 minijinja::context! {
                     name => variant.name.clone(),
-                    tag_value => tag_value.to_string(),
+                    tag_value => tag_value,
                     is_empty => false,
                     is_tuple => is_tuple,
                     destructured => destructured,
@@ -367,8 +404,91 @@ pub(super) fn gen_tagged_enum_core_to_binding(
 /// and converted via `serde_json` per variant in the From impls.
 #[cfg(test)]
 mod tests {
-    /// gen_tagged_enum_binding_to_core is tested via integration tests in gen_bindings_test.rs.
-    /// This unit test verifies the function exists and is callable.
+    use super::{gen_tagged_enum_binding_to_core, gen_tagged_enum_core_to_binding};
+    use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
+    use ahash::AHashSet;
+
+    fn node_content(variants: Vec<EnumVariant>) -> EnumDef {
+        EnumDef {
+            name: "NodeContent".to_string(),
+            rust_path: "fixture_core::NodeContent".to_string(),
+            variants,
+            serde_tag: Some("node_type".to_string()),
+            serde_rename_all: Some("snake_case".to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn generated_conversions(enum_def: &EnumDef) -> (String, String) {
+        let struct_names = AHashSet::new();
+        (
+            gen_tagged_enum_binding_to_core(enum_def, "fixture_core", "Js", &struct_names),
+            gen_tagged_enum_core_to_binding(enum_def, "fixture_core", "Js", &struct_names),
+        )
+    }
+
     #[test]
-    fn tagged_enum_from_impls_exist() {}
+    fn tagged_enum_conversions_use_serde_wire_names() {
+        let enum_def = node_content(vec![
+            EnumVariant {
+                name: "ListItem".to_string(),
+                fields: vec![FieldDef {
+                    name: "text".to_string(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "PageBreak".to_string(),
+                serde_rename: Some("explicit-page-break".to_string()),
+                ..Default::default()
+            },
+        ]);
+
+        let (binding_to_core, core_to_binding) = generated_conversions(&enum_def);
+
+        for generated in [&binding_to_core, &core_to_binding] {
+            assert!(generated.contains("\"list_item\""), "generated:\n{generated}");
+            assert!(generated.contains("\"explicit-page-break\""), "generated:\n{generated}");
+            assert!(!generated.contains("\"listitem\""), "generated:\n{generated}");
+            assert!(!generated.contains("\"pagebreak\""), "generated:\n{generated}");
+        }
+    }
+
+    #[test]
+    fn tagged_enum_conversions_preserve_sanitized_tuple_entries() {
+        let enum_def = node_content(vec![EnumVariant {
+            name: "MetadataBlock".to_string(),
+            fields: vec![FieldDef {
+                name: "entries".to_string(),
+                ty: TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::String)))),
+                sanitized: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }]);
+
+        let (binding_to_core, core_to_binding) = generated_conversions(&enum_def);
+
+        assert!(binding_to_core.contains("\"metadata_block\""));
+        assert!(
+            binding_to_core.contains("entries: val.entries.as_deref().unwrap_or_default().iter().filter_map"),
+            "generated:\n{binding_to_core}"
+        );
+
+        assert!(core_to_binding.contains("\"metadata_block\""));
+        assert!(
+            core_to_binding.contains("entries: Some(entries.iter().map(|(a, b)|"),
+            "generated:\n{core_to_binding}"
+        );
+        assert!(
+            !core_to_binding.contains("entries: None"),
+            "generated:\n{core_to_binding}"
+        );
+        assert!(
+            !core_to_binding.contains("entries: _entries"),
+            "generated:\n{core_to_binding}"
+        );
+    }
 }

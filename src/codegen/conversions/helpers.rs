@@ -15,6 +15,7 @@ pub use enum_arms::{
     binding_to_core_match_arm, binding_to_core_match_arm_ext, binding_to_core_match_arm_ext_cfg,
     core_to_binding_match_arm, core_to_binding_match_arm_ext, core_to_binding_match_arm_ext_cfg,
 };
+pub(crate) use field_fragments::sanitized_vec_field_to_core_expr;
 pub use paths::{
     apply_crate_remaps, build_type_path_map, core_enum_path, core_enum_path_remapped, core_type_path,
     core_type_path_remapped, resolve_named_path,
