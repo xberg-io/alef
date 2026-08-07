@@ -210,7 +210,7 @@ pub mod packagist {
 
 pub mod maven {
     // renovate: datasource=maven depName=org.junit:junit-bom
-    pub const JUNIT: &str = "6.1.2";
+    pub const JUNIT: &str = "6.1.3";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-compiler-plugin
     pub const MAVEN_COMPILER_PLUGIN: &str = "3.15.0";
