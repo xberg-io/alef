@@ -33,6 +33,7 @@ pub(super) struct StreamingMethodMeta {
 
 #[cfg(test)]
 mod abi_parity_tests;
+mod components;
 pub(super) mod enums;
 // Re-exported at crate visibility for the same reason `variant_dispatch_prefix` below is: the
 // e2e field resolver renders `.As<Variant>` into doc snippets and must read the accessor set
@@ -326,6 +327,19 @@ impl Backend for CsharpBackend {
             )?),
             generated_header: true,
         });
+
+        if !config.components.is_empty() {
+            files.push(GeneratedFile {
+                path: base_path.join("Components.cs"),
+                content: strip_trailing_whitespace(&components::generate(
+                    &namespace,
+                    &lib_name,
+                    &prefix,
+                    &exception_class_name,
+                )),
+                generated_header: true,
+            });
+        }
 
         if !api.errors.is_empty() {
             let mut seen_exception_files: HashSet<String> = HashSet::new();

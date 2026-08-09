@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod cfg_variant_e2e_tests;
+mod components;
 mod functions;
 mod helpers;
 mod native;
