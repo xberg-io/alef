@@ -5,6 +5,7 @@ pub mod abi_grammar;
 pub mod build_defaults;
 pub mod cargo_lints;
 pub mod clean_defaults;
+pub mod component;
 pub mod derive;
 pub mod dto;
 pub mod e2e;
@@ -39,6 +40,7 @@ pub mod warning_ack;
 pub mod workspace;
 
 pub use cargo_lints::CargoLintsConfig;
+pub use component::{ComponentContractConfig, ComponentDistributionConfig, ComponentProfileConfig};
 pub use derive::{derive_go_module_from_repo, derive_repo_org, derive_reverse_dns_package};
 pub use dto::{
     CsharpDtoStyle, DtoConfig, ElixirDtoStyle, GoDtoStyle, JavaBuilderMode, JavaDtoConfig, JavaDtoStyle, NodeDtoStyle,

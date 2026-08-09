@@ -115,6 +115,16 @@ pub(crate) fn join_sorted_target_dep_blocks(mut entries: Vec<(String, String)>) 
         .join("\n")
 }
 
+/// Return whether rendered Cargo dependency lines already declare `name`.
+///
+/// Comparing the complete key before `=` avoids prefix collisions such as
+/// `directories-next` being mistaken for `directories`.
+pub(crate) fn cargo_dependency_declared<'a>(lines: impl IntoIterator<Item = &'a str>, name: &str) -> bool {
+    lines
+        .into_iter()
+        .any(|line| line.split_once('=').map(|(key, _)| key.trim() == name).unwrap_or(false))
+}
+
 /// The sort key `cargo-sort` assigns to one rendered entry of a dependency table: the
 /// dependency NAME alone, decoded, with any dotted suffix and any surrounding quotes removed.
 ///

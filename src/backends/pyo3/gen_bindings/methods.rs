@@ -46,6 +46,17 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         }
     }
 
+    if !config.components.is_empty() {
+        for function in [
+            "component_load",
+            "component_prefetch",
+            "component_status",
+            "component_cache_path",
+        ] {
+            lines.push(format!("    m.add_function(wrap_pyfunction!({function}, m)?)?;"));
+        }
+    }
+
     // `{service_snake}_{entrypoint}` `#[pyfunction]`s — register each so the Python
     {
         use heck::ToSnakeCase as _;
