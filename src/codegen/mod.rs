@@ -7,6 +7,8 @@ pub(crate) mod binding_projection;
 pub mod builder;
 pub mod c_consumer;
 pub mod cfg;
+pub mod component;
+pub mod component_producer;
 pub mod config_gen;
 pub mod conversions;
 pub mod coordinates;

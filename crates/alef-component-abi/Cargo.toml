@@ -1,0 +1,13 @@
+[package]
+name = "alef-component-abi"
+version = "0.58.1"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Stable C ABI primitives for Alef native components"
+
+[lib]
+path = "src/lib.rs"
+
+[lints.clippy]
+missing_safety_doc = "deny"

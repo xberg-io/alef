@@ -42,7 +42,7 @@ pub(super) fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
     let core_import = config.core_import_name();
     let enabled_features = crate::codegen::cfg::enabled_features_for_language(config, Language::Node);
     let configured_features: std::collections::HashSet<&str> = enabled_features.iter().map(String::as_str).collect();
-    let content = errors::gen_dts(
+    let mut content = errors::gen_dts(
         api,
         &prefix,
         &exclude_functions,
@@ -54,6 +54,14 @@ pub(super) fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
         &core_import,
         Some(&configured_features),
     );
+    if !config.components.is_empty() {
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(
+            "export function componentLoad(component: string): Promise<void>\nexport function componentPrefetch(components?: string[] | null): Promise<string[]>\nexport function componentStatus(component: string): string\nexport function componentCachePath(component: string): string\n",
+        );
+    }
     let src_dir = resolve_output_dir(config.output_paths.get("node"), &config.name, "crates/{name}-node/src/");
 
     Ok(vec![GeneratedFile {

@@ -146,6 +146,46 @@ fn test_scaffold_r_cargo_extra_deps() {
 }
 
 #[test]
+fn component_scaffolds_preserve_configured_dependency_overrides_without_duplicates() {
+    let mut config = test_config();
+    config.components.push(crate::core::config::ComponentProfileConfig {
+        name: "fast".to_string(),
+        contract: "engine".to_string(),
+        implementation: "my_lib::FastEngine".to_string(),
+        features: vec!["fast".to_string()],
+        default_features: false,
+        targets: vec!["x86_64-unknown-linux-gnu".to_string()],
+    });
+    config
+        .extra_dependencies
+        .insert("directories".to_string(), toml::Value::String("99".to_string()));
+    let api = test_api();
+
+    for language in [
+        Language::Node,
+        Language::Ruby,
+        Language::Php,
+        Language::Elixir,
+        Language::R,
+    ] {
+        let all_files = scaffold(&api, &config, &[language]).unwrap();
+        let files = language_files(&all_files);
+        let cargo_toml = files.iter().find(|file| file.path.ends_with("Cargo.toml")).unwrap();
+        assert_eq!(
+            cargo_toml.content.matches("directories =").count(),
+            1,
+            "{language:?} emitted a duplicate directories dependency:\n{}",
+            cargo_toml.content
+        );
+        assert!(
+            cargo_toml.content.contains("directories = \"99\""),
+            "{language:?} discarded the configured override:\n{}",
+            cargo_toml.content
+        );
+    }
+}
+
+#[test]
 fn test_scaffold_language_level_extra_deps_override_crate_level() {
     let mut config = test_config();
     config

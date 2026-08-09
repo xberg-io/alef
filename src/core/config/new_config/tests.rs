@@ -620,3 +620,731 @@ package_id = "mylib"
     assert!(message.contains("crate-a"), "got: {message}");
     assert!(message.contains("crate-b"), "got: {message}");
 }
+
+/// A NuGet collision key is folded per package ID, not shared globally -- two crates with
+/// distinct package IDs must resolve cleanly even though both target `csharp`.
+#[test]
+fn new_alef_config_resolve_allows_distinct_nuget_package_ids() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["csharp"]
+
+[[crates]]
+name = "crate-a"
+sources = ["src/lib.rs"]
+
+[crates.csharp]
+package_id = "MyLib"
+
+[[crates]]
+name = "crate-b"
+sources = ["src/other.rs"]
+
+[crates.csharp]
+package_id = "OtherLib"
+"#,
+    )
+    .unwrap();
+    assert!(cfg.resolve().is_ok());
+}
+
+#[test]
+fn new_alef_config_resolve_per_crate_languages_overrides_workspace() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python", "go"]
+
+[[crates]]
+name = "x"
+sources = ["src/lib.rs"]
+languages = ["node"]
+"#,
+    )
+    .unwrap();
+    let resolved = cfg.resolve().unwrap();
+    assert_eq!(resolved[0].languages, vec![Language::Node]);
+}
+
+#[test]
+fn resolve_inherits_workspace_language_config() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[workspace.python]
+module_name = "workspace_module"
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+"#,
+    )
+    .unwrap();
+
+    let resolved = cfg.resolve().unwrap();
+
+    assert_eq!(
+        resolved[0]
+            .python
+            .as_ref()
+            .and_then(|python| python.module_name.as_deref()),
+        Some("workspace_module")
+    );
+}
+
+#[test]
+fn resolve_crate_language_config_overrides_workspace_language_config() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[workspace.python]
+module_name = "workspace_module"
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+
+[crates.python]
+module_name = "crate_module"
+"#,
+    )
+    .unwrap();
+
+    let resolved = cfg.resolve().unwrap();
+
+    assert_eq!(
+        resolved[0]
+            .python
+            .as_ref()
+            .and_then(|python| python.module_name.as_deref()),
+        Some("crate_module")
+    );
+}
+
+/// Regression: the plain `kotlin` backend (not `kotlin_android`) splices
+/// `[crates.java].package` verbatim into generated `.kt` source (see
+/// `new_config::java_package_is_consumed`'s doc comment), so a package segment that is a
+/// Kotlin hard keyword but not a Java one must be rejected once `kotlin` is enabled, even
+/// though the very same value passes the Java grammar on its own.
+#[test]
+fn resolve_rejects_java_package_that_is_a_kotlin_keyword_when_kotlin_is_enabled() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["kotlin"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[crates.java]
+package = "dev.fun"
+"#,
+    )
+    .unwrap();
+    let err = cfg.resolve().unwrap_err();
+    assert!(
+        matches!(&err, ResolveError::InvalidConfig(msg) if msg.contains("[crates.java].package") && msg.contains("dev.fun")),
+        "expected InvalidConfig naming the offending java package, got: {err:?}"
+    );
+}
+
+/// The same package segment is a legal Java identifier and must still resolve cleanly when
+/// only `java` (no `kotlin`) is enabled -- the Kotlin-grammar check must not leak into crates
+/// that never generate Kotlin source from this value.
+#[test]
+fn resolve_accepts_java_package_that_is_only_a_kotlin_keyword_when_kotlin_is_disabled() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["java"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[crates.java]
+package = "dev.fun"
+"#,
+    )
+    .unwrap();
+    assert!(cfg.resolve().is_ok());
+}
+
+fn component_config(extra: &str) -> NewAlefConfig {
+    toml::from_str(&format!(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+
+[[crates.component_contracts]]
+name = "ocr"
+trait_path = "sample_core::OcrBackend"
+
+[[crates.components]]
+name = "tesseract"
+contract = "ocr"
+implementation = "sample_components::TesseractBackend"
+features = ["ocr-tesseract"]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[crates.component_distribution]
+url_template = "https://downloads.example.test/{{component}}/{{version}}/{{target}}/{{artifact}}"
+
+[crates.component_distribution.public_keys]
+release-2026 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+{extra}
+"#
+    ))
+    .expect("component config should deserialize")
+}
+
+#[test]
+fn resolve_preserves_component_configuration_and_defaults() {
+    let resolved = component_config("").resolve().unwrap().remove(0);
+
+    assert_eq!(resolved.component_contracts.len(), 1);
+    assert_eq!(resolved.component_contracts[0].name, "ocr");
+    assert_eq!(resolved.component_contracts[0].interface_version, 1);
+    assert_eq!(resolved.components.len(), 1);
+    assert_eq!(resolved.components[0].contract, "ocr");
+    assert_eq!(
+        resolved.components[0].implementation,
+        "sample_components::TesseractBackend"
+    );
+    assert_eq!(resolved.components[0].features, ["ocr-tesseract"]);
+    assert!(!resolved.components[0].default_features);
+    assert_eq!(resolved.components[0].targets, ["x86_64-unknown-linux-gnu"]);
+    assert_eq!(
+        resolved
+            .component_distribution
+            .unwrap()
+            .public_keys
+            .get("release-2026")
+            .map(String::as_str),
+        Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    );
+}
+
+#[test]
+fn resolve_allows_components_without_remote_distribution() {
+    let mut config = component_config("");
+    config.crates[0].component_distribution = None;
+
+    let resolved = config.resolve().unwrap().remove(0);
+    assert_eq!(resolved.components.len(), 1);
+    assert!(resolved.component_distribution.is_none());
+}
+
+#[test]
+fn resolve_rejects_duplicate_component_contract_names() {
+    let config = component_config(
+        r#"
+[[crates.component_contracts]]
+name = "ocr"
+trait_path = "sample_core::OtherOcrBackend"
+"#,
+    );
+
+    let error = config.resolve().unwrap_err().to_string();
+    assert!(error.contains("duplicate component contract `ocr`"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_duplicate_component_profile_names() {
+    let config = component_config(
+        r#"
+[[crates.components]]
+name = "tesseract"
+contract = "ocr"
+implementation = "sample_components::OtherBackend"
+features = ["ocr-other"]
+targets = ["aarch64-apple-darwin"]
+"#,
+    );
+
+    let error = config.resolve().unwrap_err().to_string();
+    assert!(error.contains("duplicate component profile `tesseract`"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_invalid_component_identifiers_and_interface_version() {
+    let mut invalid_contract_name = component_config("");
+    invalid_contract_name.crates[0].component_contracts[0].name = "bad/name".to_string();
+    let error = invalid_contract_name.resolve().unwrap_err().to_string();
+    assert!(error.contains("contract name `bad/name`"), "{error}");
+
+    let mut invalid_component_name = component_config("");
+    invalid_component_name.crates[0].components[0].name = "bad name".to_string();
+    let error = invalid_component_name.resolve().unwrap_err().to_string();
+    assert!(error.contains("component name `bad name`"), "{error}");
+
+    let mut zero_interface_version = component_config("");
+    zero_interface_version.crates[0].component_contracts[0].interface_version = 0;
+    let error = zero_interface_version.resolve().unwrap_err().to_string();
+    assert!(error.contains("interface_version must be greater than zero"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_component_with_unknown_contract() {
+    let mut config = component_config("");
+    config.crates[0].components[0].contract = "missing".to_string();
+
+    let error = config.resolve().unwrap_err().to_string();
+    assert!(error.contains("references unknown contract `missing`"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_invalid_component_rust_paths() {
+    let mut invalid_trait = component_config("");
+    invalid_trait.crates[0].component_contracts[0].trait_path = "OcrBackend".to_string();
+    let error = invalid_trait.resolve().unwrap_err().to_string();
+    assert!(error.contains("trait_path `OcrBackend`"), "{error}");
+
+    let mut invalid_implementation = component_config("");
+    invalid_implementation.crates[0].components[0].implementation = "sample::bad-path".to_string();
+    let error = invalid_implementation.resolve().unwrap_err().to_string();
+    assert!(error.contains("implementation `sample::bad-path`"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_empty_component_features_and_targets() {
+    let mut empty_features = component_config("");
+    empty_features.crates[0].components[0].features.clear();
+    let error = empty_features.resolve().unwrap_err().to_string();
+    assert!(error.contains("must declare non-empty features"), "{error}");
+
+    let mut empty_targets = component_config("");
+    empty_targets.crates[0].components[0].targets = vec![" ".to_string()];
+    let error = empty_targets.resolve().unwrap_err().to_string();
+    assert!(error.contains("must declare non-empty targets"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_component_targets_the_v1_loader_cannot_load() {
+    let mut config = component_config("");
+    config.crates[0].components[0].targets = vec!["aarch64-apple-ios".to_string()];
+
+    let error = config.resolve().unwrap_err().to_string();
+    assert!(error.contains("unsupported v1 target `aarch64-apple-ios`"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_invalid_component_distribution_url_template() {
+    let mut insecure = component_config("");
+    insecure.crates[0].component_distribution.as_mut().unwrap().url_template =
+        "http://downloads.test/{component}/{version}/{target}/{artifact}".to_string();
+    let error = insecure.resolve().unwrap_err().to_string();
+    assert!(error.contains("must use HTTPS"), "{error}");
+
+    let mut missing_placeholder = component_config("");
+    missing_placeholder.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .url_template = "https://downloads.test/{component}/{version}/{target}".to_string();
+    let error = missing_placeholder.resolve().unwrap_err().to_string();
+    assert!(error.contains("must contain `{artifact}`"), "{error}");
+
+    let mut missing_host = component_config("");
+    missing_host.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .url_template = "https:///{component}/{version}/{target}/{artifact}".to_string();
+    let error = missing_host.resolve().unwrap_err().to_string();
+    assert!(error.contains("must use HTTPS"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_invalid_component_public_keys() {
+    let mut empty_keys = component_config("");
+    empty_keys.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .public_keys
+        .clear();
+    let error = empty_keys.resolve().unwrap_err().to_string();
+    assert!(error.contains("at least one public key"), "{error}");
+
+    let mut invalid_key = component_config("");
+    invalid_key.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .public_keys
+        .insert("release".to_string(), "not-base64".to_string());
+    let error = invalid_key.resolve().unwrap_err().to_string();
+    assert!(error.contains("base64-encoded Ed25519"), "{error}");
+
+    let mut wrong_length = component_config("");
+    wrong_length.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .public_keys
+        .insert("release".to_string(), "YQ==".to_string());
+    let error = wrong_length.resolve().unwrap_err().to_string();
+    assert!(error.contains("decode to 32 Ed25519 key bytes"), "{error}");
+}
+
+#[test]
+fn generated_schema_contains_component_configuration() {
+    let schema = crate::core::config::alef_config_schema("test").unwrap();
+    let rendered = serde_json::to_string(&schema).unwrap();
+
+    for expected in [
+        "component_contracts",
+        "components",
+        "component_distribution",
+        "interface_version",
+        "implementation",
+        "public_keys",
+    ] {
+        assert!(rendered.contains(expected), "schema is missing `{expected}`");
+    }
+}
+
+#[test]
+fn resolve_rejects_unknown_skip_languages_in_adapter() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.adapters]]
+name = "stream_data"
+pattern = "streaming"
+core_path = "my_crate::stream_data"
+skip_languages = ["wasm32"]
+"#,
+    )
+    .unwrap();
+    let err = cfg.resolve().unwrap_err();
+    assert!(
+        matches!(&err, ResolveError::InvalidConfig(msg) if msg.contains("wasm32")),
+        "expected InvalidConfig error mentioning the bad name, got: {err:?}"
+    );
+}
+
+#[test]
+fn resolve_accepts_valid_skip_languages_in_adapter() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.adapters]]
+name = "stream_data"
+pattern = "streaming"
+core_path = "my_crate::stream_data"
+skip_languages = ["wasm", "kotlin"]
+"#,
+    )
+    .unwrap();
+    let resolved = cfg.resolve().expect("valid skip_languages should not fail");
+    assert_eq!(resolved[0].adapters[0].skip_languages, vec!["wasm", "kotlin"]);
+}
+
+#[test]
+fn resolve_rejects_unknown_language_in_registration_variant() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.handler_contracts]]
+trait_name = "Handler"
+dispatch_method = "call"
+
+[[crates.services]]
+owner_type = "App"
+
+[[crates.services.registrations]]
+method = "add_route"
+callback_param = "handler"
+callback_bound = "IntoHandler"
+callback_contract = "Handler"
+
+[[crates.services.registrations.variants]]
+name = "get"
+fixed = { method = "GET" }
+
+[crates.services.registrations.variants.languages.knotlin]
+method_prefix = "Map"
+"#,
+    )
+    .unwrap();
+    let err = cfg.resolve().unwrap_err();
+    assert!(
+        matches!(&err, ResolveError::InvalidConfig(msg) if msg.contains("knotlin")),
+        "expected InvalidConfig error mentioning the bad name, got: {err:?}"
+    );
+}
+
+#[test]
+fn resolve_accepts_valid_language_in_registration_variant() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.handler_contracts]]
+trait_name = "Handler"
+dispatch_method = "call"
+
+[[crates.services]]
+owner_type = "App"
+
+[[crates.services.registrations]]
+method = "add_route"
+callback_param = "handler"
+callback_bound = "IntoHandler"
+callback_contract = "Handler"
+
+[[crates.services.registrations.variants]]
+name = "get"
+fixed = { method = "GET" }
+
+[crates.services.registrations.variants.languages.kotlin]
+method_prefix = "Map"
+"#,
+    )
+    .unwrap();
+    let resolved = cfg.resolve().expect("valid variant language should not fail");
+    assert!(
+        resolved[0].services[0].registrations[0].variants[0]
+            .languages
+            .contains_key("kotlin")
+    );
+}
+
+#[test]
+fn resolve_rejects_unknown_language_in_trait_bridge_exclude_languages() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+exclude_languages = ["wasm32"]
+"#,
+    )
+    .unwrap();
+    let err = cfg.resolve().unwrap_err();
+    assert!(
+        matches!(&err, ResolveError::InvalidConfig(msg) if msg.contains("wasm32")),
+        "expected InvalidConfig error mentioning the bad name, got: {err:?}"
+    );
+}
+
+#[test]
+fn resolve_accepts_valid_trait_bridge_exclude_languages() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+exclude_languages = ["wasm", "elixir"]
+"#,
+    )
+    .unwrap();
+    let resolved = cfg.resolve().expect("valid exclude_languages should not fail");
+    assert_eq!(resolved[0].trait_bridges[0].exclude_languages, vec!["wasm", "elixir"]);
+}
+
+#[test]
+fn resolve_rejects_unknown_language_in_callback_unsupported_mode() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+exclude_languages = ["php-zts:callbacks"]
+"#,
+    )
+    .unwrap();
+    let err = cfg.resolve().unwrap_err();
+    assert!(
+        matches!(&err, ResolveError::InvalidConfig(msg) if msg.contains("php-zts:callbacks") && msg.contains("exclude_languages")),
+        "expected InvalidConfig naming the field and bad language, got: {err:?}"
+    );
+}
+
+#[test]
+fn resolve_rejects_callback_unsupported_mode_for_non_php_language() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+exclude_languages = ["python:callbacks"]
+"#,
+    )
+    .unwrap();
+    let err = cfg.resolve().unwrap_err();
+    assert!(
+        matches!(&err, ResolveError::InvalidConfig(msg) if msg.contains("python:callbacks") && msg.contains("exclude_languages")),
+        "expected InvalidConfig naming the unsupported mode and field, got: {err:?}"
+    );
+}
+
+/// Every backend answers to its own name as well as its language's, and
+/// `bridge_targets_language` documents exactly that -- but resolution used to reject the
+/// backend spelling, so the documented form was unusable. ~keep
+#[test]
+fn resolve_accepts_a_backend_spelling_in_trait_bridge_exclude_languages() {
+    for spelling in ["pyo3", "napi", "magnus", "rustler", "extendr"] {
+        let cfg: NewAlefConfig = toml::from_str(&format!(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+exclude_languages = ["{spelling}"]
+"#
+        ))
+        .unwrap();
+        let resolved = cfg
+            .resolve()
+            .unwrap_or_else(|e| panic!("`{spelling}` is a documented backend spelling: {e:?}"));
+        assert!(!resolved[0].trait_bridges[0].is_active_for(spelling));
+    }
+}
+
+#[test]
+fn rejected_exclude_language_error_lists_both_name_families() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+exclude_languages = ["nodejs"]
+"#,
+    )
+    .unwrap();
+    let err = cfg.resolve().unwrap_err();
+    let ResolveError::InvalidConfig(message) = &err else {
+        panic!("expected InvalidConfig, got {err:?}");
+    };
+    assert!(
+        message.contains("`nodejs`"),
+        "must quote the offending entry: {message}"
+    );
+    assert!(
+        message.contains("kotlin_android") && message.contains("pyo3"),
+        "must list the language names and the backend spellings: {message}"
+    );
+}
+
+/// `resolve()` must not eagerly resolve `[[crates.source_crates]]` with `from_registry = true` --
+/// that shells out to `cargo metadata` (see `crate::core::config::registry`), a cost (and a
+/// failure mode) every subcommand paid for before this fix, including `alef publish package`,
+/// which never reads `source_crates` at all. `workspace_root` here points at a directory with no
+/// `Cargo.toml`, which would make `cargo metadata` fail immediately (no network access needed to
+/// prove this deterministically) -- so `resolve()` succeeding is direct proof the resolution
+/// never ran. ~keep
+#[test]
+fn resolve_does_not_invoke_cargo_for_a_from_registry_source_crate() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+workspace_root = "/definitely/does/not/exist/nowhere"
+
+[[crates.source_crates]]
+name = "sample_router-core"
+sources = ["src/http.rs"]
+from_registry = true
+"#,
+    )
+    .unwrap();
+
+    let resolved = cfg
+        .resolve()
+        .expect("resolve() must not eagerly resolve source_crates against a nonexistent workspace_root");
+    let sample_router = &resolved[0];
+
+    // The entry is preserved verbatim, unrebased -- further proof no cargo call happened: a
+    // successful rebase would have rewritten `sources` to an absolute registry path.
+    assert_eq!(sample_router.source_crates.len(), 1);
+    assert!(sample_router.source_crates[0].from_registry);
+    assert_eq!(
+        sample_router.source_crates[0].sources,
+        vec![std::path::PathBuf::from("src/http.rs")]
+    );
+
+    // Only on first access from a codegen/hash-style caller does resolution actually run -- and
+    // it correctly surfaces the cargo failure as an error rather than panicking.
+    let err = sample_router
+        .resolved_source_crates()
+        .expect_err("a nonexistent workspace_root must fail to resolve, proving the lazy path is wired");
+    assert!(
+        matches!(err, ResolveError::RegistryResolution(_)),
+        "unexpected error variant: {err:?}"
+    );
+}

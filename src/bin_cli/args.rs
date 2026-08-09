@@ -449,6 +449,11 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         action: PublishAction,
     },
+    /// Build, package, lock, and verify downloadable native components.
+    Component {
+        #[command(subcommand)]
+        action: ComponentAction,
+    },
     /// Manage the build cache.
     Cache {
         #[command(subcommand)]
@@ -601,6 +606,67 @@ pub(crate) enum PublishAction {
     },
     /// Validate that all package manifests are consistent and ready for publishing.
     Validate,
+}
+
+#[derive(Subcommand)]
+pub(crate) enum ComponentAction {
+    /// Compile configured component feature profiles as native dynamic libraries.
+    Build {
+        /// Component profile names (default: every configured profile).
+        #[arg(long, value_delimiter = ',')]
+        component: Vec<String>,
+        /// Rust target triples (default: each profile's configured targets).
+        #[arg(long, value_delimiter = ',')]
+        target: Vec<String>,
+        /// Build without release optimizations.
+        #[arg(long)]
+        debug: bool,
+        /// Print build commands without executing them.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Create deterministic signed component archives and artifact records.
+    Package {
+        /// Component profile names (default: every configured profile).
+        #[arg(long, value_delimiter = ',')]
+        component: Vec<String>,
+        /// Rust target triples (default: each profile's configured targets).
+        #[arg(long, value_delimiter = ',')]
+        target: Vec<String>,
+        /// Output directory for component archives and records.
+        #[arg(long, short, default_value = "dist/components")]
+        output: PathBuf,
+        /// Component version (default: resolved from version_from).
+        #[arg(long)]
+        version: Option<String>,
+        /// Ed25519 private key accepted by `openssl pkeyutl` (PEM or DER).
+        #[arg(long, requires = "key_id", conflicts_with = "unsigned")]
+        signing_key: Option<PathBuf>,
+        /// Stable ID of the public key embedded in generated binding packages.
+        #[arg(long, requires = "signing_key")]
+        key_id: Option<String>,
+        /// Produce an unsigned CI intermediate archive.
+        #[arg(long, conflicts_with = "signing_key")]
+        unsigned: bool,
+        /// Explicit built library path; valid only for one profile/target.
+        #[arg(long)]
+        library: Option<PathBuf>,
+    },
+    /// Generate and stage a binding-embeddable components.lock.json from signed artifact records.
+    Lock {
+        /// Directory containing `*.record.json` files from `component package`.
+        #[arg(long, short, default_value = "dist/components")]
+        input: PathBuf,
+        /// Output lock manifest path.
+        #[arg(long, short, default_value = "components.lock.json")]
+        output: PathBuf,
+    },
+    /// Verify artifact hashes, identities, library contents, and Ed25519 signatures.
+    Verify {
+        /// Artifact record file or directory containing `*.record.json` files.
+        #[arg(long, short, default_value = "dist/components")]
+        input: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]

@@ -1,0 +1,26 @@
+[package]
+name = "alef-component-runtime"
+version = "0.58.1"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Verified downloader and dynamic loader for Alef native components"
+
+[dependencies]
+alef-component-abi = { path = "../alef-component-abi", version = "0.58.1" }
+base64 = "0.23"
+ed25519-dalek = { version = "2", features = ["pem", "pkcs8"] }
+flate2 = "1"
+fs2 = "0.4"
+hex = "0.4"
+libloading = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+tar = "0.4"
+tempfile = "3"
+thiserror = "2"
+ureq = "3"
+
+[lints.clippy]
+missing_safety_doc = "deny"

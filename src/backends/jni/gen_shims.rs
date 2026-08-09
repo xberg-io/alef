@@ -31,6 +31,7 @@ use crate::core::jni::{
 };
 
 include!("gen_shims/backend.rs");
+include!("gen_shims/components.rs");
 include!("gen_shims/top_level.rs");
 include!("gen_shims/trait_registration.rs");
 include!("gen_shims/runtime_helpers.rs");
