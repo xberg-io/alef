@@ -23,6 +23,7 @@ use std::path::PathBuf;
 
 use crate::core::config::GenerateConfig;
 use crate::core::config::SourceCrate;
+use crate::core::config::component::{ComponentContractConfig, ComponentDistributionConfig, ComponentProfileConfig};
 use crate::core::config::dto::DtoConfig;
 use crate::core::config::e2e::E2eConfig;
 use crate::core::config::extras::{AdapterConfig, Language};
@@ -64,6 +65,9 @@ pub struct ResolvedCrateConfig {
     pub error_type: Option<String>,
     pub error_constructor: Option<String>,
     pub features: Vec<String>,
+    pub component_contracts: Vec<ComponentContractConfig>,
+    pub components: Vec<ComponentProfileConfig>,
+    pub component_distribution: Option<ComponentDistributionConfig>,
     pub path_mappings: HashMap<String, String>,
     pub extra_dependencies: HashMap<String, toml::Value>,
     pub auto_path_mappings: bool,

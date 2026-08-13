@@ -60,6 +60,25 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         lines.push("".to_string());
     }
 
+    if !config.components.is_empty() {
+        for (name, arity) in [
+            ("component_load", 1),
+            ("component_prefetch", 1),
+            ("component_status", 1),
+            ("component_cache_path", 1),
+        ] {
+            lines.push(crate::backends::magnus::template_env::render(
+                "module_function_register.rs.jinja",
+                minijinja::context! {
+                    ruby_name => name,
+                    function_name => name,
+                    arity => arity,
+                },
+            ));
+        }
+        lines.push("".to_string());
+    }
+
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if exclude_types.contains(typ.name.as_str()) {
             continue;

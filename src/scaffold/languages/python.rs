@@ -129,6 +129,26 @@ pub(crate) fn scaffold_python_cargo(
         }
         all_deps.push_str("futures = \"0.3\"");
     }
+    let has_components = !config.components.is_empty();
+    if has_components {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for (name, dependency) in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_string()),
+        ] {
+            if crate::scaffold::cargo_dependency_declared(all_deps.lines(), name) {
+                continue;
+            }
+            if !all_deps.is_empty() {
+                all_deps.push('\n');
+            }
+            all_deps.push_str(&dependency);
+        }
+    }
 
     let extra_deps_section = if all_deps.is_empty() {
         String::new()
@@ -399,7 +419,9 @@ missing-attribute = false
 
 #[cfg(test)]
 mod tests {
-    use super::{canonicalize_pep440_specifier, canonicalize_pep440_version};
+    use super::{canonicalize_pep440_specifier, canonicalize_pep440_version, scaffold_python_cargo};
+    use crate::core::config::ComponentProfileConfig;
+    use crate::core::ir::ApiSurface;
 
     /// `pyproject-fmt` strips redundant trailing `.0` release segments from a
     /// single version number, keeping at least one segment.
@@ -423,5 +445,56 @@ mod tests {
         assert_eq!(canonicalize_pep440_specifier(">=0.14.8"), ">=0.14.8");
         assert_eq!(canonicalize_pep440_specifier("==1.0"), "==1");
         assert_eq!(canonicalize_pep440_specifier(">=1.0, <2.0"), ">=1,<2");
+    }
+
+    #[test]
+    fn component_runtime_dependencies_follow_alef_not_core_version() {
+        let api = ApiSurface {
+            version: "9.9.9".into(),
+            ..ApiSurface::default()
+        };
+        let config = crate::core::config::ResolvedCrateConfig {
+            name: "demo".into(),
+            components: vec![ComponentProfileConfig {
+                name: "fast".into(),
+                contract: "engine".into(),
+                implementation: "demo::FastEngine".into(),
+                features: vec!["fast".into()],
+                default_features: false,
+                targets: vec!["x86_64-unknown-linux-gnu".into()],
+            }],
+            ..Default::default()
+        };
+
+        let manifest = scaffold_python_cargo(&api, &config).unwrap().remove(0).content;
+        assert!(manifest.contains(&format!("alef-component-runtime = \"{}\"", env!("CARGO_PKG_VERSION"))));
+        assert!(!manifest.contains("alef-component-runtime = \"9.9.9\""));
+    }
+
+    #[test]
+    fn component_runtime_dependencies_do_not_duplicate_user_overrides() {
+        let api = ApiSurface::default();
+        let config = crate::core::config::ResolvedCrateConfig {
+            name: "demo".into(),
+            components: vec![ComponentProfileConfig {
+                name: "fast".into(),
+                contract: "engine".into(),
+                implementation: "demo::FastEngine".into(),
+                features: vec!["fast".into()],
+                default_features: false,
+                targets: vec!["x86_64-unknown-linux-gnu".into()],
+            }],
+            extra_dependencies: std::collections::HashMap::from([
+                ("alef-component-abi".into(), toml::Value::String("0.58.1".into())),
+                ("alef-component-runtime".into(), toml::Value::String("0.58.1".into())),
+                ("directories".into(), toml::Value::String("6".into())),
+            ]),
+            ..Default::default()
+        };
+
+        let manifest = scaffold_python_cargo(&api, &config).unwrap().remove(0).content;
+        for dependency in ["alef-component-abi", "alef-component-runtime", "directories"] {
+            assert_eq!(manifest.matches(&format!("{dependency} =")).count(), 1);
+        }
     }
 }

@@ -12,6 +12,7 @@ use crate::backends::swift::type_map::SwiftMapper;
 mod boxes;
 pub(crate) mod bridge_artifacts;
 mod client;
+mod components;
 pub(crate) mod dto;
 mod enums;
 mod errors;
@@ -100,7 +101,7 @@ impl Backend for SwiftBackend {
 
         let mut imports: BTreeSet<String> = BTreeSet::new();
         imports.insert("import Foundation".to_string());
-        if !api.types.is_empty() || !api.enums.is_empty() || !api.errors.is_empty() {
+        if !api.types.is_empty() || !api.enums.is_empty() || !api.errors.is_empty() || !config.components.is_empty() {
             imports.insert("import RustBridge".to_string());
         }
 
@@ -116,6 +117,9 @@ impl Backend for SwiftBackend {
         }
 
         let mut body = String::new();
+        if let Some(component_api) = components::generate(config) {
+            body.push_str(&component_api);
+        }
 
         let capsule_present = config
             .swift

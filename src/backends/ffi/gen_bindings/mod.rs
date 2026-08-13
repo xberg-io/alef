@@ -1,4 +1,5 @@
 mod capsule;
+mod components;
 mod functions;
 mod helpers;
 mod lib_rs;

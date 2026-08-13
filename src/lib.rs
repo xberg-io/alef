@@ -29,6 +29,7 @@ pub mod backends;
 pub mod bin_cli;
 pub mod cli;
 pub mod codegen;
+pub mod component;
 pub mod core;
 pub mod docs;
 pub mod e2e;

@@ -132,6 +132,10 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         builder.add_item("pub mod service;");
     }
 
+    if !config.components.is_empty() {
+        builder.add_item(&super::components::generate(config));
+    }
+
     let (_module_name, module_prefix) = get_module_info(api, config);
 
     let opaque_types: AHashSet<String> = api

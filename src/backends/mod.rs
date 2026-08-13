@@ -12,6 +12,7 @@ pub mod kotlin;
 pub mod kotlin_android;
 pub mod magnus;
 pub mod napi;
+pub(crate) mod native_components;
 pub mod php;
 pub mod pyo3;
 pub mod rustler;

@@ -20,6 +20,7 @@ pub(crate) fn run(cli: Cli) -> Result<()> {
         super::core_commands::handle,
         super::all_commands::handle,
         super::aux_commands::handle,
+        super::component_commands::handle,
         super::publish_commands::handle,
         super::release_commands::handle,
     ] {
@@ -57,6 +58,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::E2e { .. } => "e2e",
         Commands::TestApps { .. } => "test-apps",
         Commands::Publish { .. } => "publish",
+        Commands::Component { .. } => "component",
         Commands::Cache { .. } => "cache",
         Commands::Validate { .. } => "validate",
         Commands::ReleaseMetadata { .. } => "release-metadata",

@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::SourceCrate;
+use super::component::{ComponentContractConfig, ComponentDistributionConfig, ComponentProfileConfig};
 use super::e2e::E2eConfig;
 use super::extras::{AdapterConfig, Language};
 use super::languages::{
@@ -83,6 +84,18 @@ pub struct RawCrateConfig {
     /// always present (cfg stripped from the IR).
     #[serde(default)]
     pub features: Vec<String>,
+
+    /// Stable Rust-trait contracts that downloadable components may implement.
+    #[serde(default)]
+    pub component_contracts: Vec<ComponentContractConfig>,
+
+    /// Feature-set-specific downloadable component builds.
+    #[serde(default)]
+    pub components: Vec<ComponentProfileConfig>,
+
+    /// Shared download and signature-verification settings for components.
+    #[serde(default)]
+    pub component_distribution: Option<ComponentDistributionConfig>,
 
     /// Per-target build opt-out toggles for this crate, overriding the
     /// workspace `[targets]` table per key. Keys are canonical target families
@@ -314,6 +327,9 @@ sources = ["src/lib.rs"]
         assert!(cfg.python.is_none());
         assert!(cfg.publish.is_none());
         assert!(cfg.e2e.is_none());
+        assert!(cfg.component_contracts.is_empty());
+        assert!(cfg.components.is_empty());
+        assert!(cfg.component_distribution.is_none());
     }
 
     #[test]

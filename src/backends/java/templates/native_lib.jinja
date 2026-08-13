@@ -246,7 +246,7 @@ final class {{ class_name }} {
 
     static final MethodHandle {{ prefix_upper }}_LAST_ERROR_CODE = LINKER.downcallHandle(
         LIB.find("{{ prefix }}_last_error_code").orElse(null),
-        FunctionDescriptor.of(ValueLayout.JAVA_LONG)
+        FunctionDescriptor.of(ValueLayout.JAVA_INT)
     );
 
     static final MethodHandle {{ prefix_upper }}_LAST_ERROR_CONTEXT = LINKER.downcallHandle(

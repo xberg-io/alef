@@ -1,5 +1,6 @@
 mod bridges;
 mod cfg_registration;
+mod components;
 mod enum_conversions;
 mod options;
 mod r_package;
@@ -663,6 +664,10 @@ impl Backend for ExtendrBackend {
             }
         }
 
+        if !config.components.is_empty() {
+            builder.add_item(&components::generate(config));
+        }
+
         let module_name = config.r_package_name().replace('-', "_");
         let module_items = format!(
             "extendr_module! {{\n    mod {module};\n{types}{flat_enums}{json_enums}{funcs}}}\n",
@@ -698,7 +703,12 @@ impl Backend for ExtendrBackend {
                 + &collect_trait_bridge_functions(config)
                     .iter()
                     .map(|tb| format!("    fn {};\n", tb.name))
-                    .collect::<String>(),
+                    .collect::<String>()
+                + if config.components.is_empty() {
+                    ""
+                } else {
+                    "    fn component_load;\n    fn component_prefetch;\n    fn component_status;\n    fn component_cache_path;\n"
+                },
         );
         builder.add_item(&module_items);
 

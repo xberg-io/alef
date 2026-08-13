@@ -1,6 +1,7 @@
 //! NAPI-RS (Node.js) backend: orchestration and `Backend` trait implementation.
 
 pub mod capsule;
+mod components;
 mod config_opaque;
 mod constructors;
 pub mod enums;
@@ -456,6 +457,10 @@ impl Backend for NapiBackend {
         // `#[napi]` entrypoints (e.g. `app_run`) are compiled and exported.
         if !api.services.is_empty() {
             builder.add_item("pub mod service;");
+        }
+
+        if !config.components.is_empty() {
+            builder.add_item(&components::generate(config));
         }
 
         for bridge_cfg in &config.trait_bridges {

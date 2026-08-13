@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use base64::Engine as _;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -221,6 +222,8 @@ impl NewAlefConfig {
             .map(|raw| validate_crate_attribute(&krate.name, raw))
             .collect::<Result<Vec<String>, ResolveError>>()?;
 
+        validate_components(krate)?;
+
         let source_crates = resolve_source_crates(&krate.source_crates, krate.workspace_root.as_deref())?;
 
         // Per-target toggles: workspace defaults, overridden per key by the crate. ~keep
@@ -248,6 +251,9 @@ impl NewAlefConfig {
             error_type: krate.error_type.clone(),
             error_constructor: krate.error_constructor.clone(),
             features: krate.features.clone(),
+            component_contracts: krate.component_contracts.clone(),
+            components: krate.components.clone(),
+            component_distribution: krate.component_distribution.clone(),
             path_mappings: krate.path_mappings.clone(),
             extra_dependencies: krate.extra_dependencies.clone(),
             auto_path_mappings: krate.auto_path_mappings.unwrap_or(true),
@@ -316,6 +322,156 @@ impl NewAlefConfig {
             crate_attributes,
         })
     }
+}
+
+fn validate_components(krate: &RawCrateConfig) -> Result<(), ResolveError> {
+    let mut contract_names = std::collections::HashSet::new();
+    for contract in &krate.component_contracts {
+        validate_component_name(&krate.name, "contract", &contract.name)?;
+        if !contract_names.insert(contract.name.as_str()) {
+            return invalid_component_config(&krate.name, format!("duplicate component contract `{}`", contract.name));
+        }
+        validate_rust_item_path(&krate.name, "component contract trait_path", &contract.trait_path)?;
+        if contract.interface_version == 0 {
+            return invalid_component_config(
+                &krate.name,
+                format!(
+                    "component contract `{}` interface_version must be greater than zero",
+                    contract.name
+                ),
+            );
+        }
+    }
+
+    let mut component_names = std::collections::HashSet::new();
+    for component in &krate.components {
+        validate_component_name(&krate.name, "component", &component.name)?;
+        if !component_names.insert(component.name.as_str()) {
+            return invalid_component_config(&krate.name, format!("duplicate component profile `{}`", component.name));
+        }
+        if !contract_names.contains(component.contract.as_str()) {
+            return invalid_component_config(
+                &krate.name,
+                format!(
+                    "component `{}` references unknown contract `{}`",
+                    component.name, component.contract
+                ),
+            );
+        }
+        validate_rust_item_path(&krate.name, "component implementation", &component.implementation)?;
+        validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
+        validate_nonempty_values(&krate.name, &component.name, "targets", &component.targets)?;
+        for target in &component.targets {
+            if !crate::core::config::component::SUPPORTED_COMPONENT_TARGETS.contains(&target.as_str()) {
+                return invalid_component_config(
+                    &krate.name,
+                    format!("component `{}` uses unsupported v1 target `{target}`", component.name),
+                );
+            }
+        }
+    }
+
+    validate_component_distribution(krate)
+}
+
+fn validate_component_name(crate_name: &str, kind: &str, name: &str) -> Result<(), ResolveError> {
+    let valid = !name.is_empty()
+        && name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_' || character == '-');
+    if valid {
+        return Ok(());
+    }
+    invalid_component_config(
+        crate_name,
+        format!("{kind} name `{name}` must contain only ASCII letters, digits, `_`, or `-`"),
+    )
+}
+
+fn validate_rust_item_path(crate_name: &str, label: &str, path: &str) -> Result<(), ResolveError> {
+    let normalized = path.strip_prefix("::").unwrap_or(path);
+    let segments: Vec<&str> = normalized.split("::").collect();
+    let valid = segments.len() >= 2 && segments.iter().all(|segment| is_valid_rust_path_segment(segment));
+    if valid {
+        return Ok(());
+    }
+    invalid_component_config(
+        crate_name,
+        format!("{label} `{path}` must be a fully-qualified Rust item path"),
+    )
+}
+
+fn is_valid_rust_path_segment(segment: &str) -> bool {
+    let segment = segment.strip_prefix("r#").unwrap_or(segment);
+    let mut characters = segment.chars();
+    matches!(characters.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
+        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
+fn validate_nonempty_values(
+    crate_name: &str,
+    component_name: &str,
+    label: &str,
+    values: &[String],
+) -> Result<(), ResolveError> {
+    if !values.is_empty() && values.iter().all(|value| !value.trim().is_empty()) {
+        return Ok(());
+    }
+    invalid_component_config(
+        crate_name,
+        format!("component `{component_name}` must declare non-empty {label}"),
+    )
+}
+
+fn validate_component_distribution(krate: &RawCrateConfig) -> Result<(), ResolveError> {
+    let Some(distribution) = krate.component_distribution.as_ref() else {
+        return Ok(());
+    };
+    let url_template = distribution.url_template.trim();
+    let authority = url_template
+        .strip_prefix("https://")
+        .and_then(|remainder| remainder.split('/').next());
+    if authority.is_none_or(|value| value.is_empty() || value.chars().any(char::is_whitespace)) {
+        return invalid_component_config(&krate.name, "component distribution url_template must use HTTPS");
+    }
+    for placeholder in ["component", "version", "target", "artifact"] {
+        if !url_template.contains(&format!("{{{placeholder}}}")) {
+            return invalid_component_config(
+                &krate.name,
+                format!("component distribution url_template must contain `{{{placeholder}}}`"),
+            );
+        }
+    }
+    if distribution.public_keys.is_empty() {
+        return invalid_component_config(
+            &krate.name,
+            "component distribution must declare at least one public key",
+        );
+    }
+
+    for (key_id, encoded_key) in &distribution.public_keys {
+        validate_component_name(&krate.name, "component distribution public key", key_id)?;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded_key)
+            .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(encoded_key))
+            .map_err(|_| {
+                ResolveError::InvalidConfig(format!(
+                    "crate `{}`: component distribution public key `{key_id}` must be base64-encoded Ed25519 key bytes",
+                    krate.name
+                ))
+            })?;
+        if decoded.len() != 32 {
+            return invalid_component_config(
+                &krate.name,
+                format!("component distribution public key `{key_id}` must decode to 32 Ed25519 key bytes"),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn invalid_component_config<T>(crate_name: &str, message: impl std::fmt::Display) -> Result<T, ResolveError> {
+    Err(ResolveError::InvalidConfig(format!("crate `{crate_name}`: {message}")))
 }
 
 /// Validate a single `crate_attributes` entry.

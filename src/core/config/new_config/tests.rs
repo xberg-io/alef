@@ -672,6 +672,245 @@ module_name = "crate_module"
     );
 }
 
+fn component_config(extra: &str) -> NewAlefConfig {
+    toml::from_str(&format!(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+
+[[crates.component_contracts]]
+name = "ocr"
+trait_path = "sample_core::OcrBackend"
+
+[[crates.components]]
+name = "tesseract"
+contract = "ocr"
+implementation = "sample_components::TesseractBackend"
+features = ["ocr-tesseract"]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[crates.component_distribution]
+url_template = "https://downloads.example.test/{{component}}/{{version}}/{{target}}/{{artifact}}"
+
+[crates.component_distribution.public_keys]
+release-2026 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+{extra}
+"#
+    ))
+    .expect("component config should deserialize")
+}
+
+#[test]
+fn resolve_preserves_component_configuration_and_defaults() {
+    let resolved = component_config("").resolve().unwrap().remove(0);
+
+    assert_eq!(resolved.component_contracts.len(), 1);
+    assert_eq!(resolved.component_contracts[0].name, "ocr");
+    assert_eq!(resolved.component_contracts[0].interface_version, 1);
+    assert_eq!(resolved.components.len(), 1);
+    assert_eq!(resolved.components[0].contract, "ocr");
+    assert_eq!(
+        resolved.components[0].implementation,
+        "sample_components::TesseractBackend"
+    );
+    assert_eq!(resolved.components[0].features, ["ocr-tesseract"]);
+    assert!(!resolved.components[0].default_features);
+    assert_eq!(resolved.components[0].targets, ["x86_64-unknown-linux-gnu"]);
+    assert_eq!(
+        resolved
+            .component_distribution
+            .unwrap()
+            .public_keys
+            .get("release-2026")
+            .map(String::as_str),
+        Some("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+    );
+}
+
+#[test]
+fn resolve_allows_components_without_remote_distribution() {
+    let mut config = component_config("");
+    config.crates[0].component_distribution = None;
+
+    let resolved = config.resolve().unwrap().remove(0);
+    assert_eq!(resolved.components.len(), 1);
+    assert!(resolved.component_distribution.is_none());
+}
+
+#[test]
+fn resolve_rejects_duplicate_component_contract_names() {
+    let config = component_config(
+        r#"
+[[crates.component_contracts]]
+name = "ocr"
+trait_path = "sample_core::OtherOcrBackend"
+"#,
+    );
+
+    let error = config.resolve().unwrap_err().to_string();
+    assert!(error.contains("duplicate component contract `ocr`"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_duplicate_component_profile_names() {
+    let config = component_config(
+        r#"
+[[crates.components]]
+name = "tesseract"
+contract = "ocr"
+implementation = "sample_components::OtherBackend"
+features = ["ocr-other"]
+targets = ["aarch64-apple-darwin"]
+"#,
+    );
+
+    let error = config.resolve().unwrap_err().to_string();
+    assert!(error.contains("duplicate component profile `tesseract`"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_invalid_component_identifiers_and_interface_version() {
+    let mut invalid_contract_name = component_config("");
+    invalid_contract_name.crates[0].component_contracts[0].name = "bad/name".to_string();
+    let error = invalid_contract_name.resolve().unwrap_err().to_string();
+    assert!(error.contains("contract name `bad/name`"), "{error}");
+
+    let mut invalid_component_name = component_config("");
+    invalid_component_name.crates[0].components[0].name = "bad name".to_string();
+    let error = invalid_component_name.resolve().unwrap_err().to_string();
+    assert!(error.contains("component name `bad name`"), "{error}");
+
+    let mut zero_interface_version = component_config("");
+    zero_interface_version.crates[0].component_contracts[0].interface_version = 0;
+    let error = zero_interface_version.resolve().unwrap_err().to_string();
+    assert!(error.contains("interface_version must be greater than zero"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_component_with_unknown_contract() {
+    let mut config = component_config("");
+    config.crates[0].components[0].contract = "missing".to_string();
+
+    let error = config.resolve().unwrap_err().to_string();
+    assert!(error.contains("references unknown contract `missing`"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_invalid_component_rust_paths() {
+    let mut invalid_trait = component_config("");
+    invalid_trait.crates[0].component_contracts[0].trait_path = "OcrBackend".to_string();
+    let error = invalid_trait.resolve().unwrap_err().to_string();
+    assert!(error.contains("trait_path `OcrBackend`"), "{error}");
+
+    let mut invalid_implementation = component_config("");
+    invalid_implementation.crates[0].components[0].implementation = "sample::bad-path".to_string();
+    let error = invalid_implementation.resolve().unwrap_err().to_string();
+    assert!(error.contains("implementation `sample::bad-path`"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_empty_component_features_and_targets() {
+    let mut empty_features = component_config("");
+    empty_features.crates[0].components[0].features.clear();
+    let error = empty_features.resolve().unwrap_err().to_string();
+    assert!(error.contains("must declare non-empty features"), "{error}");
+
+    let mut empty_targets = component_config("");
+    empty_targets.crates[0].components[0].targets = vec![" ".to_string()];
+    let error = empty_targets.resolve().unwrap_err().to_string();
+    assert!(error.contains("must declare non-empty targets"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_component_targets_the_v1_loader_cannot_load() {
+    let mut config = component_config("");
+    config.crates[0].components[0].targets = vec!["aarch64-apple-ios".to_string()];
+
+    let error = config.resolve().unwrap_err().to_string();
+    assert!(error.contains("unsupported v1 target `aarch64-apple-ios`"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_invalid_component_distribution_url_template() {
+    let mut insecure = component_config("");
+    insecure.crates[0].component_distribution.as_mut().unwrap().url_template =
+        "http://downloads.test/{component}/{version}/{target}/{artifact}".to_string();
+    let error = insecure.resolve().unwrap_err().to_string();
+    assert!(error.contains("must use HTTPS"), "{error}");
+
+    let mut missing_placeholder = component_config("");
+    missing_placeholder.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .url_template = "https://downloads.test/{component}/{version}/{target}".to_string();
+    let error = missing_placeholder.resolve().unwrap_err().to_string();
+    assert!(error.contains("must contain `{artifact}`"), "{error}");
+
+    let mut missing_host = component_config("");
+    missing_host.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .url_template = "https:///{component}/{version}/{target}/{artifact}".to_string();
+    let error = missing_host.resolve().unwrap_err().to_string();
+    assert!(error.contains("must use HTTPS"), "{error}");
+}
+
+#[test]
+fn resolve_rejects_invalid_component_public_keys() {
+    let mut empty_keys = component_config("");
+    empty_keys.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .public_keys
+        .clear();
+    let error = empty_keys.resolve().unwrap_err().to_string();
+    assert!(error.contains("at least one public key"), "{error}");
+
+    let mut invalid_key = component_config("");
+    invalid_key.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .public_keys
+        .insert("release".to_string(), "not-base64".to_string());
+    let error = invalid_key.resolve().unwrap_err().to_string();
+    assert!(error.contains("base64-encoded Ed25519"), "{error}");
+
+    let mut wrong_length = component_config("");
+    wrong_length.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .public_keys
+        .insert("release".to_string(), "YQ==".to_string());
+    let error = wrong_length.resolve().unwrap_err().to_string();
+    assert!(error.contains("decode to 32 Ed25519 key bytes"), "{error}");
+}
+
+#[test]
+fn generated_schema_contains_component_configuration() {
+    let schema = crate::core::config::alef_config_schema("test").unwrap();
+    let rendered = serde_json::to_string(&schema).unwrap();
+
+    for expected in [
+        "component_contracts",
+        "components",
+        "component_distribution",
+        "interface_version",
+        "implementation",
+        "public_keys",
+    ] {
+        assert!(rendered.contains(expected), "schema is missing `{expected}`");
+    }
+}
+
 #[test]
 fn resolve_rejects_unknown_skip_languages_in_adapter() {
     let cfg: NewAlefConfig = toml::from_str(

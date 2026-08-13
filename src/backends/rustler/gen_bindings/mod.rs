@@ -1,3 +1,4 @@
+mod components;
 mod functions;
 mod helpers;
 mod native;

@@ -3,6 +3,7 @@
 pub mod capsule;
 mod capsule_methods;
 mod cfg_fields;
+mod components;
 mod config;
 mod config_opaque;
 pub(in crate::backends::pyo3) mod constructors;
@@ -229,6 +230,10 @@ impl Backend for Pyo3Backend {
         // `#[pyfunction]` entrypoints are compiled and can be registered in the module init.
         if !api.services.is_empty() {
             builder.add_item("pub mod service;");
+        }
+
+        if !config.components.is_empty() {
+            builder.add_item(&components::gen_component_runtime(config));
         }
 
         for adapter in &config.adapters {

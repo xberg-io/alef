@@ -49,6 +49,25 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         }
         all_deps.push_str("futures-util = \"0.3\"");
     }
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for dependency in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_string()),
+        ] {
+            if crate::scaffold::cargo_dependency_declared(all_deps.lines(), dependency.0) {
+                continue;
+            }
+            if !all_deps.is_empty() {
+                all_deps.push('\n');
+            }
+            all_deps.push_str(&dependency.1);
+        }
+    }
 
     let extra_deps_section = if all_deps.is_empty() {
         String::new()

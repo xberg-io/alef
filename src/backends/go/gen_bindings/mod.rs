@@ -1,4 +1,5 @@
 mod binding_file;
+mod components;
 mod constructors;
 mod functions;
 mod methods;
@@ -191,6 +192,14 @@ impl Backend for GoBackend {
             content,
             generated_header: true,
         }];
+
+        if !config.components.is_empty() {
+            files.push(GeneratedFile {
+                path: PathBuf::from(format!("{output_dir}components.go")),
+                content: components::generate(&pkg_name, &ffi_prefix, &ffi_header, &ffi_lib_name, &to_root),
+                generated_header: true,
+            });
+        }
 
         if has_visitor_bridge && let Some(bridge_cfg) = visitor_bridge_cfg {
             let Some(options_field) = bridge_cfg.resolved_options_field() else {

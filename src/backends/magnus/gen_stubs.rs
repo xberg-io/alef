@@ -10,6 +10,7 @@ pub fn gen_stubs(
     emit_docstrings: bool,
     streaming_return_types: &ahash::AHashMap<String, String>,
     trait_bridges: &[TraitBridgeConfig],
+    has_components: bool,
 ) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut lines: Vec<String> = header.lines().map(str::to_string).collect();
@@ -94,6 +95,19 @@ pub fn gen_stubs(
             lines.push(stub);
             lines.push("".to_string());
         }
+    }
+
+    if has_components {
+        lines.extend([
+            "  def self.component_load: (String component) -> nil".to_string(),
+            "".to_string(),
+            "  def self.component_prefetch: ((Array[String] | nil) components) -> Array[String]".to_string(),
+            "".to_string(),
+            "  def self.component_status: (String component) -> String".to_string(),
+            "".to_string(),
+            "  def self.component_cache_path: (String component) -> String".to_string(),
+            "".to_string(),
+        ]);
     }
     let declared_function_names: std::collections::HashSet<&str> =
         api.functions.iter().map(|f| f.name.as_str()).collect();

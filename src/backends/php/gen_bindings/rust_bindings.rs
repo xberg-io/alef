@@ -225,6 +225,10 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         builder.add_item(&format!("pub mod {module};"));
     }
 
+    if !config.components.is_empty() {
+        builder.add_item(&super::components::generate(config));
+    }
+
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
 

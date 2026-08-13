@@ -22,6 +22,10 @@ pkg-fmt = "zip"
 
 [package.metadata.cargo-machete]
 ignored = ["tracing"]
+
+[workspace]
+resolver = "3"
+members = ["crates/alef-component-abi", "crates/alef-component-runtime"]
 [lib]
 name = "alef"
 path = "src/lib.rs"
@@ -35,6 +39,7 @@ dylib-loader = ["dep:libloading"]
 
 [dependencies]
 ahash = "0.8"
+alef-component-runtime = { path = "crates/alef-component-runtime", version = "0.58.1" }
 anyhow = "1"
 base64 = "0.23"
 blake3 = "1"
@@ -68,6 +73,7 @@ which = "8"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+cbindgen = "0.29"
 criterion = { version = "0.8", features = ["html_reports"] }
 insta = { version = "1.48", features = ["redactions"] }
 tracing-test = "0.2"

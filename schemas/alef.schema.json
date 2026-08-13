@@ -1193,6 +1193,99 @@
       ],
       "type": "object"
     },
+    "ComponentContractConfig": {
+      "additionalProperties": false,
+      "description": "A stable component interface authored as a Rust trait.",
+      "properties": {
+        "interface_version": {
+          "default": 1,
+          "description": "Version of the generated C interface for compatibility negotiation.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Stable name referenced by component profiles.",
+          "type": "string"
+        },
+        "trait_path": {
+          "description": "Fully-qualified Rust path to the trait that defines the contract.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "trait_path"
+      ],
+      "type": "object"
+    },
+    "ComponentDistributionConfig": {
+      "additionalProperties": false,
+      "description": "Distribution settings shared by every component profile in a crate.",
+      "properties": {
+        "public_keys": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Trusted public keys accepted when verifying component manifests.",
+          "type": "object"
+        },
+        "url_template": {
+          "description": "URL template used to locate a component artifact or release manifest.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url_template",
+        "public_keys"
+      ],
+      "type": "object"
+    },
+    "ComponentProfileConfig": {
+      "additionalProperties": false,
+      "description": "One feature-set-specific native component build.",
+      "properties": {
+        "contract": {
+          "description": "Name of an entry in `component_contracts`.",
+          "type": "string"
+        },
+        "default_features": {
+          "default": false,
+          "description": "Whether the core crate's default Cargo features are also enabled.",
+          "type": "boolean"
+        },
+        "features": {
+          "description": "Exact Cargo feature set enabled for this component.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "implementation": {
+          "description": "Fully-qualified Rust path to the type implementing the contract trait.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Stable component name used in manifests and release assets.",
+          "type": "string"
+        },
+        "targets": {
+          "description": "Rust target triples for which this component is built and published.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "contract",
+        "implementation",
+        "features",
+        "targets"
+      ],
+      "type": "object"
+    },
     "ConstructorParam": {
       "description": "One parameter in a [`ClientConstructorConfig`].",
       "properties": {
@@ -5092,6 +5185,34 @@
           },
           "default": {},
           "type": "object"
+        },
+        "component_contracts": {
+          "default": [],
+          "description": "Stable Rust-trait contracts that downloadable components may implement.",
+          "items": {
+            "$ref": "#/$defs/ComponentContractConfig"
+          },
+          "type": "array"
+        },
+        "component_distribution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDistributionConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shared download and signature-verification settings for components."
+        },
+        "components": {
+          "default": [],
+          "description": "Feature-set-specific downloadable component builds.",
+          "items": {
+            "$ref": "#/$defs/ComponentProfileConfig"
+          },
+          "type": "array"
         },
         "core_import": {
           "default": null,

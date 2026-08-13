@@ -3,6 +3,7 @@
 //! The `KotlinBackend` struct implements [`Backend`] and dispatches to the
 //! appropriate target-specific emitter based on the configured [`KotlinTarget`].
 
+mod components;
 mod helpers;
 pub mod jni_emitter;
 pub mod literal_normalizer;
@@ -830,6 +831,10 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     }];
 
     files.extend(emit_jvm_client_class(api, config));
+
+    if !config.components.is_empty() {
+        files.push(components::generate_panama(config, &package));
+    }
 
     Ok(files)
 }

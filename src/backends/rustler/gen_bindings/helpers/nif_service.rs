@@ -376,6 +376,21 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         }
     }
 
+    if !config.components.is_empty() {
+        for (name, params) in [
+            ("component_load", vec!["_component".to_string()]),
+            ("component_prefetch", vec!["_components".to_string()]),
+            ("component_status", vec!["_component".to_string()]),
+            ("component_cache_path", vec!["_component".to_string()]),
+        ] {
+            if !out.ends_with("\n\n") {
+                out.push('\n');
+            }
+            out.push_str("  @doc false\n");
+            let _ = write_nif_stub(&mut out, name, &params, false);
+        }
+    }
+
     out.push_str(&template_env::render(
         "native_module_footer.jinja",
         minijinja::context! {},

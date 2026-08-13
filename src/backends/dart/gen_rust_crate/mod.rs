@@ -7,6 +7,7 @@ use std::collections::HashSet;
 
 mod bridge_fn;
 mod cargo;
+mod components;
 mod conversions;
 mod enum_conversions;
 mod helpers;
@@ -119,6 +120,11 @@ fn emit_lib_rs(
     content.push_str("mod frb_generated;\n");
     content.push_str("use flutter_rust_bridge::frb;\n");
     content.push_str("pub use flutter_rust_bridge::DartFnFuture;\n");
+    if let Some(component_api) = components::generate(config) {
+        content.push('\n');
+        content.push_str(&component_api);
+        content.push('\n');
+    }
 
     let has_excluded_type_trait_bridge = config
         .trait_bridges

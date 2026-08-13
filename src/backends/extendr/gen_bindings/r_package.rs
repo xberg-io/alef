@@ -49,7 +49,7 @@ pub(super) fn generate_public_api(
         .as_ref()
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
-    let wrappers_content = r_wrappers::gen_extendr_wrappers_r(
+    let mut wrappers_content = r_wrappers::gen_extendr_wrappers_r(
         api,
         &package_name,
         &input_type_names,
@@ -57,19 +57,29 @@ pub(super) fn generate_public_api(
         &r_exclude_functions,
         &config.trait_bridges,
     );
+    if !config.components.is_empty() {
+        wrappers_content.push_str(&format!(
+            "#' Load a downloadable native component\n#' @param component Component identifier.\n#' @export\ncomponent_load <- function(component) .Call(\"wrap__component_load\", component, PACKAGE = \"{package_name}\")\n\n#' Prefetch downloadable native components\n#' @param components Component identifiers, or NULL for all configured components.\n#' @export\ncomponent_prefetch <- function(components = NULL) .Call(\"wrap__component_prefetch\", components, PACKAGE = \"{package_name}\")\n\n#' Inspect a downloadable native component\n#' @param component Component identifier.\n#' @export\ncomponent_status <- function(component) .Call(\"wrap__component_status\", component, PACKAGE = \"{package_name}\")\n\n#' Return a downloadable native component cache path\n#' @param component Component identifier.\n#' @export\ncomponent_cache_path <- function(component) .Call(\"wrap__component_cache_path\", component, PACKAGE = \"{package_name}\")\n\n"
+        ));
+    }
     files.push(GeneratedFile {
         path: PathBuf::from(&r_wrapper_dir).join("extendr-wrappers.R"),
         content: wrappers_content,
         generated_header: false,
     });
 
-    let namespace_content = r_wrappers::gen_namespace(
+    let mut namespace_content = r_wrappers::gen_namespace(
         api,
         &package_name,
         &trait_bridge_fns,
         &r_exclude_functions,
         &config.trait_bridges,
     );
+    if !config.components.is_empty() {
+        namespace_content.push_str(
+            "export(component_load)\nexport(component_prefetch)\nexport(component_status)\nexport(component_cache_path)\n",
+        );
+    }
     files.push(GeneratedFile {
         path: PathBuf::from(r_pkg_dir).join("NAMESPACE"),
         content: namespace_content,

@@ -102,6 +102,10 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
 
     builder.add_item(&gen_version(prefix));
 
+    if !config.components.is_empty() {
+        builder.add_item(&super::components::gen_component_manager(prefix, config));
+    }
+
     let adapter_bodies: AdapterBodies =
         crate::adapters::build_adapter_bodies(config, Language::Ffi).unwrap_or_default();
 

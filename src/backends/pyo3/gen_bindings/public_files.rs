@@ -19,8 +19,13 @@ pub(super) fn generate_type_stubs(
         .as_ref()
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
-    let content =
+    let mut content =
         crate::backends::pyo3::gen_stubs::gen_stubs(api, &config.trait_bridges, config, &stubs_exclude_functions);
+    if !config.components.is_empty() {
+        content.push_str(
+            "\n\ndef component_load(component: str) -> None: ...\n\ndef component_prefetch(components: list[str] | None = None) -> list[str]: ...\n\ndef component_status(component: str) -> str: ...\n\ndef component_cache_path(component: str) -> str: ...\n",
+        );
+    }
 
     let stubs_path = resolve_output_dir(
         Some(&stubs_config.output),
@@ -110,7 +115,7 @@ pub(super) fn generate_public_api(
         .as_ref()
         .map(|c| c.extra_init_imports.clone())
         .unwrap_or_default();
-    let init_content = errors::gen_init_py(
+    let mut init_content = errors::gen_init_py(
         api,
         &module_name,
         &api.version,
@@ -123,6 +128,32 @@ pub(super) fn generate_public_api(
         &config.opaque_types,
         &exclude_functions,
     );
+    if !config.components.is_empty() {
+        let component_names = [
+            "component_cache_path",
+            "component_load",
+            "component_prefetch",
+            "component_status",
+        ];
+        init_content.push_str("\nfrom .components import (\n");
+        for name in component_names {
+            init_content.push_str(&format!("    {name},\n"));
+        }
+        init_content.push_str(")\n\n__all__.extend([\n");
+        for name in component_names {
+            init_content.push_str(&format!("    \"{name}\",\n"));
+        }
+        init_content.push_str("])\n");
+
+        let component_content = format!(
+            "from .{module_name} import (\n    component_cache_path,\n    component_load,\n    component_prefetch,\n    component_status,\n)\n\n__all__ = [\n    \"component_cache_path\",\n    \"component_load\",\n    \"component_prefetch\",\n    \"component_status\",\n]\n"
+        );
+        files.push(GeneratedFile {
+            path: output_base.join("components.py"),
+            content: component_content,
+            generated_header: true,
+        });
+    }
     files.push(GeneratedFile {
         path: output_base.join("__init__.py"),
         content: init_content,

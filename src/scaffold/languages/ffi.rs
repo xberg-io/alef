@@ -103,6 +103,22 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
             }
         }
     }
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for (name, dependency) in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_string()),
+        ] {
+            let key = format!("{name} =");
+            if !extra_dep_lines.iter().any(|line| line.starts_with(&key)) {
+                extra_dep_lines.push(dependency);
+            }
+        }
+    }
     extra_dep_lines.sort();
 
     let mut machete_ignored: Vec<&str> = vec!["ahash", "serde_json", "tokio"];
@@ -342,7 +358,7 @@ unset(_FFI_PREFIX)
         header_name = header_name,
     );
 
-    Ok(vec![
+    let files = vec![
         GeneratedFile {
             path: PathBuf::from(format!("crates/{}-ffi/Cargo.toml", core_crate_dir)),
             content,
@@ -356,12 +372,98 @@ unset(_FFI_PREFIX)
             content: cmake_content,
             generated_header: true,
         },
-    ])
+    ];
+    Ok(files)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn component_manager_dependencies_require_ci_staged_lock() {
+        use crate::core::config::{ComponentContractConfig, ComponentProfileConfig};
+
+        let api = ApiSurface {
+            crate_name: "demo-core".into(),
+            version: "1.0.0".into(),
+            ..ApiSurface::default()
+        };
+        let config = ResolvedCrateConfig {
+            name: "demo-core".into(),
+            component_contracts: vec![ComponentContractConfig {
+                name: "engine".into(),
+                trait_path: "demo_core::Engine".into(),
+                interface_version: 1,
+            }],
+            components: vec![ComponentProfileConfig {
+                name: "fast".into(),
+                contract: "engine".into(),
+                implementation: "demo_core::FastEngine".into(),
+                features: vec!["fast".into()],
+                default_features: false,
+                targets: vec!["x86_64-unknown-linux-gnu".into()],
+            }],
+            ..ResolvedCrateConfig::default()
+        };
+
+        let files = scaffold_ffi(&api, &config).unwrap();
+        let manifest = files
+            .iter()
+            .find(|file| file.path.ends_with("Cargo.toml"))
+            .expect("FFI manifest");
+        assert!(manifest.content.contains("alef-component-runtime"));
+        assert!(manifest.content.contains("alef-component-abi"));
+        assert!(manifest.content.contains("directories = \"6\""));
+        assert!(!files.iter().any(|file| file.path.ends_with("components.lock.json")));
+    }
+
+    #[test]
+    fn configured_component_dependencies_are_not_duplicated() {
+        let config = resolve_config(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "demo-core"
+sources = []
+
+[crates.extra_dependencies]
+alef-component-abi = "9"
+alef-component-runtime = "9"
+directories = "5"
+
+[[crates.component_contracts]]
+name = "engine"
+trait_path = "demo_core::Engine"
+interface_version = 1
+
+[[crates.components]]
+name = "fast"
+contract = "engine"
+implementation = "demo_core::FastEngine"
+features = ["fast"]
+targets = ["x86_64-unknown-linux-gnu"]
+"#,
+        );
+        let files = scaffold_ffi(&ApiSurface::default(), &config).unwrap();
+        let manifest = &files
+            .iter()
+            .find(|file| file.path.ends_with("Cargo.toml"))
+            .unwrap()
+            .content;
+
+        for dependency in ["alef-component-abi", "alef-component-runtime", "directories"] {
+            assert_eq!(
+                manifest.matches(&format!("{dependency} =")).count(),
+                1,
+                "duplicate {dependency} dependency in:\n{manifest}"
+            );
+        }
+        assert!(manifest.contains("alef-component-runtime = \"9\""));
+        assert!(manifest.contains("directories = \"5\""));
+    }
 
     #[test]
     fn test_render_core_dep_includes_version_in_default_line() {

@@ -392,7 +392,7 @@ fn attr_and_same_named_method_emit_the_name_once() {
         ..Default::default()
     };
 
-    let stub = super::gen_stubs(&api, "test_lib", false, &ahash::AHashMap::new(), &[]);
+    let stub = super::gen_stubs(&api, "test_lib", false, &ahash::AHashMap::new(), &[], false);
 
     let attrs = stub.matches("attr_reader providers:").count();
     let methods = stub.matches("def providers:").count();

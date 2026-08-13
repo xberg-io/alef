@@ -1,6 +1,7 @@
 pub(crate) mod all_commands;
 pub(crate) mod args;
 pub(crate) mod aux_commands;
+pub(crate) mod component_commands;
 pub(crate) mod core_commands;
 pub(crate) mod dispatch;
 pub(crate) mod helpers;

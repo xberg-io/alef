@@ -28,6 +28,7 @@ pub(super) struct StreamingMethodMeta {
     pub item_type: String,
 }
 
+mod components;
 pub(super) mod enums;
 pub(super) mod errors;
 mod files;
@@ -231,6 +232,19 @@ impl Backend for CsharpBackend {
             )),
             generated_header: true,
         });
+
+        if !config.components.is_empty() {
+            files.push(GeneratedFile {
+                path: base_path.join("Components.cs"),
+                content: strip_trailing_whitespace(&components::generate(
+                    &namespace,
+                    &lib_name,
+                    &prefix,
+                    &exception_class_name,
+                )),
+                generated_header: true,
+            });
+        }
 
         if !api.errors.is_empty() {
             let mut seen_exception_files: HashSet<String> = HashSet::new();

@@ -204,6 +204,24 @@ pub(crate) fn emit_cargo_toml(
         ));
     }
     dep_lines.push(frb_line);
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for (name, line) in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_string()),
+        ] {
+            if !workspace_extra.contains_key(name) {
+                dep_lines.push(line);
+            }
+        }
+        if !needs_serde_json && !workspace_extra.contains_key("serde_json") {
+            dep_lines.push("serde_json = \"1\"".to_string());
+        }
+    }
     for dep in [
         ahash_dep,
         serde_dep,

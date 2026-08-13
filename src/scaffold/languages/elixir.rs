@@ -90,6 +90,22 @@ pub(crate) fn scaffold_elixir_cargo(
     if has_streaming && !dep_lines.iter().any(|l| l.starts_with("futures-util")) {
         dep_lines.push("futures-util = \"0.3\"".to_owned());
     }
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for (name, dependency) in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_owned()),
+        ] {
+            let configured = dep_lines.iter().map(String::as_str).chain(extra_deps.lines());
+            if !crate::scaffold::cargo_dependency_declared(configured, name) {
+                dep_lines.push(dependency);
+            }
+        }
+    }
     for line in extra_deps.lines() {
         let trimmed = line.trim();
         if !trimmed.is_empty()

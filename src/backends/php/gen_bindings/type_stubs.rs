@@ -502,6 +502,12 @@ pub(super) fn generate_type_stubs(
         content.push_str("}\n\n");
     }
 
+    if !config.components.is_empty() {
+        content.push_str(
+            "/** Load a downloadable native component. */\nfunction component_load(string $component): void {}\n\n/** @param list<string>|null $components\n * @return list<string>\n */\nfunction component_prefetch(?array $components = null): array { return []; }\n\n/** Inspect a downloadable native component. */\nfunction component_status(string $component): string { return ''; }\n\n/** Return a downloadable native component cache path. */\nfunction component_cache_path(string $component): string { return ''; }\n\n",
+        );
+    }
+
     content.push_str(&crate::backends::php::template_env::render(
         "php_namespace_block_end.jinja",
         minijinja::Value::default(),

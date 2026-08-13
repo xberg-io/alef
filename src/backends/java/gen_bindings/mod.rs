@@ -6,6 +6,7 @@ use ahash::AHashSet;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+mod components;
 mod facade;
 mod ffi_class;
 pub mod helpers;
@@ -218,6 +219,14 @@ impl Backend for JavaBackend {
             ),
             generated_header: true,
         });
+
+        if !config.components.is_empty() {
+            files.push(GeneratedFile {
+                path: base_path.join("Components.java"),
+                content: components::generate(&package, &main_class, &prefix),
+                generated_header: true,
+            });
+        }
 
         files.push(GeneratedFile {
             path: base_path.join("NativeLib.java"),

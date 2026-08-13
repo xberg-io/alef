@@ -33,7 +33,7 @@ pub(super) fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
         .filter(|t| t.has_default)
         .map(|t| t.name.clone())
         .collect();
-    let content = errors::gen_dts(
+    let mut content = errors::gen_dts(
         api,
         &prefix,
         &exclude_functions,
@@ -42,6 +42,14 @@ pub(super) fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
         &streaming_item_types,
         &default_types,
     );
+    if !config.components.is_empty() {
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(
+            "export function componentLoad(component: string): Promise<void>\nexport function componentPrefetch(components?: string[] | null): Promise<string[]>\nexport function componentStatus(component: string): string\nexport function componentCachePath(component: string): string\n",
+        );
+    }
     let src_dir = resolve_output_dir(config.output_paths.get("node"), &config.name, "crates/{name}-node/src/");
 
     Ok(vec![GeneratedFile {

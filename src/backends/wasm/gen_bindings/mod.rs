@@ -1,6 +1,7 @@
 //! WASM (wasm-bindgen) backend: orchestration and `Backend` trait implementation.
 
 mod cfg;
+mod components;
 pub mod enums;
 pub mod errors;
 pub mod functions;
@@ -795,6 +796,10 @@ impl Backend for WasmBackend {
             if !methods_block.is_empty() {
                 builder.add_item(&methods_block);
             }
+        }
+
+        if let Some(component_api) = components::generate(config) {
+            builder.add_item(&component_api);
         }
 
         let mut content = builder.build();

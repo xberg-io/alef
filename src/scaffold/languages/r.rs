@@ -131,7 +131,24 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
         dep_lines.push("async-trait = \"0.1\"".to_owned());
         dep_lines.push(format!("tracing = \"{}\"", tv::cargo::TRACING));
     }
-    dep_lines.extend(render_extra_deps(config, Language::R).lines().map(ToOwned::to_owned));
+    let extra_deps = render_extra_deps(config, Language::R);
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for (name, dependency) in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_owned()),
+        ] {
+            let configured = dep_lines.iter().map(String::as_str).chain(extra_deps.lines());
+            if !crate::scaffold::cargo_dependency_declared(configured, name) {
+                dep_lines.push(dependency);
+            }
+        }
+    }
+    dep_lines.extend(extra_deps.lines().map(ToOwned::to_owned));
     dep_lines.sort();
     let deps_section = dep_lines.join("\n");
 

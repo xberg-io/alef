@@ -7,6 +7,7 @@
 
 mod callback_files;
 pub(crate) mod cargo;
+mod components;
 pub(crate) mod default_construction;
 mod deferred_noop;
 pub(crate) mod enums;
@@ -95,7 +96,10 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming));
-    let extra_deps = crate::scaffold::render_extra_deps(config, Language::Swift);
+    let mut extra_deps = crate::scaffold::render_extra_deps(config, Language::Swift);
+    if !config.components.is_empty() {
+        append_component_dependencies(&mut extra_deps);
+    }
     let target_overrides = config
         .swift
         .as_ref()
@@ -168,6 +172,30 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         files.push(callback_file);
     }
     Ok(files)
+}
+
+fn append_component_dependencies(extra_deps: &mut String) {
+    let alef_version = env!("CARGO_PKG_VERSION");
+    for (name, line) in [
+        ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+        (
+            "alef-component-runtime",
+            format!("alef-component-runtime = \"{alef_version}\""),
+        ),
+        ("directories", "directories = \"6\"".to_string()),
+    ] {
+        let configured = extra_deps
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(key, _)| key.trim()))
+            .any(|key| key == name);
+        if configured {
+            continue;
+        }
+        if !extra_deps.is_empty() && !extra_deps.ends_with('\n') {
+            extra_deps.push('\n');
+        }
+        extra_deps.push_str(&line);
+    }
 }
 
 fn emit_lib_rs(
@@ -500,6 +528,9 @@ fn emit_lib_rs(
     let json_fallback_enums: Vec<&EnumDef> = visible_enums.iter().copied().filter(|e| e.has_serde).collect();
 
     out.push_str("#[swift_bridge::bridge]\nmod ffi {\n");
+    if let Some(component_externs) = components::extern_block(config) {
+        out.push_str(&component_externs);
+    }
     for block in &extern_blocks {
         out.push_str(block);
     }
@@ -556,6 +587,10 @@ fn emit_lib_rs(
     }
 
     out.push_str("}\n\n");
+    if let Some(component_implementation) = components::implementation(config) {
+        out.push_str(&component_implementation);
+        out.push_str("\n\n");
+    }
 
     let vec_impl_types: Vec<&TypeDef> = visible_types
         .iter()
@@ -758,4 +793,19 @@ fn emit_lib_rs(
     }
 
     out
+}
+
+#[cfg(test)]
+mod component_dependency_tests {
+    use super::append_component_dependencies;
+
+    #[test]
+    fn configured_component_dependencies_are_not_duplicated() {
+        let mut dependencies = "alef-component-runtime = { path = \"../../runtime\" }\ndirectories = \"5\"".to_string();
+        append_component_dependencies(&mut dependencies);
+
+        assert_eq!(dependencies.matches("alef-component-runtime =").count(), 1);
+        assert_eq!(dependencies.matches("directories =").count(), 1);
+        assert_eq!(dependencies.matches("alef-component-abi =").count(), 1);
+    }
 }

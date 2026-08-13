@@ -23,6 +23,11 @@ pub fn scaffold(
     config_path: &Path,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = crate::scaffold::scaffold(api, config, languages)?;
+    if !config.components.is_empty() {
+        files.extend(crate::codegen::component_producer::generate_component_producers(
+            api, config,
+        )?);
+    }
     crate::with_extensions(|exts| {
         let env = crate::core::template_env::TemplateEnv::new();
         for ext in exts {
