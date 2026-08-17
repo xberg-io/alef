@@ -264,13 +264,13 @@ pub mod maven {
     pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.15";
 
     // renovate: datasource=maven depName=com.puppycrawl.tools:checkstyle
-    pub const CHECKSTYLE: &str = "13.10.0";
+    pub const CHECKSTYLE: &str = "13.11.0";
 
     // renovate: datasource=maven depName=org.jspecify:jspecify
     pub const JSPECIFY: &str = "1.0.1";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
-    pub const JACKSON: &str = "2.22.1";
+    pub const JACKSON: &str = "2.22.2";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-annotations
     pub const JACKSON_ANNOTATIONS: &str = "2.22";
