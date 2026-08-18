@@ -264,7 +264,7 @@ pub mod maven {
     pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.15";
 
     // renovate: datasource=maven depName=com.puppycrawl.tools:checkstyle
-    pub const CHECKSTYLE: &str = "13.11.0";
+    pub const CHECKSTYLE: &str = "14.0.0";
 
     // renovate: datasource=maven depName=org.jspecify:jspecify
     pub const JSPECIFY: &str = "1.0.1";
