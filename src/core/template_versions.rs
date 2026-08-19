@@ -234,7 +234,7 @@ pub mod maven {
     pub const MAVEN_SUREFIRE_PLUGIN: &str = "3.5.6";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-surefire-plugin
-    pub const MAVEN_SUREFIRE_PLUGIN_E2E: &str = "3.5.2";
+    pub const MAVEN_SUREFIRE_PLUGIN_E2E: &str = "3.5.6";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-checkstyle-plugin
     pub const MAVEN_CHECKSTYLE_PLUGIN: &str = "3.6.0";
@@ -291,7 +291,7 @@ pub mod maven {
     pub const JACKSON_ANNOTATIONS: &str = "2.22";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
-    pub const JACKSON_E2E: &str = "2.19.0";
+    pub const JACKSON_E2E: &str = "2.22.2";
 
     // renovate: datasource=maven depName=org.assertj:assertj-core
     pub const ASSERTJ: &str = "4.0.0-M1";
