@@ -426,7 +426,7 @@ pub mod pub_dev {
     pub const JSON_ANNOTATION: &str = "^4.11.0";
 
     // renovate: datasource=dart depName=freezed
-    pub const FREEZED: &str = "^3.2.5";
+    pub const FREEZED: &str = "^4.0.0";
 
     // renovate: datasource=dart depName=build_runner
     pub const BUILD_RUNNER: &str = "^2.15.0";
