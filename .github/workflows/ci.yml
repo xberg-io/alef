@@ -76,7 +76,7 @@ jobs:
       # `poly_is_available()` branch), so it is not required for this job to pass, only
       # for the `generated-output-gate` job's lanes, which install it themselves.
       - name: Set up JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           # Matches `template_versions::toolchain::JAVA_JVM_TARGET`: alef's generated Java
