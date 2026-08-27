@@ -80,7 +80,12 @@ libc = "0.2"
 # calling `TerminateJobObject`. std exposes neither, and `Child::kill` reaches the direct child
 # only. ~keep
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 # Pinned to the same minor line generated FFI crates depend on (see e.g.
