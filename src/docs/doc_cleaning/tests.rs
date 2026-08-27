@@ -326,14 +326,23 @@ fn test_clean_doc_bare_word_terms_never_corrupt_longer_words() {
         // Reported case: "empty vector" must not become "empty listtor". ~keep
         ("The result is an empty vector.", "The result is an empty vector."),
         // Positive control: a standalone "empty vec" must still become "empty list". ~keep
-        ("Returns an empty vec if nothing matched.", "Returns an empty list if nothing matched."),
+        (
+            "Returns an empty vec if nothing matched.",
+            "Returns an empty list if nothing matched.",
+        ),
         // "this vec"/"this vector" share the same "vec" prefix relationship. ~keep
         ("Clear this vector before reuse.", "Clear this vector before reuse."),
         ("Clear this vec before reuse.", "Clear this list before reuse."),
         // "this crate" -> "this library" has the same bare-word-prefix shape against
         // "crater"/"craters" and is fixed with the same boundary-aware helper. ~keep
-        ("For this crater, additional caution is required.", "For this crater, additional caution is required."),
-        ("Everything defined in this crate is public API.", "Everything defined in this library is public API."),
+        (
+            "For this crater, additional caution is required.",
+            "For this crater, additional caution is required.",
+        ),
+        (
+            "Everything defined in this crate is public API.",
+            "Everything defined in this library is public API.",
+        ),
     ];
 
     for (input, expected) in cases {
@@ -348,8 +357,18 @@ fn test_clean_doc_bare_word_terms_never_corrupt_longer_words() {
 #[test]
 fn test_replace_whole_word_respects_boundaries_on_both_sides() {
     let cases: &[(&str, &str, &str, &str)] = &[
-        ("empty vector is returned", "empty vec", "empty list", "empty vector is returned"),
-        ("returns an empty vec when done", "empty vec", "empty list", "returns an empty list when done"),
+        (
+            "empty vector is returned",
+            "empty vec",
+            "empty list",
+            "empty vector is returned",
+        ),
+        (
+            "returns an empty vec when done",
+            "empty vec",
+            "empty list",
+            "returns an empty list when done",
+        ),
         ("vec at the very start", "vec", "list", "list at the very start"),
         ("ends in a vec", "vec", "list", "ends in a list"),
         ("prevec should not match", "vec", "list", "prevec should not match"),

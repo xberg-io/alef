@@ -754,7 +754,7 @@ pub(super) fn gen_enum(
         .filter(|variant| {
             matches!(
                 crate::codegen::conversions::enum_variant_declaration_without_cfg_attribute(
-                    *variant,
+                    variant,
                     is_host_enum,
                     configured_features,
                 ),
