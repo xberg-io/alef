@@ -148,16 +148,41 @@ fn zig_manifest_link_library_name(source: &str) -> Option<String> {
     Some(source[start..end].to_owned())
 }
 
+/// The filenames `linkSystemLibrary("<lib_name>")` can actually resolve on this host, which is
+/// the only set worth probing: a name zig does not search for is a library the build step will
+/// fail to find no matter what this reports.
+///
+/// Windows is not `lib`-prefixed for its dynamic and import libraries. Zig names its own search
+/// there -- verbatim, from the "unable to find dynamic system library" diagnostic -- as
+/// `{name}.dll`, `{name}.lib`, `lib{name}.a`, which is also what cargo emits (`{name}.dll` plus
+/// `{name}.dll.lib` for a cdylib, `{name}.lib` for a staticlib). `lib{name}.dll` is a file no
+/// Windows toolchain produces and zig never looks for, so prepending `lib` unconditionally made
+/// this probe unable to find a real Windows FFI library at all. ~keep
+fn linkable_library_names(lib_name: &str) -> [String; 3] {
+    if cfg!(windows) {
+        [
+            format!("{lib_name}.dll"),
+            format!("{lib_name}.lib"),
+            format!("lib{lib_name}.a"),
+        ]
+    } else {
+        [
+            format!("lib{lib_name}.dylib"),
+            format!("lib{lib_name}.so"),
+            format!("lib{lib_name}.a"),
+        ]
+    }
+}
+
 /// Whether `directory` directly contains a linkable artifact for `lib_name` — checked by probing
-/// the common shared/static library extensions rather than trusting `directory.exists()` alone,
+/// the names this host's zig actually searches rather than trusting `directory.exists()` alone,
 /// and never inside a `deps/` subdirectory: that directory carries whatever feature set some other
 /// cargo invocation unified, so a copy found only there cannot be trusted. Mirrors
 /// `publish::ffi_stage`'s same refusal to accept a `deps/`-only copy. ~keep
 fn directory_has_ffi_library(directory: &Path, lib_name: &str) -> bool {
-    const EXTENSIONS: [&str; 4] = ["dylib", "so", "a", "dll"];
-    EXTENSIONS
+    linkable_library_names(lib_name)
         .iter()
-        .any(|extension| directory.join(format!("lib{lib_name}.{extension}")).is_file())
+        .any(|name| directory.join(name).is_file())
 }
 
 /// The sibling `debug` directory of a `.../release` directory, or `None` when `release_dir`'s own
@@ -253,6 +278,22 @@ pub(crate) mod tests {
     /// The `ffi_path`/`addLibraryPath` declaration alef's scaffold emits today, mirroring
     /// [`build_root_rebased_build_zig`] but for the library search directory instead of the
     /// include directory -- the shape `resolve_ffi_library_override` reads.
+    /// Writes a stand-in FFI library into `directory` under a name this host's zig actually
+    /// searches for.
+    ///
+    /// Hard-coding `lib{name}.dylib` made the tests below pass on Windows for a reason that had
+    /// nothing to do with what they assert: the probe could not see that file either, so "no
+    /// library was built here" and "the probe cannot recognise a library that is here" rendered
+    /// identically. ~keep
+    fn write_stand_in_library(directory: &Path, lib_name: &str) {
+        std::fs::create_dir_all(directory).unwrap();
+        let name = linkable_library_names(lib_name)
+            .into_iter()
+            .next()
+            .expect("every host links at least one library name");
+        std::fs::write(directory.join(name), "fake").unwrap();
+    }
+
     pub(crate) fn build_root_rebased_ffi_path_build_zig(lib_name: &str, default_dir: &str) -> String {
         format!(
             "const std = @import(\"std\");\n\
@@ -342,8 +383,7 @@ pub(crate) mod tests {
     #[test]
     fn resolve_ffi_library_override_falls_back_to_debug_when_release_is_missing() {
         let directory = tempfile::tempdir().expect("project directory");
-        std::fs::create_dir_all(directory.path().join("debug")).unwrap();
-        std::fs::write(directory.path().join("debug/libsample_ffi.dylib"), "fake").unwrap();
+        write_stand_in_library(&directory.path().join("debug"), "sample_ffi");
         let package = directory.path().join("package");
         std::fs::create_dir(&package).unwrap();
         let manifest = package.join("build.zig");
@@ -374,10 +414,8 @@ pub(crate) mod tests {
     #[test]
     fn resolve_ffi_library_override_is_a_no_op_when_release_already_has_the_library() {
         let directory = tempfile::tempdir().expect("project directory");
-        std::fs::create_dir_all(directory.path().join("release")).unwrap();
-        std::fs::write(directory.path().join("release/libsample_ffi.dylib"), "fake").unwrap();
-        std::fs::create_dir_all(directory.path().join("debug")).unwrap();
-        std::fs::write(directory.path().join("debug/libsample_ffi.dylib"), "fake").unwrap();
+        write_stand_in_library(&directory.path().join("release"), "sample_ffi");
+        write_stand_in_library(&directory.path().join("debug"), "sample_ffi");
         let package = directory.path().join("package");
         std::fs::create_dir(&package).unwrap();
         let manifest = package.join("build.zig");
@@ -410,9 +448,55 @@ pub(crate) mod tests {
     #[test]
     fn directory_has_ffi_library_never_credits_a_deps_only_copy() {
         let directory = tempfile::tempdir().expect("project directory");
-        std::fs::create_dir_all(directory.path().join("deps")).unwrap();
-        std::fs::write(directory.path().join("deps/libsample_ffi.dylib"), "fake").unwrap();
+        write_stand_in_library(&directory.path().join("deps"), "sample_ffi");
 
         assert!(!directory_has_ffi_library(directory.path(), "sample_ffi"));
+    }
+
+    /// Every name in the probe's own candidate set has to be one it can find on disk, or the
+    /// override it gates never fires for a library that is really there. Table-driven over the
+    /// host's whole set rather than over one representative extension: the Windows defect was a
+    /// single wrong member of that set, not a wrong lookup. ~keep
+    #[test]
+    fn directory_has_ffi_library_finds_every_name_this_host_can_link() {
+        for name in linkable_library_names("sample_ffi") {
+            let directory = tempfile::tempdir().expect("project directory");
+            std::fs::write(directory.path().join(&name), "fake").unwrap();
+
+            assert!(
+                directory_has_ffi_library(directory.path(), "sample_ffi"),
+                "{name} is a name this host links but the probe does not find"
+            );
+        }
+    }
+
+    /// The defect itself, as the platform states it: Windows dynamic and import libraries carry no
+    /// `lib` prefix, so `lib{name}.dll` is a file no toolchain there produces and zig never
+    /// searches for -- its own diagnostic names `{name}.dll`, `{name}.lib`, `lib{name}.a`.
+    /// Asserting only that `{name}.dll` is found would still pass with the old unconditional
+    /// `lib` prefix left in place beside it, and the probe would go on crediting a library that
+    /// cannot be linked. ~keep
+    #[test]
+    fn the_probe_names_match_what_this_host_actually_produces() {
+        let expected: [&str; 3] = if cfg!(windows) {
+            ["sample_ffi.dll", "sample_ffi.lib", "libsample_ffi.a"]
+        } else {
+            ["libsample_ffi.dylib", "libsample_ffi.so", "libsample_ffi.a"]
+        };
+
+        assert_eq!(linkable_library_names("sample_ffi"), expected);
+
+        let directory = tempfile::tempdir().expect("project directory");
+        let never_produced = if cfg!(windows) {
+            "libsample_ffi.dll"
+        } else {
+            "sample_ffi.so"
+        };
+        std::fs::write(directory.path().join(never_produced), "fake").unwrap();
+
+        assert!(
+            !directory_has_ffi_library(directory.path(), "sample_ffi"),
+            "{never_produced} is not a name this host produces or links, so it must not count"
+        );
     }
 }

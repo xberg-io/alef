@@ -837,13 +837,6 @@ mod tests {
     /// exactly what `alef build` with no `--release` flag leaves on disk.
     fn debug_only_ffi_project() -> (tempfile::TempDir, ValidationSession) {
         const LIB_NAME: &str = "sample_ffi";
-        const EXTENSION: &str = if cfg!(target_os = "macos") {
-            "dylib"
-        } else if cfg!(target_os = "windows") {
-            "dll"
-        } else {
-            "so"
-        };
 
         let directory = tempfile::tempdir().expect("project directory");
         let debug_dir = directory.path().join("target/debug");
@@ -854,7 +847,17 @@ mod tests {
             "export fn fixture_value() callconv(.c) c_int {\n    return 7;\n}\n",
         )
         .unwrap();
-        let lib_path = debug_dir.join(format!("lib{LIB_NAME}.{EXTENSION}"));
+        // The name the host toolchain really produces, which on Windows is `{name}.dll` with no
+        // `lib` prefix. Writing `lib{name}.dll` there made this fixture agree with a probe that
+        // was itself wrong, and pinned a filename the `zig build` below could never have linked:
+        // zig searches `{name}.dll`, `{name}.lib`, `lib{name}.a` on Windows and nothing else. ~keep
+        let lib_path = debug_dir.join(if cfg!(target_os = "windows") {
+            format!("{LIB_NAME}.dll")
+        } else if cfg!(target_os = "macos") {
+            format!("lib{LIB_NAME}.dylib")
+        } else {
+            format!("lib{LIB_NAME}.so")
+        });
         let mut lib_command = std::process::Command::new("zig");
         lib_command
             .args(["build-lib", "-dynamic"])
