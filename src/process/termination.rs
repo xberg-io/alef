@@ -37,9 +37,26 @@ static TRACKED_PROCESS_GROUPS: [AtomicI32; MAX_TRACKED_PROCESS_GROUPS] =
 const FORWARDED_SIGNALS: &[libc::c_int] = &[libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
 
 /// Holds one registry slot for as long as the child process group it names may still be alive.
+///
+/// On Windows there is no registry and no signal to forward -- a child stays in alef's console
+/// group and receives Ctrl-C by delivery -- so what this holds instead is the job object that
+/// makes [`super::kill_process_tree`] reach the whole tree. Either way the value has to outlive
+/// the child: dropping it early costs the tree its kill. ~keep
 pub(crate) struct TrackedProcessGroup {
     #[cfg(unix)]
     slot: Option<usize>,
+    #[cfg(windows)]
+    job: Option<crate::process::job::JobObject>,
+}
+
+#[cfg(windows)]
+impl TrackedProcessGroup {
+    /// Terminates the tracked child and every process it created, reporting whether the job
+    /// accepted the request. `false` when no job could be created at spawn time, which is the
+    /// caller's cue to fall back to killing the direct child.
+    pub(crate) fn terminate_tree(&self) -> bool {
+        self.job.as_ref().is_some_and(crate::process::job::JobObject::terminate)
+    }
 }
 
 #[cfg(unix)]
@@ -61,7 +78,17 @@ pub(crate) fn track(child: &std::process::Child) -> TrackedProcessGroup {
     }
 }
 
-#[cfg(not(unix))]
+/// Puts `child` in a job object of its own, so every process it goes on to create can be killed
+/// with it. A child that cannot be assigned -- one that already exited, most often -- is tracked
+/// without a job and falls back to a direct-child kill.
+#[cfg(windows)]
+pub(crate) fn track(child: &std::process::Child) -> TrackedProcessGroup {
+    TrackedProcessGroup {
+        job: crate::process::job::JobObject::holding(child),
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 pub(crate) fn track(_child: &std::process::Child) -> TrackedProcessGroup {
     TrackedProcessGroup {}
 }

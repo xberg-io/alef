@@ -12,6 +12,8 @@
 //! trades an orphaned tree on timeout for an orphaned tree on Ctrl-C. Call them together. ~keep
 
 pub(crate) mod capture;
+#[cfg(windows)]
+pub(crate) mod job;
 pub(crate) mod termination;
 pub(crate) mod timed;
 
@@ -25,15 +27,24 @@ pub(crate) fn configure_process_group(command: &mut std::process::Command) {
     command.process_group(0);
 }
 
+/// Windows has nothing to configure before the spawn. Its tree is addressed by a job object,
+/// which can only be joined by a process that already exists, so the whole Windows half of this
+/// happens in [`termination::track`] instead -- and a Windows child stays in alef's own console
+/// group, so it receives Ctrl-C by delivery and needs no forwarding. ~keep
 #[cfg(not(unix))]
 pub(crate) fn configure_process_group(_command: &mut std::process::Command) {}
 
 /// Kills `child` and every descendant it started.
 ///
-/// Falls back to signalling the child alone when the group kill fails, which is the best that can
-/// be done for a child that was not spawned through [`configure_process_group`].
+/// `tracked` is the registry slot [`termination::track`] handed back for this same child. It is
+/// not decoration on Windows: the job object that makes the kill tree-wide lives in it, and
+/// passing the wrong one -- or none -- silently degrades this to killing the direct child.
+///
+/// Falls back to signalling the child alone when the tree kill fails, which is the best that can
+/// be done for a child that was not spawned through [`configure_process_group`] and
+/// [`termination::track`].
 #[cfg(unix)]
-pub(crate) fn kill_process_tree(child: &mut std::process::Child) {
+pub(crate) fn kill_process_tree(child: &mut std::process::Child, _tracked: &termination::TrackedProcessGroup) {
     let process_group = format!("-{}", child.id());
     let killed_group = std::process::Command::new("kill")
         .args(["-KILL", "--", &process_group])
@@ -44,8 +55,15 @@ pub(crate) fn kill_process_tree(child: &mut std::process::Child) {
     }
 }
 
-#[cfg(not(unix))]
-pub(crate) fn kill_process_tree(child: &mut std::process::Child) {
+#[cfg(windows)]
+pub(crate) fn kill_process_tree(child: &mut std::process::Child, tracked: &termination::TrackedProcessGroup) {
+    if !tracked.terminate_tree() {
+        let _ = child.kill();
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn kill_process_tree(child: &mut std::process::Child, _tracked: &termination::TrackedProcessGroup) {
     let _ = child.kill();
 }
 

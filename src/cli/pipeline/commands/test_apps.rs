@@ -100,7 +100,7 @@ struct MockServerHandle {
     /// `kill_process_tree` below can reach a descendant it starts, not just the direct child --
     /// spawning into a group without this registration would trade an orphan on timeout for one
     /// on Ctrl-C instead. ~keep
-    _tracked: termination::TrackedProcessGroup,
+    tracked: termination::TrackedProcessGroup,
     /// Env vars to inject into every test-app `run` command:
     /// - `MOCK_SERVER_URL` (always)
     /// - `MOCK_SERVERS` JSON map (when the server printed it)
@@ -116,7 +116,7 @@ impl Drop for MockServerHandle {
         // Kills the whole process group, not just the direct child: a mock-server that itself
         // backgrounds a descendant (or is later swapped for one that does) must not leave it
         // running past this guard's own lifetime. ~keep
-        kill_process_tree(&mut self.child);
+        kill_process_tree(&mut self.child, &self.tracked);
         let _ = self.child.wait();
     }
 }
@@ -268,7 +268,7 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
 
     Ok(Some(MockServerHandle {
         child,
-        _tracked: tracked,
+        tracked,
         env_vars,
     }))
 }
@@ -655,7 +655,7 @@ run = "test \"$ALLOW_PRIVATE_NETWORK\" = true"
 
         drop(MockServerHandle {
             child,
-            _tracked: tracked,
+            tracked,
             env_vars: Vec::new(),
         });
 
@@ -675,7 +675,7 @@ run = "test \"$ALLOW_PRIVATE_NETWORK\" = true"
 
         drop(MockServerHandle {
             child,
-            _tracked: tracked,
+            tracked,
             env_vars: Vec::new(),
         });
 

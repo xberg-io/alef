@@ -22,10 +22,12 @@ pub(crate) enum Deadline {
 /// this process's termination signals to that group.
 ///
 /// The slot is released when the value is dropped, so a group that is no longer being waited on
-/// stops being swept by the Ctrl-C handler.
+/// stops being swept by the Ctrl-C handler. On Windows the same field holds the job object that
+/// makes the kill tree-wide, so dropping it early there costs the tree its kill rather than its
+/// signal forwarding. ~keep
 pub(crate) struct GroupChild {
     child: std::process::Child,
-    _tracked: TrackedProcessGroup,
+    tracked: TrackedProcessGroup,
 }
 
 impl GroupChild {
@@ -39,10 +41,7 @@ impl GroupChild {
         configure_process_group(command);
         let child = command.spawn()?;
         let tracked = termination::track(&child);
-        Ok(Self {
-            child,
-            _tracked: tracked,
-        })
+        Ok(Self { child, tracked })
     }
 
     pub(crate) fn take_stdout(&mut self) -> Option<std::process::ChildStdout> {
@@ -58,7 +57,7 @@ impl GroupChild {
     /// Safe to call on a child that has already exited: the group kill fails, the fallback
     /// `Child::kill` fails, and the reap returns the status already collected.
     pub(crate) fn kill_tree(&mut self) {
-        kill_process_tree(&mut self.child);
+        kill_process_tree(&mut self.child, &self.tracked);
         let _ = self.child.wait();
     }
 
@@ -96,20 +95,113 @@ impl GroupChild {
     }
 }
 
-#[cfg(all(test, unix))]
+/// Runs on every platform deliberately. The Unix arm of the tree kill was well covered and the
+/// Windows arm by nothing at all, which is the entire reason `kill_process_tree` shipped there as
+/// a direct-child kill wearing a tree-kill name. Anything gated on `unix` here re-opens that gap.
+/// ~keep
+#[cfg(test)]
 mod tests {
     use super::{Deadline, GroupChild};
     use std::time::Duration;
 
     const SETTLE_POLL: Duration = Duration::from_millis(20);
-    const SETTLE_LIMIT: Duration = Duration::from_secs(5);
+    const SETTLE_LIMIT: Duration = Duration::from_secs(10);
 
-    fn is_alive(pid: i32) -> bool {
-        // SAFETY: signal 0 performs error checking only and sends nothing.
-        unsafe { libc::kill(pid, 0) == 0 }
+    /// How long the probe stays alive once it has announced its grandchild. Only reached when a
+    /// kill failed to arrive, so it is a diagnosis window rather than a wait anything depends on.
+    /// ~keep
+    const PROBE_LIFETIME: Duration = Duration::from_secs(60);
+
+    /// Names the file the probe announces its grandchild's pid in. Its presence is also what tells
+    /// the probe it is running as a probe rather than as an ordinary ignored test. ~keep
+    const GRANDCHILD_PROBE_MARKER: &str = "ALEF_PROCESS_GRANDCHILD_PROBE";
+    const GRANDCHILD_PROBE_NAME: &str = "process::timed::tests::grandchild_probe_child";
+
+    /// A command that outlives every deadline in this module. Windows has no `sleep`, and
+    /// `timeout /t` refuses to run without a console, so a loopback `ping` is the console-free
+    /// stand-in there -- the same substitution `snippets::session`'s hook tests already make. ~keep
+    fn long_lived_command() -> std::process::Command {
+        let mut command = if cfg!(windows) {
+            let mut ping = std::process::Command::new("ping");
+            ping.args(["-n", "61", "127.0.0.1"]);
+            ping
+        } else {
+            let mut sleep = std::process::Command::new("sleep");
+            sleep.arg("60");
+            sleep
+        };
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        command
     }
 
-    fn wait_until_gone(pid: i32) -> bool {
+    /// A shell command that exits immediately with `code`.
+    fn exiting_command(code: i32) -> std::process::Command {
+        let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
+        let mut command = std::process::Command::new(shell);
+        command.args([flag, &format!("exit {code}")]);
+        command
+    }
+
+    #[cfg(unix)]
+    fn is_alive(pid: u32) -> bool {
+        // SAFETY: signal 0 performs error checking only and sends nothing.
+        unsafe { libc::kill(pid.cast_signed(), 0) == 0 }
+    }
+
+    /// Windows has no `kill(pid, 0)`. A process that is fully gone can no longer be opened at all,
+    /// and one that has exited while a handle to it survives reports its real exit code, so
+    /// `STILL_ACTIVE` is the only answer that means "running". ~keep
+    #[cfg(windows)]
+    fn is_alive(pid: u32) -> bool {
+        use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+
+        // SAFETY: opening by pid; failure returns a null handle, checked before any use.
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            return false;
+        }
+        let mut exit_code = 0_u32;
+        // SAFETY: `handle` is open and `exit_code` is a live, writable `u32`.
+        let read = unsafe { GetExitCodeProcess(handle, &raw mut exit_code) };
+        // SAFETY: the handle was opened here and is closed exactly once.
+        unsafe {
+            CloseHandle(handle);
+        }
+        read != 0 && exit_code == STILL_ACTIVE.cast_unsigned()
+    }
+
+    #[cfg(unix)]
+    fn terminate(pid: u32) {
+        // SAFETY: signalling one pid this test's own probe created.
+        unsafe {
+            libc::kill(pid.cast_signed(), libc::SIGKILL);
+        }
+    }
+
+    #[cfg(windows)]
+    fn terminate(pid: u32) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+
+        // SAFETY: opening by pid; failure returns a null handle, checked before any use.
+        let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
+        if handle.is_null() {
+            return;
+        }
+        // SAFETY: `handle` was opened with `PROCESS_TERMINATE` and is closed exactly once.
+        unsafe {
+            TerminateProcess(handle, 1);
+            CloseHandle(handle);
+        }
+    }
+
+    fn wait_until_gone(pid: u32) -> bool {
         let deadline = std::time::Instant::now() + SETTLE_LIMIT;
         while std::time::Instant::now() < deadline {
             if !is_alive(pid) {
@@ -120,42 +212,72 @@ mod tests {
         !is_alive(pid)
     }
 
-    /// Spawns `sh -c 'sleep 60 & echo $! > marker; sleep 60'` through [`GroupChild`] and returns
-    /// it together with its grandchild's pid, once the grandchild is confirmed running.
-    fn spawn_with_grandchild(directory: &std::path::Path) -> (GroupChild, i32) {
-        let marker = directory.join("grandchild.pid");
-        let mut command = std::process::Command::new("sh");
-        command.args(["-c", &format!("sleep 60 & echo $! > {}; sleep 60", marker.display())]);
-        let child = GroupChild::spawn(&mut command).expect("spawn the process group");
-
-        let deadline = std::time::Instant::now() + SETTLE_LIMIT;
-        let grandchild = loop {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "grandchild never announced itself"
-            );
-            if let Ok(contents) = std::fs::read_to_string(&marker)
-                && let Ok(pid) = contents.trim().parse::<i32>()
-                && is_alive(pid)
-            {
-                break pid;
-            }
-            std::thread::sleep(SETTLE_POLL);
-        };
-        (child, grandchild)
+    /// Runs this test binary against [`grandchild_probe_child`], pointing it at `marker`.
+    fn probe_command(marker: &std::path::Path) -> std::process::Command {
+        let mut command = std::process::Command::new(std::env::current_exe().expect("the test binary"));
+        command
+            .args(["--exact", GRANDCHILD_PROBE_NAME, "--ignored", "--test-threads=1"])
+            .env(GRANDCHILD_PROBE_MARKER, marker)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        command
     }
 
-    /// The defect this module exists to close. `Child::kill` signals the `sh` wrapper alone, so
-    /// the grandchild it started outlives the deadline and reparents to PID 1 -- a Gradle daemon,
-    /// in the incident that prompted this. Asserting that the kill branch was entered would prove
-    /// nothing: the orphaned tree was produced by code that did enter its kill branch. ~keep
+    /// Blocks until the probe has announced a pid that names a live process.
+    fn announced_grandchild(marker: &std::path::Path) -> u32 {
+        let deadline = std::time::Instant::now() + SETTLE_LIMIT;
+        loop {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the probe never announced a grandchild"
+            );
+            if let Ok(contents) = std::fs::read_to_string(marker)
+                && let Ok(pid) = contents.trim().parse::<u32>()
+                && is_alive(pid)
+            {
+                return pid;
+            }
+            std::thread::sleep(SETTLE_POLL);
+        }
+    }
+
+    /// Not a test: the middle process of the two tests below. Starts a grandchild that outlives
+    /// every deadline they set, announces its pid, and then waits to be killed, so those tests can
+    /// ask what the kill actually reached rather than whether a kill branch was entered. The
+    /// grandchild is a real spawn rather than a backgrounded shell job because `Child::id` is the
+    /// one way to learn its pid that reads the same on both platforms -- `$!` has no `cmd`
+    /// equivalent. Inert unless the environment names a marker file, so an ordinary `--ignored`
+    /// run does nothing. ~keep
+    #[test]
+    #[ignore = "spawned as a subprocess by the process-tree kill tests"]
+    #[expect(
+        clippy::zombie_processes,
+        reason = "the grandchild is meant to outlive this process; waiting on it is what the tree kill has to make unnecessary"
+    )]
+    fn grandchild_probe_child() {
+        let Ok(marker) = std::env::var(GRANDCHILD_PROBE_MARKER) else {
+            return;
+        };
+        let grandchild = long_lived_command().spawn().expect("spawn the grandchild");
+        std::fs::write(&marker, grandchild.id().to_string()).expect("announce the grandchild");
+        std::thread::sleep(PROBE_LIFETIME);
+    }
+
+    /// The defect this module exists to close, and the one Windows went on carrying: `Child::kill`
+    /// ends the direct child alone, so the grandchild it started outlives the deadline -- a Gradle
+    /// daemon in the incident that prompted the Unix fix, a `ping` holding alef's output pipes open
+    /// past the timeout on Windows. Asserting that the kill branch was entered would prove nothing:
+    /// the orphaned tree was produced by code that did enter its kill branch. ~keep
     #[test]
     fn an_expired_deadline_kills_the_grandchild_too() {
         let directory = tempfile::tempdir().expect("scratch directory");
-        let (mut child, grandchild) = spawn_with_grandchild(directory.path());
+        let marker = directory.path().join("grandchild.pid");
+        let mut child = GroupChild::spawn(&mut probe_command(&marker)).expect("spawn the process group");
+        let grandchild = announced_grandchild(&marker);
 
         let outcome = child
-            .wait_within(Duration::from_millis(200), &"sleep 60 & sleep 60")
+            .wait_within(Duration::from_millis(200), &GRANDCHILD_PROBE_NAME)
             .expect("waiting on a live child is not an error");
 
         assert!(matches!(outcome, Deadline::Expired));
@@ -165,15 +287,36 @@ mod tests {
         );
     }
 
-    /// The sabotage check for the test above: were the wait to report expiry for a child that had
-    /// exited on its own, or the kill to run unconditionally, that test would pass for the wrong
+    /// The sabotage check for the test above: the same probe, killed the way `Child::kill` kills,
+    /// must leave its grandchild running. Without it that test stays green on any platform whose
+    /// tree kill has quietly degraded to a direct-child kill, so long as the grandchild happens to
+    /// die on its own -- which is the exact shape the Windows arm was in. ~keep
+    #[test]
+    fn killing_the_direct_child_alone_leaves_the_grandchild_running() {
+        let directory = tempfile::tempdir().expect("scratch directory");
+        let marker = directory.path().join("grandchild.pid");
+        let mut child = probe_command(&marker).spawn().expect("spawn the probe");
+        let grandchild = announced_grandchild(&marker);
+
+        let _ = child.kill();
+        let _ = child.wait();
+        std::thread::sleep(SETTLE_POLL);
+
+        let survived = is_alive(grandchild);
+        terminate(grandchild);
+        assert!(
+            survived,
+            "grandchild {grandchild} died without a tree kill, so the test above proves nothing"
+        );
+    }
+
+    /// The second sabotage check: were the wait to report expiry for a child that had exited on
+    /// its own, or the kill to run unconditionally, the tests above would pass for the wrong
     /// reason. The exact status is asserted because a bounded wait that loses the child's exit
     /// code turns every timed command into a silent success. ~keep
     #[test]
     fn a_child_that_beats_its_deadline_reports_its_own_exit_status() {
-        let mut command = std::process::Command::new("sh");
-        command.args(["-c", "exit 7"]);
-        let mut child = GroupChild::spawn(&mut command).expect("spawn the process group");
+        let mut child = GroupChild::spawn(&mut exiting_command(7)).expect("spawn the process group");
 
         let outcome = child
             .wait_within(Duration::from_secs(30), &"exit 7")

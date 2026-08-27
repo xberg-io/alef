@@ -75,6 +75,13 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# `process::job` is the Windows half of the same problem `libc` solves above: Windows has no
+# process group to signal, so a subprocess tree is killed by putting the child in a job object and
+# calling `TerminateJobObject`. std exposes neither, and `Child::kill` reaches the direct child
+# only. ~keep
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
 [dev-dependencies]
 # Pinned to the same minor line generated FFI crates depend on (see e.g.
 # `crates/*-ffi/Cargo.toml` in consumer repos), so the regression test that
